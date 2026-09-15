@@ -1,0 +1,11 @@
+Tapirscan demo — third-party software
+
+Svelte: MIT — https://github.com/sveltejs/svelte
+ZXing-WASM 3.1.1: MIT — https://github.com/Sec-ant/zxing-wasm/tree/v3.1.1
+ZXing-C++: Apache-2.0 — https://github.com/zxing-cpp/zxing-cpp
+@undecaf/zbar-wasm 0.11.0: LGPL-2.1 — https://github.com/undecaf/zbar-wasm/tree/v0.11.0
+ZBar source and build information: https://github.com/undecaf/zbar-wasm and https://github.com/mchehab/zbar
+
+License texts are served in licenses/. Comparison WASM binaries are separate files
+in engines/ and can be replaced independently. The comparison libraries are demo
+only; they are not linked into Tapirscan or included in its npm/Python packages.

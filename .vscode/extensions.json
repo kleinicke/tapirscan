@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint",
+    "charliermarsh.ruff",
+    "svelte.svelte-vscode"
+  ]
+}

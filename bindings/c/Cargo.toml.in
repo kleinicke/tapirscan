@@ -1,0 +1,18 @@
+[package]
+license = "MIT"
+authors = ["Florian Nick"]
+name = "tapirscan-native-@MODE@"
+version = "1.0.0"
+edition = "2021"
+publish = false
+[lib]
+name = "tapirscan_@LIB_MODE@"
+crate-type = ["cdylib", "rlib"]
+[dependencies]
+serde_json = "=1.0.150"
+tapirscan = { path = "../rust" }
+[features]
+quality-mode = []
+[profile.release]
+# Unwinding is caught at the C boundary; the pinned WASM builds remain unchanged.
+panic = "unwind"

@@ -1,0 +1,90 @@
+name: Prepare or publish release
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run:
+        description: Successful validation workflow run ID for this commit
+        required: true
+        type: string
+      wheels_run:
+        description: Successful wheel workflow run ID for this commit
+        required: true
+        type: string
+      publish:
+        description: Registry to publish to (none only prepares reviewed artifacts)
+        default: none
+        type: choice
+        options: [none, pypi, npm, both]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Require successful builds of this exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN: ${{ inputs.ci_run }}
+          WHEELS_RUN: ${{ inputs.wheels_run }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          python scripts/test_release_artifacts.py
+          node scripts/check_release.mjs
+          python scripts/collect_release.py
+      - run: python -m pip install twine
+      - run: python -m twine check build/release/wheels/*.whl
+      - name: Verify npm install from the packed artifact
+        run: |
+          mkdir -p build/release-install
+          npm install --prefix build/release-install --ignore-scripts ./build/release/npm/tapirscan-*.tgz
+          node --input-type=module -e 'const api = await import("./build/release-install/node_modules/tapirscan/dist/index.js"); if (typeof api.scan !== "function") throw Error("Missing scan API")'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: build/release/
+          if-no-files-found: error
+  pypi:
+    needs: prepare
+    if: inputs.publish == 'pypi' || inputs.publish == 'both'
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: release
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: release/wheels/
+  npm:
+    needs: prepare
+    if: inputs.publish == 'npm' || inputs.publish == 'both'
+    runs-on: ubuntu-24.04
+    environment: npm
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: release
+      - run: npm publish release/npm/tapirscan-*.tgz --access public

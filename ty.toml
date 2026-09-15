@@ -1,0 +1,7 @@
+[environment]
+python-version = "3.10"
+extra-paths = ["bindings/python/src", "scripts"]
+[src]
+include = ["bindings/python/src", "bindings/python/tests", "scripts"]
+[rules]
+all = "error"

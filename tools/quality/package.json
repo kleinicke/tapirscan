@@ -1,0 +1,21 @@
+{
+  "name": "barcode-quality-tools",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.13.4",
+    "eslint": "10.10.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-svelte": "3.23.0",
+    "globals": "16.5.0",
+    "prettier": "3.9.6",
+    "prettier-plugin-svelte": "3.5.2",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.70.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

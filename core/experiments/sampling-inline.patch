@@ -1,0 +1,18 @@
+--- a/src/sampling.rs
++++ b/src/sampling.rs
+@@ -71,6 +71,7 @@
+     }
+     /// Share the clamped integer coordinates and row offsets of a bilinear
+     /// footprint, retaining the legacy grayscale and interpolation order.
++    #[inline(always)]
+     pub(crate) fn bilinear(self,x:f64,y:f64)->f32{
+         let x0=x.floor();let y0=y.floor();let fx=x-x0;let fy=y-y0;
+         let a=x0.clamp(0.,(self.width-1)as f64)as usize*self.channels;
+@@ -80,6 +81,7 @@
+         let gray=|i:usize|if self.channels==1{self.data[i]as f64}else if cfg!(feature="experimental-green-luminance"){self.data[i+1]as f64}else{rgb_luminance(self.data[i],self.data[i+1],self.data[i+2])};
+         ((gray(c+a)*(1.-fx)+gray(c+b)*fx)*(1.-fy)+(gray(d+a)*(1.-fx)+gray(d+b)*fx)*fy)as f32
+     }
++    #[inline(always)]
+     pub(crate) fn gray(self, x: f64, y: f64) -> f64 {
+         let x = x.clamp(0., (self.width - 1) as f64) as usize;
+         let y = y.clamp(0., (self.height - 1) as f64) as usize;

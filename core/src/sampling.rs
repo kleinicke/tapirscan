@@ -1,0 +1,446 @@
+//! Validated borrowed images and reusable original-resolution path sampling.
+//! No unsafe code, image ownership, decoder decisions, or expected labels here.
+#![forbid(unsafe_code)]
+use std::fmt;
+
+/// Exact 5th/95th order statistics in reusable scratch storage. Full ordering
+/// is unnecessary; retain `total_cmp` semantics (including ties and signed zero).
+/// Every caller supplies at least64 finite image samples.
+pub(crate) fn contrast_bounds(values: &mut [f32]) -> (f32, f32) {
+    let n = values.len();
+    assert!(n >= 64);
+    let high = n * 95 / 100;
+    let low = n * 5 / 100;
+    let (lower, pivot, _) = values.select_nth_unstable_by(high, f32::total_cmp);
+    let hi = *pivot;
+    let lo = *lower.select_nth_unstable_by(low, f32::total_cmp).1;
+    (lo, hi)
+}
+
+pub const MAX_IMAGE_BYTES: usize = 128 * 1024 * 1024;
+pub const PROFILE_LEN: usize = 512;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Error {
+    Dimensions,
+    Channels,
+    Stride,
+    BufferLength,
+    Geometry,
+    Path,
+    Allocation,
+    OutputShape,
+    Parameters,
+}
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid sampler {self:?}")
+    }
+}
+impl std::error::Error for Error {}
+
+/// Pixel coordinates refer to the original image; stride is in bytes.
+#[derive(Clone, Copy)]
+pub struct ImageView<'a> {
+    pub(crate) data: &'a [u8],
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) channels: usize,
+    pub(crate) stride: usize,
+}
+const fn luminance_table(weight: f64) -> [f64; 256] {
+    let mut a = [0.; 256];
+    let mut i = 0;
+    while i < 256 {
+        a[i] = weight * i as f64;
+        i += 1;
+    }
+    a
+}
+const RED: [f64; 256] = luminance_table(0.299);
+const GREEN: [f64; 256] = luminance_table(0.587);
+const BLUE: [f64; 256] = luminance_table(0.114);
+#[inline]
+fn rgb_luminance(r: u8, g: u8, b: u8) -> f64 {
+    RED[r as usize] + GREEN[g as usize] + BLUE[b as usize]
+}
+impl<'a> ImageView<'a> {
+    pub fn new(
+        data: &'a [u8],
+        width: usize,
+        height: usize,
+        channels: usize,
+        stride: usize,
+    ) -> Result<Self, Error> {
+        let required = image_len(width, height, channels, stride)?;
+        if data.len() < required {
+            return Err(Error::BufferLength);
+        }
+        Ok(Self {
+            data,
+            width,
+            height,
+            channels,
+            stride,
+        })
+    }
+    /// Share the clamped integer coordinates and row offsets of a bilinear
+    /// footprint, retaining the legacy grayscale and interpolation order.
+    pub(crate) fn bilinear(self, x: f64, y: f64) -> f32 {
+        let x0 = x.floor();
+        let y0 = y.floor();
+        let fx = x - x0;
+        let fy = y - y0;
+        let a = x0.clamp(0., (self.width - 1) as f64) as usize * self.channels;
+        let b = (x0 + 1.).clamp(0., (self.width - 1) as f64) as usize * self.channels;
+        let c = y0.clamp(0., (self.height - 1) as f64) as usize * self.stride;
+        let d = (y0 + 1.).clamp(0., (self.height - 1) as f64) as usize * self.stride;
+        let gray = |i: usize| {
+            if self.channels == 1 {
+                f64::from(self.data[i])
+            } else if cfg!(feature = "experimental-green-luminance") {
+                f64::from(self.data[i + 1])
+            } else {
+                rgb_luminance(self.data[i], self.data[i + 1], self.data[i + 2])
+            }
+        };
+        ((gray(c + a) * (1. - fx) + gray(c + b) * fx) * (1. - fy)
+            + (gray(d + a) * (1. - fx) + gray(d + b) * fx) * fy) as f32
+    }
+    pub(crate) fn gray(self, x: f64, y: f64) -> f64 {
+        let x = x.clamp(0., (self.width - 1) as f64) as usize;
+        let y = y.clamp(0., (self.height - 1) as f64) as usize;
+        let i = y * self.stride + x * self.channels;
+        if self.channels == 1 {
+            f64::from(self.data[i])
+        } else if cfg!(feature = "experimental-green-luminance") {
+            f64::from(self.data[i + 1])
+        } else {
+            rgb_luminance(self.data[i], self.data[i + 1], self.data[i + 2])
+        }
+    }
+}
+pub fn image_len(
+    width: usize,
+    height: usize,
+    channels: usize,
+    stride: usize,
+) -> Result<usize, Error> {
+    if width == 0 || height == 0 {
+        return Err(Error::Dimensions);
+    }
+    if ![1, 3, 4].contains(&channels) {
+        return Err(Error::Channels);
+    }
+    let row = width.checked_mul(channels).ok_or(Error::Dimensions)?;
+    if stride < row {
+        return Err(Error::Stride);
+    }
+    let n = (height - 1)
+        .checked_mul(stride)
+        .and_then(|n| n.checked_add(row))
+        .ok_or(Error::Dimensions)?;
+    if n > MAX_IMAGE_BYTES {
+        return Err(Error::Dimensions);
+    }
+    Ok(n)
+}
+
+/// Homography from normalized candidate coordinates into original-image pixels.
+/// Callers retain their original polygon. Construction rejects singular matrices.
+#[derive(Clone, Copy, Debug)]
+pub struct Transform(pub(crate) [f64; 9]);
+impl Transform {
+    pub fn new(m: [f64; 9]) -> Result<Self, Error> {
+        if m.iter().any(|v| !v.is_finite()) {
+            return Err(Error::Geometry);
+        }
+        let det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6])
+            + m[2] * (m[3] * m[7] - m[4] * m[6]);
+        if !det.is_finite() || det.abs() < 1e-12 {
+            return Err(Error::Geometry);
+        }
+        Ok(Self(m))
+    }
+}
+#[derive(Clone, Copy, Debug)]
+pub struct Path {
+    pub axis: usize,
+    pub fraction: f64,
+    pub curve: f64,
+    pub margin: f64,
+}
+impl Default for Path {
+    fn default() -> Self {
+        Self {
+            axis: 0,
+            fraction: 0.5,
+            curve: 0.,
+            margin: 0.15,
+        }
+    }
+}
+/// Profile is borrowed until the next mutable operation; buffers are reused.
+pub struct Sampler {
+    profile: [f32; PROFILE_LEN],
+    sorted: [f32; PROFILE_LEN],
+}
+impl Default for Sampler {
+    fn default() -> Self {
+        Self {
+            profile: [0.; PROFILE_LEN],
+            sorted: [0.; PROFILE_LEN],
+        }
+    }
+}
+impl Sampler {
+    pub fn sample(
+        &mut self,
+        image: ImageView<'_>,
+        transform: Transform,
+        path: Path,
+    ) -> Result<Option<&[f32; PROFILE_LEN]>, Error> {
+        if path.axis > 1
+            || !path.fraction.is_finite()
+            || !(0.0..=1.0).contains(&path.fraction)
+            || !path.curve.is_finite()
+            || path.curve.abs() > 1.
+            || !path.margin.is_finite()
+            || !(0.0..=1.0).contains(&path.margin)
+        {
+            return Err(Error::Path);
+        }
+        let m = transform.0;
+        // Reject projective poles throughout the continuous curved path, including
+        // endpoints and the quadratic extremum, before touching the output.
+        let (a, b, c) = if path.axis == 0 {
+            (m[6], m[7], m[8])
+        } else {
+            (m[7], m[6], m[8])
+        };
+        let z =
+            |u: f64| a * u + b * (path.fraction + path.curve * (1. - (2. * u - 1.).powi(2))) + c;
+        let lo = -path.margin;
+        let hi = 1. + path.margin;
+        let mut zs = [z(lo), z(hi), z(lo)];
+        if b * path.curve != 0. {
+            let u = (a + 4. * b * path.curve) / (8. * b * path.curve);
+            if u > lo && u < hi {
+                zs[2] = z(u);
+            }
+        }
+        if zs.iter().any(|v| !v.is_finite() || v.abs() < 1e-9)
+            || (zs.iter().any(|v| *v < 0.) && zs.iter().any(|v| *v > 0.))
+        {
+            return Err(Error::Geometry);
+        }
+        for i in 0..PROFILE_LEN {
+            let u = -path.margin + (1. + 2. * path.margin) * (i as f64 + 0.5) / PROFILE_LEN as f64;
+            let v = path.fraction + path.curve * (1. - (2. * u - 1.).powi(2));
+            let (x, y) = if path.axis == 0 { (u, v) } else { (v, u) };
+            let z = m[6] * x + m[7] * y + m[8];
+            let sx = (m[0] * x + m[1] * y + m[2]) / z - 0.5;
+            let sy = (m[3] * x + m[4] * y + m[5]) / z - 0.5;
+            if !sx.is_finite() || !sy.is_finite() {
+                return Err(Error::Geometry);
+            }
+            self.profile[i] = image.bilinear(sx, sy);
+        }
+        self.sorted.copy_from_slice(&self.profile);
+        let (lo, hi) = contrast_bounds(&mut self.sorted);
+        let (lo, hi) = (f64::from(lo), f64::from(hi));
+        if hi - lo < 8. {
+            return Ok(None);
+        }
+        for v in &mut self.profile {
+            *v = ((hi - f64::from(*v)) / (hi - lo)).clamp(0., 1.) as f32;
+        }
+        Ok(Some(&self.profile))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn shared_bilinear_preserves_channels_stride_and_border_arithmetic() {
+        for channels in [1, 3, 4] {
+            for padding in [0, 7] {
+                let (w, h) = (9, 8);
+                let stride = w * channels + padding;
+                let data: Vec<u8> = (0..stride * h)
+                    .map(|i| ((i * 73 + 19) % 256) as u8)
+                    .collect();
+                let im = ImageView::new(&data, w, h, channels, stride).unwrap();
+                for x in [-9999.2, -2.25, -0.5, 0., 0.2, 1., 2.7, 8.8, 9999.2] {
+                    for y in [-9999.2, -2.25, -0.5, 0., 0.2, 1., 2.7, 7.8, 9999.2] {
+                        let (x0, y0) = (f64::floor(x), f64::floor(y));
+                        let (fx, fy) = (x - x0, y - y0);
+                        let old = ((im.gray(x0, y0) * (1. - fx) + im.gray(x0 + 1., y0) * fx)
+                            * (1. - fy)
+                            + (im.gray(x0, y0 + 1.) * (1. - fx) + im.gray(x0 + 1., y0 + 1.) * fx)
+                                * fy) as f32;
+                        assert_eq!(old.to_bits(), im.bilinear(x, y).to_bits());
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn selected_bounds_match_sorted_values_bitwise() {
+        let mut seed = 17u32;
+        for n in [64, 65, 127, 512, 513, 1024, 4096] {
+            for kind in 0..5 {
+                let mut p: Vec<f32> = (0..n)
+                    .map(|i| {
+                        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                        match kind {
+                            0 => (seed >> 8) as f32 / 65536.,
+                            1 => (i % 3) as f32,
+                            2 => i as f32,
+                            3 => (n - i) as f32,
+                            _ => {
+                                if i % 2 == 0 {
+                                    0.
+                                } else {
+                                    -0.
+                                }
+                            }
+                        }
+                    })
+                    .collect();
+                let mut sorted = p.clone();
+                sorted.sort_unstable_by(f32::total_cmp);
+                let (lo, hi) = contrast_bounds(&mut p);
+                assert_eq!(lo.to_bits(), sorted[n * 5 / 100].to_bits());
+                assert_eq!(hi.to_bits(), sorted[n * 95 / 100].to_bits());
+            }
+        }
+    }
+    #[test]
+    fn validates_images() {
+        for (w, h, c, s, e) in [
+            (0, 1, 1, 1, Error::Dimensions),
+            (usize::MAX, 2, 3, 3, Error::Dimensions),
+            (1, 1, 2, 2, Error::Channels),
+            (2, 1, 3, 5, Error::Stride),
+            (2, 2, 1, 2, Error::BufferLength),
+        ] {
+            assert_eq!(ImageView::new(&[0; 3], w, h, c, s).err(), Some(e));
+        }
+        assert!(ImageView::new(&[0; 8], 2, 2, 3, 2).is_err());
+        assert!(ImageView::new(&[0; 10], 2, 2, 3, 4).is_err());
+        assert!(ImageView::new(&[0; 14], 2, 2, 3, 8).is_ok());
+    }
+    #[test]
+    fn rejects_degenerate_and_poles() {
+        assert!(Transform::new([0.; 9]).is_err());
+        assert!(Transform::new([f64::NAN; 9]).is_err());
+        let im = ImageView::new(&[0; 4], 2, 2, 1, 2).unwrap();
+        let mut s = Sampler::default();
+        let m = Transform::new([1., 0., 0., 0., 1., 0., -2., 0., 1.]).unwrap();
+        assert_eq!(
+            s.sample(im, m, Path::default()).err(),
+            Some(Error::Geometry)
+        );
+        // Endpoints alone are insufficient: the curved path has a pole inside.
+        let curved = Transform::new([1., 0., 0., 0., 1., 0., 0., 3., 1.]).unwrap();
+        assert_eq!(
+            s.sample(
+                im,
+                curved,
+                Path {
+                    curve: -1.,
+                    margin: 0.,
+                    ..Path::default()
+                }
+            )
+            .err(),
+            Some(Error::Geometry)
+        );
+        let m = Transform::new([2., 0., 0., 0., 2., 0., 0., 0., 1.]).unwrap();
+        assert_eq!(
+            s.sample(
+                im,
+                m,
+                Path {
+                    axis: 2,
+                    ..Path::default()
+                }
+            )
+            .err(),
+            Some(Error::Path)
+        );
+    }
+    #[test]
+    fn stride_alpha_borders_and_reuse() {
+        let mut s = Sampler::default();
+        let m = Transform::new([2., 0., 0., 0., 2., 0., 0., 0., 1.]).unwrap();
+        let gray = [0, 255, 77, 77, 0, 255];
+        let a = s
+            .sample(
+                ImageView::new(&gray, 2, 2, 1, 4).unwrap(),
+                m,
+                Path::default(),
+            )
+            .unwrap()
+            .unwrap()
+            .to_owned();
+        let rgba = [0, 0, 0, 3, 255, 255, 255, 7, 0, 0, 0, 255, 255, 255, 255, 0];
+        let b = s
+            .sample(
+                ImageView::new(&rgba, 2, 2, 4, 8).unwrap(),
+                m,
+                Path::default(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(&a, b);
+        assert_eq!(b[0], 1.);
+        assert_eq!(b[511], 0.);
+        assert!(s
+            .sample(
+                ImageView::new(&[120; 4], 2, 2, 1, 2).unwrap(),
+                m,
+                Path::default()
+            )
+            .unwrap()
+            .is_none());
+    }
+}
+
+#[cfg(all(test, feature = "experimental-green-luminance"))]
+mod green_tests {
+    use super::*;
+    #[test]
+    fn green_photometry_equals_explicit_channel_with_stride_alpha_and_borders() {
+        let rgba = [
+            250, 10, 90, 1, 20, 210, 40, 99, 0, 0, 0, 0, 90, 45, 250, 0, 255, 150, 10, 255, 0, 0,
+            0, 0,
+        ];
+        let channel = [10, 210, 0, 45, 150, 0];
+        let a = ImageView::new(&rgba, 2, 2, 4, 12).unwrap();
+        let b = ImageView::new(&channel, 2, 2, 1, 3).unwrap();
+        for x in [-1., 0., 0.2, 0.5, 1., 2.] {
+            for y in [-1., 0., 0.3, 0.5, 1., 2.] {
+                assert_eq!(a.gray(x, y), b.gray(x, y));
+                assert_eq!(a.bilinear(x, y), b.bilinear(x, y));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod luminance_table_tests {
+    use super::*;
+    #[test]
+    fn every_rgb_color_is_bit_identical() {
+        for r in 0..=255u8 {
+            for g in 0..=255u8 {
+                for b in 0..=255u8 {
+                    let old = 0.299 * f64::from(r) + 0.587 * f64::from(g) + 0.114 * f64::from(b);
+                    assert_eq!(rgb_luminance(r, g, b).to_bits(), old.to_bits());
+                }
+            }
+        }
+    }
+}

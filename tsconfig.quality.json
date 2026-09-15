@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": false,
+    "lib": ["ES2023", "DOM"],
+    "typeRoots": ["tools/quality/node_modules/@types"]
+  },
+  "include": ["bindings/javascript/src/**/*.ts", "bindings/javascript/test/**/*.ts"],
+  "exclude": [
+    "**/node_modules",
+    "**/dist",
+    "**/public",
+    "**/experimental-built",
+    "sources",
+    "datasets",
+    "**/build/**",
+    "**/target/**",
+    ".quality-cache/**"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "editor.formatOnSave": true,
+  "editor.formatOnSaveMode": "file",
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+  },
+  "[javascript][javascriptreact][typescript][typescriptreact][json][jsonc][css][html][markdown][yaml]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[svelte]": {
+    "editor.defaultFormatter": "svelte.svelte-vscode"
+  },
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
+  "ruff.path": ["${workspaceFolder}/.quality-tools/python/bin/ruff"],
+  "eslint.nodePath": "${workspaceFolder}/tools/quality/node_modules",
+  "eslint.options": {
+    "overrideConfigFile": "tools/quality/eslint.config.mjs"
+  },
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.extraArgs": ["--", "-W", "clippy::pedantic"],
+  "prettier.prettierPath": "./tools/quality/node_modules/prettier",
+  "rust-analyzer.rustfmt.overrideCommand": ["rustup", "run", "1.91.1", "rustfmt"],
+  "rust-analyzer.cargo.extraEnv": {
+    "RUSTUP_TOOLCHAIN": "1.91.1"
+  }
+}

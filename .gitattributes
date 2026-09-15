@@ -1,0 +1,6 @@
+# Keep hash-pinned source files identical on every checkout platform.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.wasm binary

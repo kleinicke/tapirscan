@@ -1,0 +1,3 @@
+#!/bin/sh
+# Format staged bytes only; preserve unrelated and partially staged edits.
+exec node "$(git rev-parse --show-toplevel)/tools/quality/staged.mjs"

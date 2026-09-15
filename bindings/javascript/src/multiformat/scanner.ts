@@ -1,0 +1,337 @@
+import { ReleaseDetailScanner, fitLimits } from "../detail.js";
+import { IndependentScanner, type Image, type Quad } from "../multiformat-host.js";
+import { IndependentScanner as WideScanner } from "../host64.js";
+import type { Mode } from "../index.js";
+import { policy } from "../policy.js";
+import { rectify, project, distinctReads, polygonOverlap } from "./geometry.js";
+import { toGray } from "./pixels.js";
+import {
+  maskFor,
+  resolveFormats,
+  linearFormats as supportedLinearFormats,
+  type Format,
+} from "./formats.js";
+
+export interface Barcode {
+  format: Format | "Unknown";
+  text: string;
+  polygon: Quad;
+  support: number;
+  localizationScore?: number;
+  gs1?: boolean;
+  readerInitialization?: boolean;
+  structuredAppend?: { index: number; count: number; id?: string; parity?: number };
+  eanAddOn?: string;
+  error?: number;
+  rank?: number;
+}
+export type EanAddOnSymbol = "Ignore" | "Read" | "Require";
+export interface Frame {
+  eanAddOnSymbol: EanAddOnSymbol;
+  barcodes: Barcode[];
+  regions: Barcode[];
+  formats: Format[];
+  unfinished: boolean;
+  scanMs: number;
+  mediumMs: number;
+  additionalMs: number;
+  preparationMs: number;
+  localizationMs: number;
+  linearStrategy: "scanlines" | "medium-localized";
+}
+interface Localization {
+  proposals: { polygon: Quad; score?: number }[];
+  workLimited?: boolean;
+  omitted?: number;
+}
+interface ExtraExports extends WebAssembly.Exports {
+  memory: WebAssembly.Memory;
+  multi_new(): number;
+  multi_free(handle: number): void;
+  multi_prepare(handle: number, width: number, height: number): number;
+  multi_input(handle: number): number;
+  multi_scan(handle: number, mask: number, effort: number): number;
+  multi_output(handle: number): number;
+  multi_output_len(handle: number): number;
+}
+/** Frozen EAN13 Medium plus project-owned opt-in readers. No reference decoder. */
+export class MediumMultiformatScanner {
+  private medium?: IndependentScanner | WideScanner | ReleaseDetailScanner;
+  private mode: Mode = "medium";
+  private extra?: ExtraExports;
+  private handle = 0;
+  private disposed = false;
+  private constructor() {}
+  static async create(
+    mediumBytes: ArrayBuffer,
+    extraBytes?: ArrayBuffer,
+    mode: Mode = "medium",
+    recoveryBytes?: ArrayBuffer,
+  ) {
+    const scanner = new MediumMultiformatScanner();
+    try {
+      scanner.mode = mode;
+      scanner.medium =
+        mode !== "low" && recoveryBytes
+          ? await ReleaseDetailScanner.create(mediumBytes, recoveryBytes, mode)
+          : await IndependentScanner.create(mediumBytes);
+      if (extraBytes) {
+        const instance = await WebAssembly.instantiate(extraBytes, {});
+        const e = instance.instance.exports as ExtraExports;
+        for (const name of [
+          "multi_new",
+          "multi_free",
+          "multi_prepare",
+          "multi_input",
+          "multi_scan",
+          "multi_output",
+          "multi_output_len",
+        ] as const) {
+          if (typeof e[name] !== "function")
+            throw Error(`Invalid multiformat WASM export: ${name}`);
+        }
+        if (!(e.memory instanceof WebAssembly.Memory))
+          throw Error("Invalid multiformat WASM memory.");
+        scanner.extra = e;
+        scanner.handle = e.multi_new();
+        if (!scanner.handle) throw Error("Could not create additional reader session.");
+      }
+      return scanner;
+    } catch (error) {
+      scanner.dispose();
+      throw error;
+    }
+  }
+  scan(
+    image: Image,
+    inputFormats?: readonly string[],
+    options: {
+      linearStrategy?: "scanlines" | "medium-localized";
+      eanAddOnSymbol?: EanAddOnSymbol;
+    } = {},
+  ): Frame {
+    if (this.disposed) throw Error("Scanner is disposed.");
+    const medium = this.medium;
+    if (!medium) throw Error("Medium reader has not been initialized.");
+    const formats = resolveFormats(inputFormats);
+    const eanAddOnSymbol = options.eanAddOnSymbol ?? "Ignore";
+    if (!["Ignore", "Read", "Require"].includes(eanAddOnSymbol))
+      throw Error("Unknown EAN add-on policy.");
+    const requestedStrategy = options.linearStrategy ?? "scanlines";
+    if (!["scanlines", "medium-localized"].includes(requestedStrategy))
+      throw Error("Unknown linear strategy.");
+    // Supplements extend beyond the frozen Medium crop, so they require the
+    // full-frame supplemental pass. Default EAN13 remains untouched.
+    const linearStrategy = eanAddOnSymbol === "Ignore" ? requestedStrategy : "scanlines";
+    const localized =
+      linearStrategy === "medium-localized" &&
+      formats.some((f) => f !== "EAN13" && f !== "UPCA" && supportedLinearFormats.includes(f));
+    let proposals: { polygon: Quad; score?: number }[] = [];
+    const start = performance.now();
+    const { width, height, channels, stride, data } = image;
+    if (
+      !Number.isSafeInteger(width) ||
+      !Number.isSafeInteger(height) ||
+      width < 3 ||
+      height < 3 ||
+      width * height > 32 * 1024 * 1024 ||
+      ![1, 3, 4].includes(channels) ||
+      !Number.isSafeInteger(stride) ||
+      stride < width * channels ||
+      !(data instanceof Uint8Array) ||
+      data.length < (height - 1) * stride + width * channels
+    )
+      throw Error("Invalid image dimensions or buffer.");
+    const barcodes: Barcode[] = [],
+      regions: Barcode[] = [];
+    let unfinished = false,
+      mediumMs = 0,
+      additionalMs = 0,
+      preparationMs = 0,
+      localizationMs = 0;
+    if (formats.includes("EAN13") || formats.includes("UPCA")) {
+      const begin = performance.now();
+
+      const found = medium.scanLocalized(image, policy, fitLimits[this.mode], true);
+      const localization = found.localization as unknown as Localization;
+      proposals = localization.proposals;
+      localizationMs = found.localizationMs;
+      for (const b of found.scan.barcodes) {
+        if (formats.includes("UPCA") && b.text.startsWith("0"))
+          barcodes.push({
+            format: "UPCA",
+            text: b.text.slice(1),
+            polygon: b.polygon,
+            support: b.support,
+          });
+        else if (formats.includes("EAN13"))
+          barcodes.push({ format: "EAN13", text: b.text, polygon: b.polygon, support: b.support });
+      }
+      const decoded = new Set(found.scan.barcodes.flatMap((b) => b.candidate_indices));
+      localization.proposals.forEach((p: { polygon: Quad }, i: number) => {
+        if (!decoded.has(i))
+          regions.push({ format: "Unknown", text: "", polygon: p.polygon, support: 0 });
+      });
+      if ("recovery" in found) {
+        const recovery = found.recovery as import("../detail-20260914/scanner.mjs").Recovery;
+        for (const attempt of recovery.attempts) {
+          const accepted = new Set(attempt.reads.flatMap((b) => b.candidate_indices));
+          attempt.proposals.forEach((p, i) => {
+            if (!accepted.has(i))
+              regions.push({ format: "Unknown", text: "", polygon: p.polygon, support: 0 });
+          });
+        }
+      }
+      unfinished =
+        found.scan.unfinished ||
+        Boolean(localization.workLimited) ||
+        (localization.omitted ?? 0) > 0;
+      mediumMs = performance.now() - begin;
+    }
+    if (localized && !formats.includes("EAN13") && !formats.includes("UPCA")) {
+      const begin = performance.now();
+      const found = medium.scanLocalized(image, policy, fitLimits[this.mode], true)
+        .localization as Localization;
+      proposals = found.proposals;
+      unfinished ||= Boolean(found.workLimited) || (found.omitted ?? 0) > 0;
+      localizationMs = performance.now() - begin;
+    }
+    // UPC-A has the same optical structure as zero-prefixed EAN13, so the
+    // frozen Medium reader handles it without a second optical search.
+    const extraFormats = formats.filter(
+      (f) => eanAddOnSymbol !== "Ignore" || (f !== "EAN13" && f !== "UPCA"),
+    );
+    if (extraFormats.length) {
+      if (!this.extra || !this.handle) throw Error("Additional readers have not been loaded.");
+      const begin = performance.now();
+      const gray = toGray(image);
+      preparationMs = performance.now() - begin;
+      const matrixFormats = extraFormats.filter((f) => !supportedLinearFormats.includes(f));
+      const linearFormats = extraFormats.filter((f) => supportedLinearFormats.includes(f));
+      const run = (pixels: Uint8Array, w: number, h: number, enabled: Format[], effort: number) => {
+        const start = performance.now();
+        const result = this.scanExtra(pixels, w, h, enabled, effort, eanAddOnSymbol);
+        additionalMs += performance.now() - start;
+        unfinished ||= result.unfinished;
+        return result;
+      };
+      if (!localized || !proposals.length) {
+        const result = run(gray, width, height, extraFormats, 1);
+        barcodes.push(...result.barcodes);
+        regions.push(...(result.regions ?? []));
+      } else {
+        if (matrixFormats.length) {
+          const result = run(gray, width, height, matrixFormats, 1);
+          barcodes.push(...result.barcodes);
+          regions.push(...(result.regions ?? []));
+        }
+        for (const proposal of proposals) {
+          const start = performance.now();
+          let crop;
+          try {
+            crop = rectify(gray, width, height, proposal.polygon);
+          } catch {
+            unfinished = true;
+            regions.push({ format: "Unknown", text: "", polygon: proposal.polygon, support: 0 });
+            continue;
+          }
+          preparationMs += performance.now() - start;
+          const result = run(crop.data, crop.width, crop.height, linearFormats, 0);
+          const reads = result.barcodes;
+          if (!reads.length)
+            regions.push({ format: "Unknown", text: "", polygon: proposal.polygon, support: 0 });
+          for (const read of [...reads, ...(result.regions ?? [])]) {
+            const p = read.polygon;
+            const mapped = (p: readonly [number, number]) => project(crop.transform, p[0], p[1]);
+            read.polygon = [mapped(p[0]), mapped(p[1]), mapped(p[2]), mapped(p[3])];
+            if (read.text) barcodes.push(read);
+            else regions.push(read);
+          }
+        }
+      }
+    }
+    if (extraFormats.length) {
+      for (const read of barcodes.filter((b) => b.eanAddOn)) {
+        for (const base of barcodes) {
+          if (
+            base.format === read.format &&
+            base.text === read.text &&
+            !base.eanAddOn &&
+            polygonOverlap(base.polygon, read.polygon).smaller >= 0.65
+          )
+            base.eanAddOn = read.eanAddOn;
+        }
+      }
+      if (eanAddOnSymbol === "Require") {
+        for (let i = barcodes.length - 1; i >= 0; i--) {
+          const b = barcodes[i];
+          if (["EAN13", "UPCA", "EAN8", "UPCE"].includes(b.format) && !b.eanAddOn) {
+            regions.push({ ...b, text: "" });
+            barcodes.splice(i, 1);
+          }
+        }
+      }
+      const distinct = distinctReads(barcodes);
+      barcodes.splice(0, barcodes.length, ...distinct);
+      const remaining = regions.filter(
+        (region) => !barcodes.some((b) => polygonOverlap(region.polygon, b.polygon).a >= 0.65),
+      );
+      regions.splice(0, regions.length, ...distinctReads(remaining));
+    }
+    barcodes.sort((a, b) => b.support - a.support);
+    barcodes.forEach((b, i) => {
+      b.rank = i + 1;
+    });
+    return {
+      barcodes,
+      eanAddOnSymbol,
+      regions: [...barcodes, ...regions],
+      formats,
+      unfinished,
+      scanMs: performance.now() - start,
+      mediumMs,
+      additionalMs,
+      preparationMs,
+      localizationMs,
+      linearStrategy,
+    };
+  }
+  private scanExtra(
+    gray: Uint8Array,
+    width: number,
+    height: number,
+    formats: Format[],
+    effort: number,
+    eanAddOnSymbol: EanAddOnSymbol,
+  ) {
+    const e = this.extra;
+    if (!e || !this.handle) throw Error("Additional readers have not been loaded.");
+    if (e.multi_prepare(this.handle, width, height) !== 0)
+      throw Error("Additional reader rejected image size.");
+    new Uint8Array(e.memory.buffer, e.multi_input(this.handle), width * height).set(gray);
+    const mask =
+      maskFor(formats) |
+      (eanAddOnSymbol === "Read" ? 32768 : eanAddOnSymbol === "Require" ? 65536 : 0);
+    if (e.multi_scan(this.handle, mask, effort) !== 0) throw Error("Additional scanner failed.");
+    const bytes = new Uint8Array(
+      e.memory.buffer,
+      e.multi_output(this.handle),
+      e.multi_output_len(this.handle),
+    );
+    const found = JSON.parse(new TextDecoder().decode(bytes)) as {
+      barcodes: Barcode[];
+      regions?: Barcode[];
+      unfinished: boolean;
+    };
+    for (const b of [...found.barcodes, ...(found.regions ?? [])])
+      if (!formats.includes(b.format as Format)) throw Error("Scanner returned a disabled format.");
+    return found;
+  }
+  dispose() {
+    if (this.disposed) return;
+    this.medium?.dispose();
+    if (this.handle) this.extra?.multi_free(this.handle);
+    this.handle = 0;
+    this.disposed = true;
+  }
+}

@@ -1,0 +1,27 @@
+/build/
+**/target/
+**/node_modules/
+/bindings/javascript/dist/
+/bindings/javascript/wasm/
+__pycache__/
+*.pyc
+.DS_Store
+
+/bindings/python/build/
+**/*.egg-info/
+
+.mypy_cache/
+.ruff_cache/
+
+# Local shared quality tools and hook snapshots.
+.quality-tools/
+.quality-cache/
+.claude/settings.local.json
+
+/demo/dist/
+/demo/public/engines/
+
+/demo/.netlify/
+
+# Optional machine-specific maintainer instructions; never published.
+/MAINTAINER.local.md

@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "status": "development versions; see effort_detail_20260914 report",
+  "baselineConfig": "benchmark/scripts/effort_detail_20260914/baseline-config.json",
+  "recoveryDecoder": {
+    "mode": "low",
+    "tag": "nano-lint-20260913",
+    "recipe": "nano-lint-20260913",
+    "artifact": "benchmark/results/current_effort_lint_20260913/nano-lint-20260913/nano-lint-20260913.wasm",
+    "binarySha256": "4abf45ddbfa695d6cc1f497e90c3dc3f691a7354d1f6e327d8afdd463ad8f30f",
+    "previousTag": "nano-20260912",
+    "host": "extrema-frozen-20260911",
+    "hostSha256": "7a973b75791a2038a2113bddb969bebc11b9693eb4c85907a2c9a6bd602984be",
+    "fitLimit": 0,
+    "maxLocalizedProposals": 32
+  },
+  "sourceThreshold": 48,
+  "recoveryRetryBudget": 64,
+  "sourceSpanMinimum": 1,
+  "seedLimit": 2,
+  "cropUpscale": 3,
+  "runtimeHashes": {
+    "js/camera-demo/src/lib/detail-20260914/continuity.mjs": "14718d45eb37c9f5223380e8ee192629a1686e15d2a3cdb5b63e06fcdd3948cf",
+    "js/camera-demo/src/lib/detail-20260914/detail-proposals-rich.mjs": "f7400af5f756ee60475b6279f439864a93de4d40a202b7576f484945e9db5532",
+    "js/camera-demo/src/lib/detail-20260914/direct-recovery.mjs": "8cf6c2338bcfe032d987aa00aa8b4c620ad1591d21de9994dc286a8e8eb6f3b7",
+    "js/camera-demo/src/lib/detail-20260914/host.mjs": "860d7eef78cd331cd11dcac23686570502e1af1530f4743f57018ea0ec6dcb12",
+    "js/camera-demo/src/lib/detail-20260914/scanner.mjs": "89c9ef454be51e6f8ff2fac63f298e6ffc8e5f882769d39d2d64946f496278e9",
+    "js/camera-demo/src/lib/detail-20260914/source-evidence.mjs": "e684f303eb3dfaba6557cfe9d204fffc5e023efaa444076c38a398cf58872a44"
+  },
+  "modes": [
+    {
+      "mode": "medium",
+      "tag": "medium-detail-20260914",
+      "recipe": "medium-detail-20260914",
+      "baselineTag": "medium-evidence64-pinned-20260914",
+      "artifact": "benchmark/results/effort_detail_20260914/medium/scanner.wasm",
+      "binarySha256": "8593ae58645f57c628d51140a1de072e54edf991b6cadb2a6f20f3020d288593",
+      "fitLimit": 1,
+      "directions": 1,
+      "maxLocalizedProposals": 32
+    },
+    {
+      "mode": "high",
+      "tag": "high-detail-20260914",
+      "recipe": "high-detail-20260914",
+      "baselineTag": "quality-guarded-lint-20260913",
+      "artifact": "benchmark/results/effort_detail_20260914/high/scanner.wasm",
+      "binarySha256": "723330c62025f8b5c26e9268217b3fc5fcdb9e97e83d85b787ebeb80110c48e7",
+      "fitLimit": 4,
+      "directions": 2,
+      "maxLocalizedProposals": 32
+    },
+    {
+      "mode": "very-high",
+      "tag": "very-high-detail-20260914",
+      "recipe": "very-high-detail-20260914",
+      "baselineTag": "very-high-lint-20260913",
+      "artifact": "benchmark/results/effort_detail_20260914/very-high/scanner.wasm",
+      "binarySha256": "d32511b1bbbedcc622f516eb7c17c78f5655d0c93ce7d00e41936358e22e3cdd",
+      "fitLimit": 1,
+      "directions": 2,
+      "maxLocalizedProposals": 63
+    }
+  ]
+}

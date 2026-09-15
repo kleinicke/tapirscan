@@ -1,0 +1,12 @@
+@PACKAGE_INIT@
+if(NOT TARGET tapirscan::native)
+  add_library(tapirscan::native SHARED IMPORTED)
+  set_target_properties(tapirscan::native PROPERTIES IMPORTED_LOCATION "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/@BARCODE_NATIVE_NAME@")
+  if(UNIX)
+    set_target_properties(tapirscan::native PROPERTIES IMPORTED_SONAME "@BARCODE_NATIVE_SONAME@")
+  endif()
+  if(WIN32)
+    set_target_properties(tapirscan::native PROPERTIES IMPORTED_IMPLIB "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/tapirscan_@BARCODE_LIB_MODE@.dll.lib")
+  endif()
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/TapirscanTargets.cmake")

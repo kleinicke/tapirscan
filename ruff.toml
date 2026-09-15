@@ -1,0 +1,28 @@
+target-version = "py310"
+extend-exclude = ["core", "build", "bindings/javascript", "**/node_modules"]
+[lint]
+select = ["ALL"]
+ignore = [
+    # Mutually exclusive docstring conventions: use D211 and D212.
+    "D203", "D213",
+    # Rules incompatible with Ruff's formatter (Astral's documented list).
+    "W191", "E111", "E114", "E117", "D206", "D300",
+    "Q000", "Q001", "Q002", "Q003", "COM812", "COM819", "ISC002",
+    # Copyright ownership/license selection is still pending; do not invent headers.
+    "CPY001",
+]
+[lint.per-file-ignores]
+# Packaging entry point, not an importable Python package.
+"bindings/python/setup.py" = ["INP001"]
+# These are unittest tests, not pytest tests. Keep native assertions and raises.
+"scripts/test_*.py" = ["PT009", "PT027"]
+# Entry points choose source vs installed package before importing it.
+"scripts/test_python_images.py" = ["E402"]
+# CLI build/test tools intentionally print progress and launch trusted local tools.
+"scripts/*.py" = ["T201", "S603", "S607", "INP001"]
+# Static consumer examples are checked directly, not imported as a package.
+"bindings/python/tests/*.py" = ["INP001"]
+# Optional dependency imports must occur only when those packages are in use.
+"bindings/python/src/tapirscan/_images.py" = ["PLC0415"]
+# Flat keyword options are intentional public API; callers need no options object.
+"bindings/python/src/tapirscan/__init__.py" = ["PLR0913"]

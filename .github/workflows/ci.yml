@@ -1,0 +1,110 @@
+name: Validate scanner and bindings
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  scanner:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    env:
+      RUSTUP_TOOLCHAIN: 1.91.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Install pinned Rust compiler and WASM target
+        run: rustup toolchain install 1.91.1 --profile minimal --target wasm32-unknown-unknown
+      - run: cargo +1.91.1 fetch --locked --manifest-path multiformat/Cargo.toml
+      - run: python3 scripts/verify_import.py
+      - run: for mode in low medium high very-high; do python3 scripts/build.py "$mode"; done
+      - name: Preserve failed WASM build for reproducibility diagnosis
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-diagnostics-${{ matrix.os }}
+          path: |
+            build/*/cargo-target/wasm32-unknown-unknown/release/*.wasm
+            build/*/temporarysource/Cargo.toml
+      - run: python3 scripts/build_multiformat.py
+      - run: npm ci --prefix bindings/javascript
+      - run: npm run build --prefix bindings/javascript
+      - run: npm test --prefix bindings/javascript
+      - run: python3 scripts/build_native.py low medium high very-high
+      - name: Build and test C/C++
+        shell: bash
+        run: |
+          for mode in low medium high very-high; do
+            cmake -S bindings/cpp -B build/cpp-$mode -DBARCODE_MODE=$mode
+            cmake --build build/cpp-$mode
+            ctest --test-dir build/cpp-$mode --output-on-failure
+          done
+      - run: python3 scripts/build_java.py
+      - name: Build and install the Python wheel
+        run: |
+          python3 -m pip wheel --no-deps --wheel-dir build/wheels bindings/python
+          python3 -m pip install --target build/python-installed build/wheels/*.whl
+          for wheel in build/wheels/*.whl; do python3 scripts/test_installed_wheel.py "$wheel"; done
+      - name: Compare all language bindings using the installed wheel and JAR
+        env:
+          BARCODE_PYTHON_PACKAGE: ${{ github.workspace }}/build/python-installed
+        run: python3 scripts/test_bindings.py
+      - run: python3 scripts/test_cmake_install.py
+      - name: Install optional Python image dependencies
+        run: |
+          # Keep NumPy stubs compatible with the Python 3.10 API type-check target.
+          python3 -m pip install Pillow numpy==2.2.6 zxing-cpp
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          else
+            python3 -m pip install torch
+          fi
+      - name: Validate image inputs and unified typed API
+        env:
+          BARCODE_PYTHON_PACKAGE: ${{ github.workspace }}/build/python-installed
+        run: python3 scripts/test_python_images.py
+      - name: Check Python formatting and types
+        run: |
+          python3 -m pip install 'ruff==0.16.7' 'mypy==2.3.1' 'ty==0.0.80'
+          ruff check .
+          ruff format --check .
+          MYPYPATH=bindings/python/src mypy --config-file bindings/python/pyproject.toml bindings/python/src/tapirscan bindings/python/tests/typecheck_api.py
+          ty check
+
+      - name: Check maintained bindings in every language
+        run: |
+          node tools/quality/install.mjs
+          QUALITY_PYTHON="$(command -v python3)" node tools/quality/release.mjs all
+
+      - run: python3 scripts/test_multiformat.py
+      - run: python3 scripts/test_detail.py
+      - name: Build the public demo
+        run: |
+          npm install --global pnpm@10.15.1
+          pnpm --dir demo install --frozen-lockfile
+          pnpm --dir demo check
+          pnpm --dir demo build
+          pnpm --dir demo test
+
+      - name: Pack and verify npm distribution
+        run: |
+          mkdir -p build/packages
+          cd bindings/javascript
+          npm pack --pack-destination ../../build/packages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.os }}
+          path: |
+            build/packages/*.tgz
+            build/wheels/*.whl
+          if-no-files-found: error

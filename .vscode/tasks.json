@@ -1,0 +1,26 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Quality: format changed files",
+      "type": "process",
+      "command": "node",
+      "args": ["${workspaceFolder}/tools/quality/cli.mjs", "format"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Quality: Rust checks",
+      "type": "process",
+      "command": "node",
+      "args": ["${workspaceFolder}/tools/quality/check.mjs", "rust"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Quality: JS and TS checks",
+      "type": "process",
+      "command": "node",
+      "args": ["${workspaceFolder}/tools/quality/check.mjs", "js"],
+      "problemMatcher": []
+    }
+  ]
+}

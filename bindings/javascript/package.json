@@ -1,0 +1,52 @@
+{
+  "name": "tapirscan",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Orientation-aware barcode scanning with a Rust/WASM core and four effort modes",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "wasm/multiformat.json",
+    "THIRD_PARTY_NOTICES.md",
+    "wasm/low-release-20260915.wasm",
+    "wasm/medium-release-20260915.wasm",
+    "wasm/high-release-20260915.wasm",
+    "wasm/very-high-release-20260915.wasm",
+    "wasm/multiformat.wasm"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/scanner.mjs",
+    "prepack": "npm run build && node scripts/verify-package.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  },
+  "keywords": [
+    "barcode",
+    "ean13",
+    "scanner",
+    "wasm",
+    "computer-vision",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "author": "Florian Nick",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kleinicke/tapirscan.git",
+    "directory": "bindings/javascript"
+  },
+  "homepage": "https://github.com/kleinicke/tapirscan#readme",
+  "bugs": {
+    "url": "https://github.com/kleinicke/tapirscan/issues"
+  }
+}

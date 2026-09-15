@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "tapirscan"
+version = "1.0.0"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Florian Nick"}]
+description = "Orientation-aware barcode scanning with a Rust core and four effort modes"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["typing_extensions>=4.4"]
+[project.urls]
+Homepage = "https://github.com/kleinicke/tapirscan"
+Repository = "https://github.com/kleinicke/tapirscan"
+Documentation = "https://github.com/kleinicke/tapirscan/blob/main/bindings/python/README.md"
+Issues = "https://github.com/kleinicke/tapirscan/issues"
+Demo = "https://tapirscan.netlify.app"
+
+[project.optional-dependencies]
+pillow = ["Pillow>=9"]
+numpy = ["numpy>=1.23"]
+torch = ["torch>=2"]
+dev = ["ruff==0.16.7", "mypy==2.3.1", "ty==0.0.80", "typing_extensions>=4.2"]
+[tool.setuptools.packages.find]
+where = ["src"]
+[tool.setuptools.package-data]
+tapirscan = ["py.typed", "THIRD_PARTY_NOTICES.md", "_native/*.so", "_native/*.dylib", "_native/*.dll"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src/tapirscan"]
