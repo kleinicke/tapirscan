@@ -1,6 +1,6 @@
 # Release notes
 
-## 1.1.0 — unreleased
+## 1.1.0 — 2026-09-17
 
 - Optional per-scan `finish_candidates` / `finishCandidates` lets selected
   EAN13/UPC-A candidates continue beyond shared frame budgets. Default scanning
