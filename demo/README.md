@@ -4,9 +4,11 @@
 
 A browser interface for trying Tapirscan on photos and camera frames. It uses
 the `tapirscan` package, four EAN13 effort modes, and separately loaded
-ZXing-WASM 3.1.1 and ZBar-WASM 0.11.0 comparisons. The public demo is fixed to
-EAN13; every selected scanner receives the same transformed pixels and EAN13
-restriction. Initialization is
+ZXing-WASM 3.1.1 and ZBar-WASM 0.11.0 comparisons. The Detect selector offers
+EAN-13 (default), Retail (EAN-13, UPC-A, EAN-8, UPC-E), and Common (Retail plus
+Code 128, Code 39, ITF, QR Code, and Data Matrix). Every selected scanner receives
+the same transformed pixels and format restriction. ZBar is deselected and disabled
+for Common because it does not support Data Matrix. Initialization is
 excluded from displayed scan times, and engines differ in search strategies and
 completion reporting; this interactive comparison is not a benchmark. Camera and image processing are local to the browser.
 
@@ -79,7 +81,8 @@ Each newly loaded decoder runs one warm-up scan before its displayed scan. The
 warm-up uses the same image and is excluded from scanner timing. Still-image
 results are cached for the current pixels: toggling scanners preserves completed
 results and only runs missing methods. Changing the image, resolution or transform
-invalidates those results; live camera frames continue to scan normally. Frozen
+invalidates those results; changing Detect also clears old results and restarts
+workers so each new configuration is warmed up. Live camera frames continue to scan normally. Frozen
 camera frames do not select any demo-image button.
 
 ## Static hosting

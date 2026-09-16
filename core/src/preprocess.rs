@@ -21,6 +21,8 @@ fn resize<T: Clone>(v: &mut Vec<T>, n: usize, value: T) -> Result<(), Error> {
 impl AdaptiveThreshold {
     /// RGB(A) luma is truncated before blur; replicated borders and the blurred
     /// mean's byte truncation deliberately match the existing JS algorithm.
+    /// # Errors
+    /// Returns `Parameters` for an invalid block or offset, and `OutputShape` if the output size is invalid.
     pub fn process(
         &mut self,
         image: ImageView<'_>,
@@ -30,24 +32,24 @@ impl AdaptiveThreshold {
         if !(3..=101).contains(&block) || block.is_multiple_of(2) || !offset.is_finite() {
             return Err(Error::Parameters);
         }
-        let n = image
+        let count = image
             .width
             .checked_mul(image.height)
             .ok_or(Error::OutputShape)?;
-        if n > MAX_CROP_PIXELS {
+        if count > MAX_CROP_PIXELS {
             return Err(Error::OutputShape);
         }
-        resize(&mut self.gray, n, 0)?;
-        resize(&mut self.horizontal, n, 0.)?;
-        resize(&mut self.output, n, 0)?;
-        let sigma = 0.3 * ((block as f64 - 1.) * 0.5 - 1.) + 0.8;
-        let radius = (3. * sigma).ceil().max(1.) as isize;
+        resize(&mut self.gray, count, 0)?;
+        resize(&mut self.horizontal, count, 0.)?;
+        resize(&mut self.output, count, 0)?;
+        let sigma = 0.3 * ((crate::numeric::usize_f64(block) - 1.) * 0.5 - 1.) + 0.8;
+        let radius = crate::numeric::f64_isize((3. * sigma).ceil().max(1.));
         if self.block != block {
-            resize(&mut self.weights, (radius * 2 + 1) as usize, 0.)?;
+            resize(&mut self.weights, (radius * 2 + 1).cast_unsigned(), 0.)?;
             let mut sum = 0.;
             for (i, weight) in self.weights.iter_mut().enumerate() {
-                let k = i as isize - radius;
-                *weight = (-(k * k) as f64 / (2. * sigma * sigma)).exp();
+                let k = (i).cast_signed() - radius;
+                *weight = (crate::numeric::isize_f64(-(k * k)) / (2. * sigma * sigma)).exp();
                 sum += *weight;
             }
             for weight in &mut self.weights {
@@ -62,9 +64,11 @@ impl AdaptiveThreshold {
                 self.gray[y * w + x] = if c == 1 {
                     image.data[i]
                 } else {
-                    (0.299 * f64::from(image.data[i])
-                        + 0.587 * f64::from(image.data[i + 1])
-                        + 0.114 * f64::from(image.data[i + 2])) as u8
+                    crate::numeric::f64_u8(
+                        0.299 * f64::from(image.data[i])
+                            + 0.587 * f64::from(image.data[i + 1])
+                            + 0.114 * f64::from(image.data[i + 2]),
+                    )
                 };
             }
         }
@@ -72,7 +76,9 @@ impl AdaptiveThreshold {
             for x in 0..w {
                 let mut sum = 0.;
                 for (i, weight) in self.weights.iter().enumerate() {
-                    let sx = (x as isize + i as isize - radius).clamp(0, w as isize - 1) as usize;
+                    let sx = (((x).cast_signed() + (i).cast_signed() - radius)
+                        .clamp(0, (w).cast_signed() - 1))
+                    .cast_unsigned();
                     sum += f64::from(self.gray[y * w + sx]) * weight;
                 }
                 self.horizontal[y * w + x] = sum;
@@ -82,19 +88,23 @@ impl AdaptiveThreshold {
             for x in 0..w {
                 let mut sum = 0.;
                 for (i, weight) in self.weights.iter().enumerate() {
-                    let sy = (y as isize + i as isize - radius).clamp(0, h as isize - 1) as usize;
+                    let sy = (((y).cast_signed() + (i).cast_signed() - radius)
+                        .clamp(0, (h).cast_signed() - 1))
+                    .cast_unsigned();
                     sum += self.horizontal[sy * w + x] * weight;
                 }
-                self.output[y * w + x] =
-                    if f64::from(self.gray[y * w + x]) > f64::from(sum as u8) - offset {
-                        255
-                    } else {
-                        0
-                    };
+                self.output[y * w + x] = if f64::from(self.gray[y * w + x])
+                    > f64::from(crate::numeric::f64_u8(sum)) - offset
+                {
+                    255
+                } else {
+                    0
+                };
             }
         }
         Ok(&self.output)
     }
+    #[must_use]
     pub fn bytes(&self) -> &[u8] {
         &self.output
     }
@@ -110,7 +120,7 @@ mod tests {
             for block in [3, 15, 31, 51, 101] {
                 let mut old = crate::Kernel::new(w, h).unwrap();
                 for (i, v) in old.input.iter_mut().enumerate() {
-                    *v = ((i * 73 + 19) % 256) as u8;
+                    *v = ((i * 73 + 19) % 256).to_le_bytes()[0];
                 }
                 old.process(block, 5.25);
                 let im = ImageView::new(&old.input, w, h, 1, w).unwrap();

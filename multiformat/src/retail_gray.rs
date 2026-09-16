@@ -19,12 +19,13 @@ fn normal_cdf(x: f32) -> f32 {
     let density = |v: f32| (-0.5 * v * v).exp() / (2. * std::f32::consts::PI).sqrt();
     let mut sum = density(0.) + density(x);
     for i in 1..16 {
-        sum += density(step * i as f32) * if i % 2 == 0 { 2. } else { 4. };
+        sum += density(step * crate::numeric::f64_f32(f64::from(i)))
+            * if i % 2 == 0 { 2. } else { 4. };
     }
     0.5 + sum * step / 3.
 }
 fn normalize(values: &mut [f32; SAMPLES]) -> f32 {
-    let mean = values.iter().sum::<f32>() / SAMPLES as f32;
+    let mean = values.iter().sum::<f32>() / crate::numeric::usize_f32(SAMPLES);
     let mut variance = 0.;
     for v in values.iter_mut() {
         *v -= mean;
@@ -44,7 +45,7 @@ fn templates() -> &'static [Template] {
             for phase in [-0.2, 0., 0.2] {
                 for (digit, widths) in crate::linear::DIGITS.iter().enumerate() {
                     let mut values = std::array::from_fn(|i| {
-                        let x = (i as f32 + 0.5) / 6. - phase;
+                        let x = (crate::numeric::usize_f32(i) + 0.5) / 6. - phase;
                         let mut v = 1. - normal_cdf(x / sigma) - normal_cdf((x - 7.) / sigma);
                         let mut edge = 0.;
                         for (j, &width) in widths.iter().take(3).enumerate() {
@@ -55,7 +56,7 @@ fn templates() -> &'static [Template] {
                     });
                     normalize(&mut values);
                     bank.push(Template {
-                        digit: digit as u8,
+                        digit: (digit).to_le_bytes()[0],
                         values,
                     });
                 }
@@ -84,14 +85,16 @@ pub(crate) fn decode(
         }
         let pixel = |i: usize| f32::from(row[if reverse { row.len() - 1 - i } else { i }]);
         let mut values = std::array::from_fn(|i| {
-            let x = (left + length * (i as f32 + 0.5) / SAMPLES as f32)
-                .clamp(0., (row.len() - 2) as f32);
-            let lo = x.floor() as usize;
-            let fraction = x - lo as f32;
+            let x = (left
+                + length * (crate::numeric::usize_f32(i) + 0.5)
+                    / crate::numeric::usize_f32(SAMPLES))
+            .clamp(0., crate::numeric::usize_f32(row.len() - 2));
+            let lo = crate::numeric::f32_usize(x.floor());
+            let fraction = x - crate::numeric::usize_f32(lo);
             (pixel(lo) * (1. - fraction) + pixel(lo + 1) * fraction)
                 * if position < 4 { -1. } else { 1. }
         });
-        if normalize(&mut values) < SAMPLES as f32 * 16. {
+        if normalize(&mut values) < crate::numeric::usize_f32(SAMPLES) * 16. {
             return None;
         }
         let mut scores = [-1_f32; 10];
@@ -110,7 +113,7 @@ pub(crate) fn decode(
             return None;
         }
         worst = worst.max(1. - best);
-        digits.push(order[0] as u8);
+        digits.push((order[0]).to_le_bytes()[0]);
     }
     crate::linear::checksum(&digits)
         .then(|| (digits.iter().map(|d| char::from(b'0' + d)).collect(), worst))
@@ -137,14 +140,21 @@ mod tests {
                 let mut sum = 0.;
                 let mut mass = 0.;
                 for d in -5_isize..=5 {
-                    let weight = (-(d as f32).powi(2) / (2. * 1.5_f32.powi(2))).exp();
+                    let weight =
+                        (-crate::numeric::isize_f32(d).powi(2) / (2. * 1.5_f32.powi(2))).exp();
                     sum += pixels[i.saturating_add_signed(d).min(pixels.len() - 1)] * weight;
                     mass += weight;
                 }
-                (sum / mass).round() as u8
+                crate::numeric::f32_u8((sum / mass).round())
             })
             .collect();
-        (row, widths.iter().map(|&w| (w * 3) as f32).collect())
+        (
+            row,
+            widths
+                .iter()
+                .map(|&w| crate::numeric::usize_f32(w * 3))
+                .collect(),
+        )
     }
     #[test]
     fn blurred_digits_decode_in_both_directions() {

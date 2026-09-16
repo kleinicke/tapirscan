@@ -1,4 +1,4 @@
-import { DetailScanner, type DetailResult } from "./detail-20260914/scanner.mjs";
+import { DetailScanner, type DetailResult } from "./detail-runtime/scanner.mjs";
 import { IndependentScanner, type Image, type Quad } from "./host.js";
 import type { Mode } from "./index.js";
 
@@ -57,9 +57,10 @@ export class ReleaseDetailScanner {
     policy: Parameters<IndependentScanner["scanLocalized"]>[1],
     fit: number,
     full: boolean,
+    coverage: readonly Quad[] = [],
   ): DetailResult {
     if (this.disposed) throw Error("Scanner is disposed");
-    const result = this.scanner.scanLocalized(packed(image), policy ?? {}, fit, full);
+    const result = this.scanner.scanLocalized(packed(image), policy ?? {}, fit, full, coverage);
     const primaryCount = result.scan.barcodes.length;
     const barcodes = result.recovery.barcodes.map((b, i) =>
       i < primaryCount ? b : { ...b, candidate_indices: [] },

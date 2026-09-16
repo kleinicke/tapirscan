@@ -23,6 +23,8 @@ impl RgbaImage {
     /// Returns owned workspace bytes borrowed until the next mutable call.
     /// RGB/gray use opaque alpha; RGBA preserves alpha exactly. Padding is skipped.
     /// Output has an independent128MiB cap. Failure invalidates previous output.
+    /// # Errors
+    /// Returns `OutputShape` for invalid/oversized output and `Allocation` if RGBA storage cannot be reserved.
     pub fn prepare(&mut self, im: ImageView<'_>) -> Result<&[u8], Error> {
         self.width = 0;
         self.height = 0;
@@ -69,9 +71,11 @@ impl RgbaImage {
         self.height = im.height;
         Ok(&self.data)
     }
+    #[must_use]
     pub fn data(&self) -> &[u8] {
         &self.data
     }
+    #[must_use]
     pub fn dimensions(&self) -> (usize, usize) {
         (self.width, self.height)
     }
@@ -82,13 +86,13 @@ mod tests {
     #[test]
     fn all_channels_strides_and_alpha() {
         let mut out = RgbaImage::default();
-        for channels in [1, 3, 4] {
+        for channels in [1usize, 3, 4] {
             for width in [1, 3, 17] {
                 for height in [1, 2, 5] {
                     for pad in [0, 1, 7] {
                         let stride = width * channels + pad;
                         let n = (height - 1) * stride + width * channels;
-                        let src: Vec<u8> = (0..n).map(|i| (i * 71 + 29) as u8).collect();
+                        let src: Vec<u8> = (0..n).map(|i| (i * 71 + 29).to_le_bytes()[0]).collect();
                         let mut expected = Vec::new();
                         for y in 0..height {
                             for x in 0..width {

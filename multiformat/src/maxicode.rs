@@ -96,7 +96,7 @@ fn decode_words(words: &mut [u16; 144]) -> Option<Payload> {
                 if byte < 32 {
                     return None;
                 }
-                value.push(byte as u8 as char);
+                value.push((byte).to_le_bytes()[0] as char);
             }
             value.trim_end_matches(' ').to_owned()
         };
@@ -123,6 +123,10 @@ fn decode_words(words: &mut [u16; 144]) -> Option<Payload> {
     Some(result)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "The MaxiCode table dispatcher shares shift/latch and structured-append state for a single payload cursor."
+)]
 fn parse(data: &[u16]) -> Option<Payload> {
     let mut bytes = Vec::new();
     let mut text = String::new();
@@ -163,8 +167,8 @@ fn parse(data: &[u16]) -> Option<Payload> {
         }
         let value = CHARS[active][code];
         if value >= 0 {
-            bytes.push(value as u8);
-            pending.push(value as u8);
+            bytes.push((value).to_le_bytes()[0]);
+            pending.push((value).to_le_bytes()[0]);
             continue;
         }
         match code {
@@ -225,7 +229,7 @@ fn parse(data: &[u16]) -> Option<Payload> {
                     61 => 4,
                     _ => 2,
                 };
-                if data.get(index) == Some(&(code as u16)) {
+                if data.get(index) == Some(&crate::numeric::usize_u16(code)) {
                     index += 1;
                     state = target;
                     shift = None;

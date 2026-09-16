@@ -23,6 +23,10 @@ fn token<'a>(b: &'a [u8], i: &mut usize) -> Result<&'a str, Box<dyn std::error::
     }
     Ok(std::str::from_utf8(&b[start..*i])?)
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "The diagnostic CLI keeps scanner dispatch and its matching result serialization together."
+)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args: Vec<_> = std::env::args().skip(1).collect();
     let bands = args.first().is_some_and(|a| a == "--bands");
@@ -65,9 +69,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if candidates.is_empty() {
         candidates.push([
             [0., 0.],
-            [w as f64, 0.],
-            [w as f64, h as f64],
-            [0., h as f64],
+            [barcode_research_core::numeric::usize_f64(w), 0.],
+            [
+                barcode_research_core::numeric::usize_f64(w),
+                barcode_research_core::numeric::usize_f64(h),
+            ],
+            [0., barcode_research_core::numeric::usize_f64(h)],
         ]);
     }
     if bands {

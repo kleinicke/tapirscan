@@ -13,8 +13,7 @@ fn main() {
             "{{\"accepted\":{}}}",
             evidence
                 .map(|v| v.digits)
-                .map(|v| format!("{v:?}"))
-                .unwrap_or("null".into())
+                .map_or("null".into(), |v| format!("{v:?}"))
         );
         for r in run_ean::diagnostic_parities(&w).unwrap() {
             println!("{{\"digits\":{:?},\"cost\":{},\"maxCost\":{},\"minGap\":{},\"digitCosts\":{:?},\"checksum\":{}}}",r.digits,r.cost,r.maximum_digit_cost,r.minimum_digit_gap,r.digit_costs,r.checksum_valid);

@@ -96,10 +96,12 @@ fn finite_json(v: f64) -> String {
         "null".into()
     }
 }
+#[must_use]
 pub fn candidate_json(candidates: &[Candidate]) -> String {
     let cs:Vec<String>=candidates.iter().map(|c|{let ds:Vec<String>=c.detections.iter().map(|d|format!("{{\"text\":\"{}\",\"polygon\":{:?},\"support\":{},\"axis\":{}}}",text(d.digits),d.polygon,d.support,d.axis)).collect();let obs:Vec<String>=c.observations.iter().filter(|_|!cfg!(feature="experimental-compact-output")).map(|d|format!("{{\"text\":\"{}\",\"axis\":{},\"fraction\":{},\"left\":{},\"right\":{},\"cost\":{},\"gap\":{}}}",if d.ambiguous{String::new()}else{text(d.digits)},d.axis,d.fraction,d.left,d.right,d.cost,d.gap)).collect();format!("{{\"candidate_index\":{},\"coverage\":{},\"error\":{},\"error_detail\":{},\"unfinished\":{},\"ms\":{},\"work\":{},\"detections\":[{}],\"observations\":[{}]}}",c.index,coverage_json(c.coverage),c.error,if scan::transform(c.coverage).is_err(){"\"invalid_geometry\""}else if c.error{"\"sampling_error\""}else{"null"},c.error||c.work.invalid_veto_intervals>0||c.work.retry_paths_pending>0||c.work.sampling_plan_capped>0||c.work.truncated_paths>0||c.work.capped_paths>0||c.work.association_truncated>0,c.ms,work(&c.work),ds.join(","),obs.join(","))}).collect();
     cs.join(",")
 }
+#[must_use]
 pub fn frame_json(frame: &frame::Frame) -> String {
     let trace = if cfg!(feature = "experimental-compact-output") {
         format!(

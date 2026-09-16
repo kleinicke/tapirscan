@@ -467,7 +467,7 @@ impl Placement<'_> {
         if r < 0 || c < 0 || r >= self.rows || c >= self.cols {
             return None;
         }
-        let i = (r * self.cols + c) as usize;
+        let i = (r * self.cols + c).cast_unsigned();
         self.seen[i] = true;
         Some(self.bits[i])
     }
@@ -546,7 +546,7 @@ impl Placement<'_> {
                 ])?);
             }
             loop {
-                if row < nr && col >= 0 && !self.seen[(row * nc + col) as usize] {
+                if row < nr && col >= 0 && !self.seen[(row * nc + col).cast_unsigned()] {
                     out.push(self.utah(row, col)?);
                 }
                 row -= 2;
@@ -558,7 +558,7 @@ impl Placement<'_> {
             row += 1;
             col += 3;
             loop {
-                if row >= 0 && col < nc && !self.seen[(row * nc + col) as usize] {
+                if row >= 0 && col < nc && !self.seen[(row * nc + col).cast_unsigned()] {
                     out.push(self.utah(row, col)?);
                 }
                 row += 2;
@@ -595,8 +595,8 @@ pub fn decode_matrix(matrix: &[bool], w: usize, h: usize) -> Option<Payload> {
     let code = Placement {
         bits: &bits,
         seen: vec![false; bits.len()],
-        rows: rows as isize,
-        cols: cols as isize,
+        rows: (rows).cast_signed(),
+        cols: (cols).cast_signed(),
     }
     .read()?;
     if code.len() != size.data + size.ecc {
@@ -637,6 +637,10 @@ pub fn decode_matrix(matrix: &[bool], w: usize, h: usize) -> Option<Payload> {
     })
 }
 type ParsedData = (Vec<u8>, String, bool, bool, Option<crate::StructuredAppend>);
+#[expect(
+    clippy::too_many_lines,
+    reason = "The Data Matrix mode dispatcher shares cursor, upper-shift, ECI and payload state across the symbol encodings."
+)]
 fn parse(data: &[u8]) -> Option<ParsedData> {
     let mut reader_initialization = false;
     let mut structured_append = None;
@@ -742,8 +746,8 @@ fn parse(data: &[u8]) -> Option<ParsedData> {
                                 1 => b'*',
                                 2 => b'>',
                                 3 => b' ',
-                                4..=13 => b'0' + (v - 4) as u8,
-                                14..=39 => b'A' + (v - 14) as u8,
+                                4..=13 => b'0' + (v - 4).to_le_bytes()[0],
+                                14..=39 => b'A' + (v - 14).to_le_bytes()[0],
                                 _ => return None,
                             });
                             continue;
@@ -755,11 +759,13 @@ fn parse(data: &[u8]) -> Option<ParsedData> {
                                     continue;
                                 }
                                 3 => b' ',
-                                4..=13 => b'0' + (v - 4) as u8,
-                                14..=39 => (if c == 239 { b'a' } else { b'A' }) + (v - 14) as u8,
+                                4..=13 => b'0' + (v - 4).to_le_bytes()[0],
+                                14..=39 => {
+                                    (if c == 239 { b'a' } else { b'A' }) + (v - 14).to_le_bytes()[0]
+                                }
                                 _ => return None,
                             },
-                            1 => v as u8,
+                            1 => (v).to_le_bytes()[0],
                             2 => {
                                 if v == 27 {
                                     out.push(29);
@@ -777,7 +783,7 @@ fn parse(data: &[u8]) -> Option<ParsedData> {
                                 if c == 239 {
                                     *b"`ABCDEFGHIJKLMNOPQRSTUVWXYZ{|}~\x7f".get(v)?
                                 } else {
-                                    v as u8 + 96
+                                    (v).to_le_bytes()[0] + 96
                                 }
                             }
                             _ => return None,
@@ -790,7 +796,7 @@ fn parse(data: &[u8]) -> Option<ParsedData> {
             }
             231 => {
                 fn unrandom(value: u8, pos: usize) -> u8 {
-                    value.wrapping_sub(((149 * pos) % 255 + 1) as u8)
+                    value.wrapping_sub(((149 * pos) % 255 + 1).to_le_bytes()[0])
                 }
                 let first = unrandom(*data.get(at)?, at + 1) as usize;
                 at += 1;

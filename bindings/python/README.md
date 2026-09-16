@@ -120,7 +120,7 @@ scanning work. Support is a ranking heuristic, not a confidence probability.
 
 Formats and group exports: `Format`, `FormatSelection`, `retail_formats`,
 `common_formats`, `common_linear_formats`, `linear_formats`, `matrix_formats`. See [identifiers and reader limitations](../../docs/FORMATS.md).
-Additional readers are experimental and use fixed effort; modes tune EAN13/UPCA.
+Additional readers are experimental. Modes tune EAN13/UPCA, Common1D and QR Code; other matrix readers use fixed effort.
 ROI, resizing, rotation and camera acquisition belong to the caller. Exact work
 budgets, timeouts and confidence thresholds are not exposed as scan options.
 
@@ -153,8 +153,8 @@ not the most reliable barcode in a mixed-format image. Select by the format or
 payload your application needs when that distinction matters. Checksums and consistency
 checks reduce wrong reads but cannot guarantee that every returned decode is correct.
 
-Use `mode="low"` through `"very-high"` at creation to select EAN13/UPCA search
-effort. Other readers use fixed effort. `result.unfinished` is available without
+Use `mode="low"` through `"very-high"` at creation to select EAN13/UPCA, Common1D and QR Code search
+effort. Other matrix readers use fixed effort. `result.unfinished` is available without
 debug and combines reported decoding and localization limits. Returned reads are
 still usable. Candidate, retry and parsing caps are reported, including bounded
 searches that also returned reads. False does not promise exhaustive scanning. Exact budgets and interruptible timeouts are not

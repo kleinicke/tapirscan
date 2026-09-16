@@ -64,13 +64,15 @@ fn inside(im: ImageView<'_>, p: Point) -> bool {
     p.iter().all(|v| v.is_finite())
         && p[0] >= 0.
         && p[1] >= 0.
-        && p[0] <= (im.width - 1) as f64
-        && p[1] <= (im.height - 1) as f64
+        && p[0] <= crate::numeric::usize_f64(im.width - 1)
+        && p[1] <= crate::numeric::usize_f64(im.height - 1)
 }
 impl Correspondence {
     /// All three destination cross-sections (center,20%,80%) are connected at <=1
     /// source-pixel endpoint spacing. Each corridor has <=512 steps; <=1537 profiles.
     /// A failed strip, contrast drop, competing decode, or budget preserves both reads.
+    /// # Errors
+    /// Returns `Geometry` for invalid quadrilaterals or projected paths; propagates sampling errors.
     pub fn check(
         &mut self,
         im: ImageView<'_>,
@@ -136,10 +138,12 @@ impl Correspondence {
             if reverse {
                 b.swap(0, 1);
             }
-            let steps = distance(a[0], b[0])
-                .max(distance(a[1], b[1]))
-                .ceil()
-                .max(1.) as usize;
+            let steps = crate::numeric::f64_usize(
+                distance(a[0], b[0])
+                    .max(distance(a[1], b[1]))
+                    .ceil()
+                    .max(1.),
+            );
             if steps > 512 {
                 return Ok(Evidence::reject(0, Rejection::Budget));
             }
@@ -152,7 +156,7 @@ impl Correspondence {
         let mut profiles = 1;
         for (b, steps) in corridors {
             for step in 1..=steps {
-                let t = step as f64 / steps as f64;
+                let t = crate::numeric::usize_f64(step) / crate::numeric::usize_f64(steps);
                 let current = [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
                 profiles += 1;
                 match self.decode(im, current, std) {
@@ -180,7 +184,11 @@ impl Correspondence {
         }
         let (mut lo, mut hi) = (255_f64, 0_f64);
         for (i, v) in self.raw.iter_mut().enumerate() {
-            let p = lerp(l[0], l[1], -0.15 + 1.3 * (i as f64 + 0.5) / 512.);
+            let p = lerp(
+                l[0],
+                l[1],
+                -0.15 + 1.3 * (crate::numeric::usize_f64(i) + 0.5) / 512.,
+            );
             let (x, y) = (p[0].floor(), p[1].floor());
             let (fx, fy) = (p[0] - x, p[1] - y);
             *v = (im.gray(x, y) * (1. - fx) + im.gray(x + 1., y) * fx) * (1. - fy)
@@ -189,14 +197,15 @@ impl Correspondence {
             hi = hi.max(*v);
         }
         let middle = &self.raw[60..452];
-        let mean = middle.iter().sum::<f64>() / middle.len() as f64;
-        let std =
-            (middle.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / middle.len() as f64).sqrt();
+        let mean = middle.iter().sum::<f64>() / crate::numeric::usize_f64(middle.len());
+        let std = (middle.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+            / crate::numeric::usize_f64(middle.len()))
+        .sqrt();
         if std < 8_f64.max(anchor_std * 0.75) || hi - lo < 8. {
             return Err(Rejection::Contrast);
         }
         for (p, v) in self.profile.iter_mut().zip(self.raw.iter()) {
-            *p = ((hi - v) / (hi - lo)) as f32;
+            *p = crate::numeric::f64_f32((hi - v) / (hi - lo));
         }
         let r = crate::run_profile::decode(&self.profile)
             .map_err(|_| Rejection::Decode)?
@@ -288,15 +297,15 @@ mod tests {
     fn rotated_sloped_gap_conflict_and_budget_regressions() {
         for turn in 0..4 {
             for gap in [false, true] {
-                let (mut w, mut h) = (520usize, 200usize);
-                let mut p = vec![255; w * h];
+                let (mut image_width, mut image_height) = (520usize, 200usize);
+                let mut p = vec![255; image_width * image_height];
                 for y in 10..190 {
                     if gap && y == 99 {
                         continue;
                     }
                     for x in 70..450 {
                         if BITS.as_bytes()[(x - 70) / 4] == b'1' {
-                            p[y * w + x] = 0;
+                            p[y * image_width + x] = 0;
                         }
                     }
                 }
@@ -304,18 +313,22 @@ mod tests {
                 let mut b = band(160.5);
                 for _ in 0..turn {
                     let mut next = vec![255; p.len()];
-                    for y in 0..h {
-                        for x in 0..w {
-                            next[x * h + h - 1 - y] = p[y * w + x];
+                    for y in 0..image_height {
+                        for x in 0..image_width {
+                            next[x * image_height + image_height - 1 - y] = p[y * image_width + x];
                         }
                     }
-                    a = a.map(|[x, y]| [(h - 1) as f64 - y, x]);
-                    b = b.map(|[x, y]| [(h - 1) as f64 - y, x]);
+                    a = a.map(|[x, y]| [crate::numeric::usize_f64(image_height - 1) - y, x]);
+                    b = b.map(|[x, y]| [crate::numeric::usize_f64(image_height - 1) - y, x]);
                     p = next;
-                    (w, h) = (h, w);
+                    (image_width, image_height) = (image_height, image_width);
                 }
                 let e = Correspondence::default()
-                    .check(ImageView::new(&p, w, h, 1, w).unwrap(), a, b)
+                    .check(
+                        ImageView::new(&p, image_width, image_height, 1, image_width).unwrap(),
+                        a,
+                        b,
+                    )
                     .unwrap();
                 assert_eq!(e.supported, !gap, "rotation {turn} gap {gap} {e:?}");
                 assert!(e.profiles <= 1537);

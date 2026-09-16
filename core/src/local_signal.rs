@@ -32,6 +32,8 @@ fn quartile_radius(histogram: &[usize; 44], run_count: usize) -> usize {
     }
     6
 }
+/// # Errors
+/// Returns `Length` for unsupported profile size or `Value` for non-finite samples or values outside [0, 1].
 pub fn normalize(p: &[f32]) -> Result<Vec<f32>, Error> {
     let mut scratch = Scratch::default();
     scratch.prepare(p)?;
@@ -48,6 +50,10 @@ impl Scratch {
         self.prepare_validated(p);
         Ok(())
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Feature-selected envelope algorithms share the same normalization pass and scratch-storage contract."
+    )]
     fn prepare_validated(&mut self, p: &[f32]) {
         let mut histogram = [0usize; 44];
         let (mut run_count, mut start) = (0usize, 0usize);
@@ -77,13 +83,13 @@ impl Scratch {
             // Block prefix/suffix extrema produce the identical centered min/max
             // window with predictable contiguous passes. Equal extrema retain the latest
             // source value, including signed zero, as in the original monotone queues.
-            let n = p.len();
-            let k = radius * 2 + 1;
-            let last_block = (n - 1) / k * k;
-            self.envelope.resize(n, [0.; 4]);
-            let e = &mut self.envelope;
-            for begin in (0..n).step_by(k) {
-                let end = (begin + k).min(n);
+            let profile_len = p.len();
+            let window_len = radius * 2 + 1;
+            let last_block = (profile_len - 1) / window_len * window_len;
+            self.envelope.resize(profile_len, [0.; 4]);
+            let envelope = &mut self.envelope;
+            for begin in (0..profile_len).step_by(window_len) {
+                let end = (begin + window_len).min(profile_len);
                 let (mut lo, mut hi) = (p[begin], p[begin]);
                 for j in begin..end {
                     if p[j] <= lo {
@@ -92,8 +98,8 @@ impl Scratch {
                     if p[j] >= hi {
                         hi = p[j];
                     }
-                    e[j][0] = lo;
-                    e[j][1] = hi;
+                    envelope[j][0] = lo;
+                    envelope[j][1] = hi;
                 }
                 let (mut lo, mut hi) = (p[end - 1], p[end - 1]);
                 for j in (begin..end).rev() {
@@ -103,27 +109,35 @@ impl Scratch {
                     if p[j] > hi {
                         hi = p[j];
                     }
-                    e[j][2] = lo;
-                    e[j][3] = hi;
+                    envelope[j][2] = lo;
+                    envelope[j][3] = hi;
                 }
             }
-            for i in 0..n {
+            for (i, p_entry) in p.iter().enumerate().take(profile_len) {
                 let a = i.saturating_sub(radius);
-                let b = (i + radius).min(n - 1);
+                let b = (i + radius).min(profile_len - 1);
                 let (lo, hi) = if a == 0 {
-                    (e[b][0], e[b][1])
-                } else if b == n - 1 && a >= last_block {
-                    (e[a][2], e[a][3])
+                    (envelope[b][0], envelope[b][1])
+                } else if b == profile_len - 1 && a >= last_block {
+                    (envelope[a][2], envelope[a][3])
                 } else {
                     (
-                        if e[b][0] <= e[a][2] { e[b][0] } else { e[a][2] },
-                        if e[b][1] >= e[a][3] { e[b][1] } else { e[a][3] },
+                        if envelope[b][0] <= envelope[a][2] {
+                            envelope[b][0]
+                        } else {
+                            envelope[a][2]
+                        },
+                        if envelope[b][1] >= envelope[a][3] {
+                            envelope[b][1]
+                        } else {
+                            envelope[a][3]
+                        },
                     )
                 };
                 out.push(if hi - lo >= 0.25 {
-                    ((p[i] - lo) / (hi - lo)).clamp(0., 1.)
+                    (((*p_entry) - lo) / (hi - lo)).clamp(0., 1.)
                 } else {
-                    p[i]
+                    *p_entry
                 });
             }
         }
@@ -165,11 +179,15 @@ impl Scratch {
         }
     }
 }
+/// # Errors
+/// Returns `Length` for unsupported profile size or `Value` for non-finite samples or values outside [0, 1].
 pub fn decode(p: &[f32], max_symbols: usize) -> Result<Reads, Error> {
     decode_mode(p, max_symbols, false)
 }
 /// Optional observed guard correction after local contrast normalization.
 /// The scanner enables this only when its explicit guard-bias policy is true.
+/// # Errors
+/// Returns `Length` for unsupported profile size or `Value` for non-finite samples or values outside [0, 1].
 pub fn decode_guard_bias(p: &[f32], max_symbols: usize) -> Result<Reads, Error> {
     decode_mode(p, max_symbols, true)
 }
@@ -199,6 +217,7 @@ pub(crate) fn decode_reusing(
 }
 /// Private caller has just validated the unchanged original signal with
 /// `sample_runs`; normalized output is generated internally and remains valid.
+#[cfg(feature = "experimental-local-contrast")]
 pub(crate) fn decode_reusing_validated(
     p: &[f32],
     max_symbols: usize,
@@ -215,7 +234,7 @@ pub(crate) fn decode_reusing_validated(
     #[cfg(feature = "experimental-extrema-runs")]
     let reads = crate::transition::merge_reads(
         reads,
-        multi_profile::decode_extrema_validated(p, max_symbols, guard_bias, &mut scratch.extrema)?,
+        multi_profile::decode_extrema_validated(p, max_symbols, guard_bias, &mut scratch.extrema),
         max_symbols,
     );
     Ok(reads)
@@ -289,9 +308,9 @@ mod tests {
     #[test]
     fn local_illumination_preserves_visual_value() {
         let mut p = signal();
-        let n = p.len() as f32;
+        let n = crate::numeric::usize_f32(p.len());
         for (i, v) in p.iter_mut().enumerate() {
-            let offset = 0.5 * i as f32 / n;
+            let offset = 0.5 * crate::numeric::usize_f32(i) / n;
             *v = offset + 0.4 * (*v);
         }
         assert_eq!(
@@ -310,8 +329,11 @@ mod tests {
                     j += 1;
                 }
                 let dark = BITS[i] == b'1';
-                let width = ((j - i) * 20) as isize + if dark { bias } else { -bias };
-                p.extend(std::iter::repeat_n(f32::from(dark), width as usize));
+                let width = ((j - i) * 20).cast_signed() + if dark { bias } else { -bias };
+                p.extend(std::iter::repeat_n(
+                    f32::from(dark),
+                    (width).cast_unsigned(),
+                ));
                 i = j;
             }
             p.extend([0.; 240]);
@@ -327,8 +349,12 @@ mod tests {
         for p in [
             vec![0.; 512],
             vec![1.; 512],
-            (0..512).map(|i| (i % 2) as f32).collect(),
-            (0..512).map(|i| i as f32 / 511.).collect(),
+            (0..512)
+                .map(|i| crate::numeric::f64_f32(f64::from(i % 2)))
+                .collect(),
+            (0..512)
+                .map(|i| crate::numeric::f64_f32(f64::from(i)) / 511.)
+                .collect(),
         ] {
             assert!(decode(&p, 64).unwrap().symbols.is_empty());
         }
@@ -343,7 +369,7 @@ mod tests {
                 let mut p = Vec::new();
                 while p.len() < n {
                     seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                    let v = (seed >> 8) as f32 / 16_777_215.;
+                    let v = crate::numeric::f64_f32(f64::from(seed >> 8)) / 16_777_215.;
                     for _ in 0..stretch {
                         if p.len() < n {
                             p.push(v);

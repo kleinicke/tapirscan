@@ -13,7 +13,9 @@ fn edges(q: Quad) -> [[[f64; 2]; 2]; 2] {
     [[q[0], q[1]], [q[3], q[2]]]
 }
 /// Nearest reading-direction edges, with conservative alignment/scale gates.
-pub(crate) fn gap_edges(a: Quad, b: Quad) -> Option<([[f64; 2]; 2], [[f64; 2]; 2])> {
+type Edge = [[f64; 2]; 2];
+
+pub(crate) fn gap_edges(a: Quad, b: Quad) -> Option<(Edge, Edge)> {
     let mut best = None;
     let mut distance = f64::INFINITY;
     for x in edges(a) {
@@ -52,9 +54,9 @@ pub(crate) fn gap_edges(a: Quad, b: Quad) -> Option<([[f64; 2]; 2], [[f64; 2]; 2
             {
                 continue;
             }
-            let d = experiment::distance(ma, mb);
-            if d < distance {
-                distance = d;
+            let edge_distance = experiment::distance(ma, mb);
+            if edge_distance < distance {
+                distance = edge_distance;
                 best = Some((x, y));
             }
         }
@@ -65,13 +67,14 @@ pub(crate) fn gap_edges(a: Quad, b: Quad) -> Option<([[f64; 2]; 2], [[f64; 2]; 2
 /// does not accept that path: raw ambiguity survives the identity grouping.
 pub(crate) fn barrier_between(a: [[f64; 2]; 2], b: [[f64; 2]; 2], p: [f64; 2]) -> bool {
     let (ma, mb) = (midpoint(a), midpoint(b));
-    let d = [mb[0] - ma[0], mb[1] - ma[1]];
-    let n = d[0] * d[0] + d[1] * d[1];
-    if n <= 0. {
+    let direction = [mb[0] - ma[0], mb[1] - ma[1]];
+    let length_squared = direction[0] * direction[0] + direction[1] * direction[1];
+    if length_squared <= 0. {
         return false;
     }
-    let t = ((p[0] - ma[0]) * d[0] + (p[1] - ma[1]) * d[1]) / n;
-    let along = ((p[0] - ma[0]) * d[1] - (p[1] - ma[1]) * d[0]).abs() / n.sqrt();
+    let t = ((p[0] - ma[0]) * direction[0] + (p[1] - ma[1]) * direction[1]) / length_squared;
+    let along = ((p[0] - ma[0]) * direction[1] - (p[1] - ma[1]) * direction[0]).abs()
+        / length_squared.sqrt();
     t > 0. && t < 1. && along < experiment::distance(a[0], a[1]) * 0.4
 }
 fn row(
@@ -87,12 +90,16 @@ fn row(
     let mut values = [0.; N];
     let (mut lo, mut hi) = (255f64, 0f64);
     for (i, v) in values.iter_mut().enumerate() {
-        let t = (i as f64 + 0.5) / N as f64;
+        let t = (crate::numeric::usize_f64(i) + 0.5) / crate::numeric::usize_f64(N);
         let p = [
             e[0][0] + t * (e[1][0] - e[0][0]),
             e[0][1] + t * (e[1][1] - e[0][1]),
         ];
-        if p[0] < 0. || p[1] < 0. || p[0] >= im.width as f64 || p[1] >= im.height as f64 {
+        if p[0] < 0.
+            || p[1] < 0.
+            || p[0] >= crate::numeric::usize_f64(im.width)
+            || p[1] >= crate::numeric::usize_f64(im.height)
+        {
             return None;
         }
         *v = im.gray(p[0].round(), p[1].round());
@@ -103,7 +110,7 @@ fn row(
     if hi - lo < 8. {
         return None;
     }
-    let mean = values.iter().sum::<f64>() / N as f64;
+    let mean = values.iter().sum::<f64>() / crate::numeric::usize_f64(N);
     let mut norm = 0.;
     for v in &mut values {
         *v -= mean;
@@ -130,8 +137,9 @@ pub(crate) fn connected(
     budget: &mut AssociationBudget,
     work: &mut Work,
 ) -> bool {
-    let steps = (experiment::distance(a[0], b[0]).max(experiment::distance(a[1], b[1])) * 2.).ceil()
-        as usize;
+    let steps = crate::numeric::f64_usize(
+        (experiment::distance(a[0], b[0]).max(experiment::distance(a[1], b[1])) * 2.).ceil(),
+    );
     if steps > 512
         && (!cfg!(feature = "experimental-identity-budgeted-link")
             || steps.saturating_add(1).saturating_mul(N) > budget.pixels_left)
@@ -157,11 +165,11 @@ pub(crate) fn connected(
         }
     }
     for i in 1..steps {
-        let t = i as f64 / steps as f64;
+        let fraction = crate::numeric::usize_f64(i) / crate::numeric::usize_f64(steps);
         let e = std::array::from_fn(|j| {
             [
-                a[j][0] + t * (b[j][0] - a[j][0]),
-                a[j][1] + t * (b[j][1] - a[j][1]),
+                a[j][0] + fraction * (b[j][0] - a[j][0]),
+                a[j][1] + fraction * (b[j][1] - a[j][1]),
             ]
         });
         let Some(r) = row(im, e, budget, work) else {
@@ -190,17 +198,21 @@ fn dense_row(
     let mut v = [0.; 384];
     let (mut lo, mut hi) = (255f64, 0f64);
     for (i, x) in v.iter_mut().enumerate() {
-        let t = (i as f64 + 0.5) / 384.;
+        let t = (crate::numeric::usize_f64(i) + 0.5) / 384.;
         let p = [
             e[0][0] + t * (e[1][0] - e[0][0]),
             e[0][1] + t * (e[1][1] - e[0][1]),
         ];
-        if p[0] < 0. || p[1] < 0. || p[0] >= im.width as f64 || p[1] >= im.height as f64 {
+        if p[0] < 0.
+            || p[1] < 0.
+            || p[0] >= crate::numeric::usize_f64(im.width)
+            || p[1] >= crate::numeric::usize_f64(im.height)
+        {
             return None;
         }
-        let n = im.gray(p[0].round(), p[1].round());
-        lo = lo.min(n);
-        hi = hi.max(n);
+        let count = im.gray(p[0].round(), p[1].round());
+        lo = lo.min(count);
+        hi = hi.max(count);
         *x = f64::from(im.bilinear(p[0], p[1]));
         work.continuity_samples += 5;
     }
@@ -238,8 +250,11 @@ fn connected_phase(
     let mut score = 0.85;
     // At most3/384 of the decoded span; seven fixed phase choices, no digits.
     for lag in -3..=3 {
-        let t = f64::from(lag) / 384.;
-        let delta = [t * (b[1][0] - b[0][0]), t * (b[1][1] - b[0][1])];
+        let fraction = f64::from(lag) / 384.;
+        let delta = [
+            fraction * (b[1][0] - b[0][0]),
+            fraction * (b[1][1] - b[0][1]),
+        ];
         let shifted = b.map(|p| [p[0] + delta[0], p[1] + delta[1]]);
         let Some(rb) = dense_row(im, shifted, budget, work) else {
             return false;
@@ -251,8 +266,9 @@ fn connected_phase(
         }
     }
     let Some((b, rb)) = best else { return false };
-    let steps = (experiment::distance(a[0], b[0]).max(experiment::distance(a[1], b[1])) * 2.).ceil()
-        as usize;
+    let steps = crate::numeric::f64_usize(
+        (experiment::distance(a[0], b[0]).max(experiment::distance(a[1], b[1])) * 2.).ceil(),
+    );
     if steps > 512
         && (!cfg!(feature = "experimental-identity-budgeted-link")
             || steps.saturating_sub(1).saturating_mul(384 * 5) > budget.pixels_left)
@@ -262,11 +278,11 @@ fn connected_phase(
         return false;
     }
     for i in 1..steps {
-        let t = i as f64 / steps as f64;
+        let fraction = crate::numeric::usize_f64(i) / crate::numeric::usize_f64(steps);
         let e = std::array::from_fn(|j| {
             [
-                a[j][0] + t * (b[j][0] - a[j][0]),
-                a[j][1] + t * (b[j][1] - a[j][1]),
+                a[j][0] + fraction * (b[j][0] - a[j][0]),
+                a[j][1] + fraction * (b[j][1] - a[j][1]),
             ]
         });
         let Some(r) = dense_row(im, e, budget, work) else {

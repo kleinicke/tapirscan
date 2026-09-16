@@ -10,6 +10,8 @@ pub struct HalfImage {
     height: usize,
 }
 impl HalfImage {
+    /// # Errors
+    /// Returns `Dimensions` on output-size overflow, or `Allocation` if the reduced image cannot be reserved.
     pub fn reduce(&mut self, im: ImageView<'_>) -> Result<&[u8], Error> {
         let w = im.width.div_ceil(2);
         let h = im.height.div_ceil(2);
@@ -37,16 +39,19 @@ impl HalfImage {
                 let y0 = y * 2;
                 let y1 = (y0 + 1).min(im.height - 1);
                 self.data[y * w + x] =
-                    ((gray(x0, y0) + gray(x1, y0) + gray(x0, y1) + gray(x1, y1) + 2) / 4) as u8;
+                    ((gray(x0, y0) + gray(x1, y0) + gray(x0, y1) + gray(x1, y1) + 2) / 4)
+                        .to_le_bytes()[0];
             }
         }
         self.width = w;
         self.height = h;
         Ok(&self.data)
     }
+    #[must_use]
     pub fn data(&self) -> &[u8] {
         &self.data
     }
+    #[must_use]
     pub fn dimensions(&self) -> (usize, usize) {
         (self.width, self.height)
     }

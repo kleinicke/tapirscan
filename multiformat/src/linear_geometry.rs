@@ -3,13 +3,17 @@
 use crate::Detection;
 type Quad = [[f32; 2]; 4];
 fn pixel(image: &[u8], width: usize, height: usize, x: f32, y: f32) -> Option<f32> {
-    if x < 0. || y < 0. || x >= (width - 1) as f32 || y >= (height - 1) as f32 {
+    if x < 0.
+        || y < 0.
+        || x >= crate::numeric::usize_f32(width - 1)
+        || y >= crate::numeric::usize_f32(height - 1)
+    {
         return None;
     }
-    let xx = x.floor() as usize;
-    let yy = y.floor() as usize;
-    let fx = x - xx as f32;
-    let fy = y - yy as f32;
+    let xx = crate::numeric::f32_usize(x.floor());
+    let yy = crate::numeric::f32_usize(y.floor());
+    let fx = x - crate::numeric::usize_f32(xx);
+    let fy = y - crate::numeric::usize_f32(yy);
     let at = yy * width + xx;
     Some(
         (f32::from(image[at]) * (1. - fx) + f32::from(image[at + 1]) * fx) * (1. - fy)
@@ -23,6 +27,10 @@ pub(crate) fn refine(image: &[u8], width: usize, height: usize, quad: Quad) -> Q
 pub(crate) fn refine_retail(image: &[u8], width: usize, height: usize, quad: Quad) -> Quad {
     refine_axes(image, width, height, quad, true)
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "Axis refinement deliberately shares accumulated moments and ordered fallbacks; the sampling sequence must remain unchanged."
+)]
 fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_axis: bool) -> Quad {
     if width < 3 || height < 3 {
         return quad;
@@ -39,14 +47,14 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
     let mut xy = 0_f64;
     for j in 0..5 {
         for i in 0..64 {
-            let u = (i as f32 + 0.5) / 64.;
-            let v = (j as f32 + 0.5) / 5.;
-            let x = (quad[0][0] + edge[0] * u + side[0] * v).round() as isize;
-            let y = (quad[0][1] + edge[1] * u + side[1] * v).round() as isize;
-            if x < 1 || y < 1 || x >= width as isize - 1 || y >= height as isize - 1 {
+            let u = (crate::numeric::f64_f32(f64::from(i)) + 0.5) / 64.;
+            let v = (crate::numeric::f64_f32(f64::from(j)) + 0.5) / 5.;
+            let x = crate::numeric::f32_isize((quad[0][0] + edge[0] * u + side[0] * v).round());
+            let y = crate::numeric::f32_isize((quad[0][1] + edge[1] * u + side[1] * v).round());
+            if x < 1 || y < 1 || x >= (width).cast_signed() - 1 || y >= (height).cast_signed() - 1 {
                 continue;
             }
-            let at = y as usize * width + x as usize;
+            let at = (y).cast_unsigned() * width + (x).cast_unsigned();
             let dx = f64::from(image[at + 1]) - f64::from(image[at - 1]);
             let dy = f64::from(image[at + width]) - f64::from(image[at - width]);
             xx += dx * dx;
@@ -57,7 +65,7 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
     if (xx - yy).hypot(2. * xy) < (xx + yy) * 0.5 || xx + yy < 100. {
         return quad;
     }
-    let mut theta = (0.5 * (2. * xy).atan2(xx - yy)) as f32;
+    let mut theta = crate::numeric::f64_f32(0.5 * (2. * xy).atan2(xx - yy));
     if theta.cos() * edge[0] + theta.sin() * edge[1] < 0. {
         theta += std::f32::consts::PI;
     }
@@ -82,13 +90,15 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
         .fold([0_f32, 0.], |a, p| [a[0] + p[0] * 0.25, a[1] + p[1] * 0.25]);
     let a = center[0] * cosine + center[1] * rotation_sine;
     let b = -center[0] * rotation_sine + center[1] * cosine;
-    let sample_count = (axis_width.ceil() as usize).clamp(64, 256);
+    let sample_count = crate::numeric::f32_usize(axis_width.ceil()).clamp(64, 256);
     let a0 = a - axis_width * 0.5;
     let profile = |cross: f32| -> Option<Vec<f32>> {
         (0..sample_count)
             .map(|i| {
-                let along =
-                    a0 + axis_width * (i as f32 + 0.5) / sample_count as f32 + shear * (cross - b);
+                let along = a0
+                    + axis_width * (crate::numeric::usize_f32(i) + 0.5)
+                        / crate::numeric::usize_f32(sample_count)
+                    + shear * (cross - b);
                 pixel(
                     image,
                     width,
@@ -102,14 +112,14 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
     let Some(reference) = profile(b) else {
         return quad;
     };
-    let mean = reference.iter().sum::<f32>() / sample_count as f32;
+    let mean = reference.iter().sum::<f32>() / crate::numeric::usize_f32(sample_count);
     let reference: Vec<_> = reference.iter().map(|v| v - mean).collect();
     let variance = reference.iter().map(|v| v * v).sum::<f32>();
-    if variance < sample_count as f32 * 36. {
+    if variance < crate::numeric::usize_f32(sample_count) * 36. {
         return quad;
     }
     let continuous = |row: &[f32], shift: isize| -> Option<isize> {
-        let mean = row.iter().sum::<f32>() / sample_count as f32;
+        let mean = row.iter().sum::<f32>() / crate::numeric::usize_f32(sample_count);
         let var = row.iter().map(|v| (v - mean).powi(2)).sum::<f32>();
         if var <= variance * 0.025 {
             return None;
@@ -119,9 +129,9 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
             let mut reference_var = 0_f32;
             let mut row_var = 0_f32;
             for (i, &r) in reference.iter().enumerate() {
-                let j = i as isize + offset;
-                if j >= 0 && j < sample_count as isize {
-                    let d = row[j as usize] - mean;
+                let j = (i).cast_signed() + offset;
+                if j >= 0 && j < (sample_count).cast_signed() {
+                    let d = row[(j).cast_unsigned()] - mean;
                     cov += r * d;
                     reference_var += r * r;
                     row_var += d * d;
@@ -132,7 +142,7 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
         let mut best = (correlation(shift), shift);
         if best.0 < 0.8 {
             for offset in [shift - 1, shift + 1] {
-                if offset.abs() > (sample_count / 12) as isize {
+                if offset.abs() > (sample_count / 12).cast_signed() {
                     continue;
                 }
                 let score = correlation(offset);
@@ -148,8 +158,11 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
         let mut last = b;
         let mut misses = 0;
         let mut shift = 0;
-        for i in 1..=((width as f32).hypot(height as f32) / step).ceil() as usize {
-            let cross = b + direction * i as f32 * step;
+        for i in 1..=crate::numeric::f32_usize(
+            (crate::numeric::usize_f32(width).hypot(crate::numeric::usize_f32(height)) / step)
+                .ceil(),
+        ) {
+            let cross = b + direction * crate::numeric::usize_f32(i) * step;
             let Some(row) = profile(cross) else {
                 break;
             };

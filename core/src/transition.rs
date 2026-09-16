@@ -20,6 +20,8 @@ pub struct CleanupWork {
 /// with both neighboring runs at least3times wider. The lower quartile avoids
 /// treating ordinary1module elements between4module elements as noise. This is
 /// a topology hypothesis, not digit/checksum repair; strict decoder gates remain.
+/// # Errors
+/// Returns `Length` for unsupported profile size or symbol limit, or `Value` for invalid normalized samples.
 pub fn decode_cleaned(p: &[f32], max_symbols: usize) -> Result<(Reads, CleanupWork), Error> {
     if !(64..=4096).contains(&p.len()) || !(1..=64).contains(&max_symbols) {
         return Err(Error::Length);
@@ -84,6 +86,8 @@ pub fn decode_cleaned(p: &[f32], max_symbols: usize) -> Result<(Reads, CleanupWo
 /// Consolidate a cluster of sub-module runs near one edge. For opposite
 /// flanks, preserve the original normalized dark mass when choosing the edge;
 /// for equal flanks, remove only a bounded excursion. No iterative smoothing.
+/// # Errors
+/// Returns `Length` for unsupported profile size or symbol limit, or `Value` for invalid normalized samples.
 pub fn decode_clustered(p: &[f32], max_symbols: usize) -> Result<(Reads, CleanupWork), Error> {
     let mut runs = vec![];
     multi_profile::sample_runs(p, max_symbols, &mut runs)?;
@@ -151,11 +155,11 @@ fn decode_clustered_runs(
         } else {
             let mass = p[left..right].iter().map(|&v| f64::from(v)).sum::<f64>();
             let edge = if runs[i].2 {
-                left as f64 + mass
+                crate::numeric::usize_f64(left) + mass
             } else {
-                right as f64 - mass
+                crate::numeric::usize_f64(right) - mass
             };
-            let edge = (edge.round() as usize).clamp(left, right);
+            let edge = crate::numeric::f64_usize(edge.round()).clamp(left, right);
             changes.push((left, edge, runs[i].2));
             changes.push((edge, right, runs[j].2));
         }
@@ -199,6 +203,7 @@ fn decode_clustered_runs(
 /// Union visual hypotheses, never oracle-selected values. Either provider's
 /// rejection intervals veto both; conflicting overlapping texts veto each other.
 /// Equal reads from one source row contribute only one observation.
+#[must_use]
 pub fn merge_reads(mut raw: Reads, clean: Reads, max_symbols: usize) -> Reads {
     #[cfg(feature = "experimental-invalid-visual-veto")]
     {
@@ -280,7 +285,9 @@ mod tests {
         for p in [
             signal(3),
             vec![0.; 512],
-            (0..512).map(|i| (i % 2) as f32).collect(),
+            (0..512)
+                .map(|i| crate::numeric::f64_f32(f64::from(i % 2)))
+                .collect(),
             noisy,
         ] {
             let raw = multi_profile::decode_many(&p, 64).unwrap();
@@ -380,7 +387,9 @@ mod tests {
         for p in [
             vec![0.; 4096],
             vec![1.; 4096],
-            (0..4096).map(|i| (i % 2) as f32).collect(),
+            (0..4096)
+                .map(|i| crate::numeric::f64_f32(f64::from(i % 2)))
+                .collect(),
         ] {
             let (r, w) = decode_cleaned(&p, 64).unwrap();
             assert!(r.symbols.is_empty());
@@ -389,6 +398,10 @@ mod tests {
         }
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn combined_hypotheses_preserve_barriers_and_distinct_equal_reads() {
         fn read(l: f64, r: f64, d: u8) -> crate::run_profile::Read {
             crate::run_profile::Read {

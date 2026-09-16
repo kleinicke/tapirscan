@@ -41,7 +41,11 @@ See [the native contract](NATIVE_BINDINGS.md) and [Python input rules](API_DESIG
 
 `multiformat/` contains independent, opt-in experimental readers. JavaScript loads
 that WASM only when requested formats need it. EAN-13 and UPC-A retain the selected
-primary effort mode; additional readers currently share effort 1.
+primary effort mode. Common1D uses effort 0/1/2/2 and QR Code uses 0/1/2/3
+for Low/Medium/High/Very High; other matrix readers use effort 1.
+When mixed with EAN13/UPCA, confirmed Common1D coverage can defer deep EAN
+retries only for wholly contained proposals. Initial discovery and full-frame
+search remain enabled. Source-detail recovery skips seeds inside that coverage.
 
 These readers have different maturity and incomplete work-limit propagation in
 some paths. Consult [format coverage](FORMATS.md); do not infer QR reliability

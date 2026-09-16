@@ -42,6 +42,10 @@ fn bounded_assembly_preserves_unlinked_and_rejects_invalid_support() {
 }
 
 #[test]
+#[expect(
+    clippy::float_cmp,
+    reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+)]
 fn pixel_edge_bands_preserve_geometry_and_real_gaps_in_all_rotations() {
     for gap in [false, true] {
         for turn in 0..4 {
@@ -97,9 +101,9 @@ fn pixel_edge_bands_preserve_geometry_and_real_gaps_in_all_rotations() {
 #[test]
 fn single_pixel_extent_retains_undecoded_and_outside_geometry_rejects() {
     let mut p = vec![255; 440];
-    for x in 30..410 {
+    for (x, p_entry) in p.iter_mut().enumerate().take(410).skip(30) {
         if BITS.as_bytes()[(x - 30) / 4] == b'1' {
-            p[x] = 0;
+            (*p_entry) = 0;
         }
     }
     let im = ImageView::new(&p, 440, 1, 1, 440).unwrap();

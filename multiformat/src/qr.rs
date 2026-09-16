@@ -11,21 +11,61 @@ pub struct Payload {
     pub corrected: usize,
     pub gs1: bool,
 }
-type Coordinates = Vec<(usize, usize)>;
+type Coordinates = [(usize, usize); 15];
 fn format_coordinates(n: usize) -> (Coordinates, Coordinates) {
-    let mut a: Vec<_> = (0..6).map(|i| (8, i)).collect();
-    a.extend([(8, 7), (8, 8), (7, 8)]);
-    a.extend((9..15).map(|i| (14 - i, 8)));
-    let mut b: Vec<_> = (0..8).map(|i| (n - 1 - i, 8)).collect();
-    b.extend((8..15).map(|i| (8, n - 15 + i)));
+    let a = [
+        (8, 0),
+        (8, 1),
+        (8, 2),
+        (8, 3),
+        (8, 4),
+        (8, 5),
+        (8, 7),
+        (8, 8),
+        (7, 8),
+        (5, 8),
+        (4, 8),
+        (3, 8),
+        (2, 8),
+        (1, 8),
+        (0, 8),
+    ];
+    let b = [
+        (n - 1, 8),
+        (n - 2, 8),
+        (n - 3, 8),
+        (n - 4, 8),
+        (n - 5, 8),
+        (n - 6, 8),
+        (n - 7, 8),
+        (n - 8, 8),
+        (8, n - 7),
+        (8, n - 6),
+        (8, n - 5),
+        (8, n - 4),
+        (8, n - 3),
+        (8, n - 2),
+        (8, n - 1),
+    ];
     (a, b)
 }
-fn format_code(data: u16) -> u16 {
-    let mut r = data;
-    for _ in 0..10 {
-        r = (r << 1) ^ if r & 512 != 0 { 0x537 } else { 0 };
+const FORMAT_CODES: [u16; 32] = {
+    let mut codes = [0; 32];
+    let mut data = 0_u16;
+    while data < 32 {
+        let mut remainder = data;
+        let mut bit = 0;
+        while bit < 10 {
+            remainder = (remainder << 1) ^ if remainder & 512 != 0 { 0x537 } else { 0 };
+            bit += 1;
+        }
+        codes[data as usize] = ((data << 10) | remainder) ^ 0x5412;
+        data += 1;
     }
-    ((data << 10) | r) ^ 0x5412
+    codes
+};
+fn format_code(data: u16) -> u16 {
+    FORMAT_CODES[usize::from(data)]
 }
 
 /// Cheap geometric header screening before allocating and sampling a full grid.
@@ -150,7 +190,7 @@ fn layout(version: usize) -> Vec<(u16, u8)> {
                     let masks = (0..8).fold(0u8, |value, mask| {
                         value | (u8::from(masked(mask, x, y)) << mask)
                     });
-                    bits.push(((y * n + x) as u16, masks));
+                    bits.push((crate::numeric::usize_u16(y * n + x), masks));
                 }
             }
         }
@@ -268,6 +308,10 @@ impl Bits<'_> {
 fn text_segment(bytes: &[u8], eci: Option<usize>) -> Option<String> {
     crate::encoding::decode(bytes, eci)
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "The QR segment dispatcher shares version-dependent lengths, ECI, FNC1 and structured-append state."
+)]
 fn parse(
     data: &[u8],
     v: usize,
@@ -298,7 +342,7 @@ fn parse(
             }
             let index = bits.take(4)? + 1;
             let count = bits.take(4)? + 1;
-            let parity = bits.take(8)? as u8;
+            let parity = (bits.take(8)?).to_le_bytes()[0];
             if index > count {
                 return None;
             }
@@ -349,7 +393,7 @@ fn parse(
                 while left > 0 {
                     let n = left.min(3);
                     let x = bits.take([0, 4, 7, 10][n])?;
-                    if x >= 10usize.pow(n as u32) {
+                    if x >= 10usize.pow(crate::numeric::usize_u32(n)) {
                         return None;
                     }
                     segment.extend(format!("{x:0n$}").as_bytes());
@@ -391,7 +435,7 @@ fn parse(
             }
             4 => {
                 for _ in 0..count {
-                    segment.push(bits.take(8)? as u8);
+                    segment.push((bits.take(8)?).to_le_bytes()[0]);
                 }
             }
             8 | 13 => {
@@ -404,7 +448,7 @@ fn parse(
                         let a = (x / 96) * 256 + x % 96;
                         a + if a < 0x3bf { 0xa1a1 } else { 0xa6a1 }
                     };
-                    segment.extend([(value >> 8) as u8, value as u8]);
+                    segment.extend([(value >> 8).to_le_bytes()[0], (value).to_le_bytes()[0]]);
                 }
                 segment_eci = Some(if mode == 8 { 20 } else { 29 });
             }
@@ -452,7 +496,7 @@ pub fn localization_score(matrix: &[bool], n: usize) -> Option<f32> {
                 + usize::from(matrix[i * n + 6] != (i % 2 == 0))
         })
         .sum::<usize>();
-    let score = 1. - errors as f32 / (2 * (n - 16)) as f32;
+    let score = 1. - crate::numeric::usize_f32(errors) / crate::numeric::usize_f32(2 * (n - 16));
     (score >= 0.8).then_some(score)
 }
 
@@ -476,7 +520,7 @@ mod structured_tests {
         ];
         let bits: Vec<_> = values
             .iter()
-            .flat_map(|&(v, n)| (0..n).rev().map(move |i| ((v >> i) & 1) as u8))
+            .flat_map(|&(v, n)| (0..n).rev().map(move |i| ((v >> i) & 1).to_le_bytes()[0]))
             .collect();
         let bytes: Vec<_> = bits
             .chunks(8)
@@ -498,5 +542,41 @@ mod structured_tests {
                 parity: Some(0x5a)
             })
         );
+    }
+}
+
+#[cfg(test)]
+mod header_proposal_tests {
+    use super::*;
+
+    type LegacyCoordinates = Vec<(usize, usize)>;
+    fn old_coordinates(n: usize) -> (LegacyCoordinates, LegacyCoordinates) {
+        let mut a: Vec<_> = (0..6).map(|i| (8, i)).collect();
+        a.extend([(8, 7), (8, 8), (7, 8)]);
+        a.extend((9..15).map(|i| (14 - i, 8)));
+        let mut b: Vec<_> = (0..8).map(|i| (n - 1 - i, 8)).collect();
+        b.extend((8..15).map(|i| (8, n - 15 + i)));
+        (a, b)
+    }
+
+    fn old_code(data: u16) -> u16 {
+        let mut r = data;
+        for _ in 0..10 {
+            r = (r << 1) ^ if r & 512 != 0 { 0x537 } else { 0 };
+        }
+        ((data << 10) | r) ^ 0x5412
+    }
+
+    #[test]
+    fn fixed_header_tables_match_original_for_all_models_and_codes() {
+        for n in (21..=177).step_by(4) {
+            let (new_a, new_b) = format_coordinates(n);
+            let (old_a, old_b) = old_coordinates(n);
+            assert_eq!(new_a.as_slice(), old_a.as_slice());
+            assert_eq!(new_b.as_slice(), old_b.as_slice());
+        }
+        for data in 0..32 {
+            assert_eq!(format_code(data), old_code(data));
+        }
     }
 }

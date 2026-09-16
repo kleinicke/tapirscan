@@ -4,6 +4,9 @@ import { execFileSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { retailFormats, commonFormats } from "../../bindings/javascript/dist/index.js";
+
+const selections = [["EAN13"], retailFormats, commonFormats, ["QRCode"], ["EAN13"]];
 
 const root = new URL("../../", import.meta.url);
 const dist = new URL("demo/dist/", root);
@@ -64,21 +67,28 @@ const supportedModes = ["low", "medium", "high", "very-high"];
 const modes = [...new Set(process.env.TAPIRSCAN_TEST_MODES?.split(",") || supportedModes)];
 assert.ok(modes.length && modes.every((mode) => supportedModes.includes(mode)));
 for (const mode of modes) {
-  messages.length = 0;
-  await context.self.onmessage({
-    data: {
-      width: fixture.width,
-      height: fixture.height,
-      buffer: rgba.slice().buffer,
-      scannerVersion: mode,
-      formats: ["EAN13", "QRCode"],
-      engineBaseUrl: base + "engines/",
-    },
-  });
-  const message = messages.at(-1);
-  assert.ok(message.result, JSON.stringify(message));
-  assert.ok(message.result.regions.some((b) => b.text === "4006381333931"));
-  console.log(`${mode}: production worker loads and scans under a hosting subpath`);
+  for (const formats of selections) {
+    messages.length = 0;
+    await context.self.onmessage({
+      data: {
+        width: fixture.width,
+        height: fixture.height,
+        buffer: rgba.slice().buffer,
+        scannerVersion: mode,
+        formats,
+        engineBaseUrl: base + "engines/",
+      },
+    });
+    const message = messages.at(-1);
+    assert.ok(message.result, JSON.stringify(message));
+    assert.equal(
+      message.result.regions.some((b) => b.text === "4006381333931"),
+      formats.includes("EAN13"),
+    );
+  }
+  console.log(
+    `${mode}: production worker switches EAN13, retail, common, QR-only, and back under a hosting subpath`,
+  );
 }
 assert.equal(
   loaded.size,
@@ -113,18 +123,28 @@ for (const engine of ["zxing", "zbar"]) {
   };
   vm.createContext(referenceContext);
   vm.runInContext(referenceSource, referenceContext);
-  await referenceContext.self.onmessage({
-    data: {
-      engine,
-      formats: ["EAN13"],
-      engineBaseUrl: base + "engines/",
-      width: fixture.width,
-      height: fixture.height,
-      buffer: rgba.slice().buffer,
-    },
-  });
-  const message = messages.at(-1);
-  assert.ok(message.result, JSON.stringify(message));
-  assert.ok(message.result.regions.some((b) => b.text === "4006381333931"));
-  console.log(`${engine}: production comparison worker loads and decodes EAN13`);
+  for (const formats of selections) {
+    messages.length = 0;
+    await referenceContext.self.onmessage({
+      data: {
+        engine,
+        formats,
+        engineBaseUrl: base + "engines/",
+        width: fixture.width,
+        height: fixture.height,
+        buffer: rgba.slice().buffer,
+      },
+    });
+    const message = messages.at(-1);
+    if (engine === "zbar" && formats.includes("DataMatrix")) {
+      assert.match(message.error, /does not support: DataMatrix/);
+    } else {
+      assert.ok(message.result, JSON.stringify(message));
+      assert.equal(
+        message.result.regions.some((b) => b.text === "4006381333931"),
+        formats.includes("EAN13"),
+      );
+    }
+  }
+  console.log(`${engine}: production comparison worker switches formats and enforces coverage`);
 }

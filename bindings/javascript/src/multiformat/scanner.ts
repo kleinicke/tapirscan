@@ -50,13 +50,17 @@ interface Localization {
 }
 interface ExtraExports extends WebAssembly.Exports {
   memory: WebAssembly.Memory;
-  multi_new(): number;
-  multi_free(handle: number): void;
-  multi_prepare(handle: number, width: number, height: number): number;
-  multi_input(handle: number): number;
-  multi_scan(handle: number, mask: number, effort: number): number;
-  multi_output(handle: number): number;
-  multi_output_len(handle: number): number;
+  multi_capabilities: () => number;
+  multi_prepare_rgba: (handle: number, width: number, height: number) => number;
+  multi_input_rgba: (handle: number) => number;
+  multi_scan_rgba: (handle: number, mask: number, effort: number) => number;
+  multi_new: () => number;
+  multi_free: (handle: number) => void;
+  multi_prepare: (handle: number, width: number, height: number) => number;
+  multi_input: (handle: number) => number;
+  multi_scan: (handle: number, mask: number, effort: number) => number;
+  multi_output: (handle: number) => number;
+  multi_output_len: (handle: number) => number;
 }
 /** Frozen EAN13 Medium plus project-owned opt-in readers. No reference decoder. */
 export class MediumMultiformatScanner {
@@ -64,6 +68,9 @@ export class MediumMultiformatScanner {
   private mode: Mode = "medium";
   private extra?: ExtraExports;
   private handle = 0;
+  private rgba = false;
+  private effort = 1;
+  private qrEffort = 1;
   private disposed = false;
   private constructor() {}
   static async create(
@@ -75,6 +82,8 @@ export class MediumMultiformatScanner {
     const scanner = new MediumMultiformatScanner();
     try {
       scanner.mode = mode;
+      scanner.effort = { low: 0, medium: 1, high: 2, "very-high": 2 }[mode];
+      scanner.qrEffort = { low: 0, medium: 1, high: 2, "very-high": 3 }[mode];
       if (mediumBytes)
         scanner.medium =
           mode !== "low" && recoveryBytes
@@ -97,6 +106,12 @@ export class MediumMultiformatScanner {
         }
         if (!(e.memory instanceof WebAssembly.Memory))
           throw Error("Invalid multiformat WASM memory.");
+        scanner.rgba =
+          typeof e.multi_capabilities === "function" &&
+          (e.multi_capabilities() & 4) !== 0 &&
+          [e.multi_prepare_rgba, e.multi_input_rgba, e.multi_scan_rgba].every(
+            (f) => typeof f === "function",
+          );
         scanner.extra = e;
         scanner.handle = e.multi_new();
         if (!scanner.handle) throw Error("Could not create additional reader session.");
@@ -154,11 +169,52 @@ export class MediumMultiformatScanner {
       additionalMs = 0,
       preparationMs = 0,
       localizationMs = 0;
+    const extraFormats = formats.filter(
+      (f) => eanAddOnSymbol !== "Ignore" || (f !== "EAN13" && f !== "UPCA"),
+    );
+    const conservative =
+      medium instanceof ReleaseDetailScanner &&
+      !localized &&
+      eanAddOnSymbol === "Ignore" &&
+      formats.some((f) => f === "EAN13" || f === "UPCA") &&
+      extraFormats.some((f) => supportedLinearFormats.includes(f));
+    let preparedGray: Uint8Array | undefined;
+    let preLinear: ReturnType<MediumMultiformatScanner["scanExtra"]> | undefined;
+    const coverage: Quad[] = [];
+    if (conservative) {
+      const prepareStart = performance.now();
+      preparedGray = toGray(image);
+      preparationMs += performance.now() - prepareStart;
+      const extraStart = performance.now();
+      preLinear = this.scanExtra(
+        preparedGray,
+        width,
+        height,
+        extraFormats.filter((f) => supportedLinearFormats.includes(f)),
+        this.effort,
+        eanAddOnSymbol,
+      );
+      additionalMs += performance.now() - extraStart;
+      for (const read of preLinear.barcodes) {
+        const error = read.error ?? Infinity;
+        const checked =
+          ["EAN8", "UPCE", "Code128"].includes(read.format) && read.support >= 3 && error <= 0.08;
+        const unchecked =
+          ["Code39", "ITF"].includes(read.format) &&
+          read.support >= 8 &&
+          error <= 0.035 &&
+          read.text.length >= 8;
+        if (checked || unchecked) coverage.push(read.polygon);
+      }
+    }
     if (formats.includes("EAN13") || formats.includes("UPCA")) {
       if (!medium) throw Error("EAN13 engine has not been initialized.");
       const begin = performance.now();
 
-      const found = medium.scanLocalized(image, policy, fitLimits[this.mode], true);
+      const found =
+        medium instanceof ReleaseDetailScanner
+          ? medium.scanLocalized(image, policy, fitLimits[this.mode], true, coverage)
+          : medium.scanLocalized(image, policy, fitLimits[this.mode], true);
       primary = found;
       const localization = found.localization as unknown as Localization;
       proposals = localization.proposals;
@@ -206,30 +262,50 @@ export class MediumMultiformatScanner {
     }
     // UPC-A has the same optical structure as zero-prefixed EAN13, so the
     // frozen Medium reader handles it without a second optical search.
-    const extraFormats = formats.filter(
-      (f) => eanAddOnSymbol !== "Ignore" || (f !== "EAN13" && f !== "UPCA"),
-    );
     if (extraFormats.length) {
       if (!this.extra || !this.handle) throw Error("Additional readers have not been loaded.");
       const begin = performance.now();
-      const gray = toGray(image);
-      preparationMs = performance.now() - begin;
+      const rgba =
+        this.rgba &&
+        !localized &&
+        formats.length === 1 &&
+        formats[0] === "QRCode" &&
+        channels === 4 &&
+        stride === width * 4;
+      const gray = preparedGray ?? (rgba ? data.subarray(0, width * height * 4) : toGray(image));
+      preparationMs += performance.now() - begin;
       const matrixFormats = extraFormats.filter((f) => !supportedLinearFormats.includes(f));
       const linearFormats = extraFormats.filter((f) => supportedLinearFormats.includes(f));
       const run = (pixels: Uint8Array, w: number, h: number, enabled: Format[], effort: number) => {
         const start = performance.now();
-        const result = this.scanExtra(pixels, w, h, enabled, effort, eanAddOnSymbol);
+        const result = this.scanExtra(pixels, w, h, enabled, effort, eanAddOnSymbol, rgba);
         additionalMs += performance.now() - start;
         unfinished ||= result.unfinished;
         return result;
       };
       if (!localized || !proposals.length) {
-        const result = run(gray, width, height, extraFormats, 1);
-        barcodes.push(...result.barcodes);
-        regions.push(...(result.regions ?? []));
+        for (const [enabled, effort] of [
+          [linearFormats, this.effort],
+          [matrixFormats, matrixFormats.includes("QRCode") ? this.qrEffort : 1],
+        ] as const) {
+          if (!enabled.length) continue;
+          const result =
+            enabled === linearFormats && preLinear
+              ? preLinear
+              : run(gray, width, height, enabled, effort);
+          unfinished ||= result.unfinished;
+          barcodes.push(...result.barcodes);
+          regions.push(...(result.regions ?? []));
+        }
       } else {
         if (matrixFormats.length) {
-          const result = run(gray, width, height, matrixFormats, 1);
+          const result = run(
+            gray,
+            width,
+            height,
+            matrixFormats,
+            matrixFormats.includes("QRCode") ? this.qrEffort : 1,
+          );
           barcodes.push(...result.barcodes);
           regions.push(...(result.regions ?? []));
         }
@@ -312,16 +388,22 @@ export class MediumMultiformatScanner {
     formats: Format[],
     effort: number,
     eanAddOnSymbol: EanAddOnSymbol,
+    rgba = false,
   ) {
     const e = this.extra;
     if (!e || !this.handle) throw Error("Additional readers have not been loaded.");
-    if (e.multi_prepare(this.handle, width, height) !== 0)
+    if ((rgba ? e.multi_prepare_rgba : e.multi_prepare)(this.handle, width, height) !== 0)
       throw Error("Additional reader rejected image size.");
-    new Uint8Array(e.memory.buffer, e.multi_input(this.handle), width * height).set(gray);
+    new Uint8Array(
+      e.memory.buffer,
+      (rgba ? e.multi_input_rgba : e.multi_input)(this.handle),
+      width * height * (rgba ? 4 : 1),
+    ).set(gray);
     const mask =
       maskFor(formats) |
       (eanAddOnSymbol === "Read" ? 32768 : eanAddOnSymbol === "Require" ? 65536 : 0);
-    if (e.multi_scan(this.handle, mask, effort) !== 0) throw Error("Additional scanner failed.");
+    if ((rgba ? e.multi_scan_rgba : e.multi_scan)(this.handle, mask, effort) !== 0)
+      throw Error("Additional scanner failed.");
     const bytes = new Uint8Array(
       e.memory.buffer,
       e.multi_output(this.handle),

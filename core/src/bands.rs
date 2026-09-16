@@ -25,34 +25,40 @@ struct Group {
     count: usize,
 }
 impl BandScanner {
+    #[must_use]
     pub fn reads(&self) -> &[Read] {
         &self.reads
     }
+    #[must_use]
     pub fn attempts(&self) -> usize {
         self.attempts
     }
+    #[must_use]
     pub fn truncated(&self) -> bool {
         self.truncated
     }
     /// Original region remains coverage, including invalid/undecoded/truncated cases.
     /// Returned bands are evidence, not proof that all physical symbols were found.
     /// Work:64 path decodes, at most62 bounded continuity checks; <=8 output bands.
+    /// # Errors
+    /// Propagates invalid quadrilateral, projection and profile-sampling errors.
     pub fn scan(&mut self, image: ImageView<'_>, quad: Quad) -> Result<&[Read], Error> {
         self.reads.clear();
         self.attempts = 0;
         self.truncated = false;
-        let m = transform(quad)?;
+        let matrix = transform(quad)?;
         self.reads
             .try_reserve(MAX_READS)
             .map_err(|_| Error::Allocation)?;
         for axis in 0..2 {
             let mut group: Option<Group> = None;
             for i in 0..PATHS {
-                let fraction = (i as f64 + 0.5) / PATHS as f64;
+                let fraction =
+                    (crate::numeric::usize_f64(i) + 0.5) / crate::numeric::usize_f64(PATHS);
                 self.attempts += 1;
                 let Some(p) = self.sampler.sample(
                     image,
-                    m,
+                    matrix,
                     Path {
                         axis,
                         fraction,
@@ -87,13 +93,13 @@ impl BandScanner {
                         // continuity; output polygons use the actual decoded path endpoints.
                         let eps = 1e-5;
                         let a = [
-                            project(m, axis, g.last.left, g.last.fraction - eps)?,
-                            project(m, axis, g.last.right, g.last.fraction - eps)?,
-                            project(m, axis, g.last.right, g.last.fraction + eps)?,
-                            project(m, axis, g.last.left, g.last.fraction + eps)?,
+                            project(matrix, axis, g.last.left, g.last.fraction - eps)?,
+                            project(matrix, axis, g.last.right, g.last.fraction - eps)?,
+                            project(matrix, axis, g.last.right, g.last.fraction + eps)?,
+                            project(matrix, axis, g.last.left, g.last.fraction + eps)?,
                         ];
-                        let l = project(m, axis, left, fraction)?;
-                        let r = project(m, axis, right, fraction)?;
+                        let l = project(matrix, axis, left, fraction)?;
+                        let r = project(matrix, axis, right, fraction)?;
                         self.continuity
                             .check(image, a, [l, r, r, l])
                             .map(|e| e.supported)
@@ -102,14 +108,13 @@ impl BandScanner {
                 } else {
                     false
                 };
-                if joined {
-                    let g = group.as_mut().unwrap();
+                if let Some(g) = group.as_mut().filter(|_| joined) {
                     g.last = path;
                     g.count += 1;
                     g.read = read;
                 } else {
                     if let Some(g) = group.take() {
-                        self.finish(m, axis, g)?;
+                        self.finish(matrix, axis, g)?;
                     }
                     group = Some(Group {
                         read,
@@ -120,7 +125,7 @@ impl BandScanner {
                 }
             }
             if let Some(g) = group {
-                self.finish(m, axis, g)?;
+                self.finish(matrix, axis, g)?;
             }
         }
         Ok(&self.reads)

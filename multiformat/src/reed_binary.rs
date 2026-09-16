@@ -15,7 +15,7 @@ impl Field {
         };
         let mut x = 1;
         for i in 0..size - 1 {
-            f.exp[i] = x as u16;
+            f.exp[i] = crate::numeric::usize_u16(x);
             f.log[x] = i;
             x <<= 1;
             if x & size != 0 {

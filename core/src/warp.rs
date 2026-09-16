@@ -10,6 +10,8 @@ pub struct Warper {
 impl Warper {
     /// Transform maps destination pixel coordinates to original-image coordinates.
     /// Border replication, half-pixel centers and byte rounding match warp.mjs.
+    /// # Errors
+    /// Returns `OutputShape` for invalid or oversized output and `Geometry` for projective poles or non-finite coordinates.
     pub fn warp(
         &mut self,
         image: ImageView<'_>,
@@ -22,6 +24,8 @@ impl Warper {
     /// Exact rounded-RGB warp followed by in-place luminance compaction. The
     /// allocation remains color-sized and reusable; callers receive one byte/pixel.
     /// (306*R + 601*G + 117*B + 512) >> 10 matches `ZXing` `RGBToLum`; alpha ignored.
+    /// # Errors
+    /// Returns `OutputShape` for invalid or oversized output and `Geometry` for projective poles or non-finite coordinates.
     pub fn warp_luminance(
         &mut self,
         image: ImageView<'_>,
@@ -41,7 +45,7 @@ impl Warper {
                     >> 10;
                 // i <= j, and all components are loaded before writing. Future
                 // source pixels cannot be overwritten by prefix compaction.
-                self.output[i] = value as u8;
+                self.output[i] = (value).to_le_bytes()[0];
             }
         }
         self.output_len = pixels;
@@ -67,9 +71,12 @@ impl Warper {
         let mut positive = false;
         for (x, y) in [
             (0., 0.),
-            (width as f64, 0.),
-            (width as f64, height as f64),
-            (0., height as f64),
+            (crate::numeric::usize_f64(width), 0.),
+            (
+                crate::numeric::usize_f64(width),
+                crate::numeric::usize_f64(height),
+            ),
+            (0., crate::numeric::usize_f64(height)),
         ] {
             let z = m[6] * x + m[7] * y + m[8];
             let sx = (m[0] * x + m[1] * y + m[2]) / z;
@@ -89,12 +96,16 @@ impl Warper {
                 .map_err(|_| Error::Allocation)?;
         }
         self.output.resize(len, 0);
-        let cx = |x: f64| x.clamp(0., (image.width - 1) as f64) as usize;
-        let cy = |y: f64| y.clamp(0., (image.height - 1) as f64) as usize;
+        let cx = |x: f64| {
+            crate::numeric::f64_usize(x.clamp(0., crate::numeric::usize_f64(image.width - 1)))
+        };
+        let cy = |y: f64| {
+            crate::numeric::f64_usize(y.clamp(0., crate::numeric::usize_f64(image.height - 1)))
+        };
         for y in 0..height {
             for x in 0..width {
-                let dx = x as f64 + 0.5;
-                let dy = y as f64 + 0.5;
+                let dx = crate::numeric::usize_f64(x) + 0.5;
+                let dy = crate::numeric::usize_f64(y) + 0.5;
                 let z = m[6] * dx + m[7] * dy + m[8];
                 let sx = (m[0] * dx + m[1] * dy + m[2]) / z - 0.5;
                 let sy = (m[3] * dx + m[4] * dy + m[5]) / z - 0.5;
@@ -116,7 +127,7 @@ impl Warper {
                     let v11 = f64::from(image.data[i11 + c]);
                     let top = v00 + (v01 - v00) * fx;
                     let bot = v10 + (v11 - v10) * fx;
-                    (top + (bot - top) * fy).round() as u8
+                    crate::numeric::f64_u8((top + (bot - top) * fy).round())
                 };
                 for c in 0..channels {
                     self.output[(y * width + x) * channels + c] = value(c);
@@ -139,9 +150,11 @@ mod tests {
     #[test]
     fn identity_stride_channels_and_reuse() {
         let mut w = Warper::default();
-        for c in [1, 3, 4] {
+        for c in [1usize, 3, 4] {
             let stride = 3 * c + 5;
-            let bytes: Vec<u8> = (0..(stride * 3)).map(|i| (i * 37) as u8).collect();
+            let bytes: Vec<u8> = (0..(stride * 3))
+                .map(|i| (i * 37).to_le_bytes()[0])
+                .collect();
             let image = ImageView::new(&bytes, 3, 3, c, stride).unwrap();
             let expected: Vec<u8> = (0..3)
                 .flat_map(|y| bytes[y * stride..y * stride + 3 * c].iter().copied())
@@ -181,18 +194,18 @@ mod luminance_tests {
     fn fused_matches_independent_post_warp_luminance() {
         let mut color = Warper::default();
         let mut gray = Warper::default();
-        for channels in [1, 3, 4] {
+        for channels in [1usize, 3, 4] {
             for seed in 0..30 {
                 let (w, h) = (17, 13);
                 let stride = w * channels + 5;
                 let p: Vec<u8> = (0..stride * h)
-                    .map(|i| ((i * 97 + seed * 13) ^ (i * 3 + seed * 41)) as u8)
+                    .map(|i| ((i * 97 + seed * 13) ^ (i * 3 + seed * 41)).to_le_bytes()[0])
                     .collect();
                 let image = ImageView::new(&p, w, h, channels, stride).unwrap();
                 let m = Transform::new([
                     0.9,
                     0.08,
-                    seed as f64 * 0.1 - 2.,
+                    crate::numeric::usize_f64(seed) * 0.1 - 2.,
                     -0.04,
                     1.1,
                     0.3,
@@ -212,7 +225,8 @@ mod luminance_tests {
                                 + 601 * u32::from(v[1])
                                 + 117 * u32::from(v[2])
                                 + 512)
-                                >> 10) as u8
+                                >> 10)
+                                .to_le_bytes()[0]
                         }
                     })
                     .collect();

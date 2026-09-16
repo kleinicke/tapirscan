@@ -39,18 +39,12 @@ Explicit environment variables override this file. Without a Python setting,
 the gate resolves `python3` on PATH to its executable path before calling ty.
 Missing dependencies or a missing JDK fail checks; they are never silently skipped.
 
-### Historical imported-core audit
+### Imported scanner checks
 
-```sh
-node tools/quality/all.mjs --with-core
-```
-
-This additionally runs the strict Clippy audit of the frozen base core's fast and
-quality features. It currently fails on historical lint debt. The ordinary gate
-explicitly reports that this audit was not run; it does not claim imported code is
-lint-clean. Resolving that debt requires synchronized recipes/provenance and
-rebuilt scanner parity through [the promotion procedure](PROMOTING_CHANGES.md).
-No baseline suppressions or relaxed rules turn these diagnostics into a pass.
+The ordinary quality gate includes strict Clippy checks for the frozen base core's
+fast/quality features, all four selected mode recipes, and the multiformat crate.
+Imported snapshots remain excluded from automatic formatting. Changes still
+require synchronized provenance and [promotion validation](PROMOTING_CHANGES.md).
 
 ## Tools and focused checks
 
@@ -107,11 +101,10 @@ Path-only commits (`git commit --only`) use a temporary index; Git can leave
 formatting differences in the regular index afterward. Prefer committing the
 staged selection normally. Immutable camera-demo vendor hosts are excluded.
 
-Full Rust/JS checks currently expose existing source diagnostics (including the imported release core); adding tooling
-is not a claim that historical experiments satisfy every new lint. Fix findings
-with focused behavioral tests. Do not disable strict rules wholesale to hide them.
-The Rust audit checks all targets for base-crate fast/quality features and the
-research `decoder-sprint` crate, not every experimental recipe. Selected release experiments also need their own build and parity checks.
+Fix lint findings with focused behavioral tests. Do not disable strict rules wholesale.
+The release Rust audit checks all targets for base-crate fast/quality features,
+the multiformat crate, and all four selected recipes. Research-only recipes are
+outside that gate. Runtime parity is verified separately.
 
 ## Protected scanner history and promotion
 
@@ -155,8 +148,6 @@ with Ruff ALL, ty and strict mypy; C/C++ with compiler conversion/sign warnings
 as errors; and Java with javac all warnings as errors. Java's restricted native
 FFM calls have documented, method-local exceptions; other warnings stay errors.
 
-Historical imported core and JS host remain excluded from the maintained binding
-gate, just as they are from Python lint and automatic formatting. Their debt is
-not hidden or declared clean: `node tools/quality/check.mjs rust` audits the core
-and still fails. A full scanner migration must regenerate recipes/provenance and
-validate rebuilt versions before this exception can be removed.
+Frozen JS hosts remain excluded from maintained-source lint and automatic formatting.
+Imported Rust source is checked by the regular gate, including selected recipes;
+scanner parity and package installation checks remain separate runtime checks.

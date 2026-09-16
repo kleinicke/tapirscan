@@ -1,6 +1,10 @@
 //! Project-owned QR finder grouping, projective grid estimation and sampling.
+mod finder_index;
 use crate::{qr, Detection};
+mod curved;
 mod partial;
+mod ring;
+mod single;
 #[derive(Clone, Debug)]
 struct Finder {
     x: f32,
@@ -10,12 +14,12 @@ struct Finder {
     quad: Option<[[f32; 2]; 4]>,
 }
 fn ratio(r: &[usize]) -> Option<f32> {
-    let module = r.iter().sum::<usize>() as f32 / 7.;
+    let module = crate::numeric::usize_f32(r.iter().sum::<usize>()) / 7.;
     if module < 0.75 {
         return None;
     }
     for (i, &n) in r.iter().enumerate() {
-        if (n as f32 - module * if i == 2 { 3. } else { 1. }).abs()
+        if (crate::numeric::usize_f32(n) - module * if i == 2 { 3. } else { 1. }).abs()
             > module * if i == 2 { 1.8 } else { 0.85 }
         {
             return None;
@@ -44,7 +48,7 @@ fn cross(
     if !pixel(at) {
         return None;
     }
-    let max = (expected * 12.).ceil() as usize;
+    let max = crate::numeric::f32_usize((expected * 12.).ceil());
     let mut runs = [0usize; 5];
     let mut start = at;
     let mut end = at;
@@ -55,7 +59,7 @@ fn cross(
         end += 1;
     }
     runs[2] = end - start;
-    let center = (start + end) as f32 * 0.5;
+    let center = crate::numeric::usize_f32(start + end) * 0.5;
     let mut cursor = start;
     while cursor > 0 && !pixel(cursor - 1) && runs[1] < max {
         cursor -= 1;
@@ -80,30 +84,36 @@ fn cross(
     }
     Some((center, module))
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn finders(image: &[bool], w: usize, h: usize) -> (Vec<Finder>, bool) {
-    let mut found: Vec<Finder> = Vec::new();
+    finders_with_rows(image, w, h, None)
+}
+fn finders_with_rows(
+    image: &[bool],
+    w: usize,
+    h: usize,
+    row_cache: Option<&crate::binarization::RowOffsets>,
+) -> (Vec<Finder>, bool) {
+    let mut found = finder_index::Index::new(w, h);
     let step = (h / 600).max(1);
+    let mut offsets = Vec::new();
     for y in (0..h).step_by(step) {
         let row = &image[y * w..(y + 1) * w];
-        let mut starts = vec![0];
-        let mut widths = Vec::new();
-        let mut at = 0;
-        for x in 1..w {
-            if row[x] != row[at] {
-                widths.push(x - at);
-                starts.push(x);
-                at = x;
-            }
+        if let Some(cache) = row_cache {
+            cache.copy_or_extract(y, row, &mut offsets);
+        } else {
+            crate::transition_offsets_into(row, &mut offsets);
         }
-        widths.push(w - at);
-        for i in 0..widths.len().saturating_sub(4) {
-            if !row[starts[i]] {
+        for i in 0..offsets.len().saturating_sub(5) {
+            if !row[offsets[i]] {
                 continue;
             }
-            let Some(m) = ratio(&widths[i..i + 5]) else {
+            let widths: [usize; 5] =
+                std::array::from_fn(|run| offsets[i + run + 1] - offsets[i + run]);
+            let Some(m) = ratio(&widths) else {
                 continue;
             };
-            let x = starts[i] + widths[i] + widths[i + 1] + widths[i + 2] / 2;
+            let x = offsets[i] + widths[0] + widths[1] + widths[2] / 2;
             let Some((cy, my)) = cross(image, w, h, x, y, true, m) else {
                 continue;
             };
@@ -112,35 +122,17 @@ fn finders(image: &[bool], w: usize, h: usize) -> (Vec<Finder>, bool) {
                 w,
                 h,
                 x,
-                cy.floor().min((h - 1) as f32) as usize,
+                crate::numeric::f32_usize(cy.floor().min(crate::numeric::usize_f32(h - 1))),
                 false,
                 my,
             ) else {
                 continue;
             };
             let module = (mx + my) * 0.5;
-            if let Some(f) = found.iter_mut().find(|f| {
-                (f.x - cx).abs() < module * 2.
-                    && (f.y - cy).abs() < module * 2.
-                    && f.module / module > 0.4
-                    && f.module / module < 2.5
-            }) {
-                let support_count = f.support as f32;
-                f.x = (f.x * support_count + cx) / (support_count + 1.);
-                f.y = (f.y * support_count + cy) / (support_count + 1.);
-                f.module = (f.module * support_count + module) / (support_count + 1.);
-                f.support += 1;
-            } else {
-                found.push(Finder {
-                    x: cx,
-                    y: cy,
-                    module,
-                    support: 1,
-                    quad: None,
-                });
-            }
+            found.insert(cx, cy, module);
         }
     }
+    let mut found = found.into_centers();
     found.retain(|f| f.support >= 2);
     found.retain(|f| crate::binarization::has_two_directions(image, w, h, f.x, f.y, f.module * 4.));
     found.sort_by_key(|f| std::cmp::Reverse(f.support));
@@ -167,13 +159,18 @@ fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) ->
         let mut center_errors = 0;
         for y in -3i32..=3 {
             for x in -3i32..=3 {
-                let [px, py] = map(&t, x as f32 * scale, y as f32 * scale);
+                let [px, py] = map(
+                    &t,
+                    crate::numeric::f64_f32(f64::from(x)) * scale,
+                    crate::numeric::f64_f32(f64::from(y)) * scale,
+                );
                 let expected = x.abs().max(y.abs()) != 2;
                 if px < 0.
                     || py < 0.
-                    || px >= w as f32
-                    || py >= h as f32
-                    || image[py as usize * w + px as usize] != expected
+                    || px >= crate::numeric::usize_f32(w)
+                    || py >= crate::numeric::usize_f32(h)
+                    || image[crate::numeric::f32_usize(py) * w + crate::numeric::f32_usize(px)]
+                        != expected
                 {
                     errors += 1;
                     moat_errors += usize::from(x.abs().max(y.abs()) == 2);
@@ -312,21 +309,31 @@ pub fn diagnostic_finders(image: &[bool], w: usize, h: usize) -> serde_json::Val
     )
 }
 fn central_quad(bits: &[bool], w: usize, h: usize, finder: &Finder) -> Option<[[f32; 2]; 4]> {
-    let x = finder.x.floor() as isize;
-    let y = finder.y.floor() as isize;
-    if x < 0 || y < 0 || x >= w as isize || y >= h as isize || !bits[y as usize * w + x as usize] {
+    let x = crate::numeric::f32_isize(finder.x.floor());
+    let y = crate::numeric::f32_isize(finder.y.floor());
+    if x < 0
+        || y < 0
+        || x >= (w).cast_signed()
+        || y >= (h).cast_signed()
+        || !bits[(y).cast_unsigned() * w + (x).cast_unsigned()]
+    {
         return None;
     }
-    let radius = (finder.module * 3.5).ceil() as isize + 2;
+    let radius = crate::numeric::f32_isize((finder.module * 3.5).ceil()) + 2;
     let left = (x - radius).max(0);
     let top = (y - radius).max(0);
-    let right = (x + radius + 1).min(w as isize);
-    let bottom = (y + radius + 1).min(h as isize);
+    let right = (x + radius + 1).min((w).cast_signed());
+    let bottom = (y + radius + 1).min((h).cast_signed());
     crate::component_geometry::quad(
         bits,
         w,
-        [x as usize, y as usize],
-        [left as usize, top as usize, right as usize, bottom as usize],
+        [(x).cast_unsigned(), (y).cast_unsigned()],
+        [
+            (left).cast_unsigned(),
+            (top).cast_unsigned(),
+            (right).cast_unsigned(),
+            (bottom).cast_unsigned(),
+        ],
         [4., finder.module * finder.module * 20.],
     )
 }
@@ -368,7 +375,9 @@ fn least_squares_homography(pairs: &[([f32; 2], [f32; 2])]) -> Option<[f32; 8]> 
             }
         }
     }
-    Some(std::array::from_fn(|i| normal[i][8] as f32))
+    Some(std::array::from_fn(|i| {
+        crate::numeric::f64_f32(normal[i][8])
+    }))
 }
 fn finder_homography(tl: &Finder, tr: &Finder, bl: &Finder, n: f32) -> Option<[f32; 8]> {
     let ex = [(tr.x - tl.x) / (n - 7.), (tr.y - tl.y) / (n - 7.)];
@@ -407,27 +416,82 @@ pub fn binarize(gray: &[u8], w: usize, h: usize, local: bool) -> Vec<bool> {
     if !local {
         return super::threshold(gray, 0);
     }
-    let mut sum = vec![0u64; (w + 1) * (h + 1)];
-    for y in 0..h {
-        let mut row = 0;
-        for x in 0..w {
-            row += u64::from(gray[y * w + x]);
-            sum[(y + 1) * (w + 1) + x + 1] = sum[y * (w + 1) + x + 1] + row;
-        }
-    }
     let radius = 16;
     let mut out = vec![false; w * h];
+    // Only the current 33-row window is needed. A full-frame u64
+    // integral image costs eight bytes per pixel; column sums cost four per
+    // image column, with integer-exact totals bounded by 33 * 33 * 255.
+    let mut columns = vec![0_u32; w];
+    let mut prefix = vec![0_u32; w + 1];
+    let mut top = 0;
+    let mut bottom = 0;
     for y in 0..h {
-        let top = y.saturating_sub(radius);
-        let bottom = (y + radius + 1).min(h);
+        let next_top = y.saturating_sub(radius);
+        let next_bottom = y.saturating_add(radius + 1).min(h);
+        while bottom < next_bottom {
+            for (column, &pixel) in columns.iter_mut().zip(&gray[bottom * w..(bottom + 1) * w]) {
+                *column += u32::from(pixel);
+            }
+            bottom += 1;
+        }
+        while top < next_top {
+            for (column, &pixel) in columns.iter_mut().zip(&gray[top * w..(top + 1) * w]) {
+                *column -= u32::from(pixel);
+            }
+            top += 1;
+        }
+        if w >= 33 {
+            let rows = u32::try_from(bottom - top).expect("window height is at most 33");
+            let input = &gray[y * w..(y + 1) * w];
+            let output = &mut out[y * w..(y + 1) * w];
+            let mut total = 0_u32;
+            for (sum, &column) in prefix[1..].iter_mut().zip(&columns) {
+                total = total.wrapping_add(column);
+                *sum = total;
+            }
+            // Prefix subtraction is exact modulo u32 even for very wide images:
+            // each local window remains bounded by 33*33*255.
+            for x in 0..16 {
+                let area = rows * u32::try_from(x + 17).expect("edge window is below 33");
+                output[x] = (u32::from(input[x]) + 5) * area < prefix[x + 17];
+            }
+            let area = rows * 33;
+            for x in 16..w - 16 {
+                let total = prefix[x + 17].wrapping_sub(prefix[x - 16]);
+                output[x] = (u32::from(input[x]) + 5) * area < total;
+            }
+            for x in w - 16..w {
+                let area = rows * u32::try_from(w - x + 16).expect("edge window is below 33");
+                let total = prefix[w].wrapping_sub(prefix[x - 16]);
+                output[x] = (u32::from(input[x]) + 5) * area < total;
+            }
+            continue;
+        }
+        let mut left = 0;
+        let mut right = 0;
+        let mut total = 0_u32;
+        while right < w.min(radius + 1) {
+            total += columns[right];
+            right += 1;
+        }
         for x in 0..w {
             let l = x.saturating_sub(radius);
-            let r = (x + radius + 1).min(w);
+            let r = x.saturating_add(radius + 1).min(w);
+            while left < l {
+                total -= columns[left];
+                left += 1;
+            }
+            while right < r {
+                total += columns[right];
+                right += 1;
+            }
             let area = (bottom - top) * (r - l);
-            let total = sum[bottom * (w + 1) + r] + sum[top * (w + 1) + l]
-                - sum[top * (w + 1) + r]
-                - sum[bottom * (w + 1) + l];
-            out[y * w + x] = (u64::from(gray[y * w + x]) + 5) * (area as u64) < total;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "Both clamped window sides are at most 33 pixels; area is at most 1089."
+            )]
+            let area = area as u32;
+            out[y * w + x] = (u32::from(gray[y * w + x]) + 5) * area < total;
         }
     }
     out
@@ -485,23 +549,36 @@ fn alignment(
     ey: [f32; 2],
 ) -> Vec<[f32; 2]> {
     let module = (ex[0].hypot(ex[1]) + ey[0].hypot(ey[1])) * 0.5;
-    let range = (module * 8.).ceil() as isize;
-    let step = (module * 0.4).round().max(1.) as usize;
+    let range = crate::numeric::f32_isize((module * 8.).ceil());
+    let step = crate::numeric::f32_usize((module * 0.4).round().max(1.));
     let mut candidates = Vec::new();
     for dy in (-range..=range).step_by(step) {
         'locations: for dx in (-range..=range).step_by(step) {
-            let center = [guess[0] + dx as f32, guess[1] + dy as f32];
+            let center = [
+                guess[0] + crate::numeric::isize_f32(dx),
+                guess[1] + crate::numeric::isize_f32(dy),
+            ];
             let mut e = 0;
             for y in -2i32..=2 {
                 for x in -2i32..=2 {
-                    let xx = (center[0] + x as f32 * ex[0] + y as f32 * ey[0]).floor() as isize;
-                    let yy = (center[1] + x as f32 * ex[1] + y as f32 * ey[1]).floor() as isize;
+                    let xx = crate::numeric::f32_isize(
+                        (center[0]
+                            + crate::numeric::f64_f32(f64::from(x)) * ex[0]
+                            + crate::numeric::f64_f32(f64::from(y)) * ey[0])
+                            .floor(),
+                    );
+                    let yy = crate::numeric::f32_isize(
+                        (center[1]
+                            + crate::numeric::f64_f32(f64::from(x)) * ex[1]
+                            + crate::numeric::f64_f32(f64::from(y)) * ey[1])
+                            .floor(),
+                    );
                     let expect = x.abs().max(y.abs()) != 1;
                     if xx < 0
                         || yy < 0
-                        || xx >= w as isize
-                        || yy >= h as isize
-                        || image[yy as usize * w + xx as usize] != expect
+                        || xx >= (w).cast_signed()
+                        || yy >= (h).cast_signed()
+                        || image[(yy).cast_unsigned() * w + (xx).cast_unsigned()] != expect
                     {
                         e += 1;
                         if e > 3 {
@@ -511,8 +588,11 @@ fn alignment(
                 }
             }
             if e <= 3 {
-                let d = (dx * dx + dy * dy) as f32 / module.powi(2);
-                candidates.push((e as f32 * 3. + d * 0.04, center));
+                let d = crate::numeric::isize_f32(dx * dx + dy * dy) / module.powi(2);
+                candidates.push((
+                    crate::numeric::f64_f32(f64::from(e)) * 3. + d * 0.04,
+                    center,
+                ));
             }
         }
     }
@@ -543,13 +623,17 @@ pub fn sample(
     let mut out = Vec::with_capacity(n * n);
     for y in 0..n {
         for x in 0..n {
-            let p = map(transform, x as f32 + 0.5 + offset, y as f32 + 0.5 + offset);
-            let xx = p[0].floor() as isize;
-            let yy = p[1].floor() as isize;
-            if xx < 0 || yy < 0 || xx >= w as isize || yy >= h as isize {
+            let p = map(
+                transform,
+                crate::numeric::usize_f32(x) + 0.5 + offset,
+                crate::numeric::usize_f32(y) + 0.5 + offset,
+            );
+            let xx = crate::numeric::f32_isize(p[0].floor());
+            let yy = crate::numeric::f32_isize(p[1].floor());
+            if xx < 0 || yy < 0 || xx >= (w).cast_signed() || yy >= (h).cast_signed() {
                 return None;
             }
-            out.push(image[yy as usize * w + xx as usize]);
+            out.push(image[(yy).cast_unsigned() * w + (xx).cast_unsigned()]);
         }
     }
     Some(out)
@@ -565,14 +649,24 @@ fn finder_grid_valid(
     let mut errors = 0;
     for y in -3i32..=3 {
         for x in -3i32..=3 {
-            let xx = (center[0] + x as f32 * ex[0] + y as f32 * ey[0]).floor() as isize;
-            let yy = (center[1] + x as f32 * ex[1] + y as f32 * ey[1]).floor() as isize;
+            let xx = crate::numeric::f32_isize(
+                (center[0]
+                    + crate::numeric::f64_f32(f64::from(x)) * ex[0]
+                    + crate::numeric::f64_f32(f64::from(y)) * ey[0])
+                    .floor(),
+            );
+            let yy = crate::numeric::f32_isize(
+                (center[1]
+                    + crate::numeric::f64_f32(f64::from(x)) * ex[1]
+                    + crate::numeric::f64_f32(f64::from(y)) * ey[1])
+                    .floor(),
+            );
             let expected = x.abs().max(y.abs()) != 2;
             if xx < 0
                 || yy < 0
-                || xx >= w as isize
-                || yy >= h as isize
-                || image[yy as usize * w + xx as usize] != expected
+                || xx >= (w).cast_signed()
+                || yy >= (h).cast_signed()
+                || image[(yy).cast_unsigned() * w + (xx).cast_unsigned()] != expected
             {
                 errors += 1;
             }
@@ -593,19 +687,70 @@ pub fn detect(
     regions: &mut crate::regions::Regions,
     binary_images: &mut crate::binarization::Images<'_>,
 ) -> (Vec<Detection>, bool) {
+    detect_with_recovery(w, h, regions, binary_images, false, false)
+}
+/// Higher-effort QR search retains the standard passes and adds a foreground threshold.
+pub fn detect_extended(
+    w: usize,
+    h: usize,
+    regions: &mut crate::regions::Regions,
+    binary_images: &mut crate::binarization::Images<'_>,
+) -> (Vec<Detection>, bool) {
+    detect_with_recovery(w, h, regions, binary_images, true, false)
+}
+/// Very-high-effort QR search also tests bounded timing-guided curved grids.
+pub fn detect_curved(
+    w: usize,
+    h: usize,
+    regions: &mut crate::regions::Regions,
+    binary_images: &mut crate::binarization::Images<'_>,
+) -> (Vec<Detection>, bool) {
+    detect_with_recovery(w, h, regions, binary_images, true, true)
+}
+#[expect(
+    clippy::too_many_lines,
+    reason = "QR detection preserves its ordered finder hypotheses and shared work budgets in one transaction."
+)]
+fn detect_with_recovery(
+    w: usize,
+    h: usize,
+    regions: &mut crate::regions::Regions,
+    binary_images: &mut crate::binarization::Images<'_>,
+    extended: bool,
+    curved_recovery: bool,
+) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
     let mut attempts = 0;
+    let mut curved_attempts = 0;
+    let mut curved_limited = false;
+    let mut single_attempts = 0;
+    let mut single_alignments = 0;
+    let mut single_limited = false;
     let mut used: Vec<Finder> = Vec::new();
     let mut prior_count = 0;
     let mut partial_modes: Vec<(usize, Vec<Finder>)> = Vec::new();
-    for mode in 0..4 {
+    for mode in 0..if extended { 6 } else { 4 } {
+        if mode >= 4 && !binary_images.has_qr_contrast() {
+            continue;
+        }
         if binary_images.is_duplicate(mode) && results.len() == prior_count {
             continue;
         }
         prior_count = results.len();
-        let image = binary_images.get(mode);
-        let (mut finders, capped) = finders(image, w, h);
+        let step = (h / 600).max(1);
+        let (image, row_cache) = binary_images.get_with_runs(mode, step);
+        let (mut finders, capped) = finders_with_rows(image, w, h, Some(row_cache));
         regions.limited |= capped;
+        single_limited |= single::recover(
+            image,
+            w,
+            h,
+            &finders,
+            &mut results,
+            &mut used,
+            &mut single_attempts,
+            &mut single_alignments,
+        );
         // Already decoded patterns cannot form another physical QR symbol.
         // Removing them also exposes distant corners of a large remaining code
         // after surrounding small symbols were decoded on an earlier pass.
@@ -678,83 +823,92 @@ pub fn detect(
             }) {
                 continue;
             }
-            let nearest = estimate.round() as isize;
+            let nearest = crate::numeric::f32_isize(estimate.round());
             'versions: for delta in [0, -1, 1, -2, 2] {
                 let version = nearest + delta;
                 if !(1..=40).contains(&version) {
                     continue;
                 }
-                let n = 17 + version as usize * 4;
-                let nf = n as f32;
+                let n = 17 + (version).cast_unsigned() * 4;
+                let nf = crate::numeric::usize_f32(n);
                 let ex = [(tr.x - tl.x) / (nf - 7.), (tr.y - tl.y) / (nf - 7.)];
                 let ey = [(bl.x - tl.x) / (nf - 7.), (bl.y - tl.y) / (nf - 7.)];
-                let fitted = finder_homography(tl, tr, bl, nf);
                 let affine_valid = finder_triple
                     .iter()
                     .all(|finder| finder_grid_valid(image, w, h, [finder.x, finder.y], ex, ey));
-                let fitted_valid = fitted.is_some_and(|t| {
-                    [
-                        (tl, [3.5, 3.5]),
-                        (tr, [nf - 3.5, 3.5]),
-                        (bl, [3.5, nf - 3.5]),
-                    ]
-                    .iter()
-                    .all(|(_, [x, y])| {
-                        let p = map(&t, *x, *y);
-                        let px = map(&t, *x + 1., *y);
-                        let py = map(&t, *x, *y + 1.);
-                        finder_grid_valid(
-                            image,
-                            w,
-                            h,
-                            p,
-                            [px[0] - p[0], px[1] - p[1]],
-                            [py[0] - p[0], py[1] - p[1]],
-                        )
-                    })
-                });
-                let centered = component_affine(tl, tr, bl, nf).filter(|t| {
-                    [[3.5, 3.5], [nf - 3.5, 3.5], [3.5, nf - 3.5]]
-                        .iter()
-                        .all(|&[x, y]| {
-                            finder_grid_valid(image, w, h, map(t, x, y), [t[0], t[3]], [t[1], t[4]])
-                        })
-                });
-                if !affine_valid && !fitted_valid && centered.is_none() {
-                    continue;
-                }
                 let br = [tr.x + bl.x - tl.x, tr.y + bl.y - tl.y];
-                let Some(affine) = homography(
-                    [
-                        [3.5, 3.5],
-                        [nf - 3.5, 3.5],
-                        [nf - 3.5, nf - 3.5],
-                        [3.5, nf - 3.5],
-                    ],
-                    [[tl.x, tl.y], [tr.x, tr.y], br, [bl.x, bl.y]],
-                ) else {
-                    continue;
-                };
-                // Most front-facing symbols need only the affine grid.
-                // Defer the expensive alignment search until that fails.
-                for stage in 0..2 {
+                let mut any_valid = affine_valid;
+                // Preserve transform and offset order while avoiding unused geometric fits.
+                for stage in 0..4 {
                     let mut transforms = Vec::new();
-                    if stage == 0 {
-                        if affine_valid {
-                            transforms.push(affine);
-                        }
+                    if stage == 0 && affine_valid {
+                        let Some(affine) = homography(
+                            [
+                                [3.5, 3.5],
+                                [nf - 3.5, 3.5],
+                                [nf - 3.5, nf - 3.5],
+                                [3.5, nf - 3.5],
+                            ],
+                            [[tl.x, tl.y], [tr.x, tr.y], br, [bl.x, bl.y]],
+                        ) else {
+                            continue 'versions;
+                        };
+                        transforms.push(affine);
+                    }
+                    if stage == 1 {
+                        let fitted = finder_homography(tl, tr, bl, nf);
+                        let fitted_valid = fitted.is_some_and(|t| {
+                            [
+                                (tl, [3.5, 3.5]),
+                                (tr, [nf - 3.5, 3.5]),
+                                (bl, [3.5, nf - 3.5]),
+                            ]
+                            .iter()
+                            .all(|(_, [x, y])| {
+                                let p = map(&t, *x, *y);
+                                let px = map(&t, *x + 1., *y);
+                                let py = map(&t, *x, *y + 1.);
+                                finder_grid_valid(
+                                    image,
+                                    w,
+                                    h,
+                                    p,
+                                    [px[0] - p[0], px[1] - p[1]],
+                                    [py[0] - p[0], py[1] - p[1]],
+                                )
+                            })
+                        });
+                        any_valid |= fitted_valid;
                         if fitted_valid {
                             if let Some(t) = fitted {
                                 transforms.push(t);
                             }
                         }
                     }
-                    if stage == 0 {
+                    if stage == 2 {
+                        let centered = component_affine(tl, tr, bl, nf).filter(|t| {
+                            [[3.5, 3.5], [nf - 3.5, 3.5], [3.5, nf - 3.5]]
+                                .iter()
+                                .all(|&[x, y]| {
+                                    finder_grid_valid(
+                                        image,
+                                        w,
+                                        h,
+                                        map(t, x, y),
+                                        [t[0], t[3]],
+                                        [t[1], t[4]],
+                                    )
+                                })
+                        });
+                        any_valid |= centered.is_some();
                         if let Some(t) = centered {
                             transforms.push(t);
                         }
                     }
-                    if stage == 1 && version > 1 {
+                    if stage == 3 && !any_valid {
+                        break;
+                    }
+                    if stage == 3 && version > 1 {
                         let guess = [br[0] - 3. * (ex[0] + ey[0]), br[1] - 3. * (ex[1] + ey[1])];
                         for align in alignment(image, w, h, guess, ex, ey) {
                             if let Some(t) = homography(
@@ -771,7 +925,7 @@ pub fn detect(
                         }
                     }
                     for t in transforms {
-                        for offset in [0., -0.2, 0.2] {
+                        for (offset_index, offset) in [0., -0.2, 0.2].into_iter().enumerate() {
                             attempts += 1;
                             if attempts > 1200 {
                                 partial::recover(
@@ -796,12 +950,52 @@ pub fn detect(
                                 }
                                 return (results, true);
                             }
+                            if curved_recovery
+                                && stage == 0
+                                && offset_index == 0
+                                && n >= 25
+                                && curved_attempts >= 24
+                            {
+                                curved_limited = true;
+                            }
+                            if curved_recovery
+                                && stage == 0
+                                && offset_index == 0
+                                && n >= 25
+                                && curved_attempts < 24
+                            {
+                                curved_attempts += 1;
+                                if let Some(read) = curved::recover(image, w, h, n, &t) {
+                                    used.extend(finder_triple.iter().map(|p| (*p).clone()));
+                                    results.push(Detection {
+                                        bytes: Some(read.bytes),
+                                        structured_append: read.structured_append,
+                                        reader_initialization: false,
+                                        addon: None,
+                                        format: "QRCode".into(),
+                                        text: read.text,
+                                        polygon: [[0., 0.], [nf, 0.], [nf, nf], [0., nf]]
+                                            .map(|[x, y]| map(&t, x, y)),
+                                        support: tl.support.min(tr.support).min(bl.support),
+                                        error: crate::numeric::usize_f32(read.corrected),
+                                        gs1: read.gs1,
+                                    });
+                                    break 'versions;
+                                }
+                            }
                             if !qr::plausible_image_header(n, |x, y| {
-                                let p = map(&t, x as f32 + 0.5 + offset, y as f32 + 0.5 + offset);
-                                let xx = p[0].floor() as isize;
-                                let yy = p[1].floor() as isize;
-                                (xx >= 0 && yy >= 0 && xx < w as isize && yy < h as isize)
-                                    .then(|| image[yy as usize * w + xx as usize])
+                                let p = map(
+                                    &t,
+                                    crate::numeric::usize_f32(x) + 0.5 + offset,
+                                    crate::numeric::usize_f32(y) + 0.5 + offset,
+                                );
+                                let xx = crate::numeric::f32_isize(p[0].floor());
+                                let yy = crate::numeric::f32_isize(p[1].floor());
+                                (xx >= 0
+                                    && yy >= 0
+                                    && xx < (w).cast_signed()
+                                    && yy < (h).cast_signed())
+                                .then(|| image[(yy).cast_unsigned() * w + (xx).cast_unsigned()])
                             }) {
                                 continue;
                             }
@@ -826,7 +1020,7 @@ pub fn detect(
                                         polygon: [[0., 0.], [nf, 0.], [nf, nf], [0., nf]]
                                             .map(|[x, y]| map(&t, x, y)),
                                         support: tl.support.min(tr.support).min(bl.support),
-                                        error: read.corrected as f32,
+                                        error: crate::numeric::usize_f32(read.corrected),
                                         gs1: read.gs1,
                                     });
                                     break 'versions;
@@ -848,7 +1042,7 @@ pub fn detect(
         }
         partial_modes.push((mode, finders));
     }
-    let mut limited = false;
+    let mut limited = single_limited || curved_limited;
     for (mode, finders) in partial_modes {
         limited |= partial::recover(
             binary_images.get(mode),
@@ -861,6 +1055,70 @@ pub fn detect(
         );
     }
     (results, limited)
+}
+
+#[cfg(test)]
+mod rolling_binarize_tests {
+    use super::binarize;
+
+    fn integral_reference(gray: &[u8], w: usize, h: usize) -> Vec<bool> {
+        let mut sum = vec![0_u64; (w + 1) * (h + 1)];
+        for y in 0..h {
+            let mut row = 0_u64;
+            for x in 0..w {
+                row += u64::from(gray[y * w + x]);
+                sum[(y + 1) * (w + 1) + x + 1] = sum[y * (w + 1) + x + 1] + row;
+            }
+        }
+        let mut out = vec![false; w * h];
+        for y in 0..h {
+            let top = y.saturating_sub(16);
+            let bottom = y.saturating_add(17).min(h);
+            for x in 0..w {
+                let left = x.saturating_sub(16);
+                let right = x.saturating_add(17).min(w);
+                let area = (bottom - top) * (right - left);
+                let total = sum[bottom * (w + 1) + right] + sum[top * (w + 1) + left]
+                    - sum[top * (w + 1) + right]
+                    - sum[bottom * (w + 1) + left];
+                out[y * w + x] = (u64::from(gray[y * w + x]) + 5) * (area as u64) < total;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn rolling_matches_integral_reference_at_edges_and_small_sizes() {
+        let dimensions = [
+            (1, 1),
+            (1, 40),
+            (40, 1),
+            (2, 31),
+            (31, 2),
+            (17, 33),
+            (33, 17),
+            (64, 47),
+            (257, 193),
+            (1024, 513),
+        ];
+        let mut seed = 0x9e37_79b9_u32;
+        for &(w, h) in &dimensions {
+            let mut gray = vec![0_u8; w * h];
+            for value in &mut gray {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                *value = (seed >> 24) as u8;
+            }
+            assert_eq!(binarize(&gray, w, h, true), integral_reference(&gray, w, h));
+        }
+    }
+
+    #[test]
+    fn rolling_matches_uniform_extremes() {
+        for &(w, h, value) in &[(1, 80, 0_u8), (80, 1, 255), (64, 64, 127), (64, 64, 255)] {
+            let gray = vec![value; w * h];
+            assert_eq!(binarize(&gray, w, h, true), integral_reference(&gray, w, h));
+        }
+    }
 }
 
 #[cfg(test)]

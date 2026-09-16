@@ -106,6 +106,27 @@ if (selected("rust")) {
       const manifest = JSON.parse(
         fs.readFileSync(path.join(root, `core/experiments/${recipe}.json`), "utf8"),
       );
+      run(
+        "rustup",
+        [
+          "run",
+          "1.91.1",
+          "cargo",
+          "clippy",
+          "--offline",
+          "--manifest-path",
+          path.join(out, "temporarysource/Cargo.toml"),
+          "--all-targets",
+          "--features",
+          manifest.expandedFeatures.join(","),
+          "--",
+          "-D",
+          "warnings",
+          "-W",
+          "clippy::pedantic",
+        ],
+        { CARGO_TARGET_DIR: path.join(root, ".quality-cache/cargo-bindings") },
+      );
       for (const [binding, crate] of [
         ["rust", "rust"],
         ["c", "native"],
@@ -131,7 +152,7 @@ if (selected("rust")) {
               JSON.stringify(
                 JSON.parse(
                   fs.readFileSync(
-                    path.join(root, "core/experiments/nano-lint-20260913.json"),
+                    path.join(root, "core/experiments/nano-clippy-20260916.json"),
                     "utf8",
                   ),
                 ).expandedFeatures,

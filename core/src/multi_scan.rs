@@ -9,6 +9,10 @@ use crate::{
     scan::{self, Quad},
 };
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "These independent research switches form a combinatorial experiment policy, not mutually exclusive states."
+)]
 #[derive(Clone, Copy, Debug)]
 pub struct Policy {
     pub max_retry_paths_per_candidate: usize,
@@ -53,7 +57,7 @@ struct Segment {
 #[path = "verified_coverage.rs"]
 mod verified_coverage;
 #[cfg(feature = "experimental-verified-coverage-reuse")]
-use verified_coverage::*;
+use verified_coverage::{reuse_plan, verified_claims, ReuseBudget};
 
 /// Breadth-first interval centers spread every short prefix across the extent.
 fn spread_order(n: usize) -> Vec<usize> {
@@ -63,7 +67,7 @@ fn spread_order(n: usize) -> Vec<usize> {
         if lo >= hi {
             continue;
         }
-        let mid = (lo + hi) / 2;
+        let mid = usize::midpoint(lo, hi);
         out.push(mid);
         queue.push_back((lo, mid));
         queue.push_back((mid + 1, hi));
@@ -84,6 +88,13 @@ fn scaled_plan(
 ) -> Result<Vec<Segment>, Error> {
     scaled_plan_density(m, policy, work, symbol_width, scaled, false)
 }
+#[cfg_attr(
+    feature = "experimental-unresolved-256",
+    expect(
+        clippy::float_cmp,
+        reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
+    )
+)]
 fn scaled_plan_density(
     m: [f64; 9],
     policy: Policy,
@@ -122,6 +133,17 @@ fn scaled_plan_density(
     }
     Ok(original)
 }
+#[cfg_attr(
+    feature = "experimental-complete-tile-prefix",
+    expect(
+        clippy::float_cmp,
+        reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
+    )
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The retry scheduler keeps deterministic stage order, shared budgets and unfinished-work reporting in one transaction."
+)]
 fn scaled_plan_allowance(
     m: [f64; 9],
     policy: Policy,
@@ -133,8 +155,8 @@ fn scaled_plan_allowance(
 ) -> Result<Vec<Segment>, Error> {
     // Scale affects effort allocation, never digit acceptance. A successful
     // symbol supplies a visual width, not evidence that its region is exhausted.
-    let cross_step = symbol_width.map(|w| (w / 12.).max(24.)).unwrap_or(24.);
-    let window_pixels = symbol_width.map(|w| (w * 1.3).max(512.)).unwrap_or(512.);
+    let cross_step = symbol_width.map_or(24., |w| (w / 12.).max(24.));
+    let window_pixels = symbol_width.map_or(512., |w| (w * 1.3).max(512.));
     // Unresolved regions have a declared bounded exploratory allowance; expose
     // the remainder rather than silently treating them as complete coverage.
     let limit = if scaled && symbol_width.is_none() {
@@ -143,7 +165,7 @@ fn scaled_plan_allowance(
         policy.max_retry_paths_per_candidate
     };
     let mut dimensions = [(0., 0., 0usize, 0usize); 2];
-    for axis in 0..2 {
+    for (axis, dimensions_entry) in dimensions.iter_mut().enumerate() {
         let length = experiment::distance(
             experiment::point(m, axis, 0., 0.5)?,
             experiment::point(m, axis, 1., 0.5)?,
@@ -159,7 +181,8 @@ fn scaled_plan_allowance(
         } else {
             5.
         };
-        let requested_rows = (cross / cross_step).ceil().max(minimum_rows) as usize;
+        let requested_rows =
+            crate::numeric::f64_usize((cross / cross_step).ceil().max(minimum_rows));
         let rows = requested_rows.min(128);
         // Overlapping 512-source-pixel windows complement the full source path.
         // Native path length is bounded; fixed512 remains the initial control.
@@ -167,7 +190,7 @@ fn scaled_plan_allowance(
         let requested_tiles = if width >= 1.3 {
             0
         } else {
-            (((1.3 - width) / (width * 0.5)).ceil() as usize).saturating_add(1)
+            crate::numeric::f64_usize(((1.3 - width) / (width * 0.5)).ceil()).saturating_add(1)
         };
         let tiles = requested_tiles.min(64);
         work.sampling_plan_capped +=
@@ -175,7 +198,7 @@ fn scaled_plan_allowance(
         work.retry_paths_pending = work
             .retry_paths_pending
             .saturating_add(rows.saturating_mul(1 + tiles));
-        dimensions[axis] = (length, width, rows, tiles);
+        (*dimensions_entry) = (length, width, rows, tiles);
     }
     let orders: [Vec<usize>; 2] = std::array::from_fn(|axis| {
         if scaled {
@@ -222,20 +245,23 @@ fn scaled_plan_allowance(
             }
             scheduled[kind] += 1;
         }
-        let fraction = (orders[axis][row] as f64 + 0.5) / rows as f64;
+        let fraction =
+            (crate::numeric::usize_f64(orders[axis][row]) + 0.5) / crate::numeric::usize_f64(rows);
         let (lo, hi, samples) = if tile == 0 {
             (
                 -0.15,
                 1.15,
-                (length * 1.3).ceil().clamp(64., 4096.) as usize,
+                crate::numeric::f64_usize((length * 1.3).ceil().clamp(64., 4096.)),
             )
         } else {
-            let lo = -0.15 + (1.3 - width) * (tile - 1) as f64 / (tiles - 1).max(1) as f64;
+            let lo = -0.15
+                + (1.3 - width) * crate::numeric::usize_f64(tile - 1)
+                    / crate::numeric::usize_f64((tiles - 1).max(1));
             (
                 lo,
                 lo + width,
                 if cfg!(feature = "experimental-native-wide-tiles") {
-                    (length * width).ceil().clamp(512., 4096.) as usize
+                    crate::numeric::f64_usize((length * width).ceil().clamp(512., 4096.))
                 } else {
                     512
                 },
@@ -259,6 +285,10 @@ fn scaled_plan_allowance(
     // These paths were already counted as pending; the same allowance still applies.
     #[cfg(feature = "experimental-complete-tile-prefix")]
     if unknown {
+        #[expect(
+            clippy::needless_range_loop,
+            reason = "Rows and tiles are ranks across BOTH axes with unequal list lengths; iterating either axis alone omits pending work on the other."
+        )]
         for tile_rank in 0..64 {
             for row in 0..128 {
                 for axis in 0..2 {
@@ -270,8 +300,11 @@ fn scaled_plan_allowance(
                         return Ok(paths);
                     }
                     let tile = tile_orders[axis][tile_rank];
-                    let fraction = (orders[axis][row] as f64 + 0.5) / rows as f64;
-                    let lo = -0.15 + (1.3 - width) * tile as f64 / (tiles - 1).max(1) as f64;
+                    let fraction = (crate::numeric::usize_f64(orders[axis][row]) + 0.5)
+                        / crate::numeric::usize_f64(rows);
+                    let lo = -0.15
+                        + (1.3 - width) * crate::numeric::usize_f64(tile)
+                            / crate::numeric::usize_f64((tiles - 1).max(1));
                     let hi = lo + width;
                     if paths.iter().any(|s| {
                         s.axis == axis && s.fraction == fraction && s.lo == lo && s.hi == hi
@@ -284,7 +317,7 @@ fn scaled_plan_allowance(
                         lo,
                         hi,
                         samples: if cfg!(feature = "experimental-native-wide-tiles") {
-                            (length * width).ceil().clamp(512., 4096.) as usize
+                            crate::numeric::f64_usize((length * width).ceil().clamp(512., 4096.))
                         } else {
                             512
                         },
@@ -300,17 +333,26 @@ fn scaled_plan_allowance(
 }
 // A decoded polygon claims only its actual supported band. Invert source
 // coordinates to find its intersection with a prospective fine probe row.
-fn claimed_interval(m: [f64; 9], axis: usize, f: f64, q: Quad) -> Option<(f64, f64)> {
+#[expect(
+    clippy::many_single_char_names,
+    reason = "The 2x2 projective inverse uses conventional a,b,c,d,e,g coefficients and paired x,y and u,v coordinates."
+)]
+fn claimed_interval(
+    matrix: [f64; 9],
+    axis: usize,
+    fraction: f64,
+    quad: Quad,
+) -> Option<(f64, f64)> {
     let mut points = [[0.; 2]; 4];
-    for (i, p) in q.iter().enumerate() {
+    for (i, p) in quad.iter().enumerate() {
         let (x, y) = (p[0] + 0.5, p[1] + 0.5);
         let (a, b, c, d, e, g) = (
-            m[0] - x * m[6],
-            m[1] - x * m[7],
-            x * m[8] - m[2],
-            m[3] - y * m[6],
-            m[4] - y * m[7],
-            y * m[8] - m[5],
+            matrix[0] - x * matrix[6],
+            matrix[1] - x * matrix[7],
+            x * matrix[8] - matrix[2],
+            matrix[3] - y * matrix[6],
+            matrix[4] - y * matrix[7],
+            y * matrix[8] - matrix[5],
         );
         let det = a * e - b * d;
         if !det.is_finite() || det.abs() < 1e-12 {
@@ -325,8 +367,8 @@ fn claimed_interval(m: [f64; 9], axis: usize, f: f64, q: Quad) -> Option<(f64, f
     let mut xs = Vec::with_capacity(4);
     for i in 0..4 {
         let (a, b) = (points[i], points[(i + 1) % 4]);
-        if (a[1] <= f && f < b[1]) || (b[1] <= f && f < a[1]) {
-            xs.push(a[0] + (b[0] - a[0]) * (f - a[1]) / (b[1] - a[1]));
+        if (a[1] <= fraction && fraction < b[1]) || (b[1] <= fraction && fraction < a[1]) {
+            xs.push(a[0] + (b[0] - a[0]) * (fraction - a[1]) / (b[1] - a[1]));
         }
     }
     if xs.len() != 2 {
@@ -343,23 +385,23 @@ fn unresolved_plan(
 ) -> Result<Vec<Segment>, Error> {
     let mut paths = Vec::new();
     let mut orders: [Vec<usize>; 2] = [vec![], vec![]];
-    for axis in 0..2 {
+    for (axis, orders_entry) in orders.iter_mut().enumerate() {
         let cross = experiment::distance(
             experiment::point(m, axis, 0.5, 0.)?,
             experiment::point(m, axis, 0.5, 1.)?,
         );
-        let requested = (cross / 24.).ceil().max(5.) as usize;
+        let requested = crate::numeric::f64_usize((cross / 24.).ceil().max(5.));
         let rows = requested.min(128);
         work.sampling_plan_capped += usize::from(requested > rows);
-        orders[axis] = spread_order(rows);
+        (*orders_entry) = spread_order(rows);
     }
     for rank in 0..128 {
-        for axis in 0..2 {
-            let Some(&row) = orders[axis].get(rank) else {
+        for (axis, orders_entry) in orders.iter().enumerate() {
+            let Some(&row) = (*orders_entry).get(rank) else {
                 continue;
             };
-            let rows = orders[axis].len();
-            let fraction = (row as f64 + 0.5) / rows as f64;
+            let rows = (*orders_entry).len();
+            let fraction = (crate::numeric::usize_f64(row) + 0.5) / crate::numeric::usize_f64(rows);
             let mut claimed: Vec<_> = detections
                 .iter()
                 .take(64)
@@ -396,7 +438,7 @@ fn unresolved_plan(
                         fraction,
                         lo,
                         hi,
-                        samples: length.ceil().clamp(64., 4096.) as usize,
+                        samples: crate::numeric::f64_usize(length.ceil().clamp(64., 4096.)),
                         sample_cap: length > 4096.,
                         unresolved: true,
                     });
@@ -411,25 +453,25 @@ fn unresolved_plan(
 fn supported_scale_width(m: [f64; 9], c: &Candidate) -> Option<f64> {
     supported_scale_width_checked(m, c, false)
 }
-fn supported_scale_width_checked(m: [f64; 9], c: &Candidate, all_widths: bool) -> Option<f64> {
-    let (o, a, b, w) = c
+fn supported_scale_width_checked(matrix: [f64; 9], c: &Candidate, all_widths: bool) -> Option<f64> {
+    let (o, a, b, width) = c
         .observations
         .iter()
         .filter(|o| !o.ambiguous)
         .filter_map(|o| {
-            let a = experiment::point(m, o.axis, o.left, o.fraction).ok()?;
-            let b = experiment::point(m, o.axis, o.right, o.fraction).ok()?;
-            let w = experiment::distance(a, b);
-            (w.is_finite() && w > 0.).then_some((o, a, b, w))
+            let a = experiment::point(matrix, o.axis, o.left, o.fraction).ok()?;
+            let b = experiment::point(matrix, o.axis, o.right, o.fraction).ok()?;
+            let width = experiment::distance(a, b);
+            (width.is_finite() && width > 0.).then_some((o, a, b, width))
         })
         .min_by(|a, b| a.3.total_cmp(&b.3))?;
     #[cfg(feature = "experimental-single-row-search")]
-    if w <= 285. || all_widths {
-        let contains = |q: &Quad, p: [f64; 2]| {
+    if width <= 285. || all_widths {
+        let contains = |quad: &Quad, p: [f64; 2]| {
             let (mut positive, mut negative) = (false, false);
             for i in 0..4 {
-                let a = q[i];
-                let b = q[(i + 1) % 4];
+                let a = quad[i];
+                let b = quad[(i + 1) % 4];
                 let cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
                 let tol = 2. * experiment::distance(a, b);
                 positive |= cross > tol;
@@ -448,11 +490,13 @@ fn supported_scale_width_checked(m: [f64; 9], c: &Candidate, all_widths: bool) -
     }
     #[cfg(not(feature = "experimental-single-row-search"))]
     let _ = (o, a, b, all_widths);
-    Some(w)
+    Some(width)
 }
 impl Experiment {
     /// Diagnostic only: explicit bounded source rows through real retry/assembly rules.
     /// The caller's rows are not a deployable scheduler or a coverage claim.
+    /// # Errors
+    /// Returns `Parameters` for invalid scan limits or schedule inputs; propagates invalid quadrilateral and sampling errors.
     pub fn diagnostic_retry_rows(
         &mut self,
         im: ImageView<'_>,
@@ -486,7 +530,7 @@ impl Experiment {
                 fraction,
                 lo: -0.15,
                 hi: 1.15,
-                samples: length.ceil().clamp(64., 4096.) as usize,
+                samples: crate::numeric::f64_usize(length.ceil().clamp(64., 4096.)),
                 sample_cap: length > 4096.,
                 unresolved: false,
             };
@@ -502,6 +546,10 @@ impl Experiment {
         );
         Ok(c)
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "A retry couples its path geometry, candidate accumulator and independent decoder policies."
+    )]
     fn retry_segment(
         &mut self,
         im: ImageView<'_>,
@@ -605,6 +653,8 @@ impl Experiment {
         eprintln!("{{\"candidate\":{},\"retry\":{},\"axis\":{},\"fraction\":{},\"lo\":{},\"hi\":{},\"samples\":{},\"observations\":{:?},\"ambiguous\":{}}}",c.index,c.work.retry_paths,s.axis,s.fraction,s.lo,s.hi,s.samples,c.observations[observation_start..].iter().filter(|o|!o.ambiguous).map(|o|o.digits).collect::<Vec<_>>(),c.observations[observation_start..].iter().filter(|o|o.ambiguous).count());
         c.ms += start.ms();
     }
+    /// # Errors
+    /// Returns `Parameters` for invalid scan limits or schedule inputs; propagates invalid quadrilateral and sampling errors.
     pub fn scan_all(
         &mut self,
         im: ImageView<'_>,
@@ -613,6 +663,8 @@ impl Experiment {
     ) -> Result<Vec<Candidate>, Error> {
         self.scan_policy(im, candidates, policy, false)
     }
+    /// # Errors
+    /// Returns `Parameters` for invalid scan limits or schedule inputs; propagates invalid quadrilateral and sampling errors.
     pub fn scan_scaled(
         &mut self,
         im: ImageView<'_>,
@@ -621,6 +673,10 @@ impl Experiment {
     ) -> Result<Vec<Candidate>, Error> {
         self.scan_policy(im, candidates, policy, true)
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The retry scheduler keeps deterministic stage order, shared budgets and unfinished-work reporting in one transaction."
+    )]
     fn scan_policy(
         &mut self,
         im: ImageView<'_>,
@@ -662,7 +718,7 @@ impl Experiment {
                         continue;
                     };
                     let axis = i % 2;
-                    let fraction = 0.1 + 0.2 * (i / 2) as f64;
+                    let fraction = 0.1 + 0.2 * crate::numeric::usize_f64(i / 2);
                     let (Ok(a), Ok(b)) = (
                         experiment::point(m.0, axis, -0.15, fraction),
                         experiment::point(m.0, axis, 1.15, fraction),
@@ -676,7 +732,7 @@ impl Experiment {
                         fraction,
                         lo: -0.15,
                         hi: 1.15,
-                        samples: length.ceil().clamp(64., 4096.) as usize,
+                        samples: crate::numeric::f64_usize(length.ceil().clamp(64., 4096.)),
                         sample_cap: length > 4096.,
                         unresolved: false,
                     };
@@ -724,55 +780,56 @@ impl Experiment {
         for c in &mut outputs {
             let start = Timer::now();
             let p = match scan::transform(c.coverage) {
-                Ok(m) => match (|| -> Result<Vec<Segment>, Error> {
-                    let width = if scaled {
-                        supported_scale_width(m.0, c)
+                Ok(m) => {
+                    if let Ok(p) = (|| -> Result<Vec<Segment>, Error> {
+                        let width = if scaled {
+                            supported_scale_width(m.0, c)
+                        } else {
+                            None
+                        };
+                        c.work.scale_hint_used = usize::from(width.is_some());
+                        let remaining = Policy {
+                            max_retry_paths_per_candidate: policy
+                                .max_retry_paths_per_candidate
+                                .saturating_sub(c.work.retry_paths),
+                            ..policy
+                        };
+                        // A visual width may guide tile size and retain its existing work allowance,
+                        // but one physical row must not reduce independent-row coverage.
+                        let dense = cfg!(feature = "experimental-dense-unsupported-scale")
+                            && scaled
+                            && width.is_some()
+                            && supported_scale_width_checked(m.0, c, true).is_none();
+                        let mut p =
+                            scaled_plan_density(m.0, remaining, &mut c.work, width, scaled, dense)?;
+                        if scaled && width.is_some_and(|w| w > 288.) {
+                            let mut fine = unresolved_plan(
+                                m.0,
+                                &c.detections,
+                                remaining.max_retry_paths_per_candidate,
+                                &mut c.work,
+                            )?;
+                            fine.extend(
+                                p.into_iter().take(
+                                    remaining
+                                        .max_retry_paths_per_candidate
+                                        .saturating_sub(fine.len()),
+                                ),
+                            );
+                            p = fine;
+                        }
+                        #[cfg(feature = "experimental-verified-coverage-reuse")]
+                        let p = reuse_plan(m.0, p, &claims, &mut reuse_budget, &mut c.work);
+                        #[cfg(feature = "experimental-structural-retry")]
+                        let p = defer_structurally_weak_retries(c, scaled, p);
+                        Ok(p)
+                    })() {
+                        Some((m.0, p))
                     } else {
-                        None
-                    };
-                    c.work.scale_hint_used = usize::from(width.is_some());
-                    let remaining = Policy {
-                        max_retry_paths_per_candidate: policy
-                            .max_retry_paths_per_candidate
-                            .saturating_sub(c.work.retry_paths),
-                        ..policy
-                    };
-                    // A visual width may guide tile size and retain its existing work allowance,
-                    // but one physical row must not reduce independent-row coverage.
-                    let dense = cfg!(feature = "experimental-dense-unsupported-scale")
-                        && scaled
-                        && width.is_some()
-                        && supported_scale_width_checked(m.0, c, true).is_none();
-                    let mut p =
-                        scaled_plan_density(m.0, remaining, &mut c.work, width, scaled, dense)?;
-                    if scaled && width.is_some_and(|w| w > 288.) {
-                        let mut fine = unresolved_plan(
-                            m.0,
-                            &c.detections,
-                            remaining.max_retry_paths_per_candidate,
-                            &mut c.work,
-                        )?;
-                        fine.extend(
-                            p.into_iter().take(
-                                remaining
-                                    .max_retry_paths_per_candidate
-                                    .saturating_sub(fine.len()),
-                            ),
-                        );
-                        p = fine;
-                    }
-                    #[cfg(feature = "experimental-verified-coverage-reuse")]
-                    let p = reuse_plan(m.0, p, &claims, &mut reuse_budget, &mut c.work);
-                    #[cfg(feature = "experimental-structural-retry")]
-                    let p = defer_structurally_weak_retries(c, scaled, p);
-                    Ok(p)
-                })() {
-                    Ok(p) => Some((m.0, p)),
-                    Err(_) => {
                         c.error = true;
                         None
                     }
-                },
+                }
                 Err(_) => None,
             };
             plans.push(p);
@@ -968,7 +1025,7 @@ impl Experiment {
                             fraction,
                             lo,
                             hi,
-                            samples: length.ceil().clamp(64., 4096.) as usize,
+                            samples: crate::numeric::f64_usize(length.ceil().clamp(64., 4096.)),
                             sample_cap: length > 4096.,
                             unresolved: false,
                         });
@@ -1067,9 +1124,9 @@ mod tests {
                     let im = ImageView::new(&pixels, w, h, 1, w).unwrap();
                     let q = [
                         [0., 0.],
-                        [w as f64, 0.],
-                        [w as f64, h as f64],
-                        [0., h as f64],
+                        [crate::numeric::usize_f64(w), 0.],
+                        [crate::numeric::usize_f64(w), crate::numeric::usize_f64(h)],
+                        [0., crate::numeric::usize_f64(h)],
                     ];
                     let f = Experiment::default()
                         .scan_frame(
@@ -1150,8 +1207,8 @@ mod tests {
     }
     #[test]
     fn observed_scale_reduces_work_without_exhausting_a_read_region() {
-        let q = [[0., 0.], [2400., 0.], [2400., 800.], [0., 800.]];
-        let m = scan::transform(q).unwrap();
+        let quad = [[0., 0.], [2400., 0.], [2400., 800.], [0., 800.]];
+        let m = scan::transform(quad).unwrap();
         let mut dense = Work::default();
         let a = plan(m.0, Policy::default(), &mut dense).unwrap();
         let mut scaled = Work::default();
@@ -1175,6 +1232,10 @@ mod tests {
         assert!(unknown.retry_paths_pending > p.len());
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn decoded_band_does_not_claim_whole_candidate() {
         let q = [[0., 0.], [1000., 0.], [1000., 750.], [0., 750.]];
         let m = scan::transform(q).unwrap();
@@ -1295,6 +1356,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn unread_small_region_refines_rows_with_explicit_pending_budget() {
         let m = scan::transform([[0., 0.], [350., 0.], [350., 117.], [0., 117.]]).unwrap();
         let mut work = Work::default();
@@ -1384,6 +1449,10 @@ mod tests {
     #[cfg(feature = "experimental-single-row-search")]
     #[cfg(feature = "experimental-native-wide-tiles")]
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn wide_tiles_preserve_native_sampling_and_small_tiles_floor() {
         for width in [200., 1400., 4000.] {
             let q = [[0., 0.], [7000., 0.], [7000., 200.], [0., 200.]];
@@ -1398,17 +1467,21 @@ mod tests {
             .unwrap();
             let tiles: Vec<_> = p
                 .iter()
-                .filter(|s| s.axis == 0 && s.lo != -0.15 || s.axis == 0 && s.hi != 1.15)
+                .filter(|s| s.axis == 0 && (s.lo != -0.15 || s.hi != 1.15))
                 .collect();
             assert!(!tiles.is_empty());
             for s in tiles {
                 let n = (7000. * (s.hi - s.lo)).ceil();
-                assert!((s.samples as f64 - n.clamp(512., 4096.)).abs() <= 1.);
+                assert!((crate::numeric::usize_f64(s.samples) - n.clamp(512., 4096.)).abs() <= 1.);
                 assert_eq!(s.sample_cap, n > 4096.);
             }
         }
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn unsupported_wide_scale_keeps_density_and_known_budget() {
         let q = [[0., 0.], [3000., 0.], [3000., 1000.], [0., 1000.]];
         let m = scan::transform(q).unwrap().0;
@@ -1452,9 +1525,13 @@ mod tests {
     }
     #[cfg(feature = "experimental-single-row-search")]
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn unrelated_single_row_symbols_cannot_corroborate_scale() {
-        let q = [[0., 0.], [600., 0.], [600., 200.], [0., 200.]];
-        let m = scan::transform(q).unwrap().0;
+        let quad = [[0., 0.], [600., 0.], [600., 200.], [0., 200.]];
+        let matrix = scan::transform(quad).unwrap().0;
         let obs = |digits, left, right, fraction| experiment::Observation {
             short_quiet: false,
             ambiguous: false,
@@ -1468,23 +1545,23 @@ mod tests {
         };
         let a = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
         let b = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
-        let mut c = Candidate {
+        let mut candidate = Candidate {
             index: 0,
-            coverage: q,
+            coverage: quad,
             observations: vec![obs(a, 0.05, 0.30, 0.3), obs(b, 0.65, 0.95, 0.7)],
             detections: vec![],
             work: Work::default(),
             ms: 0.,
             error: false,
         };
-        assert_eq!(supported_scale_width(m, &c), None);
-        c.observations[1].digits = a;
-        assert_eq!(supported_scale_width(m, &c), None);
+        assert_eq!(supported_scale_width(matrix, &candidate), None);
+        candidate.observations[1].digits = a;
+        assert_eq!(supported_scale_width(matrix, &candidate), None);
         let p = scaled_plan(
-            m,
+            matrix,
             Policy::default(),
             &mut Work::default(),
-            supported_scale_width(m, &c),
+            supported_scale_width(matrix, &candidate),
             true,
         )
         .unwrap();
@@ -1494,7 +1571,7 @@ mod tests {
                 .count(),
             21
         );
-        c.detections.push(experiment::Detection {
+        candidate.detections.push(experiment::Detection {
             digits: a,
             polygon: [
                 [389.5, 129.5],
@@ -1506,26 +1583,31 @@ mod tests {
             axis: 0,
         });
         assert_eq!(
-            supported_scale_width(m, &c),
+            supported_scale_width(matrix, &candidate),
             None,
             "separate equal-value track cannot support smallest width"
         );
-        c.detections.push(experiment::Detection {
+        candidate.detections.push(experiment::Detection {
             digits: a,
             polygon: [[29.5, 49.5], [179.5, 49.5], [179.5, 69.5], [29.5, 69.5]],
             support: 3,
             axis: 0,
         });
-        assert!((supported_scale_width(m, &c).unwrap() - 150.).abs() < 1e-6);
+        assert!((supported_scale_width(matrix, &candidate).unwrap() - 150.).abs() < 1e-6);
     }
 }
 
 /// Diagnostic unresolved retry plan before execution; excludes fixed/discovery passes.
 /// This is not a claim that a budget-limited frame executed every returned path.
+/// One scheduled path: axis, row fraction, start, end, and sample count.
+pub type ScheduledPath = (usize, f64, f64, f64, usize);
+
+/// # Errors
+/// Returns `Parameters` for invalid scan limits or schedule inputs; propagates invalid quadrilateral and sampling errors.
 pub fn diagnostic_unresolved_schedule(
     q: Quad,
     remaining: usize,
-) -> Result<Vec<(usize, f64, f64, f64, usize)>, Error> {
+) -> Result<Vec<ScheduledPath>, Error> {
     if remaining > 4096 {
         return Err(Error::Parameters);
     }
@@ -1543,6 +1625,10 @@ pub fn diagnostic_unresolved_schedule(
 mod schedule_diagnostic_tests {
     use super::*;
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn unresolved_schedule_uses_actual_plan() {
         let q = [[160., 576.], [480., 576.], [480., 744.], [160., 744.]];
         let p = diagnostic_unresolved_schedule(q, 502).unwrap();
@@ -1594,6 +1680,32 @@ mod policy_diagnostic_tests {
 mod tile_completion_tests {
     use super::*;
     #[test]
+    fn unequal_axis_lengths_do_not_omit_pending_tiles() {
+        for [width, height] in [[400., 1000.], [1000., 400.], [600., 1600.], [1600., 600.]] {
+            let matrix =
+                scan::transform([[0., 0.], [width, 0.], [width, height], [0., height]]).unwrap();
+            let mut work = Work::default();
+            let policy = Policy {
+                max_retry_paths_per_candidate: 65536,
+                ..Policy::default()
+            };
+            let paths =
+                scaled_plan_allowance(matrix.0, policy, &mut work, None, true, false, 65536)
+                    .unwrap();
+            assert_eq!(
+                paths.len(),
+                work.retry_paths_pending,
+                "incomplete schedule for {width} by {height}"
+            );
+            assert!(paths.iter().any(|path| path.axis == 0));
+            assert!(paths.iter().any(|path| path.axis == 1));
+        }
+    }
+    #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn visits_every_counted_pair_when_it_fits_and_keeps_caps() {
         let m = scan::transform([[0., 0.], [600., 0.], [600., 100.], [0., 100.]]).unwrap();
         let mut work = Work::default();
@@ -1781,6 +1893,10 @@ mod structural_retry_tests {
 mod unresolved_256_tests {
     use super::*;
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn extra_work_preserves_original_prefix_and_pending_denominator() {
         for (w, h) in [(1600., 1200.), (4000., 4000.), (2400., 800.)] {
             let m = scan::transform([[0., 0.], [w, 0.], [w, h], [0., h]]).unwrap();

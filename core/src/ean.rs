@@ -24,6 +24,10 @@ const fn bit(d: usize, side: u8, i: usize) -> f32 {
 pub(crate) fn parity_side(first: usize, position: usize) -> u8 {
     PARITY[first][position]
 }
+#[expect(
+    clippy::float_cmp,
+    reason = "Encoded samples are binary and equal decoder costs are exact ambiguity ties; epsilon matching would change accepted identities."
+)]
 pub(crate) const fn digit_runs(d: usize, side: u8) -> [u8; 4] {
     let mut runs = [0; 4];
     let mut at = 0;
@@ -40,6 +44,7 @@ pub(crate) const fn digit_runs(d: usize, side: u8) -> [u8; 4] {
     }
     runs
 }
+#[must_use]
 pub fn checksum(d: &[u8; 13]) -> bool {
     d.iter()
         .enumerate()
@@ -48,6 +53,7 @@ pub fn checksum(d: &[u8; 13]) -> bool {
         % 10
         == 0
 }
+#[must_use]
 pub fn encode(d: &[u8; 13]) -> [f32; 95] {
     let mut p = [0.; 95];
     for i in [0, 2, 46, 48, 92, 94] {
@@ -88,7 +94,7 @@ const fn bit_patterns() -> [[[usize; 7]; 10]; 3] {
         while d < 10 {
             let mut i = 0;
             while i < 7 {
-                a[s][d][i] = bit(d, sides[s], i) as usize;
+                a[s][d][i] = crate::numeric::f32_usize(bit(d, sides[s], i));
                 i += 1;
             }
             d += 1;
@@ -107,12 +113,11 @@ fn errors(p: &[f32]) -> [[f32; 2]; 7] {
 }
 fn digit_from_errors(e: &[[f32; 2]; 7], side: usize) -> Digit {
     let (mut best, mut second) = ((f32::INFINITY, 0u8), f32::INFINITY);
-    for d in 0..10 {
-        let pat = BIT_PATTERNS[side][d];
+    for (d, pat) in BIT_PATTERNS[side].iter().enumerate() {
         let c = (0..7).map(|i| e[i][pat[i]]).sum::<f32>() / 7.;
         if c < best.0 {
             second = best.0;
-            best = (c, d as u8);
+            best = (c, (d).to_le_bytes()[0]);
         } else if c < second {
             second = c;
         }
@@ -151,7 +156,7 @@ fn digit_reference(p: &[f32], side: u8) -> Digit {
             / 7.;
         if c < smallest.0 {
             second = smallest.0;
-            smallest = (c, d as u8);
+            smallest = (c, (d).to_le_bytes()[0]);
         } else if c < second {
             second = c;
         }
@@ -166,6 +171,11 @@ fn digit_reference(p: &[f32], side: u8) -> Digit {
 /// Checksum rejects; it must not promote a weaker visual leading digit.
 /// Digit evidence is computed once per position/alphabet and reused by parity.
 /// Cost/gap are research evidence, not calibrated confidence.
+#[must_use]
+#[expect(
+    clippy::float_cmp,
+    reason = "Encoded samples are binary and equal decoder costs are exact ambiguity ties; epsilon matching would change accepted identities."
+)]
 pub fn decode(p: &[f32], max_cost: f32, min_gap: f32) -> Option<Result> {
     if p.len() != 95
         || p.iter().any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
@@ -209,9 +219,9 @@ pub fn decode(p: &[f32], max_cost: f32, min_gap: f32) -> Option<Result> {
     }
     let mut best: Option<Result> = None;
     let mut tied = false;
-    for first in 0..10 {
+    for first in 0usize..10 {
         let mut digits = [0u8; 13];
-        digits[0] = first as u8;
+        digits[0] = (first).to_le_bytes()[0];
         let mut cost = 0.;
         let mut gap = f32::INFINITY;
         for j in 0..12 {
@@ -265,13 +275,13 @@ fn legacy_decode(p: &[f32], max_cost: f32, min_gap: f32) -> Option<Result> {
         return None;
     }
     let mut best: Option<Result> = None;
-    for first in 0..10 {
+    for (first, parity_entry) in PARITY.iter().enumerate() {
         let mut digits = [0u8; 13];
-        digits[0] = first as u8;
+        digits[0] = (first).to_le_bytes()[0];
         let mut cost = 0.;
         let mut gap = f32::INFINITY;
         for j in 0..12 {
-            let side = if j < 6 { PARITY[first][j] } else { b'R' };
+            let side = if j < 6 { (*parity_entry)[j] } else { b'R' };
             let start = if j < 6 { 3 + j * 7 } else { 50 + (j - 6) * 7 };
             let mut smallest = (f32::INFINITY, 0usize);
             let mut second = f32::INFINITY;
@@ -290,7 +300,7 @@ fn legacy_decode(p: &[f32], max_cost: f32, min_gap: f32) -> Option<Result> {
                     second = c;
                 }
             }
-            digits[j + 1] = smallest.1 as u8;
+            digits[j + 1] = (smallest.1).to_le_bytes()[0];
             cost += smallest.0;
             gap = gap.min(second - smallest.0);
         }
@@ -315,18 +325,18 @@ mod tests {
     use super::*;
     #[test]
     fn encodings_roundtrip_all_leading_digits() {
-        for first in 0..10 {
+        for first in 0u8..10 {
             let mut d = [0u8; 13];
             d[0] = first;
-            for i in 1..12 {
-                d[i] = ((i * 7) % 10) as u8;
+            for (i, d_entry) in d.iter_mut().enumerate().take(12).skip(1) {
+                (*d_entry) = ((i * 7) % 10).to_le_bytes()[0];
             }
             let sum = d[..12]
                 .iter()
                 .enumerate()
                 .map(|(i, v)| *v as usize * if i % 2 == 0 { 1 } else { 3 })
                 .sum::<usize>();
-            d[12] = ((10 - sum % 10) % 10) as u8;
+            d[12] = ((10 - sum % 10) % 10).to_le_bytes()[0];
             assert_eq!(decode(&encode(&d), 0.1, 0.01).unwrap().digits, d);
         }
     }
@@ -351,7 +361,7 @@ mod tests {
         let mut state = 23u32;
         for v in &mut p {
             state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            let noise = (state >> 24) as f32 / 255. * 0.4;
+            let noise = crate::numeric::f64_f32(f64::from(state >> 24)) / 255. * 0.4;
             *v = if *v == 0. { noise } else { 1. - noise };
         }
         assert_eq!(
@@ -391,14 +401,16 @@ mod module_error_reuse_tests {
             }
         };
         for bits in 0..128 {
-            check(std::array::from_fn(|i| ((bits >> i) & 1) as f32));
+            check(std::array::from_fn(|i| {
+                crate::numeric::f64_f32(f64::from((bits >> i) & 1))
+            }));
         }
         check([-0., 0., 1., 0.5, 0.25, 0.75, -0.]);
         let mut seed = 51u32;
         for _ in 0..20000 {
             check(std::array::from_fn(|_| {
                 seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                (seed >> 8) as f32 / 16_777_215.
+                crate::numeric::f64_f32(f64::from(seed >> 8)) / 16_777_215.
             }));
         }
     }

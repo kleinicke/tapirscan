@@ -44,6 +44,8 @@ impl Continuity {
     /// Checks centre and 20%/80% support corridors at <=1 pixel spacing,
     /// each capped at 512 steps (at most three corridors per pair).
     /// Rejection/budget exhaustion preserves both observations. No image clamping.
+    /// # Errors
+    /// Returns `Geometry` for invalid quadrilaterals or projected paths; propagates sampling errors.
     pub fn check(
         &mut self,
         image: ImageView<'_>,
@@ -101,6 +103,8 @@ impl Continuity {
     /// Final read consolidation requires at least 75% of anchor contrast at
     /// every bridge sample. The legacy 50% threshold can pass a one-pixel white
     /// gap when bilinear samples straddle it at half-pixel phase.
+    /// # Errors
+    /// Returns `Geometry` for invalid quadrilaterals or projected paths; propagates sampling errors.
     pub fn check_strict(
         &mut self,
         image: ImageView<'_>,
@@ -109,6 +113,10 @@ impl Continuity {
     ) -> Result<Evidence, Error> {
         self.check(image, anchor, other)
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The continuity proof shares its sampling budget and rejection evidence across the entire path."
+    )]
     fn check_with_contrast(
         &mut self,
         image: ImageView<'_>,
@@ -121,12 +129,12 @@ impl Continuity {
             paths,
             minimum_correlation,
         };
-        for p in anchor.iter().chain(other.iter()) {
-            if p.iter().any(|v| !v.is_finite())
-                || p[0] < 0.
-                || p[1] < 0.
-                || p[0] > (image.width - 1) as f64
-                || p[1] > (image.height - 1) as f64
+        for point in anchor.iter().chain(other.iter()) {
+            if point.iter().any(|v| !v.is_finite())
+                || point[0] < 0.
+                || point[1] < 0.
+                || point[0] > crate::numeric::usize_f64(image.width - 1)
+                || point[1] > crate::numeric::usize_f64(image.height - 1)
             {
                 return Err(Error::Geometry);
             }
@@ -135,16 +143,16 @@ impl Continuity {
         // Other may be a zero-height reader line, but never a bow-tie or a point.
         if crate::scan::transform(other).is_err() {
             let mut far = (0., other[0]);
-            for p in other {
-                let d = distance(other[0], p);
+            for point in other {
+                let d = distance(other[0], point);
                 if d > far.0 {
-                    far = (d, p);
+                    far = (d, point);
                 }
             }
             if far.0 < 1.
-                || other.iter().any(|p| {
-                    ((far.1[0] - other[0][0]) * (p[1] - other[0][1])
-                        - (far.1[1] - other[0][1]) * (p[0] - other[0][0]))
+                || other.iter().any(|point| {
+                    ((far.1[0] - other[0][0]) * (point[1] - other[0][1])
+                        - (far.1[1] - other[0][1]) * (point[0] - other[0][0]))
                         .abs()
                         > 1e-7 * far.0
                 })
@@ -183,25 +191,29 @@ impl Continuity {
         let Some((displacement, b)) = best else {
             return Ok(reject(0, 0.));
         };
-        let steps = displacement.ceil().max(1.) as usize;
+        let steps = crate::numeric::f64_usize(displacement.ceil().max(1.));
         if steps > MAX_STEPS {
             return Ok(reject(0, 0.));
         }
         let sample = |line: [Point; 2], out: &mut [f64; N]| {
             for (i, v) in out.iter_mut().enumerate() {
-                let p = lerp(line[0], line[1], (i as f64 + 0.5) / N as f64);
-                let x = p[0].floor();
-                let y = p[1].floor();
-                let fx = p[0] - x;
-                let fy = p[1] - y;
+                let point = lerp(
+                    line[0],
+                    line[1],
+                    (crate::numeric::usize_f64(i) + 0.5) / crate::numeric::usize_f64(N),
+                );
+                let x = point[0].floor();
+                let y = point[1].floor();
+                let fx = point[0] - x;
+                let fy = point[1] - y;
                 *v = (image.gray(x, y) * (1. - fx) + image.gray(x + 1., y) * fx) * (1. - fy)
                     + (image.gray(x, y + 1.) * (1. - fx) + image.gray(x + 1., y + 1.) * fx) * fy;
             }
-            let mean = out.iter().sum::<f64>() / N as f64;
+            let mean = out.iter().sum::<f64>() / crate::numeric::usize_f64(N);
             for v in out.iter_mut() {
                 *v -= mean;
             }
-            (out.iter().map(|v| v * v).sum::<f64>() / N as f64).sqrt()
+            (out.iter().map(|v| v * v).sum::<f64>() / crate::numeric::usize_f64(N)).sqrt()
         };
         let std = sample(a, &mut self.reference);
         if std < 25. {
@@ -209,7 +221,7 @@ impl Continuity {
         }
         let mut minimum = 1_f64;
         for step in 1..=steps {
-            let t = step as f64 / steps as f64;
+            let t = crate::numeric::usize_f64(step) / crate::numeric::usize_f64(steps);
             let current = [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
             let s = sample(current, &mut self.current);
             if s < 25_f64.max(std * contrast_ratio) {
@@ -221,7 +233,7 @@ impl Continuity {
                 .zip(self.current.iter())
                 .map(|(x, y)| x * y)
                 .sum::<f64>()
-                / (N as f64 * std * s);
+                / (crate::numeric::usize_f64(N) * std * s);
             minimum = minimum.min(correlation);
             if correlation < 0.85 {
                 return Ok(reject(step + 1, minimum));

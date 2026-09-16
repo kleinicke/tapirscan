@@ -33,7 +33,7 @@ fn cross(
     // Accepted cross scales are at most 1.7 times the row scale, and each
     // accepted run is at most 1.7 times that cross scale. Larger runs cannot
     // pass the existing checks; stop before following them across the image.
-    let maximum = (expected * 2.9).ceil() as usize;
+    let maximum = crate::numeric::f32_usize((expected * 2.9).ceil());
     while start > 0 && pixel(start - 1) {
         start -= 1;
         if end - start > maximum {
@@ -46,9 +46,9 @@ fn cross(
             return None;
         }
     }
-    let center = (start + end) as f32 / 2.;
+    let center = crate::numeric::usize_f32(start + end) / 2.;
     let mut widths = [0.; 7];
-    widths[0] = (end - start) as f32;
+    widths[0] = crate::numeric::usize_f32(end - start);
     for ring in 1..=3 {
         let expect = ring % 2 == 0;
         let old = start;
@@ -58,7 +58,7 @@ fn cross(
                 return None;
             }
         }
-        widths[2 * ring - 1] = (old - start) as f32;
+        widths[2 * ring - 1] = crate::numeric::usize_f32(old - start);
         let old = end;
         while end < limit && pixel(end) == expect {
             end += 1;
@@ -66,7 +66,7 @@ fn cross(
                 return None;
             }
         }
-        widths[2 * ring] = (end - old) as f32;
+        widths[2 * ring] = crate::numeric::usize_f32(end - old);
     }
     let module = widths[..7].iter().sum::<f32>() / 7.;
     if module < 0.8
@@ -78,12 +78,35 @@ fn cross(
     }
     Some((center, module))
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn centers(bits: &[bool], w: usize, h: usize) -> Vec<Center> {
+    centers_with_rows(bits, w, h, None)
+}
+fn centers_with_rows(
+    bits: &[bool],
+    w: usize,
+    h: usize,
+    row_cache: Option<&crate::binarization::RowOffsets>,
+) -> Vec<Center> {
     let mut found = center_index::Index::new(w, h);
     let mut refined = center_index::Index::new(w, h);
-    for y in (0..h).step_by((h / 600).max(1)) {
+    let step = (h / 600).max(1);
+    let mut offsets = Vec::new();
+    let mut runs = Vec::new();
+    for y in (0..h).step_by(step) {
         let row = &bits[y * w..(y + 1) * w];
-        let (runs, offsets) = crate::runs(row);
+        if let Some(cache) = row_cache {
+            cache.copy_or_extract(y, row, &mut offsets);
+        } else {
+            crate::transition_offsets_into(row, &mut offsets);
+        }
+        runs.clear();
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "This preserves the existing usize-to-f32 run-width conversion after exact transition extraction."
+        )]
+        let widths = offsets.windows(2).map(|pair| (pair[1] - pair[0]) as f32);
+        runs.extend(widths);
         for i in 0..runs.len().saturating_sub(8) {
             if !row[offsets[i]] {
                 continue;
@@ -96,7 +119,7 @@ fn centers(bits: &[bool], w: usize, h: usize) -> Vec<Center> {
             {
                 continue;
             }
-            let x = offsets[i + 4] + runs[i + 4] as usize / 2;
+            let x = offsets[i + 4] + crate::numeric::f32_usize(runs[i + 4]) / 2;
             let Some((cy, my)) = cross(bits, w, h, x, y, true, module) else {
                 continue;
             };
@@ -104,7 +127,7 @@ fn centers(bits: &[bool], w: usize, h: usize) -> Vec<Center> {
                 continue;
             }
             found.insert(
-                offsets[i + 4] as f32 + runs[i + 4] * 0.5,
+                crate::numeric::usize_f32(offsets[i + 4]) + runs[i + 4] * 0.5,
                 cy,
                 (my + module) * 0.5,
                 module * 1.5,
@@ -114,7 +137,7 @@ fn centers(bits: &[bool], w: usize, h: usize) -> Vec<Center> {
                 w,
                 h,
                 x,
-                cy.floor().min((h - 1) as f32) as usize,
+                crate::numeric::f32_usize(cy.floor().min(crate::numeric::usize_f32(h - 1))),
                 false,
                 my,
             ) else {
@@ -152,13 +175,14 @@ fn has_oblique_rings(bits: &[bool], w: usize, h: usize, center: &Center, require
             let mut previous = None;
             let mut transitions = 0;
             for step in 0..=28 {
-                let distance = step as f32 * center.module * 0.25 * sign;
-                let x = (center.x + dx * distance).floor() as isize;
-                let y = (center.y + dy * distance).floor() as isize;
-                if x < 0 || y < 0 || x >= w as isize || y >= h as isize {
+                let distance =
+                    crate::numeric::f64_f32(f64::from(step)) * center.module * 0.25 * sign;
+                let x = crate::numeric::f32_isize((center.x + dx * distance).floor());
+                let y = crate::numeric::f32_isize((center.y + dy * distance).floor());
+                if x < 0 || y < 0 || x >= (w).cast_signed() || y >= (h).cast_signed() {
                     break;
                 }
-                let bit = bits[y as usize * w + x as usize];
+                let bit = bits[(y).cast_unsigned() * w + (x).cast_unsigned()];
                 if previous.is_some_and(|p| p != bit) {
                     transitions += 1;
                 }
@@ -188,7 +212,7 @@ pub fn diagnostic_centers(bits: &[bool], w: usize, h: usize) -> serde_json::Valu
 fn transform(c: &Center, theta: f32, module: f32, n: usize) -> [f32; 8] {
     let a = theta.cos() * module;
     let b = theta.sin() * module;
-    let half = n as f32 / 2.;
+    let half = crate::numeric::usize_f32(n) / 2.;
     [
         a,
         -b,
@@ -219,12 +243,23 @@ fn template_error(bits: &[bool], w: usize, h: usize, t: &[f32; 8], limit: usize)
     let mut errors = 0;
     for y in 0_i32..9 {
         for x in 0_i32..9 {
-            let [px, py] = qr_detect::map(t, x as f32 + 0.5, y as f32 + 0.5);
-            if px < 0. || py < 0. || px >= w as f32 || py >= h as f32 {
+            let [px, py] = qr_detect::map(
+                t,
+                crate::numeric::f64_f32(f64::from(x)) + 0.5,
+                crate::numeric::f64_f32(f64::from(y)) + 0.5,
+            );
+            if px < 0.
+                || py < 0.
+                || px >= crate::numeric::usize_f32(w)
+                || py >= crate::numeric::usize_f32(h)
+            {
                 return 81;
             }
             let ring = (x - 4).abs().max((y - 4).abs());
-            errors += usize::from(bits[py as usize * w + px as usize] != (ring % 2 == 0));
+            errors += usize::from(
+                bits[crate::numeric::f32_usize(py) * w + crate::numeric::f32_usize(px)]
+                    != (ring % 2 == 0),
+            );
             if errors > limit {
                 return errors;
             }
@@ -236,7 +271,7 @@ fn ring_error(bits: &[bool], w: usize, h: usize, c: &Center, theta: f32, module:
     template_error(bits, w, h, &transform(c, theta, module, 9), 81)
 }
 fn centered(t: &[f32; 8], n: usize) -> [f32; 8] {
-    let half = n as f32 * 0.5;
+    let half = crate::numeric::usize_f32(n) * 0.5;
     let d = 1. - half * (t[6] + t[7]);
     [
         t[0] / d,
@@ -251,40 +286,50 @@ fn centered(t: &[f32; 8], n: usize) -> [f32; 8] {
 }
 fn ring_quads(
     bits: &[bool],
-    w: usize,
-    h: usize,
+    size: [usize; 2],
     center: &Center,
     theta: f32,
     module: f32,
     ring: usize,
     limited: &mut bool,
 ) -> Option<Vec<[f32; 8]>> {
-    let x = (center.x + theta.cos() * ring as f32 * module).floor() as isize;
-    let y = (center.y + theta.sin() * ring as f32 * module).floor() as isize;
+    let [w, h] = size;
+    let x = crate::numeric::f32_isize(
+        (center.x + theta.cos() * crate::numeric::usize_f32(ring) * module).floor(),
+    );
+    let y = crate::numeric::f32_isize(
+        (center.y + theta.sin() * crate::numeric::usize_f32(ring) * module).floor(),
+    );
     let color = ring.is_multiple_of(2);
     if x < 0
         || y < 0
-        || x >= w as isize
-        || y >= h as isize
-        || bits[y as usize * w + x as usize] != color
+        || x >= (w).cast_signed()
+        || y >= (h).cast_signed()
+        || bits[(y).cast_unsigned() * w + (x).cast_unsigned()] != color
     {
         return None;
     }
-    let radius = (module * (ring + 2) as f32).ceil() as isize + 2;
-    let left = (center.x.floor() as isize - radius).max(0);
-    let top = (center.y.floor() as isize - radius).max(0);
-    let right = (center.x.ceil() as isize + radius).min(w as isize);
-    let bottom = (center.y.ceil() as isize + radius).min(h as isize);
-    let expected_area = module * module * 8. * ring as f32;
+    let radius =
+        crate::numeric::f32_isize((module * crate::numeric::usize_f32(ring + 2)).ceil()) + 2;
+    let left = (crate::numeric::f32_isize(center.x.floor()) - radius).max(0);
+    let top = (crate::numeric::f32_isize(center.y.floor()) - radius).max(0);
+    let right = (crate::numeric::f32_isize(center.x.ceil()) + radius).min((w).cast_signed());
+    let bottom = (crate::numeric::f32_isize(center.y.ceil()) + radius).min((h).cast_signed());
+    let expected_area = module * module * 8. * crate::numeric::usize_f32(ring);
     let quads = crate::component_geometry::quads(
         bits,
         w,
-        [x as usize, y as usize],
-        [left as usize, top as usize, right as usize, bottom as usize],
+        [(x).cast_unsigned(), (y).cast_unsigned()],
+        [
+            (left).cast_unsigned(),
+            (top).cast_unsigned(),
+            (right).cast_unsigned(),
+            (bottom).cast_unsigned(),
+        ],
         [expected_area * 0.5, expected_area * 1.75],
         limited,
     )?;
-    let half = ring as f32 + 0.5;
+    let half = crate::numeric::usize_f32(ring) + 0.5;
     Some(
         quads
             .into_iter()
@@ -304,12 +349,12 @@ fn reference_points(n: usize) -> &'static [(f32, f32, bool)] {
     type Points = Vec<(f32, f32, bool)>;
     static GRIDS: [std::sync::OnceLock<Points>; 76] = [const { std::sync::OnceLock::new() }; 76];
     GRIDS[n / 2].get_or_init(|| {
-        let center = (n / 2) as isize;
+        let center = (n / 2).cast_signed();
         let mut points = Vec::new();
         for y in 0..n {
             for x in 0..n {
-                let xx = x as isize - center;
-                let yy = y as isize - center;
+                let xx = (x).cast_signed() - center;
+                let yy = (y).cast_signed() - center;
                 let expected = if xx.abs().max(yy.abs()) <= 4 {
                     xx.abs().max(yy.abs()) % 2 == 0
                 } else if xx.abs().max(yy.abs()) <= 7 {
@@ -321,7 +366,11 @@ fn reference_points(n: usize) -> &'static [(f32, f32, bool)] {
                 } else {
                     continue;
                 };
-                points.push((x as f32 + 0.5, y as f32 + 0.5, expected));
+                points.push((
+                    crate::numeric::usize_f32(x) + 0.5,
+                    crate::numeric::usize_f32(y) + 0.5,
+                    expected,
+                ));
             }
         }
         points
@@ -334,15 +383,15 @@ fn reference_error(bits: &[bool], w: usize, h: usize, t: &[f32; 8], n: usize) ->
         let [px, py] = qr_detect::map(t, x, y);
         let px = px - 0.5;
         let py = py - 0.5;
-        let ix = px.floor() as isize;
-        let iy = py.floor() as isize;
-        if ix < 0 || iy < 0 || ix + 1 >= w as isize || iy + 1 >= h as isize {
+        let ix = crate::numeric::f32_isize(px.floor());
+        let iy = crate::numeric::f32_isize(py.floor());
+        if ix < 0 || iy < 0 || ix + 1 >= (w).cast_signed() || iy + 1 >= (h).cast_signed() {
             error += 1.;
             continue;
         }
-        let dx = px - ix as f32;
-        let dy = py - iy as f32;
-        let at = iy as usize * w + ix as usize;
+        let dx = px - crate::numeric::isize_f32(ix);
+        let dy = py - crate::numeric::isize_f32(iy);
+        let at = (iy).cast_unsigned() * w + (ix).cast_unsigned();
         let value = (f32::from(u8::from(bits[at])) * (1. - dx)
             + f32::from(u8::from(bits[at + 1])) * dx)
             * (1. - dy)
@@ -351,7 +400,7 @@ fn reference_error(bits: &[bool], w: usize, h: usize, t: &[f32; 8], n: usize) ->
                 * dy;
         error += if expected { 1. - value } else { value };
     }
-    error / points.len() as f32
+    error / crate::numeric::usize_f32(points.len())
 }
 fn refine_reference(
     bits: &[bool],
@@ -363,9 +412,9 @@ fn refine_reference(
 ) -> [f32; 8] {
     let source = [
         [0., 0.],
-        [n as f32, 0.],
-        [n as f32, n as f32],
-        [0., n as f32],
+        [crate::numeric::usize_f32(n), 0.],
+        [crate::numeric::usize_f32(n), crate::numeric::usize_f32(n)],
+        [0., crate::numeric::usize_f32(n)],
     ];
     let mut quad = source.map(|[x, y]| qr_detect::map(&t, x, y));
     let mut best = t;
@@ -398,6 +447,10 @@ fn refine_reference(
     }
     best
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "The bounded Aztec search keeps transform ranking, retries and limit reporting together so every exit shares the same work budget."
+)]
 pub fn detect(
     w: usize,
     h: usize,
@@ -410,13 +463,14 @@ pub fn detect(
         if binary_images.is_duplicate(mode) {
             continue;
         }
-        let bits = binary_images.get(mode);
-        let mut candidates = centers(bits, w, h);
+        let step = (h / 600).max(1);
+        let (bits, row_cache) = binary_images.get_with_runs(mode, step);
+        let mut candidates = centers_with_rows(bits, w, h, Some(row_cache));
         candidates.sort_by_cached_key(|c| {
             let error = (0..90)
                 .step_by(15)
                 .map(|a| {
-                    let theta = (a as f32).to_radians();
+                    let theta = crate::numeric::f64_f32(f64::from(a)).to_radians();
                     ring_error(
                         bits,
                         w,
@@ -452,7 +506,7 @@ pub fn detect(
                 for scale in [1., 0.8, 1.2] {
                     let module = c.module * theta.cos().abs().max(theta.sin().abs()) * scale;
                     for ring in [3, 5, 2] {
-                        for t in ring_quads(bits, w, h, &c, theta, module, ring, &mut limited)
+                        for t in ring_quads(bits, [w, h], &c, theta, module, ring, &mut limited)
                             .into_iter()
                             .flatten()
                         {
@@ -476,7 +530,7 @@ pub fn detect(
             }
             let mut grids = Vec::new();
             for degrees in (0..90).step_by(3) {
-                let theta = (degrees as f32).to_radians();
+                let theta = crate::numeric::f64_f32(f64::from(degrees)).to_radians();
                 for scale in [1., 0.9, 1.1] {
                     let module = c.module * theta.cos().abs().max(theta.sin().abs()) * scale;
                     let error = template_error(bits, w, h, &transform(&c, theta, module, 9), 12);
@@ -489,7 +543,7 @@ pub fn detect(
             limited |= grids.len() > 12;
             for (_, theta, module) in grids.into_iter().take(12) {
                 transforms.push(transform(&c, theta, module, 0));
-                for t in ring_quads(bits, w, h, &c, theta, module, 2, &mut limited)
+                for t in ring_quads(bits, [w, h], &c, theta, module, 2, &mut limited)
                     .into_iter()
                     .flatten()
                 {
@@ -530,7 +584,7 @@ pub fn detect(
                                     polygon: [[0., 0.], [11., 0.], [11., 11.], [0., 11.]]
                                         .map(|[x, y]| qr_detect::map(&rune_transform, x, y)),
                                     support: c.support,
-                                    error: read.corrected as f32,
+                                    error: crate::numeric::usize_f32(read.corrected),
                                     gs1: false,
                                 });
                                 continue 'candidate;
@@ -569,9 +623,9 @@ pub fn detect(
                                 "Aztec",
                                 [
                                     [0., 0.],
-                                    [n as f32, 0.],
-                                    [n as f32, n as f32],
-                                    [0., n as f32],
+                                    [crate::numeric::usize_f32(n), 0.],
+                                    [crate::numeric::usize_f32(n), crate::numeric::usize_f32(n)],
+                                    [0., crate::numeric::usize_f32(n)],
                                 ]
                                 .map(|[x, y]| qr_detect::map(&t, x, y)),
                                 1.,
@@ -589,13 +643,16 @@ pub fn detect(
                                     text: read.text,
                                     polygon: [
                                         [0., 0.],
-                                        [n as f32, 0.],
-                                        [n as f32, n as f32],
-                                        [0., n as f32],
+                                        [crate::numeric::usize_f32(n), 0.],
+                                        [
+                                            crate::numeric::usize_f32(n),
+                                            crate::numeric::usize_f32(n),
+                                        ],
+                                        [0., crate::numeric::usize_f32(n)],
                                     ]
                                     .map(|[x, y]| qr_detect::map(&t, x, y)),
                                     support: c.support,
-                                    error: read.corrected as f32,
+                                    error: crate::numeric::usize_f32(read.corrected),
                                     gs1: read.gs1,
                                 });
                                 continue 'candidate;
@@ -627,13 +684,13 @@ pub fn detect(
                         text: read.text,
                         polygon: [
                             [0., 0.],
-                            [n as f32, 0.],
-                            [n as f32, n as f32],
-                            [0., n as f32],
+                            [crate::numeric::usize_f32(n), 0.],
+                            [crate::numeric::usize_f32(n), crate::numeric::usize_f32(n)],
+                            [0., crate::numeric::usize_f32(n)],
                         ]
                         .map(|[x, y]| qr_detect::map(&t, x, y)),
                         support: c.support,
-                        error: read.corrected as f32,
+                        error: crate::numeric::usize_f32(read.corrected),
                         gs1: read.gs1,
                     });
                     continue 'candidate;

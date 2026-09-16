@@ -46,10 +46,7 @@ for (const group of ["js", "python", "native", "rust"])
   check(group, process.execPath, ["tools/quality/release.mjs", group]);
 check("demo", "npm", ["run", "check", "--prefix", "demo"]);
 check("tooling-tests", process.execPath, ["--test", "tools/quality/test/*.test.mjs"]);
-if (args.includes("--with-core"))
-  check("imported-core", process.execPath, ["tools/quality/check.mjs", "rust"]);
-else
-  console.log("Imported-core Clippy audit not run; include --with-core to audit historical debt.");
+check("imported-core", process.execPath, ["tools/quality/check.mjs", "rust"]);
 
 console.log("\nQuality summary");
 for (const { name, passed } of results) console.log(`${passed ? "PASS" : "FAIL"} ${name}`);

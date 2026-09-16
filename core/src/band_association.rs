@@ -24,15 +24,20 @@ pub struct Associator {
     invalid: usize,
 }
 impl Associator {
+    #[must_use]
     pub fn parents(&self) -> &[usize] {
         &self.parents
     }
+    #[must_use]
     pub fn checks(&self) -> usize {
         self.checks
     }
+    #[must_use]
     pub fn invalid(&self) -> usize {
         self.invalid
     }
+    /// # Errors
+    /// Returns `Parameters` when the observation count exceeds the association limit.
     pub fn associate(
         &mut self,
         image: ImageView<'_>,
@@ -175,7 +180,7 @@ mod tests {
         for (i, r) in reads.iter_mut().enumerate() {
             r.polygon[0][0] = f64::NAN;
             r.value_id = 1;
-            r.polygon[0][1] = i as f64;
+            r.polygon[0][1] = crate::numeric::usize_f64(i);
         }
         assert_eq!(
             a.associate(im, &reads).unwrap(),

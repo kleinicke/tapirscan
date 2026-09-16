@@ -14,6 +14,13 @@ impl Timer {
             Self
         }
     }
+    #[cfg_attr(
+        not(all(feature = "native-timing", not(target_arch = "wasm32"))),
+        expect(
+            clippy::unused_self,
+            reason = "Portable timer has the same instance API as the native elapsed timer but intentionally reports zero."
+        )
+    )]
     pub(crate) fn ms(&self) -> f64 {
         #[cfg(all(feature = "native-timing", not(target_arch = "wasm32")))]
         {

@@ -35,26 +35,32 @@ fn value(p: &[f32], i: usize, reverse: bool) -> f32 {
     p[if reverse { p.len() - 1 - i } else { i }]
 }
 fn sample(p: &[f32], x: f32, reverse: bool) -> f32 {
-    let x = x.clamp(0., (p.len() - 1) as f32);
-    let i = x.floor() as usize;
+    let x = x.clamp(0., crate::numeric::usize_f32(p.len() - 1));
+    let i = crate::numeric::f32_usize(x.floor());
     let a = value(p, i, reverse);
-    a + (value(p, (i + 1).min(p.len() - 1), reverse) - a) * (x - i as f32)
+    a + (value(p, (i + 1).min(p.len() - 1), reverse) - a) * (x - crate::numeric::usize_f32(i))
 }
 /// No allocation or caller mutation. Rejection is distinct from invalid input.
 /// A competing accepted text among searched candidates rejects the whole path.
 fn module_sample(p: &[f32], left: f32, right: f32, i: usize, reverse: bool) -> f32 {
     let pitch = (right - left) / 95.;
-    let center = left + (i as f32 + 0.5) * pitch;
+    let center = left + (crate::numeric::usize_f32(i) + 0.5) * pitch;
     if cfg!(feature = "experimental-profile-aperture") {
         (sample(p, center - pitch / 6., reverse)
             + sample(p, center, reverse)
             + sample(p, center + pitch / 6., reverse))
             / 3.
     } else {
-        sample(p, left + (i as f32 + 0.5) * (right - left) / 95., reverse)
+        sample(
+            p,
+            left + (crate::numeric::usize_f32(i) + 0.5) * (right - left) / 95.,
+            reverse,
+        )
     }
 }
 /// EAN guard/digit max cost 0.1 and per-digit ambiguity gap 0.02 stay unchanged.
+/// # Errors
+/// Returns `Length` unless the profile has 512 samples, or `Value` for non-finite samples or values outside [0, 1].
 pub fn decode(p: &[f32]) -> Result<Option<Read>, Error> {
     decode_checked(p, cfg!(feature = "experimental-profile-guard-precheck"))
 }
@@ -123,6 +129,10 @@ pub(crate) fn decode_native_with_blur_trace(p: &[f32]) -> (Result<Option<Read>, 
     );
     (result, trace)
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "The ordered boundary search shares one accepted identity and ambiguity veto across every window and blur model."
+)]
 fn decode_impl_length(
     p: &[f32],
     precheck: bool,
@@ -146,17 +156,24 @@ fn decode_impl_length(
         let (mut ns, mut ne) = (0, 0);
         for i in 1..p.len() {
             let (a, b) = (value(p, i - 1, reverse), value(p, i, reverse));
-            if a < 0.5 && b >= 0.5 && (i as f32) < p.len() as f32 * 0.35 && ns < 10 {
-                starts[ns] = i as f32 - 0.5;
+            if a < 0.5
+                && b >= 0.5
+                && crate::numeric::usize_f32(i) < crate::numeric::usize_f32(p.len()) * 0.35
+                && ns < 10
+            {
+                starts[ns] = crate::numeric::usize_f32(i) - 0.5;
                 ns += 1;
             }
-            if a >= 0.5 && b < 0.5 && (i as f32) > p.len() as f32 * 0.65 {
+            if a >= 0.5
+                && b < 0.5
+                && crate::numeric::usize_f32(i) > crate::numeric::usize_f32(p.len()) * 0.65
+            {
                 if ne < 10 {
-                    ends[ne] = i as f32 - 0.5;
+                    ends[ne] = crate::numeric::usize_f32(i) - 0.5;
                     ne += 1;
                 } else {
                     ends.copy_within(1..10, 0);
-                    ends[9] = i as f32 - 0.5;
+                    ends[9] = crate::numeric::usize_f32(i) - 0.5;
                 }
             }
         }
@@ -265,7 +282,7 @@ fn decode_impl_length(
                 let center = |i: usize| {
                     sample(
                         p,
-                        h.left + (i as f32 + 0.5) * (h.right - h.left) / 95.,
+                        h.left + (crate::numeric::usize_f32(i) + 0.5) * (h.right - h.left) / 95.,
                         reverse,
                     )
                 };
@@ -300,7 +317,8 @@ fn decode_impl_length(
                     let modules: [f32; 95] = std::array::from_fn(|i| {
                         sample(
                             p,
-                            h.left + (i as f32 + 0.5) * (h.right - h.left) / 95.,
+                            h.left
+                                + (crate::numeric::usize_f32(i) + 0.5) * (h.right - h.left) / 95.,
                             reverse,
                         )
                     });
@@ -315,8 +333,8 @@ fn decode_impl_length(
                     trace.conflicts += 1;
                     trace.rejected_intervals.push(if reverse {
                         (
-                            (p.len() - 1) as f32 - h.right,
-                            (p.len() - 1) as f32 - h.left,
+                            crate::numeric::usize_f32(p.len() - 1) - h.right,
+                            crate::numeric::usize_f32(p.len() - 1) - h.left,
                         )
                     } else {
                         (h.left, h.right)
@@ -345,6 +363,10 @@ fn decode_impl_length(
     Ok(accepted)
 }
 #[cfg(feature = "experimental-forward-blur")]
+#[expect(
+    clippy::option_option,
+    reason = "Outer None vetoes conflicting decoded identities; Some(None) is an ordinary undecoded window and must continue the search."
+)]
 fn combine_blur_read(
     legacy: Option<ean::Result>,
     blurred: Option<ean::Result>,
@@ -380,9 +402,9 @@ mod tests {
         assert_eq!(bits.len(), 95);
         let mut p = [0.; LEN];
         for (i, v) in p.iter_mut().enumerate() {
-            let m = (i as f32 - 64.) / 4.;
+            let m = (crate::numeric::usize_f32(i) - 64.) / 4.;
             if (0.0..95.0).contains(&m) {
-                *v = f32::from(bits.as_bytes()[m as usize] - b'0');
+                *v = f32::from(bits.as_bytes()[crate::numeric::f32_usize(m)] - b'0');
             }
         }
         let got = decode(&p).unwrap().unwrap();
@@ -410,7 +432,7 @@ mod precheck_tests {
             for (i, v) in p.iter_mut().enumerate() {
                 seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
                 *v = match mode % 4 {
-                    0 => (seed >> 24) as f32 / 255.,
+                    0 => crate::numeric::f64_f32(f64::from(seed >> 24)) / 255.,
                     1 => {
                         if (i / (mode % 13 + 1)) % 2 == 0 {
                             0.
@@ -443,15 +465,15 @@ mod precheck_tests {
             let mut p = [0.; LEN];
             for i in 0..LEN {
                 seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                let noise = ((seed >> 24) as f32 / 255. - 0.5) * 0.12;
-                let x = (i as f32 - 64.) / 4.;
+                let noise = (crate::numeric::f64_f32(f64::from(seed >> 24)) / 255. - 0.5) * 0.12;
+                let x = (crate::numeric::usize_f32(i) - 64.) / 4.;
                 let base = if (0.0..95.0).contains(&x) {
-                    f32::from(bits.as_bytes()[x as usize] - b'0')
+                    f32::from(bits.as_bytes()[crate::numeric::f32_usize(x)] - b'0')
                 } else {
                     0.
                 };
                 p[i] = match mode % 8 {
-                    0 => ((seed >> 24) as f32) / 255.,
+                    0 => crate::numeric::f64_f32(f64::from(seed >> 24)) / 255.,
                     1 => {
                         if (i / (mode % 17 + 1)) % 2 == 0 {
                             0.
@@ -493,13 +515,15 @@ mod forward_blur_tests {
             for n in -640..=640 {
                 let dx = f64::from(n) / 32.;
                 let w = (-dx * dx / (2. * sigma * sigma * pitch * pitch)).exp();
-                let m = ((i as f64 + dx - left) / pitch).floor() as i32;
+                let m = crate::numeric::f64_i32(
+                    ((crate::numeric::usize_f64(i) + dx - left) / pitch).floor(),
+                );
                 if (0..95).contains(&m) {
-                    total += w * f64::from(bits[m as usize]);
+                    total += w * f64::from(bits[crate::numeric::i32_usize(m)]);
                 }
                 weight += w;
             }
-            (total / weight) as f32
+            crate::numeric::f64_f32(total / weight)
         })
     }
     #[test]
@@ -570,12 +594,12 @@ mod native_soft_tests {
                     digits[12] = 8;
                 }
                 let bits = ean::encode(&digits);
-                let pitch = n as f32 / 119.;
+                let pitch = crate::numeric::usize_f32(n) / 119.;
                 let p: Vec<_> = (0..n)
                     .map(|i| {
-                        let x = (i as f32 + 0.5) / pitch - 12.;
+                        let x = (crate::numeric::usize_f32(i) + 0.5) / pitch - 12.;
                         if (0.0..95.).contains(&x) {
-                            bits[x.floor() as usize]
+                            bits[crate::numeric::f32_usize(x.floor())]
                         } else {
                             0.
                         }

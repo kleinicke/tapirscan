@@ -40,6 +40,8 @@ pub struct Scanner {
     results: Vec<CandidateResult>,
 }
 /// Unit square to a convex cyclic quad. Both winding directions are accepted.
+/// # Errors
+/// Returns `Geometry` for non-finite, degenerate or invalid quadrilaterals.
 pub fn transform(q: Quad) -> Result<Transform, Error> {
     if q.iter().flatten().any(|v| !v.is_finite()) {
         return Err(Error::Geometry);
@@ -81,7 +83,7 @@ pub fn transform(q: Quad) -> Result<Transform, Error> {
     ])
 }
 pub(crate) fn project(
-    m: Transform,
+    matrix: Transform,
     axis: usize,
     sample: f64,
     fraction: f64,
@@ -92,14 +94,14 @@ pub(crate) fn project(
     } else {
         (fraction, u)
     };
-    let m = m.0;
-    let z = m[6] * x + m[7] * y + m[8];
-    if !z.is_finite() || z.abs() < 1e-9 {
+    let matrix = matrix.0;
+    let denominator = matrix[6] * x + matrix[7] * y + matrix[8];
+    if !denominator.is_finite() || denominator.abs() < 1e-9 {
         return Err(Error::Geometry);
     }
     let p = [
-        (m[0] * x + m[1] * y + m[2]) / z - 0.5,
-        (m[3] * x + m[4] * y + m[5]) / z - 0.5,
+        (matrix[0] * x + matrix[1] * y + matrix[2]) / denominator - 0.5,
+        (matrix[3] * x + matrix[4] * y + matrix[5]) / denominator - 0.5,
     ];
     if p.iter().any(|v| !v.is_finite()) {
         return Err(Error::Geometry);
@@ -112,6 +114,8 @@ impl Scanner {
     /// are reused; no input pixels or candidate geometry are mutated. Rank is a
     /// stable decoded-first order, not calibrated confidence. No cross-region
     /// text deduplication: equal values may be distinct physical instances.
+    /// # Errors
+    /// Returns `Parameters` for too many candidates. Individual geometry and sampling failures remain attached to their candidate results.
     pub fn scan_regions(
         &mut self,
         image: ImageView<'_>,
@@ -121,6 +125,8 @@ impl Scanner {
     }
     /// Optional local contrast is attempted only after all original paths fail.
     /// At most two axes x five paths per phase. Acceptance thresholds unchanged.
+    /// # Errors
+    /// Returns `Parameters` for too many candidates. Individual geometry and sampling failures remain attached to their candidate results.
     pub fn scan_regions_with_contrast(
         &mut self,
         image: ImageView<'_>,
@@ -129,6 +135,8 @@ impl Scanner {
     ) -> Result<&[CandidateResult], Error> {
         self.scan_regions_options(image, candidates, local_contrast, false)
     }
+    /// # Errors
+    /// Returns `Parameters` for too many candidates. Individual geometry and sampling failures remain attached to their candidate results.
     pub fn scan_regions_with_runs(
         &mut self,
         image: ImageView<'_>,
@@ -191,10 +199,10 @@ impl Scanner {
     fn scan_runs_one(
         &mut self,
         image: ImageView<'_>,
-        q: Quad,
+        quad: Quad,
         attempts: &mut usize,
     ) -> Result<Option<Read>, Error> {
-        let m = transform(q)?;
+        let matrix = transform(quad)?;
         let mut reads = [None; 10];
         let mut text = None;
         // Gather all paths before accepting: competing values reject the region.
@@ -202,7 +210,7 @@ impl Scanner {
             for (i, fraction) in FRACTIONS.into_iter().enumerate() {
                 let Some(p) = self.sampler.sample(
                     image,
-                    m,
+                    matrix,
                     Path {
                         axis,
                         fraction,
@@ -249,10 +257,10 @@ impl Scanner {
                         continue;
                     }
                     let polygon = [
-                        project(m, axis, f.left, f.fraction)?,
-                        project(m, axis, f.right, f.fraction)?,
-                        project(m, axis, e.right, e.fraction)?,
-                        project(m, axis, e.left, e.fraction)?,
+                        project(matrix, axis, f.left, f.fraction)?,
+                        project(matrix, axis, f.right, f.fraction)?,
+                        project(matrix, axis, e.right, e.fraction)?,
+                        project(matrix, axis, e.left, e.fraction)?,
                     ];
                     transform(polygon)?;
                     return Ok(Some(Read {
@@ -423,23 +431,24 @@ mod tests {
                 let dark = (30..410).contains(&x)
                     && (20..160).contains(&y)
                     && BITS.as_bytes()[(x - 30) / 4] == b'1';
-                let v = 0.95 - 0.6 * x as f64 / 420. - if dark { 0.3 } else { 0. };
-                pixels[y * 420 + x] = (255. * v) as u8;
+                let v =
+                    0.95 - 0.6 * crate::numeric::usize_f64(x) / 420. - if dark { 0.3 } else { 0. };
+                pixels[y * 420 + x] = crate::numeric::f64_u8(255. * v);
             }
         }
         let im = ImageView::new(&pixels, 420, 180, 1, 420).unwrap();
-        let q = [[[30., 20.], [410., 20.], [410., 160.], [30., 160.]]];
-        let mut s = Scanner::default();
-        assert!(s.scan_regions(im, &q).unwrap()[0].read.is_none());
-        let r = s.scan_regions_with_contrast(im, &q, true).unwrap()[0]
+        let quad = [[[30., 20.], [410., 20.], [410., 160.], [30., 160.]]];
+        let mut scanner = Scanner::default();
+        assert!(scanner.scan_regions(im, &quad).unwrap()[0].read.is_none());
+        let r = scanner.scan_regions_with_contrast(im, &quad, true).unwrap()[0]
             .read
             .unwrap();
         assert!(r.contrast_normalized);
         assert_eq!(r.digits, [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7]);
         let p = fixture();
         let im = ImageView::new(&p, 1000, 180, 1, 1000).unwrap();
-        let a = s.scan_regions(im, &q).unwrap()[0].clone();
-        let b = s.scan_regions_with_contrast(im, &q, true).unwrap()[0].clone();
+        let a = scanner.scan_regions(im, &quad).unwrap()[0].clone();
+        let b = scanner.scan_regions_with_contrast(im, &quad, true).unwrap()[0].clone();
         assert!(!b.read.unwrap().contrast_normalized);
         assert_eq!(a.read.unwrap().polygon, b.read.unwrap().polygon);
         assert_eq!(a.paths_attempted, b.paths_attempted);
@@ -447,7 +456,7 @@ mod tests {
 
     #[test]
     fn run_paths_require_separation_reject_conflicts_and_keep_raw() {
-        let q = [[30., 20.], [410., 20.], [410., 160.], [30., 160.]];
+        let quad = [[30., 20.], [410., 20.], [410., 160.], [30., 160.]];
         let mut s = Scanner::default();
         let mut pixels = vec![255; 440 * 180];
         let a = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
@@ -467,15 +476,15 @@ mod tests {
             }
             let im = ImageView::new(&pixels, 440, 180, 1, 440).unwrap();
             let mut attempts = 0;
-            let r = s.scan_runs_one(im, q, &mut attempts).unwrap();
+            let r = s.scan_runs_one(im, quad, &mut attempts).unwrap();
             assert!(attempts <= 10);
             if mode == 0 {
                 let r = r.unwrap();
                 assert_eq!(r.digits, a);
                 assert!(r.run_width);
                 assert!(r.paths[1].fraction - r.paths[0].fraction >= 0.299_999);
-                let raw = s.scan_regions(im, &[q]).unwrap()[0].clone();
-                let got = s.scan_regions_with_runs(im, &[[[0.; 2]; 4], q]).unwrap();
+                let raw = s.scan_regions(im, &[quad]).unwrap()[0].clone();
+                let got = s.scan_regions_with_runs(im, &[[[0.; 2]; 4], quad]).unwrap();
                 assert!(got[0].error.is_some());
                 assert_eq!(got[1].read.unwrap().digits, a);
                 assert!(!got[1].read.unwrap().run_width);

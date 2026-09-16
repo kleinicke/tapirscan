@@ -47,6 +47,10 @@ fn rectified_oracle(
     }
     serde_json::json!({"failed":true,"attempts":attempts})
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "This diagnostic CLI dispatches the supported matrix formats and writes one consistent record; it is outside the scanning hot path."
+)]
 fn main() {
     let args: Vec<_> = env::args().collect();
     assert!(args.len() == 6, "oracle GRAY W H FORMAT QUAD_JSON");
@@ -110,16 +114,20 @@ fn main() {
                         let mut matrix = Vec::with_capacity(cols * rows);
                         for y in 0..rows {
                             for x in 0..cols {
-                                let u = (x as f32 + 0.5 - margin) / (cols as f32 - 2. * margin);
-                                let v = (y as f32 + 0.5 - margin) / (rows as f32 - 2. * margin);
+                                let u = (barcode_multiformat::numeric::usize_f32(x) + 0.5 - margin)
+                                    / (barcode_multiformat::numeric::usize_f32(cols) - 2. * margin);
+                                let v = (barcode_multiformat::numeric::usize_f32(y) + 0.5 - margin)
+                                    / (barcode_multiformat::numeric::usize_f32(rows) - 2. * margin);
                                 let [xx, yy] = qr_detect::map(&t, u, v);
                                 if xx >= 0.
                                     && yy >= 0.
-                                    && xx < (width as f32)
-                                    && yy < (height as f32)
+                                    && xx < barcode_multiformat::numeric::usize_f32(width)
+                                    && yy < barcode_multiformat::numeric::usize_f32(height)
                                 {
                                     matrix.push(
-                                        bits[yy.floor() as usize * width + xx.floor() as usize],
+                                        bits[barcode_multiformat::numeric::f32_usize(yy.floor())
+                                            * width
+                                            + barcode_multiformat::numeric::f32_usize(xx.floor())],
                                     );
                                 }
                             }

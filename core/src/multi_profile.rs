@@ -23,10 +23,14 @@ pub struct Reads {
 /// Limits are explicit: 64..=4096 samples, <=64 returned symbols. This remains
 /// an experimental path decoder; callers must assemble spatial support across
 /// paths and retain unresolved candidate coverage independently of these reads.
+/// # Errors
+/// Returns `Length` for unsupported profile size or symbol limit, or `Value` for non-finite samples or values outside [0, 1].
 pub fn decode_many(p: &[f32], max_symbols: usize) -> Result<Reads, Error> {
     decode_mode(p, max_symbols, false)
 }
 /// Diagnostic guard-derived bar/space correction, outside region policy.
+/// # Errors
+/// Returns `Length` for unsupported profile size or symbol limit, or `Value` for non-finite samples or values outside [0, 1].
 pub fn decode_guard_bias(p: &[f32], max_symbols: usize) -> Result<Reads, Error> {
     decode_mode(p, max_symbols, true)
 }
@@ -69,10 +73,14 @@ pub(crate) fn decode_guard_runs(runs: &[(usize, usize, bool)], max_symbols: usiz
 /// Experimental linear threshold-crossing positions on the identical signal.
 /// No transitions are added/removed; structural and visual gates are unchanged.
 /// This is a diagnostic alternative, not enabled by the region scanner.
+/// # Errors
+/// Returns `Length` for unsupported profile size or symbol limit, or `Value` for non-finite samples or values outside [0, 1].
 pub fn decode_fractional(p: &[f32], max_symbols: usize) -> Result<Reads, Error> {
     decode_fractional_mode(p, max_symbols, false)
 }
 /// Observed guard correction using fractional edges, without digit-guided fitting.
+/// # Errors
+/// Returns `Length` for unsupported profile size or symbol limit, or `Value` for non-finite samples or values outside [0, 1].
 pub fn decode_fractional_guard_bias(p: &[f32], max_symbols: usize) -> Result<Reads, Error> {
     decode_fractional_mode(p, max_symbols, true)
 }
@@ -91,9 +99,9 @@ fn decode_fractional_mode(p: &[f32], max_symbols: usize, guard_bias: bool) -> Re
             // Run coordinates include a half-sample offset, matching the legacy
             // integer boundary convention. Output endpoints subtract it below.
             let end = if i == p.len() {
-                i as f64
+                crate::numeric::usize_f64(i)
             } else {
-                i as f64 - 0.5
+                crate::numeric::usize_f64(i) - 0.5
                     + (0.5 - f64::from(p[i - 1])) / (f64::from(p[i]) - f64::from(p[i - 1]))
             };
             runs.push((start, end, black));
@@ -106,57 +114,64 @@ fn decode_fractional_mode(p: &[f32], max_symbols: usize, guard_bias: bool) -> Re
 /// Adjacent-extrema midpoint crossings on an unchanged threshold-run topology.
 /// Weak local contrast cannot invent an edge. Every new coordinate remains
 /// between the adjacent observed extrema; digit/checksum results never fit it.
+/// # Errors
+/// Returns `Length` for unsupported profile size or symbol limit, or `Value` for non-finite samples or values outside [0, 1].
 pub fn decode_relative_edges(
-    p: &[f32],
+    profile: &[f32],
     max_symbols: usize,
     guard_bias: bool,
 ) -> Result<Reads, Error> {
-    if !(64..=4096).contains(&p.len()) || !(1..=64).contains(&max_symbols) {
+    if !(64..=4096).contains(&profile.len()) || !(1..=64).contains(&max_symbols) {
         return Err(Error::Length);
     }
-    if p.iter().any(|x| !x.is_finite() || !(0.0..=1.0).contains(x)) {
+    if profile
+        .iter()
+        .any(|x| !x.is_finite() || !(0.0..=1.0).contains(x))
+    {
         return Err(Error::Value);
     }
     let mut starts = vec![0];
-    for i in 1..p.len() {
-        if (p[i] >= 0.5) != (p[i - 1] >= 0.5) {
+    for i in 1..profile.len() {
+        if (profile[i] >= 0.5) != (profile[i - 1] >= 0.5) {
             starts.push(i);
         }
     }
-    starts.push(p.len());
+    starts.push(profile.len());
     let mut edges = vec![0.];
     for k in 1..starts.len() - 1 {
         let (a, b, c) = (starts[k - 1], starts[k], starts[k + 1]);
-        let dark = p[b] >= 0.5;
+        let dark = profile[b] >= 0.5;
         // Choose nearest extrema on ties, keeping the edge's own flanks local.
         let left = (a..b)
             .rev()
             .max_by(|&i, &j| {
-                let order = p[i].total_cmp(&p[j]);
+                let order = profile[i].total_cmp(&profile[j]);
                 (if dark { order.reverse() } else { order }).then_with(|| i.cmp(&j))
             })
-            .unwrap();
+            .unwrap_or(a);
         let right = (b..c)
             .max_by(|&i, &j| {
-                let order = p[i].total_cmp(&p[j]);
+                let order = profile[i].total_cmp(&profile[j]);
                 (if dark { order } else { order.reverse() }).then_with(|| j.cmp(&i))
             })
-            .unwrap();
-        let threshold = (f64::from(p[left]) + f64::from(p[right])) * 0.5;
-        let original =
-            b as f64 - 0.5 + (0.5 - f64::from(p[b - 1])) / (f64::from(p[b]) - f64::from(p[b - 1]));
+            .unwrap_or(a);
+        let threshold = (f64::from(profile[left]) + f64::from(profile[right])) * 0.5;
+        let original = crate::numeric::usize_f64(b) - 0.5
+            + (0.5 - f64::from(profile[b - 1]))
+                / (f64::from(profile[b]) - f64::from(profile[b - 1]));
         let mut edge = original;
         let mut distance = f64::INFINITY;
-        if (p[left] - p[right]).abs() >= 0.25 {
+        if (profile[left] - profile[right]).abs() >= 0.25 {
             for i in left + 1..=right {
-                let (v, w) = (f64::from(p[i - 1]), f64::from(p[i]));
-                if (dark && v < threshold && w >= threshold)
-                    || (!dark && v >= threshold && w < threshold)
+                let (v, next_value) = (f64::from(profile[i - 1]), f64::from(profile[i]));
+                if (dark && v < threshold && next_value >= threshold)
+                    || (!dark && v >= threshold && next_value < threshold)
                 {
-                    let crossing = i as f64 - 0.5 + (threshold - v) / (w - v);
-                    let d = (crossing - original).abs();
-                    if d < distance {
-                        distance = d;
+                    let crossing =
+                        crate::numeric::usize_f64(i) - 0.5 + (threshold - v) / (next_value - v);
+                    let crossing_distance = (crossing - original).abs();
+                    if crossing_distance < distance {
+                        distance = crossing_distance;
                         edge = crossing;
                     }
                 }
@@ -164,9 +179,9 @@ pub fn decode_relative_edges(
         }
         edges.push(edge);
     }
-    edges.push(p.len() as f64);
+    edges.push(crate::numeric::usize_f64(profile.len()));
     let runs: Vec<_> = (0..starts.len() - 1)
-        .map(|i| (edges[i], edges[i + 1], p[starts[i]] >= 0.5))
+        .map(|i| (edges[i], edges[i + 1], profile[starts[i]] >= 0.5))
         .collect();
     // A non-monotone model has no physical interpretation. Retain the original
     // decoder's evidence in the caller instead of accepting crossed boundaries.
@@ -277,6 +292,23 @@ pub(crate) fn decode_local_variants(
     decode_local_variants_validated(p, max_symbols, guard_bias, scratch)
 }
 /// Private caller has already validated profile length and values.
+#[cfg_attr(
+    not(any(
+        feature = "experimental-relative-edges",
+        all(
+            feature = "experimental-lowres-relative",
+            not(feature = "experimental-relative-reuse")
+        )
+    )),
+    expect(
+        clippy::unnecessary_wraps,
+        reason = "The relative-edge feature branches propagate validation errors through this shared decoder interface."
+    )
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Ordered decoding alternatives share ambiguity vetoes, symbol limits and duplicate accounting within one profile."
+)]
 pub(crate) fn decode_local_variants_validated(
     p: &[f32],
     max_symbols: usize,
@@ -290,9 +322,9 @@ pub(crate) fn decode_local_variants_validated(
         let next = i < p.len() && p[i] >= 0.5;
         if i == p.len() || next != black {
             let end = if i == p.len() {
-                i as f64
+                crate::numeric::usize_f64(i)
             } else {
-                i as f64 - 0.5
+                crate::numeric::usize_f64(i) - 0.5
                     + (0.5 - f64::from(p[i - 1])) / (f64::from(p[i]) - f64::from(p[i - 1]))
             };
             scratch.integer.push((start, i, black));
@@ -398,7 +430,10 @@ pub(crate) fn decode_local_variants_validated(
 /// equal-polarity flanks. Original hypotheses still veto conflicting reads.
 /// No digit information is used and no missing transition is inserted.
 #[cfg(feature = "experimental-weak-excursions")]
-fn weak_excursions(p: &[f32], runs: &[(usize, usize, bool)]) -> Option<Vec<(usize, usize, bool)>> {
+fn weak_excursions(
+    profile: &[f32],
+    runs: &[(usize, usize, bool)],
+) -> Option<Vec<(usize, usize, bool)>> {
     let mut out: Option<Vec<(usize, usize, bool)>> = None;
     let mut i = 0;
     while i < runs.len() {
@@ -407,16 +442,16 @@ fn weak_excursions(p: &[f32], runs: &[(usize, usize, bool)]) -> Option<Vec<(usiz
             let width = b - a;
             if runs[i].1 - runs[i].0 >= 2 * width
                 && runs[i + 2].1 - runs[i + 2].0 >= 2 * width
-                && p[a..b].iter().all(|&v| (v - 0.5).abs() <= 0.10)
+                && profile[a..b].iter().all(|&v| (v - 0.5).abs() <= 0.10)
             {
                 let mut widths: Vec<_> = runs[i.saturating_sub(15)..(i + 18).min(runs.len())]
                     .iter()
                     .map(|r| r.1 - r.0)
                     .collect();
-                let q = widths.len() / 4;
-                let scale = *widths.select_nth_unstable(q).1;
+                let quad = widths.len() / 4;
+                let scale = *widths.select_nth_unstable(quad).1;
                 let strong = |r: (usize, usize, bool)| {
-                    p[r.0..r.1]
+                    profile[r.0..r.1]
                         .iter()
                         .any(|&v| if dark { v <= 0.25 } else { v >= 0.75 })
                 };
@@ -544,7 +579,7 @@ mod weak_tests {
     #[test]
     fn weak_submodule_only() {
         let base: Vec<f32> = (0..30)
-            .flat_map(|i| std::iter::repeat_n((i % 2) as f32, 12))
+            .flat_map(|i| std::iter::repeat_n(crate::numeric::f64_f32(f64::from(i % 2)), 12))
             .collect();
         let runs = |p: &[f32]| {
             let mut r = vec![];
@@ -580,7 +615,7 @@ trait Position: Copy {
 }
 impl Position for usize {
     fn value(self) -> f64 {
-        self as f64
+        crate::numeric::usize_f64(self)
     }
 }
 impl Position for f64 {
@@ -612,6 +647,14 @@ pub(crate) fn decode_short_quiet(
         raw
     }
 }
+#[expect(
+    clippy::float_cmp,
+    reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Ordered decoding alternatives share ambiguity vetoes, symbol limits and duplicate accounting within one profile."
+)]
 fn decode_positions_mode<T: Position>(
     runs: &[(T, T, bool)],
     max_symbols: usize,
@@ -630,15 +673,15 @@ fn decode_positions_mode<T: Position>(
         }
         windows_examined += 1;
         let (left, right) = (r[1].0.value(), r[59].1.value());
-        let module = (right - left) as f32 / 95.;
-        let qleft = (r[0].1.value() - r[0].0.value()) as f32 / module;
-        let qright = (r[60].1.value() - r[60].0.value()) as f32 / module;
+        let module = crate::numeric::f64_f32(right - left) / 95.;
+        let qleft = crate::numeric::f64_f32(r[0].1.value() - r[0].0.value()) / module;
+        let qright = crate::numeric::f64_f32(r[60].1.value() - r[60].0.value()) / module;
         // Quiet-zone width follows the adjacent observed guard pitch on curved
         // labels. Full-quiet acceptance is unchanged; this remains four-row evidence.
-        let left_pitch = (r[3].1.value() - r[1].0.value()) as f32 / 3.;
-        let right_pitch = (r[59].1.value() - r[57].0.value()) as f32 / 3.;
-        let local_left = (r[0].1.value() - r[0].0.value()) as f32 / left_pitch;
-        let local_right = (r[60].1.value() - r[60].0.value()) as f32 / right_pitch;
+        let left_pitch = crate::numeric::f64_f32(r[3].1.value() - r[1].0.value()) / 3.;
+        let right_pitch = crate::numeric::f64_f32(r[59].1.value() - r[57].0.value()) / 3.;
+        let local_left = crate::numeric::f64_f32(r[0].1.value() - r[0].0.value()) / left_pitch;
+        let local_right = crate::numeric::f64_f32(r[60].1.value() - r[60].0.value()) / right_pitch;
         let ordinary_short = (local_left >= 4. && local_right >= 4.)
             || (local_left >= 6. && local_right >= 3.)
             || (local_left >= 3. && local_right >= 6.);
@@ -657,8 +700,8 @@ fn decode_positions_mode<T: Position>(
             || if short_quiet {
                 !(ordinary_short || asymmetric_short) || (qleft >= 7. && qright >= 7.)
             } else {
-                ((r[0].1.value() - r[0].0.value()) as f32) < 7. * module
-                    || ((r[60].1.value() - r[60].0.value()) as f32) < 7. * module
+                crate::numeric::f64_f32(r[0].1.value() - r[0].0.value()) < 7. * module
+                    || crate::numeric::f64_f32(r[60].1.value() - r[60].0.value()) < 7. * module
             }
         {
             continue;
@@ -666,7 +709,7 @@ fn decode_positions_mode<T: Position>(
         quiet_pass += 1;
         let mut widths = [0.; 59];
         for j in 0..59 {
-            widths[j] = (r[j + 1].1.value() - r[j + 1].0.value()) as f32;
+            widths[j] = crate::numeric::f64_f32(r[j + 1].1.value() - r[j + 1].0.value());
         }
         if [0, 1, 2, 27, 28, 29, 30, 31, 56, 57, 58]
             .iter()
@@ -883,7 +926,7 @@ mod tests {
             })
             .collect();
         let noise: Vec<_> = (0..4096)
-            .map(|i| ((i * 73 + 19) % 101) as f32 / 100.)
+            .map(|i| crate::numeric::f64_f32(f64::from((i * 73 + 19) % 101)) / 100.)
             .collect();
         let mut scratch = LocalRuns::default();
         for p in [clean, reverse, noise, vec![0.; 64], soft, vec![1.; 4096]] {
@@ -953,8 +996,8 @@ mod tests {
                 for bias in [-0.3, 0.3] {
                     for phase in [0.1, 0.4, 0.8] {
                         let bits = crate::ean::encode(&d);
-                        let n = (119. * pitch).ceil() as usize;
-                        let mut p = vec![0.; n];
+                        let count = crate::numeric::f64_usize((119. * pitch).ceil());
+                        let mut profile = vec![0.; count];
                         // Pixel-area integration of independently positioned bar intervals.
                         let mut i = 0;
                         while i < 95 {
@@ -966,19 +1009,27 @@ mod tests {
                             while j < 95 && bits[j] >= 0.5 {
                                 j += 1;
                             }
-                            let lo = (12. + i as f64) * pitch - bias * pitch / 2. + phase;
-                            let hi = (12. + j as f64) * pitch + bias * pitch / 2. + phase;
-                            for (x, v) in p.iter_mut().enumerate() {
-                                *v += (hi.min(x as f64 + 1.) - lo.max(x as f64)).max(0.) as f32;
+                            let lo = (12. + crate::numeric::usize_f64(i)) * pitch
+                                - bias * pitch / 2.
+                                + phase;
+                            let hi = (12. + crate::numeric::usize_f64(j)) * pitch
+                                + bias * pitch / 2.
+                                + phase;
+                            for (x, v) in profile.iter_mut().enumerate() {
+                                *v += crate::numeric::f64_f32(
+                                    (hi.min(crate::numeric::usize_f64(x) + 1.)
+                                        - lo.max(crate::numeric::usize_f64(x)))
+                                    .max(0.),
+                                );
                             }
                             i = j;
                         }
-                        let r = decode_fractional_guard_bias(&p, 64).unwrap();
+                        let r = decode_fractional_guard_bias(&profile, 64).unwrap();
                         if invalid {
                             assert!(r.symbols.is_empty());
                         } else {
-                            for h in r.symbols {
-                                assert_eq!(h.digits, good);
+                            for height in r.symbols {
+                                assert_eq!(height.digits, good);
                                 successes += 1;
                             }
                         }
@@ -1016,8 +1067,12 @@ mod tests {
         for p in [
             vec![0.; 512],
             vec![1.; 512],
-            (0..512).map(|i| (i % 2) as f32).collect(),
-            (0..512).map(|i| i as f32 / 511.).collect(),
+            (0..512)
+                .map(|i| crate::numeric::f64_f32(f64::from(i % 2)))
+                .collect(),
+            (0..512)
+                .map(|i| crate::numeric::f64_f32(f64::from(i)) / 511.)
+                .collect(),
         ] {
             assert!(decode_relative_edges(&p, 64, true)
                 .unwrap()
@@ -1123,7 +1178,7 @@ mod tests {
     #[test]
     fn rejects_bad_buffers_and_negative_profiles() {
         assert!(decode_many(&[], 64).is_err());
-        assert!(decode_many(&[0.; 4097], 64).is_err());
+        assert!(decode_many(&vec![0.; 4097], 64).is_err());
         assert!(decode_many(&[0.; 512], 0).is_err());
         assert!(decode_many(&[f32::NAN; 512], 64).is_err());
         for n in [64, 512, 4096] {
@@ -1131,7 +1186,7 @@ mod tests {
             assert!(decode_many(&vec![1.; n], 64).unwrap().symbols.is_empty());
         }
         let noise: Vec<_> = (0..4096)
-            .map(|i| ((i * 1_103_515_245_u64 + 12345) % 65536) as f32 / 65535.)
+            .map(|i| crate::numeric::u64_f32((i * 1_103_515_245_u64 + 12345) % 65536) / 65535.)
             .collect();
         assert!(decode_many(&noise, 64).unwrap().symbols.is_empty());
     }
@@ -1164,7 +1219,9 @@ mod tests {
         for p in [
             vec![0.; 512],
             vec![1.; 512],
-            (0..512).map(|i| (i % 2) as f32).collect(),
+            (0..512)
+                .map(|i| crate::numeric::f64_f32(f64::from(i % 2)))
+                .collect(),
         ] {
             assert!(decode_fractional(&p, 64).unwrap().symbols.is_empty());
         }
@@ -1184,11 +1241,15 @@ mod tests {
         assert_eq!(reverse.symbols.len(), 1);
         let (f, r) = (&forward.symbols[0], &reverse.symbols[0]);
         assert_eq!(f.digits, r.digits);
-        assert!((f.left + r.right - (p.len() - 1) as f64).abs() < 1e-6);
-        assert!((f.right + r.left - (p.len() - 1) as f64).abs() < 1e-6);
+        assert!((f.left + r.right - crate::numeric::usize_f64(p.len() - 1)).abs() < 1e-6);
+        assert!((f.right + r.left - crate::numeric::usize_f64(p.len() - 1)).abs() < 1e-6);
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn bias_recovery_counts_and_overlap_conflicts_remain_explicit() {
         let d = digits([5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5]);
         let bits = crate::ean::encode(&d);
@@ -1349,7 +1410,9 @@ fn exact_same_runs(integer: &[(usize, usize, bool)], fractional: &[(f64, f64, bo
             .iter()
             .zip(fractional)
             .all(|(&(a, b, d), &(x, y, e))| {
-                (a as f64).to_bits() == x.to_bits() && (b as f64).to_bits() == y.to_bits() && d == e
+                crate::numeric::usize_f64(a).to_bits() == x.to_bits()
+                    && crate::numeric::usize_f64(b).to_bits() == y.to_bits()
+                    && d == e
             })
 }
 
@@ -1379,9 +1442,9 @@ mod redundant_exact_tests {
             let next = i < p.len() && p[i] >= 0.5;
             if i == p.len() || next != black {
                 let end = if i == p.len() {
-                    i as f64
+                    crate::numeric::usize_f64(i)
                 } else {
-                    i as f64 - 0.5
+                    crate::numeric::usize_f64(i) - 0.5
                         + (0.5 - f64::from(p[i - 1])) / (f64::from(p[i]) - f64::from(p[i - 1]))
                 };
                 scratch.integer.push((start, i, black));
@@ -1493,7 +1556,11 @@ mod redundant_exact_tests {
             );
         }
     }
-    fn barcode(d: [u8; 13], quiet: usize, bias: isize) -> Vec<f32> {
+    #[expect(
+        clippy::float_cmp,
+        reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
+    )]
+    fn barcode(d: [u8; 13], quiet: usize, edge_offset: isize) -> Vec<f32> {
         let bits = crate::ean::encode(&d);
         let mut p = vec![0.; quiet];
         let mut i = 0;
@@ -1502,8 +1569,13 @@ mod redundant_exact_tests {
             while j < bits.len() && bits[j] == bits[i] {
                 j += 1;
             }
-            let width = ((j - i) * 4) as isize + if bits[i] > 0.5 { bias } else { -bias };
-            p.extend(std::iter::repeat_n(bits[i], width as usize));
+            let width = ((j - i) * 4).cast_signed()
+                + if bits[i] > 0.5 {
+                    edge_offset
+                } else {
+                    -edge_offset
+                };
+            p.extend(std::iter::repeat_n(bits[i], (width).cast_unsigned()));
             i = j;
         }
         p.extend(std::iter::repeat_n(0., quiet));
@@ -1531,7 +1603,7 @@ mod redundant_exact_tests {
             let v = (0..n)
                 .map(|_| {
                     seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                    (seed >> 8) as f32 / 16_777_215.
+                    crate::numeric::f64_f32(f64::from(seed >> 8)) / 16_777_215.
                 })
                 .collect();
             cases.push(v);

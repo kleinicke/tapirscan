@@ -28,6 +28,10 @@ fn exp(n: usize) -> usize {
 fn eval(p: &[usize], x: usize) -> usize {
     p.iter().fold(0, |a, &b| add(mul(a, x), b))
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "The Reed-Solomon correction transaction validates locator roots and magnitudes before committing corrections to the caller buffer."
+)]
 pub fn correct(code: &mut [usize], ecc: usize, erasures: &[usize]) -> Option<usize> {
     if code.len() > 928
         || ecc >= code.len()

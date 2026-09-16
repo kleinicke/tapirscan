@@ -46,7 +46,7 @@ impl EanAddOnPolicy {
 
 impl Scanner {
     /// Scan selected formats and return the shared JSON result contract.
-    /// Additional readers retain the research scanline effort (1) in every mode.
+    /// QR and `Common1D` effort follow the selected mode; other matrix readers use effort 1.
     /// # Errors
     /// Rejects invalid masks, image layouts, and inputs above 32 megapixels.
     pub fn scan_formats_json(
@@ -86,8 +86,9 @@ impl Scanner {
             multiple: true,
             include_regions: options.include_regions,
         };
+        let (extras, coverage) = scan_additional(image, mask, addons)?;
         let mut value = if mask & 3 != 0 {
-            let result = self.scan_with_options(image, full_options)?;
+            let result = self.scan_with_coverage(image, full_options, &coverage)?;
             serde_json::from_str(&result.to_json(MODE, 0.0)).map_err(|_| Error::Parameters)?
         } else {
             json!({"schemaVersion":2,"mode":MODE,"multiple":true,"elapsedMs":0.0,"localizationLimited":false,"scan":{"barcodes":[],"unfinished":false}})
@@ -112,20 +113,7 @@ impl Scanner {
         } else {
             Vec::new()
         };
-        let extra_formats = if addons == EanAddOnPolicy::Ignore {
-            mask & !3
-        } else {
-            mask
-        };
-        if extra_formats != 0 {
-            let gray = gray_image(image)?;
-            let extra = barcode_multiformat::scan(
-                &gray,
-                image.width,
-                image.height,
-                extra_formats | addons.engine_bits(),
-                1,
-            );
+        for extra in &extras {
             for b in &extra.barcodes {
                 let mut b = serde_json::to_value(b).map_err(|_| Error::Parameters)?;
                 b["axis"] = json!(0);
@@ -140,7 +128,7 @@ impl Scanner {
             value["scan"]["unfinished"] =
                 json!(value["scan"]["unfinished"].as_bool().unwrap_or(false) || extra.unfinished);
         }
-        if extra_formats != 0 {
+        if !extras.is_empty() {
             apply_supplement_policy(&mut reads, &mut unread, addons, options.include_regions);
             reads = distinct(reads);
             unread.retain(|region| !reads.iter().any(|b| overlap(region, b).1 >= 0.65));
@@ -375,4 +363,142 @@ fn validate(image: Image<'_>, mask: u32) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+#[cfg(not(feature = "low"))]
+pub(crate) fn contains_point(point: [f64; 2], quad: &crate::Quad) -> bool {
+    if !point.iter().all(|v| v.is_finite()) || !quad.iter().flatten().all(|v| v.is_finite()) {
+        return false;
+    }
+    let (mut positive, mut negative, mut area) = (false, false, 0.0_f64);
+    for i in 0..4 {
+        let (a, b) = (quad[i], quad[(i + 1) % 4]);
+        let cross = (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0]);
+        positive |= cross > 1e-6;
+        negative |= cross < -1e-6;
+        area += a[0] * b[1] - b[0] * a[1];
+    }
+    area.abs() > 1e-6 && !(positive && negative)
+}
+
+#[cfg(not(feature = "low"))]
+pub(crate) fn uncovered_mask(
+    proposals: &[crate::Proposal],
+    coverage: &[crate::Quad],
+    initial: u64,
+) -> u64 {
+    proposals
+        .iter()
+        .enumerate()
+        .fold(initial, |mask, (i, proposal)| {
+            if coverage.iter().any(|quad| {
+                proposal
+                    .polygon
+                    .iter()
+                    .all(|point| contains_point(*point, quad))
+            }) {
+                mask & !(1_u64 << i)
+            } else {
+                mask
+            }
+        })
+}
+
+/// Run the linear reader before primary discovery so strong reads can guide deep retries.
+fn scan_additional(
+    image: Image<'_>,
+    mask: u32,
+    addons: EanAddOnPolicy,
+) -> Result<(Vec<barcode_multiformat::Scan>, Vec<crate::Quad>), Error> {
+    const LINEAR: u32 = 511 | 8192 | 16384;
+    let enabled = if addons == EanAddOnPolicy::Ignore {
+        mask & !3
+    } else {
+        mask
+    };
+    if enabled == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let linear = enabled & LINEAR;
+    let matrix = enabled & !LINEAR;
+    let effort = if cfg!(feature = "low") {
+        0
+    } else if cfg!(feature = "medium") {
+        1
+    } else {
+        2
+    };
+    let qr_effort = if cfg!(feature = "very-high") {
+        3
+    } else {
+        effort
+    };
+    let gray = gray_image(image)?;
+    let mut scans = Vec::new();
+    let mut coverage = Vec::new();
+    for (selected, level) in [
+        (linear, effort),
+        (matrix, if matrix & 512 != 0 { qr_effort } else { 1 }),
+    ] {
+        if selected == 0 {
+            continue;
+        }
+        let scan = barcode_multiformat::scan(
+            &gray,
+            image.width,
+            image.height,
+            selected | addons.engine_bits(),
+            level,
+        );
+        if selected == linear
+            && !cfg!(feature = "low")
+            && mask & 3 != 0
+            && addons == EanAddOnPolicy::Ignore
+        {
+            coverage.extend(
+                scan.barcodes
+                    .iter()
+                    .filter(|b| {
+                        let checked = matches!(b.format.as_str(), "EAN8" | "UPCE" | "Code128")
+                            && b.support >= 3
+                            && b.error <= 0.08;
+                        let unchecked = matches!(b.format.as_str(), "Code39" | "ITF")
+                            && b.support >= 8
+                            && b.error <= 0.035
+                            && b.text.len() >= 8;
+                        checked || unchecked
+                    })
+                    .map(|b| b.polygon.map(|p| p.map(f64::from))),
+            );
+        }
+        scans.push(scan);
+    }
+    Ok((scans, coverage))
+}
+
+#[cfg(all(test, not(feature = "low")))]
+mod coverage_tests {
+    use super::{contains_point, uncovered_mask};
+    use crate::Proposal;
+    #[test]
+    fn only_contained_proposals_lose_retries() {
+        let quad = [[0., 0.], [10., 0.], [10., 10.], [0., 10.]];
+        let adjacent = [[9., 0.], [19., 0.], [19., 10.], [9., 10.]];
+        let mut proposals: Vec<_> = (0..63)
+            .map(|_| Proposal {
+                polygon: adjacent,
+                score: 1.,
+            })
+            .collect();
+        proposals[0].polygon = quad;
+        proposals[62].polygon = quad;
+        assert_eq!(
+            uncovered_mask(&proposals, &[quad], u64::MAX),
+            u64::MAX & !1 & !(1 << 62)
+        );
+        assert_eq!(uncovered_mask(&proposals, &[quad], 1 << 63), 1 << 63);
+        assert!(contains_point([0., 5.], &quad));
+        assert!(!contains_point([0., 0.], &[[0., 0.]; 4]));
+        assert!(!contains_point([f64::NAN, 0.], &quad));
+    }
 }

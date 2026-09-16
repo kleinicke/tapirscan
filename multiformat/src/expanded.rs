@@ -118,7 +118,7 @@ fn general(bits: &mut Bits, reset_separator: bool) -> Option<String> {
             if bits.data.len() - bits.at < 7 {
                 if let Some(v) = bits.take(4) {
                     if (1..=10).contains(&v) {
-                        out.push(b'0' + (v - 1) as u8);
+                        out.push(b'0' + (v - 1).to_le_bytes()[0]);
                     } else if v != 0 && v != 11 {
                         return None;
                     }
@@ -137,7 +137,11 @@ fn general(bits: &mut Bits, reset_separator: bool) -> Option<String> {
                 return None;
             }
             for v in [a, b] {
-                out.push(if v == 10 { 29 } else { b'0' + v as u8 });
+                out.push(if v == 10 {
+                    29
+                } else {
+                    b'0' + (v).to_le_bytes()[0]
+                });
             }
         } else {
             if bits.peek(3) == Some(0) {
@@ -163,13 +167,13 @@ fn general(bits: &mut Bits, reset_separator: bool) -> Option<String> {
             }
             if (5..=14).contains(&v) {
                 bits.take(5)?;
-                out.push(b'0' + (v - 5) as u8);
+                out.push(b'0' + (v - 5).to_le_bytes()[0]);
                 continue;
             }
             if mode == 1 {
                 let v = bits.take(6)?;
                 out.push(match v {
-                    32..=57 => (v + 33) as u8,
+                    32..=57 => (v + 33).to_le_bytes()[0],
                     58..=62 => b"*,-./"[v - 58],
                     _ => return None,
                 });
@@ -177,7 +181,7 @@ fn general(bits: &mut Bits, reset_separator: bool) -> Option<String> {
                 let v = bits.peek(7)?;
                 if (64..=115).contains(&v) {
                     bits.take(7)?;
-                    out.push((v + if v <= 89 { 1 } else { 7 }) as u8);
+                    out.push((v + if v <= 89 { 1 } else { 7 }).to_le_bytes()[0]);
                 } else {
                     let v = bits.take(8)?;
                     out.push(*b"!\"%&'()*+,-./:;<=>?_ ".get(v.checked_sub(232)?)?);
@@ -423,7 +427,7 @@ pub fn decode(r: &[f32], s: usize) -> Option<Read> {
         text: payload(&words)?,
         start: s,
         end,
-        error: err / (symbols + blocks) as f32,
+        error: err / crate::numeric::usize_f32(symbols + blocks),
         gs1: true,
     })
 }
@@ -498,7 +502,10 @@ impl Stacked {
             } else {
                 (line.offsets[k], line.offsets[end])
             };
-            let (lo, hi) = (lo as f32 + line.start, hi as f32 + line.start);
+            let (lo, hi) = (
+                crate::numeric::usize_f32(lo) + line.start,
+                crate::numeric::usize_f32(hi) + line.start,
+            );
             if let Some(b) = self.blocks.iter_mut().find(|b| {
                 b.finder == finder
                     && b.left.0 == left.0
@@ -558,6 +565,10 @@ impl Stacked {
         let limited = attempts >= 10000 || self.blocks.len() >= 2048;
         (out, limited)
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The recursive DataBar assembly shares path, checksum and attempt budget; splitting the search would obscure backtracking invariants."
+    )]
     fn search(
         &self,
         sequence: &[usize],
@@ -660,7 +671,8 @@ impl Stacked {
                 text,
                 polygon,
                 support: path.iter().map(|&i| self.blocks[i].support).sum(),
-                error: path.iter().map(|&i| self.blocks[i].left.2).sum::<f32>() / path.len() as f32,
+                error: path.iter().map(|&i| self.blocks[i].left.2).sum::<f32>()
+                    / crate::numeric::usize_f32(path.len()),
                 gs1: true,
             });
             return;
@@ -692,7 +704,7 @@ impl Stacked {
                 if progression <= 0.
                     || progression > height + b.module * 25.
                     || ((b.lo + b.hi) - (root.lo + root.hi)).abs()
-                        > root.module * symbols as f32 * 55.
+                        > root.module * crate::numeric::usize_f32(symbols) * 55.
                 {
                     continue;
                 }

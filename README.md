@@ -180,8 +180,8 @@ readers include EAN-8, UPC-E, Code 128, Code 39, Code 93, ITF, Codabar, DataBar,
 DataBar Expanded, QR Code, Data Matrix, PDF417, Aztec, and MaxiCode.
 
 See [format coverage](docs/FORMATS.md) before choosing Tapirscan for a particular
-symbology. The four effort modes tune the EAN-13/UPC-A path; additional readers
-currently share one effort setting.
+symbology. The four effort modes tune EAN-13/UPC-A, Common1D and QR Code. Other matrix
+readers use a fixed effort setting.
 
 Results preserve source-image polygons. Python and JavaScript return all decoded
 instances; `result.best` gives the highest-support read or an empty value. Support is a ranking heuristic, not a probability. `unfinished` reports

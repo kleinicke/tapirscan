@@ -49,11 +49,11 @@ fn clipped_polygon(a: &[Point], b: &[Point]) -> Vec<Point> {
         if input.is_empty() {
             break;
         }
-        let (v, w) = (b[i], b[(i + 1) % b.len()]);
+        let (v, width) = (b[i], b[(i + 1) % b.len()]);
         let mut prev = *input.last().unwrap();
-        let mut dp = cross(v, w, prev);
+        let mut dp = cross(v, width, prev);
         for curr in input {
-            let dc = cross(v, w, curr);
+            let dc = cross(v, width, curr);
             if (dc >= 0.) != (dp >= 0.) {
                 let t = dp / (dp - dc);
                 out.push([
@@ -70,12 +70,12 @@ fn clipped_polygon(a: &[Point], b: &[Point]) -> Vec<Point> {
     }
     out
 }
-fn line_polygon(a: Point, b: Point, p: &[Point]) -> f64 {
+fn line_polygon(a: Point, b: Point, polygon: &[Point]) -> f64 {
     let (mut lo, mut hi) = (0_f64, 1_f64);
-    for i in 0..p.len() {
-        let (v, w) = (p[i], p[(i + 1) % p.len()]);
-        let f = cross(v, w, a);
-        let delta = cross(v, w, b) - f;
+    for i in 0..polygon.len() {
+        let (v, edge_end) = (polygon[i], polygon[(i + 1) % polygon.len()]);
+        let f = cross(v, edge_end, a);
+        let delta = cross(v, edge_end, b) - f;
         if delta.abs() < 1e-10 {
             if f < 0. {
                 return 0.;
@@ -103,13 +103,15 @@ fn line_line(a: &[Point], b: &[Point]) -> f64 {
     if b.iter().any(|p| cross(a[0], a[1], *p).abs() / len > 2.) {
         return 0.;
     }
-    let t = |p: Point| ((p[0] - a[0][0]) * dx + (p[1] - a[0][1]) * dy) / len;
-    let (u, v) = (t(b[0]), t(b[1]));
+    let project = |p: Point| ((p[0] - a[0][0]) * dx + (p[1] - a[0][1]) * dy) / len;
+    let (u, v) = (project(b[0]), project(b[1]));
     (len.min(u.max(v)) - 0_f64.max(u.min(v))).max(0.) / len.min(blen)
 }
 /// Area intersection / smaller area; line-in-polygon coverage; or collinear
 /// line overlap. Scores are symmetric and bounded, not calibrated probabilities.
 /// A zero-dimensional point is rejected. Callers retain all original geometry.
+/// # Errors
+/// Returns `Geometry` for non-finite, degenerate, non-convex or oversized polygons.
 pub fn overlap(a: &[Point], b: &[Point]) -> Result<f64, Error> {
     let (a, b) = (hull(a)?, hull(b)?);
     let score = match (a.len(), b.len()) {
@@ -130,6 +132,10 @@ mod tests {
         [[x, y], [x + 100., y], [x + 100., y + 40.], [x, y + 40.]]
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn area_overlap_and_disjoint_diagonals() {
         assert_eq!(overlap(&rect(0., 0.), &rect(50., 0.)).unwrap(), 0.5);
         let a = [[0., 0.], [100., 100.], [95., 105.], [-5., 5.]];
@@ -138,6 +144,10 @@ mod tests {
         assert_eq!(overlap(&a, &a).unwrap(), 1.);
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn explicit_lines() {
         let l = [[1., 20.], [99., 20.], [99., 20.], [1., 20.]];
         assert_eq!(overlap(&l, &rect(0., 0.)).unwrap(), 1.);
@@ -146,6 +156,10 @@ mod tests {
         assert_eq!(overlap(&l, &l.map(|p| [p[0], p[1] + 3.])).unwrap(), 0.);
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn variable_polygon_sizes_are_bounded() {
         let a = [
             [0., 0.],

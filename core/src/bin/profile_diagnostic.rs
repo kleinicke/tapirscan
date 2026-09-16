@@ -10,10 +10,11 @@ fn main() {
     );
     println!("{{\"diagnostic\":\"profile\",\"profileAperture\":{},\"identityPhase\":{},\"relativeReuse\":{},\"nativeSharpen\":{},\"guardRanking\":{},\"greenLuminance\":{}}}",cfg!(feature="experimental-profile-aperture"),cfg!(feature="experimental-identity-phase"),cfg!(feature="experimental-relative-reuse"),cfg!(feature="experimental-native-sharpen"),cfg!(feature="experimental-guard-ranking"),cfg!(feature="experimental-green-luminance"));
     let data = std::fs::read(&a[1]).unwrap();
-    let w: usize = a[2].parse().unwrap();
-    let h: usize = a[3].parse().unwrap();
-    let im = ImageView::new(&data, w, h, 3, w * 3).unwrap();
-    let q = std::array::from_fn(|i| [a[4 + i * 2].parse().unwrap(), a[5 + i * 2].parse().unwrap()]);
+    let width: usize = a[2].parse().unwrap();
+    let height: usize = a[3].parse().unwrap();
+    let im = ImageView::new(&data, width, height, 3, width * 3).unwrap();
+    let quad =
+        std::array::from_fn(|i| [a[4 + i * 2].parse().unwrap(), a[5 + i * 2].parse().unwrap()]);
     let mut e = Experiment::default();
     let window = if a.len() == 17 {
         Some((
@@ -25,8 +26,8 @@ fn main() {
     } else {
         None
     };
-    if let Some((axis, lo, hi, n)) = window {
-        println!("{{\"axis\":{axis},\"lo\":{lo},\"hi\":{hi},\"samples\":{n}}}");
+    if let Some((axis, lo, hi, count)) = window {
+        println!("{{\"axis\":{axis},\"lo\":{lo},\"hi\":{hi},\"samples\":{count}}}");
     }
     for fraction in a[12].split(',').map(|x| x.parse::<f64>().unwrap()) {
         for native in [false, true] {
@@ -34,12 +35,12 @@ fn main() {
                 if window.is_some() && native {
                     continue;
                 }
-                let p = if let Some((axis, lo, hi, n)) = window {
-                    e.diagnostic_segment(im, q, axis, fraction, lo, hi, n, interior)
+                let p = if let Some((axis, lo, hi, count)) = window {
+                    e.diagnostic_segment(im, quad, axis, fraction, lo, hi, count, interior)
                 } else if interior {
-                    e.diagnostic_interior_profile(im, q, 0, fraction, native)
+                    e.diagnostic_interior_profile(im, quad, 0, fraction, native)
                 } else {
-                    e.diagnostic_profile(im, q, 0, fraction, native)
+                    e.diagnostic_profile(im, quad, 0, fraction, native)
                 }
                 .unwrap();
                 let Some(p) = p else { continue };

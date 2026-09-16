@@ -62,7 +62,7 @@ class Formats(unittest.TestCase):
                 ):
                     result = scanner.scan(
                         PixelImage(pixels, width=1000, height=700),
-                        formats=["Code128", "QRCode"],
+                        formats=["EAN13", "Code128", "QRCode"],
                         debug=True,
                     )
                     self.assertCountEqual(
@@ -79,7 +79,7 @@ class Formats(unittest.TestCase):
                         path,
                         1,
                         1,
-                        "Code128,QRCode",
+                        "EAN13,Code128,QRCode",
                     )
                     self.assertEqual(
                         [(b.text, b.format) for b in result],
@@ -90,6 +90,93 @@ class Formats(unittest.TestCase):
                         PixelImage(pixels, width=1000, height=700), formats=["Code128"]
                     )
                     self.assertEqual(linear_only.values, ["TAPIR123", "TAPIR123"])
+
+    def test_qr_pixel_layout_parity(self) -> None:
+        """Direct WASM RGBA upload preserves conversion, alpha and padded layouts."""
+        text = "Tapir QR rgba 1234567890"
+        tile = np.asarray(
+            zxingcpp.write_barcode_to_image(
+                zxingcpp.create_barcode(text, zxingcpp.BarcodeFormat.QRCode),
+                scale=3,
+                add_hrt=False,
+                add_quiet_zones=True,
+            )
+        )
+        height, width = tile.shape
+        rgba = np.empty((height, width, 4), dtype=np.uint8)
+        rgba[:, :, :3] = tile[:, :, None]
+        rgba[:, :, 3] = np.arange(width, dtype=np.uint8)
+        rgba[tile == 0, :3] = [12, 31, 7]
+        rgba[tile != 0, :3] = [241, 250, 235]
+        gray = (
+            (
+                rgba[:, :, 0].astype(np.uint32) * 77
+                + rgba[:, :, 1].astype(np.uint32) * 150
+                + rgba[:, :, 2].astype(np.uint32) * 29
+            )
+            >> 8
+        ).astype(np.uint8)
+        padded = np.full((height, width * 4 + 11), 123, dtype=np.uint8)
+        padded[:, : width * 4] = rgba.reshape(height, width * 4)
+        layouts = [
+            (gray.tobytes(), 1, width),
+            (rgba.tobytes(), 4, width * 4),
+            (rgba[:, :, :3].tobytes(), 3, width * 3),
+            (padded.tobytes(), 4, width * 4 + 11),
+        ]
+        with tempfile.TemporaryDirectory(prefix="tapirscan-qr-layout-") as tmp:
+            path = Path(tmp) / "pixels.raw"
+            for mode in MODES:
+                with Scanner(mode, formats="QRCode", library_dir=LIBS) as scanner:
+                    expected = None
+                    for pixels, channels, stride in layouts:
+                        with self.subTest(mode=mode, channels=channels, stride=stride):
+                            result = scanner.scan(
+                                PixelImage(
+                                    pixels,
+                                    width=width,
+                                    height=height,
+                                    channels=channels,
+                                    stride=stride,
+                                )
+                            )
+                            self.assertEqual(result.values, [text])
+                            observed = [(b.text, b.support, b.polygon) for b in result]
+                            if expected is not None:
+                                self.assertEqual(observed, expected)
+                            expected = observed
+                            path.write_bytes(pixels)
+                            js = run(
+                                "node",
+                                ROOT / "bindings/javascript/test/native_parity.mjs",
+                                mode,
+                                width,
+                                height,
+                                channels,
+                                stride,
+                                path,
+                                1,
+                                1,
+                                "QRCode",
+                            )
+                            self.assertEqual(
+                                result.unfinished, js["scan"]["unfinished"]
+                            )
+                            self.assertEqual(len(result), len(js["scan"]["barcodes"]))
+                            for native, wasm in zip(
+                                result, js["scan"]["barcodes"], strict=True
+                            ):
+                                self.assertEqual(native.text, wasm["text"])
+                                self.assertEqual(native.support, wasm["support"])
+                                for point, coordinates in zip(
+                                    native.polygon, wasm["polygon"], strict=True
+                                ):
+                                    self.assertAlmostEqual(
+                                        point.x, coordinates[0], delta=0.0001
+                                    )
+                                    self.assertAlmostEqual(
+                                        point.y, coordinates[1], delta=0.0001
+                                    )
 
     def test_formats_across_languages(self) -> None:
         """Compare native and WASM on identical independently encoded pixels."""

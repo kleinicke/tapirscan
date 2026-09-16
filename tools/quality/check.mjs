@@ -10,6 +10,7 @@ if (mode === "rust") {
     ? [
         ["core/Cargo.toml", "fast"],
         ["core/Cargo.toml", "quality"],
+        ["multiformat/Cargo.toml", null],
       ]
     : [
         ["rust/barcode-core/Cargo.toml", "fast"],

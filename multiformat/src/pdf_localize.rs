@@ -2,6 +2,19 @@
 //! Fit the repeated start/stop guards across rows, then rectify their bar axes.
 use crate::linear::pattern_error;
 type Quad = [[f32; 2]; 4];
+fn zero_degree_exact(w: usize, h: usize, generated_width: usize, generated_height: usize) -> bool {
+    // Every sampled integer coordinate is exactly representable below 2^24.
+    // Larger valid images retain the original affine sampling behavior.
+    generated_width == w && generated_height == h && w <= (1usize << 24) && h <= (1usize << 24)
+}
+
+// Both guards begin with a wide bar followed by two one-module runs.
+// The existing matcher permits at most one module of error per run: even
+// the narrower stop guard needs >=6 modules versus <=2 for either neighbor.
+// This necessary condition avoids a full pattern score for ordinary stripes.
+fn possible_guard(runs: &[f32]) -> bool {
+    runs.len() >= 3 && runs[0] >= 3. * runs[1].max(runs[2])
+}
 #[derive(Clone)]
 struct Strip {
     start: bool,
@@ -24,7 +37,7 @@ impl Strip {
         if self.points.len() < 4 {
             return None;
         }
-        let n = self.points.len() as f32;
+        let n = crate::numeric::usize_f32(self.points.len());
         let mx = self.points.iter().map(|p| p[0]).sum::<f32>() / n;
         let my = self.points.iter().map(|p| p[1]).sum::<f32>() / n;
         let yy = self.points.iter().map(|p| (p[1] - my).powi(2)).sum::<f32>();
@@ -76,8 +89,8 @@ fn compact_quad(
     let sign = if fit.reversed { -1. } else { 1. };
     let cross = |y: f32| ((fit.slope * y + fit.intercept) * fit.slope + y) / norm;
     let delta = fit.module * 17. * fit.slope * sign;
-    let top = cross(fit.top) - (-delta).max(0.) - step as f32;
-    let bottom = cross(fit.bottom) + delta.max(0.) + step as f32;
+    let top = cross(fit.top) - (-delta).max(0.) - crate::numeric::usize_f32(step);
+    let bottom = cross(fit.bottom) + delta.max(0.) + crate::numeric::usize_f32(step);
     let point = |along: f32, across: f32| {
         let y = (across * norm - fit.intercept * fit.slope) / norm.powi(2);
         let x = fit.slope * y + fit.intercept;
@@ -85,20 +98,23 @@ fn compact_quad(
     };
     let mut votes = [[0usize; 30]; 3];
     let mut modules = Vec::new();
-    let samples = ((bottom - top) / fit.module.max(1.)).ceil().clamp(3., 270.) as usize;
-    let width = (fit.module * 38.).ceil() as usize;
+    let samples =
+        crate::numeric::f32_usize(((bottom - top) / fit.module.max(1.)).ceil().clamp(3., 270.));
+    let width = crate::numeric::f32_usize((fit.module * 38.).ceil());
     if width < 38 {
         return None;
     }
     for i in 0..samples {
-        let across = top + (i as f32 + 0.5) * (bottom - top) / samples as f32;
+        let across = top
+            + (crate::numeric::usize_f32(i) + 0.5) * (bottom - top)
+                / crate::numeric::usize_f32(samples);
         let row: Vec<u8> = (0..width)
             .map(|x| {
-                let [xx, yy] = point(x as f32 - fit.module * 2., across);
-                let xx = xx.round() as isize;
-                let yy = yy.round() as isize;
-                if xx >= 0 && yy >= 0 && xx < w as isize && yy < h as isize {
-                    gray[yy as usize * w + xx as usize]
+                let [xx, yy] = point(crate::numeric::usize_f32(x) - fit.module * 2., across);
+                let xx = crate::numeric::f32_isize(xx.round());
+                let yy = crate::numeric::f32_isize(yy.round());
+                if xx >= 0 && yy >= 0 && xx < (w).cast_signed() && yy < (h).cast_signed() {
+                    gray[(yy).cast_unsigned() * w + (xx).cast_unsigned()]
                 } else {
                     255
                 }
@@ -133,7 +149,7 @@ fn compact_quad(
     // reversed scanline edge rounding cannot shorten it below the reader gate.
     modules.sort_by(f32::total_cmp);
     let module = modules[modules.len() / 2];
-    let end = module * ((columns + 2) * 17 + 4) as f32;
+    let end = module * crate::numeric::usize_f32((columns + 2) * 17 + 4);
     Some([
         point(-2. * fit.module, top),
         point(end, top),
@@ -145,6 +161,10 @@ fn compact_quad(
 /// # Panics
 ///
 /// Panics if the supplied grayscale buffer or dimensions are inconsistent.
+#[expect(
+    clippy::too_many_lines,
+    reason = "PDF417 proposal construction preserves ordered row grouping, merging and truncation evidence within one bounded pass."
+)]
 pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) {
     let mut out: Vec<(Quad, usize)> = Vec::new();
     let mut compact_out: Vec<(Quad, usize)> = Vec::new();
@@ -156,9 +176,12 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
         let sn = angle.sin();
         let corners = [
             [0., 0.],
-            [w as f32 - 1., 0.],
-            [w as f32 - 1., h as f32 - 1.],
-            [0., h as f32 - 1.],
+            [crate::numeric::usize_f32(w) - 1., 0.],
+            [
+                crate::numeric::usize_f32(w) - 1.,
+                crate::numeric::usize_f32(h) - 1.,
+            ],
+            [0., crate::numeric::usize_f32(h) - 1.],
         ];
         let amin = corners
             .iter()
@@ -177,8 +200,8 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
             .map(|p| -p[0] * sn + p[1] * cs)
             .fold(f32::NEG_INFINITY, f32::max);
         let (width, height) = (
-            (amax - amin).ceil() as usize + 1,
-            (bmax - bmin).ceil() as usize + 1,
+            crate::numeric::f32_usize((amax - amin).ceil()) + 1,
+            crate::numeric::f32_usize((bmax - bmin).ceil()) + 1,
         );
         let original = |x: f32, y: f32| {
             [
@@ -189,36 +212,59 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
         let step = (height / 400).max(1);
         let mut strips_by_mode: [Vec<Strip>; 2] = std::array::from_fn(|_| Vec::new());
         let mut active_by_mode: [Vec<usize>; 2] = std::array::from_fn(|_| Vec::new());
+        // `threshold` is a pure function of one sampled row and mode. Cache
+        // the preceding row's two bitmaps so identical adjacent samples do
+        // not repeat preprocessing; all row, mode, reverse, and association
+        // order remains unchanged.
+        let mut previous_row = Vec::new();
+        let mut previous_bits: [Vec<bool>; 2] = [Vec::new(), Vec::new()];
+        let mut row = Vec::with_capacity(width);
+        let mut run_buffers: [(Vec<f32>, Vec<usize>); 2] =
+            std::array::from_fn(|_| (Vec::new(), Vec::new()));
         for y in (0..height).step_by(step) {
-            let row: Vec<_> = (0..width)
-                .map(|x| {
-                    let [xx, yy] = original(x as f32, y as f32);
-                    let xx = xx.round() as isize;
-                    let yy = yy.round() as isize;
-                    if xx >= 0 && yy >= 0 && xx < w as isize && yy < h as isize {
-                        gray[yy as usize * w + xx as usize]
+            row.clear();
+            if degrees == 0. && zero_degree_exact(w, h, width, height) {
+                row.extend_from_slice(&gray[y * w..(y + 1) * w]);
+            } else {
+                row.extend((0..width).map(|x| {
+                    let [xx, yy] =
+                        original(crate::numeric::usize_f32(x), crate::numeric::usize_f32(y));
+                    let xx = crate::numeric::f32_isize(xx.round());
+                    let yy = crate::numeric::f32_isize(yy.round());
+                    if xx >= 0 && yy >= 0 && xx < (w).cast_signed() && yy < (h).cast_signed() {
+                        gray[(yy).cast_unsigned() * w + (xx).cast_unsigned()]
                     } else {
                         255
                     }
-                })
-                .collect();
+                }));
+            }
             if row.iter().all(|&value| value == row[0]) {
                 continue;
             }
+            let same_row = previous_row == row;
             for (mode, strips) in strips_by_mode.iter_mut().enumerate() {
                 let active = &mut active_by_mode[mode];
                 // A completed strip can never match a later row again. Keep
                 // it for fitting, but omit it from future association searches.
                 active.retain(|&index| {
-                    y as f32 - strips[index].points.last().unwrap()[1] <= step as f32 * 3.
+                    crate::numeric::usize_f32(y) - strips[index].points.last().unwrap()[1]
+                        <= crate::numeric::usize_f32(step) * 3.
                 });
-                let mut bits = crate::threshold(&row, mode);
+                if !same_row {
+                    crate::threshold_into(&row, mode, &mut previous_bits[mode]);
+                }
+                let bits = &previous_bits[mode];
+                let (runs, offsets) = &mut run_buffers[mode];
+                crate::runs_into(bits, runs, offsets);
                 for reversed in [false, true] {
                     if reversed {
-                        bits.reverse();
+                        crate::reverse_runs(runs, offsets, width);
                     }
-                    let (runs, offsets) = crate::runs(&bits);
-                    for s in (usize::from(!bits[0])..runs.len().saturating_sub(8)).step_by(2) {
+                    let first_black = bits[if reversed { width - 1 } else { 0 }];
+                    for s in (usize::from(!first_black)..runs.len().saturating_sub(8)).step_by(2) {
+                        if !possible_guard(&runs[s..]) {
+                            continue;
+                        }
                         for start in [true, false] {
                             let pattern: &[u8] = if start {
                                 &[8, 1, 1, 1, 1, 1, 1, 3]
@@ -233,7 +279,11 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                             let module = runs[s..s + pattern.len()].iter().sum::<f32>()
                                 / if start { 17. } else { 18. };
                             let edge = offsets[if start { s } else { s + 9 }];
-                            let edge_x = if reversed { width - edge } else { edge } as f32;
+                            let edge_x = crate::numeric::usize_f32(if reversed {
+                                width - edge
+                            } else {
+                                edge
+                            });
                             let group = active
                                 .iter()
                                 .copied()
@@ -246,9 +296,9 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                                 .filter(|&index| {
                                     let g = &strips[index];
                                     let p = g.points.last().unwrap();
-                                    let dy = y as f32 - p[1];
+                                    let dy = crate::numeric::usize_f32(y) - p[1];
                                     dy > 0.
-                                        && dy <= step as f32 * 3.
+                                        && dy <= crate::numeric::usize_f32(step) * 3.
                                         && (p[0] - edge_x).abs() <= dy * 1.5 + module * 2.
                                 })
                                 .min_by(|&a, &b| {
@@ -260,7 +310,7 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                                 });
                             if let Some(index) = group {
                                 let g = &mut strips[index];
-                                g.points.push([edge_x, y as f32]);
+                                g.points.push([edge_x, crate::numeric::usize_f32(y)]);
                                 g.module = (g.module * 3. + module) / 4.;
                             } else if strips.len() < 1024 {
                                 active.push(strips.len());
@@ -268,7 +318,7 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                                     start,
                                     reversed,
                                     module,
-                                    points: vec![[edge_x, y as f32]],
+                                    points: vec![[edge_x, crate::numeric::usize_f32(y)]],
                                 });
                             } else {
                                 limited = true;
@@ -277,6 +327,7 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                     }
                 }
             }
+            std::mem::swap(&mut row, &mut previous_row);
         }
         for strips in strips_by_mode {
             let fitted: Vec<_> = strips.iter().filter_map(Strip::fit).collect();
@@ -334,10 +385,10 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                         (a, at, ab, b, bt, bb)
                     };
                     let quad = [
-                        edge_point(l, lt - step as f32, -1.),
-                        edge_point(r, rt - step as f32, 1.),
-                        edge_point(r, rb + step as f32, 1.),
-                        edge_point(l, lb + step as f32, -1.),
+                        edge_point(l, lt - crate::numeric::usize_f32(step), -1.),
+                        edge_point(r, rt - crate::numeric::usize_f32(step), 1.),
+                        edge_point(r, rb + crate::numeric::usize_f32(step), 1.),
+                        edge_point(l, lb + crate::numeric::usize_f32(step), -1.),
                     ];
                     paired = true;
                     if out
@@ -390,6 +441,7 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
     }
     (out, limited)
 }
+
 #[must_use]
 pub fn rectify(
     gray: &[u8],
@@ -398,40 +450,135 @@ pub fn rectify(
     q: Quad,
 ) -> Option<(Vec<u8>, usize, usize, [f32; 8])> {
     let distance = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).hypot(a[1] - b[1]);
-    let width = distance(q[0], q[1]).ceil() as usize;
-    let height = distance(q[0], q[3]).ceil() as usize;
+    let width = crate::numeric::f32_usize(distance(q[0], q[1]).ceil());
+    let height = crate::numeric::f32_usize(distance(q[0], q[3]).ceil());
     if width < 30 || height < 8 || width.checked_mul(height)? > 8 * 1024 * 1024 {
         return None;
     }
     let t = crate::qr_detect::homography(
         [
             [0., 0.],
-            [width as f32, 0.],
-            [width as f32, height as f32],
-            [0., height as f32],
+            [crate::numeric::usize_f32(width), 0.],
+            [
+                crate::numeric::usize_f32(width),
+                crate::numeric::usize_f32(height),
+            ],
+            [0., crate::numeric::usize_f32(height)],
         ],
         q,
     )?;
     let mut pixels = vec![255; width * height];
     for y in 0..height {
         for x in 0..width {
-            let [xx, yy] = crate::qr_detect::map(&t, x as f32 + 0.5, y as f32 + 0.5);
-            if xx < 0. || yy < 0. || xx > w as f32 - 1. || yy > h as f32 - 1. {
+            let [xx, yy] = crate::qr_detect::map(
+                &t,
+                crate::numeric::usize_f32(x) + 0.5,
+                crate::numeric::usize_f32(y) + 0.5,
+            );
+            if xx < 0.
+                || yy < 0.
+                || xx > crate::numeric::usize_f32(w) - 1.
+                || yy > crate::numeric::usize_f32(h) - 1.
+            {
                 continue;
             }
-            let x0 = xx.floor() as usize;
-            let y0 = yy.floor() as usize;
+            let x0 = crate::numeric::f32_usize(xx.floor());
+            let y0 = crate::numeric::f32_usize(yy.floor());
             let x1 = (x0 + 1).min(w - 1);
             let y1 = (y0 + 1).min(h - 1);
-            let fx = xx - x0 as f32;
-            let fy = yy - y0 as f32;
-            pixels[y * width + x] = ((f32::from(gray[y0 * w + x0]) * (1. - fx)
-                + f32::from(gray[y0 * w + x1]) * fx)
-                * (1. - fy)
-                + (f32::from(gray[y1 * w + x0]) * (1. - fx) + f32::from(gray[y1 * w + x1]) * fx)
-                    * fy)
-                .round() as u8;
+            let fx = xx - crate::numeric::usize_f32(x0);
+            let fy = yy - crate::numeric::usize_f32(y0);
+            pixels[y * width + x] = crate::numeric::f32_u8(
+                ((f32::from(gray[y0 * w + x0]) * (1. - fx) + f32::from(gray[y0 * w + x1]) * fx)
+                    * (1. - fy)
+                    + (f32::from(gray[y1 * w + x0]) * (1. - fx)
+                        + f32::from(gray[y1 * w + x1]) * fx)
+                        * fy)
+                    .round(),
+            );
         }
     }
     Some((pixels, width, height, t))
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        reason = "Bounded test generator creates positive integer run widths and deliberately converts them to the production f32 representation."
+    )]
+    fn cheap_guard_check_retains_accepted_patterns() {
+        let mut seed = 193_u32;
+        let mut accepted = 0;
+        for pattern in [
+            &[8, 1, 1, 1, 1, 1, 1, 3][..],
+            &[7, 1, 1, 3, 1, 1, 1, 2, 1][..],
+        ] {
+            for module in 1..=12 {
+                for _ in 0..1000 {
+                    let runs: Vec<f32> = pattern
+                        .iter()
+                        .map(|&n| {
+                            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                            (n * module + (seed % 5) as i32 - 2).max(1) as f32
+                        })
+                        .collect();
+                    if pattern_error(&runs, &pattern.iter().map(|&v| v as u8).collect::<Vec<_>>())
+                        <= 0.12
+                    {
+                        accepted += 1;
+                        assert!(possible_guard(&runs));
+                    }
+                }
+            }
+        }
+        assert!(accepted > 1000);
+        assert!(!possible_guard(&[2., 2., 2., 2.]));
+    }
+}
+
+#[cfg(test)]
+mod axial_sampling_tests {
+    use super::zero_degree_exact;
+
+    #[test]
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "Reference sampler reproduces old f32 roundtrip on bounded positive test coordinates."
+    )]
+    fn zero_degree_direct_row_matches_old_integer_affine_sampling() {
+        for &(w, h) in &[(1, 1), (2, 3), (40, 41), (401, 257)] {
+            let gray: Vec<u8> = (0..w * h).map(|i| u8::try_from(i % 251).unwrap()).collect();
+            let y = h / 2;
+            let old: Vec<u8> = (0..w)
+                .map(|x| {
+                    let xx = (x as f32).round() as usize;
+                    let yy = (y as f32).round() as usize;
+                    gray[yy * w + xx]
+                })
+                .collect();
+            let direct = gray[y * w..(y + 1) * w].to_vec();
+            assert_eq!(direct, old);
+            assert!(zero_degree_exact(w, h, w, h));
+        }
+    }
+
+    #[test]
+    fn zero_degree_guard_rejects_unrepresentable_f32_dimensions() {
+        let exact = 1usize << 24;
+        assert!(zero_degree_exact(exact, 1, exact, 1));
+        assert!(!zero_degree_exact(exact + 1, 1, exact + 1, 1));
+        assert!(!zero_degree_exact(exact + 2, 1, exact + 2, 1));
+        assert!(zero_degree_exact(exact, 1, exact, 1));
+        assert!(!zero_degree_exact(exact + 1, 1, exact + 1, 1));
+        assert!(!zero_degree_exact(exact, 1, exact + 1, 1));
+    }
 }

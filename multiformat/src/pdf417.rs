@@ -1,18 +1,47 @@
 //! Independent PDF417 row reader, metadata voting and payload compaction.
 use crate::{pdf417_tables::CODES, reed_prime, Detection};
 use std::{collections::BTreeMap, sync::OnceLock};
-fn lookup() -> &'static Vec<(u32, usize, usize)> {
-    static TABLE: OnceLock<Vec<(u32, usize, usize)>> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        let mut v = Vec::new();
-        for (c, row) in CODES.iter().enumerate() {
-            for (i, &p) in row.iter().enumerate() {
-                v.push((p, i, c));
+
+// PDF417 codewords are 17-bit patterns with a fixed one at the MSB and zero
+// at the LSB. Removing those fixed bits leaves a dense 15-bit table index.
+fn lookup(pattern: u32) -> Option<(usize, usize)> {
+    static TABLE: OnceLock<Vec<u16>> = OnceLock::new();
+    if pattern >= (1 << 17) || pattern & 0x1_0000 == 0 || pattern & 1 != 0 {
+        return None;
+    }
+    let table = TABLE.get_or_init(|| {
+        let mut table = vec![0; 1 << 15];
+        for (cluster, row) in CODES.iter().enumerate() {
+            for (value, &pattern) in row.iter().enumerate() {
+                assert!(pattern < (1 << 17) && pattern & 0x1_0000 != 0 && pattern & 1 == 0);
+                let index = ((pattern & 0xffff) >> 1) as usize;
+                let encoded = u16::try_from((cluster << 10) | value)
+                    .expect("PDF417 cluster and value fit the packed lookup word")
+                    + 1;
+                assert_eq!(table[index], 0, "duplicate PDF417 codeword pattern");
+                table[index] = encoded;
             }
         }
-        v.sort_unstable();
-        v
-    })
+        table
+    });
+    let encoded = table[((pattern & 0xffff) >> 1) as usize];
+    if encoded == 0 {
+        return None;
+    }
+    let encoded = usize::from(encoded - 1);
+    Some((encoded & 0x3ff, encoded >> 10))
+}
+
+#[cfg(test)]
+fn legacy_lookup() -> Vec<(u32, usize, usize)> {
+    let mut v = Vec::new();
+    for (c, row) in CODES.iter().enumerate() {
+        for (i, &p) in row.iter().enumerate() {
+            v.push((p, i, c));
+        }
+    }
+    v.sort_unstable();
+    v
 }
 fn quantized_symbol(r: &[f32]) -> Option<(usize, usize, f32)> {
     if r.len() < 8 {
@@ -23,7 +52,7 @@ fn quantized_symbol(r: &[f32]) -> Option<(usize, usize, f32)> {
         return None;
     }
     let mut widths: [usize; 8] =
-        std::array::from_fn(|i| (r[i] / module).round().clamp(1., 6.) as usize);
+        std::array::from_fn(|i| crate::numeric::f32_usize((r[i] / module).round().clamp(1., 6.)));
     let total = widths.iter().sum::<usize>();
     if !(15..=19).contains(&total) {
         return None;
@@ -35,9 +64,9 @@ fn quantized_symbol(r: &[f32]) -> Option<(usize, usize, f32)> {
             .max_by(|&a, &b| {
                 let score = |i: usize| {
                     if add {
-                        r[i] / module - widths[i] as f32
+                        r[i] / module - crate::numeric::usize_f32(widths[i])
                     } else {
-                        widths[i] as f32 - r[i] / module
+                        crate::numeric::usize_f32(widths[i]) - r[i] / module
                     }
                 };
                 score(a).total_cmp(&score(b))
@@ -54,14 +83,9 @@ fn quantized_symbol(r: &[f32]) -> Option<(usize, usize, f32)> {
             pattern = (pattern << 1) | u32::from(i % 2 == 0);
         }
     }
-    let table = lookup();
-    let i = table.binary_search_by_key(&pattern, |p| p.0).ok()?;
-    let pattern: [u8; 8] = widths.map(|v| v as u8);
-    Some((
-        table[i].1,
-        table[i].2,
-        crate::linear::pattern_error(r, &pattern),
-    ))
+    let (value, cluster) = lookup(pattern)?;
+    let pattern: [u8; 8] = widths.map(|v| (v).to_le_bytes()[0]);
+    Some((value, cluster, crate::linear::pattern_error(r, &pattern)))
 }
 fn symbol(r: &[f32]) -> Option<(usize, usize)> {
     if r.len() < 8 {
@@ -111,18 +135,19 @@ fn possible_start(offsets: &[usize], start: usize) -> bool {
     if start + 8 >= offsets.len() {
         return false;
     }
-    let span = (offsets[start + 8] - offsets[start]) as f32;
+    let span = crate::numeric::usize_f32(offsets[start + 8] - offsets[start]);
     let margin = 2. + span * 1e-6;
     let low_module = (span - margin).max(0.) / 17.;
     let high_module = (span + margin) / 17.;
-    let first = (offsets[start + 1] - offsets[start]) as f32;
-    let last = (offsets[start + 8] - offsets[start + 7]) as f32;
+    let first = crate::numeric::usize_f32(offsets[start + 1] - offsets[start]);
+    let last = crate::numeric::usize_f32(offsets[start + 8] - offsets[start + 7]);
     first + margin >= low_module * 7.
         && first - margin <= high_module * 9.
         && last + margin >= low_module * 2.
         && last - margin <= high_module * 4.
-        && (start + 1..start + 7)
-            .all(|i| (offsets[i + 1] - offsets[i]) as f32 - margin <= high_module * 2.)
+        && (start + 1..start + 7).all(|i| {
+            crate::numeric::usize_f32(offsets[i + 1] - offsets[i]) - margin <= high_module * 2.
+        })
 }
 fn accepted_start(offsets: &[usize], start: usize, gray: &[u8], reverse: bool) -> bool {
     if !possible_start(offsets, start) {
@@ -164,24 +189,38 @@ pub fn diagnostic_rows(gray: &[u8], w: usize, h: usize) -> serde_json::Value {
     for y in 0..h {
         let line = &gray[y * w..(y + 1) * w];
         let bits = crate::threshold(line, 0);
-        for r in read_row(&bits, line, false, y as f32) {
+        for r in read_row(&bits, line, false, crate::numeric::usize_f32(y)) {
             rows.push(serde_json::json!({"y":y,"left":r.left,"right":r.right,
                 "cluster":r.cluster,"values":r.values,"x0":r.x0,"x1":r.x1}));
         }
     }
     serde_json::json!(rows)
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn read_row(bits: &[bool], gray: &[u8], reversed: bool, y: f32) -> Vec<Row> {
-    let offsets = crate::run_offsets(bits);
+    let mut offsets = Vec::new();
+    let mut refined = Vec::new();
+    read_row_reuse(bits, gray, reversed, y, &mut offsets, &mut refined)
+}
+fn read_row_reuse(
+    bits: &[bool],
+    gray: &[u8],
+    reversed: bool,
+    y: f32,
+    offsets: &mut Vec<usize>,
+    refined: &mut Vec<f32>,
+) -> Vec<Row> {
+    crate::run_offsets_into(bits, offsets);
     let first = usize::from(!bits[0]);
     let runs = offsets.len().saturating_sub(1);
     if !(first..runs.saturating_sub(24))
         .step_by(2)
-        .any(|start| accepted_start(&offsets, start, gray, reversed))
+        .any(|start| accepted_start(offsets, start, gray, reversed))
     {
         return Vec::new();
     }
-    let (r, offsets) = crate::refine_run_offsets(offsets, gray, reversed);
+    crate::refine_run_offsets_into(offsets, gray, reversed, refined);
+    let r = refined.as_slice();
     let mut out = Vec::new();
     let mut s = usize::from(!bits[0]);
     while s + 25 <= r.len() {
@@ -212,8 +251,8 @@ fn read_row(bits: &[bool], gray: &[u8], reversed: bool, y: f32) -> Vec<Row> {
                                     v.and_then(|(v, c)| if c == cluster { Some(v) } else { None })
                                 })
                                 .collect(),
-                            x0: offsets[s] as f32,
-                            x1: offsets[at + 17] as f32,
+                            x0: crate::numeric::usize_f32(offsets[s]),
+                            x1: crate::numeric::usize_f32(offsets[at + 17]),
                             y,
                         });
                     }
@@ -237,8 +276,8 @@ fn read_row(bits: &[bool], gray: &[u8], reversed: bool, y: f32) -> Vec<Row> {
                             .iter()
                             .map(|v| v.and_then(|(value, c)| (c == cluster).then_some(value)))
                             .collect(),
-                        x0: offsets[s] as f32,
-                        x1: offsets[at + 9] as f32,
+                        x0: crate::numeric::usize_f32(offsets[s]),
+                        x1: crate::numeric::usize_f32(offsets[at + 9]),
                         y,
                     });
                 }
@@ -255,11 +294,11 @@ fn numeric(values: &[usize]) -> Option<Vec<u8>> {
         let mut carry = v;
         for d in decimal.iter_mut().rev() {
             let x = *d as usize * 900 + carry;
-            *d = (x % 10) as u8;
+            *d = (x % 10).to_le_bytes()[0];
             carry = x / 10;
         }
         while carry > 0 {
-            decimal.insert(0, (carry % 10) as u8);
+            decimal.insert(0, (carry % 10).to_le_bytes()[0]);
             carry /= 10;
         }
     }
@@ -277,7 +316,7 @@ fn text_value(
     let active = shift.take().unwrap_or(*mode);
     let c = match active {
         0 => match v {
-            0..=25 => Some(b'A' + v as u8),
+            0..=25 => Some(b'A' + (v).to_le_bytes()[0]),
             26 => Some(b' '),
             27 => {
                 *mode = 1;
@@ -294,7 +333,7 @@ fn text_value(
             _ => return None,
         },
         1 => match v {
-            0..=25 => Some(b'a' + v as u8),
+            0..=25 => Some(b'a' + (v).to_le_bytes()[0]),
             26 => Some(b' '),
             27 => {
                 *shift = Some(0);
@@ -355,6 +394,10 @@ struct DecodedPayload {
     text: String,
     reader_initialization: bool,
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "PDF417 compaction modes share a payload cursor, ECI and macro state in one sequential dispatcher."
+)]
 fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
     let length = *code.first()?;
     if length < 2 || length > code.len() {
@@ -397,7 +440,7 @@ fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
                 if b > 255 {
                     return None;
                 }
-                out.push(b as u8);
+                out.push((b).to_le_bytes()[0]);
                 at += 1;
             }
             901 | 924 => {
@@ -421,7 +464,7 @@ fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
                         return None;
                     }
                     for i in (0..6).rev() {
-                        out.push((value >> (i * 8)) as u8);
+                        out.push((value >> (i * 8)).to_le_bytes()[0]);
                     }
                 }
                 if c == 924 && !values.len().is_multiple_of(5) {
@@ -431,7 +474,7 @@ fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
                     if v > 255 {
                         return None;
                     }
-                    out.push(v as u8);
+                    out.push((v).to_le_bytes()[0]);
                 }
             }
             902 => {
@@ -550,36 +593,69 @@ fn decode_group(rows: &[Row]) -> Option<(DecodedPayload, usize)> {
     }
     Some((parse_payload(&code)?, corrected))
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "Row caching, bidirectional decoding and spatial grouping share traversal state; exact-output pilots preserve that order."
+)]
 fn detect_axes(
     gray: &[u8],
     w: usize,
     h: usize,
     regions: &mut crate::regions::Regions,
+    target_scanlines: usize,
 ) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
+    // Thresholds depend only on the sampled row bytes and mode. Keep the last
+    // row from each axis pass: repeated rows are common for flat backgrounds
+    // and this avoids recomputing global/local thresholds without changing
+    // traversal, threshold mode order, or any downstream grouping state.
     for vertical in [false, true] {
         let (width, height) = if vertical { (h, w) } else { (w, h) };
         for threshold in 0..2 {
             let mut groups: Vec<Vec<Row>> = Vec::new();
-            for y in (0..height).step_by((height / 500).max(1)) {
-                let row: Vec<u8> = (0..width)
-                    .map(|x| {
-                        if vertical {
-                            gray[x * w + y]
-                        } else {
-                            gray[y * w + x]
-                        }
-                    })
-                    .collect();
-                let mut bits = crate::threshold(&row, threshold);
+            let mut row = Vec::with_capacity(width);
+            let mut previous_row = Vec::new();
+            let mut previous_bits = Vec::new();
+            let mut run_offsets = Vec::new();
+            let mut refined_runs = Vec::new();
+            for y in (0..height).step_by((height / target_scanlines).max(1)) {
+                row.clear();
+                row.extend((0..width).map(|x| {
+                    if vertical {
+                        gray[x * w + y]
+                    } else {
+                        gray[y * w + x]
+                    }
+                }));
+                // A constant scanline cannot contain a start guard. Avoid
+                // thresholding and run extraction for both directions.
+                if row.iter().all(|&value| value == row[0]) {
+                    continue;
+                }
+                let same_row = previous_row == row;
+                if same_row {
+                    // The two-direction loop leaves the working bitmap
+                    // reversed. Restore it before reusing it next time.
+                    previous_bits.reverse();
+                } else {
+                    crate::threshold_into(&row, threshold, &mut previous_bits);
+                }
+                let bits = &mut previous_bits;
                 for reversed in [false, true] {
                     if reversed {
                         bits.reverse();
                     }
-                    for mut r in read_row(&bits, &row, reversed, y as f32) {
+                    for mut r in read_row_reuse(
+                        bits,
+                        &row,
+                        reversed,
+                        crate::numeric::usize_f32(y),
+                        &mut run_offsets,
+                        &mut refined_runs,
+                    ) {
                         if reversed {
-                            let x0 = width as f32 - r.x1;
-                            r.x1 = width as f32 - r.x0;
+                            let x0 = crate::numeric::usize_f32(width) - r.x1;
+                            r.x1 = crate::numeric::usize_f32(width) - r.x0;
                             r.x0 = x0;
                         }
                         let span = r.x1 - r.x0;
@@ -596,6 +672,7 @@ fn detect_axes(
                         }
                     }
                 }
+                std::mem::swap(&mut row, &mut previous_row);
             }
             for group in groups {
                 if group.len() < 3 {
@@ -643,7 +720,7 @@ fn detect_axes(
                             text,
                             polygon,
                             support: group.len(),
-                            error: corrected as f32,
+                            error: crate::numeric::usize_f32(corrected),
                             gs1: false,
                         });
                     }
@@ -654,6 +731,23 @@ fn detect_axes(
     (results, false)
 }
 
+// Coverage uses the candidate's area, so one decoded small symbol cannot
+// suppress a retry of an aggregate band containing several other symbols.
+fn covered_fraction(candidate: &[[f32; 2]; 4], decoded: &[[f32; 2]; 4]) -> f32 {
+    let area = |quad: &[[f32; 2]; 4]| {
+        (0..4)
+            .map(|i| quad[i][0] * quad[(i + 1) % 4][1] - quad[i][1] * quad[(i + 1) % 4][0])
+            .sum::<f32>()
+            .abs()
+            * 0.5
+    };
+    let candidate_area = area(candidate);
+    if !candidate_area.is_finite() || candidate_area <= 0. {
+        return 0.;
+    }
+    crate::regions::overlap(candidate, decoded) * candidate_area.min(area(decoded)) / candidate_area
+}
+
 /// Whole-image rows plus guard-guided rectification at arbitrary in-plane angles.
 pub fn detect(
     gray: &[u8],
@@ -661,7 +755,39 @@ pub fn detect(
     h: usize,
     regions: &mut crate::regions::Regions,
 ) -> (Vec<Detection>, bool) {
-    let (mut results, mut limited) = detect_axes(gray, w, h, regions);
+    let mut coarse_regions = crate::regions::Regions::default();
+    let (mut results, mut limited) = detect_axes(gray, w, h, &mut coarse_regions, 96);
+    // A localized band without a covering payload may contain dense rows or
+    // multiple symbols. Retry the original full-frame density, even if another
+    // barcode has already decoded elsewhere. Sparse search is an effort
+    // policy, not proof that an absent format is impossible.
+    let dense_retry = coarse_regions.limited
+        || coarse_regions.candidates.iter().any(|region| {
+            !results
+                .iter()
+                .any(|read| covered_fraction(&region.polygon, &read.polygon) >= 0.85)
+        });
+    for region in coarse_regions.candidates {
+        regions.add(
+            "PDF417",
+            region.polygon,
+            region.localization_score,
+            region.support,
+        );
+    }
+    limited |= coarse_regions.limited;
+    if dense_retry {
+        let (dense_results, dense_limited) = detect_axes(gray, w, h, regions, 500);
+        limited |= dense_limited;
+        for read in dense_results {
+            if !results.iter().any(|existing| {
+                existing.text == read.text
+                    && crate::regions::overlap(&existing.polygon, &read.polygon) > 0.65
+            }) {
+                results.push(read);
+            }
+        }
+    }
     let (proposals, capped) = crate::pdf_localize::proposals(gray, w, h);
     limited |= capped;
     for (polygon, support) in proposals {
@@ -678,12 +804,35 @@ pub fn detect(
             continue;
         };
         let mut crop_regions = crate::regions::Regions::default();
-        let (found, capped) = detect_axes(&pixels, width, height, &mut crop_regions);
+        let (found, capped) = detect_axes(&pixels, width, height, &mut crop_regions, 500);
         limited |= capped || crop_regions.limited;
         for mut read in found {
             read.polygon = read.polygon.map(|p| crate::qr_detect::map(&t, p[0], p[1]));
             if !results.iter().any(|d| {
                 d.text == read.text && crate::regions::overlap(&d.polygon, &read.polygon) > 0.65
+            }) {
+                results.push(read);
+            }
+        }
+    }
+    // The rectified proposal pass can add a new full-frame PDF region after
+    // the coarse decision. Give that region one dense whole-image attempt,
+    // unless the same bounded dense pass already ran above. Keep the test
+    // PDF-only because `regions` is shared with every matrix reader.
+    if !dense_retry
+        && regions.candidates.iter().any(|region| {
+            region.format == "PDF417"
+                && !results
+                    .iter()
+                    .any(|read| covered_fraction(&region.polygon, &read.polygon) >= 0.85)
+        })
+    {
+        let (dense_results, dense_limited) = detect_axes(gray, w, h, regions, 500);
+        limited |= dense_limited;
+        for read in dense_results {
+            if !results.iter().any(|existing| {
+                existing.text == read.text
+                    && crate::regions::overlap(&existing.polygon, &read.polygon) > 0.65
             }) {
                 results.push(read);
             }
@@ -695,7 +844,51 @@ pub fn detect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
+    fn dense_lookup_matches_sorted_reference_for_every_pattern() {
+        let reference = legacy_lookup();
+        for pattern in 0..(1_u32 << 17) {
+            let expected = reference
+                .binary_search_by_key(&pattern, |entry| entry.0)
+                .ok()
+                .map(|index| (reference[index].1, reference[index].2));
+            assert_eq!(lookup(pattern), expected, "pattern {pattern:#07x}");
+        }
+        for row in CODES {
+            for &pattern in &row {
+                assert!(lookup(pattern).is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn dense_lookup_rejects_invalid_fixed_bits() {
+        assert_eq!(lookup(0), None);
+        assert_eq!(lookup(0x1_0001), None);
+        assert_eq!(lookup(0xffff), None);
+        for row in CODES {
+            for &pattern in &row {
+                assert_eq!(lookup(pattern | (1 << 20)), None);
+            }
+        }
+    }
+
+    #[test]
+    fn one_small_decode_does_not_cover_a_multisymbol_retry_band() {
+        let band = [[0., 0.], [100., 0.], [100., 500.], [0., 500.]];
+        let single = [[0., 0.], [100., 0.], [100., 100.], [0., 100.]];
+        assert!(covered_fraction(&band, &single) < 0.21);
+        assert!(covered_fraction(&single, &band) > 0.99);
+        assert!(covered_fraction(&band, &band) > 0.99);
+    }
+
+    #[test]
+    #[expect(
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap,
+        reason = "Bounded test generator uses positive module widths and mirrors the integer guard's production casts."
+    )]
     fn integer_guard_bounds_preserve_subpixel_accepted_starts() {
         let pattern = [8, 1, 1, 1, 1, 1, 1, 3];
         let mut seed = 48721_u32;

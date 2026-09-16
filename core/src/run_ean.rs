@@ -33,15 +33,15 @@ fn digit_reference(widths: &[f32], side: u8) -> Digit {
         b'G' => 1,
         _ => 2,
     }];
-    for d in 0..10 {
-        let pattern = patterns[d];
+    for (d, patterns_entry) in patterns.iter().enumerate().take(10) {
+        let pattern = *patterns_entry;
         let cost = (0..4)
             .map(|i| (normalized[i] - f32::from(pattern[i])).powi(2))
             .sum::<f32>()
             / 4.;
         if cost < best.0 {
             second = best.0;
-            best = (cost, d as u8);
+            best = (cost, (d).to_le_bytes()[0]);
         } else {
             second = second.min(cost);
         }
@@ -55,7 +55,9 @@ fn digit_reference(widths: &[f32], side: u8) -> Digit {
 fn digit_errors(widths: &[f32]) -> [[f32; 4]; 4] {
     let sum = widths.iter().sum::<f32>();
     let normalized: [f32; 4] = std::array::from_fn(|i| 7. * widths[i] / sum);
-    std::array::from_fn(|i| std::array::from_fn(|w| (normalized[i] - (w + 1) as f32).powi(2)))
+    std::array::from_fn(|i| {
+        std::array::from_fn(|w| (normalized[i] - crate::numeric::usize_f32(w + 1)).powi(2))
+    })
 }
 fn digit(widths: &[f32], side: u8) -> Digit {
     digit_from_errors(&digit_errors(widths), side)
@@ -68,8 +70,8 @@ fn digit_from_errors(errors: &[[f32; 4]; 4], side: u8) -> Digit {
         b'G' => 1,
         _ => 2,
     }];
-    for d in 0..10 {
-        let pattern = patterns[d];
+    for (d, patterns_entry) in patterns.iter().enumerate().take(10) {
+        let pattern = *patterns_entry;
         let cost = (errors[0][pattern[0] as usize - 1]
             + errors[1][pattern[1] as usize - 1]
             + errors[2][pattern[2] as usize - 1]
@@ -77,7 +79,7 @@ fn digit_from_errors(errors: &[[f32; 4]; 4], side: u8) -> Digit {
             / 4.;
         if cost < best.0 {
             second = best.0;
-            best = (cost, d as u8);
+            best = (cost, (d).to_le_bytes()[0]);
         } else {
             second = second.min(cost);
         }
@@ -104,9 +106,18 @@ pub struct Evidence {
     pub cost: f32,
     pub gap: f32,
 }
+#[must_use]
 pub fn decode(widths: &[f32]) -> Option<[u8; 13]> {
     decode_evidence(widths).map(|e| e.digits)
 }
+#[must_use]
+#[cfg_attr(
+    not(feature = "experimental-invalid-visual-veto"),
+    expect(
+        clippy::float_cmp,
+        reason = "Equal decoder costs are exact ambiguity ties; approximate equality would change accepted identities."
+    )
+)]
 pub fn decode_evidence(widths: &[f32]) -> Option<Evidence> {
     #[cfg(feature = "experimental-invalid-visual-veto")]
     {
@@ -152,13 +163,13 @@ pub fn decode_evidence(widths: &[f32]) -> Option<Evidence> {
         let mut best = None;
         let mut best_cost = f32::INFINITY;
         let mut tied = false;
-        for first in 0..10 {
+        for first in 0u8..10 {
             let mut value = [0u8; 13];
-            value[0] = first as u8;
+            value[0] = first;
             let (mut cost, mut max, mut gap) = (0f32, 0f32, f32::INFINITY);
             for j in 0..12 {
                 let d = if j < 6 {
-                    left[j][usize::from(ean::parity_side(first, j) == b'G')]
+                    left[j][usize::from(ean::parity_side(usize::from(first), j) == b'G')]
                 } else {
                     right[j - 6]
                 };
@@ -186,6 +197,10 @@ pub fn decode_evidence(widths: &[f32]) -> Option<Evidence> {
     }
 }
 #[cfg(feature = "experimental-invalid-visual-veto")]
+#[expect(
+    clippy::float_cmp,
+    reason = "Encoded samples are binary and equal decoder costs are exact ambiguity ties; epsilon matching would change accepted identities."
+)]
 pub(crate) fn decode_visual_evidence(widths: &[f32]) -> Option<Evidence> {
     if widths.len() != 59 || widths.iter().any(|x| !x.is_finite() || *x <= 0.) {
         return None;
@@ -224,9 +239,9 @@ pub(crate) fn decode_visual_evidence(widths: &[f32]) -> Option<Evidence> {
     let mut best = None;
     let mut best_cost = f32::INFINITY;
     let mut tied = false;
-    for first in 0..10 {
+    for first in 0usize..10 {
         let mut value = [0u8; 13];
-        value[0] = first as u8;
+        value[0] = (first).to_le_bytes()[0];
         let (mut cost, mut max, mut gap) = (0f32, 0f32, f32::INFINITY);
         for j in 0..12 {
             let d = if j < 6 {
@@ -258,6 +273,10 @@ pub(crate) fn decode_visual_evidence(widths: &[f32]) -> Option<Evidence> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[expect(
+        clippy::float_cmp,
+        reason = "Encoded samples are binary and equal decoder costs are exact ambiguity ties; epsilon matching would change accepted identities."
+    )]
     fn runs(d: &[u8; 13]) -> Vec<f32> {
         let p = ean::encode(d);
         let mut out = Vec::new();
@@ -276,7 +295,7 @@ mod tests {
     }
     #[test]
     fn exact_patterns_and_checksum_rejection() {
-        for first in 0..10 {
+        for first in 0u8..10 {
             let mut d = [first, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 0];
             for c in 0..10 {
                 d[12] = c;
@@ -331,21 +350,33 @@ mod tests {
         assert!(decode(&[1.; 59]).is_none());
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn lookup_costs_are_bitexact_to_reference() {
         for a in 1..=16 {
             for b in 1..=16 {
                 for c in 1..=16 {
                     for d in 1..=16 {
-                        let w = [a as f32, b as f32, c as f32, d as f32];
+                        let width = [
+                            crate::numeric::f64_f32(f64::from(a)),
+                            crate::numeric::f64_f32(f64::from(b)),
+                            crate::numeric::f64_f32(f64::from(c)),
+                            crate::numeric::f64_f32(f64::from(d)),
+                        ];
                         for side in [b'L', b'G', b'R'] {
-                            assert_eq!(digit(&w, side).value, digit_reference(&w, side).value);
                             assert_eq!(
-                                digit(&w, side).cost.to_bits(),
-                                digit_reference(&w, side).cost.to_bits()
+                                digit(&width, side).value,
+                                digit_reference(&width, side).value
                             );
                             assert_eq!(
-                                digit(&w, side).gap.to_bits(),
-                                digit_reference(&w, side).gap.to_bits()
+                                digit(&width, side).cost.to_bits(),
+                                digit_reference(&width, side).cost.to_bits()
+                            );
+                            assert_eq!(
+                                digit(&width, side).gap.to_bits(),
+                                digit_reference(&width, side).gap.to_bits()
                             );
                         }
                     }
@@ -353,23 +384,23 @@ mod tests {
             }
         }
         let mut seed = 11u32;
-        for n in 0..2048 {
-            let mut w = [0.; 4];
-            for x in &mut w {
+        for count in 0..2048 {
+            let mut width = [0.; 4];
+            for x in &mut width {
                 seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                *x = 0.1 + ((seed >> 8) as f32 / 16_777_215.) * 7.;
+                *x = 0.1 + (crate::numeric::f64_f32(f64::from(seed >> 8)) / 16_777_215.) * 7.;
             }
             for side in [b'L', b'G', b'R'] {
-                let a = digit(&w, side);
-                let b = digit_reference(&w, side);
+                let a = digit(&width, side);
+                let b = digit_reference(&width, side);
                 assert_eq!(
                     (a.value, a.cost.to_bits(), a.gap.to_bits()),
                     (b.value, b.cost.to_bits(), b.gap.to_bits()),
-                    "noise {n} {side}"
+                    "noise {count} {side}"
                 );
             }
         }
-        for first in 0..10 {
+        for first in 0u8..10 {
             let mut e = [first, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 0];
             for c in 0..10 {
                 e[12] = c;
@@ -379,16 +410,16 @@ mod tests {
             }
             let bits = ean::encode(&e);
             let mut ws = Vec::new();
-            let (mut prev, mut n) = (bits[0], 0.);
+            let (mut prev, mut count) = (bits[0], 0.);
             for x in bits {
                 if x != prev {
-                    ws.push(n);
-                    n = 0.;
+                    ws.push(count);
+                    count = 0.;
                     prev = x;
                 }
-                n += 3.;
+                count += 3.;
             }
-            ws.push(n);
+            ws.push(count);
             for j in 0..12 {
                 let s = if j < 6 { 3 + j * 4 } else { 32 + (j - 6) * 4 };
                 let side = if j < 6 {
@@ -409,6 +440,7 @@ mod tests {
 
 /// Diagnostic observed bar/space bias from guard widths only. Never selected by
 /// expected digits or checksum. Missing transitions/guards are not synthesized.
+#[must_use]
 pub fn decode_guard_bias(widths: &[f32]) -> Option<Evidence> {
     decode_evidence(&guard_bias_widths(widths)?)
 }
@@ -465,14 +497,15 @@ pub struct DiagnosticParity {
     pub digit_costs: [f32; 12],
     pub checksum_valid: bool,
 }
+#[must_use]
 pub fn diagnostic_parities(widths: &[f32]) -> Option<Vec<DiagnosticParity>> {
     if widths.len() != 59 || widths.iter().any(|v| !v.is_finite() || *v <= 0.) {
         return None;
     }
     let mut result = Vec::with_capacity(10);
-    for first in 0..10 {
+    for first in 0usize..10 {
         let mut digits = [0; 13];
-        digits[0] = first as u8;
+        digits[0] = (first).to_le_bytes()[0];
         let mut costs = [0.; 12];
         let mut maximum = 0f32;
         let mut gap = f32::INFINITY;
@@ -505,8 +538,12 @@ pub fn diagnostic_parities(widths: &[f32]) -> Option<Vec<DiagnosticParity>> {
 mod parity_diagnostic_tests {
     use super::*;
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn rankings_reproduce_best_visual_evidence_without_checksum_repair() {
-        for first in 0..10 {
+        for first in 0u8..10 {
             let mut d = [first, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 0];
             for c in 0..10 {
                 d[12] = c;
@@ -568,7 +605,7 @@ fn guard_bias_widths_spatial(widths: &[f32]) -> Option<[f32; 59]> {
     }
     for (k, ids) in groups.iter().enumerate() {
         let (mut black, mut white, mut nb, mut nw) = (0., 0., 0., 0.);
-        for &i in ids.iter() {
+        for &i in *ids {
             if i % 2 == 0 {
                 black += widths[i];
                 nb += 1.;
@@ -584,13 +621,14 @@ fn guard_bias_widths_spatial(widths: &[f32]) -> Option<[f32; 59]> {
         if !(0.55 * module..=1.8 * module).contains(&pitch[k]) || bias[k].abs() > 0.4 * pitch[k] {
             return None;
         }
-        for &i in ids.iter() {
+        for &i in *ids {
             let corrected = widths[i] - if i % 2 == 0 { bias[k] } else { -bias[k] };
             if (corrected - pitch[k]).abs() > 0.35 * pitch[k] {
                 return None;
             }
         }
-        anchors[k] = ids.iter().map(|&i| centers[i]).sum::<f32>() / ids.len() as f32;
+        anchors[k] =
+            ids.iter().map(|&i| centers[i]).sum::<f32>() / crate::numeric::usize_f32(ids.len());
     }
     if bias.iter().zip(pitch).all(|(&b, p)| b.abs() < 0.04 * p) {
         return None;
@@ -607,6 +645,10 @@ fn guard_bias_widths_spatial(widths: &[f32]) -> Option<[f32; 59]> {
 #[cfg(test)]
 mod spatial_guard_tests {
     use super::*;
+    #[expect(
+        clippy::float_cmp,
+        reason = "Encoded samples are binary and equal decoder costs are exact ambiguity ties; epsilon matching would change accepted identities."
+    )]
     fn observed(d: [u8; 13], v_shape: bool) -> Vec<f32> {
         let bits = ean::encode(&d);
         let mut widths = Vec::new();
@@ -626,12 +668,16 @@ mod spatial_guard_tests {
         for (i, w) in widths.iter_mut().enumerate() {
             let t = (offset + *w * 0.5) / total;
             offset += *w;
-            let bias = if v_shape {
+            let edge_offset = if v_shape {
                 1.05 * (4. * (t - 0.5).abs() - 1.)
             } else {
                 1.05 * (1. - 2. * t)
             };
-            *w += if i % 2 == 0 { bias } else { -bias };
+            *w += if i % 2 == 0 {
+                edge_offset
+            } else {
+                -edge_offset
+            };
         }
         widths
     }
@@ -663,7 +709,7 @@ mod pair_reuse_tests {
         for _ in 0..20000 {
             let w: [f32; 4] = std::array::from_fn(|_| {
                 seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                0.1 + (seed >> 8) as f32 / 838_860.8
+                0.1 + crate::numeric::f64_f32(f64::from(seed >> 8)) / 838_860.8
             });
             let got = digit_pair(&w);
             for (i, side) in [b'L', b'G'].into_iter().enumerate() {

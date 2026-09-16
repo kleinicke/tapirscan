@@ -24,10 +24,10 @@ const MARKERS: [(usize, usize); 13] = [
     (23, 17),
 ];
 fn pixel(bits: &[bool], w: usize, h: usize, x: f32, y: f32) -> Option<bool> {
-    if x < 0. || y < 0. || x >= w as f32 || y >= h as f32 {
+    if x < 0. || y < 0. || x >= crate::numeric::usize_f32(w) || y >= crate::numeric::usize_f32(h) {
         None
     } else {
-        Some(bits[y as usize * w + x as usize])
+        Some(bits[crate::numeric::f32_usize(y) * w + crate::numeric::f32_usize(x)])
     }
 }
 fn cross(
@@ -58,8 +58,8 @@ fn cross(
     while right < limit && !get(right) {
         right += 1;
     }
-    let center = (left + right) as f32 * 0.5;
-    let hole = (right - left) as f32;
+    let center = crate::numeric::usize_f32(left + right) * 0.5;
+    let hole = crate::numeric::usize_f32(right - left);
     let mut widths = [0f32; 10];
     for ring in 0..5 {
         let black = ring % 2 == 0;
@@ -67,12 +67,12 @@ fn cross(
         while left > 0 && get(left - 1) == black {
             left -= 1;
         }
-        widths[ring * 2] = (previous - left) as f32;
+        widths[ring * 2] = crate::numeric::usize_f32(previous - left);
         let previous = right;
         while right < limit && get(right) == black {
             right += 1;
         }
-        widths[ring * 2 + 1] = (right - previous) as f32;
+        widths[ring * 2 + 1] = crate::numeric::usize_f32(right - previous);
     }
     // The outer ring can touch a data hexagon on one side. Its opposite
     // cross-section still measures the ring width without that attachment.
@@ -91,10 +91,32 @@ fn cross(
     Some((center, pitch, hole / pitch))
 }
 fn centers(bits: &[bool], w: usize, h: usize) -> Vec<Center> {
+    centers_with_rows(bits, w, h, None)
+}
+fn centers_with_rows(
+    bits: &[bool],
+    w: usize,
+    h: usize,
+    row_cache: Option<&crate::binarization::RowOffsets>,
+) -> Vec<Center> {
     let mut out: Vec<Center> = Vec::new();
-    for y in (0..h).step_by((h / 700).max(1)) {
+    let step = (h / 700).max(1);
+    let mut offsets = Vec::new();
+    let mut runs = Vec::new();
+    for y in (0..h).step_by(step) {
         let row = &bits[y * w..(y + 1) * w];
-        let (runs, offsets) = crate::runs(row);
+        if let Some(cache) = row_cache {
+            cache.copy_or_extract(y, row, &mut offsets);
+        } else {
+            crate::transition_offsets_into(row, &mut offsets);
+        }
+        runs.clear();
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "This preserves the existing usize-to-f32 run-width conversion after exact transition extraction."
+        )]
+        let widths = offsets.windows(2).map(|pair| (pair[1] - pair[0]) as f32);
+        runs.extend(widths);
         for i in 0..runs.len().saturating_sub(10) {
             if !row[offsets[i]] {
                 continue;
@@ -115,11 +137,13 @@ fn centers(bits: &[bool], w: usize, h: usize) -> Vec<Center> {
             {
                 continue;
             }
-            let x = offsets[i + 5] + runs[i + 5] as usize / 2;
+            let x = offsets[i + 5] + crate::numeric::f32_usize(runs[i + 5]) / 2;
             let Some((cy, sy, hy)) = cross(bits, w, h, x, y, true) else {
                 continue;
             };
-            let Some((cx, sx, hx)) = cross(bits, w, h, x, cy.floor() as usize, false) else {
+            let Some((cx, sx, hx)) =
+                cross(bits, w, h, x, crate::numeric::f32_usize(cy.floor()), false)
+            else {
                 continue;
             };
             if !(0.5..=2.).contains(&(sx / sy)) {
@@ -128,12 +152,15 @@ fn centers(bits: &[bool], w: usize, h: usize) -> Vec<Center> {
             // Require the three rings also along oblique rays: linear stripes fail here.
             let mut errors = 0;
             for angle in 0..16 {
-                let a = angle as f32 * std::f32::consts::TAU / 16.;
+                let a = crate::numeric::f64_f32(f64::from(angle)) * std::f32::consts::TAU / 16.;
                 for ring in 0..6 {
                     let radius = if ring == 0 {
                         0.2
                     } else {
-                        (hx + hy) * 0.25 + (ring as f32 - 0.5) * (4.5 - (hx + hy) * 0.25) / 5.
+                        (hx + hy) * 0.25
+                            + (crate::numeric::f64_f32(f64::from(ring)) - 0.5)
+                                * (4.5 - (hx + hy) * 0.25)
+                                / 5.
                     };
                     if pixel(
                         bits,
@@ -154,7 +181,7 @@ fn centers(bits: &[bool], w: usize, h: usize) -> Vec<Center> {
                 .iter_mut()
                 .find(|p| (p.x - cx).hypot(p.y - cy) < sx.min(sy) * 1.2)
             {
-                let count = old.support as f32;
+                let count = crate::numeric::usize_f32(old.support);
                 old.x = (old.x * count + cx) / (count + 1.);
                 old.y = (old.y * count + cy) / (count + 1.);
                 old.sx = (old.sx * count + sx) / (count + 1.);
@@ -186,8 +213,8 @@ pub fn diagnostic_centers(bits: &[bool], w: usize, h: usize) -> serde_json::Valu
 }
 fn cell(row: usize, col: usize) -> [f32; 2] {
     [
-        col as f32 - 14. + (row % 2) as f32 * 0.5,
-        (row as f32 - 16.) * 0.866_025_4,
+        crate::numeric::usize_f32(col) - 14. + crate::numeric::usize_f32(row % 2) * 0.5,
+        (crate::numeric::usize_f32(row) - 16.) * 0.866_025_4,
     ]
 }
 fn template() -> Vec<(f32, f32, bool)> {
@@ -229,8 +256,9 @@ pub fn detect(
         if images.is_duplicate(mode) {
             continue;
         }
-        let bits = images.get(mode);
-        let centers = centers(bits, w, h);
+        let step = (h / 700).max(1);
+        let (bits, row_cache) = images.get_with_runs(mode, step);
+        let centers = centers_with_rows(bits, w, h, Some(row_cache));
         limited |= centers.len() > 32;
         for c in centers.into_iter().take(32) {
             if results.iter().any(|d| {
@@ -244,7 +272,7 @@ pub fn detect(
             }
             let mut candidates = Vec::new();
             for angle in 0..360 {
-                let a = (angle as f32).to_radians();
+                let a = crate::numeric::f64_f32(f64::from(angle)).to_radians();
                 let (sin, cos) = a.sin_cos();
                 for scale in [0.94, 0.97, 1., 1.03, 1.06] {
                     let t = [
@@ -275,7 +303,8 @@ pub fn detect(
                     regions.add(
                         "MaxiCode",
                         polygon,
-                        1. - error as f32 / template.len() as f32,
+                        1. - crate::numeric::usize_f32(error)
+                            / crate::numeric::usize_f32(template.len()),
                         c.support,
                     );
                 }
@@ -295,7 +324,7 @@ pub fn detect(
                         text: read.text,
                         polygon,
                         support: c.support,
-                        error: read.corrected as f32,
+                        error: crate::numeric::usize_f32(read.corrected),
                         gs1: false,
                     });
                     break;

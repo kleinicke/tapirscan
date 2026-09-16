@@ -22,6 +22,7 @@ pub struct Session {
     adaptive: crate::preprocess::AdaptiveThreshold,
     enhance: crate::enhance::UpscaleSharpen,
     localizer: crate::localize::Localizer,
+    #[cfg(not(feature = "experimental-classical-orientation"))]
     oriented: crate::oriented::Localizer,
     proposals: [f64; 60],
     profile_digits: [u8; 13],
@@ -56,6 +57,7 @@ pub extern "C" fn sampler_new() -> *mut Session {
         adaptive: crate::preprocess::AdaptiveThreshold::default(),
         enhance: crate::enhance::UpscaleSharpen::default(),
         localizer: crate::localize::Localizer::default(),
+        #[cfg(not(feature = "experimental-classical-orientation"))]
         oriented: crate::oriented::Localizer::default(),
         proposals: [0.; 60],
         profile_digits: [0; 13],
@@ -71,24 +73,24 @@ pub extern "C" fn sampler_new() -> *mut Session {
 #[no_mangle]
 pub unsafe extern "C" fn sampler_resize(
     s: *mut Session,
-    w: usize,
-    h: usize,
+    width: usize,
+    height: usize,
     c: usize,
     stride: usize,
 ) -> bool {
-    let Ok(n) = image_len(w, h, c, stride) else {
+    let Ok(count) = image_len(width, height, c, stride) else {
         return false;
     };
     let s = &mut *s;
     s.crop_shape = (0, 0);
     if s.image
-        .try_reserve(n.saturating_sub(s.image.len()))
+        .try_reserve(count.saturating_sub(s.image.len()))
         .is_err()
     {
         return false;
     }
-    s.image.resize(n, 0);
-    s.shape = (w, h, c, stride);
+    s.image.resize(count, 0);
+    s.shape = (width, height, c, stride);
     true
 }
 #[no_mangle]
@@ -114,9 +116,9 @@ pub unsafe extern "C" fn sampler_sample(
 ) -> i32 {
     let s = &mut *s;
     s.output.fill(0.);
-    let (w, h, c, stride) = s.shape;
+    let (width, height, c, stride) = s.shape;
     let (Ok(im), Ok(m)) = (
-        ImageView::new(&s.image, w, h, c, stride),
+        ImageView::new(&s.image, width, height, c, stride),
         Transform::new(s.matrix),
     ) else {
         return -1;
@@ -211,13 +213,21 @@ pub unsafe extern "C" fn sampler_association_input(s: *mut Session) -> *mut f64 
     (*s).association.as_mut_ptr()
 }
 #[no_mangle]
-pub unsafe extern "C" fn sampler_overlap(s: *mut Session, n: usize, m: usize) -> f64 {
-    if !(2..=64).contains(&n) || !(2..=64).contains(&m) {
+pub unsafe extern "C" fn sampler_overlap(
+    session: *mut Session,
+    first_len: usize,
+    second_len: usize,
+) -> f64 {
+    if !(2..=64).contains(&first_len) || !(2..=64).contains(&second_len) {
         return -1.;
     }
-    let v = &(*s).association;
-    let a: Vec<_> = (0..n).map(|i| [v[i * 2], v[i * 2 + 1]]).collect();
-    let b: Vec<_> = (0..m).map(|i| [v[128 + i * 2], v[129 + i * 2]]).collect();
+    let coordinates = &(*session).association;
+    let a: Vec<_> = (0..first_len)
+        .map(|i| [coordinates[i * 2], coordinates[i * 2 + 1]])
+        .collect();
+    let b: Vec<_> = (0..second_len)
+        .map(|i| [coordinates[128 + i * 2], coordinates[129 + i * 2]])
+        .collect();
     crate::association::overlap(&a, &b).unwrap_or(-1.)
 }
 
@@ -251,7 +261,7 @@ pub unsafe extern "C" fn sampler_localize(s: *mut Session) -> i32 {
         s.proposals[i * 5..i * 5 + 4].copy_from_slice(&p.bounds);
         s.proposals[i * 5 + 4] = p.score;
     }
-    found.len() as i32
+    crate::numeric::usize_i32(found.len())
 }
 #[no_mangle]
 pub unsafe extern "C" fn sampler_localize_omitted(s: *mut Session) -> usize {
@@ -327,8 +337,8 @@ pub unsafe extern "C" fn sampler_scan_mode(s: *mut Session, count: usize, mode: 
     };
     let mut candidates = [[[0.; 2]; 4]; crate::scan::MAX_CANDIDATES];
     for (i, q) in candidates[..count].iter_mut().enumerate() {
-        for j in 0..4 {
-            q[j] = [s.scan_input[i * 8 + j * 2], s.scan_input[i * 8 + j * 2 + 1]];
+        for (j, q_entry) in q.iter_mut().enumerate().take(4) {
+            (*q_entry) = [s.scan_input[i * 8 + j * 2], s.scan_input[i * 8 + j * 2 + 1]];
         }
     }
     let Ok(results) = (if mode == 2 {
@@ -342,7 +352,7 @@ pub unsafe extern "C" fn sampler_scan_mode(s: *mut Session, count: usize, mode: 
     };
     for (i, r) in results.iter().enumerate() {
         let out = &mut s.scan_output[i * 32..(i + 1) * 32];
-        out[1] = r.paths_attempted as f64;
+        out[1] = crate::numeric::usize_f64(r.paths_attempted);
         out[0] = if r.error.is_some() { -1. } else { 0. };
         if let Some(read) = r.read {
             out[0] = if read.run_width {
@@ -361,7 +371,7 @@ pub unsafe extern "C" fn sampler_scan_mode(s: *mut Session, count: usize, mode: 
             }
             out[23] = f64::from(read.cost);
             out[24] = f64::from(read.gap);
-            out[25] = read.axis as f64;
+            out[25] = crate::numeric::usize_f64(read.axis);
             for j in 0..2 {
                 out[26 + j * 3] = read.paths[j].fraction;
                 out[27 + j * 3] = read.paths[j].left;
@@ -369,25 +379,28 @@ pub unsafe extern "C" fn sampler_scan_mode(s: *mut Session, count: usize, mode: 
             }
         }
     }
-    count as i32
+    crate::numeric::usize_i32(count)
 }
 
 /// Uses existing association input: two quads at offsets 0 and 128. -1 invalid,
 /// 0 unsupported, positive minimum correlation for a continuous stripe corridor.
 #[no_mangle]
-pub unsafe extern "C" fn sampler_continuity(s: *mut Session) -> f64 {
-    let s = &mut *s;
-    let (w, h, c, stride) = s.shape;
-    let Ok(image) = ImageView::new(&s.image, w, h, c, stride) else {
+pub unsafe extern "C" fn sampler_continuity(session: *mut Session) -> f64 {
+    let session = &mut *session;
+    let (width, height, channels, stride) = session.shape;
+    let Ok(image) = ImageView::new(&session.image, width, height, channels, stride) else {
         return -1.;
     };
     let mut a = [[0.; 2]; 4];
     let mut b = a;
     for i in 0..4 {
-        a[i] = [s.association[i * 2], s.association[i * 2 + 1]];
-        b[i] = [s.association[128 + i * 2], s.association[129 + i * 2]];
+        a[i] = [session.association[i * 2], session.association[i * 2 + 1]];
+        b[i] = [
+            session.association[128 + i * 2],
+            session.association[129 + i * 2],
+        ];
     }
-    match s.continuity.check(image, a, b) {
+    match session.continuity.check(image, a, b) {
         Ok(e) => {
             if e.supported {
                 e.minimum_correlation
@@ -405,15 +418,15 @@ pub unsafe extern "C" fn sampler_continuity(s: *mut Session) -> f64 {
 pub unsafe extern "C" fn sampler_bands(s: *mut Session) -> i32 {
     let s = &mut *s;
     s.scan_output.fill(0.);
-    let (w, h, c, stride) = s.shape;
-    let Ok(image) = ImageView::new(&s.image, w, h, c, stride) else {
+    let (width, height, c, stride) = s.shape;
+    let Ok(image) = ImageView::new(&s.image, width, height, c, stride) else {
         return -1;
     };
-    let mut q = [[0.; 2]; 4];
-    for j in 0..4 {
-        q[j] = [s.scan_input[j * 2], s.scan_input[j * 2 + 1]];
+    let mut quad = [[0.; 2]; 4];
+    for (j, q_entry) in quad.iter_mut().enumerate() {
+        (*q_entry) = [s.scan_input[j * 2], s.scan_input[j * 2 + 1]];
     }
-    let Ok(reads) = s.bands.scan(image, q) else {
+    let Ok(reads) = s.bands.scan(image, quad) else {
         return -1;
     };
     let count = reads.len();
@@ -429,16 +442,16 @@ pub unsafe extern "C" fn sampler_bands(s: *mut Session) -> i32 {
         }
         out[23] = f64::from(read.cost);
         out[24] = f64::from(read.gap);
-        out[25] = read.axis as f64;
+        out[25] = crate::numeric::usize_f64(read.axis);
         for j in 0..2 {
             out[26 + j * 3] = read.paths[j].fraction;
             out[27 + j * 3] = read.paths[j].left;
             out[28 + j * 3] = read.paths[j].right;
         }
     }
-    s.scan_output[256] = s.bands.attempts() as f64;
+    s.scan_output[256] = crate::numeric::usize_f64(s.bands.attempts());
     s.scan_output[257] = if s.bands.truncated() { 1. } else { 0. };
-    count as i32
+    crate::numeric::usize_i32(count)
 }
 
 #[no_mangle]
@@ -464,7 +477,7 @@ pub unsafe extern "C" fn sampler_oriented(s: *mut Session) -> i32 {
         }
         s.scan_output[i * 9 + 8] = p.score;
     }
-    found.len() as i32
+    crate::numeric::usize_i32(found.len())
 }
 
 #[no_mangle]
@@ -498,13 +511,17 @@ pub unsafe extern "C" fn sampler_association_output(s: *mut Session) -> *const u
     (*s).association_parents.as_ptr()
 }
 #[no_mangle]
+#[expect(
+    clippy::float_cmp,
+    reason = "The ABI encodes an anchor flag as exactly 0 or 1; intermediate floating values are invalid."
+)]
 pub unsafe extern "C" fn sampler_associate(s: *mut Session, count: usize) -> i32 {
     let s = &mut *s;
     if count > 128 {
         return -1;
     }
-    let (w, h, c, stride) = s.shape;
-    let Ok(im) = ImageView::new(&s.image, w, h, c, stride) else {
+    let (width, height, c, stride) = s.shape;
+    let Ok(im) = ImageView::new(&s.image, width, height, c, stride) else {
         return -1;
     };
     let mut reads = [crate::band_association::Observation {
@@ -522,7 +539,7 @@ pub unsafe extern "C" fn sampler_associate(s: *mut Session, count: usize) -> i32
         {
             return -1;
         }
-        r.value_id = v[0] as u32;
+        r.value_id = crate::numeric::f64_u32(v[0]);
         r.is_anchor = v[1] == 1.;
         for j in 0..4 {
             r.polygon[j] = [v[2 + j * 2], v[3 + j * 2]];
@@ -532,9 +549,9 @@ pub unsafe extern "C" fn sampler_associate(s: *mut Session, count: usize) -> i32
         return -1;
     };
     for (i, p) in parents.iter().enumerate() {
-        s.association_parents[i] = *p as u32;
+        s.association_parents[i] = crate::numeric::usize_u32(*p);
     }
-    s.associator.checks() as i32
+    crate::numeric::usize_i32(s.associator.checks())
 }
 
 #[no_mangle]
@@ -555,8 +572,8 @@ pub unsafe extern "C" fn sampler_neural_output(s: *mut Session) -> *const f32 {
 pub unsafe extern "C" fn sampler_row_scan(s: *mut Session) -> isize {
     let s = &mut *s;
     s.row_output.clear();
-    let (w, h, c, stride) = s.shape;
-    let Ok(image) = ImageView::new(&s.image, w, h, c, stride) else {
+    let (width, height, c, stride) = s.shape;
+    let Ok(image) = ImageView::new(&s.image, width, height, c, stride) else {
         return -1;
     };
     if s.row_scanner.scan(image).is_err() {
@@ -568,9 +585,9 @@ pub unsafe extern "C" fn sampler_row_scan(s: *mut Session) -> isize {
         return -1;
     }
     s.row_output.resize(n, 0.);
-    s.row_output[0] = count as f64;
-    s.row_output[1] = s.row_scanner.rows as f64;
-    s.row_output[2] = s.row_scanner.hypotheses as f64;
+    s.row_output[0] = crate::numeric::usize_f64(count);
+    s.row_output[1] = crate::numeric::usize_f64(s.row_scanner.rows);
+    s.row_output[2] = crate::numeric::usize_f64(s.row_scanner.hypotheses);
     s.row_output[3] = f64::from(u8::from(s.row_scanner.truncated));
     for (i, r) in s.row_scanner.results().iter().enumerate() {
         let out = &mut s.row_output[4 + i * 24..4 + (i + 1) * 24];
@@ -583,9 +600,9 @@ pub unsafe extern "C" fn sampler_row_scan(s: *mut Session) -> isize {
         for j in 0..8 {
             out[14 + j] = r.polygon[j / 2][j % 2];
         }
-        out[22] = r.support as f64;
+        out[22] = crate::numeric::usize_f64(r.support);
     }
-    n as isize
+    (n).cast_signed()
 }
 #[no_mangle]
 pub unsafe extern "C" fn sampler_row_output(s: *const Session) -> *const f64 {
@@ -599,8 +616,8 @@ pub unsafe extern "C" fn sampler_row_scan_grouped(s: *mut Session) -> isize {
 unsafe fn row_scan_grouped_mode(s: *mut Session, soft: bool) -> isize {
     let s = &mut *s;
     s.row_output.clear();
-    let (w, h, c, stride) = s.shape;
-    let Ok(image) = ImageView::new(&s.image, w, h, c, stride) else {
+    let (width, height, c, stride) = s.shape;
+    let Ok(image) = ImageView::new(&s.image, width, height, c, stride) else {
         return -1;
     };
     let Ok(results) = (if soft {
@@ -627,14 +644,14 @@ unsafe fn row_scan_grouped_mode(s: *mut Session, soft: bool) -> isize {
         for j in 0..8 {
             out[14 + j] = r.polygon[j / 2][j % 2];
         }
-        out[22] = r.support as f64;
-        out[23] = r.fragments as f64;
+        out[22] = crate::numeric::usize_f64(r.support);
+        out[23] = crate::numeric::usize_f64(r.fragments);
     }
-    s.row_output[0] = count as f64;
-    s.row_output[1] = s.row_scanner.rows as f64;
-    s.row_output[2] = s.row_scanner.hypotheses as f64;
+    s.row_output[0] = crate::numeric::usize_f64(count);
+    s.row_output[1] = crate::numeric::usize_f64(s.row_scanner.rows);
+    s.row_output[2] = crate::numeric::usize_f64(s.row_scanner.hypotheses);
     s.row_output[3] = f64::from(u8::from(s.row_scanner.truncated));
-    n as isize
+    (n).cast_signed()
 }
 #[no_mangle]
 pub unsafe extern "C" fn sampler_row_scan_soft(s: *mut Session) -> isize {
@@ -654,22 +671,27 @@ pub unsafe extern "C" fn sampler_row_group_exhausted(s: *const Session) -> bool 
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn sampler_run_continuity(s: *mut Session) -> i32 {
-    let s = &mut *s;
-    let (w, h, c, stride) = s.shape;
-    let Ok(im) = ImageView::new(&s.image, w, h, c, stride) else {
+pub unsafe extern "C" fn sampler_run_continuity(session: *mut Session) -> i32 {
+    let session = &mut *session;
+    let (width, height, channels, stride) = session.shape;
+    let Ok(im) = ImageView::new(&session.image, width, height, channels, stride) else {
         return -1;
     };
-    let a = std::array::from_fn(|j| [s.association[j * 2], s.association[j * 2 + 1]]);
-    let b = std::array::from_fn(|j| [s.association[128 + j * 2], s.association[129 + j * 2]]);
-    let Ok(e) = s.run_continuity.check(im, a, b) else {
+    let a = std::array::from_fn(|j| [session.association[j * 2], session.association[j * 2 + 1]]);
+    let b = std::array::from_fn(|j| {
+        [
+            session.association[128 + j * 2],
+            session.association[129 + j * 2],
+        ]
+    });
+    let Ok(e) = session.run_continuity.check(im, a, b) else {
         return -1;
     };
     if let Some(d) = e.digits {
-        s.profile_digits = d;
+        session.profile_digits = d;
     }
-    s.profile_meta[0] = e.profiles as f32;
-    s.profile_meta[1] = f32::from(e.rejection as u8);
+    session.profile_meta[0] = crate::numeric::usize_f32(e.profiles);
+    session.profile_meta[1] = f32::from(e.rejection as u8);
     i32::from(e.supported)
 }
 
@@ -717,7 +739,7 @@ pub unsafe extern "C" fn sampler_stripes(s: *mut Session) -> i32 {
         s.scan_output[i * 9 + 8] = p.score;
     }
     for (i, n) in found.trace.iter().enumerate() {
-        s.scan_output[256 + i] = *n as f64;
+        s.scan_output[256 + i] = crate::numeric::usize_f64(*n);
     }
-    found.proposals.len() as i32
+    crate::numeric::usize_i32(found.proposals.len())
 }

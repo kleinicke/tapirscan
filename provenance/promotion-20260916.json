@@ -1,0 +1,31 @@
+{
+  "sourceCommit": "85734fe176bc662eef40da402c82b7a9d9a3f736",
+  "previousReleaseCommit": "6bb614647937fe8d31a2b570d1bfe16054a0d870",
+  "date": "2026-09-16",
+  "packageVersion": "1.1.0",
+  "nativeAbi": 4,
+  "multiformatRecipe": "rust/multiformat/experiments/common1d-20260916/common1d-conservative-qr-20260916.json",
+  "multiformatRecipeSha256": "23dd811c05b3eba73dd7752e5b060dd1b0a8ac5a00855fbd9f64eb4581c8a5d3",
+  "researchHostHashes": {
+    "js/camera-demo/src/lib/detail-runtime/scanner.mjs": "a280f4d0f50ad47fccc6ebe93906cdc8eee0fe4ed26d864866a0303679e0fd2a",
+    "js/camera-demo/src/lib/detail-runtime/scanner.d.mts": "e3d8598399cf5079fbca7ce747431d570c9883a78826adc956eeaf711ee84c30",
+    "js/camera-demo/src/lib/detail-runtime/direct-recovery.mjs": "8e6a8ec1351bcd343129bffbc894780ba28d4d0436b547420c5d9fbc1b4bbc18",
+    "js/camera-demo/src/lib/multiformat/coverage.ts": "4856a8ff73ce0e26cbeaf1bcf3ff940f2b09721e88d61dce86b7d78206340d5c"
+  },
+  "releaseHostHashes": {
+    "bindings/javascript/src/detail-runtime/scanner.mjs": "2133fe48035430844289b34ce09be820880dad67721615f7656136959ed1f44d",
+    "bindings/javascript/src/detail-runtime/scanner.d.mts": "6d93e08ca6123cfa9100451790896133ec1d6edd5fd394c209f8474f473ae7ea",
+    "bindings/javascript/src/detail-runtime/direct-recovery.mjs": "6a9ea82e8ad473814782de4fd50960cc0240437fbd131a28bd463a0fd2781de9",
+    "bindings/javascript/src/multiformat/coverage.ts": "af9649c3f9bea583a71e00ada2ce9f1c067ca59006177fedff8e94619306158c"
+  },
+  "adaptations": [
+    "Retain release source-detail host policy, fit limits, recovery directions and public API.",
+    "Port regions_scan_mask and candidate_retry_mask into each non-low strict-Clippy recipe; preserve initial discovery and pending work.",
+    "Use release detail-canvas.js for browser and Node recovery.",
+    "Register three release-detail recipe names in build_guarded.py.",
+    "Port Common1D coverage scheduling and per-reader effort selection into release Rust/JS facades.",
+    "Canonicalize Rust standard-library source paths in WASM builds; distribution hashes differ from research builds."
+  ],
+  "searchPolicy": "Bounded search preserved. No continuation/until-no-viable-candidates option implemented.",
+  "evidence": "docs/PROMOTION_20260916.md"
+}

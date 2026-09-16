@@ -1,7 +1,7 @@
 //! Diagnostic finite forward model: blurred rectangular modules, no run count.
 //! Fixed Gaussian cell integrals at sigma .45/.65/.85 module units, radius two.
 //! Input is normalized module-center darkness; gain, bias and phase are not fit.
-use super::*;
+use super::{bit, checksum, Digit, Result, PARITY};
 pub const BLUR_SIGMAS: [f32; 3] = [0.45, 0.65, 0.85];
 const KERNELS: [[f32; 3]; 3] = [
     [0.733_479_5, 0.132_831_2, 0.000_429_046_5],
@@ -52,6 +52,7 @@ fn guard_fit(values: &[f32; 7], model: usize) -> Option<f32> {
 }
 /// Cheap gate using ONLY fully known guard contexts. Missing payload-neighbor
 /// bits at guards 2/45/49/92 never enter a blur prediction.
+#[must_use]
 pub fn blurred_guard_possible(values: &[f32; 7]) -> bool {
     values
         .iter()
@@ -63,7 +64,7 @@ const fn pattern(model: usize, side: u8, d: usize, position: usize) -> f32 {
     let mut sum = 0.;
     let mut offset = -2i32;
     while offset <= 2 {
-        let i = position as i32 + offset;
+        let i = crate::numeric::usize_i32(position) + offset;
         // Every L/G digit starts0/ends1; R starts1/ends0. At the
         // adjacent guard boundaries the same outside bits are known exactly.
         let v = if i < 0 {
@@ -79,7 +80,7 @@ const fn pattern(model: usize, side: u8, d: usize, position: usize) -> f32 {
                 0.
             }
         } else {
-            bit(d, side, i as usize)
+            bit(d, side, crate::numeric::i32_usize(i))
         };
         sum += v * k[offset.unsigned_abs() as usize];
         offset += 1;
@@ -118,16 +119,16 @@ fn blurred_digit(p: &[f32], model: usize, side: usize) -> Digit {
         },
         f32::INFINITY,
     );
-    for d in 0..10 {
+    for (d, template) in TEMPLATES[model][side].iter().enumerate() {
         let mut cost = 0.;
         for i in 0..5 {
-            let delta = p[i + 1] - TEMPLATES[model][side][d][i];
+            let delta = p[i + 1] - template[i];
             cost += delta * delta;
         }
         cost /= 5.;
         if cost < best.cost {
             second = best.cost;
-            best.value = d as u8;
+            best.value = (d).to_le_bytes()[0];
             best.cost = cost;
         } else if cost < second {
             second = cost;
@@ -158,9 +159,9 @@ fn visual(p: &[f32], model: usize, guard: f32) -> Visual {
         guard,
     };
     let mut second = f32::INFINITY;
-    for first in 0..10 {
+    for first in 0usize..10 {
         let mut digits = [0; 13];
-        digits[0] = first as u8;
+        digits[0] = (first).to_le_bytes()[0];
         let (mut cost, mut gap) = (0., f32::INFINITY);
         for j in 0..12 {
             let d = if j < 6 {
@@ -197,15 +198,16 @@ fn plausible(v: &Visual) -> bool {
 }
 /// Choose visual parity and blur jointly before a single checksum rejection.
 /// No checksum-driven digit, parity or blur search is permitted.
+#[must_use]
 pub fn decode_blurred(p: &[f32]) -> Option<BlurredResult> {
     if p.len() != 95 || p.iter().any(|v| !v.is_finite() || !(0.0..=1.0).contains(v)) {
         return None;
     }
     let guards = GUARDS.map(|i| p[i]);
     let mut models = [None; 3];
-    for m in 0..3 {
+    for (m, models_entry) in models.iter_mut().enumerate() {
         if let Some(guard) = guard_fit(&guards, m) {
-            models[m] = Some(visual(p, m, guard));
+            (*models_entry) = Some(visual(p, m, guard));
         }
     }
     select_models(&models)
@@ -248,18 +250,19 @@ fn select_models(models: &[Option<Visual>; 3]) -> Option<BlurredResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ean::encode;
     fn valid(first: u8) -> [u8; 13] {
         let mut d = [0; 13];
         d[0] = first;
-        for i in 1..12 {
-            d[i] = ((i * 7) % 10) as u8;
+        for (i, d_entry) in d.iter_mut().enumerate().take(12).skip(1) {
+            (*d_entry) = ((i * 7) % 10).to_le_bytes()[0];
         }
         let sum = d[..12]
             .iter()
             .enumerate()
             .map(|(i, &v)| v as usize * if i % 2 == 0 { 1 } else { 3 })
             .sum::<usize>();
-        d[12] = ((10 - sum % 10) % 10) as u8;
+        d[12] = ((10 - sum % 10) % 10).to_le_bytes()[0];
         d
     }
     // Independent oversampled Gaussian integration of ideal rectangular modules.
@@ -271,19 +274,20 @@ mod tests {
             for n in -800..=800 {
                 let dx = f64::from(n) / 160.;
                 let weight = (-dx * dx / (2. * sigma * sigma)).exp();
-                let module = (i as f64 + 0.5 + dx).floor() as i32;
+                let module =
+                    crate::numeric::f64_i32((crate::numeric::usize_f64(i) + 0.5 + dx).floor());
                 if (0..95).contains(&module) {
-                    sum += weight * f64::from(bits[module as usize]);
+                    sum += weight * f64::from(bits[crate::numeric::i32_usize(module)]);
                 }
                 norm += weight;
             }
-            (sum / norm) as f32
+            crate::numeric::f64_f32(sum / norm)
         })
     }
     #[test]
     fn physically_blurred_valid_and_invalid_checksums() {
         let mut accepted = [0; 3];
-        for first in 0..10 {
+        for first in 0u8..10 {
             for (m, sigma) in [0.45, 0.65, 0.85].iter().enumerate() {
                 let d = valid(first);
                 let p = physical(&d, *sigma);
@@ -313,7 +317,7 @@ mod tests {
             let mut p = [0.; 95];
             for v in &mut p {
                 seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                *v = (seed >> 24) as f32 / 255.;
+                *v = crate::numeric::f64_f32(f64::from(seed >> 24)) / 255.;
             }
             assert!(decode_blurred(&p).is_none());
         }
@@ -331,10 +335,10 @@ mod tests {
     }
     #[test]
     fn fixed_outer_context_matches_full_symbol_convolution() {
-        for first in 0..10 {
+        for first in 0u8..10 {
             let d = valid(first);
             let p = encode(&d);
-            for m in 0..3 {
+            for (m, kernels_entry) in KERNELS.iter().enumerate() {
                 for j in 0..12 {
                     let start = if j < 6 { 3 + j * 7 } else { 50 + (j - 6) * 7 };
                     let side = if j < 6 {
@@ -345,8 +349,8 @@ mod tests {
                     for i in 1..6 {
                         let full = (-2i32..=2)
                             .map(|o| {
-                                p[((start + i) as isize + o as isize) as usize]
-                                    * KERNELS[m][o.unsigned_abs() as usize]
+                                p[((start + i).cast_signed() + o as isize).cast_unsigned()]
+                                    * (*kernels_entry)[o.unsigned_abs() as usize]
                             })
                             .sum::<f32>();
                         assert!((full - pattern(m, side, d[j + 1] as usize, i)).abs() < 1e-6);

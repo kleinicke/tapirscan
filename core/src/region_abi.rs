@@ -8,6 +8,8 @@ use crate::{
     region_scan::{ImageView, Policy, RegionScanner},
     sampling::image_len,
 };
+#[cfg(feature = "experimental-orientation-stripes")]
+use std::fmt::Write;
 use std::{cell::RefCell, collections::BTreeMap};
 #[derive(Default)]
 struct State {
@@ -46,7 +48,13 @@ pub extern "C" fn regions_destroy(id: u32) -> u32 {
     REGISTRY.with(|r| u32::from(r.borrow_mut().states.remove(&id).is_none()))
 }
 #[no_mangle]
-pub extern "C" fn regions_prepare(id: u32, w: usize, h: usize, c: usize, stride: usize) -> u32 {
+pub extern "C" fn regions_prepare(
+    id: u32,
+    width: usize,
+    height: usize,
+    c: usize,
+    stride: usize,
+) -> u32 {
     REGISTRY.with(|r| {
         let mut r = r.borrow_mut();
         let Some(s) = r.states.get_mut(&id) else {
@@ -59,10 +67,10 @@ pub extern "C" fn regions_prepare(id: u32, w: usize, h: usize, c: usize, stride:
             s.current = None;
             s.original = None;
         }
-        let Ok(n) = image_len(w, h, c, stride) else {
+        let Ok(count) = image_len(width, height, c, stride) else {
             return 2;
         };
-        if n > s.input.len() && s.input.try_reserve_exact(n - s.input.len()).is_err() {
+        if count > s.input.len() && s.input.try_reserve_exact(count - s.input.len()).is_err() {
             return 3;
         }
         if s.quads
@@ -71,10 +79,10 @@ pub extern "C" fn regions_prepare(id: u32, w: usize, h: usize, c: usize, stride:
         {
             return 3;
         }
-        s.input.resize(n, 0);
+        s.input.resize(count, 0);
         s.quads.resize(512, 0.);
         s.quads.fill(0.);
-        s.shape = Some((w, h, c, stride));
+        s.shape = Some((width, height, c, stride));
         0
     })
 }
@@ -138,7 +146,7 @@ pub extern "C" fn regions_scan(
             return 1;
         };
         s.output.clear();
-        let Some((w, h, c, stride)) = s.shape else {
+        let Some((width, height, c, stride)) = s.shape else {
             return 4;
         };
         if count > 64 || flags > 31 {
@@ -156,12 +164,12 @@ pub extern "C" fn regions_scan(
             guard_bias: flags & 8 != 0,
             allow_single_row: flags & 16 != 0,
         };
-        let Ok(im) = ImageView::new(&s.input, w, h, c, stride) else {
+        let Ok(im) = ImageView::new(&s.input, width, height, c, stride) else {
             return 6;
         };
         let qs: Vec<[[f64; 2]; 4]> = s.quads[..count * 8]
             .chunks_exact(8)
-            .map(|q| std::array::from_fn(|i| [q[i * 2], q[i * 2 + 1]]))
+            .map(|quad| std::array::from_fn(|i| [quad[i * 2], quad[i * 2 + 1]]))
             .collect();
         let Ok(result) = s.engine.scan(im, &qs, policy) else {
             return 5;
@@ -192,35 +200,6 @@ pub extern "C" fn regions_scan(
         0
     })
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn handle_lifetime_failures_and_stale_output() {
-        let id = regions_new();
-        assert_ne!(id, 0);
-        assert_eq!(regions_scan(id, 0, 0, 0, 0, 0, 0, 1), 4);
-        assert_eq!(regions_prepare(id, 100, 100, 1, 100), 0);
-        assert_eq!(regions_input_len(id), 10000);
-        assert_eq!(regions_scan(id, 0, 0, 0, 0, 0, 0, 1), 0);
-        assert!(regions_output_len(id) > 0);
-        assert_eq!(regions_scan(id, 0, 16, 0, 0, 0, 0, 1), 0);
-        assert_eq!(regions_scan(id, 0, 31, 0, 0, 0, 0, 1), 0);
-        assert_eq!(regions_scan(id, 0, 32, 0, 0, 0, 0, 1), 5);
-        assert_eq!(regions_output_len(id), 0);
-
-        assert_eq!(regions_scan(id, 65, 0, 0, 0, 0, 0, 1), 5);
-        assert_eq!(regions_output_len(id), 0);
-        assert_eq!(regions_prepare(id, usize::MAX, 2, 4, usize::MAX), 2);
-        assert_eq!(regions_input_len(id), 0);
-        assert_eq!(regions_destroy(id), 0);
-        assert_eq!(regions_destroy(id), 1);
-        assert_eq!(regions_prepare(id, 1, 1, 1, 1), 1);
-        let next = regions_new();
-        assert_ne!(next, id);
-        assert_eq!(regions_destroy(next), 0);
-    }
-}
 #[no_mangle]
 pub extern "C" fn regions_version() -> u32 {
     1
@@ -229,6 +208,10 @@ pub extern "C" fn regions_version() -> u32 {
 #[cfg(feature = "experimental-orientation-stripes")]
 /// Returned JSON is invalidated by the next operation on this handle.
 #[no_mangle]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The ABI transaction validates its handle, borrows session storage, localizes and serializes before releasing the borrow."
+)]
 pub extern "C" fn regions_localize(id: u32, fit_limit: usize) -> u32 {
     REGISTRY.with(|r| {
         let mut r = r.borrow_mut();
@@ -239,10 +222,10 @@ pub extern "C" fn regions_localize(id: u32, fit_limit: usize) -> u32 {
         if fit_limit > 8 {
             return 5;
         }
-        let Some((w, h, c, stride)) = s.shape else {
+        let Some((width, height, c, stride)) = s.shape else {
             return 4;
         };
-        let Ok(im) = ImageView::new(&s.input, w, h, c, stride) else {
+        let Ok(im) = ImageView::new(&s.input, width, height, c, stride) else {
             return 6;
         };
         let Ok(found) = crate::stripes::detect(im) else {
@@ -262,7 +245,7 @@ pub extern "C" fn regions_localize(id: u32, fit_limit: usize) -> u32 {
         let (mut secondary_count, mut secondary_added, mut secondary_omitted) =
             (0usize, 0usize, 0usize);
         let mut secondary_limited = false;
-        if cfg!(feature = "experimental-secondary-grid") && w.max(h) > 640 {
+        if cfg!(feature = "experimental-secondary-grid") && width.max(height) > 640 {
             if let Ok(second) = crate::stripes::detect_secondary(im) {
                 secondary_count = second.proposals.len();
                 secondary_limited = second.limited;
@@ -289,7 +272,6 @@ pub extern "C" fn regions_localize(id: u32, fit_limit: usize) -> u32 {
         }
         debug_assert!(proposals.len() <= 52);
 
-        use std::fmt::Write;
         let mut out = String::from("{\"proposals\":[");
         for (i, p) in proposals.iter().enumerate() {
             if i > 0 {
@@ -363,7 +345,7 @@ mod shared_image_tests {
         REGISTRY.with(|r| {
             let mut r = r.borrow_mut();
             for (i, p) in r.states.get_mut(&id).unwrap().input.iter_mut().enumerate() {
-                *p = ((i * 73) % 256) as u8;
+                *p = ((i * 73) % 256).to_le_bytes()[0];
             }
         });
         let before = REGISTRY.with(|r| r.borrow().states[&id].input.clone());
@@ -429,4 +411,34 @@ pub extern "C" fn regions_localize(id: u32, _fit_limit: usize) -> u32 {
             1
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn handle_lifetime_failures_and_stale_output() {
+        let id = regions_new();
+        assert_ne!(id, 0);
+        assert_eq!(regions_scan(id, 0, 0, 0, 0, 0, 0, 1), 4);
+        assert_eq!(regions_prepare(id, 100, 100, 1, 100), 0);
+        assert_eq!(regions_input_len(id), 10000);
+        assert_eq!(regions_scan(id, 0, 0, 0, 0, 0, 0, 1), 0);
+        assert!(regions_output_len(id) > 0);
+        assert_eq!(regions_scan(id, 0, 16, 0, 0, 0, 0, 1), 0);
+        assert_eq!(regions_scan(id, 0, 31, 0, 0, 0, 0, 1), 0);
+        assert_eq!(regions_scan(id, 0, 32, 0, 0, 0, 0, 1), 5);
+        assert_eq!(regions_output_len(id), 0);
+
+        assert_eq!(regions_scan(id, 65, 0, 0, 0, 0, 0, 1), 5);
+        assert_eq!(regions_output_len(id), 0);
+        assert_eq!(regions_prepare(id, usize::MAX, 2, 4, usize::MAX), 2);
+        assert_eq!(regions_input_len(id), 0);
+        assert_eq!(regions_destroy(id), 0);
+        assert_eq!(regions_destroy(id), 1);
+        assert_eq!(regions_prepare(id, 1, 1, 1, 1), 1);
+        let next = regions_new();
+        assert_ne!(next, id);
+        assert_eq!(regions_destroy(next), 0);
+    }
 }

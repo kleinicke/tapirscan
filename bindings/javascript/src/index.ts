@@ -246,10 +246,10 @@ function publicResult(raw: RawDiagnostics, image: HostImage, debug: boolean): Sc
   });
 }
 const modes = {
-  low: "low-release-20260915.wasm",
-  medium: "medium-release-20260915.wasm",
-  high: "high-release-20260915.wasm",
-  "very-high": "very-high-release-20260915.wasm",
+  low: "low-release-20260916.wasm",
+  medium: "medium-release-20260916.wasm",
+  high: "high-release-20260916.wasm",
+  "very-high": "very-high-release-20260916.wasm",
 } as const;
 /** Mode selects a compiled implementation. Create another instance to switch. */
 export class Scanner {

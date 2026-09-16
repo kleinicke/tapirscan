@@ -37,15 +37,15 @@ fn structure(r: &[(usize, usize, bool)]) -> Option<([f32; 95], usize, usize)> {
     }
     let runs = &r[1..60];
     let span = runs[58].1 - runs[0].0;
-    let module = span as f64 / 95.;
+    let module = crate::numeric::usize_f64(span) / 95.;
     if module < 0.8
-        || r[0].1 - r[0].0 < (7. * module) as usize
-        || r[60].1 - r[60].0 < (7. * module) as usize
+        || r[0].1 - r[0].0 < crate::numeric::f64_usize(7. * module)
+        || r[60].1 - r[60].0 < crate::numeric::f64_usize(7. * module)
     {
         return None;
     }
     for i in [0, 1, 2, 27, 28, 29, 30, 31, 56, 57, 58] {
-        if ((runs[i].1 - runs[i].0) as f64 / module - 1.).abs() > 0.65 {
+        if (crate::numeric::usize_f64(runs[i].1 - runs[i].0) / module - 1.).abs() > 0.65 {
             return None;
         }
     }
@@ -59,7 +59,7 @@ fn structure(r: &[(usize, usize, bool)]) -> Option<([f32; 95], usize, usize)> {
         } else {
             32 + (digit - 6) * 4
         };
-        let scale = (runs[start + 3].1 - runs[start].0) as f64 / 7.;
+        let scale = crate::numeric::usize_f64(runs[start + 3].1 - runs[start].0) / 7.;
         if !(0.55 * module..=1.8 * module).contains(&scale) {
             return None;
         }
@@ -70,9 +70,12 @@ fn structure(r: &[(usize, usize, bool)]) -> Option<([f32; 95], usize, usize)> {
         };
         let end = at + 7;
         for run in &runs[start..start + 4] {
-            let width = (run.1 - run.0) as f64 / scale;
-            let n = width.round() as usize;
-            if !(1..=4).contains(&n) || (width - n as f64).abs() > 0.55 || at + n > end {
+            let width = crate::numeric::usize_f64(run.1 - run.0) / scale;
+            let n = crate::numeric::f64_usize(width.round());
+            if !(1..=4).contains(&n)
+                || (width - crate::numeric::usize_f64(n)).abs() > 0.55
+                || at + n > end
+            {
                 return None;
             }
             bits[at..at + n].fill(if run.2 { 1. } else { 0. });
@@ -90,16 +93,16 @@ fn soft_structure(r: &[(usize, usize, bool)]) -> Option<(Option<[u8; 13]>, usize
     }
     let start = r[1].0;
     let end = r[59].1;
-    let module = (end - start) as f64 / 95.;
+    let module = crate::numeric::usize_f64(end - start) / 95.;
     if module < 0.8
-        || r[0].1 - r[0].0 < (7. * module) as usize
-        || r[60].1 - r[60].0 < (7. * module) as usize
+        || r[0].1 - r[0].0 < crate::numeric::f64_usize(7. * module)
+        || r[60].1 - r[60].0 < crate::numeric::f64_usize(7. * module)
     {
         return None;
     }
     let mut widths = [0.; 59];
     for i in 0..59 {
-        widths[i] = (r[i + 1].1 - r[i + 1].0) as f32;
+        widths[i] = crate::numeric::usize_f32(r[i + 1].1 - r[i + 1].0);
     }
     for i in [0, 1, 2, 27, 28, 29, 30, 31, 56, 57, 58] {
         if (f64::from(widths[i]) / module - 1.).abs() > 0.65 {
@@ -116,6 +119,7 @@ fn soft_structure(r: &[(usize, usize, bool)]) -> Option<(Option<[u8; 13]>, usize
     Some((digits, start, end))
 }
 impl Scanner {
+    #[must_use]
     pub fn grouping_stats(&self) -> (usize, usize, bool) {
         (
             self.assembler.checks,
@@ -123,25 +127,36 @@ impl Scanner {
             self.assembler.exhausted,
         )
     }
+    /// # Errors
+    /// Returns `Dimensions` for unsupported image size and `Allocation` if scratch storage cannot be reserved; grouped scans propagate association errors.
     pub fn scan_grouped(&mut self, image: ImageView<'_>) -> Result<&[Candidate], Error> {
         self.scan(image)?;
         let gray = ImageView::new(&self.gray, image.width, image.height, 1, image.width)?;
         self.assembler.assemble(gray, &self.results)
     }
+    /// # Errors
+    /// Returns `Dimensions` for unsupported image size and `Allocation` if scratch storage cannot be reserved; grouped scans propagate association errors.
     pub fn scan_soft_grouped(&mut self, image: ImageView<'_>) -> Result<&[Candidate], Error> {
         self.scan_mode(image, true)?;
         let gray = ImageView::new(&self.gray, image.width, image.height, 1, image.width)?;
         self.assembler.assemble(gray, &self.results)
     }
+    #[must_use]
     pub fn results(&self) -> &[Candidate] {
         &self.results
     }
     /// Validated image is borrowed, all scratch/results owned and reusable. Failure
     /// clears results. Cap only limits retained observations, never row execution;
     /// truncated=true means output coverage is incomplete. No cross-gap text merge.
+    /// # Errors
+    /// Returns `Dimensions` for unsupported image size and `Allocation` if scratch storage cannot be reserved; grouped scans propagate association errors.
     pub fn scan(&mut self, image: ImageView<'_>) -> Result<&[Candidate], Error> {
         self.scan_mode(image, false)
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The row scanner keeps run transitions, terminal sentinel and candidate caps in one ordered traversal."
+    )]
     fn scan_mode(&mut self, image: ImageView<'_>, soft: bool) -> Result<&[Candidate], Error> {
         self.results.clear();
         self.rows = 0;
@@ -173,7 +188,8 @@ impl Scanner {
                         + 601 * u32::from(image.data[p + 1])
                         + 117 * u32::from(image.data[p + 2])
                         + 512)
-                        >> 10) as u8
+                        >> 10)
+                        .to_le_bytes()[0]
                 };
             }
         }
@@ -216,10 +232,14 @@ impl Scanner {
                 if hi - lo < 40 {
                     continue;
                 }
-                let threshold = (u16::from(lo) + u16::from(hi)) / 2;
+                let threshold = u16::midpoint(u16::from(lo), u16::from(hi));
                 self.runs.clear();
                 let mut start = 0;
                 let mut black = u16::from(row[0]) <= threshold;
+                #[expect(
+                    clippy::needless_range_loop,
+                    reason = "The inclusive final index is a synthetic run terminator beyond the samples; a slice iterator would omit the final run."
+                )]
                 for u in 1..=length {
                     let next = u < length && u16::from(row[u]) <= threshold;
                     if u == length || next != black {
@@ -255,8 +275,10 @@ impl Scanner {
                         c.axis == axis
                             && c.last + 1 == line
                             && c.hypothesis == digits
-                            && c.right.min(right).saturating_sub(c.left.max(left)) as f64
-                                > 0.9 * (c.right.max(right) - c.left.min(left)) as f64
+                            && crate::numeric::usize_f64(
+                                c.right.min(right).saturating_sub(c.left.max(left)),
+                            ) > 0.9
+                                * crate::numeric::usize_f64(c.right.max(right) - c.left.min(left))
                     });
                     if let Some(j) = index {
                         let c = &mut self.results[j];
@@ -286,10 +308,22 @@ impl Scanner {
         }
         for c in &mut self.results {
             let p = [
-                [c.left as f64 - 0.5, c.first as f64 - 0.5],
-                [c.right as f64 - 0.5, c.first as f64 - 0.5],
-                [c.right as f64 - 0.5, c.last as f64 + 0.5],
-                [c.left as f64 - 0.5, c.last as f64 + 0.5],
+                [
+                    crate::numeric::usize_f64(c.left) - 0.5,
+                    crate::numeric::usize_f64(c.first) - 0.5,
+                ],
+                [
+                    crate::numeric::usize_f64(c.right) - 0.5,
+                    crate::numeric::usize_f64(c.first) - 0.5,
+                ],
+                [
+                    crate::numeric::usize_f64(c.right) - 0.5,
+                    crate::numeric::usize_f64(c.last) + 0.5,
+                ],
+                [
+                    crate::numeric::usize_f64(c.left) - 0.5,
+                    crate::numeric::usize_f64(c.last) + 0.5,
+                ],
             ];
             c.polygon = if c.axis == 0 {
                 p

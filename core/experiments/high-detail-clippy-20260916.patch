@@ -1,0 +1,1057 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -14,6 +14,8 @@
+ # Stable entry points; experimental feature details stay pinned in build-recipes.json.
+ fast = ["experimental-identity-phase", "experimental-stripe-bands", "experimental-profile-aperture", "experimental-dense-unsupported-scale", "experimental-native-wide-tiles", "experimental-interior-bounds", "experimental-shared-coverage-identity", "experimental-complete-tile-prefix", "experimental-profile-guard-precheck", "experimental-verified-coverage-reuse", "experimental-nearest-lowres", "experimental-forward-blur", "experimental-coverage-extension", "experimental-gap-density", "experimental-strong-single-row", "experimental-redundant-decode", "experimental-compact-output", "experimental-flat-envelope", "experimental-source-angle", "experimental-angle-replace", "experimental-flexible-identity", "experimental-identity-budgeted-link", "experimental-identity-optional", "experimental-extrema-runs", "experimental-asymmetric-quiet", "experimental-unresolved-256", "experimental-local-extrema-gaps", "experimental-invalid-visual-veto"]
+ quality = ["fast", "experimental-native-soft"]
++guarded-quality = ["quality", "experimental-invalid-consensus"]
++experimental-invalid-consensus = ["experimental-invalid-visual-veto"]
+ 
+ experimental-secondary-grid = ["experimental-stripe-bands"]
+ experimental-invalid-visual-veto = []
+--- a/src/experiment.rs
++++ b/src/experiment.rs
+@@ -8,6 +8,8 @@
+ };
+ #[derive(Clone, Copy, Debug)]
+ pub struct Observation {
++    #[cfg(feature = "experimental-invalid-consensus")]
++    pub invalid_checksum: bool,
+     pub short_quiet: bool,
+     pub ambiguous: bool,
+     pub digits: [u8; 13],
+@@ -20,6 +22,10 @@
+ }
+ #[derive(Default, Debug, Clone)]
+ pub struct Work {
++    #[cfg(feature = "experimental-invalid-consensus")]
++    pub invalid_consensus_observations: usize,
++    #[cfg(feature = "experimental-invalid-consensus")]
++    pub invalid_consensus_blocks: usize,
+     pub invalid_visual_seen: usize,
+     pub invalid_veto_intervals: usize,
+     pub invalid_veto_reads: usize,
+@@ -824,6 +830,8 @@
+             let n = crate::numeric::usize_f64(self.signal.len());
+             for (left, right) in short.rejected_intervals {
+                 observations.push(Observation {
++                    #[cfg(feature = "experimental-invalid-consensus")]
++                    invalid_checksum: false,
+                     short_quiet: true,
+                     ambiguous: true,
+                     digits: [0; 13],
+@@ -837,6 +845,8 @@
+             }
+             for r in short.symbols {
+                 observations.push(Observation {
++                    #[cfg(feature = "experimental-invalid-consensus")]
++                    invalid_checksum: false,
+                     short_quiet: true,
+                     ambiguous: false,
+                     digits: r.digits,
+@@ -901,6 +911,8 @@
+                 let n = crate::numeric::usize_f64(self.signal.len());
+                 for (left, right) in short.rejected_intervals {
+                     observations.push(Observation {
++                        #[cfg(feature = "experimental-invalid-consensus")]
++                        invalid_checksum: false,
+                         short_quiet: true,
+                         ambiguous: true,
+                         digits: [0; 13],
+@@ -914,6 +926,8 @@
+                 }
+                 for r in short.symbols {
+                     observations.push(Observation {
++                        #[cfg(feature = "experimental-invalid-consensus")]
++                        invalid_checksum: false,
+                         short_quiet: true,
+                         ambiguous: false,
+                         digits: r.digits,
+@@ -1028,6 +1042,8 @@
+         for (left, right) in reads.rejected_intervals {
+             let n = crate::numeric::usize_f64(self.signal.len());
+             observations.push(Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous: true,
+                 digits: [0; 13],
+@@ -1042,6 +1058,8 @@
+         for r in reads.symbols {
+             let n = crate::numeric::usize_f64(self.signal.len());
+             observations.push(Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous: false,
+                 digits: r.digits,
+@@ -1316,6 +1334,8 @@
+                             out.work.accepted_paths += 1;
+                             let n = crate::numeric::usize_f64(self.signal.len());
+                             out.observations.push(Observation {
++                                #[cfg(feature = "experimental-invalid-consensus")]
++                                invalid_checksum: false,
+                                 short_quiet: false,
+                                 ambiguous: false,
+                                 digits: r.digits,
+@@ -1659,6 +1679,79 @@
+     let _ = timer;
+     result
+ }
++// Invalid vetoes require three physically separated paths, and full interval
++// containment so a broad unsupported row cannot borrow a narrow track's support.
++#[cfg(feature = "experimental-invalid-consensus")]
++fn invalid_contains(detection: &Detection, p: [f64; 2]) -> bool {
++    let (mut positive, mut negative) = (false, false);
++    for i in 0..4 {
++        let a = detection.polygon[i];
++        let b = detection.polygon[(i + 1) % 4];
++        let c = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
++        positive |= c > 1e-6;
++        negative |= c < -1e-6;
++    }
++    !(positive && negative)
++}
++#[cfg(feature = "experimental-invalid-consensus")]
++fn invalid_interval(
++    matrix: [f64; 9],
++    t: &Detection,
++    o: &Observation,
++) -> Option<([f64; 2], [f64; 2])> {
++    if o.axis != t.axis || o.digits != t.digits {
++        return None;
++    }
++    let (a, b) = (
++        point(matrix, o.axis, o.left, o.fraction).ok()?,
++        point(matrix, o.axis, o.right, o.fraction).ok()?,
++    );
++    (invalid_contains(t, a) && invalid_contains(t, b)).then_some((a, b))
++}
++#[cfg(feature = "experimental-invalid-consensus")]
++fn invalid_track_spaced(
++    m: [f64; 9],
++    t: &Detection,
++    observations: &[Observation],
++    budget: &mut AssociationBudget,
++    work: &mut Work,
++) -> bool {
++    if t.support < 3 {
++        return false;
++    }
++    let mut rows = Vec::new();
++    for o in observations {
++        if !budget.check(work) {
++            return false;
++        }
++        if let Some((a, b)) = invalid_interval(m, t, o) {
++            rows.push((o.fraction, a, b));
++        }
++    }
++    rows.sort_by(|a, b| a.0.total_cmp(&b.0));
++    let mut selected: Vec<([f64; 2], [f64; 2])> = Vec::new();
++    'rows: for (_, a, b) in rows {
++        for (x, y) in &selected {
++            if !budget.check(work) {
++                return false;
++            }
++            let v = [y[0] - x[0], y[1] - x[1]];
++            let n = v[0].hypot(v[1]);
++            if n <= 0.
++                || ((a[0] - x[0]) * v[1] - (a[1] - x[1]) * v[0]).abs() / n < 1. - 1e-6
++                || ((b[0] - y[0]) * v[1] - (b[1] - y[1]) * v[0]).abs() / n < 1. - 1e-6
++            {
++                continue 'rows;
++            }
++        }
++        selected.push((a, b));
++        if selected.len() == 3 {
++            return true;
++        }
++    }
++    false
++}
++
+ #[expect(
+     clippy::float_cmp,
+     reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
+@@ -1676,6 +1769,60 @@
+     budget: &mut AssociationBudget,
+     allow_single_row: bool,
+ ) -> Vec<Detection> {
++    #[cfg(feature = "experimental-invalid-consensus")]
++    if observations.iter().any(|o| o.invalid_checksum) {
++        let invalid: Vec<_> = observations
++            .iter()
++            .filter(|o| o.invalid_checksum)
++            .map(|o| {
++                let mut o = *o;
++                o.invalid_checksum = false;
++                o.ambiguous = false;
++                o
++            })
++            .collect();
++        // Same grouping/continuity machinery, but invalid values are never emitted.
++        let tracks: Vec<_> =
++            assemble_many_budget_inner(im, m, &invalid, work, source_support, budget, false)
++                .into_iter()
++                .filter(|t| invalid_track_spaced(m, t, &invalid, budget, work))
++                .collect();
++        let mut valid: Vec<_> = observations
++            .iter()
++            .filter(|o| !o.invalid_checksum)
++            .copied()
++            .collect();
++        for mut o in invalid {
++            let mut supported = false;
++            for t in &tracks {
++                if !budget.check(work) {
++                    break;
++                }
++                if invalid_interval(m, t, &o).is_some() {
++                    supported = true;
++                    break;
++                }
++            }
++            if supported {
++                o.ambiguous = true;
++                valid.push(o);
++                work.invalid_consensus_blocks += 1;
++            }
++            if work.association_truncated > 0 {
++                break;
++            }
++        }
++        return assemble_many_budget_inner(
++            im,
++            m,
++            &valid,
++            work,
++            source_support,
++            budget,
++            allow_single_row,
++        );
++    }
++
+     #[cfg(feature = "experimental-gap-density")]
+     let mut density_cache = std::collections::HashMap::new();
+     let mut results = vec![];
+@@ -2023,6 +2170,8 @@
+         assert!(assemble_many(im, m.0, &repeated, &mut Work::default(), true).is_empty());
+         let mut conflict = obs[..4].to_vec();
+         conflict.push(Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             ambiguous: true,
+             ..obs[2]
+         });
+@@ -2090,6 +2239,8 @@
+         let im = ImageView::new(&pixels, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap();
+         let a = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [0; 13],
+@@ -2101,14 +2252,23 @@
+             gap: 1.,
+         };
+         let b = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             fraction: 0.1 + 0.2,
+             ..a
+         };
+-        let c = Observation { fraction: 0.7, ..a };
++        let c = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
++            fraction: 0.7,
++            ..a
++        };
+         let ds = assemble_many(im, m.0, &[a, b, c], &mut Work::default(), false);
+         assert_eq!(ds.len(), 1);
+         assert_eq!(ds[0].support, 2);
+         let conflict = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             digits: [1; 13],
+             ..b
+         };
+@@ -2137,6 +2297,8 @@
+         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap();
+         let a = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [0; 13],
+@@ -2157,6 +2319,8 @@
+         let mut obs = vec![];
+         for (fraction, value) in [(0.1, 0), (0.2, 0), (0.3, 1), (0.4, 1), (0.5, 0), (0.6, 0)] {
+             obs.push(Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous: false,
+                 digits: [value; 13],
+@@ -2178,6 +2342,8 @@
+         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap().0;
+         let o = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7],
+@@ -2206,6 +2372,8 @@
+         assert!((distance(ds[0].polygon[0], ds[0].polygon[3]) - 1.).abs() < 1e-8);
+         assert!(run(
+             &[Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 ambiguous: true,
+                 ..o
+             }],
+@@ -2214,6 +2382,8 @@
+         .is_empty());
+         assert!(run(
+             &[Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: true,
+                 ..o
+             }],
+@@ -2225,6 +2395,8 @@
+                 &[
+                     o,
+                     Observation {
++                        #[cfg(feature = "experimental-invalid-consensus")]
++                        invalid_checksum: false,
+                         fraction,
+                         ambiguous: true,
+                         ..o
+@@ -2237,6 +2409,8 @@
+                 &[
+                     o,
+                     Observation {
++                        #[cfg(feature = "experimental-invalid-consensus")]
++                        invalid_checksum: false,
+                         fraction,
+                         digits: [4; 13],
+                         ..o
+@@ -2250,6 +2424,8 @@
+             &[
+                 o,
+                 Observation {
++                    #[cfg(feature = "experimental-invalid-consensus")]
++                    invalid_checksum: false,
+                     digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+                     ..o
+                 }
+@@ -2265,6 +2441,8 @@
+         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap();
+         let o = |fraction, digits| Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits,
+@@ -2299,6 +2477,8 @@
+         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap();
+         let a = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [0; 13],
+@@ -2309,7 +2489,12 @@
+             cost: 0.,
+             gap: 1.,
+         };
+-        let b = Observation { fraction: 0.8, ..a };
++        let b = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
++            fraction: 0.8,
++            ..a
++        };
+         for (checks, pixels) in [(0, 100_000), (100, 31)] {
+             let mut work = Work::default();
+             let mut budget = AssociationBudget {
+@@ -2427,6 +2612,8 @@
+         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap();
+         let raw = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7],
+@@ -2438,10 +2625,14 @@
+             gap: 1.,
+         };
+         let filtered = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+             ..raw
+         };
+         let second = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             fraction: 0.7,
+             ..raw
+         };
+@@ -2628,6 +2819,8 @@
+         let im = ImageView::new(&pixels, 600, 200, 1, 600).unwrap();
+         let m = scan::transform([[0., 0.], [600., 0.], [600., 200.], [0., 200.]]).unwrap();
+         let a = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [1; 13],
+@@ -2639,6 +2832,8 @@
+             gap: 1.,
+         };
+         let b = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             digits: [2; 13],
+             fraction: 0.5,
+             left: 0.6,
+@@ -2853,6 +3048,8 @@
+         let quad = [[0., 0.], [360., 0.], [360., 100.], [0., 100.]];
+         let m = scan::transform(quad).unwrap().0;
+         let obs = |f, cost, gap| Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: d,
+@@ -3099,6 +3296,8 @@
+         let quad = [[0., 0.], [384., 0.], [384., 4.], [0., 4.]];
+         let m = scan::transform(quad).unwrap().0;
+         let a = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [0; 13],
+@@ -3110,6 +3309,8 @@
+             gap: 1.,
+         };
+         let b = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             fraction: 0.625,
+             ..a
+         };
+@@ -3282,6 +3483,8 @@
+                 );
+                 let mut conflict = obs[..4].to_vec();
+                 conflict.push(Observation {
++                    #[cfg(feature = "experimental-invalid-consensus")]
++                    invalid_checksum: false,
+                     ambiguous: true,
+                     ..obs[1]
+                 });
+@@ -3290,3 +3493,161 @@
+         }
+     }
+ }
++
++#[cfg(all(test, feature = "experimental-invalid-consensus"))]
++mod invalid_consensus_tests {
++    use super::*;
++    #[test]
++    fn invalid_values_never_escape_and_only_three_distinct_rows_block() {
++        let pixels: Vec<u8> = (0..600 * 100)
++            .map(|i| if i % 600 % 4 < 2 { 0 } else { 255 })
++            .collect();
++        let im = ImageView::new(&pixels, 600, 100, 1, 600).unwrap();
++        let q = [[0., 0.], [599., 0.], [599., 99.], [0., 99.]];
++        let m = scan::transform(q).unwrap().0;
++        let good = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
++        let mut bad = good;
++        bad[12] = 8;
++        let o = |fraction, invalid, left, right| Observation {
++            invalid_checksum: invalid,
++            short_quiet: false,
++            ambiguous: invalid,
++            digits: if invalid { bad } else { good },
++            axis: 0,
++            fraction,
++            left,
++            right,
++            cost: 0.01,
++            gap: 0.2,
++        };
++        let run = |rows: &[Observation]| {
++            let mut w = Work::default();
++            let out = assemble_many_budget_inner(
++                im,
++                m,
++                rows,
++                &mut w,
++                true,
++                &mut AssociationBudget::default(),
++                false,
++            );
++            (out, w)
++        };
++        let invalid: Vec<_> = [0.2, 0.5, 0.8]
++            .into_iter()
++            .map(|f| o(f, true, 0.05, 0.45))
++            .collect();
++        let (out, w) = run(&invalid);
++        assert!(out.is_empty());
++        assert!(w.invalid_consensus_blocks >= 3);
++        let valid: Vec<_> = [0.2, 0.5, 0.8]
++            .into_iter()
++            .map(|f| o(f, false, 0.05, 0.45))
++            .collect();
++        let mut all = valid.clone();
++        all.extend(&invalid);
++        assert!(run(&all).0.is_empty());
++        let mut only_two = valid.clone();
++        only_two.extend(&invalid[..2]);
++        assert!(run(&only_two).0.iter().any(|d| d.digits == good));
++        let mut duplicate = valid.clone();
++        duplicate.extend([invalid[0]; 8]);
++        assert!(run(&duplicate).0.iter().any(|d| d.digits == good));
++        let mut separated = invalid;
++        separated.extend([0.2, 0.5, 0.8].into_iter().map(|f| o(f, false, 0.55, 0.95)));
++        let result = run(&separated).0;
++        assert!(result.iter().any(|d| d.digits == good));
++        assert!(result.iter().all(|d| d.digits != bad));
++    }
++}
++
++#[cfg(all(test, feature = "experimental-invalid-consensus"))]
++mod invalid_spacing_tests {
++    use super::*;
++    #[test]
++    fn fractional_repeats_do_not_count_as_distinct_source_rows() {
++        let q = [[0., 0.], [199., 0.], [199., 99.], [0., 99.]];
++        let m = scan::transform(q).unwrap().0;
++        let d = Detection {
++            digits: [1; 13],
++            polygon: q,
++            support: 3,
++            axis: 0,
++        };
++        let obs = |fraction| Observation {
++            invalid_checksum: true,
++            short_quiet: false,
++            ambiguous: true,
++            digits: [1; 13],
++            axis: 0,
++            fraction,
++            left: 0.1,
++            right: 0.9,
++            cost: 0.01,
++            gap: 0.2,
++        };
++        let spaced = |v: &[Observation]| {
++            invalid_track_spaced(
++                m,
++                &d,
++                v,
++                &mut AssociationBudget::default(),
++                &mut Work::default(),
++            )
++        };
++        assert!(!spaced(&[obs(0.3), obs(0.3001), obs(0.3002)]));
++        assert!(!spaced(&[obs(0.3), obs(0.3001), obs(0.4)]));
++        assert!(spaced(&[obs(0.3), obs(0.32), obs(0.4)]));
++        assert!(!spaced(&[obs(0.3), obs(0.3), obs(0.4)]));
++    }
++}
++
++#[cfg(all(test, feature = "experimental-invalid-consensus"))]
++mod invalid_bounded_tests {
++    use super::*;
++    #[test]
++    fn wide_unsupported_interval_cannot_borrow_narrow_track_support() {
++        let matrix = scan::transform([[0., 0.], [100., 0.], [100., 100.], [0., 100.]])
++            .unwrap()
++            .0;
++        let d = Detection {
++            digits: [1; 13],
++            polygon: [
++                point(matrix, 0, 0.3, 0.2).unwrap(),
++                point(matrix, 0, 0.5, 0.2).unwrap(),
++                point(matrix, 0, 0.5, 0.8).unwrap(),
++                point(matrix, 0, 0.3, 0.8).unwrap(),
++            ],
++            support: 3,
++            axis: 0,
++        };
++        let o = Observation {
++            invalid_checksum: true,
++            short_quiet: false,
++            ambiguous: true,
++            digits: [1; 13],
++            axis: 0,
++            fraction: 0.5,
++            left: 0.,
++            right: 0.8,
++            cost: 0.01,
++            gap: 0.2,
++        };
++        assert!(invalid_contains(&d, [40., 50.]));
++        assert!(invalid_interval(matrix, &d, &o).is_none());
++        let o = Observation {
++            left: 0.3,
++            right: 0.5,
++            ..o
++        };
++        assert!(invalid_interval(matrix, &d, &o).is_some());
++        let mut work = Work::default();
++        let mut b = AssociationBudget {
++            checks_left: 0,
++            pixels_left: 1000,
++        };
++        assert!(!invalid_track_spaced(matrix, &d, &[o], &mut b, &mut work));
++        assert_eq!(work.association_truncated, 1);
++        assert_eq!(work.association_checks, 0);
++    }
++}
+--- a/src/frame.rs
++++ b/src/frame.rs
+@@ -335,6 +335,10 @@
+                                 };
+                                 let source_axis = if source == ci { d.axis } else { member.axis };
+                                 for o in candidates[source].observations.iter().filter(|o| {
++                                    #[cfg(feature = "experimental-invalid-consensus")]
++                                    if o.invalid_checksum {
++                                        return false;
++                                    }
+                                     (o.ambiguous && o.axis == source_axis)
+                                         || (!o.ambiguous && o.digits != d.digits)
+                                 }) {
+@@ -549,6 +553,8 @@
+         ];
+         candidate.detections.push(second);
+         let observation = crate::experiment::Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [7, 8, 5, 8, 1, 7, 7, 0, 0, 0, 4, 8, 3],
+@@ -618,6 +624,8 @@
+         ];
+         candidate.detections.push(second);
+         let observation = crate::experiment::Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [7, 0, 2, 5, 6, 4, 7, 1, 0, 2, 4, 3, 9],
+@@ -682,6 +690,8 @@
+         ];
+         candidate.detections.push(second);
+         let observation = crate::experiment::Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             digits: [3, 6, 4, 1, 2, 0, 0, 3, 5, 9, 3, 0, 6],
+             axis: 0,
+@@ -868,6 +878,8 @@
+                     b.detections[0].polygon = q(50., 55., 400., 60.);
+                     if contradictory {
+                         b.observations.push(crate::experiment::Observation {
++                            #[cfg(feature = "experimental-invalid-consensus")]
++                            invalid_checksum: false,
+                             short_quiet: false,
+                             ambiguous: false,
+                             digits: [2; 13],
+@@ -921,6 +933,8 @@
+                     b.detections[0].polygon = q(50., 80., 400., 40.);
+                     if contradictory {
+                         b.observations.push(crate::experiment::Observation {
++                            #[cfg(feature = "experimental-invalid-consensus")]
++                            invalid_checksum: false,
+                             short_quiet: false,
+                             ambiguous: false,
+                             digits: [2; 13],
+@@ -1141,6 +1155,8 @@
+                 },
+             ];
+             c.observations.push(crate::experiment::Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous: true,
+                 digits: [0; 13],
+@@ -1172,6 +1188,8 @@
+         contradictory
+             .observations
+             .push(crate::experiment::Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous: false,
+                 digits: [2; 13],
+--- a/src/invalid_visual.rs
++++ b/src/invalid_visual.rs
+@@ -125,6 +125,8 @@
+         // A soft/intensity contradiction is explicitly unresolved; its different
+         // cost units never decide a winner. Existing spatial ambiguity rules apply.
+         observations.push(Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: true,
+             digits: [0; 13],
+@@ -135,6 +137,34 @@
+             cost: v.cost,
+             gap: v.gap,
+         });
++    }
++    #[cfg(feature = "experimental-invalid-consensus")]
++    for v in e
++        .iter()
++        .filter(|v| !v.checksum_valid && v.read.cost <= 0.06 && v.read.gap >= 0.1)
++    {
++        // Require the invalid visual interpretation to beat every valid run fit in
++        // the same interval. Its checksum is evidence to reject, never to repair.
++        if e.iter().any(|a| {
++            a.checksum_valid
++                && same(a.read.left, a.read.right, v.read.left, v.read.right)
++                && a.read.cost <= v.read.cost
++        }) {
++            continue;
++        }
++        observations.push(Observation {
++            invalid_checksum: true,
++            short_quiet: false,
++            ambiguous: true,
++            digits: v.read.digits,
++            axis,
++            fraction,
++            left: lo + (hi - lo) * (v.read.left + 0.5) / crate::numeric::usize_f64(n),
++            right: lo + (hi - lo) * (v.read.right + 0.5) / crate::numeric::usize_f64(n),
++            cost: v.read.cost,
++            gap: v.read.gap,
++        });
++        work.invalid_consensus_observations += 1;
+     }
+ }
+ #[cfg(test)]
+@@ -216,6 +246,8 @@
+             evidence(true, 120., 215., 0.09),
+         ];
+         let obs = |left, right| Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             digits: [1; 13],
+             axis: 0,
+             fraction: 0.5,
+--- a/src/multi_scan.rs
++++ b/src/multi_scan.rs
+@@ -15,6 +15,8 @@
+ )]
+ #[derive(Clone, Copy, Debug)]
+ pub struct Policy {
++    /// Deep-retry selection; initial discovery remains enabled for every candidate.
++    pub candidate_retry_mask: u64,
+     pub max_retry_paths_per_candidate: usize,
+     pub max_retry_paths_per_frame: usize,
+     pub max_association_checks: usize,
+@@ -29,6 +31,7 @@
+ impl Default for Policy {
+     fn default() -> Self {
+         Self {
++            candidate_retry_mask: u64::MAX,
+             max_retry_paths_per_candidate: 512,
+             max_retry_paths_per_frame: 8192,
+             max_association_checks: 200_000,
+@@ -822,6 +825,15 @@
+                         let p = reuse_plan(m.0, p, &claims, &mut reuse_budget, &mut c.work);
+                         #[cfg(feature = "experimental-structural-retry")]
+                         let p = defer_structurally_weak_retries(c, scaled, p);
++                        // Initial discovery has run; retain pending work for deferred retries.
++                        let p = if policy.candidate_retry_mask & (1_u64 << c.index) == 0
++                            && c.work.accepted_paths == 0
++                        {
++                            Vec::new()
++                        } else {
++                            p
++                        };
++
+                         Ok(p)
+                     })() {
+                         Some((m.0, p))
+@@ -1533,6 +1545,8 @@
+         let quad = [[0., 0.], [600., 0.], [600., 200.], [0., 200.]];
+         let matrix = scan::transform(quad).unwrap().0;
+         let obs = |digits, left, right, fraction| experiment::Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits,
+@@ -1940,3 +1954,63 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod candidate_retry_mask_tests {
++    use super::*;
++
++    #[test]
++    fn weak_candidates_keep_initial_discovery_and_pending_work() {
++        let pixels = vec![255; 512 * 512];
++        let image = ImageView::new(&pixels, 512, 512, 1, 512).unwrap();
++        let quad = [[0., 0.], [511., 0.], [511., 511.], [0., 511.]];
++        let mut engine = Experiment::default();
++        let candidates = engine
++            .scan_scaled(
++                image,
++                &[quad, quad],
++                Policy {
++                    candidate_retry_mask: 0,
++                    ..Policy::default()
++                },
++            )
++            .unwrap();
++        assert_eq!(candidates.len(), 2);
++        for candidate in candidates {
++            assert_eq!(candidate.coverage, quad);
++            assert!(candidate.work.paths > 0);
++            assert_eq!(candidate.work.discovery_paths, 10);
++            assert_eq!(candidate.work.retry_paths, 10);
++            assert!(candidate.work.retry_paths_pending > 0);
++        }
++    }
++
++    #[test]
++    fn mask_keeps_the_sixty_fourth_candidates_existing_retry_policy() {
++        let pixels = vec![255; 128 * 128];
++        let image = ImageView::new(&pixels, 128, 128, 1, 128).unwrap();
++        let quad = [[0., 0.], [127., 0.], [127., 127.], [0., 127.]];
++        let mut engine = Experiment::default();
++        let candidates = engine
++            .scan_scaled(
++                image,
++                &[quad; 64],
++                Policy {
++                    candidate_retry_mask: 1_u64 << 63,
++                    ..Policy::default()
++                },
++            )
++            .unwrap();
++        assert!(candidates[..63]
++            .iter()
++            .all(|c| c.work.discovery_paths == 10 && c.work.retry_paths == 10));
++        let control = engine
++            .scan_scaled(image, &[quad], Policy::default())
++            .unwrap();
++        // Very High already defers blank regions through its structural gate.
++        // Enabling bit 63 must preserve that mode's existing behavior too.
++        assert_eq!(candidates[63].work.retry_paths, control[0].work.retry_paths);
++        #[cfg(not(feature = "experimental-structural-retry"))]
++        assert!(candidates[63].work.retry_paths > 10);
++    }
++}
+--- a/src/region_abi.rs
++++ b/src/region_abi.rs
+@@ -140,6 +140,33 @@
+     pixels: usize,
+     results: usize,
+ ) -> u32 {
++    regions_scan_mask(
++        id,
++        count,
++        flags,
++        per_candidate,
++        per_frame,
++        checks,
++        pixels,
++        results,
++        u32::MAX,
++        u32::MAX,
++    )
++}
++/// Research-only region retry scheduling; the fixed/discovery passes still run everywhere.
++#[no_mangle]
++pub extern "C" fn regions_scan_mask(
++    id: u32,
++    count: usize,
++    flags: u32,
++    per_candidate: usize,
++    per_frame: usize,
++    checks: usize,
++    pixels: usize,
++    results: usize,
++    mask_low: u32,
++    mask_high: u32,
++) -> u32 {
+     REGISTRY.with(|r| {
+         let mut r = r.borrow_mut();
+         let Some(s) = r.states.get_mut(&id) else {
+@@ -153,6 +180,7 @@
+             return 5;
+         }
+         let policy = Policy {
++            candidate_retry_mask: u64::from(mask_low) | (u64::from(mask_high) << 32),
+             max_retry_paths_per_candidate: per_candidate,
+             max_retry_paths_per_frame: per_frame,
+             max_association_checks: checks,
+--- a/src/region_json.rs
++++ b/src/region_json.rs
+@@ -10,6 +10,19 @@
+ // Writing formatted primitives to String is infallible; append without temporary allocations.
+ fn work(w: &Work) -> String {
+     let s = format!("{{\"paths\":{},\"samples\":{},\"low_contrast\":{},\"run_windows\":{},\"quiet_pass\":{},\"guard_pass\":{},\"run_decoder_calls\":{},\"accepted_paths\":{},\"conflicts\":{},\"continuity_samples\":{},\"continuity_rejects\":{},\"capped_paths\":{},\"profile_boundary_pairs\":{},\"profile_digit_hypotheses\":{},\"truncated_paths\":{},\"retry_paths\":{},\"retry_paths_pending\":{},\"sampling_plan_capped\":{},\"discovery_paths\":{},\"scale_hint_used\":{},\"unresolved_probe_paths\":{},\"sparse_normalizations\":{},\"association_checks\":{},\"association_truncated\":{},\"continuity_capped_links\":{},\"retained_initial_detections\":{},\"cleanup_paths\":{},\"cleanup_examined\":{},\"cleanup_removed_runs\":{},\"cleanup_pixels\":{},\"interior_paths\":{},\"interior_values\":{},\"bias_paths\":{},\"bias_model_pass\":{},\"bias_guard_pass\":{}}}",w.paths,w.samples,w.low_contrast,w.windows,w.quiet_pass,w.guard_pass,w.decoder_calls,w.accepted_paths,w.conflicts,w.continuity_samples,w.continuity_rejects,w.capped_paths,w.profile_boundary_pairs,w.profile_digit_hypotheses,w.truncated_paths,w.retry_paths,w.retry_paths_pending,w.sampling_plan_capped,w.discovery_paths,w.scale_hint_used,w.unresolved_probe_paths,w.sparse_normalizations,w.association_checks,w.association_truncated,w.continuity_capped_links,w.retained_initial_detections,w.cleanup_paths,w.cleanup_examined,w.cleanup_removed_runs,w.cleanup_pixels,w.interior_paths,w.interior_values,w.bias_paths,w.bias_model_pass,w.bias_guard_pass);
++    #[cfg(feature = "experimental-invalid-consensus")]
++    let s = {
++        use std::fmt::Write as _;
++        let mut s = s;
++        s.pop();
++        let _ = write!(
++            s,
++            ",\"invalid_consensus_observations\":{},\"invalid_consensus_blocks\":{}}}",
++            w.invalid_consensus_observations, w.invalid_consensus_blocks
++        );
++        s
++    };
++
+     #[cfg(feature = "experimental-invalid-visual-veto")]
+     let s = {
+         use std::fmt::Write as _;
+--- a/src/stripes.rs
++++ b/src/stripes.rs
+@@ -1179,10 +1179,10 @@
+     let quad = &p.polygon;
+     let ex = [quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]];
+     let ey = [quad[3][0] - quad[0][0], quad[3][1] - quad[0][1]];
+-    let (w, _h) = extent_dimensions(p)?;
+-    let margin = (w * 0.35).min(100.);
++    let (width, _h) = extent_dimensions(p)?;
++    let margin = (width * 0.35).min(100.);
+     let start = -crate::numeric::f64_isize(margin.ceil());
+-    let end = crate::numeric::f64_isize((w + margin).ceil());
++    let end = crate::numeric::f64_isize((width + margin).ceil());
+     let count = (end - start + 1).cast_unsigned();
+     let gray = |x: usize, y: usize| {
+         let i = y * im.stride + x * im.channels;
+@@ -1221,7 +1221,7 @@
+     for fraction in [0.2, 0.35, 0.5, 0.65, 0.8] {
+         let mut last = None;
+         for i in 0..count {
+-            let u = crate::numeric::isize_f64(start + (i).cast_signed()) / w;
++            let u = crate::numeric::isize_f64(start + (i).cast_signed()) / width;
+             let v = sample(
+                 quad[0][0] + ex[0] * u + ey[0] * fraction,
+                 quad[0][1] + ex[1] * u + ey[1] * fraction,
+@@ -1252,7 +1252,7 @@
+         }
+         prior = polarity;
+     }
+-    let gap = (w * 0.05).clamp(8., 24.);
++    let gap = (width * 0.05).clamp(8., 24.);
+     let (mut begin, mut best_begin, mut best_end) = (0, 0, 0);
+     while begin < events.len() {
+         let mut end = begin + 1;
+@@ -1260,8 +1260,8 @@
+             end += 1;
+         }
+         if end - begin >= 30
+-            && events[begin] < w * 0.5
+-            && events[end - 1] > w * 0.5
++            && events[begin] < width * 0.5
++            && events[end - 1] > width * 0.5
+             && end - begin > best_end - best_begin
+         {
+             best_begin = begin;
+@@ -1273,14 +1273,14 @@
+         return None;
+     }
+     let lo = (events[best_begin] - 2.).min(0.);
+-    let hi = (events[best_end - 1] + 2.).max(w);
+-    if lo >= -2. && hi <= w + 2. {
++    let hi = (events[best_end - 1] + 2.).max(width);
++    if lo >= -2. && hi <= width + 2. {
+         return None;
+     }
+     let at = |u: f64, v: f64| {
+         [
+-            quad[0][0] + ex[0] * u / w + ey[0] * v,
+-            quad[0][1] + ex[1] * u / w + ey[1] * v,
++            quad[0][0] + ex[0] * u / width + ey[0] * v,
++            quad[0][1] + ex[1] * u / width + ey[1] * v,
+         ]
+     };
+     Some(Proposal {
+@@ -1454,21 +1454,21 @@
+         reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+     )]
+     fn dense_barcode_band_survives_tall_connected_border() {
+-        let (w, h) = (400, 400);
+-        let mut d = vec![255u8; w * h];
++        let (width, height) = (400, 400);
++        let mut d = vec![255u8; width * height];
+         for y in 20..380 {
+             for x in 80..83 {
+-                d[y * w + x] = 0;
++                d[y * width + x] = 0;
+             }
+         }
+         for y in 200..260 {
+             for x in 80..280 {
+                 if ((x - 80) / 3) % 2 == 0 {
+-                    d[y * w + x] = 0;
+-                }
+-            }
+-        }
+-        let im = ImageView::new(&d, w, h, 1, w).unwrap();
++                    d[y * width + x] = 0;
++                }
++            }
++        }
++        let im = ImageView::new(&d, width, height, 1, width).unwrap();
+         let mut tall = false;
+         let r = detect_with_observer(im, |g| {
+             tall |= g.reason == "tall" && g.edges > 1000;
+--- a/src/verified_coverage.rs
++++ b/src/verified_coverage.rs
+@@ -76,6 +76,13 @@
+             continue;
+         };
+         for o in &c.observations {
++            // Auxiliary invalid evidence is candidate-local; only a supported
++            // three-row track becomes an assembly barrier. It is never a
++            // standalone frame contradiction or coverage claim blocker.
++            #[cfg(feature = "experimental-invalid-consensus")]
++            if o.invalid_checksum {
++                continue;
++            }
+             let (Ok(a), Ok(b)) = (
+                 experiment::point(m.0, o.axis, o.left, o.fraction),
+                 experiment::point(m.0, o.axis, o.right, o.fraction),
+@@ -446,6 +453,8 @@
+         for ambiguous in [false, true] {
+             let mut c = candidate(q, vec![detection(band, 1)]);
+             c.observations.push(experiment::Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous,
+                 digits: if ambiguous { [1; 13] } else { [2; 13] },
+@@ -681,6 +690,8 @@
+         for ambiguous in [false, true] {
+             let mut c = make();
+             c.observations.push(experiment::Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous,
+                 digits: if ambiguous { [1; 13] } else { [2; 13] },

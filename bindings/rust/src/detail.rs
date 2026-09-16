@@ -323,6 +323,7 @@ pub fn recover(
     primary: &mut Vec<Barcode>,
     scanner: &mut recovery_core::region_scan::RegionScanner,
     directions: usize,
+    coverage: &[Quad],
 ) -> Result<Value, Error> {
     let start = std::time::Instant::now();
     let seeds = seeds(im);
@@ -330,7 +331,10 @@ pub fn recover(
     let mut proposals = Vec::new();
     let mut additions = Vec::new();
     for seed in &seeds {
-        if seed.score < seeds[0].score * 0.6
+        if coverage
+            .iter()
+            .any(|quad| crate::formats::contains_point([seed.x, seed.y], quad))
+            || seed.score < seeds[0].score * 0.6
             || primary
                 .iter()
                 .any(|b| covered(im, [seed.x, seed.y], b.detection.polygon))

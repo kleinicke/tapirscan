@@ -179,6 +179,8 @@ pub enum DecoderMode {
     Many,
 }
 impl Config {
+    /// # Errors
+    /// Returns `Parameters` when native-length sampling is combined with a fixed-length profile decoder.
     pub fn new(
         name: &'static str,
         native: bool,
@@ -241,7 +243,8 @@ fn interior_bounds(n: usize, lo: f64, hi: f64) -> (usize, usize) {
         let (mut a, mut b) = (0, n);
         while a < b {
             let mid = a + (b - a) / 2;
-            let u = lo + (hi - lo) * (mid as f64 + 0.5) / n as f64;
+            let u = lo
+                + (hi - lo) * (crate::numeric::usize_f64(mid) + 0.5) / crate::numeric::usize_f64(n);
             let before = if upper { u <= 1. } else { u < 0. };
             if before {
                 a = mid + 1;
@@ -253,15 +256,24 @@ fn interior_bounds(n: usize, lo: f64, hi: f64) -> (usize, usize) {
     };
     (lower(false), lower(true))
 }
-pub(crate) fn point(m: [f64; 9], axis: usize, u: f64, f: f64) -> Result<[f64; 2], Error> {
-    let (x, y) = if axis == 0 { (u, f) } else { (f, u) };
-    let z = m[6] * x + m[7] * y + m[8];
-    if !z.is_finite() || z.abs() < 1e-9 {
+pub(crate) fn point(
+    matrix: [f64; 9],
+    axis: usize,
+    u: f64,
+    fraction: f64,
+) -> Result<[f64; 2], Error> {
+    let (x, y) = if axis == 0 {
+        (u, fraction)
+    } else {
+        (fraction, u)
+    };
+    let denominator = matrix[6] * x + matrix[7] * y + matrix[8];
+    if !denominator.is_finite() || denominator.abs() < 1e-9 {
         return Err(Error::Geometry);
     }
     let p = [
-        (m[0] * x + m[1] * y + m[2]) / z - 0.5,
-        (m[3] * x + m[4] * y + m[5]) / z - 0.5,
+        (matrix[0] * x + matrix[1] * y + matrix[2]) / denominator - 0.5,
+        (matrix[3] * x + matrix[4] * y + matrix[5]) / denominator - 0.5,
     ];
     if p.iter().any(|v| !v.is_finite()) {
         return Err(Error::Geometry);
@@ -304,6 +316,8 @@ pub struct Experiment {
 }
 impl Experiment {
     /// Diagnostic export uses exactly the scanner's original sampling/normalization.
+    /// # Errors
+    /// Returns `Path` for an invalid axis or sampling interval and `Geometry` for invalid quadrilaterals or projections; propagates sampling errors.
     pub fn diagnostic_profile(
         &mut self,
         im: ImageView<'_>,
@@ -340,6 +354,12 @@ impl Experiment {
     }
     /// Reproduce an explicit straight retry window without changing scanner policy.
     /// Bounds, sample count and normalization are supplied by the diagnostic caller.
+    /// # Errors
+    /// Returns `Path` for an invalid axis or sampling interval and `Geometry` for invalid quadrilaterals or projections; propagates sampling errors.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The diagnostic API exposes independent sampling coordinates and switches used by existing experiment callers."
+    )]
     pub fn diagnostic_segment(
         &mut self,
         im: ImageView<'_>,
@@ -362,6 +382,12 @@ impl Experiment {
         Ok(accepted.then(|| self.signal.clone()))
     }
     /// Diagnostic-only independent interpretation of one supplied segment/normalization.
+    /// # Errors
+    /// Returns `Path` for an invalid axis or sampling interval and `Geometry` for invalid quadrilaterals or projections; propagates sampling errors.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The diagnostic API mirrors diagnostic_segment and adds interpretation without changing its positional contract."
+    )]
     pub fn diagnostic_segment_reads(
         &mut self,
         im: ImageView<'_>,
@@ -392,6 +418,8 @@ impl Experiment {
         Ok(observations)
     }
     /// Diagnostic provider on the same fixed/native source coordinates.
+    /// # Errors
+    /// Returns `Path` for an invalid axis or sampling interval and `Geometry` for invalid quadrilaterals or projections; propagates sampling errors.
     pub fn diagnostic_interior_profile(
         &mut self,
         im: ImageView<'_>,
@@ -405,12 +433,14 @@ impl Experiment {
         }
         let m = scan::transform(q)?;
         let n = if native {
-            distance(
-                point(m.0, axis, -0.15, fraction)?,
-                point(m.0, axis, 1.15, fraction)?,
+            crate::numeric::f64_usize(
+                distance(
+                    point(m.0, axis, -0.15, fraction)?,
+                    point(m.0, axis, 1.15, fraction)?,
+                )
+                .ceil()
+                .clamp(64., 4096.),
             )
-            .ceil()
-            .clamp(64., 4096.) as usize
         } else {
             512
         };
@@ -423,30 +453,36 @@ impl Experiment {
     fn native_sample(
         &mut self,
         im: ImageView<'_>,
-        m: [f64; 9],
+        matrix: [f64; 9],
         axis: usize,
-        f: f64,
+        fraction: f64,
         work: &mut Work,
     ) -> Result<bool, Error> {
-        let a = point(m, axis, -0.15, f)?;
-        let b = point(m, axis, 1.15, f)?;
-        let z = |u: f64| {
+        let a = point(matrix, axis, -0.15, fraction)?;
+        let b = point(matrix, axis, 1.15, fraction)?;
+        let denominator = |u: f64| {
             if axis == 0 {
-                m[6] * u + m[7] * f + m[8]
+                matrix[6] * u + matrix[7] * fraction + matrix[8]
             } else {
-                m[6] * f + m[7] * u + m[8]
+                matrix[6] * fraction + matrix[7] * u + matrix[8]
             }
         };
-        if z(-0.15) * z(1.15) <= 0. {
+        if denominator(-0.15) * denominator(1.15) <= 0. {
             return Err(Error::Geometry);
         }
-        let requested = distance(a, b).ceil() as usize;
-        let n = requested.clamp(64, 4096);
+        let requested = crate::numeric::f64_usize(distance(a, b).ceil());
+        let count = requested.clamp(64, 4096);
         work.capped_paths += usize::from(requested > 4096);
-        work.samples += n;
-        self.signal.resize(n, 0.);
+        work.samples += count;
+        self.signal.resize(count, 0.);
         for (i, v) in self.signal.iter_mut().enumerate() {
-            let [x, y] = point(m, axis, -0.15 + 1.3 * (i as f64 + 0.5) / n as f64, f)?;
+            let [x, y] = point(
+                matrix,
+                axis,
+                -0.15
+                    + 1.3 * (crate::numeric::usize_f64(i) + 0.5) / crate::numeric::usize_f64(count),
+                fraction,
+            )?;
             *v = im.bilinear(x, y);
         }
         self.sorted.clear();
@@ -457,7 +493,7 @@ impl Experiment {
             return Ok(false);
         }
         for v in &mut self.signal {
-            *v = ((hi - f64::from(*v)) / (hi - lo)).clamp(0., 1.) as f32;
+            *v = crate::numeric::f64_f32(((hi - f64::from(*v)) / (hi - lo)).clamp(0., 1.));
         }
         Ok(true)
     }
@@ -466,6 +502,10 @@ impl Experiment {
         let n = p.len();
         self.runs.clear();
         let (mut start, mut black) = (0, p[0] >= 0.5);
+        #[expect(
+            clippy::needless_range_loop,
+            reason = "The inclusive final index is a synthetic run terminator beyond the samples; a slice iterator would omit the final run."
+        )]
         for i in 1..=n {
             let next = i < n && p[i] >= 0.5;
             if i == n || next != black {
@@ -482,21 +522,21 @@ impl Experiment {
             }
             work.windows += 1;
             let (left, right) = (r[1].0, r[59].1);
-            let module = (right - left) as f64 / 95.;
+            let module = crate::numeric::usize_f64(right - left) / 95.;
             if module < 0.8
-                || ((r[0].1 - r[0].0) as f64) < 7. * module
-                || ((r[60].1 - r[60].0) as f64) < 7. * module
+                || crate::numeric::usize_f64(r[0].1 - r[0].0) < 7. * module
+                || crate::numeric::usize_f64(r[60].1 - r[60].0) < 7. * module
             {
                 continue;
             }
             work.quiet_pass += 1;
             let mut widths = [0.; 59];
             for j in 0..59 {
-                widths[j] = (r[j + 1].1 - r[j + 1].0) as f32;
+                widths[j] = crate::numeric::usize_f32(r[j + 1].1 - r[j + 1].0);
             }
             if [0, 1, 2, 27, 28, 29, 30, 31, 56, 57, 58]
                 .iter()
-                .all(|&j| (widths[j] / module as f32 - 1.).abs() <= 0.65)
+                .all(|&j| (widths[j] / crate::numeric::f64_f32(module) - 1.).abs() <= 0.65)
             {
                 work.guard_pass += 1;
             }
@@ -510,8 +550,8 @@ impl Experiment {
                 };
                 let r = crate::run_profile::Read {
                     digits: e.digits,
-                    left: left as f64 - 0.5,
-                    right: right as f64 - 0.5,
+                    left: crate::numeric::usize_f64(left) - 0.5,
+                    right: crate::numeric::usize_f64(right) - 0.5,
                     cost: e.cost,
                     gap: e.gap,
                 };
@@ -545,11 +585,17 @@ impl Experiment {
             let v = |i: usize| p[if rev { n - 1 - i } else { i }];
             let (mut ns, mut ne) = (0usize, 0usize);
             for i in 1..n {
-                if v(i - 1) < 0.5 && v(i) >= 0.5 && (i as f32) < n as f32 * 0.35 {
-                    ns = (ns + 1).min(10)
+                if v(i - 1) < 0.5
+                    && v(i) >= 0.5
+                    && crate::numeric::usize_f32(i) < crate::numeric::usize_f32(n) * 0.35
+                {
+                    ns = (ns + 1).min(10);
                 }
-                if v(i - 1) >= 0.5 && v(i) < 0.5 && (i as f32) > n as f32 * 0.65 {
-                    ne = (ne + 1).min(10)
+                if v(i - 1) >= 0.5
+                    && v(i) < 0.5
+                    && crate::numeric::usize_f32(i) > crate::numeric::usize_f32(n) * 0.65
+                {
+                    ne = (ne + 1).min(10);
                 }
             }
             work.profile_boundary_pairs += ns * ne;
@@ -561,10 +607,10 @@ impl Experiment {
         let result = {
             let (result, trace) = {
                 #[cfg(feature = "experimental-native-soft")]
-                if self.signal.len() != 512 {
-                    profile::decode_native_with_blur_trace(&self.signal)
-                } else {
+                if self.signal.len() == 512 {
                     profile::decode_with_blur_trace(&self.signal)
+                } else {
+                    profile::decode_native_with_blur_trace(&self.signal)
                 }
                 #[cfg(not(feature = "experimental-native-soft"))]
                 profile::decode_with_blur_trace(&self.signal)
@@ -588,8 +634,8 @@ impl Experiment {
         result.ok().flatten().map(|r| {
             let (left, right) = if r.reversed {
                 (
-                    (self.signal.len() - 1) as f64 - f64::from(r.right),
-                    (self.signal.len() - 1) as f64 - f64::from(r.left),
+                    crate::numeric::usize_f64(self.signal.len() - 1) - f64::from(r.right),
+                    crate::numeric::usize_f64(self.signal.len() - 1) - f64::from(r.left),
                 )
             } else {
                 (f64::from(r.left), f64::from(r.right))
@@ -637,9 +683,10 @@ impl Experiment {
         }
         #[cfg(not(feature = "experimental-interior-bounds"))]
         for (i, &v) in self.raw_signal.iter().enumerate() {
-            let u = lo + (hi - lo) * (i as f64 + 0.5) / n as f64;
+            let u = lo
+                + (hi - lo) * (crate::numeric::usize_f64(i) + 0.5) / crate::numeric::usize_f64(n);
             if (0.0..=1.0).contains(&u) {
-                self.sorted.push(v)
+                self.sorted.push(v);
             }
         }
         work.interior_values += self.sorted.len();
@@ -690,6 +737,10 @@ impl Experiment {
     ) {
         self.collect_policy(axis, fraction, lo, hi, work, observations, false, false);
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Coordinates, reversal and decoder switches are independent dimensions forwarded to the evidence collector."
+    )]
     pub(crate) fn collect_policy(
         &mut self,
         axis: usize,
@@ -717,8 +768,15 @@ impl Experiment {
             work.interpretation_ms += timer.ms();
         }
         let _ = timer;
-        ();
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The collector receives independent path geometry and decoder switches with shared work state."
+    )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "This evidence pass keeps ordered hypotheses, contradiction vetoes and work accounting together within one scan transaction."
+    )]
     fn collect_policy_inner(
         &mut self,
         axis: usize,
@@ -763,7 +821,7 @@ impl Experiment {
             work.decoder_calls += short.decoder_calls;
             work.conflicts += short.ambiguous_intervals;
             work.truncated_paths += usize::from(short.truncated);
-            let n = self.signal.len() as f64;
+            let n = crate::numeric::usize_f64(self.signal.len());
             for (left, right) in short.rejected_intervals {
                 observations.push(Observation {
                     short_quiet: true,
@@ -840,7 +898,7 @@ impl Experiment {
                 work.decoder_calls += short.decoder_calls;
                 work.conflicts += short.ambiguous_intervals;
                 work.truncated_paths += usize::from(short.truncated);
-                let n = self.signal.len() as f64;
+                let n = crate::numeric::usize_f64(self.signal.len());
                 for (left, right) in short.rejected_intervals {
                     observations.push(Observation {
                         short_quiet: true,
@@ -968,7 +1026,7 @@ impl Experiment {
             work.accepted_paths += usize::from(short_accepted || !reads.symbols.is_empty());
         }
         for (left, right) in reads.rejected_intervals {
-            let n = self.signal.len() as f64;
+            let n = crate::numeric::usize_f64(self.signal.len());
             observations.push(Observation {
                 short_quiet: false,
                 ambiguous: true,
@@ -982,7 +1040,7 @@ impl Experiment {
             });
         }
         for r in reads.symbols {
-            let n = self.signal.len() as f64;
+            let n = crate::numeric::usize_f64(self.signal.len());
             observations.push(Observation {
                 short_quiet: false,
                 ambiguous: false,
@@ -1016,6 +1074,10 @@ impl Experiment {
     }
     /// Bounded original-image straight segment sampling. Uses the same bilinear
     /// grayscale and percentile normalization as the frozen fixed sampler.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The sampling entry point forwards explicit geometry, output size and shared accounting to the timed implementation."
+    )]
     pub(crate) fn sample_segment(
         &mut self,
         im: ImageView<'_>,
@@ -1037,33 +1099,37 @@ impl Experiment {
         let _ = timer;
         result
     }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The sampler needs image, projective geometry, path bounds, normalization policy and mutable work accounting together."
+    )]
     fn sample_segment_inner(
         &mut self,
         im: ImageView<'_>,
-        m: [f64; 9],
+        matrix: [f64; 9],
         axis: usize,
-        f: f64,
+        fraction: f64,
         lo: f64,
         hi: f64,
-        n: usize,
+        count: usize,
         retain_raw: bool,
         work: &mut Work,
     ) -> Result<bool, Error> {
-        if !(64..=4096).contains(&n)
+        if !(64..=4096).contains(&count)
             || axis > 1
             || !lo.is_finite()
             || !hi.is_finite()
             || lo >= hi
-            || !f.is_finite()
-            || !(0.0..=1.0).contains(&f)
+            || !fraction.is_finite()
+            || !(0.0..=1.0).contains(&fraction)
         {
             return Err(Error::Path);
         }
         let z = |u: f64| {
             if axis == 0 {
-                m[6] * u + m[7] * f + m[8]
+                matrix[6] * u + matrix[7] * fraction + matrix[8]
             } else {
-                m[6] * f + m[7] * u + m[8]
+                matrix[6] * fraction + matrix[7] * u + matrix[8]
             }
         };
         if !z(lo).is_finite()
@@ -1074,39 +1140,43 @@ impl Experiment {
         {
             return Err(Error::Geometry);
         }
-        work.samples += n;
-        self.signal.resize(n, 0.);
+        work.samples += count;
+        self.signal.resize(count, 0.);
         // `axis` and the cross-path fraction do not vary within one segment. Keep
         // the legacy arithmetic order, but select the coordinate layout once rather
         // than branching through `point` for each source pixel. The finite check is
         // intentionally retained at the exact point where the old helper made it.
-        let nearest = cfg!(feature = "experimental-nearest-lowres") && (76..=384).contains(&n);
+        let nearest = cfg!(feature = "experimental-nearest-lowres") && (76..=384).contains(&count);
         if axis == 0 {
             for (i, v) in self.signal.iter_mut().enumerate() {
-                let u = lo + (hi - lo) * (i as f64 + 0.5) / n as f64;
-                let z = m[6] * u + m[7] * f + m[8];
-                let x = (m[0] * u + m[1] * f + m[2]) / z - 0.5;
-                let y = (m[3] * u + m[4] * f + m[5]) / z - 0.5;
+                let u = lo
+                    + (hi - lo) * (crate::numeric::usize_f64(i) + 0.5)
+                        / crate::numeric::usize_f64(count);
+                let z = matrix[6] * u + matrix[7] * fraction + matrix[8];
+                let x = (matrix[0] * u + matrix[1] * fraction + matrix[2]) / z - 0.5;
+                let y = (matrix[3] * u + matrix[4] * fraction + matrix[5]) / z - 0.5;
                 if !x.is_finite() || !y.is_finite() {
                     return Err(Error::Geometry);
                 }
                 *v = if nearest {
-                    im.gray(x.round(), y.round()) as f32
+                    crate::numeric::f64_f32(im.gray(x.round(), y.round()))
                 } else {
                     im.bilinear(x, y)
                 };
             }
         } else {
             for (i, v) in self.signal.iter_mut().enumerate() {
-                let u = lo + (hi - lo) * (i as f64 + 0.5) / n as f64;
-                let z = m[6] * f + m[7] * u + m[8];
-                let x = (m[0] * f + m[1] * u + m[2]) / z - 0.5;
-                let y = (m[3] * f + m[4] * u + m[5]) / z - 0.5;
+                let u = lo
+                    + (hi - lo) * (crate::numeric::usize_f64(i) + 0.5)
+                        / crate::numeric::usize_f64(count);
+                let z = matrix[6] * fraction + matrix[7] * u + matrix[8];
+                let x = (matrix[0] * fraction + matrix[1] * u + matrix[2]) / z - 0.5;
+                let y = (matrix[3] * fraction + matrix[4] * u + matrix[5]) / z - 0.5;
                 if !x.is_finite() || !y.is_finite() {
                     return Err(Error::Geometry);
                 }
                 *v = if nearest {
-                    im.gray(x.round(), y.round()) as f32
+                    crate::numeric::f64_f32(im.gray(x.round(), y.round()))
                 } else {
                     im.bilinear(x, y)
                 };
@@ -1123,7 +1193,7 @@ impl Experiment {
             return Ok(false);
         }
         for v in &mut self.signal {
-            *v = ((hi - f64::from(*v)) / (hi - lo)).clamp(0., 1.) as f32;
+            *v = crate::numeric::f64_f32(((hi - f64::from(*v)) / (hi - lo)).clamp(0., 1.));
         }
         Ok(true)
     }
@@ -1135,6 +1205,10 @@ impl Experiment {
     ) -> Vec<Candidate> {
         self.scan_with_budget(im, candidates, config, &mut AssociationBudget::default())
     }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "This evidence pass keeps ordered hypotheses, contradiction vetoes and work accounting together within one scan transaction."
+    )]
     pub(crate) fn scan_with_budget(
         &mut self,
         im: ImageView<'_>,
@@ -1156,12 +1230,9 @@ impl Experiment {
                     ms: 0.,
                     error: false,
                 };
-                let m = match scan::transform(coverage) {
-                    Ok(m) => m,
-                    Err(_) => {
-                        out.error = true;
-                        return out;
-                    }
+                let Ok(m) = scan::transform(coverage) else {
+                    out.error = true;
+                    return out;
                 };
                 for axis in 0..2 {
                     let fractions: Vec<f64> = if config.dense {
@@ -1243,7 +1314,7 @@ impl Experiment {
                         };
                         if let Some(r) = r {
                             out.work.accepted_paths += 1;
-                            let n = self.signal.len() as f64;
+                            let n = crate::numeric::usize_f64(self.signal.len());
                             out.observations.push(Observation {
                                 short_quiet: false,
                                 ambiguous: false,
@@ -1292,7 +1363,7 @@ fn connected(
 }
 fn connected_budget(
     im: ImageView<'_>,
-    m: [f64; 9],
+    matrix: [f64; 9],
     a: Observation,
     b: Observation,
     work: &mut Work,
@@ -1304,16 +1375,16 @@ fn connected_budget(
 ) -> bool {
     #[cfg(feature = "experimental-gap-density")]
     {
-        return connected_density(im, m, a, b, work, budget, cache);
+        connected_density(im, matrix, a, b, work, budget, cache)
     }
 
     #[cfg(not(feature = "experimental-gap-density"))]
     {
         let mut budget = budget;
         let u = (a.left + a.right + b.left + b.right) / 4.;
-        let pa = point(m, a.axis, u, a.fraction).unwrap();
-        let pb = point(m, a.axis, u, b.fraction).unwrap();
-        let steps = (distance(pa, pb) * 2.).ceil() as usize;
+        let pa = point(matrix, a.axis, u, a.fraction).unwrap();
+        let pb = point(matrix, a.axis, u, b.fraction).unwrap();
+        let steps = crate::numeric::f64_usize((distance(pa, pb) * 2.).ceil());
         if steps > 4096 {
             work.continuity_capped_links += 1;
             work.association_truncated = 1;
@@ -1325,23 +1396,23 @@ fn connected_budget(
                     return false;
                 }
             }
-            let t = i as f64 / steps.max(1) as f64;
-            let f = a.fraction + (b.fraction - a.fraction) * t;
-            let left = a.left + (b.left - a.left) * t;
-            let right = a.right + (b.right - a.right) * t;
+            let fraction = crate::numeric::usize_f64(i) / crate::numeric::usize_f64(steps.max(1));
+            let row_fraction = a.fraction + (b.fraction - a.fraction) * fraction;
+            let left = a.left + (b.left - a.left) * fraction;
+            let right = a.right + (b.right - a.right) * fraction;
             let (mut lo, mut hi) = (255f64, 0f64);
             for j in 0..32 {
-                let p = point(
-                    m,
+                let sample_point = point(
+                    matrix,
                     a.axis,
                     left + (right - left) * (f64::from(j) + 0.5) / 32.,
-                    f,
+                    row_fraction,
                 )
                 .unwrap();
-                let v = im.gray(p[0].round(), p[1].round());
+                let gray = im.gray(sample_point[0].round(), sample_point[1].round());
                 work.continuity_samples += 1;
-                lo = lo.min(v);
-                hi = hi.max(v);
+                lo = lo.min(gray);
+                hi = hi.max(gray);
             }
             if hi - lo < 8. {
                 work.continuity_rejects += 1;
@@ -1352,9 +1423,13 @@ fn connected_budget(
     }
 }
 #[cfg(feature = "experimental-gap-density")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "This continuity proof shares cached row evidence, pixel budgets and rejection decisions across its path."
+)]
 fn connected_density(
     im: ImageView<'_>,
-    m: [f64; 9],
+    matrix: [f64; 9],
     a: Observation,
     b: Observation,
     work: &mut Work,
@@ -1362,9 +1437,9 @@ fn connected_density(
     cache: &mut std::collections::HashMap<[u64; 5], Option<(usize, usize)>>,
 ) -> bool {
     let u = (a.left + a.right + b.left + b.right) / 4.;
-    let pa = point(m, a.axis, u, a.fraction).unwrap();
-    let pb = point(m, a.axis, u, b.fraction).unwrap();
-    let steps = (distance(pa, pb) * 2.).ceil() as usize;
+    let pa = point(matrix, a.axis, u, a.fraction).unwrap();
+    let pb = point(matrix, a.axis, u, b.fraction).unwrap();
+    let steps = crate::numeric::f64_usize((distance(pa, pb) * 2.).ceil());
     if steps > 4096 {
         work.continuity_capped_links += 1;
         work.association_truncated = 1;
@@ -1393,14 +1468,15 @@ fn connected_density(
         let mut values = [0.; 192];
         let (mut lo, mut hi) = (255f64, 0f64);
         for (j, v) in values[..n].iter_mut().enumerate() {
-            let p = point(
-                m,
+            let point_sample = point(
+                matrix,
                 a.axis,
-                left + (right - left) * (j as f64 + 0.5) / n as f64,
+                left + (right - left) * (crate::numeric::usize_f64(j) + 0.5)
+                    / crate::numeric::usize_f64(n),
                 f,
             )
             .unwrap();
-            *v = im.gray(p[0].round(), p[1].round());
+            *v = im.gray(point_sample[0].round(), point_sample[1].round());
             work.continuity_samples += 1;
             lo = lo.min(*v);
             hi = hi.max(*v);
@@ -1438,7 +1514,10 @@ fn connected_density(
     };
     let minimum = (first.0.min(last.0), first.1.min(last.1));
     for i in 1..steps {
-        let Some((dark, _light)) = sample(i as f64 / steps as f64, 32) else {
+        let Some((dark, _light)) = sample(
+            crate::numeric::usize_f64(i) / crate::numeric::usize_f64(steps),
+            32,
+        ) else {
             return false;
         };
         // For ordinary dark bars on a light substrate, require lost DARK occupancy.
@@ -1452,7 +1531,10 @@ fn connected_density(
             let (Some(da), Some(db), Some(dc)) = (
                 sample(0., 192),
                 sample(1., 192),
-                sample(i as f64 / steps as f64, 192),
+                sample(
+                    crate::numeric::usize_f64(i) / crate::numeric::usize_f64(steps),
+                    192,
+                ),
             ) else {
                 return false;
             };
@@ -1577,6 +1659,14 @@ pub(crate) fn assemble_many_budget_options(
     let _ = timer;
     result
 }
+#[expect(
+    clippy::float_cmp,
+    reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "This evidence pass keeps ordered hypotheses, contradiction vetoes and work accounting together within one scan transaction."
+)]
 fn assemble_many_budget_inner(
     im: ImageView<'_>,
     m: [f64; 9],
@@ -1845,23 +1935,27 @@ fn assemble_many_budget_inner(
 }
 /// Diagnose whether old global module evidence can decode an accepted run's
 /// boundaries. Never used in acceptance or search; no expected digits supplied.
+#[must_use]
 pub fn profile_at_run_boundary(p: &[f32], left: f64, right: f64) -> Option<[u8; 13]> {
     if p.len() < 2
         || !left.is_finite()
         || !right.is_finite()
         || left >= right
         || left < -0.5
-        || right > p.len() as f64 - 0.5
+        || right > crate::numeric::usize_f64(p.len()) - 0.5
         || p.iter().any(|x| !x.is_finite() || !(0.0..=1.0).contains(x))
     {
         return None;
     }
     let mut modules = [0.; 95];
     for (i, v) in modules.iter_mut().enumerate() {
-        let x = (left + (i as f64 + 0.5) * (right - left) / 95.).clamp(0., (p.len() - 1) as f64);
-        let j = x.floor() as usize;
+        let x = (left + (crate::numeric::usize_f64(i) + 0.5) * (right - left) / 95.)
+            .clamp(0., crate::numeric::usize_f64(p.len() - 1));
+        let j = crate::numeric::f64_usize(x.floor());
         let a = p[j];
-        *v = a + (p[(j + 1).min(p.len() - 1)] - a) * (x - j as f64) as f32;
+        *v = a
+            + (p[(j + 1).min(p.len() - 1)] - a)
+                * crate::numeric::f64_f32(x - crate::numeric::usize_f64(j));
     }
     let a = ean::decode(&modules, 0.1, 0.02);
     modules.reverse();
@@ -1896,22 +1990,22 @@ mod tests {
     #[cfg(feature = "experimental-short-quiet")]
     #[test]
     fn short_quiet_requires_four_distinct_source_supported_rows_and_keeps_vetoes() {
-        let (w, h) = (512, 160);
-        let mut pixels = vec![0u8; w * h];
+        let (width, h) = (512, 160);
+        let mut pixels = vec![0u8; width * h];
         for y in 0..h {
             for x in 40..460 {
-                pixels[y * w + x] = 255;
+                pixels[y * width + x] = 255;
             }
             for x in 0..380 {
                 if BITS.as_bytes()[x / 4] == b'1' {
-                    pixels[y * w + 60 + x] = 0;
+                    pixels[y * width + 60 + x] = 0;
                 }
             }
         }
-        let im = ImageView::new(&pixels, w, h, 1, w).unwrap();
-        let q = [[60., 20.], [440., 20.], [440., 140.], [60., 140.]];
-        let m = scan::transform(q).unwrap();
-        let c = Experiment::default().scan(im, &[q], MULTI_FIXED);
+        let im = ImageView::new(&pixels, width, h, 1, width).unwrap();
+        let quad = [[60., 20.], [440., 20.], [440., 140.], [60., 140.]];
+        let m = scan::transform(quad).unwrap();
+        let c = Experiment::default().scan(im, &[quad], MULTI_FIXED);
         let mut obs: Vec<_> = c[0]
             .observations
             .iter()
@@ -1940,8 +2034,8 @@ mod tests {
         let a = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
         let b = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
         for second in [a, b] {
-            let (w, h) = (512, 320);
-            let mut pixels = vec![255u8; w * h];
+            let (w, height) = (512, 320);
+            let mut pixels = vec![255u8; w * height];
             for (top, d) in [(10, a), (180, second)] {
                 let bits = crate::ean::encode(&d);
                 for y in top..top + 130 {
@@ -1955,11 +2049,11 @@ mod tests {
                     }
                 }
             }
-            let im = ImageView::new(&pixels, w, h, 1, w).unwrap();
-            let q = [[60., 10.], [440., 10.], [440., 310.], [60., 310.]];
+            let im = ImageView::new(&pixels, w, height, 1, w).unwrap();
+            let quad = [[60., 10.], [440., 10.], [440., 310.], [60., 310.]];
             let c = Experiment::default().scan(
                 im,
-                &[q],
+                &[quad],
                 Config::new("short_dense", false, true, DecoderMode::Many).unwrap(),
             );
             assert!(
@@ -1987,9 +2081,13 @@ mod tests {
         assert!(out[0].detections[0].polygon[1][0] < out[0].detections[1].polygon[0][0]);
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn canonical_rows_deduplicate_and_veto_conflicts_without_merging_nearby_rows() {
-        let (p, qs) = fixture(0);
-        let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
+        let (pixels, qs) = fixture(0);
+        let im = ImageView::new(&pixels, 1000, 240, 1, 1000).unwrap();
         let m = scan::transform(qs[0]).unwrap();
         let a = Observation {
             short_quiet: false,
@@ -2378,6 +2476,10 @@ mod tests {
         }
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn interior_normalization_ignores_padding_and_preserves_quiet_values() {
         let mut ex = Experiment::default();
         let n = 512;
@@ -2397,7 +2499,7 @@ mod tests {
         assert!(ex.normalize_interior(-0.15, 1.15, &mut w));
         let a = ex.signal.clone();
         for (i, v) in ex.raw_signal.iter_mut().enumerate() {
-            let u = -0.15 + 1.3 * (i as f64 + 0.5) / f64::from(n);
+            let u = -0.15 + 1.3 * (crate::numeric::usize_f64(i) + 0.5) / f64::from(n);
             if !(0.0..=1.0).contains(&u) {
                 *v = 180.;
             }
@@ -2492,7 +2594,9 @@ mod tests {
                             .map(|p| p[1])
                             .fold(f64::NEG_INFINITY, f64::max);
                         assert!(
-                            gap == 0 || max < 110. || min >= 110. + gap as f64 - 1.,
+                            gap == 0
+                                || max < 110.
+                                || min >= 110. + crate::numeric::usize_f64(gap) - 1.,
                             "merged gap {gap} {min} {max}"
                         );
                     }
@@ -2542,16 +2646,16 @@ mod tests {
             ..a
         };
         for pixels_left in [0, 31] {
-            let mut w = Work::default();
+            let mut width = Work::default();
             let mut budget = AssociationBudget {
                 checks_left: 100,
                 pixels_left,
             };
-            let r = assemble_many_budget(im, m.0, &[a, b], &mut w, true, &mut budget);
+            let r = assemble_many_budget(im, m.0, &[a, b], &mut width, true, &mut budget);
             assert!(r.is_empty());
-            assert_eq!(w.association_truncated, 0);
-            assert_eq!(w.continuity_samples, 0);
-            assert!(w.association_checks > 0);
+            assert_eq!(width.association_truncated, 0);
+            assert_eq!(width.continuity_samples, 0);
+            assert!(width.association_checks > 0);
         }
     }
 }
@@ -2581,20 +2685,22 @@ mod segment_diagnostic_tests {
     use super::*;
     #[test]
     fn explicit_window_matches_native_and_interior_for_both_axes() {
-        let pixels: Vec<u8> = (0..128 * 96)
-            .map(|i| ((i * 37 + i / 128 * 13) % 256) as u8)
+        let pixels: Vec<u8> = (0usize..128 * 96)
+            .map(|i| ((i * 37 + i / 128 * 13) % 256).to_le_bytes()[0])
             .collect();
         let im = ImageView::new(&pixels, 128, 96, 1, 128).unwrap();
         let q = [[15., 12.], [110., 17.], [105., 80.], [20., 85.]];
         let m = scan::transform(q).unwrap();
         let mut e = Experiment::default();
         for axis in 0..2 {
-            let n = distance(
-                point(m.0, axis, -0.15, 0.5).unwrap(),
-                point(m.0, axis, 1.15, 0.5).unwrap(),
-            )
-            .ceil()
-            .clamp(64., 4096.) as usize;
+            let n = crate::numeric::f64_usize(
+                distance(
+                    point(m.0, axis, -0.15, 0.5).unwrap(),
+                    point(m.0, axis, 1.15, 0.5).unwrap(),
+                )
+                .ceil()
+                .clamp(64., 4096.),
+            );
             if !cfg!(feature = "experimental-nearest-lowres") {
                 assert_eq!(
                     e.diagnostic_profile(im, q, axis, 0.5, true).unwrap(),
@@ -2642,7 +2748,9 @@ mod interior_bounds_tests {
             ] {
                 let selected: Vec<_> = (0..n)
                     .filter(|&i| {
-                        let u = lo + (hi - lo) * (i as f64 + 0.5) / n as f64;
+                        let u = lo
+                            + (hi - lo) * (crate::numeric::usize_f64(i) + 0.5)
+                                / crate::numeric::usize_f64(n);
                         (0.0..=1.0).contains(&u)
                     })
                     .collect();
@@ -2700,7 +2808,7 @@ mod low_contrast_signal_tests {
                         + if mode == 0 {
                             0
                         } else if mode == 1 {
-                            ((x / 3) % 2 * 24) as u8
+                            ((x / 3) % 2 * 24).to_le_bytes()[0]
                         } else {
                             (rng % 32) as u8
                         };
@@ -2731,19 +2839,19 @@ mod evidence_span_tests {
     #[test]
     fn weak_repeated_edges_need_wider_source_support() {
         let d = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
-        let (w, h) = (360, 100);
-        let mut pixels = vec![255; w * h];
+        let (width, h) = (360, 100);
+        let mut pixels = vec![255; width * h];
         let bits = crate::ean::encode(&d);
         for y in 0..h {
             for x in 0..285 {
                 if bits[x / 3] > 0.5 {
-                    pixels[y * w + 30 + x] = 0;
+                    pixels[y * width + 30 + x] = 0;
                 }
             }
         }
-        let im = ImageView::new(&pixels, w, h, 1, w).unwrap();
-        let q = [[0., 0.], [360., 0.], [360., 100.], [0., 100.]];
-        let m = scan::transform(q).unwrap().0;
+        let im = ImageView::new(&pixels, width, h, 1, width).unwrap();
+        let quad = [[0., 0.], [360., 0.], [360., 100.], [0., 100.]];
+        let m = scan::transform(quad).unwrap().0;
         let obs = |f, cost, gap| Observation {
             short_quiet: false,
             ambiguous: false,
@@ -2771,6 +2879,10 @@ mod evidence_span_tests {
 #[cfg(test)]
 mod lowres_threshold_tests {
     use super::*;
+    #[expect(
+        clippy::float_cmp,
+        reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
+    )]
     fn shallow(d: [u8; 13]) -> Vec<f32> {
         let bits = crate::ean::encode(&d);
         let mut p = vec![0.; 36];
@@ -2807,8 +2919,10 @@ mod lowres_threshold_tests {
                     p.reverse();
                 }
                 let original = p.clone();
-                let mut ex = Experiment::default();
-                ex.signal = p;
+                let mut ex = Experiment {
+                    signal: p,
+                    ..Experiment::default()
+                };
                 let mut obs = vec![];
                 ex.collect_policy(0, 0.5, 0., 1., &mut Work::default(), &mut obs, true, true);
                 assert_eq!(ex.signal, original);
@@ -2821,10 +2935,14 @@ mod lowres_threshold_tests {
 mod nearest_lowres_tests {
     use super::*;
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn thin_black_pixel_is_retained_by_nearest_sample() {
         let im = ImageView::new(&[255u8, 0, 255], 3, 1, 1, 3).unwrap();
         let bilinear = im.bilinear(1.4, 0.);
-        let nearest = im.gray(1.4f64.round(), 0f64.round()) as f32;
+        let nearest = crate::numeric::f64_f32(im.gray(1.4f64.round(), 0f64.round()));
         assert_eq!(bilinear, 102.);
         assert_eq!(nearest, 0.);
         assert!(nearest < bilinear);
@@ -2840,13 +2958,15 @@ mod forward_blur_region_tests {
             for n in -640..=640 {
                 let dx = f64::from(n) / 32.;
                 let weight = (-dx * dx / (2. * 2.6 * 2.6)).exp();
-                let module = ((i as f64 + dx - 64.) / 4.).floor() as i32;
+                let module = crate::numeric::f64_i32(
+                    ((crate::numeric::usize_f64(i) + dx - 64.) / 4.).floor(),
+                );
                 if (0..95).contains(&module) {
-                    sum += weight * f64::from(bits[module as usize]);
+                    sum += weight * f64::from(bits[crate::numeric::i32_usize(module)]);
                 }
                 norm += weight;
             }
-            (255. * (1. - sum / norm)).round() as u8
+            crate::numeric::f64_u8((255. * (1. - sum / norm)).round())
         })
     }
     #[test]
@@ -2976,8 +3096,8 @@ mod dark_gap_replay_tests {
                 pixels[y * 384 + 12 * j + 6] = SPARSE[which][j];
             }
         }
-        let q = [[0., 0.], [384., 0.], [384., 4.], [0., 4.]];
-        let m = scan::transform(q).unwrap().0;
+        let quad = [[0., 0.], [384., 0.], [384., 4.], [0., 4.]];
+        let m = scan::transform(quad).unwrap().0;
         let a = Observation {
             short_quiet: false,
             ambiguous: false,
@@ -2993,31 +3113,31 @@ mod dark_gap_replay_tests {
             fraction: 0.625,
             ..a
         };
-        let mut w = Work::default();
+        let mut width = Work::default();
         let mut budget = AssociationBudget::default();
         assert!(connected_density(
             ImageView::new(&pixels, 384, 3, 1, 384).unwrap(),
             m,
             a,
             b,
-            &mut w,
+            &mut width,
             Some(&mut budget),
             &mut std::collections::HashMap::new()
         ));
-        assert_eq!(w.continuity_rejects, 0);
+        assert_eq!(width.continuity_rejects, 0);
         // A real white separating source row still rejects the connection.
         pixels[384..768].fill(255);
-        let mut w = Work::default();
+        let mut width = Work::default();
         assert!(!connected_density(
             ImageView::new(&pixels, 384, 3, 1, 384).unwrap(),
             m,
             a,
             b,
-            &mut w,
+            &mut width,
             None,
             &mut std::collections::HashMap::new()
         ));
-        assert!(w.continuity_rejects > 0);
+        assert!(width.continuity_rejects > 0);
     }
 }
 
@@ -3055,6 +3175,10 @@ mod structural_run_count_tests {
 mod redundant_collection_test {
     use super::*;
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn collect_exercises_reuse_without_altering_input_or_observation_shape() {
         let mut ex = Experiment::default();
         let digits = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
@@ -3094,14 +3218,18 @@ mod folded_boundary_confirmation_tests {
     const A: [u8; 13] = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
     const B: [u8; 13] = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn narrow_trailing_quiet_needs_four_rows_and_preserves_instances_after_rotation() {
         for second in [A, B] {
             for rotated in [false, true] {
-                let (w, h) = if rotated { (320, 512) } else { (512, 320) };
-                let mut pixels = vec![255u8; w * h];
+                let (width, height) = if rotated { (320, 512) } else { (512, 320) };
+                let mut pixels = vec![255u8; width * height];
                 let put = |pixels: &mut Vec<u8>, x: usize, y: usize, value| {
                     let (a, b) = if rotated { (319 - y, x) } else { (x, y) };
-                    pixels[b * w + a] = value;
+                    pixels[b * width + a] = value;
                 };
                 for (top, d) in [(10, A), (180, second)] {
                     let bits = crate::ean::encode(&d);
@@ -3116,16 +3244,16 @@ mod folded_boundary_confirmation_tests {
                         }
                     }
                 }
-                let im = ImageView::new(&pixels, w, h, 1, w).unwrap();
-                let mut q = [[60., 10.], [440., 10.], [440., 310.], [60., 310.]];
+                let im = ImageView::new(&pixels, width, height, 1, width).unwrap();
+                let mut quad = [[60., 10.], [440., 10.], [440., 310.], [60., 310.]];
                 if rotated {
-                    for p in &mut q {
+                    for p in &mut quad {
                         *p = [319. - p[1], p[0]];
                     }
                 }
                 let c = Experiment::default().scan(
                     im,
-                    &[q],
+                    &[quad],
                     Config::new("folded_boundary", false, true, DecoderMode::Many).unwrap(),
                 );
                 assert_eq!(
@@ -3146,7 +3274,7 @@ mod folded_boundary_confirmation_tests {
                 obs.sort_by(|a, b| a.fraction.total_cmp(&b.fraction));
                 obs.dedup_by(|a, b| a.fraction == b.fraction);
                 assert!(obs.len() >= 4);
-                let m = scan::transform(q).unwrap();
+                let m = scan::transform(quad).unwrap();
                 assert!(assemble_many(im, m.0, &obs[..3], &mut Work::default(), true).is_empty());
                 assert_eq!(
                     assemble_many(im, m.0, &obs[..4], &mut Work::default(), true).len(),

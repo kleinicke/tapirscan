@@ -11,6 +11,10 @@ pub(crate) struct RunVisual {
     pub read: Read,
     pub checksum_valid: bool,
 }
+#[expect(
+    clippy::float_cmp,
+    reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
+)]
 pub(crate) fn append(out: &mut Vec<RunVisual>, capped: &mut bool, v: RunVisual) {
     if !v.read.left.is_finite()
         || !v.read.right.is_finite()
@@ -47,6 +51,10 @@ pub(crate) fn collect(out: &mut Vec<RunVisual>, capped: &mut bool, r: &Reads) {
 fn same(a: f64, b: f64, c: f64, d: f64) -> bool {
     (b.min(d) - a.max(c)).max(0.) >= 0.8 * (b - a).max(d - c)
 }
+#[expect(
+    clippy::float_cmp,
+    reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
+)]
 fn vetoes(e: &[RunVisual]) -> Vec<Read> {
     let mut out = Vec::new();
     for v in e
@@ -72,6 +80,10 @@ fn vetoes(e: &[RunVisual]) -> Vec<Read> {
     }
     out
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Invalid-visual reconciliation jointly considers the independent raw, soft and normalized evidence with shared candidate/work state."
+)]
 pub(crate) fn apply(
     e: &[RunVisual],
     capped: bool,
@@ -92,8 +104,8 @@ pub(crate) fn apply(
         return;
     }
     for v in vetoes(e) {
-        let left = lo + (hi - lo) * (v.left + 0.5) / n as f64;
-        let right = lo + (hi - lo) * (v.right + 0.5) / n as f64;
+        let left = lo + (hi - lo) * (v.left + 0.5) / crate::numeric::usize_f64(n);
+        let right = lo + (hi - lo) * (v.right + 0.5) / crate::numeric::usize_f64(n);
         let soft_conflict = soft.iter().any(|a| same(a.left, a.right, v.left, v.right));
         let mut i = 0;
         let before = observations.len();
@@ -141,6 +153,10 @@ mod tests {
         }
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn strongest_valid_protects_and_disjoint_symbols_do_not_interact() {
         let bad = evidence(false, 0., 95., 0.03);
         let weak = evidence(true, 0., 95., 0.08);
@@ -171,7 +187,12 @@ mod tests {
             append(
                 &mut e,
                 &mut capped,
-                evidence(false, i as f64, i as f64 + 95., 0.03),
+                evidence(
+                    false,
+                    crate::numeric::usize_f64(i),
+                    crate::numeric::usize_f64(i) + 95.,
+                    0.03,
+                ),
             );
         }
         assert!(capped);
@@ -184,6 +205,10 @@ mod tests {
         assert_eq!(w.invalid_veto_intervals, 0);
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn interval_local_removal_retains_other_symbols_and_soft_conflict() {
         let e = [
             evidence(false, 0., 95., 0.03),
@@ -231,14 +256,14 @@ mod image_tests {
         let good = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
         assert!(!ean::checksum(&bad));
         assert!(ean::checksum(&good));
-        let (w, h) = (1500, 160);
-        let mut pixels = vec![255u8; w * h];
+        let (width, height) = (1500, 160);
+        let mut pixels = vec![255u8; width * height];
         for (left, d) in [(48, bad), (548, good), (1048, good)] {
             let bits = ean::encode(&d);
             for y in 15..145 {
                 for x in 0..285 {
                     if bits[x / 3] > 0.5 {
-                        pixels[y * w + left + x] = 0;
+                        pixels[y * width + left + x] = 0;
                     }
                 }
             }
@@ -247,8 +272,8 @@ mod image_tests {
             if reverse {
                 pixels.reverse();
             }
-            let im = ImageView::new(&pixels, w, h, 1, w).unwrap();
-            let q = [[0., 0.], [1499., 0.], [1499., 159.], [0., 159.]];
+            let im = ImageView::new(&pixels, width, height, 1, width).unwrap();
+            let quad = [[0., 0.], [1499., 0.], [1499., 159.], [0., 159.]];
             let p = Policy {
                 transition_cleanup: true,
                 source_identity: true,
@@ -256,7 +281,7 @@ mod image_tests {
                 guard_bias: true,
                 ..Policy::default()
             };
-            let f = Experiment::default().scan_frame(im, &[q], p).unwrap();
+            let f = Experiment::default().scan_frame(im, &[quad], p).unwrap();
             assert_eq!(f.barcodes.len(), 2);
             assert!(f.barcodes.iter().all(|b| b.detection.digits == good));
             assert_ne!(

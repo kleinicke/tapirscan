@@ -55,20 +55,26 @@ fn sampling_band(image: ImageView<'_>, q: [[f64; 2]; 4]) -> Result<Option<[[f64;
             || !p[1].is_finite()
             || p[0] < -0.5
             || p[1] < -0.5
-            || p[0] > image.width as f64 - 0.5
-            || p[1] > image.height as f64 - 0.5
+            || p[0] > crate::numeric::usize_f64(image.width) - 0.5
+            || p[1] > crate::numeric::usize_f64(image.height) - 0.5
     }) {
         return Err(Error::Geometry);
     }
     let band = q.map(|p| {
         [
-            p[0].clamp(0., (image.width - 1) as f64),
-            p[1].clamp(0., (image.height - 1) as f64),
+            p[0].clamp(0., crate::numeric::usize_f64(image.width - 1)),
+            p[1].clamp(0., crate::numeric::usize_f64(image.height - 1)),
         ]
     });
     Ok(crate::scan::transform(band).ok().map(|_| band))
 }
 impl Assembler {
+    /// # Errors
+    /// Returns `Parameters` for excessive or invalid candidates and `Geometry` for invalid projected groups; propagates sampling errors.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Candidate union and geometric aggregation share the same parents and stable candidate ordering."
+    )]
     pub fn assemble(
         &mut self,
         image: ImageView<'_>,
@@ -89,8 +95,9 @@ impl Assembler {
             if c.support == 0
                 || c.support > image.width.max(image.height)
                 || c.axis > 1
-                || c.digits
-                    .is_some_and(|d| d.iter().any(|&x| x > 9) || !crate::ean::checksum(&d))
+                || c.digits.is_some_and(|d| {
+                    d.iter().any(|&first_root| first_root > 9) || !crate::ean::checksum(&d)
+                })
             {
                 return Err(Error::Parameters);
             }
@@ -170,9 +177,9 @@ impl Assembler {
                     .check_strict(image, sample_b, sample_a)
                     .is_ok_and(|e| e.supported)
                 {
-                    let x = root(&self.parents, i);
-                    let y = root(&self.parents, j);
-                    self.parents[x.max(y)] = x.min(y);
+                    let first_root = root(&self.parents, i);
+                    let second_root = root(&self.parents, j);
+                    self.parents[first_root.max(second_root)] = first_root.min(second_root);
                 }
                 if considered >= 4 {
                     break;
@@ -188,15 +195,20 @@ impl Assembler {
             let mut c = input[i].clone();
             let mut b = bounds(&c);
             c.fragments = 1;
-            for j in i + 1..input.len() {
+            for (j, input_entry) in input.iter().enumerate().skip(i + 1) {
                 if root(&self.parents, j) != i {
                     continue;
                 }
-                let q = bounds(&input[j]);
-                b = (b.0.min(q.0), b.1.min(q.1), b.2.max(q.2), b.3.max(q.3));
+                let quad = bounds(input_entry);
+                b = (
+                    b.0.min(quad.0),
+                    b.1.min(quad.1),
+                    b.2.max(quad.2),
+                    b.3.max(quad.3),
+                );
                 c.support = c
                     .support
-                    .checked_add(input[j].support)
+                    .checked_add(input_entry.support)
                     .ok_or(Error::Parameters)?;
                 c.fragments += 1;
                 self.merged += 1;

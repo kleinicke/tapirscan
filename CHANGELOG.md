@@ -7,7 +7,13 @@
 - Python accepts Pillow images, NumPy arrays, PyTorch tensors and explicit pixel
   buffers. Float ranges and layouts are explicit; optional BGR input supports OpenCV.
 - Format identifiers and presets select EAN/UPC, linear and matrix readers.
-  Additional readers are experimental; effort modes control EAN13/UPCA search.
+  Additional readers are experimental; effort modes control EAN13/UPCA, Common1D
+  and QR Code search.
+- QR High adds threshold/sharpen recovery; Very High adds bounded curved-grid
+  recovery. Common1D improves low-contrast and scanline decoding; strong mixed-format
+  reads can avoid redundant deep EAN retries. QR-only packed RGBA uses direct WASM upload.
+- Strict Clippy checks cover the base core, selected mode recipes, additional readers
+  and native bindings in routine validation.
 - Optional `Ignore`, `Read` and `Require` policies control EAN/UPC supplements.
   Supplement text is separate; polygons describe the main barcode.
 - Results expose available payload bytes, GS1 and structured-append metadata.

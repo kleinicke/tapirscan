@@ -14,10 +14,10 @@
     "examples",
     "wasm/multiformat.json",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-release-20260915.wasm",
-    "wasm/medium-release-20260915.wasm",
-    "wasm/high-release-20260915.wasm",
-    "wasm/very-high-release-20260915.wasm",
+    "wasm/low-release-20260916.wasm",
+    "wasm/medium-release-20260916.wasm",
+    "wasm/high-release-20260916.wasm",
+    "wasm/very-high-release-20260916.wasm",
     "wasm/multiformat.wasm"
   ],
   "scripts": {

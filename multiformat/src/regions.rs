@@ -51,6 +51,29 @@ pub fn overlap(first: &Quad, second: &Quad) -> f32 {
     }
     area(&points).abs().min(first_area.min(second_area)) / first_area.min(second_area)
 }
+
+// `overlap` is normalized by the smaller input polygon.  Suppression needs
+// the fraction of the localized region covered by a decoded result instead.
+fn region_coverage(region: &Quad, decoded: &Quad) -> f32 {
+    if region
+        .iter()
+        .chain(decoded.iter())
+        .flatten()
+        .any(|v| !v.is_finite())
+    {
+        return 0.;
+    }
+    let region_area = area(region).abs();
+    let decoded_area = area(decoded).abs();
+    if !region_area.is_finite()
+        || !decoded_area.is_finite()
+        || region_area < 0.001
+        || decoded_area < 0.001
+    {
+        return 0.;
+    }
+    overlap(decoded, region) * region_area.min(decoded_area) / region_area
+}
 #[derive(Clone, Serialize)]
 pub struct Region {
     pub format: String,
@@ -96,8 +119,67 @@ impl Regions {
         self.candidates.retain(|r| {
             !decoded
                 .iter()
-                .any(|d| d.format == r.format && overlap(&d.polygon, &r.polygon) >= 0.7)
+                .any(|d| d.format == r.format && region_coverage(&r.polygon, &d.polygon) >= 0.7)
         });
         (self.candidates, self.limited)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn detection(format: &str, polygon: Quad) -> Detection {
+        Detection {
+            bytes: None,
+            structured_append: None,
+            reader_initialization: false,
+            addon: None,
+            format: format.into(),
+            text: String::new(),
+            polygon,
+            support: 1,
+            error: 0.,
+            gs1: false,
+        }
+    }
+
+    const REGION: Quad = [[0., 0.], [100., 0.], [100., 100.], [0., 100.]];
+
+    #[test]
+    fn small_decoded_result_inside_aggregate_keeps_region() {
+        let small = [[0., 0.], [20., 0.], [20., 20.], [0., 20.]];
+        let mut regions = Regions::default();
+        regions.add("QRCode", REGION, 1., 1);
+        let (remaining, limited) = regions.finish(&[detection("QRCode", small)]);
+        assert_eq!(remaining.len(), 1);
+        assert!(!limited);
+        assert!(region_coverage(&REGION, &small) < 0.7);
+    }
+
+    #[test]
+    fn fully_covered_region_is_removed() {
+        let mut regions = Regions::default();
+        regions.add("QRCode", REGION, 1., 1);
+        let (remaining, _) = regions.finish(&[detection("QRCode", REGION)]);
+        assert!(remaining.is_empty());
+    }
+
+    #[test]
+    fn different_format_does_not_suppress_region() {
+        let mut regions = Regions::default();
+        regions.add("QRCode", REGION, 1., 1);
+        let (remaining, _) = regions.finish(&[detection("DataMatrix", REGION)]);
+        assert_eq!(remaining.len(), 1);
+    }
+
+    #[test]
+    fn reversed_quad_with_same_geometry_suppresses_region() {
+        let reversed = [[0., 100.], [100., 100.], [100., 0.], [0., 0.]];
+        assert!(region_coverage(&REGION, &reversed) >= 0.99);
+        let mut regions = Regions::default();
+        regions.add("QRCode", REGION, 1., 1);
+        let (remaining, _) = regions.finish(&[detection("QRCode", reversed)]);
+        assert!(remaining.is_empty());
     }
 }

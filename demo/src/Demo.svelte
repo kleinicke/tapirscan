@@ -4,6 +4,26 @@
   import { SvelteMap } from "svelte/reactivity";
   import { comparisonOptions, type ComparisonSpec, type ComparisonEntry } from "./lib/comparison";
   import type { Result } from "./lib/types";
+  import { retailFormats, commonFormats, type Format } from "tapirscan";
+  import { version } from "../package.json";
+
+  let detection: "ean13" | "retail" | "common" = "ean13";
+  $: formats =
+    detection === "common"
+      ? commonFormats
+      : detection === "retail"
+        ? retailFormats
+        : (["EAN13"] as const);
+
+  function changeDetection() {
+    invalidate();
+    entries = [];
+    if (detection === "common") selected = selected.filter((id) => id !== "zbar");
+    for (const reject of pending.values()) reject(new Error("Detection selection changed"));
+    for (const worker of workers.values()) worker.terminate();
+    workers.clear();
+    if (source || live) requestScan(0);
+  }
 
   const options = [
     ["veryhigh", "Very high"],
@@ -250,7 +270,11 @@
     if (event.key === "ArrowDown") scale = clampZoom(scale / 1.1);
     transform();
   }
-  function run(spec: ComparisonSpec, image: ImageData): Promise<Result> {
+  function run(
+    spec: ComparisonSpec,
+    image: ImageData,
+    scanFormats: readonly Format[],
+  ): Promise<Result> {
     let worker = workers.get(spec.id);
     if (!worker) {
       worker =
@@ -295,7 +319,7 @@
           engine: spec.engine,
           scannerVersion: spec.version,
           searchFurther: true,
-          formats: ["EAN13"],
+          formats: scanFormats,
           engineBaseUrl: new URL(`${import.meta.env.BASE_URL}engines/`, document.baseURI).href,
           width: image.width,
           height: image.height,
@@ -309,6 +333,7 @@
     if (disposed || (!source && !live)) return;
     if (busy || !selected.length || (live && document.hidden)) return;
     busy = true;
+    const scanFormats = formats;
     let token = revision;
     let contentToken = contentRevision;
     let frameFailed = false;
@@ -370,12 +395,12 @@
         try {
           if (!workers.has(spec.id)) {
             status = `Warming up ${spec.label}…`;
-            await run(spec, image);
+            await run(spec, image, scanFormats);
             // A new worker's first scan warms its runtime; display the second scan.
             if (contentToken !== contentRevision || disposed || !selected.includes(spec.id))
               continue;
           }
-          batch.push({ ...spec, ...view, result: await run(spec, image) });
+          batch.push({ ...spec, ...view, result: await run(spec, image, scanFormats) });
         } catch (reason) {
           batch.push({ ...spec, ...view, error: String(reason) });
         }
@@ -703,6 +728,7 @@
                 : "Ready"}
         <button
           aria-pressed={active}
+          disabled={detection === "common" && option.id === "zbar"}
           aria-label={`${option.label}: ${outcome}`}
           class:chosen={active}
           class:has-reads={active && !!entry?.result && count > 0}
@@ -881,6 +907,17 @@
         </div>
       </div>
       <label class="resolution-control"
+        >Detect<select
+          bind:value={detection}
+          on:change={changeDetection}
+          aria-describedby="detection-note"
+        >
+          <option value="ean13">EAN-13</option>
+          <option value="retail">Retail</option>
+          <option value="common">Common</option>
+        </select></label
+      >
+      <label class="resolution-control"
         >Read up to<select
           aria-label="Resolution"
           bind:value={resolution}
@@ -893,6 +930,10 @@
         </select></label
       >
     </div>
+    <p class="hint" id="detection-note">
+      {formats.join(", ")}.{#if detection === "common"}
+        ZBar is unavailable because it does not support Data Matrix.{/if}
+    </p>
     <input
       bind:this={photoInput}
       type="file"
@@ -948,8 +989,8 @@
     <details class="more-options">
       <summary>More options</summary>
       <p class="hint">
-        Compare EAN-13 readers on the same pixels. Scanner times exclude initialization, the
-        one-time warm-up scan, and transfers.
+        Compare readers on the same pixels and selected formats. Scanner times exclude
+        initialization, the one-time warm-up scan, and transfers.
         {#if totalMs}Preparation {preparationMs.toFixed(1)} ms · Total {totalMs.toFixed(1)} ms.{/if}
       </p>
       <div class="camera-settings">
@@ -1066,7 +1107,7 @@
         <a href="https://f-kleinicke.de/impressum">Impressum</a>
         <a href={`${import.meta.env.BASE_URL}THIRD_PARTY_NOTICES.txt`}>Third-party licenses</a>
       </nav>
-      <span>Tapirscan · v1.1.0</span>
+      <span>Tapirscan · v{version}</span>
     </footer>
   </main>
 </div>

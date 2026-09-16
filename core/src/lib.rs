@@ -1,6 +1,8 @@
 //! Research-only scalar equivalent of the workbench's Gaussian threshold kernel.
 //! The safe core uses explicit slices. Raw handles below are trusted-host ABI
 //! scaffolding, not a validated public API. JS owns each handle until destroy.
+#[doc(hidden)]
+pub mod numeric;
 
 pub struct Kernel {
     width: usize,
@@ -10,6 +12,7 @@ pub struct Kernel {
     tmp: Vec<f64>,
 }
 impl Kernel {
+    #[must_use]
     pub fn new(width: usize, height: usize) -> Option<Self> {
         let len = width.checked_mul(height)?;
         if len == 0 || len > 8_000_000 {
@@ -27,10 +30,10 @@ impl Kernel {
         if !(3..=101).contains(&block) || block.is_multiple_of(2) || !offset.is_finite() {
             return false;
         }
-        let sigma = 0.3 * ((block as f64 - 1.) * 0.5 - 1.) + 0.8;
-        let radius = (3. * sigma).ceil().max(1.) as isize;
+        let sigma = 0.3 * ((crate::numeric::usize_f64(block) - 1.) * 0.5 - 1.) + 0.8;
+        let radius = crate::numeric::f64_isize((3. * sigma).ceil().max(1.));
         let mut weights: Vec<f64> = (-radius..=radius)
-            .map(|k| (-(k * k) as f64 / (2. * sigma * sigma)).exp())
+            .map(|k| (crate::numeric::isize_f64(-(k * k)) / (2. * sigma * sigma)).exp())
             .collect();
         let sum: f64 = weights.iter().sum();
         for w in &mut weights {
@@ -40,8 +43,9 @@ impl Kernel {
             for x in 0..self.width {
                 let mut acc = 0.;
                 for (i, w) in weights.iter().enumerate() {
-                    let sx = (x as isize + i as isize - radius).clamp(0, self.width as isize - 1)
-                        as usize;
+                    let sx = (((x).cast_signed() + (i).cast_signed() - radius)
+                        .clamp(0, (self.width).cast_signed() - 1))
+                    .cast_unsigned();
                     acc += f64::from(self.input[y * self.width + sx]) * w;
                 }
                 self.tmp[y * self.width + x] = acc;
@@ -51,17 +55,19 @@ impl Kernel {
             for x in 0..self.width {
                 let mut acc = 0.;
                 for (i, w) in weights.iter().enumerate() {
-                    let sy = (y as isize + i as isize - radius).clamp(0, self.height as isize - 1)
-                        as usize;
+                    let sy = (((y).cast_signed() + (i).cast_signed() - radius)
+                        .clamp(0, (self.height).cast_signed() - 1))
+                    .cast_unsigned();
                     acc += self.tmp[sy * self.width + x] * w;
                 }
                 // Match existing JS byte truncation before thresholding.
-                self.output[y * self.width + x] =
-                    if f64::from(self.input[y * self.width + x]) > f64::from(acc as u8) - offset {
-                        255
-                    } else {
-                        0
-                    };
+                self.output[y * self.width + x] = if f64::from(self.input[y * self.width + x])
+                    > f64::from(crate::numeric::f64_u8(acc)) - offset
+                {
+                    255
+                } else {
+                    0
+                };
             }
         }
         true
@@ -142,18 +148,22 @@ impl Kernel {
         if !(3..=101).contains(&block) || block.is_multiple_of(2) || !offset.is_finite() {
             return false;
         }
-        let r = (block / 2) as isize;
+        let r = (block / 2).cast_signed();
         let width = self.width;
         let height = self.height;
         for y in 0..height {
             let mut sum = 0.;
             for k in -r..=r {
-                sum += f64::from(self.input[y * width + k.clamp(0, width as isize - 1) as usize]);
+                sum += f64::from(
+                    self.input[y * width + (k.clamp(0, (width).cast_signed() - 1)).cast_unsigned()],
+                );
             }
             for x in 0..width {
-                self.tmp[y * width + x] = sum / block as f64;
-                let left = (x as isize - r).clamp(0, width as isize - 1) as usize;
-                let right = (x as isize + r + 1).clamp(0, width as isize - 1) as usize;
+                self.tmp[y * width + x] = sum / crate::numeric::usize_f64(block);
+                let left =
+                    (((x).cast_signed() - r).clamp(0, (width).cast_signed() - 1)).cast_unsigned();
+                let right = (((x).cast_signed() + r + 1).clamp(0, (width).cast_signed() - 1))
+                    .cast_unsigned();
                 sum += f64::from(self.input[y * width + right])
                     - f64::from(self.input[y * width + left]);
             }
@@ -161,17 +171,21 @@ impl Kernel {
         for x in 0..width {
             let mut sum = 0.;
             for k in -r..=r {
-                sum += self.tmp[k.clamp(0, height as isize - 1) as usize * width + x];
+                sum +=
+                    self.tmp[(k.clamp(0, (height).cast_signed() - 1)).cast_unsigned() * width + x];
             }
             for y in 0..height {
-                self.output[y * width + x] =
-                    if f64::from(self.input[y * width + x]) > sum / block as f64 - offset {
-                        255
-                    } else {
-                        0
-                    };
-                let top = (y as isize - r).clamp(0, height as isize - 1) as usize;
-                let bot = (y as isize + r + 1).clamp(0, height as isize - 1) as usize;
+                self.output[y * width + x] = if f64::from(self.input[y * width + x])
+                    > sum / crate::numeric::usize_f64(block) - offset
+                {
+                    255
+                } else {
+                    0
+                };
+                let top =
+                    (((y).cast_signed() - r).clamp(0, (height).cast_signed() - 1)).cast_unsigned();
+                let bot = (((y).cast_signed() + r + 1).clamp(0, (height).cast_signed() - 1))
+                    .cast_unsigned();
                 sum += self.tmp[bot * width + x] - self.tmp[top * width + x];
             }
         }
@@ -260,23 +274,27 @@ mod box_tests {
             for block in [3, 5, 11] {
                 let mut k = Kernel::new(w, h).unwrap();
                 for (i, v) in k.input.iter_mut().enumerate() {
-                    *v = ((i * 73 + 19) % 256) as u8;
+                    *v = ((i * 73 + 19) % 256).to_le_bytes()[0];
                 }
                 let input = k.input.clone();
                 assert!(k.box_threshold(block, 5.25));
-                let r = (block / 2) as isize;
+                let r = (block / 2).cast_signed();
                 for y in 0..h {
                     for x in 0..w {
                         let mut sum = 0usize;
                         for dy in -r..=r {
                             for dx in -r..=r {
-                                let sx = (x as isize + dx).clamp(0, w as isize - 1) as usize;
-                                let sy = (y as isize + dy).clamp(0, h as isize - 1) as usize;
+                                let sx = (((x).cast_signed() + dx).clamp(0, (w).cast_signed() - 1))
+                                    .cast_unsigned();
+                                let sy = (((y).cast_signed() + dy).clamp(0, (h).cast_signed() - 1))
+                                    .cast_unsigned();
                                 sum += input[sy * w + sx] as usize;
                             }
                         }
                         let reference = if f64::from(input[y * w + x])
-                            > sum as f64 / (block * block) as f64 - 5.25
+                            > crate::numeric::usize_f64(sum)
+                                / crate::numeric::usize_f64(block * block)
+                                - 5.25
                         {
                             255
                         } else {

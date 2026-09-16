@@ -13,11 +13,14 @@ mod linear_geometry;
 pub mod maxicode;
 pub mod maxicode_detect;
 mod maxicode_tables;
+#[doc(hidden)]
+pub mod numeric;
 pub mod pdf417;
 mod pdf417_tables;
 pub mod pdf_localize;
 pub mod qr;
 pub mod qr_detect;
+mod qr_enhance;
 mod qr_tables;
 pub mod reed_binary;
 pub mod reed_prime;
@@ -85,17 +88,93 @@ struct Group {
 }
 pub struct Session {
     input: Vec<u8>,
+    rgba: Vec<u8>,
     output: Vec<u8>,
     width: usize,
     height: usize,
 }
 
+fn histogram(row: &[u8]) -> [usize; 256] {
+    let mut hist = [0usize; 256];
+    if row.len() >= 2048 {
+        // Independent counters avoid a serial load/store chain on broad flat backgrounds.
+        let mut lanes = [[0usize; 256]; 4];
+        let mut chunks = row.chunks_exact(4);
+        for pixels in &mut chunks {
+            lanes[0][usize::from(pixels[0])] += 1;
+            lanes[1][usize::from(pixels[1])] += 1;
+            lanes[2][usize::from(pixels[2])] += 1;
+            lanes[3][usize::from(pixels[3])] += 1;
+        }
+        for (value, count) in hist.iter_mut().enumerate() {
+            *count = lanes.iter().map(|lane| lane[value]).sum();
+        }
+        for &value in chunks.remainder() {
+            hist[usize::from(value)] += 1;
+        }
+    } else {
+        for &v in row {
+            hist[usize::from(v)] += 1;
+        }
+    }
+    hist
+}
+
 fn threshold(row: &[u8], mode: usize) -> Vec<bool> {
-    if mode == 0 {
+    let mut bits = Vec::with_capacity(row.len());
+    threshold_into(row, mode, &mut bits);
+    bits
+}
+fn nested_threshold_into(row: &[u8], upper: u8, bits: &mut Vec<bool>) {
+    bits.clear();
+    bits.reserve(row.len());
+    {
         let mut hist = [0usize; 256];
         for &v in row {
-            hist[v as usize] += 1;
+            if v <= upper {
+                hist[v as usize] += 1;
+            }
         }
+        let sum: u64 = hist
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| i as u64 * n as u64)
+            .sum();
+        let count: usize = hist.iter().sum();
+        let mut mass = 0;
+        let mut left = 0u64;
+        let mut best = 0.;
+        let mut cut = 128;
+        for (i, &n) in hist.iter().enumerate() {
+            // Empty bins repeat the exact same masses, means and score; they
+            // cannot improve the strict maximum or move its first threshold.
+            if n == 0 {
+                continue;
+            }
+            mass += n;
+            left += n as u64 * i as u64;
+            if mass == 0 || mass == count {
+                continue;
+            }
+            let delta = crate::numeric::u64_f64(left) / crate::numeric::usize_f64(mass)
+                - crate::numeric::u64_f64(sum - left) / crate::numeric::usize_f64(count - mass);
+            let score = crate::numeric::usize_f64(mass)
+                * crate::numeric::usize_f64(count - mass)
+                * delta
+                * delta;
+            if score > best {
+                best = score;
+                cut = i;
+            }
+        }
+        bits.extend(row.iter().map(|&v| v as usize <= cut));
+    }
+}
+fn threshold_into(row: &[u8], mode: usize, bits: &mut Vec<bool>) {
+    bits.clear();
+    bits.reserve(row.len());
+    if mode == 0 {
+        let hist = histogram(row);
         let sum: u64 = hist
             .iter()
             .enumerate()
@@ -116,72 +195,150 @@ fn threshold(row: &[u8], mode: usize) -> Vec<bool> {
             if mass == 0 || mass == row.len() {
                 continue;
             }
-            let delta = left as f64 / mass as f64 - (sum - left) as f64 / (row.len() - mass) as f64;
-            let score = mass as f64 * (row.len() - mass) as f64 * delta * delta;
+            let delta = crate::numeric::u64_f64(left) / crate::numeric::usize_f64(mass)
+                - crate::numeric::u64_f64(sum - left) / crate::numeric::usize_f64(row.len() - mass);
+            let score = crate::numeric::usize_f64(mass)
+                * crate::numeric::usize_f64(row.len() - mass)
+                * delta
+                * delta;
             if score > best {
                 best = score;
                 cut = i;
             }
         }
-        row.iter().map(|&v| v as usize <= cut).collect()
+        bits.extend(row.iter().map(|&v| v as usize <= cut));
     } else {
         let radius = if mode == 1 { 24 } else { 64 };
-        // Only the local window is needed. Its at most 129 pixels fit in u32,
-        // unlike a cumulative sum over an arbitrarily long scanline.
-        let mut sum: u32 = row.iter().take(radius + 1).map(|&v| u32::from(v)).sum();
-        let mut count: u32 = row.iter().take(radius + 1).map(|_| 1).sum();
-        row.iter()
-            .enumerate()
-            .map(|(i, &v)| {
-                if i > radius {
-                    sum -= u32::from(row[i - radius - 1]);
-                    count -= 1;
-                }
-                if i > 0 && i + radius < row.len() {
-                    sum += u32::from(row[i + radius]);
-                    count += 1;
-                }
-                (u32::from(v) + 3) * count < sum
-            })
-            .collect()
+        adaptive_threshold_into(row, radius, bits);
     }
 }
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Private callers select only radii 24 or 64; window counts fit u32."
+)]
+fn adaptive_threshold_into(row: &[u8], radius: usize, bits: &mut Vec<bool>) {
+    if row.is_empty() {
+        return;
+    }
+    // A short row has no fixed-size interior. Keep the original expanding /
+    // shrinking recurrence as one bounded fallback.
+    if row.len() <= radius * 2 + 1 {
+        let mut sum: u32 = row.iter().take(radius + 1).map(|&v| u32::from(v)).sum();
+        let mut count: u32 = row.iter().take(radius + 1).map(|_| 1).sum();
+        for (i, &v) in row.iter().enumerate() {
+            if i > radius {
+                sum -= u32::from(row[i - radius - 1]);
+                count -= 1;
+            }
+            if i > 0 && i + radius < row.len() {
+                sum += u32::from(row[i + radius]);
+                count += 1;
+            }
+            bits.push((u32::from(v) + 3) * count < sum);
+        }
+        return;
+    }
+    let mut sum: u32 = row[..=radius].iter().map(|&v| u32::from(v)).sum();
+    let mut count = (radius + 1) as u32;
+    bits.push((u32::from(row[0]) + 3) * count < sum);
+    for i in 1..=radius {
+        sum += u32::from(row[i + radius]);
+        count += 1;
+        bits.push((u32::from(row[i]) + 3) * count < sum);
+    }
+    count = (radius * 2 + 1) as u32;
+    for i in radius + 1..row.len() - radius {
+        sum -= u32::from(row[i - radius - 1]);
+        sum += u32::from(row[i + radius]);
+        bits.push((u32::from(row[i]) + 3) * count < sum);
+    }
+    for i in row.len() - radius..row.len() {
+        sum -= u32::from(row[i - radius - 1]);
+        count -= 1;
+        bits.push((u32::from(row[i]) + 3) * count < sum);
+    }
+}
+#[cfg(test)]
 fn runs(bits: &[bool]) -> (Vec<f32>, Vec<usize>) {
     let mut widths = Vec::new();
-    let mut offsets = vec![0];
-    if bits.is_empty() {
-        return (widths, offsets);
-    }
-    let mut at = 0;
-    for i in 1..bits.len() {
-        if bits[i] != bits[at] {
-            widths.push((i - at) as f32);
-            offsets.push(i);
-            at = i;
-        }
-    }
-    widths.push((bits.len() - at) as f32);
-    offsets.push(bits.len());
+    let mut offsets = Vec::new();
+    runs_into(bits, &mut widths, &mut offsets);
     (widths, offsets)
+}
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "Run widths intentionally retain the existing usize-to-f32 conversion semantics."
+)]
+fn runs_into(bits: &[bool], widths: &mut Vec<f32>, offsets: &mut Vec<usize>) {
+    widths.clear();
+    offsets.clear();
+    transition_offsets_into(bits, offsets);
+    for pair in offsets.windows(2) {
+        widths.push((pair[1] - pair[0]) as f32);
+    }
+}
+
+// Reversing a binary row reverses its run lengths and reflects every boundary.
+// Keep boundary arithmetic integer-exact before downstream floating sampling.
+fn reverse_runs(widths: &mut [f32], offsets: &mut [usize], length: usize) {
+    widths.reverse();
+    offsets.reverse();
+    for offset in offsets {
+        *offset = length - *offset;
+    }
 }
 
 fn run_offsets(bits: &[bool]) -> Vec<usize> {
-    let mut offsets = vec![0];
-    for i in 1..bits.len() {
-        if bits[i] != bits[i - 1] {
-            offsets.push(i);
-        }
-    }
-    offsets.push(bits.len());
+    let mut offsets = Vec::new();
+    run_offsets_into(bits, &mut offsets);
     offsets
 }
+fn run_offsets_into(bits: &[bool], offsets: &mut Vec<usize>) {
+    transition_offsets_into(bits, offsets);
+    if bits.is_empty() {
+        offsets.push(0);
+    }
+}
+pub(crate) fn transition_offsets_into(bits: &[bool], offsets: &mut Vec<usize>) {
+    offsets.clear();
+    offsets.push(0);
+    if bits.is_empty() {
+        return;
+    }
+    let mut previous = bits[0];
+    let mut i = 1;
+    while bits.len() - i >= 8 {
+        let mut bytes = [0u8; 8];
+        for (byte, &bit) in bytes.iter_mut().zip(&bits[i..i + 8]) {
+            *byte = u8::from(bit);
+        }
+        let word = u64::from_le_bytes(bytes);
+        let transitions = word ^ (word << 8 | u64::from(u8::from(previous)));
+        let mut pending = transitions;
+        while pending != 0 {
+            offsets.push(i + pending.trailing_zeros() as usize / 8);
+            pending &= pending - 1;
+        }
+        previous = bits[i + 7];
+        i += 8;
+    }
+    while i < bits.len() {
+        if bits[i] != previous {
+            offsets.push(i);
+        }
+        previous = bits[i];
+        i += 1;
+    }
+    offsets.push(bits.len());
+}
+#[cfg(test)]
 fn refined_runs(bits: &[bool], row: &[u8], reverse: bool) -> (Vec<f32>, Vec<usize>) {
     refine_run_offsets(run_offsets(bits), row, reverse)
 }
 #[inline]
 fn refined_edge(i: usize, row: &[u8], reverse: bool) -> f32 {
     if i == 0 || i == row.len() {
-        return i as f32;
+        return crate::numeric::usize_f32(i);
     }
     let pixel = |i: usize| f32::from(row[if reverse { row.len() - 1 - i } else { i }]);
     let mut low = 255f32;
@@ -197,18 +354,23 @@ fn refined_edge(i: usize, row: &[u8], reverse: bool) -> f32 {
     } else {
         0.5
     };
-    i as f32 - 0.5 + frac
+    crate::numeric::usize_f32(i) - 0.5 + frac
 }
 fn refine_run_offsets(offsets: Vec<usize>, row: &[u8], reverse: bool) -> (Vec<f32>, Vec<usize>) {
     let mut widths = Vec::with_capacity(offsets.len() - 1);
+    refine_run_offsets_into(&offsets, row, reverse, &mut widths);
+    (widths, offsets)
+}
+fn refine_run_offsets_into(offsets: &[usize], row: &[u8], reverse: bool, widths: &mut Vec<f32>) {
+    widths.clear();
+    widths.reserve(offsets.len().saturating_sub(1));
     let mut last_edge = 0.;
     for &i in offsets.iter().skip(1).take(offsets.len().saturating_sub(2)) {
         let edge = refined_edge(i, row, reverse);
         widths.push(edge - last_edge);
         last_edge = edge;
     }
-    widths.push(row.len() as f32 - last_edge);
-    (widths, offsets)
+    widths.push(crate::numeric::usize_f32(row.len()) - last_edge);
 }
 fn direction_agrees(image: &[u8], width: usize, height: usize, group: &Group) -> bool {
     let cos_angle = group.angle.cos();
@@ -220,12 +382,12 @@ fn direction_agrees(image: &[u8], width: usize, height: usize, group: &Group) ->
         for i in 0_u8..64 {
             let along = group.lo + (group.hi - group.lo) * (f32::from(i) + 0.5) / 64.;
             let cross = group.top + (group.bottom - group.top) * (f32::from(j) + 0.5) / 5.;
-            let x = (along * cos_angle - cross * sin_angle).round() as isize;
-            let y = (along * sin_angle + cross * cos_angle).round() as isize;
-            if x < 1 || y < 1 || x >= width as isize - 1 || y >= height as isize - 1 {
+            let x = crate::numeric::f32_isize((along * cos_angle - cross * sin_angle).round());
+            let y = crate::numeric::f32_isize((along * sin_angle + cross * cos_angle).round());
+            if x < 1 || y < 1 || x >= (width).cast_signed() - 1 || y >= (height).cast_signed() - 1 {
                 continue;
             }
-            let at = y as usize * width + x as usize;
+            let at = (y).cast_unsigned() * width + (x).cast_unsigned();
             let dx = f64::from(image[at + 1]) - f64::from(image[at - 1]);
             let dy = f64::from(image[at + width]) - f64::from(image[at - width]);
             xx += dx * dx;
@@ -249,6 +411,24 @@ fn direction_agrees(image: &[u8], width: usize, height: usize, group: &Group) ->
 /// image buffer return an empty scan. Results include qualified unread regions.
 #[must_use]
 pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize) -> Scan {
+    scan_observed(image, width, height, mask, effort, |_, _| {})
+}
+
+/// Native diagnostic hook called after each enabled stage. The normal scanner
+/// uses a no-op callback; no clocks or profiling allocations enter that path.
+/// `limited` includes previously raised shared work-limit signals, not a timeout.
+#[expect(
+    clippy::too_many_lines,
+    reason = "The scanner orchestrator keeps reader order, deduplication and aggregate unfinished-work accounting in one transaction."
+)]
+pub fn scan_observed(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    mask: u32,
+    effort: usize,
+    mut observe: impl FnMut(&'static str, bool),
+) -> Scan {
     if width == 0 || height == 0 || width.checked_mul(height).is_none_or(|n| n > image.len()) {
         return Scan {
             barcodes: vec![],
@@ -260,7 +440,34 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
     let mut regions = regions::Regions::default();
     let mut binary_images = binarization::Images::new(image, width, height);
     let (mut matrix_results, mut matrix_unfinished) = if mask & 512 != 0 {
-        qr_detect::detect(width, height, &mut regions, &mut binary_images)
+        let (mut reads, mut limited) = if effort > 2 {
+            qr_detect::detect_curved(width, height, &mut regions, &mut binary_images)
+        } else if effort > 1 {
+            qr_detect::detect_extended(width, height, &mut regions, &mut binary_images)
+        } else {
+            qr_detect::detect(width, height, &mut regions, &mut binary_images)
+        };
+        if effort > 1 && width * height <= 1_048_576 {
+            let enhanced = qr_enhance::sharpen(image, width, height);
+            let mut recovery = binarization::Images::new(&enhanced, width, height);
+            let (extra, extra_limited) = if effort > 2 {
+                qr_detect::detect_curved(width, height, &mut regions, &mut recovery)
+            } else {
+                qr_detect::detect_extended(width, height, &mut regions, &mut recovery)
+            };
+            limited |= extra_limited;
+            for read in extra {
+                if !reads.iter().any(|prior| {
+                    prior.text == read.text
+                        && prior.structured_append == read.structured_append
+                        && crate::regions::overlap(&prior.polygon, &read.polygon) >= 0.65
+                }) {
+                    reads.push(read);
+                }
+            }
+        }
+        observe("QRCode", limited || regions.limited);
+        (reads, limited)
     } else {
         (vec![], false)
     };
@@ -269,23 +476,27 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
             dm_detect::detect(width, height, &mut regions, &mut binary_images);
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
+        observe("DataMatrix", matrix_unfinished || regions.limited);
     }
     if mask & 4096 != 0 {
         let (mut reads, limited) =
             aztec_detect::detect(width, height, &mut regions, &mut binary_images);
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
+        observe("Aztec", matrix_unfinished || regions.limited);
     }
     if mask & 131_072 != 0 {
         let (mut reads, limited) =
             maxicode_detect::detect(width, height, &mut regions, &mut binary_images);
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
+        observe("MaxiCode", matrix_unfinished || regions.limited);
     }
     if mask & 2048 != 0 {
         let (mut reads, limited) = pdf417::detect(image, width, height, &mut regions);
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
+        observe("PDF417", matrix_unfinished || regions.limited);
     }
     if mask & (511 | 8192 | 16384) == 0 {
         linear_geometry::distinct(&mut matrix_results);
@@ -297,7 +508,26 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
             lines: 0,
         };
     }
-    let step = (width.min(height) / if effort > 0 { 120 } else { 64 }).clamp(2, 16) as f32;
+    // Exact constant-background exclusion: all pixels outside this rectangle
+    // equal image[0]. Skip only lines whose rounded sample positions cannot
+    // intersect it. No threshold, format, successful read or annotation gates it.
+    let background = image[0];
+    let mut active = [width, height, 0usize, 0usize];
+    for (y, row) in image[..width * height].chunks_exact(width).enumerate() {
+        if let Some(left) = row.iter().position(|&value| value != background) {
+            let right = row
+                .iter()
+                .rposition(|&value| value != background)
+                .unwrap_or(left);
+            active[0] = active[0].min(left);
+            active[1] = active[1].min(y);
+            active[2] = active[2].max(right);
+            active[3] = active[3].max(y);
+        }
+    }
+    let step = crate::numeric::usize_f32(
+        (width.min(height) / if effort > 0 { 120 } else { 64 }).clamp(2, 16),
+    );
     let angles: &[f32] = if effort > 1 {
         &[0., 90., 45., -45., 22.5, -22.5, 67.5, -67.5]
     } else if effort > 0 {
@@ -308,8 +538,19 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
     let mut groups: Vec<Group> = Vec::new();
     let mut databar_stacked = databar::Stacked::default();
     let mut expanded_stacked = expanded::Stacked::default();
+    let mut row = Vec::new();
+    let mut bits = Vec::new();
+    let mut previous_bits = Vec::new();
+    let mut refined = Vec::new();
+    let mut offsets = Vec::new();
+    let mut integer_runs = Vec::new();
+    let mut dummy_integer_offsets = Vec::new();
+    let mut cached_row = Vec::new();
+    let mut cached_reads: Vec<(usize, linear::Read, usize, usize)> = Vec::new();
     let mut line_id = 0;
     for &deg in angles {
+        cached_row.clear();
+        cached_reads.clear();
         let angle = deg.to_radians();
         #[expect(
             clippy::float_cmp,
@@ -324,9 +565,12 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
         };
         let corners = [
             [0., 0.],
-            [width as f32 - 1., 0.],
-            [width as f32 - 1., height as f32 - 1.],
-            [0., height as f32 - 1.],
+            [crate::numeric::usize_f32(width) - 1., 0.],
+            [
+                crate::numeric::usize_f32(width) - 1.,
+                crate::numeric::usize_f32(height) - 1.,
+            ],
+            [0., crate::numeric::usize_f32(height) - 1.],
         ];
         let mut amin = f32::INFINITY;
         let mut amax = f32::NEG_INFINITY;
@@ -338,19 +582,41 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
             bmin = bmin.min(-x * sin_angle + y * cos_angle);
             bmax = bmax.max(-x * sin_angle + y * cos_angle);
         }
+        let (mut active_min, mut active_max) = (f32::INFINITY, f32::NEG_INFINITY);
+        if active[0] < width {
+            for x in [active[0], active[2]] {
+                for y in [active[1], active[3]] {
+                    let projected = -crate::numeric::usize_f32(x) * sin_angle
+                        + crate::numeric::usize_f32(y) * cos_angle;
+                    active_min = active_min.min(projected - 2.);
+                    active_max = active_max.max(projected + 2.);
+                }
+            }
+        }
         let mut b = bmin + (step * 0.5).min((bmax - bmin) * 0.5);
         while b <= bmax {
-            let mut row = Vec::new();
+            if b < active_min || b > active_max {
+                line_id += 1;
+                b += step;
+                continue;
+            }
+            row.clear();
+            bits.clear();
+            previous_bits.clear();
+            refined.clear();
+            offsets.clear();
+            integer_runs.clear();
+            dummy_integer_offsets.clear();
             let mut start = amin;
             #[expect(
                 clippy::float_cmp,
                 reason = "Preset angles are exact constants; equality selects axial fast paths."
             )]
             if deg == 0. {
-                let y = b.round() as usize;
+                let y = crate::numeric::f32_usize(b.round());
                 row.extend_from_slice(&image[y * width..(y + 1) * width]);
             } else if deg == 90. {
-                let x = (-b).round() as usize;
+                let x = crate::numeric::f32_usize((-b).round());
                 row.extend((0..height).map(|y| image[y * width + x]));
             } else {
                 // Intersect this scanline with the image before sampling. Keep
@@ -364,22 +630,28 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
                 ] {
                     if coefficient.abs() > 1e-6 {
                         let a = (-0.5 - offset) / coefficient;
-                        let z = (extent as f32 - 0.5 - offset) / coefficient;
+                        let z = (crate::numeric::usize_f32(extent) - 0.5 - offset) / coefficient;
                         lo = lo.max(a.min(z));
                         hi = hi.min(a.max(z));
                     }
                 }
-                let first = ((lo - amin).floor() as isize - 1).max(0) as usize;
-                let last = ((hi - amin).ceil() as isize + 1).max(0) as usize;
-                for i in first..=last.min((amax - amin).ceil() as usize) {
-                    let a = amin + i as f32;
-                    let x = (a * cos_angle - b * sin_angle).round() as isize;
-                    let y = (a * sin_angle + b * cos_angle).round() as isize;
-                    if x >= 0 && y >= 0 && (x as usize) < width && (y as usize) < height {
+                let first =
+                    ((crate::numeric::f32_isize((lo - amin).floor()) - 1).max(0)).cast_unsigned();
+                let last =
+                    ((crate::numeric::f32_isize((hi - amin).ceil()) + 1).max(0)).cast_unsigned();
+                for i in first..=last.min(crate::numeric::f32_usize((amax - amin).ceil())) {
+                    let a = amin + crate::numeric::usize_f32(i);
+                    let x = crate::numeric::f32_isize((a * cos_angle - b * sin_angle).round());
+                    let y = crate::numeric::f32_isize((a * sin_angle + b * cos_angle).round());
+                    if x >= 0
+                        && y >= 0
+                        && (x).cast_unsigned() < width
+                        && (y).cast_unsigned() < height
+                    {
                         if row.is_empty() {
                             start = a;
                         }
-                        row.push(image[y as usize * width + x as usize]);
+                        row.push(image[(y).cast_unsigned() * width + (x).cast_unsigned()]);
                     } else if !row.is_empty() {
                         break;
                     }
@@ -387,160 +659,215 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
             }
             line_id += 1;
             if row.len() >= 40 && row.iter().any(|&v| v != row[0]) {
-                let mut previous_bits = Vec::new();
-                let passes = if effort == 0 {
-                    1
-                } else if mask & linear::EAN8 != 0 && (deg.abs() < 0.01 || (deg - 90.).abs() < 0.01)
-                {
-                    5
-                } else {
-                    2
-                };
-                for mode in 0..passes {
-                    let (bits, mut r, mut offsets) = if mode == 2 {
-                        retail_profile::runs(&row)
-                    } else if mode >= 3 {
-                        let sharpened = retail_profile::sharpen_row(&row);
-                        let bits = threshold(&sharpened, mode - 3);
-                        let (r, offsets) = refined_runs(&bits, &sharpened, false);
-                        (bits, r, offsets)
+                let reusable = mask & (linear::DATABAR | linear::DATABAR_EXPANDED) == 0;
+                if !reusable || row != cached_row {
+                    cached_reads.clear();
+                    let mut sharpened_row = None;
+                    let ordinary_passes = if effort == 0 {
+                        1
+                    } else if mask & linear::EAN8 != 0
+                        && (deg.abs() < 0.01 || (deg - 90.).abs() < 0.01)
+                    {
+                        5
                     } else {
-                        let bits = threshold(&row, mode);
-                        let (r, offsets) = refined_runs(&bits, &row, false);
-                        (bits, r, offsets)
+                        2
                     };
-                    if mode < 2 && bits == previous_bits {
-                        continue;
-                    }
-                    let mask = if mode >= 2 {
-                        mask & (linear::EAN8 | linear::ADDON_READ | linear::ADDON_REQUIRE)
+                    let mut nested_upper = None;
+                    let passes = if effort > 0 && mask & 127 != 0 {
+                        ordinary_passes + 1
                     } else {
-                        mask
+                        ordinary_passes
                     };
-                    let mut integer_runs = if mask & linear::CODABAR != 0 {
-                        runs(&bits).0
-                    } else {
-                        vec![]
-                    };
-                    for reverse in [false, true] {
-                        if reverse {
-                            r.reverse();
-                            offsets.reverse();
-                            for offset in &mut offsets {
-                                *offset = row.len() - *offset;
-                            }
-                            integer_runs.reverse();
-                        }
-                        let Some(&first_black) = (if reverse { bits.last() } else { bits.first() })
-                        else {
-                            continue;
-                        };
-                        if mask & linear::DATABAR != 0 {
-                            databar_stacked.observe(databar::ScanLine {
-                                runs: &r,
-                                offsets: &offsets,
-                                first_black,
-                                reverse,
-                                length: row.len(),
-                                start,
-                                cross: b,
-                                angle,
-                                line: line_id,
-                                step,
-                            });
-                        }
-                        if mask & linear::DATABAR_EXPANDED != 0 {
-                            expanded_stacked.observe(databar::ScanLine {
-                                runs: &r,
-                                offsets: &offsets,
-                                first_black,
-                                reverse,
-                                length: row.len(),
-                                start,
-                                cross: b,
-                                angle,
-                                line: line_id,
-                                step,
-                            });
-                        }
-                        let mut reads =
-                            linear::decode_candidates(&r, first_black, mask, &mut regions.limited);
-                        if mask & linear::CODABAR != 0 {
-                            reads.extend(linear::decode_candidates(
-                                &integer_runs,
-                                first_black,
-                                linear::CODABAR,
-                                &mut regions.limited,
-                            ));
-                        }
-                        for mut read in reads {
-                            if mode == 2 && !read.decoded && read.format == "EAN8" {
-                                if let Some((text, error)) =
-                                    retail_gray::decode(&row, &r, read.start, reverse)
-                                {
-                                    read.text = text;
-                                    read.decoded = true;
-                                    read.error = error;
-                                }
-                            }
-                            let (left, right) = if reverse {
-                                (
-                                    row.len() - offsets[read.end],
-                                    row.len() - offsets[read.start],
-                                )
-                            } else {
-                                (offsets[read.start], offsets[read.end])
+                    for mode in 0..passes {
+                        let nested = mode == ordinary_passes;
+                        if nested {
+                            let Some(upper) = nested_upper else {
+                                continue;
                             };
-                            let lo = start + left as f32;
-                            let hi = start + right as f32;
-                            let length = hi - lo;
-                            if let Some(g) = groups.iter_mut().find(|g| {
-                                g.format == read.format
-                                    && g.decoded == read.decoded
-                                    && g.text == read.text
-                                    && (g.addon.is_none()
-                                        || read.addon.is_none()
-                                        || g.addon == read.addon)
-                                    && (g.angle - angle).abs() < 0.01
-                                    && (g.lo - lo).abs() < length * 0.25
-                                    && (g.hi - hi).abs() < length * 0.25
-                                    && b - g.bottom <= step * 3.
-                            }) {
-                                g.profile_only &= mode >= 2;
-                                if g.last_line != line_id {
-                                    g.support += 1;
-                                    if read.addon.is_some() {
-                                        g.addon.clone_from(&read.addon);
-                                        g.addon_support += 1;
-                                    }
-                                    g.last_line = line_id;
-                                    g.bottom = b;
-                                    g.lo = g.lo.min(lo);
-                                    g.hi = g.hi.max(hi);
-                                    g.error = g.error.min(read.error);
+                            nested_threshold_into(&row, upper, &mut bits);
+                            run_offsets_into(&bits, &mut offsets);
+                            refine_run_offsets_into(&offsets, &row, false, &mut refined);
+                        } else if mode == 2 {
+                            let (profile_bits, profile_r, profile_offsets) =
+                                retail_profile::runs(&row);
+                            bits = profile_bits;
+                            refined = profile_r;
+                            offsets = profile_offsets;
+                        } else if mode >= 3 {
+                            let sharpened = sharpened_row
+                                .get_or_insert_with(|| retail_profile::sharpen_row(&row));
+                            threshold_into(sharpened, mode - 3, &mut bits);
+                            run_offsets_into(&bits, &mut offsets);
+                            refine_run_offsets_into(&offsets, sharpened, false, &mut refined);
+                        } else {
+                            threshold_into(&row, mode, &mut bits);
+                            // Refinement is unnecessary when the exact existing
+                            // duplicate-threshold check would discard this pass.
+                            if bits == previous_bits {
+                                continue;
+                            }
+                            run_offsets_into(&bits, &mut offsets);
+                            refine_run_offsets_into(&offsets, &row, false, &mut refined);
+                        }
+                        if mode == 0 && refined.len() < 16 {
+                            let mut lower = 255;
+                            let mut upper = 0;
+                            for (&value, &black) in row.iter().zip(&bits) {
+                                if black {
+                                    lower = lower.min(value);
+                                    upper = upper.max(value);
                                 }
-                            } else {
-                                groups.push(Group {
-                                    profile_only: mode >= 2,
-                                    decoded: read.decoded,
-                                    addon_support: usize::from(read.addon.is_some()),
-                                    addon: read.addon,
-                                    format: read.format.into(),
-                                    text: read.text,
+                            }
+                            if upper.saturating_sub(lower) >= 6 {
+                                nested_upper = Some(upper);
+                            }
+                        }
+                        let mask = if nested {
+                            mask & (127 | linear::ADDON_READ | linear::ADDON_REQUIRE)
+                        } else if mode >= 2 {
+                            mask & (linear::EAN8 | linear::ADDON_READ | linear::ADDON_REQUIRE)
+                        } else {
+                            mask
+                        };
+                        if mask & linear::CODABAR != 0 {
+                            runs_into(&bits, &mut integer_runs, &mut dummy_integer_offsets);
+                        } else {
+                            integer_runs.clear();
+                        }
+                        for reverse in [false, true] {
+                            if reverse {
+                                refined.reverse();
+                                offsets.reverse();
+                                for offset in &mut offsets {
+                                    *offset = row.len() - *offset;
+                                }
+                                integer_runs.reverse();
+                            }
+                            let Some(&first_black) =
+                                (if reverse { bits.last() } else { bits.first() })
+                            else {
+                                continue;
+                            };
+                            if mask & linear::DATABAR != 0 {
+                                databar_stacked.observe(databar::ScanLine {
+                                    runs: &refined,
+                                    offsets: &offsets,
+                                    first_black,
+                                    reverse,
+                                    length: row.len(),
+                                    start,
+                                    cross: b,
                                     angle,
-                                    lo,
-                                    hi,
-                                    top: b,
-                                    bottom: b,
-                                    support: 1,
-                                    error: read.error,
-                                    gs1: read.gs1,
-                                    last_line: line_id,
+                                    line: line_id,
+                                    step,
                                 });
                             }
+                            if mask & linear::DATABAR_EXPANDED != 0 {
+                                expanded_stacked.observe(databar::ScanLine {
+                                    runs: &refined,
+                                    offsets: &offsets,
+                                    first_black,
+                                    reverse,
+                                    length: row.len(),
+                                    start,
+                                    cross: b,
+                                    angle,
+                                    line: line_id,
+                                    step,
+                                });
+                            }
+                            let mut reads = linear::decode_candidates(
+                                &refined,
+                                first_black,
+                                mask,
+                                &mut regions.limited,
+                            );
+                            if mask & linear::CODABAR != 0 {
+                                reads.extend(linear::decode_candidates(
+                                    &integer_runs,
+                                    first_black,
+                                    linear::CODABAR,
+                                    &mut regions.limited,
+                                ));
+                            }
+                            for mut read in reads {
+                                if mode == 2 && !read.decoded && read.format == "EAN8" {
+                                    if let Some((text, error)) =
+                                        retail_gray::decode(&row, &refined, read.start, reverse)
+                                    {
+                                        read.text = text;
+                                        read.decoded = true;
+                                        read.error = error;
+                                    }
+                                }
+                                let (left, right) = if reverse {
+                                    (
+                                        row.len() - offsets[read.end],
+                                        row.len() - offsets[read.start],
+                                    )
+                                } else {
+                                    (offsets[read.start], offsets[read.end])
+                                };
+                                cached_reads.push((
+                                    if nested { 0 } else { mode },
+                                    read,
+                                    left,
+                                    right,
+                                ));
+                            }
                         }
+                        std::mem::swap(&mut bits, &mut previous_bits);
                     }
-                    previous_bits = bits;
+                    if reusable {
+                        cached_row.clone_from(&row);
+                    }
+                }
+                for &(mode, ref read, left, right) in &cached_reads {
+                    let lo = start + crate::numeric::usize_f32(left);
+                    let hi = start + crate::numeric::usize_f32(right);
+                    let length = hi - lo;
+                    if let Some(g) = groups.iter_mut().find(|g| {
+                        g.format == read.format
+                            && g.decoded == read.decoded
+                            && g.text == read.text
+                            && (g.addon.is_none() || read.addon.is_none() || g.addon == read.addon)
+                            && (g.angle - angle).abs() < 0.01
+                            && (g.lo - lo).abs() < length * 0.25
+                            && (g.hi - hi).abs() < length * 0.25
+                            && b - g.bottom <= step * 3.
+                    }) {
+                        g.profile_only &= mode >= 2;
+                        if g.last_line != line_id {
+                            g.support += 1;
+                            if read.addon.is_some() {
+                                g.addon.clone_from(&read.addon);
+                                g.addon_support += 1;
+                            }
+                            g.last_line = line_id;
+                            g.bottom = b;
+                            g.lo = g.lo.min(lo);
+                            g.hi = g.hi.max(hi);
+                            g.error = g.error.min(read.error);
+                        }
+                    } else {
+                        groups.push(Group {
+                            profile_only: mode >= 2,
+                            decoded: read.decoded,
+                            addon_support: usize::from(read.addon.is_some()),
+                            addon: read.addon.clone(),
+                            format: read.format.into(),
+                            text: read.text.clone(),
+                            angle,
+                            lo,
+                            hi,
+                            top: b,
+                            bottom: b,
+                            support: 1,
+                            error: read.error,
+                            gs1: read.gs1,
+                            last_line: line_id,
+                        });
+                    }
                 }
             }
             b += step;
@@ -623,8 +950,11 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
     results.append(&mut expanded);
     matrix_unfinished |= limited;
     results.append(&mut matrix_results);
+    observe("Linear", matrix_unfinished || regions.limited);
     linear_geometry::distinct(&mut results);
+    suppress_itf_fragments(&mut results);
     let (regions, limited) = regions.finish(&results);
+    observe("Finalize", matrix_unfinished || limited);
     Scan {
         barcodes: results,
         regions,
@@ -633,10 +963,23 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
     }
 }
 
+/// Host routing capabilities supported by this frozen scanner version.
+/// Bit 0 enables the shared all-format retail pass; absent exports in older
+/// WASM keep the legacy host route for reproducible archived comparisons.
+/// Bit 1 applies a stricter acceptance gate to supplemental retail reads.
+/// Bit 2 supports packed RGBA upload and exact integer-luma preparation.
+/// Bit 3 supports timing-guided curved QR grids at effort >=3.
+#[must_use]
+#[no_mangle]
+pub extern "C" fn multi_capabilities() -> u32 {
+    15
+}
+
 #[no_mangle]
 pub extern "C" fn multi_new() -> *mut Session {
     Box::into_raw(Box::new(Session {
         input: vec![],
+        rgba: vec![],
         output: vec![],
         width: 0,
         height: 0,
@@ -771,7 +1114,57 @@ mod image_safety_tests {
 
 #[cfg(test)]
 mod threshold_tests {
-    use super::threshold;
+    #[test]
+    fn reflected_runs_match_reextracting_reversed_pixels() {
+        let mut seed = 1487_u32;
+        for length in [0, 1, 2, 9, 31, 128, 2049] {
+            for kind in 0..4 {
+                let mut bits: Vec<bool> = (0..length)
+                    .map(|i| {
+                        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                        match kind {
+                            0 => seed >> 31 != 0,
+                            1 => i % 17 < 8,
+                            2 => true,
+                            _ => false,
+                        }
+                    })
+                    .collect();
+                let (mut widths, mut offsets) = super::runs(&bits);
+                super::reverse_runs(&mut widths, &mut offsets, length);
+                bits.reverse();
+                assert_eq!((widths, offsets), super::runs(&bits));
+            }
+        }
+    }
+    use super::{runs, runs_into, threshold, threshold_into};
+
+    #[test]
+    fn reusable_threshold_and_run_buffers_match_allocating_wrappers() {
+        let mut state = 0x0050_0511_u32;
+        let mut bits_buffer = Vec::new();
+        let mut widths_buffer = Vec::new();
+        let mut offsets_buffer = Vec::new();
+        for length in [0, 1, 2, 7, 24, 65, 257, 4097, 65, 2, 0, 257] {
+            let row: Vec<u8> = (0..length)
+                .map(|_| {
+                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    state.to_be_bytes()[0]
+                })
+                .collect();
+            for mode in 0..3 {
+                let expected = threshold(&row, mode);
+                threshold_into(&row, mode, &mut bits_buffer);
+                assert_eq!(bits_buffer, expected);
+                let expected_runs = runs(&bits_buffer);
+                runs_into(&bits_buffer, &mut widths_buffer, &mut offsets_buffer);
+                assert_eq!(
+                    (&widths_buffer, &offsets_buffer),
+                    (&expected_runs.0, &expected_runs.1)
+                );
+            }
+        }
+    }
 
     fn reference(row: &[u8], radius: usize) -> Vec<bool> {
         row.iter()
@@ -809,5 +1202,309 @@ mod threshold_tests {
         let length = usize::try_from(u32::MAX / 255).unwrap() + 2;
         let row = vec![255; length];
         assert!(threshold(&row, 1).iter().all(|&black| !black));
+    }
+}
+
+#[cfg(test)]
+mod adaptive_split_tests {
+    use super::{threshold, threshold_into};
+
+    fn reference(row: &[u8], radius: usize) -> Vec<bool> {
+        let mut sum: u32 = row.iter().take(radius + 1).map(|&v| u32::from(v)).sum();
+        let mut count: u32 = row.iter().take(radius + 1).map(|_| 1).sum();
+        row.iter()
+            .enumerate()
+            .map(|(i, &v)| {
+                if i > radius {
+                    sum -= u32::from(row[i - radius - 1]);
+                    count -= 1;
+                }
+                if i > 0 && i + radius < row.len() {
+                    sum += u32::from(row[i + radius]);
+                    count += 1;
+                }
+                (u32::from(v) + 3) * count < sum
+            })
+            .collect()
+    }
+
+    #[test]
+    fn split_adaptive_windows_match_reference_with_reused_shrinking_output() {
+        let mut state = 0x0050_0515_u32;
+        let mut output = Vec::new();
+        for radius in [24_usize, 64] {
+            for length in [
+                0,
+                1,
+                radius,
+                radius + 1,
+                radius * 2,
+                radius * 2 + 1,
+                radius * 2 + 2,
+                radius * 2 + 3,
+                257,
+                4097,
+            ] {
+                for kind in 0..3 {
+                    let row: Vec<u8> = (0..length)
+                        .map(|i| match kind {
+                            0 => 0,
+                            1 => 255,
+                            _ => {
+                                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                                state.to_be_bytes()[0].wrapping_add(i.to_le_bytes()[0])
+                            }
+                        })
+                        .collect();
+                    let expected = reference(&row, radius);
+                    threshold_into(&row, radius / 40 + 1, &mut output);
+                    assert_eq!(output, expected);
+                    assert_eq!(threshold(&row, radius / 40 + 1), expected);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod packed_run_tests {
+    use super::{run_offsets_into, runs_into};
+
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "Scalar reference intentionally mirrors production usize-to-f32 run-width conversion."
+    )]
+    fn reference(bits: &[bool]) -> (Vec<f32>, Vec<usize>) {
+        let mut widths = Vec::new();
+        let mut offsets = vec![0];
+        if bits.is_empty() {
+            return (widths, offsets);
+        }
+        let mut at = 0;
+        for i in 1..bits.len() {
+            if bits[i] != bits[at] {
+                widths.push((i - at) as f32);
+                offsets.push(i);
+                at = i;
+            }
+        }
+        widths.push((bits.len() - at) as f32);
+        offsets.push(bits.len());
+        (widths, offsets)
+    }
+
+    #[test]
+    fn packed_transitions_match_scalar_reference_at_boundaries() {
+        let mut state = 0x0050_0516_u32;
+        for length in [
+            0, 1, 2, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 257, 4097,
+        ] {
+            for kind in 0..4 {
+                let bits: Vec<bool> = (0..length)
+                    .map(|i| match kind {
+                        0 => false,
+                        1 => i % 2 == 0,
+                        2 => i % 17 < 8,
+                        _ => {
+                            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                            state & 1 != 0
+                        }
+                    })
+                    .collect();
+                let expected = reference(&bits);
+                let mut widths = Vec::new();
+                let mut offsets = Vec::new();
+                runs_into(&bits, &mut widths, &mut offsets);
+                assert_eq!((widths, offsets.clone()), expected);
+                run_offsets_into(&bits, &mut offsets);
+                let expected_offsets = if bits.is_empty() {
+                    vec![0, 0]
+                } else {
+                    expected.1.clone()
+                };
+                assert_eq!(offsets, expected_offsets);
+            }
+        }
+    }
+}
+
+#[no_mangle]
+/// Prepare a packed RGBA input buffer, retaining the integer grayscale rule.
+///
+/// # Safety
+/// `s` must be null or a live exclusively accessible session. All earlier input
+/// pointers expire; initialize exactly width*height*4 bytes before scanning.
+pub unsafe extern "C" fn multi_prepare_rgba(s: *mut Session, w: usize, h: usize) -> u32 {
+    let status = multi_prepare(s, w, h);
+    if status != 0 {
+        return status;
+    }
+    (*s).rgba.resize(w * h * 4, 0);
+    0
+}
+#[no_mangle]
+/// Obtain the prepared packed RGBA buffer.
+///
+/// # Safety
+/// `s` must be live and prepared by `multi_prepare_rgba`. The pointer expires
+/// at the next prepare/free call; no session operation may overlap a write.
+pub unsafe extern "C" fn multi_input_rgba(s: *mut Session) -> *mut u8 {
+    (*s).rgba.as_mut_ptr()
+}
+#[no_mangle]
+/// Convert packed RGBA and scan; alpha is ignored exactly as in the JS host.
+///
+/// # Safety
+/// `s` must be null or a live exclusively accessible session with initialized
+/// RGBA pixels. Previous output pointers expire at this call.
+pub unsafe extern "C" fn multi_scan_rgba(s: *mut Session, mask: u32, effort: usize) -> u32 {
+    let Some(state) = s.as_mut() else {
+        return 1;
+    };
+    if state.rgba.len() != state.input.len() * 4 {
+        return 3;
+    }
+    for (gray, pixel) in state.input.iter_mut().zip(state.rgba.chunks_exact(4)) {
+        let value =
+            (u16::from(pixel[0]) * 77 + u16::from(pixel[1]) * 150 + u16::from(pixel[2]) * 29 + 128)
+                >> 8;
+        *gray = value.to_le_bytes()[0];
+    }
+    multi_scan(s, mask, effort)
+}
+
+#[cfg(test)]
+mod qr_speed_regressions {
+    #[test]
+    fn histogram_lanes_match_scalar_counts_across_admission_and_tail_boundaries() {
+        let mut state = 0xa511_e9b3_u32;
+        for size in [0, 1, 2047, 2048, 2049, 2050, 2051, 4095, 4096, 65_537] {
+            let mut input = vec![0_u8; size];
+            for pixel in &mut input {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                *pixel = state.to_le_bytes()[3];
+            }
+            let mut reference = [0_usize; 256];
+            for &pixel in &input {
+                reference[usize::from(pixel)] += 1;
+            }
+            assert_eq!(super::histogram(&input), reference);
+            input.fill(255);
+            let mut constant = [0_usize; 256];
+            constant[255] = size;
+            assert_eq!(super::histogram(&input), constant);
+        }
+    }
+    #[test]
+    fn local_prefix_wrap_is_exact_on_a_wide_bright_image() {
+        let width = 520_000;
+        let height = 33;
+        let image = vec![255_u8; width * height];
+        // The full row prefix exceeds u32; every 33x33 local sum still fits.
+        let threshold = crate::qr_detect::binarize(&image, width, height, true);
+        assert_eq!(threshold.len(), image.len());
+        assert!(threshold.iter().all(|&bit| !bit));
+    }
+}
+
+/// A strong full ITF read can explain a weak shorter fragment of the same bars.
+/// Require both numeric-pair alignment and an almost-contained, parallel region.
+fn suppress_itf_fragments(reads: &mut Vec<Detection>) {
+    let mut keep = vec![true; reads.len()];
+    for (i, short) in reads.iter().enumerate() {
+        if short.format != "ITF" {
+            continue;
+        }
+        for long in reads.iter() {
+            if long.format != "ITF"
+                || long.text.len() <= short.text.len()
+                || long.support < short.support.saturating_mul(2)
+                || !long
+                    .text
+                    .match_indices(&short.text)
+                    .any(|(at, _)| at % 2 == 0)
+            {
+                continue;
+            }
+            let origin = long.polygon[0];
+            let axis = [
+                long.polygon[1][0] - origin[0],
+                long.polygon[1][1] - origin[1],
+            ];
+            let side = [
+                long.polygon[3][0] - origin[0],
+                long.polygon[3][1] - origin[1],
+            ];
+            let determinant = axis[0] * side[1] - axis[1] * side[0];
+            if determinant.abs() < 1. {
+                continue;
+            }
+            let short_axis = [
+                short.polygon[1][0] - short.polygon[0][0],
+                short.polygon[1][1] - short.polygon[0][1],
+            ];
+            let lengths = axis[0].hypot(axis[1]) * short_axis[0].hypot(short_axis[1]);
+            if (axis[0] * short_axis[0] + axis[1] * short_axis[1]).abs() < lengths * 0.98 {
+                continue;
+            }
+            // Corner slack describes uncertain bounds of the same bars. It
+            // must not absorb a separate symbol outside the actual long band.
+            let center = short.polygon.iter().fold([0_f32; 2], |sum, point| {
+                [sum[0] + point[0] * 0.25, sum[1] + point[1] * 0.25]
+            });
+            let x = center[0] - origin[0];
+            let y = center[1] - origin[1];
+            let center_u = (x * side[1] - y * side[0]) / determinant;
+            let center_v = (axis[0] * y - axis[1] * x) / determinant;
+            if !(0.0..=1.0).contains(&center_u) || !(0.0..=1.0).contains(&center_v) {
+                continue;
+            }
+            let inside = short.polygon.iter().all(|p| {
+                let x = p[0] - origin[0];
+                let y = p[1] - origin[1];
+                let u = (x * side[1] - y * side[0]) / determinant;
+                let v = (axis[0] * y - axis[1] * x) / determinant;
+                (-0.03..=1.03).contains(&u) && (-0.08..=1.08).contains(&v)
+            });
+            if inside {
+                keep[i] = false;
+                break;
+            }
+        }
+    }
+    let mut index = 0;
+    reads.retain(|_| {
+        let retained = keep[index];
+        index += 1;
+        retained
+    });
+}
+
+#[cfg(test)]
+mod itf_fragment_tests {
+    use super::{suppress_itf_fragments, Detection};
+
+    #[test]
+    fn a_nearby_thin_symbol_is_not_a_fragment_of_the_long_one() {
+        let read = |text: &str, top, bottom, support| Detection {
+            bytes: None,
+            structured_append: None,
+            reader_initialization: false,
+            addon: None,
+            format: "ITF".into(),
+            text: text.into(),
+            polygon: [[0., top], [100., top], [100., bottom], [0., bottom]],
+            support,
+            error: 0.,
+            gs1: false,
+        };
+        let long = read("123456789012", 0., 120., 60);
+        let mut adjacent = vec![long.clone(), read("345678", 122., 128., 3)];
+        suppress_itf_fragments(&mut adjacent);
+        assert_eq!(adjacent.len(), 2);
+        let mut contained = vec![long, read("345678", 30., 60., 3)];
+        suppress_itf_fragments(&mut contained);
+        assert_eq!(contained.len(), 1);
+        assert_eq!(contained[0].text, "123456789012");
     }
 }

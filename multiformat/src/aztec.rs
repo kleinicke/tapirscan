@@ -13,10 +13,10 @@ pub(crate) fn orientation_valid(
     mirror: bool,
 ) -> bool {
     let radius = if compact { 5_isize } else { 7 };
-    if n < 2 * radius as usize + 1 || matrix.len() != n * n {
+    if n < 2 * (radius).cast_unsigned() + 1 || matrix.len() != n * n {
         return false;
     }
-    let center = (n / 2) as isize;
+    let center = (n / 2).cast_signed();
     let mut errors = 0;
     for (sx, sy, expected) in [
         (-1, -1, [true, true, true]),
@@ -33,7 +33,7 @@ pub(crate) fn orientation_valid(
         .into_iter()
         .zip(expected)
         {
-            let (mut x, mut y) = ((center + x) as usize, (center + y) as usize);
+            let (mut x, mut y) = ((center + x).cast_unsigned(), (center + y).cast_unsigned());
             if mirror {
                 std::mem::swap(&mut x, &mut y);
             }
@@ -53,13 +53,13 @@ fn finder_valid(matrix: &[bool], n: usize, compact: bool) -> bool {
         return false;
     }
     let radius = if compact { 5_isize } else { 7 };
-    let center = (n / 2) as isize;
+    let center = (n / 2).cast_signed();
     let mut bull_errors = 0;
     let inner = radius - 1;
     for y in -inner..=inner {
         for x in -inner..=inner {
             bull_errors += usize::from(
-                matrix[(center + y) as usize * n + (center + x) as usize]
+                matrix[(center + y).cast_unsigned() * n + (center + x).cast_unsigned()]
                     != (x.abs().max(y.abs()) % 2 == 0),
             );
         }
@@ -81,7 +81,7 @@ fn mode_words(matrix: &[bool], dimension: usize, compact: bool) -> Option<Vec<u1
             } else {
                 i as isize + i as isize / 5 - 5
             };
-            let c = center as isize;
+            let c = (center).cast_signed();
             let r = radius as isize;
             let (x, y) = match side {
                 0 => (c + offset, c - r),
@@ -89,7 +89,7 @@ fn mode_words(matrix: &[bool], dimension: usize, compact: bool) -> Option<Vec<u1
                 2 => (c - offset, c + r),
                 _ => (c - r, c - offset),
             };
-            mode.push(matrix[y as usize * dimension + x as usize]);
+            mode.push(matrix[(y).cast_unsigned() * dimension + (x).cast_unsigned()]);
         }
     }
     Some(mode.chunks_exact(4).map(value).collect())
@@ -270,6 +270,10 @@ impl Bits<'_> {
         Some(v)
     }
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "The Aztec control-table state machine keeps latch, shift, ECI and binary transitions in one audited dispatch loop."
+)]
 fn parse(bits: &[bool]) -> Option<(Vec<u8>, String, bool, Option<crate::StructuredAppend>)> {
     let sequence_header = bits.len() >= 10 && value(&bits[..5]) == 29 && value(&bits[5..10]) == 29;
     let mut reader = Bits { bits, at: 0 };
@@ -296,7 +300,7 @@ fn parse(bits: &[bool]) -> Option<(Vec<u8>, String, bool, Option<crate::Structur
             // only complete bytes and never manufacture missing data.
             let available = (bits.len() - reader.at) / 8;
             for _ in 0..count.min(available) {
-                bytes.push(reader.read(8)? as u8);
+                bytes.push((reader.read(8)?).to_le_bytes()[0]);
             }
             if count > available {
                 break;
@@ -313,7 +317,7 @@ fn parse(bits: &[bool]) -> Option<(Vec<u8>, String, bool, Option<crate::Structur
             0 | 1 => match c {
                 0 => control = Some((3, false)),
                 1 => chars.push(b' '),
-                2..=27 => chars.push((if table == 0 { b'A' } else { b'a' }) + (c - 2) as u8),
+                2..=27 => chars.push((if table == 0 { b'A' } else { b'a' }) + (c - 2).to_le_bytes()[0]),
                 28 => control = Some(if table == 0 { (1, true) } else { (0, false) }),
                 29 => control = Some((2, true)),
                 30 => control = Some((4, true)),
@@ -365,7 +369,7 @@ fn parse(bits: &[bool]) -> Option<(Vec<u8>, String, bool, Option<crate::Structur
             4 => match c {
                 0 => control = Some((3, false)),
                 1 => chars.push(b' '),
-                2..=11 => chars.push(b'0' + (c - 2) as u8),
+                2..=11 => chars.push(b'0' + (c - 2).to_le_bytes()[0]),
                 12 => chars.push(b','),
                 13 => chars.push(b'.'),
                 14 => control = Some((0, true)),

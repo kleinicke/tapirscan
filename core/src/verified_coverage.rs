@@ -1,6 +1,8 @@
 //! Optional conservative subtraction of already verified source-pixel bands.
 //! Claims never come from text-only identity or unsupported observations.
-use super::*;
+use super::{claimed_interval, experiment, scan, Candidate, Error, ImageView, Quad, Segment, Work};
+#[cfg(test)]
+use super::{Experiment, Policy};
 
 #[derive(Default)]
 pub(super) struct ReuseBudget {
@@ -48,8 +50,10 @@ pub(super) fn verified_claims(
     outputs: &[Candidate],
     budget: &mut ReuseBudget,
     work: &mut Work,
-    _im: ImageView<'_>,
+    im: ImageView<'_>,
 ) -> Vec<Quad> {
+    #[cfg(not(feature = "experimental-coverage-extension"))]
+    let _ = im;
     let mut detections = Vec::new();
     let mut detection_boxes = Vec::new();
     let mut observations = Vec::new();
@@ -85,7 +89,7 @@ pub(super) fn verified_claims(
     let mut claims = Vec::new();
     'claim: for (d, original_box) in detections.iter().zip(&detection_boxes) {
         #[cfg(feature = "experimental-coverage-extension")]
-        let q = extend_claim(_im, d.polygon, work, budget);
+        let q = extend_claim(im, d.polygon, work, budget);
         #[cfg(not(feature = "experimental-coverage-extension"))]
         let q = d.polygon;
         let db = if q == d.polygon {
@@ -144,8 +148,8 @@ fn extension_row(
             || !p[1].is_finite()
             || p[0] < 0.
             || p[1] < 0.
-            || p[0] > im.width as f64 - 1.
-            || p[1] > im.height as f64 - 1.
+            || p[0] > crate::numeric::usize_f64(im.width) - 1.
+            || p[1] > crate::numeric::usize_f64(im.height) - 1.
         {
             return None;
         }
@@ -159,7 +163,7 @@ fn extension_row(
     let mut r = [0.; 192];
     let (mut lo, mut hi) = (255f64, 0f64);
     for (i, v) in r.iter_mut().enumerate() {
-        let t = (i as f64 + 0.5) / 192.;
+        let t = (crate::numeric::usize_f64(i) + 0.5) / 192.;
         *v = im.gray(
             (edge[0][0] + t * (edge[1][0] - edge[0][0])).round(),
             (edge[0][1] + t * (edge[1][1] - edge[0][1])).round(),
@@ -186,30 +190,33 @@ fn extension_row(
     Some(r)
 }
 #[cfg(feature = "experimental-coverage-extension")]
-fn extend_claim(im: ImageView<'_>, q: Quad, work: &mut Work, budget: &mut ReuseBudget) -> Quad {
-    if let Some((_, out)) = budget.cache.iter().find(|(key, _)| *key == q) {
+fn extend_claim(im: ImageView<'_>, quad: Quad, work: &mut Work, budget: &mut ReuseBudget) -> Quad {
+    if let Some((_, out)) = budget.cache.iter().find(|(key, _)| *key == quad) {
         work.extension_cache_hits += 1;
         return *out;
     }
-    let width = experiment::distance(q[0], q[1]).min(experiment::distance(q[3], q[2]));
+    let width = experiment::distance(quad[0], quad[1]).min(experiment::distance(quad[3], quad[2]));
     let v = [
-        (q[3][0] - q[0][0]) + (q[2][0] - q[1][0]),
-        (q[3][1] - q[0][1]) + (q[2][1] - q[1][1]),
+        (quad[3][0] - quad[0][0]) + (quad[2][0] - quad[1][0]),
+        (quad[3][1] - quad[0][1]) + (quad[2][1] - quad[1][1]),
     ];
-    let n = v[0].hypot(v[1]);
-    if width < 76. || n < 1e-9 {
-        return q;
+    let count = v[0].hypot(v[1]);
+    if width < 76. || count < 1e-9 {
+        return quad;
     }
-    let v = [v[0] / n, v[1] / n];
-    let steps = (width * 0.4).min(128.).mul_add(2., 0.).floor() as usize;
+    let v = [v[0] / count, v[1] / count];
+    let steps = crate::numeric::f64_usize((width * 0.4).min(128.).mul_add(2., 0.).floor());
     let mut extent = [0.; 2];
-    for (side, edge) in [[q[0], q[1]], [q[3], q[2]]].into_iter().enumerate() {
+    for (side, edge) in [[quad[0], quad[1]], [quad[3], quad[2]]]
+        .into_iter()
+        .enumerate()
+    {
         let Some(reference) = extension_row(im, edge, work, budget) else {
             continue;
         };
         let sign = if side == 0 { -1. } else { 1. };
         for step in 1..=steps {
-            let d = step as f64 * 0.5;
+            let d = crate::numeric::usize_f64(step) * 0.5;
             let e = edge.map(|p| [p[0] + sign * d * v[0], p[1] + sign * d * v[1]]);
             let Some(row) = extension_row(im, e, work, budget) else {
                 break;
@@ -221,21 +228,21 @@ fn extend_claim(im: ImageView<'_>, q: Quad, work: &mut Work, budget: &mut ReuseB
             extent[side] = d;
         }
     }
-    let mut out = q;
+    let mut out = quad;
     for i in 0..4 {
         let side = usize::from(i >= 2);
         let sign = if side == 0 { -1. } else { 1. };
         out[i] = [
-            q[i][0] + sign * extent[side] * v[0],
-            q[i][1] + sign * extent[side] * v[1],
+            quad[i][0] + sign * extent[side] * v[0],
+            quad[i][1] + sign * extent[side] * v[1],
         ];
     }
     if scan::transform(out).is_err() {
-        return q;
+        return quad;
     }
-    work.extension_claims += usize::from(out != q);
+    work.extension_claims += usize::from(out != quad);
     if budget.cache.len() < 128 {
-        budget.cache.push((q, out));
+        budget.cache.push((quad, out));
     }
     out
 }
@@ -288,7 +295,7 @@ fn reuse_segment(
         pieces.push(Segment {
             lo,
             hi,
-            samples: length.ceil().clamp(64., 4096.) as usize,
+            samples: crate::numeric::f64_usize(length.ceil().clamp(64., 4096.)),
             sample_cap: length > 4096.,
             unresolved: true,
             ..s
@@ -356,7 +363,7 @@ mod reuse_tests {
     #[test]
     fn equal_and_distinct_symbols_claim_only_their_actual_bands() {
         let q = quad(0., 0., 1200., 600.);
-        let m = scan::transform(q).unwrap().0;
+        let matrix = scan::transform(q).unwrap().0;
         for value in [1, 2] {
             let a = quad(100., 200., 200., 100.);
             let b = quad(700., 200., 200., 100.);
@@ -371,7 +378,7 @@ mod reuse_tests {
                 ImageView::new(&[255], 1, 1, 1, 1).unwrap(),
             );
             assert_eq!(claims.len(), 2);
-            let s = Segment {
+            let segment = Segment {
                 axis: 0,
                 fraction: 0.4,
                 lo: 0.,
@@ -380,22 +387,44 @@ mod reuse_tests {
                 sample_cap: false,
                 unresolved: false,
             };
-            let ps = reuse_segment(m, s, &claims, &mut budget(), &mut Work::default()).unwrap();
+            let ps = reuse_segment(
+                matrix,
+                segment,
+                &claims,
+                &mut budget(),
+                &mut Work::default(),
+            )
+            .unwrap();
             assert_eq!(ps.len(), 3);
             // Inter-symbol region and both exterior regions remain attempted.
             assert!(ps.iter().any(|p| p.lo < 0.26 && p.hi > 0.57));
-            let outside = Segment { fraction: 0.8, ..s };
-            let ps =
-                reuse_segment(m, outside, &claims, &mut budget(), &mut Work::default()).unwrap();
+            let outside = Segment {
+                fraction: 0.8,
+                ..segment
+            };
+            let ps = reuse_segment(
+                matrix,
+                outside,
+                &claims,
+                &mut budget(),
+                &mut Work::default(),
+            )
+            .unwrap();
             assert_eq!(ps.len(), 1);
             assert_eq!((ps[0].lo, ps[0].hi), (0., 1.));
             let other_axis = Segment {
                 axis: 1,
                 fraction: 0.4,
-                ..s
+                ..segment
             };
-            let ps =
-                reuse_segment(m, other_axis, &claims, &mut budget(), &mut Work::default()).unwrap();
+            let ps = reuse_segment(
+                matrix,
+                other_axis,
+                &claims,
+                &mut budget(),
+                &mut Work::default(),
+            )
+            .unwrap();
             assert_eq!(ps.len(), 1);
         }
     }
@@ -448,8 +477,10 @@ mod reuse_tests {
             sample_cap: false,
             unresolved: false,
         };
-        let mut w = Work::default();
-        w.retry_paths_pending = 8;
+        let mut w = Work {
+            retry_paths_pending: 8,
+            ..Work::default()
+        };
         let p = reuse_plan(
             m,
             vec![s],
@@ -547,14 +578,18 @@ mod extension_tests {
         ImageView::new(p, 420, 140, 1, 420).unwrap()
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn extends_across_bars_not_into_the_reading_direction() {
         let p = pixels();
         let mut w = Work::default();
         let mut b = budget();
         let out = extend_claim(image(&p), q(), &mut w, &mut b);
         assert!(out[0][1] < 21. && out[3][1] > 108., "{out:?}");
-        for i in 0..4 {
-            assert_eq!(out[i][0], q()[i][0]);
+        for (i, out_entry) in out.iter().enumerate() {
+            assert_eq!((*out_entry)[0], q()[i][0]);
         }
         assert_eq!(w.extension_claims, 1);
         assert!(w.extension_samples > 192);
@@ -581,6 +616,10 @@ mod extension_tests {
         );
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn rotation_preserves_axis_and_blank_gap_veto() {
         let mut p = pixels();
         p[80 * 420..81 * 420].fill(255);
@@ -598,8 +637,8 @@ mod extension_tests {
             &mut budget(),
         );
         assert!(out[2][0] > 59. && out[2][0] < 61., "{out:?}");
-        for i in 0..4 {
-            assert_eq!(out[i][1], q()[i][0]);
+        for (i, out_entry) in out.iter().enumerate() {
+            assert_eq!((*out_entry)[1], q()[i][0]);
         }
     }
     #[test]
@@ -685,16 +724,22 @@ mod stacked_extension_regressions {
         fn point(self, u: f64, v: f64) -> [f64; 2] {
             let den = 1. + self.perspective * u;
             let (x, y) = ((u + self.shear * v) / den, v / den);
-            let (s, c) = self.angle.sin_cos();
-            [320. + c * x - s * y, 320. + s * x + c * y]
+            let (sin_angle, cos_angle) = self.angle.sin_cos();
+            [
+                320. + cos_angle * x - sin_angle * y,
+                320. + sin_angle * x + cos_angle * y,
+            ]
         }
         fn rotated(self, p: [f64; 2]) -> [f64; 2] {
-            let (s, c) = self.angle.sin_cos();
+            let (sin_angle, cos_angle) = self.angle.sin_cos();
             let (x, y) = (p[0] - 320., p[1] - 320.);
-            [c * x + s * y, -s * x + c * y]
+            [
+                cos_angle * x + sin_angle * y,
+                -sin_angle * x + cos_angle * y,
+            ]
         }
-        fn inverse(self, p: [f64; 2]) -> [f64; 2] {
-            let [x, y] = self.rotated(p);
+        fn inverse(self, point: [f64; 2]) -> [f64; 2] {
+            let [x, y] = self.rotated(point);
             let z = x - self.shear * y;
             let u = z / (1. - self.perspective * z);
             [u, y * (1. + self.perspective * u)]
@@ -732,14 +777,14 @@ mod stacked_extension_regressions {
         let mut pixels = vec![255; SIZE * SIZE];
         for y in 0..SIZE {
             for x in 0..SIZE {
-                let p = [x as f64, y as f64];
+                let p = [crate::numeric::usize_f64(x), crate::numeric::usize_f64(y)];
                 let [u, v] = g.inverse(p);
                 // The gap is exactly one source pixel in continuous perpendicular
                 // distance, independently of perspective scaling of local v.
                 if g.rotated(p)[1].abs() < 0.5 || !(-190. ..190.).contains(&u) || v.abs() > 65. {
                     continue;
                 }
-                let module = ((u + 190.) / 4.).floor() as usize;
+                let module = crate::numeric::f64_usize(((u + 190.) / 4.).floor());
                 if patterns[usize::from(v > 0.)][module] > 0.5 {
                     pixels[y * SIZE + x] = 0;
                 }
@@ -767,9 +812,9 @@ mod stacked_extension_regressions {
                     let out = extend_claim(im, q, &mut work, &mut budget());
                     assert!(out.iter().all(|p|sign*g.rotated(*p)[1]>0.),
                     "claim crossed gap: angle={} shear={} second={second:?}, original={q:?}, extended={out:?}",g.angle,g.shear);
-                    assert!(out
+                    assert!(out.iter().all(|p| p
                         .iter()
-                        .all(|p| p.iter().all(|v| *v >= 0. && *v < SIZE as f64)));
+                        .all(|v| *v >= 0. && *v < crate::numeric::usize_f64(SIZE))));
                     assert!(work.extension_samples <= 262_144);
                     // A no-op is safe but cannot satisfy this regression alone.
                     if g.angle == 0. {

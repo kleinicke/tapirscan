@@ -5,7 +5,11 @@ use crate::{oriented::Proposal, sampling::ImageView, scan::Quad};
 #[cfg(test)]
 fn gradient_reference(im: ImageView<'_>, x: f64, y: f64) -> Option<[f64; 2]> {
     let (x, y) = (x.round(), y.round());
-    if x < 1. || y < 1. || x >= (im.width - 1) as f64 || y >= (im.height - 1) as f64 {
+    if x < 1.
+        || y < 1.
+        || x >= crate::numeric::usize_f64(im.width - 1)
+        || y >= crate::numeric::usize_f64(im.height - 1)
+    {
         return None;
     }
     let g = |dx, dy| im.gray(x + dx, y + dy);
@@ -28,12 +32,15 @@ fn luminance(im: ImageView<'_>, x: usize, y: usize) -> f64 {
     }
 }
 fn gradient(im: ImageView<'_>, x: f64, y: f64) -> Option<[f64; 2]> {
-    let (x, y) = (x.round() as isize, y.round() as isize);
-    if x < 1 || y < 1 || x >= (im.width - 1) as isize || y >= (im.height - 1) as isize {
+    let (x, y) = (
+        crate::numeric::f64_isize(x.round()),
+        crate::numeric::f64_isize(y.round()),
+    );
+    if x < 1 || y < 1 || x >= (im.width - 1).cast_signed() || y >= (im.height - 1).cast_signed() {
         return None;
     }
-    let (x, y) = (x as usize, y as usize);
-    let (a, b, c, d, e, f, g, h) = (
+    let (x, y) = ((x).cast_unsigned(), (y).cast_unsigned());
+    let (top_left, top, top_right, left, right, bottom_left, bottom, bottom_right) = (
         luminance(im, x - 1, y - 1),
         luminance(im, x, y - 1),
         luminance(im, x + 1, y - 1),
@@ -44,13 +51,13 @@ fn gradient(im: ImageView<'_>, x: f64, y: f64) -> Option<[f64; 2]> {
         luminance(im, x + 1, y + 1),
     );
     Some([
-        c + 2. * e + h - a - 2. * d - f,
-        f + 2. * g + h - a - 2. * b - c,
+        top_right + 2. * right + bottom_right - top_left - 2. * left - bottom_left,
+        bottom_left + 2. * bottom + bottom_right - top_left - 2. * top - top_right,
     ])
 }
 fn quantile(v: &mut [f64], fraction: f64) -> f64 {
-    let x = (v.len() - 1) as f64 * fraction;
-    let i = x.floor() as usize;
+    let x = crate::numeric::usize_f64(v.len() - 1) * fraction;
+    let i = crate::numeric::f64_usize(x.floor());
     let j = (i + 1).min(v.len() - 1);
     let (_, pivot, suffix) = v.select_nth_unstable_by(i, f64::total_cmp);
     let lo = *pivot;
@@ -59,7 +66,7 @@ fn quantile(v: &mut [f64], fraction: f64) -> f64 {
     } else {
         *suffix.select_nth_unstable_by(j - i - 1, f64::total_cmp).1
     };
-    lo + (hi - lo) * (x - i as f64)
+    lo + (hi - lo) * (x - crate::numeric::usize_f64(i))
 }
 fn line(x: &[f64], y: &[f64], weights: &[f64]) -> Option<[f64; 2]> {
     let mut robust = vec![1.; x.len()];
@@ -94,12 +101,17 @@ fn line(x: &[f64], y: &[f64], weights: &[f64]) -> Option<[f64; 2]> {
     }
     Some(result)
 }
-pub fn refine(im: ImageView<'_>, q: Quad) -> Option<Proposal> {
-    crate::scan::transform(q).ok()?;
-    let e = [q[1][0] - q[0][0], q[1][1] - q[0][1]];
-    let f = [q[3][0] - q[0][0], q[3][1] - q[0][1]];
-    let length = e[0].hypot(e[1]);
-    let height = f[0].hypot(f[1]);
+#[must_use]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The shear fit shares weighted edge observations and validity gates before committing a refined proposal."
+)]
+pub fn refine(im: ImageView<'_>, quad: Quad) -> Option<Proposal> {
+    crate::scan::transform(quad).ok()?;
+    let horizontal_edge = [quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]];
+    let vertical_edge = [quad[3][0] - quad[0][0], quad[3][1] - quad[0][1]];
+    let length = horizontal_edge[0].hypot(horizontal_edge[1]);
+    let height = vertical_edge[0].hypot(vertical_edge[1]);
     if length < 48. || height < 12. {
         return None;
     }
@@ -110,8 +122,8 @@ pub fn refine(im: ImageView<'_>, q: Quad) -> Option<Proposal> {
             let (u, v) = ((f64::from(i) + 0.5) / 96., (f64::from(j) + 0.5) / 40.);
             if let Some(d) = gradient(
                 im,
-                q[0][0] + u * e[0] + v * f[0],
-                q[0][1] + u * e[1] + v * f[1],
+                quad[0][0] + u * horizontal_edge[0] + v * vertical_edge[0],
+                quad[0][1] + u * horizontal_edge[1] + v * vertical_edge[1],
             ) {
                 let m = d[0].hypot(d[1]);
                 derivatives.push((d, m));
@@ -128,10 +140,10 @@ pub fn refine(im: ImageView<'_>, q: Quad) -> Option<Proposal> {
         if m < threshold {
             continue;
         }
-        let w = m.min(100.);
-        xx += w * d[0] * d[0];
-        xy += w * d[0] * d[1];
-        yy += w * d[1] * d[1];
+        let width = m.min(100.);
+        xx += width * d[0] * d[0];
+        xy += width * d[0] * d[1];
+        yy += width * d[1] * d[1];
         count += 1;
     }
     if count < 80 {
@@ -139,7 +151,7 @@ pub fn refine(im: ImageView<'_>, q: Quad) -> Option<Proposal> {
     }
     let theta = 0.5 * (2. * xy).atan2(xx - yy);
     let mut normal = [theta.cos(), theta.sin()];
-    let dot = (normal[0] * e[0] + normal[1] * e[1]) / length;
+    let dot = (normal[0] * horizontal_edge[0] + normal[1] * horizontal_edge[1]) / length;
     if dot.abs() < 0.55 {
         return None;
     }
@@ -148,15 +160,15 @@ pub fn refine(im: ImageView<'_>, q: Quad) -> Option<Proposal> {
     }
     let tangent = [-normal[1], normal[0]];
     let center = [
-        q.iter().map(|p| p[0]).sum::<f64>() / 4.,
-        q.iter().map(|p| p[1]).sum::<f64>() / 4.,
+        quad.iter().map(|p| p[0]).sum::<f64>() / 4.,
+        quad.iter().map(|p| p[1]).sum::<f64>() / 4.,
     ];
     // Four subpositions per normal bin and 64 tangent samples: 18,432 bounded
     // gradient probes independent of input resolution. Source pixels are unchanged.
     let mut samples = Vec::with_capacity(18432);
     let mut values = Vec::with_capacity(18432);
     for i in 0..288 {
-        let alpha = (-0.58 + 1.16 * (i as f64 + 0.5) / 288.) * length;
+        let alpha = (-0.58 + 1.16 * (crate::numeric::usize_f64(i) + 0.5) / 288.) * length;
         for j in 0..64 {
             let beta = (-1.05 + 2.1 * (f64::from(j) + 0.5) / 64.) * height;
             if let Some(d) = gradient(
@@ -187,10 +199,10 @@ pub fn refine(im: ImageView<'_>, q: Quad) -> Option<Proposal> {
         if b.len() < 5 {
             continue;
         }
-        x.push((-0.58 + 1.16 * (i as f64 + 0.5) / 72.) * length);
+        x.push((-0.58 + 1.16 * (crate::numeric::usize_f64(i) + 0.5) / 72.) * length);
         low.push(quantile(b, 0.08));
         high.push(quantile(b, 0.92));
-        weights.push(b.len() as f64);
+        weights.push(crate::numeric::usize_f64(b.len()));
     }
     if x.len() < 31 {
         return None;
@@ -230,9 +242,9 @@ mod tests {
     use super::*;
     fn quantile_reference(v: &mut [f64], fraction: f64) -> f64 {
         v.sort_by(f64::total_cmp);
-        let x = (v.len() - 1) as f64 * fraction;
-        let i = x.floor() as usize;
-        v[i] + (v[(i + 1).min(v.len() - 1)] - v[i]) * (x - i as f64)
+        let x = crate::numeric::usize_f64(v.len() - 1) * fraction;
+        let i = crate::numeric::f64_usize(x.floor());
+        v[i] + (v[(i + 1).min(v.len() - 1)] - v[i]) * (x - crate::numeric::usize_f64(i))
     }
     #[test]
     fn select_quantile_matches_full_sort_on_ties_signed_and_endpoints() {

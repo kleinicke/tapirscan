@@ -13,7 +13,7 @@ impl Field {
         };
         let mut x = 1u16;
         for i in 0..255 {
-            f.exp[i] = x as u8;
+            f.exp[i] = (x).to_le_bytes()[0];
             f.log[x as usize] = i;
             x <<= 1;
             if x & 256 != 0 {

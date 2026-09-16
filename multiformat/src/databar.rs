@@ -47,7 +47,12 @@ pub(crate) fn compositions(sum: usize, max: usize, one_required: bool) -> Vec<[u
                 }
                 let d = sum - a - b - c;
                 if d <= max && (!one_required || [a, b, c, d].contains(&1)) {
-                    out.push([a as u8, b as u8, c as u8, d as u8]);
+                    out.push([
+                        (a).to_le_bytes()[0],
+                        (b).to_le_bytes()[0],
+                        (c).to_le_bytes()[0],
+                        (d).to_le_bytes()[0],
+                    ]);
                 }
             }
         }
@@ -107,11 +112,12 @@ pub(crate) fn lookup_character(
     if r.len() < 8 {
         return None;
     }
-    let module = r[..8].iter().sum::<f32>() / units as f32;
+    let module = r[..8].iter().sum::<f32>() / crate::numeric::usize_f32(units);
     if module < 0.65 {
         return None;
     }
-    let mut widths: [u8; 8] = std::array::from_fn(|i| (r[i] / module).round().clamp(1., 8.) as u8);
+    let mut widths: [u8; 8] =
+        std::array::from_fn(|i| crate::numeric::f32_u8((r[i] / module).round().clamp(1., 8.)));
     let sum = widths.iter().map(|&v| v as usize).sum::<usize>();
     if sum.abs_diff(units) > 2 {
         return None;
@@ -161,11 +167,21 @@ pub(crate) fn match_finder(r: &[f32], patterns: &[[u8; 5]], reverse: bool) -> Op
         return None;
     }
     let unit = |i: usize| (r[i] - module).abs() <= module;
-    if !(unit(0) && unit(1) || unit(3) && unit(4)) {
+    let left_unit = unit(0) && unit(1);
+    let right_unit = unit(3) && unit(4);
+    if !(left_unit || right_unit) {
         return None;
     }
     let mut best = (0, 10_f32);
     for (i, p) in patterns.iter().enumerate() {
+        let first = if reverse { [p[4], p[3]] } else { [p[0], p[1]] };
+        let last = if reverse { [p[1], p[0]] } else { [p[3], p[4]] };
+        // A candidate whose required unit pair is on a side that failed the
+        // existing necessary gate cannot satisfy all five d <= module tests.
+        // Patterns without a unit pair retain the generic path's behavior.
+        if (first == [1, 1] && !left_unit) || (last == [1, 1] && !right_unit) {
+            continue;
+        }
         let mut e = 0.;
         let mut valid = true;
         for j in 0..5 {
@@ -186,6 +202,116 @@ pub(crate) fn match_finder(r: &[f32], patterns: &[[u8; 5]], reverse: bool) -> Op
         }
     }
     (best.1 < 10.).then_some(best)
+}
+
+#[cfg(test)]
+mod finder_gate_tests {
+    use super::*;
+
+    fn reference(r: &[f32], patterns: &[[u8; 5]], reverse: bool) -> Option<(usize, f32)> {
+        if r.len() < 5 {
+            return None;
+        }
+        let sum = r[..5].iter().sum::<f32>();
+        let module = sum / 15.;
+        if module < 0.65 {
+            return None;
+        }
+        let unit = |i: usize| (r[i] - module).abs() <= module;
+        if !(unit(0) && unit(1) || unit(3) && unit(4)) {
+            return None;
+        }
+        let mut best = (0, 10_f32);
+        for (i, p) in patterns.iter().enumerate() {
+            let mut e = 0.;
+            let mut valid = true;
+            for j in 0..5 {
+                let d = (r[j] - f32::from(p[if reverse { 4 - j } else { j }]) * module).abs();
+                if d > module {
+                    valid = false;
+                    break;
+                }
+                e += d;
+            }
+            if valid {
+                e /= sum;
+            } else {
+                e = 10.;
+            }
+            if e < best.1 {
+                best = (i, e);
+            }
+        }
+        (best.1 < 10.).then_some(best)
+    }
+
+    #[test]
+    fn gate_rejects_only_impossible_unit_sides() {
+        let patterns = [[3, 8, 2, 1, 1], [1, 3, 9, 1, 1]];
+        let right = [6., 16., 4., 2., 2.];
+        assert!(match_finder(&right, &patterns, false).is_some());
+        let left = [2., 2., 4., 16., 6.];
+        assert!(match_finder(&left, &patterns, true).is_some());
+        let neither = [6., 16., 4., 6., 16.];
+        assert!(match_finder(&neither, &patterns, false).is_none());
+    }
+
+    #[test]
+    fn gate_matches_original_on_databar_expanded_and_generic_patterns() {
+        let expanded: [[u8; 5]; 12] = [
+            [1, 8, 4, 1, 1],
+            [1, 1, 4, 8, 1],
+            [3, 6, 4, 1, 1],
+            [1, 1, 4, 6, 3],
+            [3, 4, 6, 1, 1],
+            [1, 1, 6, 4, 3],
+            [3, 2, 8, 1, 1],
+            [1, 1, 8, 2, 3],
+            [2, 6, 5, 1, 1],
+            [1, 1, 5, 6, 2],
+            [2, 2, 9, 1, 1],
+            [1, 1, 9, 2, 2],
+        ];
+        let patterns: Vec<_> = FINDERS.into_iter().chain(expanded).collect();
+        let generic = [[2, 3, 4, 5, 6], [4, 2, 3, 5, 6]];
+        let mut seed = 193_u32;
+        for _ in 0..10000 {
+            let row: [f32; 5] = std::array::from_fn(|_| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                f32::from(u16::try_from(seed % 5000).unwrap()) / 100.
+            });
+            for reverse in [false, true] {
+                for table in [patterns.as_slice(), generic.as_slice()] {
+                    assert_eq!(
+                        match_finder(&row, table, reverse),
+                        reference(&row, table, reverse)
+                    );
+                }
+            }
+        }
+        let perturbations = [-1.001_f32, -1., -0.999, -0.25, 0., 0.25, 0.999, 1., 1.001];
+        for module in [0.65_f32, 0.7, 1., 3., 20.] {
+            for delta in perturbations {
+                let row = [
+                    3. * module + delta * module,
+                    8. * module - delta * module,
+                    2. * module + delta * module * 0.5,
+                    module + delta * module,
+                    module - delta * module,
+                ];
+                for reverse in [false, true] {
+                    assert_eq!(
+                        match_finder(&row, &patterns, reverse),
+                        reference(&row, &patterns, reverse)
+                    );
+                    assert_eq!(
+                        match_finder(&row, &generic, reverse),
+                        reference(&row, &generic, reverse)
+                    );
+                }
+            }
+        }
+    }
 }
 fn finder(r: &[f32], reverse: bool) -> Option<(usize, f32)> {
     let best = match_finder(r, &FINDERS, reverse)?;
@@ -384,7 +510,10 @@ impl Stacked {
             } else {
                 (line.offsets[h.start], line.offsets[h.end])
             };
-            let (lo, hi) = (lo as f32 + line.start, hi as f32 + line.start);
+            let (lo, hi) = (
+                crate::numeric::usize_f32(lo) + line.start,
+                crate::numeric::usize_f32(hi) + line.start,
+            );
             if let Some(g) = self.groups.iter_mut().find(|g| {
                 g.half.side == h.side
                     && g.half.value == h.value

@@ -93,6 +93,10 @@ fn c93_match(r: &[f32]) -> Option<(usize, f32)> {
     }
     (best.1 < 0.23 && second - best.1 > 0.012).then_some(best)
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "The symbol parser keeps start/stop, parity, checksum and work-limit transitions together for the same run cursor."
+)]
 fn code93(
     runs: &[f32],
     start_index: usize,
@@ -142,7 +146,7 @@ fn code93(
                     text: String::new(),
                     start: start_index,
                     end: at + 7,
-                    error: err / (values.len() + 3) as f32,
+                    error: err / crate::numeric::usize_f32(values.len() + 3),
                     gs1: false,
                 });
             }
@@ -153,11 +157,11 @@ fn code93(
                 if v < 43 {
                     out.push(C93_ALPHABET[v] as char);
                 } else {
-                    let n = *values.get(i + 1)?;
+                    let n: usize = *values.get(i + 1)?;
                     if !(10..36).contains(&n) {
                         return None;
                     }
-                    let letter = b'A' + (n - 10) as u8;
+                    let letter = b'A' + (n - 10).to_le_bytes()[0];
                     let decoded = match v {
                         43 => letter - 64,
                         44 => match letter {
@@ -194,7 +198,7 @@ fn code93(
                 text: out,
                 start: start_index,
                 end: at + 7,
-                error: err / (values.len() + 3) as f32,
+                error: err / crate::numeric::usize_f32(values.len() + 3),
                 gs1: false,
             });
         }
@@ -235,11 +239,13 @@ fn error_adjusted(r: &[f32], p: &[u8]) -> f32 {
             .enumerate()
             .map(|(i, (&v, &n))| (v - f32::from(n) * module) * if i % 2 == 0 { 1. } else { -1. })
             .sum::<f32>()
-            / p.len() as f32)
-            .clamp(-module * 0.5, module * 0.5)
+            / crate::numeric::usize_f32(p.len()))
+        .clamp(-module * 0.5, module * 0.5)
     } else if p.len() > 1 && p.iter().all(|&x| x == 1) {
-        let even = r.iter().take(p.len()).step_by(2).sum::<f32>() / p.len().div_ceil(2) as f32;
-        let odd = r.iter().skip(1).take(p.len() - 1).step_by(2).sum::<f32>() / (p.len() / 2) as f32;
+        let even = r.iter().take(p.len()).step_by(2).sum::<f32>()
+            / crate::numeric::usize_f32(p.len().div_ceil(2));
+        let odd = r.iter().skip(1).take(p.len() - 1).step_by(2).sum::<f32>()
+            / crate::numeric::usize_f32(p.len() / 2);
         module = (even + odd) * 0.5;
         ((even - odd) * 0.5).clamp(-module * 0.5, module * 0.5)
     } else {
@@ -291,7 +297,7 @@ fn digit(r: &[f32], even: bool, gain: f32) -> Option<(u8, f32)> {
         let e = error(&adjusted, &q);
         if e < best.1 {
             second = best.1;
-            best = (i as u8, e);
+            best = ((i).to_le_bytes()[0], e);
         } else {
             second = second.min(e);
         }
@@ -322,6 +328,27 @@ fn quiet(r: &[f32], start: usize, end: usize, module: f32, min: f32) -> bool {
                     }
             }))
 }
+fn ean_guards(r: &[f32], s: usize, end: usize, count: usize) -> bool {
+    let center_ok = count == 6
+        || error_adjusted(&r[s + 3 + (count / 2) * 4..], &[1, 1, 1, 1, 1]).partial_cmp(&0.25)
+            != Some(std::cmp::Ordering::Greater);
+    let end_start = end - if count == 6 { 6 } else { 3 };
+    center_ok
+        && error_adjusted(
+            &r[end_start..],
+            if count == 6 {
+                &[1, 1, 1, 1, 1, 1]
+            } else {
+                &[1, 1, 1]
+            },
+        )
+        .partial_cmp(&0.25)
+            != Some(std::cmp::Ordering::Greater)
+}
+#[expect(
+    clippy::too_many_lines,
+    reason = "The symbol parser keeps start/stop, parity, checksum and work-limit transitions together for the same run cursor."
+)]
 fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
     if error_adjusted(&r[s..], &[1, 1, 1]) > 0.25 {
         return None;
@@ -342,6 +369,9 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
         if !quiet(r, s, end, module, 4.) {
             continue;
         }
+        if !ean_guards(r, s, end, count) {
+            continue;
+        }
         let black = (r[s] + r[s + 2]) * 0.5;
         let white = r[s + 1];
         let measured_gain = ((black - white) / (black + white)).clamp(-0.45, 0.45);
@@ -358,10 +388,6 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
             let mut ok = true;
             for i in 0..count {
                 if count != 6 && i == count / 2 {
-                    if error_adjusted(&r[at..], &[1, 1, 1, 1, 1]) > 0.25 {
-                        ok = false;
-                        break;
-                    }
                     at += 5;
                 }
                 let color_gain = gain * if count == 6 || i < count / 2 { -1. } else { 1. };
@@ -396,21 +422,13 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
             if !ok {
                 continue;
             }
-            let guard: &[u8] = if count == 6 {
-                &[1, 1, 1, 1, 1, 1]
-            } else {
-                &[1, 1, 1]
-            };
-            if error_adjusted(&r[at..], guard) > 0.25 {
-                continue;
-            }
             let format;
             let valid;
             if count == 12 {
                 let Some(first) = PARITY.iter().position(|&p| p == parity) else {
                     continue;
                 };
-                digits.insert(0, first as u8);
+                digits.insert(0, (first).to_le_bytes()[0]);
                 valid = checksum(&digits);
                 if first == 0 && mask & UPCA != 0 {
                     digits.remove(0);
@@ -434,7 +452,7 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
                     continue;
                 };
                 digits.insert(0, sys);
-                digits.push(check as u8);
+                digits.push((check).to_le_bytes()[0]);
                 valid = checksum(&expand_upce(&digits));
                 format = "UPCE";
             }
@@ -451,7 +469,7 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
                         text: String::new(),
                         start: s,
                         end,
-                        error: err / count as f32,
+                        error: err / crate::numeric::usize_f32(count),
                         gs1: false,
                     });
                 }
@@ -471,7 +489,7 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
                         text: String::new(),
                         start: s,
                         end,
-                        error: err / count as f32,
+                        error: err / crate::numeric::usize_f32(count),
                         gs1: false,
                     });
                 }
@@ -484,7 +502,7 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
                 text: digits.iter().map(|d| (b'0' + d) as char).collect(),
                 start: s,
                 end,
-                error: err / count as f32,
+                error: err / crate::numeric::usize_f32(count),
                 gs1: false,
             });
         }
@@ -546,7 +564,12 @@ fn ean_addon(r: &[f32], base_end: usize, module: f32, gain: f32) -> Option<Strin
             [24, 20, 18, 17, 12, 6, 3, 10, 9, 5][check]
         };
         if parity == expected {
-            return Some(digits.iter().map(|&d| (b'0' + d as u8) as char).collect());
+            return Some(
+                digits
+                    .iter()
+                    .map(|&d| (b'0' + (d).to_le_bytes()[0]) as char)
+                    .collect(),
+            );
         }
     }
     None
@@ -581,7 +604,9 @@ fn c128_match(r: &[f32], lo: usize, hi: usize) -> Option<(usize, f32)> {
     let distances: [[f32; 4]; 6] = if lo >= 103 {
         [[0.; 4]; 6]
     } else {
-        std::array::from_fn(|j| std::array::from_fn(|n| (r[j] - (n + 1) as f32 * module).abs()))
+        std::array::from_fn(|j| {
+            std::array::from_fn(|n| (r[j] - crate::numeric::usize_f32(n + 1) * module).abs())
+        })
     };
     let mut best = (0, 10.);
     let mut second = 10.;
@@ -653,7 +678,7 @@ fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Opti
                 text,
                 start: s,
                 end: at + 7,
-                error: err / values.len() as f32,
+                error: err / crate::numeric::usize_f32(values.len()),
                 gs1,
             });
         }
@@ -677,7 +702,10 @@ fn c128_text(v: &[usize]) -> Option<(String, bool)> {
         if set == 2 {
             match c {
                 0..=99 => {
-                    out.extend([b'0' + (c / 10) as u8, b'0' + (c % 10) as u8]);
+                    out.extend([
+                        b'0' + (c / 10).to_le_bytes()[0],
+                        b'0' + (c % 10).to_le_bytes()[0],
+                    ]);
                 }
                 100 => set = 1,
                 101 => set = 0,
@@ -699,7 +727,7 @@ fn c128_text(v: &[usize]) -> Option<(String, bool)> {
             } else {
                 c + 32
             };
-            out.push(x as u8 + if upper ^ upper_once { 128 } else { 0 });
+            out.push((x).to_le_bytes()[0] + if upper ^ upper_once { 128 } else { 0 });
             shift = false;
             upper_once = false;
             continue;
@@ -742,8 +770,11 @@ fn wide_bits(r: &[f32], n: usize, wides: usize) -> Option<(u16, f32)> {
     let sorted = &mut storage[..n];
     sorted.copy_from_slice(&r[..n]);
     sorted.sort_by(f32::total_cmp);
-    let narrow = sorted[..n - wides].iter().sum::<f32>() / (n - wides) as f32;
-    let wide = sorted[n - wides..].iter().sum::<f32>() / wides as f32;
+    wide_bits_sorted(&r[..n], sorted, n, wides)
+}
+fn wide_bits_sorted(r: &[f32], sorted: &[f32], n: usize, wides: usize) -> Option<(u16, f32)> {
+    let narrow = sorted[..n - wides].iter().sum::<f32>() / crate::numeric::usize_f32(n - wides);
+    let wide = sorted[n - wides..].iter().sum::<f32>() / crate::numeric::usize_f32(wides);
     if narrow < 0.65 || wide / narrow < 1.45 || wide / narrow > 3.8 {
         return None;
     }
@@ -804,7 +835,7 @@ fn code39_with_gain(
         return None;
     }
     let module = start.iter().copied().fold(f32::INFINITY, f32::min);
-    if start_index == 0 || (start_index != 1 && runs[start_index - 1] < module * 5.) {
+    if start_index > 1 && runs[start_index - 1] < module * 5. {
         return None;
     }
     let mut at = start_index + 10;
@@ -814,7 +845,16 @@ fn code39_with_gain(
         let d = C39.iter().position(|&x| x == p)?;
         err += e;
         if d == 43 {
-            if out.len() < 2 || !quiet(runs, start_index, at + 9, module, 5.) {
+            // An image boundary can crop a quiet zone, but never a guard bar.
+            // Interior symbols still require quiet space on both sides.
+            let end = at + 9;
+            let left = start_index == 0
+                || runs[start_index - 1] >= module * if start_index == 1 { 0.5 } else { 5. };
+            let right = end == runs.len()
+                || runs
+                    .get(end)
+                    .is_some_and(|&v| v >= module * if end + 1 == runs.len() { 0.5 } else { 5. });
+            if out.len() < 2 || !left || !right {
                 return None;
             }
             return Some(Read {
@@ -824,7 +864,7 @@ fn code39_with_gain(
                 text: String::from_utf8(out).ok()?,
                 start: start_index,
                 end: at + 9,
-                error: err / (1. + ((at - start_index) / 10) as f32),
+                error: err / (1. + crate::numeric::usize_f32((at - start_index) / 10)),
                 gs1: false,
             });
         }
@@ -860,7 +900,7 @@ fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
                 text: out.iter().map(|d| (b'0' + d) as char).collect(),
                 start: s,
                 end: at + 3,
-                error: err / out.len() as f32,
+                error: err / crate::numeric::usize_f32(out.len()),
                 gs1: false,
             });
         }
@@ -868,9 +908,9 @@ fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
             return None;
         }
         for parity in 0..2 {
-            let seq: Vec<f32> = (0..5).map(|i| r[at + 2 * i + parity]).collect();
+            let seq: [f32; 5] = std::array::from_fn(|i| r[at + 2 * i + parity]);
             let (p, e) = wide_bits(&seq, 5, 2)?;
-            out.push(ITF_DIGITS.iter().position(|&x| u16::from(x) == p)? as u8);
+            out.push((ITF_DIGITS.iter().position(|&x| u16::from(x) == p)?).to_le_bytes()[0]);
             err += e;
         }
         at += 10;
@@ -878,20 +918,27 @@ fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     *limited |= at + 3 <= r.len() && out.len() >= 80;
     None
 }
-fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
-    fn one(r: &[f32]) -> Option<(usize, f32)> {
-        let mut best = None;
-        for wides in [2, 3] {
-            if let Some((bits, e)) = wide_bits(r, 7, wides) {
-                if let Some(i) = CODA.iter().position(|&p| u16::from(p) == bits) {
-                    if best.is_none_or(|(_, old)| e < old) {
-                        best = Some((i, e));
-                    }
+fn codabar_one(r: &[f32]) -> Option<(usize, f32)> {
+    if r.len() < 7 {
+        return None;
+    }
+    let mut sorted = [0f32; 7];
+    sorted.copy_from_slice(&r[..7]);
+    sorted.sort_by(f32::total_cmp);
+    let mut best = None;
+    for wides in [2, 3] {
+        if let Some((bits, e)) = wide_bits_sorted(r, &sorted, 7, wides) {
+            if let Some(i) = CODA.iter().position(|&p| u16::from(p) == bits) {
+                if best.is_none_or(|(_, old)| e < old) {
+                    best = Some((i, e));
                 }
             }
         }
-        best
     }
+    best
+}
+fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
+    let one = codabar_one;
     let (first, mut err) = one(&r[s..])?;
     if first < 16 {
         return None;
@@ -927,7 +974,8 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
             if counts.contains(&0) {
                 return None;
             }
-            let means: [f32; 4] = std::array::from_fn(|i| sums[i] / counts[i] as f32);
+            let means: [f32; 4] =
+                std::array::from_fn(|i| sums[i] / crate::numeric::usize_f32(counts[i]));
             if [0, 2]
                 .iter()
                 .any(|&i| !(1.4..=4.1).contains(&(means[i + 1] / means[i])))
@@ -958,7 +1006,7 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
                 text: String::from_utf8(out).ok()?,
                 start: s,
                 end: at + 7,
-                error: err / (1. + ((at - s) / 8) as f32),
+                error: err / (1. + crate::numeric::usize_f32((at - s) / 8)),
                 gs1: false,
             });
         }
@@ -1012,10 +1060,14 @@ fn decode_impl(
         if quiet && mask & 15 != 0 {
             found = accepted(ean(r, s, mask, retain_failed));
         }
-        if quiet && found.is_none() && mask & CODE128 != 0 {
+        if found.is_none()
+            && mask & CODE128 != 0
+            && s > 0
+            && (quiet || r[s - 1] >= (r[s..s + 6].iter().sum::<f32>() / 11.) * 2.5)
+        {
             found = accepted(code128(r, s, retain_failed, limited));
         }
-        if quiet && found.is_none() && mask & CODE39 != 0 {
+        if (quiet || s == 0) && found.is_none() && mask & CODE39 != 0 {
             found = code39(r, s, limited);
         }
         if quiet && found.is_none() && mask & CODE93 != 0 {
@@ -1052,6 +1104,287 @@ fn decode_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[expect(
+        clippy::too_many_lines,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        reason = "Test-only immutable reference clone preserves the prechange EAN implementation for exact parity checks."
+    )]
+    fn ean_reference(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
+        if error_adjusted(&r[s..], &[1, 1, 1]) > 0.25 {
+            return None;
+        }
+        let mut failed = None;
+        for count in [12usize, 8, 6] {
+            if (count == 12 && mask & (EAN13 | UPCA) == 0)
+                || (count == 8 && mask & EAN8 == 0)
+                || (count == 6 && mask & UPCE == 0)
+            {
+                continue;
+            }
+            let end = s + if count == 6 { 33 } else { count * 4 + 11 };
+            if end > r.len() {
+                continue;
+            }
+            let module = r[s..s + 3].iter().sum::<f32>() / 3.;
+            if !quiet(r, s, end, module, 4.) {
+                continue;
+            }
+            let black = (r[s] + r[s + 2]) * 0.5;
+            let white = r[s + 1];
+            let measured_gain = ((black - white) / (black + white)).clamp(-0.45, 0.45);
+            let gains: &[f32] = if count == 8 {
+                &[measured_gain, 0., 0.25, -0.25, 0.5, -0.5]
+            } else {
+                &[measured_gain, 0.]
+            };
+            for &gain in gains {
+                let mut digits = Vec::new();
+                let mut parity = 0u8;
+                let mut at = s + 3;
+                let mut err = 0.;
+                let mut ok = true;
+                for i in 0..count {
+                    if count != 6 && i == count / 2 {
+                        if error_adjusted(&r[at..], &[1, 1, 1, 1, 1]) > 0.25 {
+                            ok = false;
+                            break;
+                        }
+                        at += 5;
+                    }
+                    let color_gain = gain * if count == 6 || i < count / 2 { -1. } else { 1. };
+                    let odd = digit(&r[at..], false, color_gain);
+                    let even = if count != 8 && i < 6 {
+                        digit(&r[at..], true, color_gain)
+                    } else {
+                        None
+                    };
+                    let selected = match (odd, even) {
+                        (Some(a), Some(b)) => {
+                            if a.1 <= b.1 {
+                                (a, false)
+                            } else {
+                                (b, true)
+                            }
+                        }
+                        (Some(a), None) => (a, false),
+                        (None, Some(b)) => (b, true),
+                        _ => {
+                            ok = false;
+                            break;
+                        }
+                    };
+                    if count != 8 && i < 6 {
+                        parity = (parity << 1) | u8::from(selected.1);
+                    }
+                    digits.push(selected.0 .0);
+                    err += selected.0 .1;
+                    at += 4;
+                }
+                if !ok {
+                    continue;
+                }
+                let guard: &[u8] = if count == 6 {
+                    &[1, 1, 1, 1, 1, 1]
+                } else {
+                    &[1, 1, 1]
+                };
+                if error_adjusted(&r[at..], guard) > 0.25 {
+                    continue;
+                }
+                let format;
+                let valid;
+                if count == 12 {
+                    let Some(first) = PARITY.iter().position(|&p| p == parity) else {
+                        continue;
+                    };
+                    digits.insert(0, first as u8);
+                    valid = checksum(&digits);
+                    if first == 0 && mask & UPCA != 0 {
+                        digits.remove(0);
+                        format = "UPCA";
+                    } else if mask & EAN13 != 0 {
+                        format = "EAN13";
+                    } else {
+                        continue;
+                    }
+                } else if count == 8 {
+                    valid = checksum(&digits);
+                    format = "EAN8";
+                } else {
+                    let mut sys = 0;
+                    let check = if let Some(c) = UPC_PARITY.iter().position(|&p| p == parity) {
+                        c
+                    } else if let Some(c) = UPC_PARITY.iter().position(|&p| p ^ 63 == parity) {
+                        sys = 1;
+                        c
+                    } else {
+                        continue;
+                    };
+                    digits.insert(0, sys);
+                    digits.push(check as u8);
+                    valid = checksum(&expand_upce(&digits));
+                    format = "UPCE";
+                }
+                if !valid {
+                    // The left half of EAN13 can mimic UPC-E without checksum
+                    // validation. A genuine trailing quiet zone disambiguates an
+                    // unread UPC-E candidate from the continuing EAN13 data bars.
+                    let unambiguous = count != 6 || r.get(end).is_some_and(|&v| v >= module * 7.);
+                    if retain_failed && failed.is_none() && unambiguous {
+                        failed = Some(Read {
+                            decoded: false,
+                            addon: None,
+                            format,
+                            text: String::new(),
+                            start: s,
+                            end,
+                            error: err / count as f32,
+                            gs1: false,
+                        });
+                    }
+                    continue;
+                }
+                let addon = if mask & (ADDON_READ | ADDON_REQUIRE) != 0 {
+                    ean_addon(r, end, module, gain)
+                } else {
+                    None
+                };
+                if mask & ADDON_REQUIRE != 0 && addon.is_none() {
+                    if retain_failed && failed.is_none() {
+                        failed = Some(Read {
+                            decoded: false,
+                            addon: None,
+                            format,
+                            text: String::new(),
+                            start: s,
+                            end,
+                            error: err / count as f32,
+                            gs1: false,
+                        });
+                    }
+                    continue;
+                }
+                return Some(Read {
+                    decoded: true,
+                    addon,
+                    format,
+                    text: digits.iter().map(|d| (b'0' + d) as char).collect(),
+                    start: s,
+                    end,
+                    error: err / count as f32,
+                    gs1: false,
+                });
+            }
+        }
+        failed
+    }
+
+    fn wide_bits_reference(r: &[f32], n: usize, wides: usize) -> Option<(u16, f32)> {
+        if r.len() < n {
+            return None;
+        }
+        let mut storage = [0f32; 9];
+        let sorted = &mut storage[..n];
+        sorted.copy_from_slice(&r[..n]);
+        sorted.sort_by(f32::total_cmp);
+        let narrow = sorted[..n - wides].iter().sum::<f32>() / crate::numeric::usize_f32(n - wides);
+        let wide = sorted[n - wides..].iter().sum::<f32>() / crate::numeric::usize_f32(wides);
+        if narrow < 0.65 || wide / narrow < 1.45 || wide / narrow > 3.8 {
+            return None;
+        }
+        let cut = (sorted[n - wides - 1] + sorted[n - wides]) * 0.5;
+        let mut bits = 0;
+        let mut e = 0.;
+        for &x in &r[..n] {
+            let w = x > cut;
+            bits = (bits << 1) | u16::from(w);
+            let expected = if w { wide } else { narrow };
+            if (x - expected).abs() > narrow * 0.9 {
+                return None;
+            }
+            e += (x - expected).abs();
+        }
+        Some((bits, e / r[..n].iter().sum::<f32>()))
+    }
+
+    fn codabar_one_reference(r: &[f32]) -> Option<(usize, f32)> {
+        let mut best = None;
+        for wides in [2, 3] {
+            if let Some((bits, e)) = wide_bits_reference(r, 7, wides) {
+                if let Some(i) = CODA.iter().position(|&p| u16::from(p) == bits) {
+                    if best.is_none_or(|(_, old)| e < old) {
+                        best = Some((i, e));
+                    }
+                }
+            }
+        }
+        best
+    }
+
+    #[test]
+    fn shared_wide_sort_matches_original_at_boundaries_and_random_inputs() {
+        let boundary_inputs = [
+            [0.65, 0.65, 0.65, 0.65, 0.95, 0.95, 0.95, 0.95, 0.95],
+            [0.64, 0.65, 0.66, 0.94, 0.95, 0.96, 1.45, 1.46, 1.47],
+            [1., 1., 1., 1., 1., 1., 1., 3.8, 3.8],
+        ];
+        for input in boundary_inputs {
+            for &(n, wides) in &[(5, 2), (7, 2), (7, 3), (9, 3)] {
+                let actual = wide_bits(&input, n, wides).map(|(b, e)| (b, e.to_bits()));
+                let expected = wide_bits_reference(&input, n, wides).map(|(b, e)| (b, e.to_bits()));
+                assert_eq!(actual, expected);
+            }
+            assert_eq!(
+                codabar_one(&input[..7]).map(|(i, e)| (i, e.to_bits())),
+                codabar_one_reference(&input[..7]).map(|(i, e)| (i, e.to_bits()))
+            );
+        }
+        let mut seed = 1u32;
+        for _ in 0..2000 {
+            let mut input = [0f32; 9];
+            for x in &mut input {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                *x = f32::from(u16::try_from(seed % 1000).unwrap()) / 100.;
+            }
+            for &(n, wides) in &[(5, 2), (7, 2), (7, 3), (9, 3)] {
+                let actual = wide_bits(&input, n, wides).map(|(b, e)| (b, e.to_bits()));
+                let expected = wide_bits_reference(&input, n, wides).map(|(b, e)| (b, e.to_bits()));
+                assert_eq!(actual, expected);
+            }
+            assert_eq!(
+                codabar_one(&input[..7]).map(|(i, e)| (i, e.to_bits())),
+                codabar_one_reference(&input[..7]).map(|(i, e)| (i, e.to_bits()))
+            );
+        }
+    }
+
+    #[test]
+    fn code39_cropped_quiet_zones_keep_guards_and_interior_checks() {
+        let mut runs = Vec::new();
+        for &c in b"*TEST-SHEET*" {
+            if !runs.is_empty() {
+                runs.push(2.);
+            }
+            let pattern = C39[C39_ALPHABET.iter().position(|&v| v == c).unwrap()];
+            runs.extend(
+                (0..9)
+                    .rev()
+                    .map(|bit| if pattern & (1 << bit) == 0 { 2. } else { 5. }),
+            );
+        }
+        let reads = decode(&runs, true, CODE39);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].text, "TEST-SHEET");
+        assert!(decode(&runs[2..], true, CODE39).is_empty());
+        assert!(decode(&runs[..runs.len() - 2], true, CODE39).is_empty());
+        let mut clutter = vec![4., 1.];
+        clutter.extend_from_slice(&runs);
+        assert!(decode(&clutter, true, CODE39).is_empty());
+        runs.extend([1., 4.]);
+        assert!(decode(&runs, true, CODE39).is_empty());
+    }
     #[test]
     fn long_code128_reports_cap_without_losing_short_reads() {
         for count in [20, 252, 256] {
@@ -1131,7 +1464,10 @@ mod tests {
             (code93, CODE93, "Code93"),
         ] {
             assert!(decode(
-                &runs.iter().map(|&r| r as f32).collect::<Vec<_>>(),
+                &runs
+                    .iter()
+                    .map(|&r| crate::numeric::usize_f32(r))
+                    .collect::<Vec<_>>(),
                 false,
                 mask
             )
@@ -1165,5 +1501,117 @@ mod tests {
     #[test]
     fn rejects_short_noise() {
         assert!(decode(&[1.; 100], false, 511).is_empty());
+    }
+    #[test]
+    fn ean_guards_are_checked_before_digit_work() {
+        let mut runs = vec![1.; 70];
+        assert!(ean_guards(&runs, 0, 59, 12));
+        runs[27] = 10.;
+        assert!(!ean_guards(&runs, 0, 59, 12));
+
+        let mut upce = vec![1.; 40];
+        assert!(ean_guards(&upce, 0, 33, 6));
+        upce[27] = 10.;
+        assert!(!ean_guards(&upce, 0, 33, 6));
+    }
+
+    #[expect(
+        clippy::type_complexity,
+        reason = "The tuple compares every observable Read field in the test-only parity oracle."
+    )]
+    fn parity_read(
+        read: Option<Read>,
+    ) -> Option<(
+        bool,
+        Option<String>,
+        &'static str,
+        String,
+        usize,
+        usize,
+        u32,
+        bool,
+    )> {
+        read.map(|r| {
+            (
+                r.decoded,
+                r.addon,
+                r.format,
+                r.text,
+                r.start,
+                r.end,
+                r.error.to_bits(),
+                r.gs1,
+            )
+        })
+    }
+
+    #[test]
+    fn ean_guard_reordering_matches_original_fixtures_and_perturbations() {
+        let mut ean13 = vec![10., 1., 1., 1.];
+        let left = [0, 0, 6, 3, 8, 1];
+        for (i, &digit) in left.iter().enumerate() {
+            let mut pattern = DIGITS[digit];
+            if PARITY[4] & (1 << (5 - i)) != 0 {
+                pattern.reverse();
+            }
+            ean13.extend(pattern.map(f32::from));
+        }
+        ean13.extend([1., 1., 1., 1., 1.]);
+        for digit in [3, 3, 3, 9, 3, 1] {
+            ean13.extend(DIGITS[digit].map(f32::from));
+        }
+        ean13.extend([1., 1., 1., 10.]);
+
+        let mut ean8 = vec![10., 1., 1., 1.];
+        for digit in [5, 5, 1, 2] {
+            ean8.extend(DIGITS[digit].map(f32::from));
+        }
+        ean8.extend([1., 1., 1., 1., 1.]);
+        for digit in [3, 4, 5, 7] {
+            ean8.extend(DIGITS[digit].map(f32::from));
+        }
+        ean8.extend([1., 1., 1., 10.]);
+
+        let mut upce = vec![10., 1., 1., 1.];
+        for (i, digit) in [4, 2, 1, 0, 0, 0].into_iter().enumerate() {
+            let mut pattern = DIGITS[digit];
+            if UPC_PARITY[7] & (1 << (5 - i)) != 0 {
+                pattern.reverse();
+            }
+            upce.extend(pattern.map(f32::from));
+        }
+        upce.extend([1., 1., 1., 1., 1., 1., 10.]);
+
+        let mut invalid = ean8.clone();
+        invalid[37..41].copy_from_slice(&DIGITS[0].map(f32::from));
+        let failed = ean_reference(&invalid, 1, EAN8, true).expect("invalid checksum retained");
+        assert!(!failed.decoded);
+        assert_eq!(
+            parity_read(ean(&invalid, 1, EAN8, true)),
+            parity_read(Some(failed))
+        );
+        for (mut runs, mask) in [(ean13, EAN13 | UPCA), (ean8, EAN8), (upce, UPCE)] {
+            assert!(
+                ean_reference(&runs, 1, mask, false)
+                    .expect("valid fixture")
+                    .decoded
+            );
+            assert!(
+                ean(&runs, 1, mask, false)
+                    .expect("valid reordered fixture")
+                    .decoded
+            );
+            for perturbation in 0..3 {
+                if perturbation == 1 {
+                    runs[10] += 0.25;
+                } else if perturbation == 2 {
+                    runs[20] += 1.;
+                }
+                assert_eq!(
+                    parity_read(ean(&runs, 1, mask, true)),
+                    parity_read(ean_reference(&runs, 1, mask, true))
+                );
+            }
+        }
     }
 }

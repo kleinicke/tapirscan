@@ -51,7 +51,7 @@ const fn luminance_table(weight: f64) -> [f64; 256] {
     let mut a = [0.; 256];
     let mut i = 0;
     while i < 256 {
-        a[i] = weight * i as f64;
+        a[i] = weight * crate::numeric::usize_f64(i);
         i += 1;
     }
     a
@@ -64,6 +64,8 @@ fn rgb_luminance(r: u8, g: u8, b: u8) -> f64 {
     RED[r as usize] + GREEN[g as usize] + BLUE[b as usize]
 }
 impl<'a> ImageView<'a> {
+    /// # Errors
+    /// Rejects invalid dimensions, channels, stride, size overflow and undersized image buffers.
     pub fn new(
         data: &'a [u8],
         width: usize,
@@ -90,10 +92,18 @@ impl<'a> ImageView<'a> {
         let y0 = y.floor();
         let fx = x - x0;
         let fy = y - y0;
-        let a = x0.clamp(0., (self.width - 1) as f64) as usize * self.channels;
-        let b = (x0 + 1.).clamp(0., (self.width - 1) as f64) as usize * self.channels;
-        let c = y0.clamp(0., (self.height - 1) as f64) as usize * self.stride;
-        let d = (y0 + 1.).clamp(0., (self.height - 1) as f64) as usize * self.stride;
+        let left_offset =
+            crate::numeric::f64_usize(x0.clamp(0., crate::numeric::usize_f64(self.width - 1)))
+                * self.channels;
+        let right_offset = crate::numeric::f64_usize(
+            (x0 + 1.).clamp(0., crate::numeric::usize_f64(self.width - 1)),
+        ) * self.channels;
+        let top_offset =
+            crate::numeric::f64_usize(y0.clamp(0., crate::numeric::usize_f64(self.height - 1)))
+                * self.stride;
+        let bottom_offset = crate::numeric::f64_usize(
+            (y0 + 1.).clamp(0., crate::numeric::usize_f64(self.height - 1)),
+        ) * self.stride;
         let gray = |i: usize| {
             if self.channels == 1 {
                 f64::from(self.data[i])
@@ -103,12 +113,17 @@ impl<'a> ImageView<'a> {
                 rgb_luminance(self.data[i], self.data[i + 1], self.data[i + 2])
             }
         };
-        ((gray(c + a) * (1. - fx) + gray(c + b) * fx) * (1. - fy)
-            + (gray(d + a) * (1. - fx) + gray(d + b) * fx) * fy) as f32
+        crate::numeric::f64_f32(
+            (gray(top_offset + left_offset) * (1. - fx) + gray(top_offset + right_offset) * fx)
+                * (1. - fy)
+                + (gray(bottom_offset + left_offset) * (1. - fx)
+                    + gray(bottom_offset + right_offset) * fx)
+                    * fy,
+        )
     }
     pub(crate) fn gray(self, x: f64, y: f64) -> f64 {
-        let x = x.clamp(0., (self.width - 1) as f64) as usize;
-        let y = y.clamp(0., (self.height - 1) as f64) as usize;
+        let x = crate::numeric::f64_usize(x.clamp(0., crate::numeric::usize_f64(self.width - 1)));
+        let y = crate::numeric::f64_usize(y.clamp(0., crate::numeric::usize_f64(self.height - 1)));
         let i = y * self.stride + x * self.channels;
         if self.channels == 1 {
             f64::from(self.data[i])
@@ -119,6 +134,8 @@ impl<'a> ImageView<'a> {
         }
     }
 }
+/// # Errors
+/// Rejects zero/oversized dimensions, unsupported channel counts, short strides and size overflow.
 pub fn image_len(
     width: usize,
     height: usize,
@@ -150,6 +167,8 @@ pub fn image_len(
 #[derive(Clone, Copy, Debug)]
 pub struct Transform(pub(crate) [f64; 9]);
 impl Transform {
+    /// # Errors
+    /// Returns `Geometry` for a non-finite or degenerate transform.
     pub fn new(m: [f64; 9]) -> Result<Self, Error> {
         if m.iter().any(|v| !v.is_finite()) {
             return Err(Error::Geometry);
@@ -193,6 +212,8 @@ impl Default for Sampler {
     }
 }
 impl Sampler {
+    /// # Errors
+    /// Rejects invalid paths and projective poles or non-finite projected coordinates.
     pub fn sample(
         &mut self,
         image: ImageView<'_>,
@@ -209,23 +230,27 @@ impl Sampler {
         {
             return Err(Error::Path);
         }
-        let m = transform.0;
+        let matrix = transform.0;
         // Reject projective poles throughout the continuous curved path, including
         // endpoints and the quadratic extremum, before touching the output.
-        let (a, b, c) = if path.axis == 0 {
-            (m[6], m[7], m[8])
+        let (along_coefficient, across_coefficient, constant_coefficient) = if path.axis == 0 {
+            (matrix[6], matrix[7], matrix[8])
         } else {
-            (m[7], m[6], m[8])
+            (matrix[7], matrix[6], matrix[8])
         };
-        let z =
-            |u: f64| a * u + b * (path.fraction + path.curve * (1. - (2. * u - 1.).powi(2))) + c;
+        let denominator = |u: f64| {
+            along_coefficient * u
+                + across_coefficient * (path.fraction + path.curve * (1. - (2. * u - 1.).powi(2)))
+                + constant_coefficient
+        };
         let lo = -path.margin;
         let hi = 1. + path.margin;
-        let mut zs = [z(lo), z(hi), z(lo)];
-        if b * path.curve != 0. {
-            let u = (a + 4. * b * path.curve) / (8. * b * path.curve);
+        let mut zs = [denominator(lo), denominator(hi), denominator(lo)];
+        if across_coefficient * path.curve != 0. {
+            let u = (along_coefficient + 4. * across_coefficient * path.curve)
+                / (8. * across_coefficient * path.curve);
             if u > lo && u < hi {
-                zs[2] = z(u);
+                zs[2] = denominator(u);
             }
         }
         if zs.iter().any(|v| !v.is_finite() || v.abs() < 1e-9)
@@ -234,12 +259,14 @@ impl Sampler {
             return Err(Error::Geometry);
         }
         for i in 0..PROFILE_LEN {
-            let u = -path.margin + (1. + 2. * path.margin) * (i as f64 + 0.5) / PROFILE_LEN as f64;
+            let u = -path.margin
+                + (1. + 2. * path.margin) * (crate::numeric::usize_f64(i) + 0.5)
+                    / crate::numeric::usize_f64(PROFILE_LEN);
             let v = path.fraction + path.curve * (1. - (2. * u - 1.).powi(2));
             let (x, y) = if path.axis == 0 { (u, v) } else { (v, u) };
-            let z = m[6] * x + m[7] * y + m[8];
-            let sx = (m[0] * x + m[1] * y + m[2]) / z - 0.5;
-            let sy = (m[3] * x + m[4] * y + m[5]) / z - 0.5;
+            let denominator = matrix[6] * x + matrix[7] * y + matrix[8];
+            let sx = (matrix[0] * x + matrix[1] * y + matrix[2]) / denominator - 0.5;
+            let sy = (matrix[3] * x + matrix[4] * y + matrix[5]) / denominator - 0.5;
             if !sx.is_finite() || !sy.is_finite() {
                 return Err(Error::Geometry);
             }
@@ -252,7 +279,7 @@ impl Sampler {
             return Ok(None);
         }
         for v in &mut self.profile {
-            *v = ((hi - f64::from(*v)) / (hi - lo)).clamp(0., 1.) as f32;
+            *v = crate::numeric::f64_f32(((hi - f64::from(*v)) / (hi - lo)).clamp(0., 1.));
         }
         Ok(Some(&self.profile))
     }
@@ -263,22 +290,24 @@ mod tests {
     use super::*;
     #[test]
     fn shared_bilinear_preserves_channels_stride_and_border_arithmetic() {
-        for channels in [1, 3, 4] {
+        for channels in [1usize, 3, 4] {
             for padding in [0, 7] {
                 let (w, h) = (9, 8);
                 let stride = w * channels + padding;
                 let data: Vec<u8> = (0..stride * h)
-                    .map(|i| ((i * 73 + 19) % 256) as u8)
+                    .map(|i| ((i * 73 + 19) % 256).to_le_bytes()[0])
                     .collect();
                 let im = ImageView::new(&data, w, h, channels, stride).unwrap();
                 for x in [-9999.2, -2.25, -0.5, 0., 0.2, 1., 2.7, 8.8, 9999.2] {
                     for y in [-9999.2, -2.25, -0.5, 0., 0.2, 1., 2.7, 7.8, 9999.2] {
                         let (x0, y0) = (f64::floor(x), f64::floor(y));
                         let (fx, fy) = (x - x0, y - y0);
-                        let old = ((im.gray(x0, y0) * (1. - fx) + im.gray(x0 + 1., y0) * fx)
-                            * (1. - fy)
-                            + (im.gray(x0, y0 + 1.) * (1. - fx) + im.gray(x0 + 1., y0 + 1.) * fx)
-                                * fy) as f32;
+                        let old = crate::numeric::f64_f32(
+                            (im.gray(x0, y0) * (1. - fx) + im.gray(x0 + 1., y0) * fx) * (1. - fy)
+                                + (im.gray(x0, y0 + 1.) * (1. - fx)
+                                    + im.gray(x0 + 1., y0 + 1.) * fx)
+                                    * fy,
+                        );
                         assert_eq!(old.to_bits(), im.bilinear(x, y).to_bits());
                     }
                 }
@@ -294,10 +323,10 @@ mod tests {
                     .map(|i| {
                         seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
                         match kind {
-                            0 => (seed >> 8) as f32 / 65536.,
-                            1 => (i % 3) as f32,
-                            2 => i as f32,
-                            3 => (n - i) as f32,
+                            0 => crate::numeric::f64_f32(f64::from(seed >> 8)) / 65536.,
+                            1 => crate::numeric::usize_f32(i % 3),
+                            2 => crate::numeric::usize_f32(i),
+                            3 => crate::numeric::usize_f32(n - i),
                             _ => {
                                 if i % 2 == 0 {
                                     0.
@@ -372,6 +401,10 @@ mod tests {
         );
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn stride_alpha_borders_and_reuse() {
         let mut s = Sampler::default();
         let m = Transform::new([2., 0., 0., 0., 2., 0., 0., 0., 1.]).unwrap();

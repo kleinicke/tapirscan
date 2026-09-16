@@ -247,8 +247,8 @@ test("WASM base directory composes with the advanced loader", async () => {
   });
   scanner.dispose();
   assert.deepEqual(loaded, [
-    "medium-release-20260915.wasm",
-    "low-release-20260915.wasm",
+    "medium-release-20260916.wasm",
+    "low-release-20260916.wasm",
     "multiformat.wasm",
   ]);
 });
@@ -460,4 +460,33 @@ test("supplement policy is opt-in, validated at creation and fixed for scans", a
       }),
       /eanAddOnPolicy/,
     );
+});
+
+test("coverage defers only contained retries and preserves the full-frame bit", async () => {
+  const { containsPoint, uncoveredRetryMask } = await import("../dist/multiformat/coverage.js");
+  const quad = [
+    [0, 0],
+    [10, 0],
+    [10, 10],
+    [0, 10],
+  ];
+  const adjacent = [
+    [9, 0],
+    [19, 0],
+    [19, 10],
+    [9, 10],
+  ];
+  const proposals = Array.from({ length: 63 }, () => ({ polygon: adjacent }));
+  proposals[0] = proposals[62] = { polygon: quad };
+  assert.deepEqual(uncoveredRetryMask(proposals, [quad]), [0xfffffffe, 0xbfffffff]);
+  assert.deepEqual(uncoveredRetryMask(proposals, [quad], [0, 0x80000000]), [0, 0x80000000]);
+  assert.equal(containsPoint([0, 5], quad), true);
+  assert.equal(containsPoint([NaN, 0], quad), false);
+  assert.equal(
+    containsPoint(
+      [0, 0],
+      Array.from({ length: 4 }, () => [0, 0]),
+    ),
+    false,
+  );
 });

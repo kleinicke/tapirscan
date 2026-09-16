@@ -63,24 +63,30 @@ fn angle(ids: &[usize], tiles: &[Tile]) -> f64 {
     0.5 * (2. * xy).atan2(xx - yy)
 }
 fn bounds(ids: &[usize], angle: f64, tw: usize) -> Bounds {
-    let (c, s) = (angle.cos(), angle.sin());
-    let mut b = Bounds {
+    let (cos_angle, sin_angle) = (angle.cos(), angle.sin());
+    let mut result = Bounds {
         u0: f64::INFINITY,
         u1: f64::NEG_INFINITY,
         v0: f64::INFINITY,
         v1: f64::NEG_INFINITY,
     };
     for &k in ids {
-        let (x, y) = ((k % tw * 8) as f64, (k / tw * 8) as f64);
+        let (x, y) = (
+            crate::numeric::usize_f64(k % tw * 8),
+            crate::numeric::usize_f64(k / tw * 8),
+        );
         for (px, py) in [(x, y), (x + 8., y), (x, y + 8.), (x + 8., y + 8.)] {
-            let (u, v) = (px * c + py * s, -px * s + py * c);
-            b.u0 = b.u0.min(u);
-            b.u1 = b.u1.max(u);
-            b.v0 = b.v0.min(v);
-            b.v1 = b.v1.max(v);
+            let (u, v) = (
+                px * cos_angle + py * sin_angle,
+                -px * sin_angle + py * cos_angle,
+            );
+            result.u0 = result.u0.min(u);
+            result.u1 = result.u1.max(u);
+            result.v0 = result.v0.min(v);
+            result.v1 = result.v1.max(v);
         }
     }
-    b
+    result
 }
 /// Diagnostic geometry uses the localizer's working raster, not source pixels.
 #[derive(Debug)]
@@ -93,10 +99,14 @@ pub struct GroupDiagnostic {
     pub bounds: [f64; 4],
     pub reason: &'static str,
 }
+/// # Errors
+/// Returns `Dimensions` when the image exceeds supported detector dimensions.
 pub fn detect(im: ImageView<'_>) -> std::result::Result<Result, Error> {
     detect_with_observer(im, |_| {})
 }
 /// Read-only group trace; the observer never influences scanner decisions.
+/// # Errors
+/// Returns `Dimensions` when the image exceeds supported detector dimensions.
 pub fn detect_with_observer(
     im: ImageView<'_>,
     observe: impl FnMut(GroupDiagnostic),
@@ -107,6 +117,10 @@ pub fn detect_with_observer(
 pub(crate) fn detect_secondary(im: ImageView<'_>) -> std::result::Result<Result, Error> {
     detect_grid(im, 640., true, |_| {})
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "Stripe detection retains the ordered geometry refinements and shared source-evidence gates in one bounded pass."
+)]
 fn detect_grid(
     im: ImageView<'_>,
     working_dimension: f64,
@@ -116,14 +130,14 @@ fn detect_grid(
     if im.width < 3 || im.height < 3 {
         return Err(Error::Dimensions);
     }
-    let scale = (working_dimension / im.width.max(im.height) as f64).min(1.);
-    let (w, h) = (
-        ((im.width as f64 * scale).round() as usize).max(3),
-        ((im.height as f64 * scale).round() as usize).max(3),
+    let scale = (working_dimension / crate::numeric::usize_f64(im.width.max(im.height))).min(1.);
+    let (working_width, working_height) = (
+        crate::numeric::f64_usize((crate::numeric::usize_f64(im.width) * scale).round()).max(3),
+        crate::numeric::f64_usize((crate::numeric::usize_f64(im.height) * scale).round()).max(3),
     );
-    let mut gray = vec![0f32; w * h];
-    let mut gx = vec![0f32; w * h];
-    let mut gy = vec![0f32; w * h];
+    let mut gray = vec![0f32; working_width * working_height];
+    let mut gx = vec![0f32; working_width * working_height];
+    let mut gy = vec![0f32; working_width * working_height];
     if bilinear {
         // Diagnostic antialiased working-raster hypothesis; decoder source pixels
         // stay untouched. Same legacy RGB weights, bilinear center sampling.
@@ -138,51 +152,66 @@ fn detect_grid(
                     / 256.
             }
         };
-        for y in 0..h {
-            let sy = ((y as f64 + 0.5) * im.height as f64 / h as f64 - 0.5)
-                .clamp(0., (im.height - 1) as f64);
-            let y0 = sy.floor() as usize;
+        for y in 0..working_height {
+            let sy = ((crate::numeric::usize_f64(y) + 0.5) * crate::numeric::usize_f64(im.height)
+                / crate::numeric::usize_f64(working_height)
+                - 0.5)
+                .clamp(0., crate::numeric::usize_f64(im.height - 1));
+            let y0 = crate::numeric::f64_usize(sy.floor());
             let y1 = (y0 + 1).min(im.height - 1);
-            let fy = sy - y0 as f64;
-            for x in 0..w {
-                let sx = ((x as f64 + 0.5) * im.width as f64 / w as f64 - 0.5)
-                    .clamp(0., (im.width - 1) as f64);
-                let x0 = sx.floor() as usize;
+            let fy = sy - crate::numeric::usize_f64(y0);
+            for x in 0..working_width {
+                let sx = ((crate::numeric::usize_f64(x) + 0.5)
+                    * crate::numeric::usize_f64(im.width)
+                    / crate::numeric::usize_f64(working_width)
+                    - 0.5)
+                    .clamp(0., crate::numeric::usize_f64(im.width - 1));
+                let x0 = crate::numeric::f64_usize(sx.floor());
                 let x1 = (x0 + 1).min(im.width - 1);
-                let fx = sx - x0 as f64;
-                let a = luminance(x0, y0);
-                let b = luminance(x1, y0);
-                let c = luminance(x0, y1);
-                let d = luminance(x1, y1);
-                let u = a + (b - a) * fx;
-                let v = c + (d - c) * fx;
-                gray[y * w + x] = (u + (v - u) * fy) as f32;
+                let fx = sx - crate::numeric::usize_f64(x0);
+                let top_left = luminance(x0, y0);
+                let top_right = luminance(x1, y0);
+                let bottom_left = luminance(x0, y1);
+                let bottom_right = luminance(x1, y1);
+                let u = top_left + (top_right - top_left) * fx;
+                let v = bottom_left + (bottom_right - bottom_left) * fx;
+                gray[y * working_width + x] = crate::numeric::f64_f32(u + (v - u) * fy);
             }
         }
     } else {
         // Source-column mapping is invariant across all output rows. Integer RGB
         // weights are exactly the legacy binary-fraction luminance, not a new filter.
-        let columns: Vec<_> = (0..w)
+        let columns: Vec<_> = (0..working_width)
             .map(|x| {
-                (((x as f64 + 0.5) * im.width as f64 / w as f64).floor() as usize).min(im.width - 1)
+                crate::numeric::f64_usize(
+                    ((crate::numeric::usize_f64(x) + 0.5) * crate::numeric::usize_f64(im.width)
+                        / crate::numeric::usize_f64(working_width))
+                    .floor(),
+                )
+                .min(im.width - 1)
                     * im.channels
             })
             .collect();
-        for y in 0..h {
-            let sy = (((y as f64 + 0.5) * im.height as f64 / h as f64).floor() as usize)
-                .min(im.height - 1);
+        for y in 0..working_height {
+            let sy = crate::numeric::f64_usize(
+                ((crate::numeric::usize_f64(y) + 0.5) * crate::numeric::usize_f64(im.height)
+                    / crate::numeric::usize_f64(working_height))
+                .floor(),
+            )
+            .min(im.height - 1);
             let row = &im.data[sy * im.stride..];
-            let dst = &mut gray[y * w..(y + 1) * w];
+            let dst = &mut gray[y * working_width..(y + 1) * working_width];
             if im.channels == 1 {
                 for (x, &i) in columns.iter().enumerate() {
                     dst[x] = f32::from(row[i]);
                 }
             } else {
                 for (x, &i) in columns.iter().enumerate() {
-                    dst[x] = (77 * u32::from(row[i])
-                        + 150 * u32::from(row[i + 1])
-                        + 29 * u32::from(row[i + 2])) as f32
-                        / 256.;
+                    dst[x] = crate::numeric::f64_f32(f64::from(
+                        77 * u32::from(row[i])
+                            + 150 * u32::from(row[i + 1])
+                            + 29 * u32::from(row[i + 2]),
+                    )) / 256.;
                 }
             }
         }
@@ -191,14 +220,14 @@ fn detect_grid(
     // untouched; the decoder samples original pixels with its own contrast gates.
     let mut histogram = [0usize; 256];
     for &v in &gray {
-        histogram[v.clamp(0., 255.).floor() as usize] += 1;
+        histogram[crate::numeric::f32_usize(v.clamp(0., 255.).floor())] += 1;
     }
     let quantile = |target: usize| {
         let mut sum = 0;
-        for (i, &n) in histogram.iter().enumerate() {
-            sum += n;
+        for (i, &neighbor_index) in histogram.iter().enumerate() {
+            sum += neighbor_index;
             if sum > target {
-                return i as f32;
+                return crate::numeric::usize_f32(i);
             }
         }
         255.
@@ -213,11 +242,11 @@ fn detect_grid(
             *v = ((*v - lo) * gain).clamp(0., 255.);
         }
     }
-    let (tw, th) = (w.div_ceil(8), h.div_ceil(8));
+    let (tw, th) = (working_width.div_ceil(8), working_height.div_ceil(8));
     let mut tiles = vec![Tile::default(); tw * th];
-    for y in 1..h - 1 {
-        for x in 1..w - 1 {
-            let i = y * w + x;
+    for y in 1..working_height - 1 {
+        for x in 1..working_width - 1 {
+            let i = y * working_width + x;
             // Unconditioned samples are exact multiples of 1/256. Every Scharr
             // intermediate fits within 20 significant bits, so f32 is exact.
             // Conditioned low-light samples retain the original f64 arithmetic.
@@ -225,42 +254,45 @@ fn detect_grid(
                 let g = |i: usize| gray[i];
                 (
                     f64::from(
-                        (3. * (g(i - w + 1) - g(i - w - 1))
+                        (3. * (g(i - working_width + 1) - g(i - working_width - 1))
                             + 10. * (g(i + 1) - g(i - 1))
-                            + 3. * (g(i + w + 1) - g(i + w - 1)))
+                            + 3. * (g(i + working_width + 1) - g(i + working_width - 1)))
                             / 16.,
                     ),
                     f64::from(
-                        (3. * (g(i + w - 1) - g(i - w - 1))
-                            + 10. * (g(i + w) - g(i - w))
-                            + 3. * (g(i + w + 1) - g(i - w + 1)))
+                        (3. * (g(i + working_width - 1) - g(i - working_width - 1))
+                            + 10. * (g(i + working_width) - g(i - working_width))
+                            + 3. * (g(i + working_width + 1) - g(i - working_width + 1)))
                             / 16.,
                     ),
                 )
             } else {
                 let g = |i: usize| f64::from(gray[i]);
-                let dx = (3. * (g(i - w + 1) - g(i - w - 1))
+                let dx = (3. * (g(i - working_width + 1) - g(i - working_width - 1))
                     + 10. * (g(i + 1) - g(i - 1))
-                    + 3. * (g(i + w + 1) - g(i + w - 1)))
+                    + 3. * (g(i + working_width + 1) - g(i + working_width - 1)))
                     / 16.;
-                let dy = (3. * (g(i + w - 1) - g(i - w - 1))
-                    + 10. * (g(i + w) - g(i - w))
-                    + 3. * (g(i + w + 1) - g(i - w + 1)))
+                let dy = (3. * (g(i + working_width - 1) - g(i - working_width - 1))
+                    + 10. * (g(i + working_width) - g(i - working_width))
+                    + 3. * (g(i + working_width + 1) - g(i - working_width + 1)))
                     / 16.;
                 (dx, dy)
             };
-            gx[i] = dx as f32;
-            gy[i] = dy as f32;
-            let t = &mut tiles[y / 8 * tw + x / 8];
-            t.xx += dx * dx;
-            t.xy += dx * dy;
-            t.yy += dy * dy;
+            gx[i] = crate::numeric::f64_f32(dx);
+            gy[i] = crate::numeric::f64_f32(dy);
+            let neighbor_tile = &mut tiles[y / 8 * tw + x / 8];
+            neighbor_tile.xx += dx * dx;
+            neighbor_tile.xy += dx * dy;
+            neighbor_tile.yy += dy * dy;
         }
     }
-    for t in &mut tiles {
-        let energy = t.xx + t.yy;
-        t.angle = 0.5 * (2. * t.xy).atan2(t.xx - t.yy);
-        t.active = energy > 64. * 80. && (t.xx - t.yy).hypot(2. * t.xy) / (energy + 1.) > 0.60;
+    for neighbor_tile in &mut tiles {
+        let energy = neighbor_tile.xx + neighbor_tile.yy;
+        neighbor_tile.angle =
+            0.5 * (2. * neighbor_tile.xy).atan2(neighbor_tile.xx - neighbor_tile.yy);
+        neighbor_tile.active = energy > 64. * 80.
+            && (neighbor_tile.xx - neighbor_tile.yy).hypot(2. * neighbor_tile.xy) / (energy + 1.)
+                > 0.60;
     }
     let mut groups: Vec<Vec<usize>> = Vec::new();
     let mut seen = vec![false; tiles.len()];
@@ -268,32 +300,33 @@ fn detect_grid(
         if seen[seed] || !tiles[seed].active {
             continue;
         }
-        let mut q = vec![seed];
+        let mut quad = vec![seed];
         seen[seed] = true;
         let mut head = 0;
-        while head < q.len() {
-            let k = q[head];
+        while head < quad.len() {
+            let k = quad[head];
             head += 1;
-            let (tx, ty) = ((k % tw) as isize, (k / tw) as isize);
+            let (tx, ty) = ((k % tw).cast_signed(), (k / tw).cast_signed());
             for oy in -1..=1 {
                 for ox in -1..=1 {
                     let (nx, ny) = (tx + ox, ty + oy);
-                    if nx < 0 || ny < 0 || nx >= tw as isize || ny >= th as isize {
+                    if nx < 0 || ny < 0 || nx >= (tw).cast_signed() || ny >= (th).cast_signed() {
                         continue;
                     }
-                    let n = ny as usize * tw + nx as usize;
-                    if !seen[n]
-                        && tiles[n].active
-                        && distance(tiles[k].angle, tiles[n].angle) < std::f64::consts::PI / 9.
+                    let neighbor_index = (ny).cast_unsigned() * tw + (nx).cast_unsigned();
+                    if !seen[neighbor_index]
+                        && tiles[neighbor_index].active
+                        && distance(tiles[k].angle, tiles[neighbor_index].angle)
+                            < std::f64::consts::PI / 9.
                     {
-                        seen[n] = true;
-                        q.push(n);
+                        seen[neighbor_index] = true;
+                        quad.push(neighbor_index);
                     }
                 }
             }
         }
-        if q.len() >= 3 {
-            groups.push(q);
+        if quad.len() >= 3 {
+            groups.push(quad);
         }
     }
     groups.sort_by_key(|g| std::cmp::Reverse(g.len()));
@@ -321,14 +354,16 @@ fn detect_grid(
                 if used[i] {
                     continue;
                 }
-                let b = *cache[i].get_or_insert_with(|| bounds(&groups[i], axis, tw));
+                let neighbor_bounds = *cache[i].get_or_insert_with(|| bounds(&groups[i], axis, tw));
                 let (mut close, mut compatible) = (false, true);
                 for &j in &members {
                     merge_checks += 1;
                     let a = *cache[j].get_or_insert_with(|| bounds(&groups[j], axis, tw));
-                    let (ha, hb) = (a.v1 - a.v0, b.v1 - b.v0);
-                    let overlap = a.v1.min(b.v1) - a.v0.max(b.v0);
-                    let gap = (a.u0 - b.u1).max(b.u0 - a.u1).max(0.);
+                    let (ha, hb) = (a.v1 - a.v0, neighbor_bounds.v1 - neighbor_bounds.v0);
+                    let overlap = a.v1.min(neighbor_bounds.v1) - a.v0.max(neighbor_bounds.v0);
+                    let gap = (a.u0 - neighbor_bounds.u1)
+                        .max(neighbor_bounds.u0 - a.u1)
+                        .max(0.);
                     if distance(angles[i], angles[j]) > std::f64::consts::PI / 18.
                         || ha.min(hb) / ha.max(hb) < 0.65
                         || overlap < 0.8 * ha.min(hb)
@@ -369,8 +404,8 @@ fn detect_grid(
                 continue;
             }
             let axis = angle(seed, &tiles);
-            let b = bounds(seed, axis, tw);
-            let (c, s) = (axis.cos(), axis.sin());
+            let neighbor_bounds = bounds(seed, axis, tw);
+            let (cos_angle, sin_angle) = (axis.cos(), axis.sin());
             let mut ids = seed.clone();
             let mut frontier = seed.clone();
             // Fixed seed direction and bar-height envelope prevent indirect
@@ -378,32 +413,46 @@ fn detect_grid(
             for _ in 0..3 {
                 let mut next = Vec::new();
                 for &k in &frontier {
-                    let (tx, ty) = ((k % tw) as isize, (k / tw) as isize);
+                    let (tx, ty) = ((k % tw).cast_signed(), (k / tw).cast_signed());
                     for dy in -1..=1 {
                         for dx in -1..=1 {
                             let (x, y) = (tx + dx, ty + dy);
-                            if x < 0 || y < 0 || x >= tw as isize || y >= th as isize {
-                                continue;
-                            }
-                            let n = y as usize * tw + x as usize;
-                            if ids.contains(&n) || ids.len() >= 64 {
-                                continue;
-                            }
-                            let t = &tiles[n];
-                            let energy = t.xx + t.yy;
-                            if energy <= 64. * 80.
-                                || (t.xx - t.yy).hypot(2. * t.xy) / (energy + 1.) < 0.4
-                                || distance(t.angle, axis) > std::f64::consts::PI / 9.
+                            if x < 0 || y < 0 || x >= (tw).cast_signed() || y >= (th).cast_signed()
                             {
                                 continue;
                             }
-                            let (px, py) = (x as f64 * 8. + 4., y as f64 * 8. + 4.);
-                            let (u, v) = (px * c + py * s, -px * s + py * c);
-                            if u < b.u0 - 24. || u > b.u1 + 24. || v < b.v0 || v > b.v1 {
+                            let neighbor_index = (y).cast_unsigned() * tw + (x).cast_unsigned();
+                            if ids.contains(&neighbor_index) || ids.len() >= 64 {
                                 continue;
                             }
-                            ids.push(n);
-                            next.push(n);
+                            let neighbor_tile = &tiles[neighbor_index];
+                            let energy = neighbor_tile.xx + neighbor_tile.yy;
+                            if energy <= 64. * 80.
+                                || (neighbor_tile.xx - neighbor_tile.yy)
+                                    .hypot(2. * neighbor_tile.xy)
+                                    / (energy + 1.)
+                                    < 0.4
+                                || distance(neighbor_tile.angle, axis) > std::f64::consts::PI / 9.
+                            {
+                                continue;
+                            }
+                            let (px, py) = (
+                                crate::numeric::isize_f64(x) * 8. + 4.,
+                                crate::numeric::isize_f64(y) * 8. + 4.,
+                            );
+                            let (u, v) = (
+                                px * cos_angle + py * sin_angle,
+                                -px * sin_angle + py * cos_angle,
+                            );
+                            if u < neighbor_bounds.u0 - 24.
+                                || u > neighbor_bounds.u1 + 24.
+                                || v < neighbor_bounds.v0
+                                || v > neighbor_bounds.v1
+                            {
+                                continue;
+                            }
+                            ids.push(neighbor_index);
+                            next.push(neighbor_index);
                         }
                     }
                 }
@@ -440,14 +489,14 @@ fn detect_grid(
         let mut edges = Vec::new();
         for &k in queue {
             let (tx, ty) = (k % tw, k / tw);
-            for y in (ty * 8).max(1)..((ty + 1) * 8).min(h - 1) {
-                for x in (tx * 8).max(1)..((tx + 1) * 8).min(w - 1) {
-                    let i = y * w + x;
+            for y in (ty * 8).max(1)..((ty + 1) * 8).min(working_height - 1) {
+                for x in (tx * 8).max(1)..((tx + 1) * 8).min(working_width - 1) {
+                    let i = y * working_width + x;
                     let (dx, dy) = (f64::from(gx[i]), f64::from(gy[i]));
                     if let Some(weight) = edge_weight(dx, dy, ax, ay) {
                         edges.push(Edge {
-                            x: x as f64 + 0.5,
-                            y: y as f64 + 0.5,
+                            x: crate::numeric::usize_f64(x) + 0.5,
+                            y: crate::numeric::usize_f64(y) + 0.5,
                             weight,
                         });
                     }
@@ -455,52 +504,62 @@ fn detect_grid(
             }
         }
         if edges.len() < 80 {
-            let b = bounds(queue, angle, tw);
+            let neighbor_bounds = bounds(queue, angle, tw);
             observe(GroupDiagnostic {
                 index: group_index,
                 tiles: queue.len(),
                 edges: edges.len(),
                 angle,
                 initial_angle: angle,
-                bounds: [b.u0, b.u1, b.v0, b.v1],
+                bounds: [
+                    neighbor_bounds.u0,
+                    neighbor_bounds.u1,
+                    neighbor_bounds.v0,
+                    neighbor_bounds.v1,
+                ],
                 reason: "few_edges",
             });
             continue;
         }
         let mut best = f64::NEG_INFINITY;
         let initial = angle;
-        let offset = (w as f64).hypot(h as f64);
-        let mut bins = vec![0f32; (offset * 4.).ceil() as usize + 8];
+        let offset = crate::numeric::usize_f64(working_width)
+            .hypot(crate::numeric::usize_f64(working_height));
+        let mut bins = vec![0f32; crate::numeric::f64_usize((offset * 4.).ceil()) + 8];
         let (mut clear_start, mut clear_end) = (0, 0);
         for step in -10..=10 {
             let a = initial + f64::from(step) * std::f64::consts::PI / 360.;
-            let (c, s) = (a.cos(), a.sin());
+            let (cos_angle, sin_angle) = (a.cos(), a.sin());
             bins[clear_start..clear_end].fill(0.);
             let (mut lo, mut hi) = (bins.len(), 0);
             for e in &edges {
-                let p = (e.x * c + e.y * s + offset) * 2.;
-                let b = p.floor() as isize;
-                let f = p - b as f64;
-                if b >= 0 && (b as usize + 1) < bins.len() {
-                    let b = b as usize;
-                    lo = lo.min(b);
-                    hi = hi.max(b + 2);
-                    bins[b] = (f64::from(bins[b]) + e.weight * (1. - f)) as f32;
-                    bins[b + 1] = (f64::from(bins[b + 1]) + e.weight * f) as f32;
+                let p = (e.x * cos_angle + e.y * sin_angle + offset) * 2.;
+                let neighbor_bounds = crate::numeric::f64_isize(p.floor());
+                let f = p - crate::numeric::isize_f64(neighbor_bounds);
+                if neighbor_bounds >= 0 && ((neighbor_bounds).cast_unsigned() + 1) < bins.len() {
+                    let neighbor_bounds = (neighbor_bounds).cast_unsigned();
+                    lo = lo.min(neighbor_bounds);
+                    hi = hi.max(neighbor_bounds + 2);
+                    bins[neighbor_bounds] = crate::numeric::f64_f32(
+                        f64::from(bins[neighbor_bounds]) + e.weight * (1. - f),
+                    );
+                    bins[neighbor_bounds + 1] = crate::numeric::f64_f32(
+                        f64::from(bins[neighbor_bounds + 1]) + e.weight * f,
+                    );
                 }
             }
             clear_start = lo;
             clear_end = hi;
             let mut score = 0.;
-            for &b in &bins[lo..hi] {
-                score += f64::from(b) * f64::from(b);
+            for &neighbor_bounds in &bins[lo..hi] {
+                score += f64::from(neighbor_bounds) * f64::from(neighbor_bounds);
             }
             if score > best {
                 best = score;
                 angle = a;
             }
         }
-        let (c, s) = (angle.cos(), angle.sin());
+        let (cos_angle, sin_angle) = (angle.cos(), angle.sin());
         let (mut u0, mut u1, mut v0, mut v1) = (
             f64::INFINITY,
             f64::NEG_INFINITY,
@@ -508,7 +567,10 @@ fn detect_grid(
             f64::NEG_INFINITY,
         );
         for e in &edges {
-            let (u, v) = (e.x * c + e.y * s, -e.x * s + e.y * c);
+            let (u, v) = (
+                e.x * cos_angle + e.y * sin_angle,
+                -e.x * sin_angle + e.y * cos_angle,
+            );
             u0 = u0.min(u);
             u1 = u1.max(u);
             v0 = v0.min(v);
@@ -546,41 +608,46 @@ fn detect_grid(
         // A table/label bridge can make the parent much taller than the barcode.
         // Retain the parent; append bounded cross-axis dense-edge bands later.
         if cfg!(feature = "experimental-stripe-bands") && along >= 24. {
-            let n = along.ceil() as usize + 1;
-            let mut density = vec![0usize; n];
+            let neighbor_index = crate::numeric::f64_usize(along.ceil()) + 1;
+            let mut density = vec![0usize; neighbor_index];
             for e in &edges {
-                let v = (-e.x * s + e.y * c - v0).floor() as usize;
-                if v < n {
+                let v =
+                    crate::numeric::f64_usize((-e.x * sin_angle + e.y * cos_angle - v0).floor());
+                if v < neighbor_index {
                     density[v] += 1;
                 }
             }
-            let smooth: Vec<f64> = (0..n)
+            let smooth: Vec<f64> = (0..neighbor_index)
                 .map(|i| {
                     let lo = i.saturating_sub(2);
-                    let hi = (i + 3).min(n);
-                    density[lo..hi].iter().sum::<usize>() as f64 / (hi - lo) as f64
+                    let hi = (i + 3).min(neighbor_index);
+                    crate::numeric::usize_f64(density[lo..hi].iter().sum::<usize>())
+                        / crate::numeric::usize_f64(hi - lo)
                 })
                 .collect();
             let peak = smooth.iter().copied().fold(0f64, f64::max);
             let threshold = (peak * 0.55).max(12.);
             let mut start = 0;
             let mut admitted = 0;
-            while start < n && admitted < 2 {
+            while start < neighbor_index && admitted < 2 {
                 if smooth[start] < threshold {
                     start += 1;
                     continue;
                 }
                 let mut end = start + 1;
-                while end < n && smooth[end] >= threshold {
+                while end < neighbor_index && smooth[end] >= threshold {
                     end += 1;
                 }
-                if end - start >= 7 && (end - start) as f64 <= along * 0.55 {
-                    let (bv0, bv1) = (v0 + start as f64, v0 + end as f64);
+                if end - start >= 7 && crate::numeric::usize_f64(end - start) <= along * 0.55 {
+                    let (bv0, bv1) = (
+                        v0 + crate::numeric::usize_f64(start),
+                        v0 + crate::numeric::usize_f64(end),
+                    );
                     let (mut bu0, mut bu1) = (f64::INFINITY, f64::NEG_INFINITY);
                     for e in &edges {
-                        let v = -e.x * s + e.y * c;
+                        let v = -e.x * sin_angle + e.y * cos_angle;
                         if v >= bv0 && v <= bv1 {
-                            let u = e.x * c + e.y * s;
+                            let u = e.x * cos_angle + e.y * sin_angle;
                             bu0 = bu0.min(u);
                             bu1 = bu1.max(u);
                         }
@@ -589,8 +656,12 @@ fn detect_grid(
                     if bu1 - bu0 >= 45. && (!rescue_tall || (0.65..=30.).contains(&band_ratio)) {
                         let point = |u: f64, v: f64| {
                             [
-                                (u * c - v * s) * im.width as f64 / w as f64,
-                                (u * s + v * c) * im.height as f64 / h as f64,
+                                (u * cos_angle - v * sin_angle)
+                                    * crate::numeric::usize_f64(im.width)
+                                    / crate::numeric::usize_f64(working_width),
+                                (u * sin_angle + v * cos_angle)
+                                    * crate::numeric::usize_f64(im.height)
+                                    / crate::numeric::usize_f64(working_height),
                             ]
                         };
                         (if rescue_tall {
@@ -618,11 +689,13 @@ fn detect_grid(
                                     &edges,
                                     &gx,
                                     &gy,
-                                    w,
+                                    working_width,
                                     angle,
                                     [bu0, bu1, bv0, bv1],
-                                    im.width as f64 / w as f64,
-                                    im.height as f64 / h as f64,
+                                    crate::numeric::usize_f64(im.width)
+                                        / crate::numeric::usize_f64(working_width),
+                                    crate::numeric::usize_f64(im.height)
+                                        / crate::numeric::usize_f64(working_height),
                                 ) {
                                     angle_bands.push(p);
                                 }
@@ -646,8 +719,10 @@ fn detect_grid(
         v1 -= 1f64.min(along * 0.05);
         let point = |u: f64, v: f64| {
             [
-                (u * c - v * s) * im.width as f64 / w as f64,
-                (u * s + v * c) * im.height as f64 / h as f64,
+                (u * cos_angle - v * sin_angle) * crate::numeric::usize_f64(im.width)
+                    / crate::numeric::usize_f64(working_width),
+                (u * sin_angle + v * cos_angle) * crate::numeric::usize_f64(im.height)
+                    / crate::numeric::usize_f64(working_height),
             ]
         };
         (if group_index < base_count {
@@ -686,9 +761,9 @@ fn detect_grid(
         let mut extended = Vec::new();
         for index in scheduled {
             let p = &proposals[index];
-            if let Some(q) = source_extent(im, p) {
+            if let Some(quad) = source_extent(im, p) {
                 if extended.len() < 8 {
-                    extended.push(q);
+                    extended.push(quad);
                 } else {
                     extent_omitted += 1;
                 }
@@ -702,21 +777,21 @@ fn detect_grid(
     proposals.extend(angle_bands);
     let mut fragment_omitted = 0;
     if cfg!(feature = "experimental-post-band-fragments") {
-        let n = proposals.len().min(24);
+        let neighbor_index = proposals.len().min(24);
         let mut joined = Vec::new();
-        for i in 0..n {
-            for j in i + 1..n {
-                if let Some(q) = join_fragments(&proposals[i], &proposals[j], 16. / scale) {
+        for i in 0..neighbor_index {
+            for j in i + 1..neighbor_index {
+                if let Some(quad) = join_fragments(&proposals[i], &proposals[j], 16. / scale) {
                     if cfg!(feature = "experimental-fragment-coverage")
                         && proposals
                             .iter()
                             .take(24)
-                            .any(|old| covers_fragment(old, &q, 2. / scale))
+                            .any(|old| covers_fragment(old, &quad, 2. / scale))
                     {
                         continue;
                     }
                     if joined.len() < 8 {
-                        joined.push(q);
+                        joined.push(quad);
                     } else {
                         fragment_omitted += 1;
                     }
@@ -871,13 +946,13 @@ fn source_refinements_replacing(
     }
     (extents, angles)
 }
-fn source_angle(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
-    let q = p.polygon;
-    let ex = [q[1][0] - q[0][0], q[1][1] - q[0][1]];
-    let ey = [q[3][0] - q[0][0], q[3][1] - q[0][1]];
-    let w = ex[0].hypot(ex[1]);
-    let h = ey[0].hypot(ey[1]);
-    if w < 76. || h < 12. {
+fn source_angle(im: ImageView<'_>, proposal: &Proposal) -> Option<Proposal> {
+    let quad = proposal.polygon;
+    let ex = [quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]];
+    let ey = [quad[3][0] - quad[0][0], quad[3][1] - quad[0][1]];
+    let edge_width = ex[0].hypot(ex[1]);
+    let edge_height = ey[0].hypot(ey[1]);
+    if edge_width < 76. || edge_height < 12. {
         return None;
     }
     let gray = |x: usize, y: usize| {
@@ -896,12 +971,16 @@ fn source_angle(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
         for i in 0..64 {
             let u = (f64::from(i) + 0.5) / 64.;
             let v = (f64::from(j) + 0.5) / 32.;
-            let x = (q[0][0] + ex[0] * u + ey[0] * v).floor();
-            let y = (q[0][1] + ex[1] * u + ey[1] * v).floor();
-            if x < 1. || y < 1. || x >= (im.width - 1) as f64 || y >= (im.height - 1) as f64 {
+            let x = (quad[0][0] + ex[0] * u + ey[0] * v).floor();
+            let y = (quad[0][1] + ex[1] * u + ey[1] * v).floor();
+            if x < 1.
+                || y < 1.
+                || x >= crate::numeric::usize_f64(im.width - 1)
+                || y >= crate::numeric::usize_f64(im.height - 1)
+            {
                 continue;
             }
-            let (x, y) = (x as usize, y as usize);
+            let (x, y) = (crate::numeric::f64_usize(x), crate::numeric::f64_usize(y));
             let dx = gray(x + 1, y) - gray(x - 1, y);
             let dy = gray(x, y + 1) - gray(x, y - 1);
             if dx.hypot(dy) < 18. {
@@ -924,12 +1003,18 @@ fn source_angle(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
     if delta.abs() < 0.5f64.to_radians() || delta.abs() > 30f64.to_radians() {
         return None;
     }
-    let center = [(q[0][0] + q[2][0]) * 0.5, (q[0][1] + q[2][1]) * 0.5];
-    let (c, s) = (delta.cos(), delta.sin());
+    let center = [
+        (quad[0][0] + quad[2][0]) * 0.5,
+        (quad[0][1] + quad[2][1]) * 0.5,
+    ];
+    let (cos_delta, sin_delta) = (delta.cos(), delta.sin());
     Some(Proposal {
-        polygon: q.map(|v| {
+        polygon: quad.map(|v| {
             let (x, y) = (v[0] - center[0], v[1] - center[1]);
-            [center[0] + c * x - s * y, center[1] + s * x + c * y]
+            [
+                center[0] + cos_delta * x - sin_delta * y,
+                center[1] + sin_delta * x + cos_delta * y,
+            ]
         }),
         score: coherence.min(0.99),
     })
@@ -937,6 +1022,14 @@ fn source_angle(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
 
 // Supplemental fit from the edges inside a previously admitted dense band.
 // Parent geometry and all prior candidates remain unchanged. No decoder/GT input.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The fit consumes paired gradient planes, grid geometry and source scaling without owning or copying these buffers."
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "The weighted angle fit keeps source gradients, projection bins and acceptance gates in one refinement pass."
+)]
 fn refine_band_angle(
     edges: &[Edge],
     gx: &[f32],
@@ -947,11 +1040,11 @@ fn refine_band_angle(
     sx: f64,
     sy: f64,
 ) -> Option<Proposal> {
-    let (c, s) = (parent.cos(), parent.sin());
+    let (cos_angle, sin_angle) = (parent.cos(), parent.sin());
     let subset: Vec<_> = edges
         .iter()
         .filter(|e| {
-            let v = -e.x * s + e.y * c;
+            let v = -e.x * sin_angle + e.y * cos_angle;
             v >= b[2] && v <= b[3]
         })
         .collect();
@@ -960,7 +1053,8 @@ fn refine_band_angle(
     }
     let (mut xx, mut xy, mut yy) = (0., 0., 0.);
     for e in &subset {
-        let i = (e.y.floor() as usize) * stride + e.x.floor() as usize;
+        let i = crate::numeric::f64_usize(e.y.floor()) * stride
+            + crate::numeric::f64_usize(e.x.floor());
         let (dx, dy) = (f64::from(gx[i]), f64::from(gy[i]));
         xx += dx * dx;
         xy += dx * dy;
@@ -974,21 +1068,22 @@ fn refine_band_angle(
     if distance(initial, parent) > 15f64.to_radians() {
         return None;
     }
-    let offset = (stride as f64).hypot((gx.len() / stride) as f64);
-    let mut bins = vec![0f32; (offset * 4.).ceil() as usize + 8];
+    let offset =
+        crate::numeric::usize_f64(stride).hypot(crate::numeric::usize_f64(gx.len() / stride));
+    let mut bins = vec![0f32; crate::numeric::f64_usize((offset * 4.).ceil()) + 8];
     let (mut best, mut angle) = (f64::NEG_INFINITY, initial);
     let mut best_step: i32 = 0;
     for step in -10..=10 {
         let a = initial + f64::from(step) * std::f64::consts::PI / 360.;
-        let (c, s) = (a.cos(), a.sin());
+        let (cos_angle, sin_angle) = (a.cos(), a.sin());
         bins.fill(0.);
         for e in &subset {
-            let p = (e.x * c + e.y * s + offset) * 2.;
-            let i = p.floor() as usize;
-            let f = p - i as f64;
+            let p = (e.x * cos_angle + e.y * sin_angle + offset) * 2.;
+            let i = crate::numeric::f64_usize(p.floor());
+            let fraction = p - crate::numeric::usize_f64(i);
             if i + 1 < bins.len() {
-                bins[i] = (f64::from(bins[i]) + e.weight * (1. - f)) as f32;
-                bins[i + 1] = (f64::from(bins[i + 1]) + e.weight * f) as f32;
+                bins[i] = crate::numeric::f64_f32(f64::from(bins[i]) + e.weight * (1. - fraction));
+                bins[i + 1] = crate::numeric::f64_f32(f64::from(bins[i + 1]) + e.weight * fraction);
             }
         }
         let score = bins
@@ -1014,7 +1109,7 @@ fn refine_band_angle(
     {
         return None;
     }
-    let (c, s) = (angle.cos(), angle.sin());
+    let (cos_angle, sin_angle) = (angle.cos(), angle.sin());
     let (mut u0, mut u1, mut v0, mut v1) = (
         f64::INFINITY,
         f64::NEG_INFINITY,
@@ -1022,7 +1117,10 @@ fn refine_band_angle(
         f64::NEG_INFINITY,
     );
     for e in subset {
-        let (u, v) = (e.x * c + e.y * s, -e.x * s + e.y * c);
+        let (u, v) = (
+            e.x * cos_angle + e.y * sin_angle,
+            -e.x * sin_angle + e.y * cos_angle,
+        );
         u0 = u0.min(u);
         u1 = u1.max(u);
         v0 = v0.min(v);
@@ -1031,7 +1129,12 @@ fn refine_band_angle(
     if u1 - u0 < 45. || v1 - v0 < 7. || !(0.65..=30.).contains(&((u1 - u0) / (v1 - v0))) {
         return None;
     }
-    let at = |u: f64, v: f64| [(u * c - v * s) * sx, (u * s + v * c) * sy];
+    let at = |u: f64, v: f64| {
+        [
+            (u * cos_angle - v * sin_angle) * sx,
+            (u * sin_angle + v * cos_angle) * sy,
+        ]
+    };
     Some(Proposal {
         polygon: [
             at(u0 - 1., v0),
@@ -1068,15 +1171,19 @@ fn extent_plan(proposals: &[Proposal], eligible_budget: bool) -> (Vec<usize>, us
 }
 
 /// Signed source-pixel multiline edge evidence, ported from061/extent.mts.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Stripe detection retains the ordered geometry refinements and shared source-evidence gates in one bounded pass."
+)]
 fn source_extent(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
-    let q = &p.polygon;
-    let ex = [q[1][0] - q[0][0], q[1][1] - q[0][1]];
-    let ey = [q[3][0] - q[0][0], q[3][1] - q[0][1]];
+    let quad = &p.polygon;
+    let ex = [quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]];
+    let ey = [quad[3][0] - quad[0][0], quad[3][1] - quad[0][1]];
     let (w, _h) = extent_dimensions(p)?;
     let margin = (w * 0.35).min(100.);
-    let start = -(margin.ceil() as isize);
-    let end = (w + margin).ceil() as isize;
-    let count = (end - start + 1) as usize;
+    let start = -crate::numeric::f64_isize(margin.ceil());
+    let end = crate::numeric::f64_isize((w + margin).ceil());
+    let count = (end - start + 1).cast_unsigned();
     let gray = |x: usize, y: usize| {
         let i = y * im.stride + x * im.channels;
         if im.channels == 1 {
@@ -1089,11 +1196,21 @@ fn source_extent(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
         }
     };
     let sample = |x: f64, y: f64| -> Option<f64> {
-        if x < 0. || y < 0. || x >= (im.width - 1) as f64 || y >= (im.height - 1) as f64 {
+        if x < 0.
+            || y < 0.
+            || x >= crate::numeric::usize_f64(im.width - 1)
+            || y >= crate::numeric::usize_f64(im.height - 1)
+        {
             return None;
         }
-        let (ix, iy) = (x.floor() as usize, y.floor() as usize);
-        let (fx, fy) = (x - ix as f64, y - iy as f64);
+        let (ix, iy) = (
+            crate::numeric::f64_usize(x.floor()),
+            crate::numeric::f64_usize(y.floor()),
+        );
+        let (fx, fy) = (
+            x - crate::numeric::usize_f64(ix),
+            y - crate::numeric::usize_f64(iy),
+        );
         Some(
             (gray(ix, iy) * (1. - fx) + gray(ix + 1, iy) * fx) * (1. - fy)
                 + (gray(ix, iy + 1) * (1. - fx) + gray(ix + 1, iy + 1) * fx) * fy,
@@ -1104,10 +1221,10 @@ fn source_extent(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
     for fraction in [0.2, 0.35, 0.5, 0.65, 0.8] {
         let mut last = None;
         for i in 0..count {
-            let u = (start + i as isize) as f64 / w;
+            let u = crate::numeric::isize_f64(start + (i).cast_signed()) / w;
             let v = sample(
-                q[0][0] + ex[0] * u + ey[0] * fraction,
-                q[0][1] + ex[1] * u + ey[1] * fraction,
+                quad[0][0] + ex[0] * u + ey[0] * fraction,
+                quad[0][1] + ex[1] * u + ey[1] * fraction,
             );
             if let (Some(v), Some(old)) = (v, last) {
                 if v - old >= 18. {
@@ -1131,7 +1248,7 @@ fn source_extent(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
             0
         };
         if polarity != 0 && polarity != prior {
-            events.push((start + i as isize) as f64);
+            events.push(crate::numeric::isize_f64(start + (i).cast_signed()));
         }
         prior = polarity;
     }
@@ -1162,8 +1279,8 @@ fn source_extent(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
     }
     let at = |u: f64, v: f64| {
         [
-            q[0][0] + ex[0] * u / w + ey[0] * v,
-            q[0][1] + ex[1] * u / w + ey[1] * v,
+            quad[0][0] + ex[0] * u / w + ey[0] * v,
+            quad[0][1] + ex[1] * u / w + ey[1] * v,
         ]
     };
     Some(Proposal {
@@ -1196,22 +1313,29 @@ mod extent_tests {
         let d = image(1);
         let im = ImageView::new(&d, 360, 100, 1, 360).unwrap();
         let a = 5f64.to_radians();
-        let (c, s) = (a.cos(), a.sin());
-        let q = Proposal {
+        let (cos_angle, sin_angle) = (a.cos(), a.sin());
+        let quad = Proposal {
             polygon: [[90., 40.], [275., 40.], [275., 60.], [90., 60.]].map(|p| {
                 let (x, y) = (p[0] - 182.5, p[1] - 50.);
-                [182.5 + c * x - s * y, 50. + s * x + c * y]
+                [
+                    182.5 + cos_angle * x - sin_angle * y,
+                    50. + sin_angle * x + cos_angle * y,
+                ]
             }),
             score: 1.,
         };
-        let corrected = source_angle(im, &q).expect("native stripe tensor corrects slant");
+        let corrected = source_angle(im, &quad).expect("native stripe tensor corrects slant");
         let grown = source_extent(im, &corrected).expect("clipped stripe extent grows");
         assert!(grown.polygon[0][0] < 70.);
         assert!((grown.polygon[1][1] - grown.polygon[0][1]).abs() < 1.);
         let blank = image(0);
-        assert!(source_angle(ImageView::new(&blank, 360, 100, 1, 360).unwrap(), &q).is_none());
+        assert!(source_angle(ImageView::new(&blank, 360, 100, 1, 360).unwrap(), &quad).is_none());
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn source_extent_recovers_clipped_bars_and_polarity() {
         for kind in [1, 2] {
             let d = image(kind);
@@ -1229,7 +1353,7 @@ mod extent_tests {
         let q = quad();
         assert!(source_extent(ImageView::new(&d, 360, 100, 1, 360).unwrap(), &q).is_none());
         for x in 60..260 {
-            d[50 * 360 + x] = ((x / 3) % 2 * 255) as u8;
+            d[50 * 360 + x] = ((x / 3) % 2 * 255).to_le_bytes()[0];
         }
         assert!(source_extent(ImageView::new(&d, 360, 100, 1, 360).unwrap(), &q).is_none());
     }
@@ -1238,7 +1362,7 @@ mod extent_tests {
         let mut d = image(1);
         for y in 20..80 {
             for x in 8..35 {
-                d[y * 360 + x] = ((x / 3) % 2 * 255) as u8;
+                d[y * 360 + x] = ((x / 3) % 2 * 255).to_le_bytes()[0];
             }
         }
         let r = source_extent(ImageView::new(&d, 360, 100, 1, 360).unwrap(), &quad()).unwrap();
@@ -1287,6 +1411,10 @@ mod extent_budget_tests {
 mod angle_distance_tests {
     use super::distance;
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn modulo_distance_matches_trigonometric_reference() {
         let pi = std::f64::consts::PI;
         for i in -720..=720 {
@@ -1321,6 +1449,10 @@ mod angle_distance_tests {
 mod tall_band_tests {
     use super::*;
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn dense_barcode_band_survives_tall_connected_border() {
         let (w, h) = (400, 400);
         let mut d = vec![255u8; w * h];
@@ -1345,10 +1477,10 @@ mod tall_band_tests {
         assert!(tall, "must exercise rejected connected parent");
         assert!(
             r.proposals.iter().any(|p| {
-                let q = p.polygon;
-                let width = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]);
-                let height = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
-                let cy = q.iter().map(|p| p[1]).sum::<f64>() / 4.;
+                let quad = p.polygon;
+                let width = (quad[1][0] - quad[0][0]).hypot(quad[1][1] - quad[0][1]);
+                let height = (quad[3][0] - quad[0][0]).hypot(quad[3][1] - quad[0][1]);
+                let cy = quad.iter().map(|p| p[1]).sum::<f64>() / 4.;
                 width > 180. && height < 80. && (200. ..260.).contains(&cy)
             }),
             "dense band missing"
@@ -1458,20 +1590,21 @@ mod band_angle_tests {
     }
     #[test]
     fn band_angle_fits_coherent_slanted_edges_in_parent_band() {
-        let w = 320;
-        let h = 240;
+        let width = 320;
+        let height = 240;
         let a = 0.10f64;
-        let (c, s) = (a.cos(), a.sin());
-        let mut gx = vec![0f32; w * h];
+        let (cos_angle, sin_angle) = (a.cos(), a.sin());
+        let mut gx = vec![0f32; width * height];
         let mut gy = gx.clone();
         let mut edges = Vec::new();
         for u in (-90..=90).step_by(6) {
             for v in -25..=25 {
-                let x = 160. + f64::from(u) * c - f64::from(v) * s;
-                let y = 120. + f64::from(u) * s + f64::from(v) * c;
-                let i = y.floor() as usize * w + x.floor() as usize;
-                gx[i] = (100. * c) as f32;
-                gy[i] = (100. * s) as f32;
+                let x = 160. + f64::from(u) * cos_angle - f64::from(v) * sin_angle;
+                let y = 120. + f64::from(u) * sin_angle + f64::from(v) * cos_angle;
+                let i = crate::numeric::f64_usize(y.floor()) * width
+                    + crate::numeric::f64_usize(x.floor());
+                gx[i] = crate::numeric::f64_f32(100. * cos_angle);
+                gy[i] = crate::numeric::f64_f32(100. * sin_angle);
                 edges.push(Edge {
                     x: x.floor() + 0.5,
                     y: y.floor() + 0.5,
@@ -1479,10 +1612,10 @@ mod band_angle_tests {
                 });
             }
         }
-        let p = refine_band_angle(&edges, &gx, &gy, w, 0., [50., 270., 85., 155.], 1., 1.)
+        let p = refine_band_angle(&edges, &gx, &gy, width, 0., [50., 270., 85., 155.], 1., 1.)
             .expect("coherent slanted band");
-        let q = p.polygon;
-        let angle = (q[1][1] - q[0][1]).atan2(q[1][0] - q[0][0]);
+        let quad = p.polygon;
+        let angle = (quad[1][1] - quad[0][1]).atan2(quad[1][0] - quad[0][0]);
         assert!(distance(angle, a) < 1f64.to_radians());
     }
 }
@@ -1496,22 +1629,25 @@ fn join_fragments(a: &Proposal, b: &Proposal, max_gap: f64) -> Option<Proposal> 
     if distance(angle, other) > std::f64::consts::PI / 18. {
         return None;
     }
-    let (c, s) = (angle.cos(), angle.sin());
-    let bounds = |q: crate::scan::Quad| {
-        let mut z = [
+    let (cos_angle, sin_angle) = (angle.cos(), angle.sin());
+    let bounds = |quad: crate::scan::Quad| {
+        let mut extents = [
             f64::INFINITY,
             f64::NEG_INFINITY,
             f64::INFINITY,
             f64::NEG_INFINITY,
         ];
-        for p in q {
-            let (u, v) = (p[0] * c + p[1] * s, -p[0] * s + p[1] * c);
-            z[0] = z[0].min(u);
-            z[1] = z[1].max(u);
-            z[2] = z[2].min(v);
-            z[3] = z[3].max(v);
+        for p in quad {
+            let (u, v) = (
+                p[0] * cos_angle + p[1] * sin_angle,
+                -p[0] * sin_angle + p[1] * cos_angle,
+            );
+            extents[0] = extents[0].min(u);
+            extents[1] = extents[1].max(u);
+            extents[2] = extents[2].min(v);
+            extents[3] = extents[3].max(v);
         }
-        z
+        extents
     };
     let x = bounds(qa);
     let y = bounds(qb);
@@ -1530,7 +1666,7 @@ fn join_fragments(a: &Proposal, b: &Proposal, max_gap: f64) -> Option<Proposal> 
         x[2].min(y[2]),
         x[3].max(y[3]),
     );
-    let at = |u: f64, v: f64| [u * c - v * s, u * s + v * c];
+    let at = |u: f64, v: f64| [u * cos_angle - v * sin_angle, u * sin_angle + v * cos_angle];
     Some(Proposal {
         polygon: [at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)],
         score: a.score.min(b.score),
@@ -1609,11 +1745,11 @@ mod angle_only_refinement_tests {
     use super::*;
     #[test]
     fn useful_rotation_does_not_require_crop_growth() {
-        let (w, h) = (360, 160);
-        let mut pixels = vec![255u8; w * h];
+        let (width, height) = (360, 160);
+        let mut pixels = vec![255u8; width * height];
         for y in 30..130 {
             for x in 60..280 {
-                pixels[y * w + x] = if x % 6 < 3 { 0 } else { 255 };
+                pixels[y * width + x] = if x % 6 < 3 { 0 } else { 255 };
             }
         }
         let a = 5f64.to_radians();
@@ -1623,12 +1759,12 @@ mod angle_only_refinement_tests {
                 .map(|[x, y]| [180. + c * x - t * y, 80. + t * x + c * y]),
             score: 0.9,
         };
-        let im = ImageView::new(&pixels, w, h, 1, w).unwrap();
+        let im = ImageView::new(&pixels, width, height, 1, width).unwrap();
         let (grown, angles) = source_refinements(im, &[p]);
         assert!(grown.is_empty());
         assert_eq!(angles.len(), 1);
-        let q = angles[0].polygon;
-        assert!((q[1][1] - q[0][1]).abs() < 1.);
+        let quad = angles[0].polygon;
+        assert!((quad[1][1] - quad[0][1]).abs() < 1.);
     }
 }
 
@@ -1645,6 +1781,10 @@ mod angle_replacement_tests {
         }
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn only_high_coherence_small_correction_replaces_parent_geometry() {
         for (angle, score, replaces) in [
             (5., 0.9, true),
@@ -1697,6 +1837,10 @@ mod angle_replacement_tests {
         assert!(angles.is_empty());
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn source_tensor_replaces_qualified_angle_only_but_preserves_large_correction() {
         let (w, h) = (360, 160);
         let mut pixels = vec![255u8; w * h];
@@ -1735,9 +1879,10 @@ mod exact_luma_gradient_tests {
         for r in 0..256u32 {
             for g in 0..256u32 {
                 for b in 0..256u32 {
-                    let new = (77 * r + 150 * g + 29 * b) as f32 / 256.;
-                    let old = ((77. * f64::from(r) + 150. * f64::from(g) + 29. * f64::from(b))
-                        / 256.) as f32;
+                    let new = crate::numeric::f64_f32(f64::from(77 * r + 150 * g + 29 * b)) / 256.;
+                    let old = crate::numeric::f64_f32(
+                        (77. * f64::from(r) + 150. * f64::from(g) + 29. * f64::from(b)) / 256.,
+                    );
                     assert_eq!(new.to_bits(), old.to_bits());
                 }
             }
@@ -1749,7 +1894,7 @@ mod exact_luma_gradient_tests {
         for _ in 0..100_000 {
             let p: [f32; 8] = std::array::from_fn(|_| {
                 seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                (seed % 65281) as f32 / 256.
+                crate::numeric::f64_f32(f64::from(seed % 65281)) / 256.
             });
             let fast = (3. * (p[2] - p[0]) + 10. * (p[4] - p[3]) + 3. * (p[7] - p[5])) / 16.;
             let old = (3. * (f64::from(p[2]) - f64::from(p[0]))

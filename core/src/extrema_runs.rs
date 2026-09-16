@@ -40,39 +40,47 @@ pub(crate) fn decode_extrema(
     if p.iter().any(|x| !x.is_finite() || !(0.0..=1.0).contains(x)) {
         return Err(Error::Value);
     }
-    decode_extrema_validated(p, max, guard, s)
+    Ok(decode_extrema_validated(p, max, guard, s))
 }
 /// Private caller has already validated profile length and values.
+#[expect(
+    clippy::float_cmp,
+    reason = "A plateau consists of identical observed sample values; approximate equality would merge distinct extrema."
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Extrema tracking, hysteresis and decode assembly share a single bounded work counter and ambiguity state."
+)]
 pub(crate) fn decode_extrema_validated(
     p: &[f32],
     max: usize,
     guard: bool,
-    s: &mut ExtremaScratch,
-) -> Result<Reads, Error> {
-    s.extrema.clear();
-    s.runs.clear();
-    s.attempted = false;
-    s.examined = 0;
-    s.capped = false;
-    s.ambiguous = false;
-    s.decoder_calls = 0;
+    scratch: &mut ExtremaScratch,
+) -> Reads {
+    scratch.extrema.clear();
+    scratch.runs.clear();
+    scratch.attempted = false;
+    scratch.examined = 0;
+    scratch.capped = false;
+    scratch.ambiguous = false;
+    scratch.decoder_calls = 0;
     let raw = 1 + p
         .windows(2)
         .filter(|a| (a[0] >= 0.5) != (a[1] >= 0.5))
         .count();
     // Broad observed-structure gate; no whole-profile early success exit.
     if !(45..=512).contains(&raw) {
-        return Ok(s.empty(max));
+        return scratch.empty(max);
     }
-    s.attempted = true;
+    scratch.attempted = true;
     // Linear hysteresis: a direction change requires observed amplitude >=.04.
     // Track plateau centers; only actual extrema and endpoint values create edges.
     let (mut low, mut high) = (0usize, 0usize);
     let mut direction = 0i8;
     let (mut first, mut last) = (0usize, 0usize);
     for i in 1..p.len() {
-        if !s.charge() {
-            return Ok(s.empty(max));
+        if !scratch.charge() {
+            return scratch.empty(max);
         }
         if direction == 0 {
             if p[i] < p[low] {
@@ -82,12 +90,12 @@ pub(crate) fn decode_extrema_validated(
                 high = i;
             }
             if p[i] - p[low] >= PROMINENCE {
-                s.extrema.push((low, false));
+                scratch.extrema.push((low, false));
                 direction = 1;
                 first = i;
                 last = i;
             } else if p[high] - p[i] >= PROMINENCE {
-                s.extrema.push((high, true));
+                scratch.extrema.push((high, true));
                 direction = -1;
                 first = i;
                 last = i;
@@ -100,7 +108,7 @@ pub(crate) fn decode_extrema_validated(
                 last = i;
             }
             if p[first] - p[i] >= PROMINENCE {
-                s.extrema.push(((first + last) / 2, true));
+                scratch.extrema.push((usize::midpoint(first, last), true));
                 direction = -1;
                 first = i;
                 last = i;
@@ -113,7 +121,7 @@ pub(crate) fn decode_extrema_validated(
                 last = i;
             }
             if p[i] - p[first] >= PROMINENCE {
-                s.extrema.push(((first + last) / 2, false));
+                scratch.extrema.push((usize::midpoint(first, last), false));
                 direction = 1;
                 first = i;
                 last = i;
@@ -121,55 +129,61 @@ pub(crate) fn decode_extrema_validated(
         }
     }
     if direction != 0 {
-        s.extrema.push(((first + last) / 2, direction == 1));
+        scratch
+            .extrema
+            .push((usize::midpoint(first, last), direction == 1));
     }
-    if s.extrema.len() < 2 {
-        return Ok(s.empty(max));
+    if scratch.extrema.len() < 2 {
+        return scratch.empty(max);
     }
     let mut start = 0.;
     #[cfg(feature = "experimental-local-extrema-gaps")]
     let mut pending_start = false;
     #[cfg(feature = "experimental-local-extrema-gaps")]
     let mut chunks = Vec::<Reads>::new();
-    for k in 1..s.extrema.len() {
-        let (a, color) = s.extrema[k - 1];
-        let (b, _) = s.extrema[k];
+    for k in 1..scratch.extrema.len() {
+        let (a, color) = scratch.extrema[k - 1];
+        let (b, _) = scratch.extrema[k];
         let threshold = (f64::from(p[a]) + f64::from(p[b])) * 0.5;
         let mut crossing = None;
         for j in a + 1..=b {
-            if !s.charge() {
-                return Ok(s.empty(max));
+            if !scratch.charge() {
+                return scratch.empty(max);
             }
-            let (v, w) = (f64::from(p[j - 1]), f64::from(p[j]));
-            if (v >= threshold) != (w >= threshold) {
+            let (v, width) = (f64::from(p[j - 1]), f64::from(p[j]));
+            if (v >= threshold) != (width >= threshold) {
                 // More than one observed crossing is ambiguous, never choose by digits.
                 if crossing.is_some() {
-                    s.ambiguous = true;
+                    scratch.ambiguous = true;
                     #[cfg(not(feature = "experimental-local-extrema-gaps"))]
-                    return Ok(s.empty(max));
+                    return scratch.empty(max);
                     #[cfg(feature = "experimental-local-extrema-gaps")]
                     {
                         crossing = None;
                         break;
                     }
                 }
-                crossing = Some(j as f64 - 0.5 + (threshold - v) / (w - v));
+                crossing = Some(crate::numeric::usize_f64(j) - 0.5 + (threshold - v) / (width - v));
             }
         }
         let Some(end) = crossing else {
-            s.ambiguous = true;
+            scratch.ambiguous = true;
             #[cfg(not(feature = "experimental-local-extrema-gaps"))]
-            return Ok(s.empty(max));
+            return scratch.empty(max);
             #[cfg(feature = "experimental-local-extrema-gaps")]
             {
-                let a = decode_positions(&s.runs, max, false);
+                let a = decode_positions(&scratch.runs, max, false);
                 let r = if guard {
-                    crate::transition::merge_reads(a, decode_positions(&s.runs, max, true), max)
+                    crate::transition::merge_reads(
+                        a,
+                        decode_positions(&scratch.runs, max, true),
+                        max,
+                    )
                 } else {
                     a
                 };
                 chunks.push(r);
-                s.runs.clear();
+                scratch.runs.clear();
                 pending_start = true;
                 continue;
             }
@@ -181,28 +195,32 @@ pub(crate) fn decode_extrema_validated(
             continue;
         }
         if end <= start {
-            s.ambiguous = true;
-            return Ok(s.empty(max));
+            scratch.ambiguous = true;
+            return scratch.empty(max);
         }
-        s.runs.push((start, end, color));
+        scratch.runs.push((start, end, color));
         start = end;
     }
     #[cfg(not(feature = "experimental-local-extrema-gaps"))]
-    s.runs
-        .push((start, p.len() as f64, s.extrema.last().unwrap().1));
+    scratch
+        .runs
+        .push((start, p.len() as f64, scratch.extrema.last().unwrap().1));
     #[cfg(feature = "experimental-local-extrema-gaps")]
     if !pending_start {
-        s.runs
-            .push((start, p.len() as f64, s.extrema.last().unwrap().1));
+        scratch.runs.push((
+            start,
+            crate::numeric::usize_f64(p.len()),
+            scratch.extrema.last().unwrap().1,
+        ));
     }
-    let a = decode_positions(&s.runs, max, false);
+    let a = decode_positions(&scratch.runs, max, false);
     let reads = if guard {
-        crate::transition::merge_reads(a, decode_positions(&s.runs, max, true), max)
+        crate::transition::merge_reads(a, decode_positions(&scratch.runs, max, true), max)
     } else {
         a
     };
     #[cfg(feature = "experimental-local-extrema-gaps")]
-    let reads = if s.ambiguous {
+    let reads = if scratch.ambiguous {
         let strict = |mut r: Reads| {
             r.symbols.retain(|v| v.cost <= 0.06 && v.gap >= 0.1);
             r
@@ -213,8 +231,8 @@ pub(crate) fn decode_extrema_validated(
     } else {
         reads
     };
-    s.decoder_calls = reads.decoder_calls;
-    Ok(reads)
+    scratch.decoder_calls = reads.decoder_calls;
+    reads
 }
 #[cfg(test)]
 mod tests {
@@ -294,10 +312,10 @@ mod tests {
                 let p: Vec<_> = (0..n)
                     .map(|i| match kind {
                         0 => 0.,
-                        1 => (i % 2) as f32,
+                        1 => crate::numeric::f64_f32(f64::from(i % 2)),
                         _ => {
                             seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                            (seed >> 8) as f32 / 16_777_215.
+                            crate::numeric::f64_f32(f64::from(seed >> 8)) / 16_777_215.
                         }
                     })
                     .collect();
@@ -334,17 +352,17 @@ mod local_gap_tests {
     fn unrelated_ambiguous_crossing_does_not_hide_two_complete_symbols() {
         let a = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
         let b = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
-        let mut p = symbol(a);
-        p.extend([1., 0., 1., 0.49, 0.51, 0.49, 0., 1., 0.]);
-        p.extend(symbol(b));
+        let mut profile = symbol(a);
+        profile.extend([1., 0., 1., 0.49, 0.51, 0.49, 0., 1., 0.]);
+        profile.extend(symbol(b));
         for _ in 0..2 {
             let mut s = ExtremaScratch::default();
-            let r = decode_extrema(&p, 64, true, &mut s).unwrap();
+            let r = decode_extrema(&profile, 64, true, &mut s).unwrap();
             assert!(s.ambiguous);
             assert_eq!(r.symbols.len(), 2);
             assert!(r.symbols.iter().any(|r| r.digits == a));
             assert!(r.symbols.iter().any(|r| r.digits == b));
-            p.reverse();
+            profile.reverse();
         }
     }
     #[test]

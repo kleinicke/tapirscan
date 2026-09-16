@@ -28,6 +28,7 @@ pub struct ScanResult {
 impl ScanResult {
     /// Single-result convenience after find-all. Support is a heuristic ordering,
     /// not probability. Equal-support ties preserve the earlier frame ordering.
+    #[must_use]
     pub fn best(&self) -> Option<&Barcode> {
         self.frame
             .barcodes
@@ -46,6 +47,8 @@ impl RegionScanner {
     /// Input is borrowed for this call; output owns its polygons/observations.
     /// More than64candidates or invalid policies fail explicitly, never truncate
     /// the candidate set. Undecoded and invalid candidates retain their identity.
+    /// # Errors
+    /// Propagates frame-scanner setup errors, including invalid policy or excessive candidate count. Per-candidate failures are retained in the result.
     pub fn scan(
         &mut self,
         image: ImageView<'_>,

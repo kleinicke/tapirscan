@@ -41,7 +41,7 @@ fn outline(
         }
         seen[row + a - left..row + b - left].fill(true);
         count += b - a;
-        if count as f32 > count_range[1] {
+        if crate::numeric::usize_f32(count) > count_range[1] {
             return None;
         }
         row_min[y - top] = row_min[y - top].min(a);
@@ -66,7 +66,7 @@ fn outline(
             }
         }
     }
-    if (count as f32) < count_range[0] {
+    if crate::numeric::usize_f32(count) < count_range[0] {
         return None;
     }
     // Row endpoints preserve the convex hull of the complete pixel squares.
@@ -75,12 +75,12 @@ fn outline(
         if a == right {
             continue;
         }
-        let y = (y + top) as f32;
+        let y = crate::numeric::usize_f32(y + top);
         boundary.extend([
-            [a as f32, y],
-            [b as f32 + 1., y],
-            [b as f32 + 1., y + 1.],
-            [a as f32, y + 1.],
+            [crate::numeric::usize_f32(a), y],
+            [crate::numeric::usize_f32(b) + 1., y],
+            [crate::numeric::usize_f32(b) + 1., y + 1.],
+            [crate::numeric::usize_f32(a), y + 1.],
         ]);
     }
     Some(crate::dm_detect::hull(boundary))
@@ -143,13 +143,15 @@ mod tests {
                 let boundary = pixels
                     .iter()
                     .flat_map(|&(x, y)| {
-                        let (x, y) = (x as f32, y as f32);
+                        let (x, y) = (crate::numeric::usize_f32(x), crate::numeric::usize_f32(y));
                         [[x, y], [x + 1., y], [x + 1., y + 1.], [x, y + 1.]]
                     })
                     .collect();
                 let hull = crate::dm_detect::hull(boundary);
                 for limits in [[0., 2000.], [5., 30.], [30., 200.]] {
-                    let expected = if (limits[0]..=limits[1]).contains(&(pixels.len() as f32)) {
+                    let expected = if (limits[0]..=limits[1])
+                        .contains(&crate::numeric::usize_f32(pixels.len()))
+                    {
                         Some(hull.clone())
                     } else {
                         None

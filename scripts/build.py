@@ -46,7 +46,7 @@ def facade_manifest(mode: str, manifest: dict[str, Any]) -> str:
             "@LOW_FEATURES@",
             json.dumps(
                 json.loads(
-                    (ROOT / "core/experiments/nano-lint-20260913.json").read_text()
+                    (ROOT / "core/experiments/nano-clippy-20260916.json").read_text()
                 )["expandedFeatures"]
             ),
         )
@@ -88,7 +88,7 @@ def prepare_recovery_source(out: Path) -> None:
                 sys.executable,
                 str(ROOT / "core/experiments/build_guarded.py"),
                 "--recipe",
-                "nano-lint-20260913",
+                "nano-clippy-20260916",
                 "--out",
                 str(dest),
                 "--prepare-only",
@@ -96,7 +96,9 @@ def prepare_recovery_source(out: Path) -> None:
             check=True,
         )
     source = dest / "temporarysource"
-    recipe = json.loads((ROOT / "core/experiments/nano-lint-20260913.json").read_text())
+    recipe = json.loads(
+        (ROOT / "core/experiments/nano-clippy-20260916.json").read_text()
+    )
     for rel, expected in (recipe["baseHashes"] | recipe["targetHashes"]).items():
         if hashlib.sha256((source / rel).read_bytes()).hexdigest() != expected:
             msg = f"Recovery source hash mismatch: {rel}"
@@ -119,7 +121,7 @@ def prepare_recovery_source(out: Path) -> None:
         json.dumps(
             {
                 "change": "Isolate recovery features and native symbols",
-                "recipe": "nano-lint-20260913",
+                "recipe": "nano-clippy-20260916",
             },
             indent=2,
         )

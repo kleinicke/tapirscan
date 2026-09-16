@@ -73,6 +73,17 @@ impl Scanner {
         image: Image<'_>,
         options: ScanOptions,
     ) -> std::result::Result<Result, Error> {
+        self.scan_with_coverage(image, options, &[])
+    }
+
+    fn scan_with_coverage(
+        &mut self,
+        image: Image<'_>,
+        options: ScanOptions,
+        coverage: &[Quad],
+    ) -> std::result::Result<Result, Error> {
+        #[cfg(feature = "low")]
+        let _ = coverage;
         if image.width < 3 || image.height < 3 {
             return Err(Error::Parameters);
         }
@@ -130,7 +141,11 @@ impl Scanner {
         candidates.push(search_window);
         let policy = Policy {
             #[cfg(not(feature = "low"))]
-            candidate_retry_mask: detail::retry_mask(image, &proposals),
+            candidate_retry_mask: formats::uncovered_mask(
+                &proposals,
+                coverage,
+                detail::retry_mask(image, &proposals),
+            ),
             transition_cleanup: true,
             source_identity: true,
             interior_normalization: true,
@@ -145,6 +160,7 @@ impl Scanner {
                 &mut scan.frame.barcodes,
                 &mut self.recovery,
                 if cfg!(feature = "medium") { 1 } else { 2 },
+                coverage,
             )?;
             scan.frame.unfinished = true;
             Some(result)

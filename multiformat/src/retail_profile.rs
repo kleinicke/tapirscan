@@ -52,14 +52,15 @@ pub(crate) fn runs(row: &[u8]) -> (Vec<bool>, Vec<f32>, Vec<usize>) {
             let previous = f32::from(row[i - 1]);
             let next = f32::from(row[i]);
             if (previous >= cut) != (next >= cut) {
-                edges.push(i as f32 - 1. + (cut - previous) / (next - previous));
+                edges
+                    .push(crate::numeric::usize_f32(i) - 1. + (cut - previous) / (next - previous));
                 offsets.push(i);
                 break;
             }
         }
     }
     offsets.push(row.len());
-    edges.push(row.len() as f32);
+    edges.push(crate::numeric::usize_f32(row.len()));
     let mut bits = vec![false; row.len()];
     for (i, range) in offsets.windows(2).enumerate() {
         bits[range[0]..range[1]].fill(first_black ^ (i % 2 != 0));
@@ -82,7 +83,7 @@ pub(crate) fn sharpen_row(row: &[u8]) -> Vec<u8> {
                 + 4. * f32::from(row[at(1)])
                 + f32::from(row[at(2)]))
                 / 16.;
-            (3. * f32::from(v) - 2. * blurred).round().clamp(0., 255.) as u8
+            crate::numeric::f32_u8((3. * f32::from(v) - 2. * blurred).round().clamp(0., 255.))
         })
         .collect::<Vec<_>>()
 }
@@ -93,10 +94,7 @@ mod tests {
 
     #[test]
     fn flat_and_small_noise_do_not_create_bar_transitions() {
-        for row in [
-            vec![120; 100],
-            (0..100).map(|i| 120 + (i % 2) as u8).collect(),
-        ] {
+        for row in [vec![120; 100], (0..100).map(|i| 120 + i % 2).collect()] {
             for values in [row.clone(), super::sharpen_row(&row)] {
                 let (_, widths, offsets) = runs(&values);
                 assert_eq!(widths, [100.]);
@@ -115,7 +113,7 @@ mod tests {
         assert_eq!(widths.len(), 7);
         assert_eq!(offsets.len(), 8);
         assert_eq!(bits.len(), row.len());
-        assert!((widths.iter().sum::<f32>() - row.len() as f32).abs() < 1e-5);
+        assert!((widths.iter().sum::<f32>() - crate::numeric::usize_f32(row.len())).abs() < 1e-5);
         assert!(offsets.windows(2).all(|p| p[0] < p[1]));
         for (i, range) in offsets.windows(2).enumerate() {
             assert!(bits[range[0]..range[1]].iter().all(|&b| b == (i % 2 == 1)));

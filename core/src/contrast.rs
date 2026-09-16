@@ -18,6 +18,8 @@ impl Default for Normalizer {
     }
 }
 impl Normalizer {
+    /// # Errors
+    /// Returns `Length` unless the profile has 512 samples, or `Value` for non-finite samples or values outside [0, 1].
     pub fn normalize(&mut self, p: &[f32]) -> Result<&[f32; LEN], Error> {
         if p.len() != LEN {
             return Err(Error::Length);
@@ -63,8 +65,14 @@ impl Normalizer {
 mod tests {
     use super::*;
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn matches_naive_windows_and_preserves_input() {
-        let p = std::array::from_fn::<_, LEN, _>(|i| ((i * 37 + i / 7) % 257) as f32 / 256.);
+        let p = std::array::from_fn::<_, LEN, _>(|i| {
+            crate::numeric::usize_f32((i * 37 + i / 7) % 257) / 256.
+        });
         let original = p;
         let mut n = Normalizer::default();
         let out = n.normalize(&p).unwrap();
@@ -82,6 +90,10 @@ mod tests {
         assert_eq!(p, original);
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
     fn invalid_and_low_contrast() {
         let mut n = Normalizer::default();
         assert!(n.normalize(&[0.; 511]).is_err());
@@ -95,9 +107,9 @@ mod tests {
         let bits=b"10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101";
         let make = |bits: &[u8]| {
             std::array::from_fn::<_, LEN, _>(|i| {
-                let base = 0.5 - 0.45 * i as f32 / 511.;
-                let m = (i as isize - 64) / 4;
-                let dark = i >= 64 && m < 95 && bits[m as usize] == b'1';
+                let base = 0.5 - 0.45 * crate::numeric::usize_f32(i) / 511.;
+                let m = ((i).cast_signed() - 64) / 4;
+                let dark = i >= 64 && m < 95 && bits[(m).cast_unsigned()] == b'1';
                 base + if dark { 0.4 } else { 0. }
             })
         };

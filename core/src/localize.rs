@@ -69,6 +69,12 @@ impl Localizer {
     /// Integer point subsampling caps the working image at 1536 per side.
     /// Returned boxes are in original-image coordinates. At most twelve boxes
     /// survive a deterministic density/area ranking; undecodability is unknown.
+    /// # Errors
+    /// Returns `Allocation` if the bounded localization scratch buffers cannot be reserved.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Tile thresholding, morphology and component ranking share bounded scratch buffers and one deterministic proposal order."
+    )]
     pub fn detect(&mut self, image: ImageView<'_>) -> Result<&[Proposal], Error> {
         self.proposals.clear();
         self.omitted = 0;
@@ -76,12 +82,12 @@ impl Localizer {
         #[cfg(feature = "experimental-classical-bands")]
         let mut band_budget = 4_000_000usize;
         let step = image.width.max(image.height).div_ceil(MAX_SIDE);
-        let w = image.width.div_ceil(step);
-        let h = image.height.div_ceil(step);
-        let tw = w.div_ceil(TILE);
-        let th = h.div_ceil(TILE);
+        let working_width = image.width.div_ceil(step);
+        let working_height = image.height.div_ceil(step);
+        let tw = working_width.div_ceil(TILE);
+        let th = working_height.div_ceil(TILE);
         let tiles = tw * th;
-        resize(&mut self.gray, w * h, 0)?;
+        resize(&mut self.gray, working_width * working_height, 0)?;
         resize(&mut self.mask, tiles, 0)?;
         resize(&mut self.axis_masks, tiles, [0; 2])?;
         resize(&mut self.closed, tiles, 0)?;
@@ -93,33 +99,38 @@ impl Localizer {
         self.proposals
             .try_reserve_exact(tiles.saturating_sub(self.proposals.len()))
             .map_err(|_| Error::Allocation)?;
-        for y in 0..h {
-            for x in 0..w {
+        for y in 0..working_height {
+            for x in 0..working_width {
                 let i = y * step * image.stride + x * step * image.channels;
-                self.gray[y * w + x] = if image.channels == 1 {
+                self.gray[y * working_width + x] = if image.channels == 1 {
                     image.data[i]
                 } else {
                     ((77 * u32::from(image.data[i])
                         + 150 * u32::from(image.data[i + 1])
                         + 29 * u32::from(image.data[i + 2]))
-                        >> 8) as u8
+                        >> 8)
+                        .to_le_bytes()[0]
                 };
             }
         }
         for ty in 0..th {
             for tx in 0..tw {
                 let (mut gx, mut gy, mut ex, mut ey, mut samples) = (0u32, 0u32, 0u32, 0u32, 0u32);
-                for y in (ty * TILE).max(1)..((ty + 1) * TILE).min(h) {
-                    for x in (tx * TILE).max(1)..((tx + 1) * TILE).min(w) {
-                        let p = self.gray[y * w + x];
-                        let dx = u32::from(p.abs_diff(self.gray[y * w + x - 1]));
-                        let dy = u32::from(p.abs_diff(self.gray[(y - 1) * w + x]));
+                for y in (ty * TILE).max(1)..((ty + 1) * TILE).min(working_height) {
+                    for x in (tx * TILE).max(1)..((tx + 1) * TILE).min(working_width) {
+                        let p = self.gray[y * working_width + x];
+                        let dx = u32::from(p.abs_diff(self.gray[y * working_width + x - 1]));
+                        let dy = u32::from(p.abs_diff(self.gray[(y - 1) * working_width + x]));
                         // Retain the one-pixel edge for narrow modules; the
                         // wider difference measures blurred/wide transitions.
                         #[cfg(feature = "experimental-classical-span2")]
-                        let dx = dx.max(p.abs_diff(self.gray[y * w + x.saturating_sub(2)]) as u32);
+                        let dx = dx.max(
+                            p.abs_diff(self.gray[y * working_width + x.saturating_sub(2)]) as u32,
+                        );
                         #[cfg(feature = "experimental-classical-span2")]
-                        let dy = dy.max(p.abs_diff(self.gray[y.saturating_sub(2) * w + x]) as u32);
+                        let dy = dy.max(
+                            p.abs_diff(self.gray[y.saturating_sub(2) * working_width + x]) as u32,
+                        );
                         gx += dx;
                         gy += dy;
                         ex += u32::from(dx >= 24);
@@ -179,7 +190,7 @@ impl Localizer {
                     tw,
                     th,
                     axis,
-                    Some((&self.gray, w, h)),
+                    Some((&self.gray, working_width, working_height)),
                 );
             }
             for start in 0..tiles {
@@ -247,13 +258,13 @@ impl Localizer {
                             let b = [
                                 (p.bounds[0] as usize + 1) * TILE,
                                 (p.bounds[1] as usize + 1) * TILE,
-                                ((p.bounds[2] as usize - 1) * TILE).min(w),
-                                ((p.bounds[3] as usize - 1) * TILE).min(h),
+                                ((p.bounds[2] as usize - 1) * TILE).min(working_width),
+                                ((p.bounds[3] as usize - 1) * TILE).min(working_height),
                             ];
                             stationary_direction(
                                 &self.gray,
-                                w,
-                                h,
+                                working_width,
+                                working_height,
                                 axis,
                                 b,
                                 &mut band_budget,
@@ -277,14 +288,14 @@ impl Localizer {
                     if span >= 6 && depth >= 2 && count >= 6 {
                         let bands = coherent_bands(
                             &self.gray,
-                            w,
-                            h,
+                            working_width,
+                            working_height,
                             axis,
                             [
                                 x0 * TILE,
                                 y0 * TILE,
-                                ((x1 + 1) * TILE).min(w),
-                                ((y1 + 1) * TILE).min(h),
+                                ((x1 + 1) * TILE).min(working_width),
+                                ((y1 + 1) * TILE).min(working_height),
                             ],
                             &mut band_budget,
                             &mut self.work_limited,
@@ -293,14 +304,14 @@ impl Localizer {
                         let bands = if bands.is_empty() && span * 2 < depth {
                             directional_groups(
                                 &self.gray,
-                                w,
-                                h,
+                                working_width,
+                                working_height,
                                 0,
                                 [
                                     x0 * TILE,
                                     y0 * TILE,
-                                    ((x1 + 1) * TILE).min(w),
-                                    ((y1 + 1) * TILE).min(h),
+                                    ((x1 + 1) * TILE).min(working_width),
+                                    ((y1 + 1) * TILE).min(working_height),
                                 ],
                                 &mut band_budget,
                                 &mut self.work_limited,
@@ -328,14 +339,14 @@ impl Localizer {
                     ((x1 + 2) * unit).min(image.width),
                     ((y1 + 2) * unit).min(image.height),
                 ]
-                .map(|v| v as f64);
+                .map(crate::numeric::usize_f64);
                 #[cfg(feature = "experimental-classical-accepted-band")]
                 let bounds = {
                     let working = bounds.map(|v| v as usize / step);
                     let refined = refine_accepted_band(
                         &self.gray,
-                        w,
-                        h,
+                        working_width,
+                        working_height,
                         axis,
                         working,
                         &mut band_budget,
@@ -349,7 +360,7 @@ impl Localizer {
                 };
                 self.proposals.push(Proposal {
                     bounds,
-                    score: count as f64 / (bw * bh) as f64,
+                    score: crate::numeric::usize_f64(count) / crate::numeric::usize_f64(bw * bh),
                 });
             }
         }
@@ -390,8 +401,8 @@ impl Localizer {
                 };
                 let means = directional_persistence(
                     &self.gray,
-                    w,
-                    h,
+                    working_width,
+                    working_height,
                     b,
                     &mut band_budget,
                     &mut self.work_limited,
@@ -407,8 +418,13 @@ impl Localizer {
             // A separate bounded pass can recover stripes absent from the axis mask.
             // Preserve every existing candidate's admission priority.
             let mut remaining = 4_000_000;
-            let groups =
-                global_cached_groups(&self.gray, w, h, &mut remaining, &mut self.work_limited);
+            let groups = global_cached_groups(
+                &self.gray,
+                working_width,
+                working_height,
+                &mut remaining,
+                &mut self.work_limited,
+            );
             #[cfg(feature = "experimental-classical-crossband")]
             let mut alternatives = Vec::new();
             for group in groups {
@@ -421,9 +437,9 @@ impl Localizer {
                     let mut redundant = false;
                     #[cfg(feature = "experimental-classical-crossband")]
                     let mut alternative = true;
-                    for q in &self.proposals {
+                    for quad in &self.proposals {
                         let a = p.bounds;
-                        let b = q.bounds;
+                        let b = quad.bounds;
                         let intersection = (a[2].min(b[2]) - a[0].max(b[0])).max(0.)
                             * (a[3].min(b[3]) - a[1].max(b[1])).max(0.);
                         let small =
@@ -624,20 +640,24 @@ fn refine_orientation(
         (h, w)
     };
     let drift = delta.abs().tan() * reading / cross.max(1.);
-    let mut supported_angle = delta.abs() <= 20. * pi / 180.;
+    let supported_angle = delta.abs() <= 20. * pi / 180.;
     #[cfg(feature = "experimental-classical-consistent-angle")]
-    if !supported_angle && delta.abs() <= 35. * pi / 180. {
-        // Six spatial cells must each exhibit the same strong direction. Reusing
-        // sampled gradients preserves the existing source-position work budget.
-        supported_angle = cells.iter().all(|&[a, b, c, n]| {
-            let local = 0.5 * (2. * c).atan2(a - b);
-            let difference = (local - angle).sin().abs().asin();
-            n >= 64.
-                && (a + b) / n >= 144.
-                && (a - b).hypot(2. * c) / (a + b).max(1.) >= 0.8
-                && difference <= 5. * pi / 180.
-        });
-    }
+    let supported_angle = {
+        let mut supported_angle = supported_angle;
+        if !supported_angle && delta.abs() <= 35. * pi / 180. {
+            // Six spatial cells must each exhibit the same strong direction. Reusing
+            // sampled gradients preserves the existing source-position work budget.
+            supported_angle = cells.iter().all(|&[a, b, c, n]| {
+                let local = 0.5 * (2. * c).atan2(a - b);
+                let difference = (local - angle).sin().abs().asin();
+                n >= 64.
+                    && (a + b) / n >= 144.
+                    && (a - b).hypot(2. * c) / (a + b).max(1.) >= 0.8
+                    && difference <= 5. * pi / 180.
+            });
+        }
+        supported_angle
+    };
     if drift <= 0.25
         || (xx + yy) / (n as f64) < 144.
         || coherence < 0.5

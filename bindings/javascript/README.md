@@ -147,7 +147,7 @@ call and does not change the default formats. Previously returned results surviv
 Format presets cover supported symbologies. Exports `commonFormats`, `commonLinearFormats`, `linearFormats`, `matrixFormats`
 and `retailFormats` let you compose custom selections; `formatBits` provides their
 native bit mapping. See [identifiers and coverage](../../docs/FORMATS.md).
-The four effort modes tune EAN13/UPCA; additional readers use fixed effort.
+The four effort modes tune EAN13/UPCA, Common1D and QR Code; other matrix readers use fixed effort.
 
 Resolution, camera capture, preprocessing rotation, ROI, confidence thresholds,
 timeouts and exact work budgets are not public scan options. Demo capture and
@@ -234,8 +234,8 @@ not the most reliable barcode in a mixed-format image. Select by the format or
 payload your application needs when that distinction matters. Checksums and consistency
 checks reduce wrong reads but cannot guarantee that every returned decode is correct.
 
-Select EAN13/UPCA search effort with `mode: "low"` through `"very-high"` at creation.
-Other readers use fixed effort. `result.unfinished` is available without debug and
+Select EAN13/UPCA, Common1D and QR Code search effort with `mode: "low"` through `"very-high"` at creation.
+Other matrix readers use fixed effort. `result.unfinished` is available without debug and
 combines reported decoding and localization limits. Returned reads are still usable.
 Candidate, retry and parsing caps are reported, including bounded searches that
 also returned reads. False does not promise exhaustive scanning. Exact budgets and interruptible timeouts are not public options.

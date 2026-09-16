@@ -19,8 +19,8 @@ impl Index {
         }
     }
     fn cell(&self, x: f32, y: f32) -> usize {
-        let column = (x.max(0.) as usize / 32).min(self.columns - 1);
-        let row = (y.max(0.) as usize / 32).min(self.rows - 1);
+        let column = (crate::numeric::f32_usize(x.max(0.)) / 32).min(self.columns - 1);
+        let row = (crate::numeric::f32_usize(y.max(0.)) / 32).min(self.rows - 1);
         row * self.columns + column
     }
     pub fn insert(&mut self, x: f32, y: f32, module: f32, radius: f32) {
@@ -43,7 +43,7 @@ impl Index {
         if let Some(index) = matched {
             let before = self.cell(self.centers[index].x, self.centers[index].y);
             let c = &mut self.centers[index];
-            let n = c.support as f32;
+            let n = crate::numeric::usize_f32(c.support);
             c.x = (c.x * n + x) / (n + 1.);
             c.y = (c.y * n + y) / (n + 1.);
             c.module = (c.module * n + module) / (n + 1.);
@@ -77,7 +77,8 @@ mod tests {
         for _ in 0..5000 {
             let mut random = || {
                 seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                seed as f32 / u32::MAX as f32
+                crate::numeric::f64_f32(f64::from(seed))
+                    / crate::numeric::f64_f32(f64::from(u32::MAX))
             };
             let x = random() * 320.;
             let y = random() * 180.;
@@ -88,7 +89,7 @@ mod tests {
                 .iter_mut()
                 .find(|c| (c.x - x).hypot(c.y - y) < radius)
             {
-                let n = c.support as f32;
+                let n = crate::numeric::usize_f32(c.support);
                 c.x = (c.x * n + x) / (n + 1.);
                 c.y = (c.y * n + y) / (n + 1.);
                 c.module = (c.module * n + module) / (n + 1.);

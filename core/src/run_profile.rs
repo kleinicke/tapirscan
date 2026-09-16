@@ -8,6 +8,8 @@ pub struct Read {
     pub cost: f32,
     pub gap: f32,
 }
+/// # Errors
+/// Returns `Length` unless the profile has 512 samples, or `Value` for non-finite samples or values outside [0, 1].
 pub fn decode(p: &[f32]) -> Result<Option<Read>, crate::profile::Error> {
     if p.len() != 512 {
         return Err(crate::profile::Error::Length);
@@ -17,6 +19,10 @@ pub fn decode(p: &[f32]) -> Result<Option<Read>, crate::profile::Error> {
     }
     let mut runs = [(0usize, 0usize, false); 512];
     let (mut count, mut start, mut black) = (0, 0, p[0] >= 0.5);
+    #[expect(
+        clippy::needless_range_loop,
+        reason = "The inclusive final index is a synthetic run terminator beyond the samples; a slice iterator would omit the final run."
+    )]
     for i in 1..=512 {
         let next = i < 512 && p[i] >= 0.5;
         if i == 512 || next != black {
@@ -33,16 +39,16 @@ pub fn decode(p: &[f32]) -> Result<Option<Read>, crate::profile::Error> {
             continue;
         }
         let (left, right) = (r[1].0, r[59].1);
-        let module = (right - left) as f64 / 95.;
+        let module = crate::numeric::usize_f64(right - left) / 95.;
         if module < 0.8
-            || ((r[0].1 - r[0].0) as f64) < 7. * module
-            || ((r[60].1 - r[60].0) as f64) < 7. * module
+            || crate::numeric::usize_f64(r[0].1 - r[0].0) < 7. * module
+            || crate::numeric::usize_f64(r[60].1 - r[60].0) < 7. * module
         {
             continue;
         }
         let mut widths = [0.; 59];
         for j in 0..59 {
-            widths[j] = (r[j + 1].1 - r[j + 1].0) as f32;
+            widths[j] = crate::numeric::usize_f32(r[j + 1].1 - r[j + 1].0);
         }
         for reverse in [false, true] {
             if reverse {
@@ -53,8 +59,8 @@ pub fn decode(p: &[f32]) -> Result<Option<Read>, crate::profile::Error> {
             };
             let current = Read {
                 digits: e.digits,
-                left: left as f64 - 0.5,
-                right: right as f64 - 0.5,
+                left: crate::numeric::usize_f64(left) - 0.5,
+                right: crate::numeric::usize_f64(right) - 0.5,
                 cost: e.cost,
                 gap: e.gap,
             };

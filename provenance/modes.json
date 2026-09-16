@@ -3,55 +3,53 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-release-20260915",
-      "recipe": "nano-lint-20260913",
-      "binarySha256": "0a4b80e381ab2f762f6c5b5cb7591584c63646224bd33c17b272f00952a03ff6",
+      "tag": "low-release-20260916",
+      "recipe": "nano-clippy-20260916",
+      "binarySha256": "8fd9c987d41cde5063e9375f397d50d80eb14b92b6d17306952244c41a205428",
       "hostSha256": "7a973b75791a2038a2113bddb969bebc11b9693eb4c85907a2c9a6bd602984be",
       "fitLimit": 0,
       "maxLocalizedProposals": 32,
-      "originalBinarySha256": "4abf45ddbfa695d6cc1f497e90c3dc3f691a7354d1f6e327d8afdd463ad8f30f"
+      "previousTag": "low-release-20260915",
+      "previousBinarySha256": "0a4b80e381ab2f762f6c5b5cb7591584c63646224bd33c17b272f00952a03ff6"
     },
     {
       "mode": "medium",
-      "tag": "medium-release-20260915",
-      "recipe": "medium-detail-20260914",
-      "binarySha256": "cc0c5159b99d704adf242b34622231815e2215f50e9a54c64bec5af1d941a5ae",
+      "tag": "medium-release-20260916",
+      "recipe": "medium-detail-clippy-20260916",
+      "binarySha256": "7ba1bafc106db0e73429cd9e03097878cd16501926e6f9b194b74a67fce997db",
       "hostSha256": "860d7eef78cd331cd11dcac23686570502e1af1530f4743f57018ea0ec6dcb12",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
-      "previousTag": "medium-evidence64-pinned-20260914",
-      "previousBinarySha256": "b94b7f4f18b6b9ba2669586e5aaa7897d3848b3f3285691fb03df16fa2af07d8",
+      "previousTag": "medium-release-20260915",
+      "previousBinarySha256": "cc0c5159b99d704adf242b34622231815e2215f50e9a54c64bec5af1d941a5ae",
       "directions": 1,
-      "recoveryTag": "low-release-20260915",
-      "originalBinarySha256": "8593ae58645f57c628d51140a1de072e54edf991b6cadb2a6f20f3020d288593"
+      "recoveryTag": "low-release-20260916"
     },
     {
       "mode": "high",
-      "tag": "high-release-20260915",
-      "recipe": "high-detail-20260914",
-      "binarySha256": "51a5c16d3d544efa1dfd7e1ee59d2fedba04794320d36d926d63edb8af36af15",
+      "tag": "high-release-20260916",
+      "recipe": "high-detail-clippy-20260916",
+      "binarySha256": "7f032125cd541077bfd1575640b9669170d820ac18b4df63112cc0cbb104a627",
       "hostSha256": "860d7eef78cd331cd11dcac23686570502e1af1530f4743f57018ea0ec6dcb12",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
-      "previousTag": "quality-guarded-lint-20260913",
-      "previousBinarySha256": "4b5d3f7d0bd393cc739c47455537eaaa552b537ea1b712b72f438bacb2be639d",
+      "previousTag": "high-release-20260915",
+      "previousBinarySha256": "51a5c16d3d544efa1dfd7e1ee59d2fedba04794320d36d926d63edb8af36af15",
       "directions": 2,
-      "recoveryTag": "low-release-20260915",
-      "originalBinarySha256": "723330c62025f8b5c26e9268217b3fc5fcdb9e97e83d85b787ebeb80110c48e7"
+      "recoveryTag": "low-release-20260916"
     },
     {
       "mode": "very-high",
-      "tag": "very-high-release-20260915",
-      "recipe": "very-high-detail-20260914",
-      "binarySha256": "1eefac10ea8a472f3480bdfe05c7f646186755386402f1b7a01d16901d4b4d14",
+      "tag": "very-high-release-20260916",
+      "recipe": "very-high-detail-clippy-20260916",
+      "binarySha256": "d7ce6614f14eabc66386f372a2fed5e4c24f7a9624fdfa406e132a11623ac132",
       "hostSha256": "860d7eef78cd331cd11dcac23686570502e1af1530f4743f57018ea0ec6dcb12",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
-      "previousTag": "very-high-lint-20260913",
-      "previousBinarySha256": "e6db89dbf353991d727d9a21332e03842540efe67f864e94f30153640a183976",
+      "previousTag": "very-high-release-20260915",
+      "previousBinarySha256": "1eefac10ea8a472f3480bdfe05c7f646186755386402f1b7a01d16901d4b4d14",
       "directions": 2,
-      "recoveryTag": "low-release-20260915",
-      "originalBinarySha256": "d32511b1bbbedcc622f516eb7c17c78f5655d0c93ce7d00e41936358e22e3cdd"
+      "recoveryTag": "low-release-20260916"
     }
   ]
 }

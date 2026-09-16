@@ -47,35 +47,44 @@ fn signed_area(p: &[[f64; 2]]) -> f64 {
 }
 fn intersection(a: Quad, b: Quad) -> f64 {
     let sign = signed_area(&b).signum();
-    let mut p = a.to_vec();
+    let mut polygon = a.to_vec();
     for i in 0..4 {
         let (a, b) = (b[i], b[(i + 1) % 4]);
         let mut out = Vec::with_capacity(8);
-        if p.is_empty() {
+        if polygon.is_empty() {
             return 0.;
         }
-        for j in 0..p.len() {
-            let (x, y) = (p[j], p[(j + 1) % p.len()]);
+        for j in 0..polygon.len() {
+            let (x, y) = (polygon[j], polygon[(j + 1) % polygon.len()]);
             let (dx, dy) = (sign * cross(a, b, x), sign * cross(a, b, y));
             if dx >= 0. {
                 out.push(x);
             }
             if (dx >= 0.) != (dy >= 0.) {
-                let t = dx / (dx - dy);
-                out.push([x[0] + t * (y[0] - x[0]), x[1] + t * (y[1] - x[1])]);
+                let fraction = dx / (dx - dy);
+                out.push([
+                    x[0] + fraction * (y[0] - x[0]),
+                    x[1] + fraction * (y[1] - x[1]),
+                ]);
             }
         }
-        p = out;
+        polygon = out;
     }
-    signed_area(&p).abs()
+    signed_area(&polygon).abs()
 }
 // Equal reads on crossing paths may have narrow, poorly overlapping polygons.
 // Require aligned scale and the same interior module position at intersection.
 fn crossing_read_paths(a: Quad, b: Quad) -> bool {
-    let ends = |q: Quad| {
+    let ends = |quad: Quad| {
         [
-            [0.5 * (q[0][0] + q[3][0]), 0.5 * (q[0][1] + q[3][1])],
-            [0.5 * (q[1][0] + q[2][0]), 0.5 * (q[1][1] + q[2][1])],
+            [
+                0.5 * (quad[0][0] + quad[3][0]),
+                0.5 * (quad[0][1] + quad[3][1]),
+            ],
+            [
+                0.5 * (quad[1][0] + quad[2][0]),
+                0.5 * (quad[1][1] + quad[2][1]),
+            ],
         ]
     };
     let a = ends(a);
@@ -99,12 +108,14 @@ fn crossing_read_paths(a: Quad, b: Quad) -> bool {
     if den.abs() < 1e-9 {
         return false;
     }
-    let w = [b[0][0] - a[0][0], b[0][1] - a[0][1]];
-    let t = (w[0] * v[1] - w[1] * v[0]) / den;
-    let z = (w[0] * u[1] - w[1] * u[0]) / den;
+    let offset = [b[0][0] - a[0][0], b[0][1] - a[0][1]];
+    let first_fraction = (offset[0] * v[1] - offset[1] * v[0]) / den;
+    let second_fraction = (offset[0] * u[1] - offset[1] * u[0]) / den;
     // Endpoint-crossing fits are valid only after the mandatory source-pixel
     // identity check in reconcile_image; geometry alone never merges a read.
-    (-0.05..=1.05).contains(&t) && (-0.05..=1.05).contains(&z) && (t - z).abs() <= 2. / 95.
+    (-0.05..=1.05).contains(&first_fraction)
+        && (-0.05..=1.05).contains(&second_fraction)
+        && (first_fraction - second_fraction).abs() <= 2. / 95.
 }
 pub(crate) fn same_space(a: Quad, b: Quad) -> bool {
     let (aa, bb) = (signed_area(&a).abs(), signed_area(&b).abs());
@@ -149,6 +160,8 @@ struct Group {
 impl Experiment {
     /// Primary frame surface reconciles physical reads while retaining all raw
     /// candidate results. Resource exhaustion returns a flagged partial frame.
+    /// # Errors
+    /// Returns `Parameters` for invalid scan policy or too many candidates; propagates scanner setup errors.
     pub fn scan_frame(
         &mut self,
         im: ImageView<'_>,
@@ -198,6 +211,10 @@ fn same_text_identity(
         connected
     }
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "Frame reconciliation retains raw candidates while applying identity checks and ranking in their established order."
+)]
 fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy: Policy) -> Frame {
     let used_checks: usize = candidates.iter().map(|c| c.work.association_checks).sum();
     let mut budget = AssociationBudget {
@@ -531,7 +548,7 @@ mod tests {
             [213.572_476_108_807_42, 455.680_282_780_548_17],
         ];
         candidate.detections.push(second);
-        let o = crate::experiment::Observation {
+        let observation = crate::experiment::Observation {
             short_quiet: false,
             ambiguous: false,
             digits: [7, 8, 5, 8, 1, 7, 7, 0, 0, 0, 4, 8, 3],
@@ -548,10 +565,15 @@ mod tests {
         )
         .expect("eligible geometry");
         let m = crate::scan::transform(candidate.coverage).unwrap();
-        let pt =
-            crate::experiment::point(m.0, o.axis, (o.left + o.right) * 0.5, o.fraction).unwrap();
+        let pt = crate::experiment::point(
+            m.0,
+            observation.axis,
+            (observation.left + observation.right) * 0.5,
+            observation.fraction,
+        )
+        .unwrap();
         assert!(crate::identity::barrier_between(a, b, pt));
-        candidate.observations.push(o);
+        candidate.observations.push(observation);
         let pixels = vec![255; 1000 * 1000];
         let f = reconcile_image(
             Some(ImageView::new(&pixels, 1000, 1000, 1, 1000).unwrap()),
@@ -564,7 +586,7 @@ mod tests {
         assert_eq!(f.barcodes.len(), 2);
         assert_eq!(f.reconciliation.source_pairs, 0);
         assert_eq!(f.reconciliation.source_pixels, 0);
-        assert_eq!(f.candidates[0].observations[0].digits, o.digits);
+        assert_eq!(f.candidates[0].observations[0].digits, observation.digits);
     }
     #[test]
     fn rotated_real_duplicate_retains_conflicting_gap_observation() {
@@ -595,7 +617,7 @@ mod tests {
             [831.384_260_323_076_9, 1_951.421_259_663_886_5],
         ];
         candidate.detections.push(second);
-        let o = crate::experiment::Observation {
+        let observation = crate::experiment::Observation {
             short_quiet: false,
             ambiguous: false,
             digits: [7, 0, 2, 5, 6, 4, 7, 1, 0, 2, 4, 3, 9],
@@ -612,10 +634,15 @@ mod tests {
         )
         .expect("geometry eligible");
         let m = crate::scan::transform(candidate.coverage).unwrap();
-        let pt =
-            crate::experiment::point(m.0, o.axis, (o.left + o.right) * 0.5, o.fraction).unwrap();
+        let pt = crate::experiment::point(
+            m.0,
+            observation.axis,
+            (observation.left + observation.right) * 0.5,
+            observation.fraction,
+        )
+        .unwrap();
         assert!(crate::identity::barrier_between(a, b, pt));
-        candidate.observations.push(o);
+        candidate.observations.push(observation);
         let pixels = vec![255; 2200 * 2200];
         let f = reconcile_image(
             Some(ImageView::new(&pixels, 2200, 2200, 1, 2200).unwrap()),
@@ -628,7 +655,7 @@ mod tests {
         assert_eq!(f.barcodes.len(), 2);
         assert_eq!(f.reconciliation.source_pairs, 0);
         assert_eq!(f.reconciliation.source_pixels, 0);
-        assert_eq!(f.candidates[0].observations[0].digits, o.digits);
+        assert_eq!(f.candidates[0].observations[0].digits, observation.digits);
     }
 
     #[test]
@@ -654,7 +681,7 @@ mod tests {
             [69.113_526_834_611_15, 808.235_870_755_750_3],
         ];
         candidate.detections.push(second);
-        let o = crate::experiment::Observation {
+        let observation = crate::experiment::Observation {
             short_quiet: false,
             digits: [3, 6, 4, 1, 2, 0, 0, 3, 5, 9, 3, 0, 6],
             axis: 0,
@@ -671,12 +698,17 @@ mod tests {
         )
         .expect("geometry is eligible");
         let m = crate::scan::transform(candidate.coverage).unwrap();
-        let p =
-            crate::experiment::point(m.0, o.axis, (o.left + o.right) * 0.5, o.fraction).unwrap();
+        let p = crate::experiment::point(
+            m.0,
+            observation.axis,
+            (observation.left + observation.right) * 0.5,
+            observation.fraction,
+        )
+        .unwrap();
         assert!(crate::identity::barrier_between(a, b, p));
-        candidate.observations.push(o);
+        candidate.observations.push(observation);
         let pixels = vec![255; 800 * 1000];
-        let f = reconcile_image(
+        let frame = reconcile_image(
             Some(ImageView::new(&pixels, 800, 1000, 1, 800).unwrap()),
             vec![candidate],
             Policy {
@@ -684,11 +716,14 @@ mod tests {
                 ..Policy::default()
             },
         );
-        assert_eq!(f.barcodes.len(), 2);
-        assert_eq!(f.reconciliation.source_pairs, 0);
-        assert_eq!(f.reconciliation.source_pixels, 0);
-        assert!(!f.reconciliation.truncated);
-        assert_eq!(f.candidates[0].observations[0].digits, o.digits);
+        assert_eq!(frame.barcodes.len(), 2);
+        assert_eq!(frame.reconciliation.source_pairs, 0);
+        assert_eq!(frame.reconciliation.source_pixels, 0);
+        assert!(!frame.reconciliation.truncated);
+        assert_eq!(
+            frame.candidates[0].observations[0].digits,
+            observation.digits
+        );
     }
     #[test]
     fn identical_shifted_nested_and_distinct_equal_values() {

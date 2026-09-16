@@ -25,8 +25,7 @@ not another image scan. Retail additionally runs the extra engine for EAN8/UPCE,
 sharing its grayscale image and scanline traversal. It does not invoke matrix
 readers. This additional pass costs time depending on image size and content.
 JavaScript also loads the extra WASM module at creation; reuse a scanner across
-frames to amortize initialization. The selected mode tunes EAN13/UPCA; additional
-readers retain their fixed effort.
+frames to amortize initialization. The selected mode tunes EAN13/UPCA, Common1D and QR Code.
 
 The supported public identifiers and native bits are:
 
@@ -49,8 +48,20 @@ The supported public identifiers and native bits are:
 | DataBarExpanded |  16384 | Expanded and Expanded Stacked                                    |
 | MaxiCode        | 131072 | Modes 2–6; affine finder localization                            |
 
-The extra readers run at their research scanline effort 1, independent of the
-four EAN13 effort levels. EAN13-only scanning does not invoke them. When EAN13
+Effort levels select the following bounded searches:
+
+| Reader               | Low | Medium | High | Very High |
+| -------------------- | --- | ------ | ---- | --------- |
+| Common1D             | 0   | 1      | 2    | 2         |
+| QR Code              | 0   | 1      | 2    | 3         |
+| Other matrix readers | 1   | 1      | 1    | 1         |
+
+These are internal reader effort levels, not comparable work or confidence scores.
+QR High adds threshold/sharpen recovery; Very High also tries bounded curved-grid
+recovery for Model 2 version 2 and above. Packed RGBA QR-only inputs use direct
+WASM upload with the same grayscale conversion and ignored alpha.
+`unfinished` reports exhausted limits; no public continuation option is available.
+EAN13-only scanning does not invoke them. When EAN13
 and UPCA are both enabled, zero-prefixed EAN13 is returned as UPCA.
 
 Polygons are in input-image coordinates. Metadata such as GS1, reader

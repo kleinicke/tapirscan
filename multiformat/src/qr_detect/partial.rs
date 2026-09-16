@@ -7,8 +7,8 @@ type Point = [f32; 2];
 fn fit(pairs: &[(Point, Point)], dimension: usize, target_scale: f32) -> Option<[f32; 8]> {
     let mut equations = [[0_f64; 9]; 8];
     for &(source, target) in pairs {
-        let source_x = f64::from(source[0]) / dimension as f64;
-        let source_y = f64::from(source[1]) / dimension as f64;
+        let source_x = f64::from(source[0]) / crate::numeric::usize_f64(dimension);
+        let source_y = f64::from(source[1]) / crate::numeric::usize_f64(dimension);
         let target_x = f64::from(target[0]) / f64::from(target_scale);
         let target_y = f64::from(target[1]) / f64::from(target_scale);
         for (equation_row, equation_value) in [
@@ -70,9 +70,9 @@ fn fit(pairs: &[(Point, Point)], dimension: usize, target_scale: f32) -> Option<
             }
         }
     }
-    let dimension_f32 = dimension as f32;
+    let dimension_f32 = crate::numeric::usize_f32(dimension);
     Some(std::array::from_fn(|i| {
-        equations[i][8] as f32 * if i < 6 { target_scale } else { 1. }
+        crate::numeric::f64_f32(equations[i][8]) * if i < 6 { target_scale } else { 1. }
             / if i == 2 || i == 5 { 1. } else { dimension_f32 }
     }))
 }
@@ -120,21 +120,34 @@ fn finder_errors(image: &[bool], w: usize, h: usize, finder: &Finder) -> u32 {
     for y in -3_i32..=3 {
         for x in -3_i32..=3 {
             let expected = x.abs().max(y.abs()) != 2;
-            errors += u32::from(read_pixel(image, w, h, &t, x as f32, y as f32) != expected);
+            errors += u32::from(
+                read_pixel(
+                    image,
+                    w,
+                    h,
+                    &t,
+                    crate::numeric::f64_f32(f64::from(x)),
+                    crate::numeric::f64_f32(f64::from(y)),
+                ) != expected,
+            );
         }
     }
     errors
 }
 fn read_pixel(image: &[bool], w: usize, h: usize, transform: &[f32; 8], x: f32, y: f32) -> bool {
     let [mapped_x, mapped_y] = map(transform, x, y);
-    let pixel_x = mapped_x.floor() as isize;
-    let pixel_y = mapped_y.floor() as isize;
+    let pixel_x = crate::numeric::f32_isize(mapped_x.floor());
+    let pixel_y = crate::numeric::f32_isize(mapped_y.floor());
     pixel_x >= 0
         && pixel_y >= 0
-        && pixel_x < w as isize
-        && pixel_y < h as isize
-        && image[pixel_y as usize * w + pixel_x as usize]
+        && pixel_x < (w).cast_signed()
+        && pixel_y < (h).cast_signed()
+        && image[(pixel_y).cast_unsigned() * w + (pixel_x).cast_unsigned()]
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "Partial QR recovery keeps its ordered finder alternatives, accepted coverage and exhaustion flag within one attempt budget."
+)]
 pub(super) fn recover(
     image: &[bool],
     w: usize,
@@ -212,12 +225,13 @@ pub(super) fn recover(
                         } else {
                             1.
                         };
-                    let version = ((leg / module + 7. - 17.) / 4.).round() as i32 + delta;
+                    let version =
+                        crate::numeric::f32_i32(((leg / module + 7. - 17.) / 4.).round()) + delta;
                     if !(1..=40).contains(&version) {
                         continue;
                     }
-                    let n = (17 + 4 * version) as usize;
-                    let nf = n as f32;
+                    let n = crate::numeric::i32_usize(17 + 4 * version);
+                    let nf = crate::numeric::usize_f32(n);
                     let br = [tr[0] + bl[0] - tl[0], tr[1] + bl[1] - tl[1]];
                     let Some(base) = homography(
                         [
@@ -238,13 +252,25 @@ pub(super) fn recover(
                             (second_finder, [3.5, nf - 3.5]),
                         ],
                     };
-                    for t in std::iter::once(base).chain(fitted(&base, known, n, w.max(h) as f32)) {
+                    for t in std::iter::once(base).chain(fitted(
+                        &base,
+                        known,
+                        n,
+                        crate::numeric::usize_f32(w.max(h)),
+                    )) {
                         attempts += 1;
                         if attempts > 128 {
                             return true;
                         }
                         if !qr::plausible_image_header(n, |x, y| {
-                            Some(read_pixel(image, w, h, &t, x as f32 + 0.5, y as f32 + 0.5))
+                            Some(read_pixel(
+                                image,
+                                w,
+                                h,
+                                &t,
+                                crate::numeric::usize_f32(x) + 0.5,
+                                crate::numeric::usize_f32(y) + 0.5,
+                            ))
                         }) {
                             continue;
                         }
@@ -255,8 +281,8 @@ pub(super) fn recover(
                                     w,
                                     h,
                                     &t,
-                                    (i % n) as f32 + 0.5,
-                                    (i / n) as f32 + 0.5,
+                                    crate::numeric::usize_f32(i % n) + 0.5,
+                                    crate::numeric::usize_f32(i / n) + 0.5,
                                 )
                             })
                             .collect();
@@ -278,7 +304,7 @@ pub(super) fn recover(
                                     polygon: [[0., 0.], [nf, 0.], [nf, nf], [0., nf]]
                                         .map(|[x, y]| map(&t, x, y)),
                                     support: first.support.min(second.support),
-                                    error: read.corrected as f32,
+                                    error: crate::numeric::usize_f32(read.corrected),
                                     gs1: read.gs1,
                                 });
                                 continue 'pair;
