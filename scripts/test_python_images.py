@@ -53,6 +53,39 @@ class Images(unittest.TestCase):
                 Scanner(library_dir=LIBS)
             load.return_value.tapirscan_create.assert_not_called()
 
+    def test_finish_candidates(self) -> None:
+        """Continuation is opt-in and validates the selected reader."""
+        image = PixelImage(RAW, width=W, height=H)
+        for mode in ("low", "medium", "high", "very-high"):
+            with Scanner(mode, library_dir=LIBS) as scanner:
+                self.assertEqual(
+                    scanner.scan(image).values,
+                    scanner.scan(image, finish_candidates=False).values,
+                )
+                self.assertEqual(
+                    scanner.scan(image, finish_candidates=True).values, [TEXT]
+                )
+                with self.assertRaisesRegex(TypeError, "boolean"):
+                    scanner.scan(image, finish_candidates=1)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+                with self.assertRaisesRegex(ValueError, "EAN13 or UPCA"):
+                    scanner.scan(image, formats="QRCode", finish_candidates=True)
+        self.assertEqual(
+            decode(image, library_dir=LIBS, finish_candidates=True).values, [TEXT]
+        )
+
+    def test_missing_continuation_capability(self) -> None:
+        """Older custom native builds fail clearly only when continuation is used."""
+        with (
+            Scanner(library_dir=LIBS) as scanner,
+            patch.object(scanner._lib, "barcode_capabilities", return_value=0),  # noqa: SLF001
+        ):
+            image = PixelImage(RAW, width=W, height=H)
+            self.assertEqual(scanner.scan(image).values, [TEXT])
+            with self.assertRaisesRegex(
+                RuntimeError, "does not support finish_candidates"
+            ):
+                scanner.scan(image, finish_candidates=True)
+
     def test_supplement_policy(self) -> None:
         """Policy is opt-in, creation-only and forwarded by one-shot scanning."""
         with Scanner(library_dir=LIBS) as scanner:

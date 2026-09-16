@@ -152,7 +152,7 @@ if (selected("rust")) {
               JSON.stringify(
                 JSON.parse(
                   fs.readFileSync(
-                    path.join(root, "core/experiments/nano-clippy-20260916.json"),
+                    path.join(root, "core/experiments/low-complete-detail-20260916.json"),
                     "utf8",
                   ),
                 ).expandedFeatures,

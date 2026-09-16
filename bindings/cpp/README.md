@@ -70,3 +70,10 @@ loading, values-only or rectangle helpers. Decode image files before scanning.
 The CMake install is version 1.1.0 and includes the matching ABI-4 library. Effort
 is selected by linking one mode, unlike Python/Java's runtime selection. CMake
 installation works locally; Conan/vcpkg distribution is not yet provided.
+
+## Finishing candidate work
+
+Enable `ScanOptions.finish_candidates = true` to remove shared frame retry and association budgets
+for EAN13/UPC-A candidates. Default is disabled; selected formats must include
+EAN13 or UPCA. Per-candidate effort and other limits remain; unfinished work is
+still reported. See [API design](../../docs/API_DESIGN.md) for scope and cost.

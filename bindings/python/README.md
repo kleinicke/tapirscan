@@ -83,10 +83,10 @@ with tapirscan.Scanner(mode="high", formats="1D") as scanner:
 Signatures (all settings are optional):
 
 ```text
-scan(image, *, mode="medium", formats=None, ean_add_on_policy="Ignore", debug=False,
+scan(image, *, mode="medium", formats=None, ean_add_on_policy="Ignore", debug=False, finish_candidates=False,
      layout="auto", value_range="auto", color_order="RGB", library_dir=None) -> ScanResult
 Scanner(mode="medium", *, formats=None, ean_add_on_policy="Ignore", library_dir=None)
-scanner.scan(image, *, debug=False, formats=None,
+scanner.scan(image, *, debug=False, formats=None, finish_candidates=False,
              layout="auto", value_range="auto", color_order="RGB") -> ScanResult
 scanner.close()
 ```
@@ -310,3 +310,18 @@ unused scanners. Unknown codes retain their number. Scanning after close raises 
 `result.to_raw_dict()` and `result.debug.to_raw_dict()` return independent native
 schema-2 dictionaries; these are raw engine exports, not serialization of the
 public Python object. Support is available directly as `barcode.support` and in `result.debug.barcodes`.
+
+## Finishing candidate work
+
+Use `scanner.scan(image, finish_candidates=True)` or
+`tapirscan.scan(image, finish_candidates=True)` to let all selected EAN13/UPC-A
+candidates use their effort budget, without the shared frame retry and association
+budgets stopping later candidates. The default is `False` and incurs no additional
+search. At least one of `EAN13` or `UPCA` must be selected.
+
+This can take longer on crowded or difficult images. Per-candidate effort,
+intentional weak-candidate deferral, localization, sampling and result limits
+still apply; other formats keep their existing budgets. There is no library
+wall-clock deadline. `result.unfinished` can remain true: this option is not an
+exhaustiveness guarantee. Custom native libraries must advertise the capability;
+an unsupported library raises an actionable error.

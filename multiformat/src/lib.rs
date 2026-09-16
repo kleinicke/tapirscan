@@ -22,6 +22,7 @@ pub mod qr;
 pub mod qr_detect;
 mod qr_enhance;
 mod qr_tables;
+mod rectify;
 pub mod reed_binary;
 pub mod reed_prime;
 pub mod reed_solomon;
@@ -89,6 +90,7 @@ struct Group {
 pub struct Session {
     input: Vec<u8>,
     rgba: Vec<u8>,
+    source: rectify::Source,
     output: Vec<u8>,
     width: usize,
     height: usize,
@@ -96,7 +98,7 @@ pub struct Session {
 
 fn histogram(row: &[u8]) -> [usize; 256] {
     let mut hist = [0usize; 256];
-    if row.len() >= 2048 {
+    if row.len() >= 512 {
         // Independent counters avoid a serial load/store chain on broad flat backgrounds.
         let mut lanes = [[0usize; 256]; 4];
         let mut chunks = row.chunks_exact(4);
@@ -548,6 +550,7 @@ pub fn scan_observed(
     let mut cached_row = Vec::new();
     let mut cached_reads: Vec<(usize, linear::Read, usize, usize)> = Vec::new();
     let mut line_id = 0;
+    let mut along_points = Vec::new();
     for &deg in angles {
         cached_row.clear();
         cached_reads.clear();
@@ -581,6 +584,21 @@ pub fn scan_observed(
             amax = amax.max(x * cos_angle + y * sin_angle);
             bmin = bmin.min(-x * sin_angle + y * cos_angle);
             bmax = bmax.max(-x * sin_angle + y * cos_angle);
+        }
+        // These products depend only on the angle and along-line index. Keep
+        // the original f32 operation order, but share them across scanlines.
+        along_points.clear();
+        #[expect(
+            clippy::float_cmp,
+            reason = "Fixed preset axes have exact unit components."
+        )]
+        if cos_angle != 1. && sin_angle != 1. {
+            along_points.extend(
+                (0..=crate::numeric::f32_usize((amax - amin).ceil())).map(|i| {
+                    let along = amin + crate::numeric::usize_f32(i);
+                    [along * cos_angle, along * sin_angle]
+                }),
+            );
         }
         let (mut active_min, mut active_max) = (f32::INFINITY, f32::NEG_INFINITY);
         if active[0] < width {
@@ -639,21 +657,54 @@ pub fn scan_observed(
                     ((crate::numeric::f32_isize((lo - amin).floor()) - 1).max(0)).cast_unsigned();
                 let last =
                     ((crate::numeric::f32_isize((hi - amin).ceil()) + 1).max(0)).cast_unsigned();
-                for i in first..=last.min(crate::numeric::f32_usize((amax - amin).ceil())) {
-                    let a = amin + crate::numeric::usize_f32(i);
-                    let x = crate::numeric::f32_isize((a * cos_angle - b * sin_angle).round());
-                    let y = crate::numeric::f32_isize((a * sin_angle + b * cos_angle).round());
-                    if x >= 0
-                        && y >= 0
-                        && (x).cast_unsigned() < width
-                        && (y).cast_unsigned() < height
-                    {
-                        if row.is_empty() {
-                            start = a;
-                        }
-                        row.push(image[(y).cast_unsigned() * width + (x).cast_unsigned()]);
-                    } else if !row.is_empty() {
-                        break;
+                let offset_x = b * sin_angle;
+                let offset_y = b * cos_angle;
+                let point = |i: usize| {
+                    let [along_x, along_y] = along_points[i];
+                    [
+                        crate::numeric::f32_isize((along_x - offset_x).round()),
+                        crate::numeric::f32_isize((along_y + offset_y).round()),
+                    ]
+                };
+                let valid = |i| {
+                    let [x, y] = point(i);
+                    x >= 0 && y >= 0 && x.cast_unsigned() < width && y.cast_unsigned() < height
+                };
+                let mut end = last.saturating_add(1).min(along_points.len());
+                let mut first = first.min(end);
+                while first < end && !valid(first) {
+                    first += 1;
+                }
+                while first < end && !valid(end - 1) {
+                    end -= 1;
+                }
+                if first < end {
+                    start = amin + crate::numeric::usize_f32(first);
+                    row.resize(end - first, background);
+                    let mut inner_lo = lo;
+                    let mut inner_hi = hi;
+                    for (coefficient, offset, low, high) in [
+                        (cos_angle, -offset_x, active[0], active[2]),
+                        (sin_angle, offset_y, active[1], active[3]),
+                    ] {
+                        let a = (crate::numeric::usize_f32(low) - 0.5 - offset) / coefficient;
+                        let z = (crate::numeric::usize_f32(high) + 0.5 - offset) / coefficient;
+                        inner_lo = inner_lo.max(a.min(z));
+                        inner_hi = inner_hi.min(a.max(z));
+                    }
+                    // Account conservatively for clipping arithmetic; pixels
+                    // beyond the exact active rectangle all equal background.
+                    let margin = 2. + 8. * f32::EPSILON * (amin.abs() + amax.abs());
+                    let inner_first =
+                        crate::numeric::f32_usize((inner_lo - amin - margin).floor().max(0.))
+                            .max(first);
+                    let inner_end =
+                        crate::numeric::f32_usize((inner_hi - amin + margin).ceil().max(0.))
+                            .saturating_add(1)
+                            .min(end);
+                    for i in inner_first..inner_end {
+                        let [x, y] = point(i);
+                        row[i - first] = image[y.cast_unsigned() * width + x.cast_unsigned()];
                     }
                 }
             }
@@ -665,7 +716,7 @@ pub fn scan_observed(
                     let mut sharpened_row = None;
                     let ordinary_passes = if effort == 0 {
                         1
-                    } else if mask & linear::EAN8 != 0
+                    } else if (mask & linear::EAN8 != 0 || (effort > 1 && mask & linear::UPCE != 0))
                         && (deg.abs() < 0.01 || (deg - 90.).abs() < 0.01)
                     {
                         5
@@ -679,6 +730,9 @@ pub fn scan_observed(
                         ordinary_passes
                     };
                     for mode in 0..passes {
+                        if mode == 2 && ordinary_passes > 2 && mask & linear::EAN8 == 0 {
+                            continue;
+                        }
                         let nested = mode == ordinary_passes;
                         if nested {
                             let Some(upper) = nested_upper else {
@@ -725,7 +779,13 @@ pub fn scan_observed(
                         let mask = if nested {
                             mask & (127 | linear::ADDON_READ | linear::ADDON_REQUIRE)
                         } else if mode >= 2 {
-                            mask & (linear::EAN8 | linear::ADDON_READ | linear::ADDON_REQUIRE)
+                            let retail = linear::EAN8
+                                | if effort > 1 && mode >= 3 {
+                                    linear::UPCE
+                                } else {
+                                    0
+                                };
+                            mask & (retail | linear::ADDON_READ | linear::ADDON_REQUIRE)
                         } else {
                             mask
                         };
@@ -969,10 +1029,11 @@ pub fn scan_observed(
 /// Bit 1 applies a stricter acceptance gate to supplemental retail reads.
 /// Bit 2 supports packed RGBA upload and exact integer-luma preparation.
 /// Bit 3 supports timing-guided curved QR grids at effort >=3.
+/// Bit 4 retains a source image and samples exact f64 projective crops.
 #[must_use]
 #[no_mangle]
 pub extern "C" fn multi_capabilities() -> u32 {
-    15
+    31
 }
 
 #[no_mangle]
@@ -980,6 +1041,7 @@ pub extern "C" fn multi_new() -> *mut Session {
     Box::into_raw(Box::new(Session {
         input: vec![],
         rgba: vec![],
+        source: rectify::Source::default(),
         output: vec![],
         width: 0,
         height: 0,
@@ -1026,6 +1088,44 @@ pub unsafe extern "C" fn multi_prepare(s: *mut Session, w: usize, h: usize) -> u
 /// Writes must not overlap another session operation.
 pub unsafe extern "C" fn multi_input(s: *mut Session) -> *mut u8 {
     (*s).input.as_mut_ptr()
+}
+#[no_mangle]
+/// Retain the current grayscale input as a source for subsequent crops.
+///
+/// # Safety
+/// `s` must be null or an exclusively accessible live session. Input bytes must
+/// be initialized. Memory growth may invalidate previously obtained host views.
+pub unsafe extern "C" fn multi_capture_source(s: *mut Session) -> u32 {
+    let Some(s) = s.as_mut() else {
+        return 1;
+    };
+    u32::from(!s.source.capture(&s.input, s.width, s.height))
+}
+#[no_mangle]
+/// Obtain storage for eight f64 projective-transform coefficients.
+///
+/// # Safety
+/// `s` must be a live non-null session, with no concurrent access. Write exactly
+/// eight coefficients before `multi_crop`; the pointer expires when freed.
+pub unsafe extern "C" fn multi_crop_transform(s: *mut Session) -> *mut f64 {
+    (*s).source.transform.as_mut_ptr()
+}
+#[no_mangle]
+/// Sample the retained source into the ordinary grayscale input buffer.
+///
+/// # Safety
+/// `s` must be null or an exclusively accessible live session with initialized
+/// transform storage. Previously obtained input views expire on this call.
+pub unsafe extern "C" fn multi_crop(s: *mut Session, width: usize, height: usize) -> u32 {
+    let Some(s) = s.as_mut() else {
+        return 1;
+    };
+    if !s.source.sample(&mut s.input, width, height) {
+        return 2;
+    }
+    s.width = width;
+    s.height = height;
+    0
 }
 #[no_mangle]
 /// Scan the prepared grayscale input and replace the serialized result.

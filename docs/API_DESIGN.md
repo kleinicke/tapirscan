@@ -68,3 +68,24 @@ the required ABI and reports mismatches.
 
 Python validates the 32-megapixel limit before image conversion or pixel copying.
 Native errors retain numeric status codes and provide descriptive messages.
+
+## Candidate continuation
+
+`finish_candidates=True` (Python/Rust) and `finishCandidates: true` (JavaScript)
+are per-scan options, disabled by default. They remove shared frame retry and
+association budgets in the primary EAN13/UPC-A reader, including source-detail
+recovery. The selected formats must contain EAN13 or UPCA. C uses flag 16
+(`BARCODE_FINISH_CANDIDATES`); C++ and Java expose corresponding scan options.
+`barcode_capabilities()` bit 0 advertises native support; the region WASM ABI
+advertises it through `regions_completion_supported()` and uses its own flag 32.
+
+Per-candidate effort, intentional weak-candidate deferral, coverage reuse,
+localization, sampling, result and ambiguity limits still apply. Additional
+readers retain their budgets. There is no wall-clock deadline in the library.
+This can increase latency, and `unfinished` remains truthful rather than being
+forced false. Completion is not equivalent to finding every barcode in an image.
+
+Duplicate observations of a linear barcode can be merged when aligned bands are
+connected by source-image bars and spaces. Equal payloads alone are insufficient:
+separate products and differing supplements remain separate. Exhausting the
+bounded duplicate-evidence budget preserves unchecked observations.

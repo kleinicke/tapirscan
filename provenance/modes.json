@@ -3,53 +3,53 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-release-20260916",
-      "recipe": "nano-clippy-20260916",
-      "binarySha256": "8fd9c987d41cde5063e9375f397d50d80eb14b92b6d17306952244c41a205428",
-      "hostSha256": "7a973b75791a2038a2113bddb969bebc11b9693eb4c85907a2c9a6bd602984be",
+      "tag": "low-complete-release-20260916",
+      "recipe": "low-complete-detail-20260916",
+      "binarySha256": "ab89f7e66782a87ed3cab451d7d7a251cfb3ccfd61f88d90050e732c1ce7e07b",
+      "hostSha256": "6bc31557998f9cb80d765ac035b4d372a147ed00780f00c48029caea52616775",
       "fitLimit": 0,
       "maxLocalizedProposals": 32,
-      "previousTag": "low-release-20260915",
-      "previousBinarySha256": "0a4b80e381ab2f762f6c5b5cb7591584c63646224bd33c17b272f00952a03ff6"
+      "previousTag": "low-release-20260916",
+      "previousBinarySha256": "8fd9c987d41cde5063e9375f397d50d80eb14b92b6d17306952244c41a205428"
     },
     {
       "mode": "medium",
-      "tag": "medium-release-20260916",
-      "recipe": "medium-detail-clippy-20260916",
-      "binarySha256": "7ba1bafc106db0e73429cd9e03097878cd16501926e6f9b194b74a67fce997db",
-      "hostSha256": "860d7eef78cd331cd11dcac23686570502e1af1530f4743f57018ea0ec6dcb12",
+      "tag": "medium-complete-release-20260916",
+      "recipe": "medium-complete-detail-20260916",
+      "binarySha256": "300ed3a990bb1ecf247e2e00acbcbd6fa1de69030b9266feeec33a7415235054",
+      "hostSha256": "5fd9ef44e11c488c81eeed23f3aab5967c6ada78bad5dfae266d9454a2b92d4a",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
-      "previousTag": "medium-release-20260915",
-      "previousBinarySha256": "cc0c5159b99d704adf242b34622231815e2215f50e9a54c64bec5af1d941a5ae",
+      "previousTag": "medium-release-20260916",
+      "previousBinarySha256": "7ba1bafc106db0e73429cd9e03097878cd16501926e6f9b194b74a67fce997db",
       "directions": 1,
-      "recoveryTag": "low-release-20260916"
+      "recoveryTag": "low-complete-release-20260916"
     },
     {
       "mode": "high",
-      "tag": "high-release-20260916",
-      "recipe": "high-detail-clippy-20260916",
-      "binarySha256": "7f032125cd541077bfd1575640b9669170d820ac18b4df63112cc0cbb104a627",
-      "hostSha256": "860d7eef78cd331cd11dcac23686570502e1af1530f4743f57018ea0ec6dcb12",
+      "tag": "high-complete-release-20260916",
+      "recipe": "high-complete-detail-20260916",
+      "binarySha256": "438070742aa89110c159046907b5e99a32bce3f30bcc711e8150f37fe54996da",
+      "hostSha256": "5fd9ef44e11c488c81eeed23f3aab5967c6ada78bad5dfae266d9454a2b92d4a",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
-      "previousTag": "high-release-20260915",
-      "previousBinarySha256": "51a5c16d3d544efa1dfd7e1ee59d2fedba04794320d36d926d63edb8af36af15",
+      "previousTag": "high-release-20260916",
+      "previousBinarySha256": "7f032125cd541077bfd1575640b9669170d820ac18b4df63112cc0cbb104a627",
       "directions": 2,
-      "recoveryTag": "low-release-20260916"
+      "recoveryTag": "low-complete-release-20260916"
     },
     {
       "mode": "very-high",
-      "tag": "very-high-release-20260916",
-      "recipe": "very-high-detail-clippy-20260916",
-      "binarySha256": "d7ce6614f14eabc66386f372a2fed5e4c24f7a9624fdfa406e132a11623ac132",
-      "hostSha256": "860d7eef78cd331cd11dcac23686570502e1af1530f4743f57018ea0ec6dcb12",
+      "tag": "very-high-complete-release-20260916",
+      "recipe": "very-high-complete-detail-20260916",
+      "binarySha256": "c1f2eb06c503fab081d705fab7100d2be879c3e4d7e00f4cef3c7d09817941c8",
+      "hostSha256": "5fd9ef44e11c488c81eeed23f3aab5967c6ada78bad5dfae266d9454a2b92d4a",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
-      "previousTag": "very-high-release-20260915",
-      "previousBinarySha256": "1eefac10ea8a472f3480bdfe05c7f646186755386402f1b7a01d16901d4b4d14",
+      "previousTag": "very-high-release-20260916",
+      "previousBinarySha256": "d7ce6614f14eabc66386f372a2fed5e4c24f7a9624fdfa406e132a11623ac132",
       "directions": 2,
-      "recoveryTag": "low-release-20260916"
+      "recoveryTag": "low-complete-release-20260916"
     }
   ]
 }

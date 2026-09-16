@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 #[cfg(not(feature = "low"))]
 mod detail;
+mod linear_duplicates;
 pub use barcode_research_core::region_scan::{Error, ImageView, RegionScanner, ScanResult};
 pub use barcode_research_core::{
     frame::{Barcode, Frame},
@@ -20,6 +21,8 @@ pub struct Image<'a> {
 }
 #[derive(Clone, Copy, Debug)]
 pub struct ScanOptions {
+    /// Finish selected EAN/UPC candidate work beyond shared frame budgets.
+    pub finish_candidates: bool,
     /// False returns at most the highest-support decoded read after the full scan.
     pub multiple: bool,
     /// Include localization proposals, search windows and per-candidate evidence.
@@ -28,6 +31,7 @@ pub struct ScanOptions {
 impl Default for ScanOptions {
     fn default() -> Self {
         Self {
+            finish_candidates: false,
             multiple: true,
             include_regions: false,
         }
@@ -73,7 +77,7 @@ impl Scanner {
         image: Image<'_>,
         options: ScanOptions,
     ) -> std::result::Result<Result, Error> {
-        self.scan_with_coverage(image, options, &[])
+        self.scan_with_coverage(image, options, &[], true)
     }
 
     fn scan_with_coverage(
@@ -81,19 +85,11 @@ impl Scanner {
         image: Image<'_>,
         options: ScanOptions,
         coverage: &[Quad],
+        consolidate: bool,
     ) -> std::result::Result<Result, Error> {
         #[cfg(feature = "low")]
         let _ = coverage;
-        if image.width < 3 || image.height < 3 {
-            return Err(Error::Parameters);
-        }
-        let im = ImageView::new(
-            image.data,
-            image.width,
-            image.height,
-            image.channels,
-            image.stride,
-        )?;
+        let im = checked_image(image)?;
         let found = stripes::detect(im)?;
         let count = found.proposals.len();
         let examined = count.min(FIT_LIMIT);
@@ -140,6 +136,7 @@ impl Scanner {
         let mut candidates: Vec<_> = proposals.iter().map(|p| p.polygon).collect();
         candidates.push(search_window);
         let policy = Policy {
+            complete: options.finish_candidates,
             #[cfg(not(feature = "low"))]
             candidate_retry_mask: formats::uncovered_mask(
                 &proposals,
@@ -161,12 +158,16 @@ impl Scanner {
                 &mut self.recovery,
                 if cfg!(feature = "medium") { 1 } else { 2 },
                 coverage,
+                options.finish_candidates,
             )?;
             scan.frame.unfinished = true;
             Some(result)
         };
         #[cfg(feature = "low")]
         let recovery = None;
+        if consolidate {
+            linear_duplicates::merge_primary(&mut scan.frame.barcodes, image);
+        }
         if !options.multiple {
             select_one(&mut scan.frame.barcodes);
         }
@@ -183,6 +184,18 @@ impl Scanner {
             recovery,
         })
     }
+}
+fn checked_image(image: Image<'_>) -> std::result::Result<ImageView<'_>, Error> {
+    if image.width < 3 || image.height < 3 {
+        return Err(Error::Parameters);
+    }
+    ImageView::new(
+        image.data,
+        image.width,
+        image.height,
+        image.channels,
+        image.stride,
+    )
 }
 fn select_one(reads: &mut Vec<Barcode>) {
     // A strict improvement preserves the first result on equal support.
@@ -298,6 +311,7 @@ mod tests {
             .scan_with_options(
                 image(),
                 ScanOptions {
+                    finish_candidates: false,
                     multiple: false,
                     include_regions: true,
                 },

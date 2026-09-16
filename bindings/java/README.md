@@ -76,3 +76,10 @@ image decoder. Decode JPEG/TIFF using an image library before passing pixel byte
 The binding is current with native ABI 4 and library version 1.1.0, but no Maven
 Central package or bundled native JAR is published. JDK 22+ and separate native
 libraries are requirements, not optional optimizations. See [validation](../../docs/VALIDATION.md).
+
+## Finishing candidate work
+
+Enable the fourth `ScanOptions` component, `finishCandidates` to remove shared frame retry and association budgets
+for EAN13/UPC-A candidates. Default is disabled; selected formats must include
+EAN13 or UPCA. Per-candidate effort and other limits remain; unfinished work is
+still reported. See [API design](../../docs/API_DESIGN.md) for scope and cost.

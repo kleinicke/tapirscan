@@ -24,6 +24,7 @@ self.onmessage = async ({
 }: MessageEvent<{
   engine: "zxing" | "zbar";
   formats: Format[];
+  zxingEnhanced?: boolean;
   engineBaseUrl: string;
   width: number;
   height: number;
@@ -56,8 +57,10 @@ self.onmessage = async ({
           `ZBar comparison does not support: ${unsupported.join(", ")}. Deselect these formats to compare.`,
         );
       zbar.setConfig(zb.ZBarSymbolType.ZBAR_NONE, zb.ZBarConfigType.ZBAR_CFG_ENABLE, 0);
-      for (const format of data.formats)
-        zbar.setConfig(zbarFormats[format]!, zb.ZBarConfigType.ZBAR_CFG_ENABLE, 1);
+      for (const format of data.formats) {
+        const symbol = zbarFormats[format];
+        if (symbol !== undefined) zbar.setConfig(symbol, zb.ZBarConfigType.ZBAR_CFG_ENABLE, 1);
+      }
     }
     const start = performance.now();
     let regions: Region[];
@@ -67,9 +70,9 @@ self.onmessage = async ({
         new ImageData(new Uint8ClampedArray(data.buffer), data.width, data.height),
         {
           formats: data.formats,
-          tryHarder: true,
-          tryRotate: true,
-          tryDownscale: true,
+          tryHarder: data.zxingEnhanced ?? true,
+          tryRotate: data.zxingEnhanced ?? true,
+          tryDownscale: data.zxingEnhanced ?? true,
           maxNumberOfSymbols: 255,
         },
       );
@@ -116,7 +119,12 @@ function hull(input: readonly (readonly [number, number])[]): (readonly [number,
   const half = (values: typeof points) => {
     const result: typeof points = [];
     for (const point of values) {
-      while (result.length > 1 && cross(result.at(-2)!, result.at(-1)!, point) <= 0) result.pop();
+      while (result.length > 1) {
+        const previous = result.at(-2);
+        const last = result.at(-1);
+        if (!previous || !last || cross(previous, last, point) > 0) break;
+        result.pop();
+      }
       result.push(point);
     }
     result.pop();

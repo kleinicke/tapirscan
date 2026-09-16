@@ -228,3 +228,8 @@ Third-party components retain their own licenses and
 
 The current release API is 1.1.0. See the [compatibility policy](CONTRIBUTING.md#api-stability)
 for API stability and release changes.
+
+For crowded EAN13/UPC-A images, the optional per-scan `finish_candidates=True`
+(Python) / `finishCandidates: true` (JavaScript) lets later candidates use their
+effort budget. It can increase runtime and does not guarantee exhaustive results;
+see [candidate continuation](docs/API_DESIGN.md#candidate-continuation).

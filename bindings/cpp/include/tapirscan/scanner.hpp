@@ -17,7 +17,7 @@ public:
     explicit Error(int status) : std::runtime_error("Barcode scanner error " + std::to_string(status)), code(status) {}
 };
 inline void check(int status) { if (status != BARCODE_OK) throw Error(status); }
-struct ScanOptions { bool multiple = true; bool include_regions = false; std::uint32_t formats = 1; };
+struct ScanOptions { bool multiple = true; bool include_regions = false; std::uint32_t formats = 1; bool finish_candidates = false; };
 struct Barcode { std::string text; std::array<double,8> polygon; std::uint32_t support; std::string format; };
 class Result {
     barcode_result handle_ = 0;
@@ -80,7 +80,7 @@ public:
     Result scan(const std::uint8_t* pixels, std::size_t length, std::uint64_t width,
                 std::uint64_t height, std::uint32_t channels, std::uint64_t stride, ScanOptions options = {}) {
         barcode_result result=0;
-        auto flags = (options.multiple ? 0u : BARCODE_SINGLE) | (options.include_regions ? BARCODE_INCLUDE_REGIONS : 0u);
+        auto flags = (options.multiple ? 0u : BARCODE_SINGLE) | (options.include_regions ? BARCODE_INCLUDE_REGIONS : 0u) | (options.finish_candidates ? BARCODE_FINISH_CANDIDATES : 0u);
         check(barcode_scan_formats(handle_,pixels,length,width,height,channels,stride,flags,options.formats,&result));
         return Result(result);
     }

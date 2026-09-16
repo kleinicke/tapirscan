@@ -16,7 +16,7 @@ extern "C" {
 enum barcode_status { BARCODE_OK=0, BARCODE_INVALID_ARGUMENT=1, BARCODE_INVALID_HANDLE=2,
     BARCODE_BUFFER_TOO_SMALL=3, BARCODE_INTERNAL_ERROR=4, BARCODE_CAPACITY=5 };
 enum barcode_scan_flags { BARCODE_SINGLE=1, BARCODE_INCLUDE_REGIONS=2,
-    BARCODE_READ_EAN_ADDON=4, BARCODE_REQUIRE_EAN_ADDON=8 };
+    BARCODE_READ_EAN_ADDON=4, BARCODE_REQUIRE_EAN_ADDON=8, BARCODE_FINISH_CANDIDATES=16 };
 /* READ_EAN_ADDON attempts optional 2/5-digit EAN/UPC supplements.
    REQUIRE_EAN_ADDON accepts retail reads only with a confirmed supplement.
    The two flags are mutually exclusive; neither affects non-retail formats.
@@ -31,6 +31,10 @@ typedef struct barcode_result_metadata {
     uint32_t unfinished, localization_limited;
 } barcode_result_metadata;
 uint32_t barcode_abi_version(void);
+/* Bit 0 enables BARCODE_FINISH_CANDIDATES: remove shared frame retry/association
+   budgets for EAN13/UPCA. Per-candidate and other limits remain. Requires either
+   primary format. Default off. A call has no deadline; unfinished can stay true. */
+uint32_t barcode_capabilities(void);
 uint32_t barcode_mode(void);
 int32_t tapirscan_create(tapirscan_handle *out);
 int32_t tapirscan_destroy(tapirscan_handle scanner);

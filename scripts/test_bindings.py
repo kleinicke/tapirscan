@@ -36,6 +36,47 @@ def run(*args: object) -> dict[str, Any]:
 class Bindings(unittest.TestCase):
     """Verify native and WASM results across language interfaces."""
 
+    def test_continuation_parity(self) -> None:
+        """The public continuation flag preserves native/WASM reader parity."""
+        with tempfile.TemporaryDirectory(prefix="barcode-continuation-") as temp:
+            path = Path(temp) / "pixels.raw"
+            for mode in ("low", "medium", "high", "very-high"):
+                with Scanner(mode, library_dir=LIBS) as scanner:
+                    for name, pixels, w, h, channels, stride, _ in fixtures():
+                        with self.subTest(mode=mode, fixture=name):
+                            path.write_bytes(pixels)
+                            native = scanner.scan(
+                                PixelImage(
+                                    pixels,
+                                    width=w,
+                                    height=h,
+                                    channels=channels,
+                                    stride=stride,
+                                ),
+                                debug=True,
+                                finish_candidates=True,
+                            ).to_raw_dict()
+                            wasm = run(
+                                "node",
+                                ROOT / "bindings/javascript/test/native_parity.mjs",
+                                mode,
+                                w,
+                                h,
+                                channels,
+                                stride,
+                                path,
+                                1,
+                                1,
+                                "EAN13",
+                                1,
+                            )
+                            self.assertEqual(
+                                native["scan"]["barcodes"], wasm["scan"]["barcodes"]
+                            )
+                            self.assertEqual(
+                                native["scan"]["unfinished"], wasm["scan"]["unfinished"]
+                            )
+
     def test_all_languages_and_modes(self) -> None:
         """Verify all languages and modes."""
         with tempfile.TemporaryDirectory(prefix="barcode-binding-test-") as temp:

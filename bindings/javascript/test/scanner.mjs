@@ -73,6 +73,9 @@ for (const mode of ["low", "medium", "high", "very-high"]) {
       assert.throws(() => scanner.scan(image, { includeRegions: "yes" }), TypeError);
       assert.throws(() => scanner.scan(image, { unknown: true }), TypeError);
 
+      assert.deepEqual(scanner.scan(image, { finishCandidates: false }).values, compact.values);
+      assert.deepEqual(scanner.scan(image, { finishCandidates: true }).values, compact.values);
+      assert.throws(() => scanner.scan(image, { finishCandidates: "yes" }), /boolean/);
       const result = scanner.scan(image, { debug: true });
       assert.ok(result.debug.scan.barcodes.some((b) => b.text === text));
       assert.ok(result.debug.scan.barcodes.every((b) => b.text === text));
@@ -247,8 +250,8 @@ test("WASM base directory composes with the advanced loader", async () => {
   });
   scanner.dispose();
   assert.deepEqual(loaded, [
-    "medium-release-20260916.wasm",
-    "low-release-20260916.wasm",
+    "medium-complete-release-20260916.wasm",
+    "low-complete-release-20260916.wasm",
     "multiformat.wasm",
   ]);
 });
@@ -489,4 +492,57 @@ test("coverage defers only contained retries and preserves the full-frame bit", 
     ),
     false,
   );
+});
+
+test("continuation rejects formats without the primary reader", async () => {
+  const scanner = await Scanner.create({ formats: "QRCode", loadWasm });
+  try {
+    assert.throws(() => scanner.scan(fixture().image, { finishCandidates: true }), /EAN13 or UPCA/);
+  } finally {
+    scanner.dispose();
+  }
+});
+test("one-shot forwards continuation", async () => {
+  assert.deepEqual((await scan(fixture().image, { finishCandidates: true, loadWasm })).values, [
+    fixture().text,
+  ]);
+});
+test("continuation services later candidates while preserving effort and unfinished status", async () => {
+  const { IndependentScanner } = await import("../dist/completion-host.mjs");
+  const image = {
+    data: new Uint8Array(600 * 300).fill(255),
+    width: 600,
+    height: 300,
+    stride: 600,
+    channels: 1,
+  };
+  const quads = Array.from({ length: 64 }, () => [
+    [0, 0],
+    [599, 0],
+    [599, 299],
+    [0, 299],
+  ]);
+  for (const mode of ["low", "medium", "high", "very-high"]) {
+    const scanner = await IndependentScanner.create(
+      await loadWasm(new URL(`../wasm/${mode}-complete-release-20260916.wasm`, import.meta.url)),
+    );
+    try {
+      const bounded = scanner.scan(image, quads, { maxRetryPathsPerFrame: 10 });
+      const completed = scanner.scan(image, quads, {
+        maxRetryPathsPerFrame: 10,
+        finishCandidates: true,
+      });
+      const reference = scanner.scan(image, quads, { maxRetryPathsPerFrame: 65536 });
+      const work = (result) => result.candidates.map((c) => c.work.retry_paths);
+      assert.equal(
+        work(bounded).reduce((a, b) => a + b, 0),
+        10,
+      );
+      assert.deepEqual(work(completed), work(reference));
+      assert.ok(work(completed).every((n) => n > 0 && n <= 512));
+      assert.equal(completed.unfinished, reference.unfinished);
+    } finally {
+      scanner.dispose();
+    }
+  }
 });

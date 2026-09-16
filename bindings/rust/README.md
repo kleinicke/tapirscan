@@ -33,7 +33,7 @@ maintainable versioned crate layout while preserving measured mode behavior.
 The native build helper refreshes this facade without changing the core snapshot.
 
 `scan(image)` defaults to multiple results and no exposed region evidence. Use
-`scan_with_options(image, ScanOptions { multiple: false, include_regions: true })`
+`scan_with_options(image, ScanOptions { multiple: false, include_regions: true, ..ScanOptions::default() })`
 to choose before scanning. `result.barcodes()` always returns a slice; single mode
 selects the highest-support read after full scanning, with stable tie ordering.
 `result.regions()` is `Some` only when requested; it exposes localized proposals,
@@ -56,8 +56,8 @@ undecoded evidence is retained internally. `unfinished()` and
 
 `Image` requires `data`, `width`, `height`, `channels` (1/3/4), and `stride` in
 bytes. Use decoded gray/RGB/RGBA pixels; alpha is ignored. No image codec is
-bundled. `ScanOptions` contains `multiple` (default true) and `include_regions`
-(default false). Polygons are in source-image coordinates; support is a ranking
+bundled. `ScanOptions` contains `multiple` (default true), `include_regions`
+(default false), and `finish_candidates` (default false). Polygons are in source-image coordinates; support is a ranking
 heuristic, not a probability.
 
 For additional formats:
@@ -94,3 +94,8 @@ the stable C ABI: there is no promise of a stable Rust binary ABI across compile
 This is a generated local facade, not a published crates.io package. Keep its
 referenced core directories alongside it; copying just the generated `rust/`
 directory is insufficient. See [build and release status](../../docs/RELEASING.md).
+
+Set `ScanOptions { finish_candidates: true, ..ScanOptions::default() }` to remove
+shared frame retry and association budgets for EAN13/UPC-A candidates. The selected
+formats must include one of those readers. Per-candidate effort and other limits
+remain; `unfinished()` may still be true. See [API design](../../docs/API_DESIGN.md).

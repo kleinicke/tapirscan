@@ -73,24 +73,65 @@ pub(crate) fn runs(row: &[u8]) -> (Vec<bool>, Vec<f32>, Vec<usize>) {
 }
 
 pub(crate) fn sharpen_row(row: &[u8]) -> Vec<u8> {
-    row.iter()
-        .enumerate()
-        .map(|(i, &v)| {
-            let at = |d: isize| i.saturating_add_signed(d).min(row.len() - 1);
-            let blurred = (f32::from(row[at(-2)])
-                + 4. * f32::from(row[at(-1)])
-                + 6. * f32::from(v)
-                + 4. * f32::from(row[at(1)])
-                + f32::from(row[at(2)]))
-                / 16.;
-            crate::numeric::f32_u8((3. * f32::from(v) - 2. * blurred).round().clamp(0., 255.))
-        })
-        .collect::<Vec<_>>()
+    let mut output = Vec::with_capacity(row.len());
+    let sharpen = |a: u8, b: u8, c: u8, d: u8, e: u8| {
+        let numerator =
+            18 * i32::from(c) - i32::from(a) - 4 * i32::from(b) - 4 * i32::from(d) - i32::from(e);
+        // The old float kernel has an exact eighth-integer result. Add four
+        // before division for its positive round-to-nearest rule; negatives
+        // are clipped to zero in both kernels.
+        u8::try_from(((numerator + 4) / 8).clamp(0, 255)).unwrap()
+    };
+    for i in 0..row.len().min(2) {
+        let at = |d: isize| row[i.saturating_add_signed(d).min(row.len() - 1)];
+        output.push(sharpen(at(-2), at(-1), at(0), at(1), at(2)));
+    }
+    for values in row.windows(5) {
+        output.push(sharpen(
+            values[0], values[1], values[2], values[3], values[4],
+        ));
+    }
+    for i in row.len().saturating_sub(2).max(2)..row.len() {
+        let at = |d: isize| row[i.saturating_add_signed(d).min(row.len() - 1)];
+        output.push(sharpen(at(-2), at(-1), at(0), at(1), at(2)));
+    }
+    output
 }
 
 #[cfg(test)]
 mod tests {
     use super::runs;
+
+    fn sharpen_reference(row: &[u8]) -> Vec<u8> {
+        row.iter()
+            .enumerate()
+            .map(|(i, &v)| {
+                let at = |d: isize| i.saturating_add_signed(d).min(row.len() - 1);
+                let blurred = (f32::from(row[at(-2)])
+                    + 4. * f32::from(row[at(-1)])
+                    + 6. * f32::from(v)
+                    + 4. * f32::from(row[at(1)])
+                    + f32::from(row[at(2)]))
+                    / 16.;
+                crate::numeric::f32_u8((3. * f32::from(v) - 2. * blurred).round().clamp(0., 255.))
+            })
+            .collect::<Vec<_>>()
+    }
+    #[test]
+    fn integer_sharpening_preserves_all_pixels() {
+        let mut state = 0x9160_0022_u32;
+        for length in [0, 1, 2, 3, 4, 5, 6, 17, 65, 511, 1920, 4097] {
+            for _ in 0..50 {
+                let row: Vec<u8> = (0..length)
+                    .map(|_| {
+                        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                        state.to_be_bytes()[0]
+                    })
+                    .collect();
+                assert_eq!(super::sharpen_row(&row), sharpen_reference(&row));
+            }
+        }
+    }
 
     #[test]
     fn flat_and_small_noise_do_not_create_bar_transitions() {

@@ -1,4 +1,4 @@
-import { IndependentScanner } from "../detail-20260914/host.mjs";
+import { IndependentScanner } from "./host.mjs";
 import { evidencePlan } from "../detail-20260914/source-evidence.mjs";
 import { recoverDirectSeed } from "./direct-recovery.mjs";
 import { uncoveredRetryMask } from "../multiformat/coverage.js";

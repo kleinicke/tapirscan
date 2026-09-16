@@ -33,7 +33,7 @@ export function transformFor(quad: Quad, width: number, height: number): Transfo
   }
   return a.map((row) => row[8]);
 }
-export function rectify(gray: Uint8Array, width: number, height: number, quad: Quad) {
+export function rectificationPlan(quad: Quad) {
   const distance = (a: readonly number[], b: readonly number[]) =>
     Math.hypot(a[0] - b[0], a[1] - b[1]);
   const w = Math.max(
@@ -60,10 +60,21 @@ export function rectify(gray: Uint8Array, width: number, height: number, quad: Q
   ];
   const paddedWidth = w + 2 * pad,
     paddedHeight = h + 2 * pad;
+  return { width: paddedWidth, height: paddedHeight, transform: t };
+}
+export function rectify(gray: Uint8Array, width: number, height: number, quad: Quad) {
+  const { width: paddedWidth, height: paddedHeight, transform: t } = rectificationPlan(quad);
   const data = new Uint8Array(paddedWidth * paddedHeight);
-  for (let y = 0; y < paddedHeight; y++)
+  for (let y = 0; y < paddedHeight; y++) {
+    const cy = y + 0.5;
+    const yX = t[1] * cy,
+      yY = t[4] * cy,
+      yZ = t[7] * cy;
     for (let x = 0; x < paddedWidth; x++) {
-      const [xx, yy] = project(t, x + 0.5, y + 0.5);
+      const cx = x + 0.5;
+      const z = t[6] * cx + yZ + 1;
+      const xx = (t[0] * cx + yX + t[2]) / z;
+      const yy = (t[3] * cx + yY + t[5]) / z;
       if (xx < 0 || yy < 0 || xx > width - 1 || yy > height - 1) {
         data[y * paddedWidth + x] = 255;
         continue;
@@ -79,6 +90,7 @@ export function rectify(gray: Uint8Array, width: number, height: number, quad: Q
           (gray[y1 * width + x0] * (1 - fx) + gray[y1 * width + x1] * fx) * fy,
       );
     }
+  }
   return { data, width: paddedWidth, height: paddedHeight, transform: t };
 }
 

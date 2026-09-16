@@ -47,7 +47,10 @@ export async function runApiChecks(Scanner, fixtures, options = {}) {
               height: fixture.height,
               channels: 1,
             },
-            { debug },
+            {
+              debug,
+              finishCandidates: debug && scanner.formats.some((f) => f === "EAN13" || f === "UPCA"),
+            },
           );
           checkGeometry(result, fixture);
           equal(

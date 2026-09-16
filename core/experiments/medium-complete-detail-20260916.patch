@@ -1,0 +1,1204 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -11,10 +11,6 @@
+ panic = "abort"
+ 
+ [features]
+-# Stable entry points; experimental feature details stay pinned in build-recipes.json.
+-fast = ["experimental-identity-phase", "experimental-stripe-bands", "experimental-profile-aperture", "experimental-dense-unsupported-scale", "experimental-native-wide-tiles", "experimental-interior-bounds", "experimental-shared-coverage-identity", "experimental-complete-tile-prefix", "experimental-profile-guard-precheck", "experimental-verified-coverage-reuse", "experimental-nearest-lowres", "experimental-forward-blur", "experimental-coverage-extension", "experimental-gap-density", "experimental-strong-single-row", "experimental-redundant-decode", "experimental-compact-output", "experimental-flat-envelope", "experimental-source-angle", "experimental-angle-replace", "experimental-flexible-identity", "experimental-identity-budgeted-link", "experimental-identity-optional", "experimental-extrema-runs", "experimental-asymmetric-quiet", "experimental-unresolved-256", "experimental-local-extrema-gaps", "experimental-invalid-visual-veto"]
+-quality = ["fast", "experimental-native-soft"]
+-
+ experimental-secondary-grid = ["experimental-stripe-bands"]
+ experimental-invalid-visual-veto = []
+ experimental-native-soft = ["experimental-forward-blur"]
+@@ -134,10 +130,3 @@
+ experimental-redundant-decode = []
+ 
+ experimental-angle-replace = []
+-
+-# This diagnostic imports the feature-gated stripe localizer. Keep the default
+-# feature set buildable and make the diagnostic available in balanced recipes.
+-[[bin]]
+-name = "stripe_diagnostic"
+-path = "src/bin/stripe_diagnostic.rs"
+-required-features = ["experimental-orientation-stripes"]
+--- a/src/experiment.rs
++++ b/src/experiment.rs
+@@ -20,6 +20,7 @@
+ }
+ #[derive(Default, Debug, Clone)]
+ pub struct Work {
++    pub selected_retry_limit: usize,
+     pub invalid_visual_seen: usize,
+     pub invalid_veto_intervals: usize,
+     pub invalid_veto_reads: usize,
+@@ -170,6 +171,7 @@
+     native: bool,
+     dense: bool,
+     decoder: DecoderMode,
++    fixed3: bool,
+ }
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum DecoderMode {
+@@ -179,6 +181,11 @@
+     Many,
+ }
+ impl Config {
++    pub(crate) fn with_three_rows(mut self) -> Self {
++        self.fixed3 = true;
++        self.name = "multi_fixed3";
++        self
++    }
+     /// # Errors
+     /// Returns `Parameters` when native-length sampling is combined with a fixed-length profile decoder.
+     pub fn new(
+@@ -195,6 +202,7 @@
+             native,
+             dense,
+             decoder,
++            fixed3: false,
+         })
+     }
+ }
+@@ -203,6 +211,7 @@
+     native: false,
+     dense: false,
+     decoder: DecoderMode::Many,
++    fixed3: false,
+ };
+ pub const CONFIGS: [Config; 5] = [
+     Config {
+@@ -210,30 +219,35 @@
+         native: false,
+         dense: false,
+         decoder: DecoderMode::Profile,
++        fixed3: false,
+     },
+     Config {
+         name: "runs_fixed5",
+         native: false,
+         dense: false,
+         decoder: DecoderMode::Runs,
++        fixed3: false,
+     },
+     Config {
+         name: "runs_native5",
+         native: true,
+         dense: false,
+         decoder: DecoderMode::Runs,
++        fixed3: false,
+     },
+     Config {
+         name: "runs_native21",
+         native: true,
+         dense: true,
+         decoder: DecoderMode::Runs,
++        fixed3: false,
+     },
+     Config {
+         name: "combined_fixed5",
+         native: false,
+         dense: false,
+         decoder: DecoderMode::Combined,
++        fixed3: false,
+     },
+ ];
+ // Exact contiguous selection using the same coordinate expression as the legacy scan.
+@@ -1237,6 +1251,8 @@
+                 for axis in 0..2 {
+                     let fractions: Vec<f64> = if config.dense {
+                         (0..21).map(|i| 0.2 + 0.03 * f64::from(i)).collect()
++                    } else if config.fixed3 {
++                        vec![0.2, 0.5, 0.8]
+                     } else {
+                         vec![0.2, 0.35, 0.5, 0.65, 0.8]
+                     };
+--- a/src/frame.rs
++++ b/src/frame.rs
+@@ -218,10 +218,18 @@
+ fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy: Policy) -> Frame {
+     let used_checks: usize = candidates.iter().map(|c| c.work.association_checks).sum();
+     let mut budget = AssociationBudget {
+-        checks_left: policy.max_association_checks.saturating_sub(used_checks),
+-        pixels_left: policy
+-            .max_association_pixels
+-            .saturating_sub(candidates.iter().map(|c| c.work.continuity_samples).sum()),
++        checks_left: if policy.complete {
++            usize::MAX
++        } else {
++            policy.max_association_checks.saturating_sub(used_checks)
++        },
++        pixels_left: if policy.complete {
++            usize::MAX
++        } else {
++            policy
++                .max_association_pixels
++                .saturating_sub(candidates.iter().map(|c| c.work.continuity_samples).sum())
++        },
+     };
+     let mut counter = Work::default();
+     let mut work = ReconciliationWork::default();
+@@ -1053,7 +1061,7 @@
+             )
+             .unwrap();
+         assert!(frame.unfinished);
+-        assert!(frame.candidates.iter().all(|c| c.work.paths == 10));
++        assert!(frame.candidates.iter().all(|c| c.work.paths == 6));
+         assert!(
+             frame
+                 .candidates
+--- a/src/multi_scan.rs
++++ b/src/multi_scan.rs
+@@ -15,6 +15,11 @@
+ )]
+ #[derive(Clone, Copy, Debug)]
+ pub struct Policy {
++    /// Deep-retry selection; initial discovery remains enabled for every candidate.
++    pub candidate_retry_mask: u64,
++    /// Remove shared frame execution/association budgets. Per-candidate effort,
++    /// weak-candidate deferral, sampling geometry and safety caps still apply.
++    pub complete: bool,
+     pub max_retry_paths_per_candidate: usize,
+     pub max_retry_paths_per_frame: usize,
+     pub max_association_checks: usize,
+@@ -29,6 +34,8 @@
+ impl Default for Policy {
+     fn default() -> Self {
+         Self {
++            candidate_retry_mask: u64::MAX,
++            complete: false,
+             max_retry_paths_per_candidate: 512,
+             max_retry_paths_per_frame: 8192,
+             max_association_checks: 200_000,
+@@ -59,6 +66,37 @@
+ #[cfg(feature = "experimental-verified-coverage-reuse")]
+ use verified_coverage::{reuse_plan, verified_claims, ReuseBudget};
+ 
++// Equal text can denote separate physical barcodes. Only overlapping,
++// agreeing initial detections may share the easier-frame effort allocation.
++fn multiple_initial<'a>(items: impl Iterator<Item = &'a experiment::Detection>) -> bool {
++    let bounds = |q: Quad| {
++        [
++            q.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min),
++            q.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min),
++            q.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max),
++            q.iter().map(|p| p[1]).fold(f64::NEG_INFINITY, f64::max),
++        ]
++    };
++    let mut seen: Vec<([u8; 13], [f64; 4])> = Vec::new();
++    for d in items {
++        let b = bounds(d.polygon);
++        for (a, q) in &seen {
++            if *a != d.digits
++                || q[2] + 2. < b[0]
++                || b[2] + 2. < q[0]
++                || q[3] + 2. < b[1]
++                || b[3] + 2. < q[1]
++            {
++                return true;
++            }
++        }
++        if seen.len() >= 64 {
++            return true;
++        }
++        seen.push((d.digits, b));
++    }
++    false
++}
+ /// Breadth-first interval centers spread every short prefix across the extent.
+ fn spread_order(n: usize) -> Vec<usize> {
+     let mut queue = std::collections::VecDeque::from([(0, n)]);
+@@ -337,12 +375,7 @@
+     clippy::many_single_char_names,
+     reason = "The 2x2 projective inverse uses conventional a,b,c,d,e,g coefficients and paired x,y and u,v coordinates."
+ )]
+-fn claimed_interval(
+-    matrix: [f64; 9],
+-    axis: usize,
+-    fraction: f64,
+-    quad: Quad,
+-) -> Option<(f64, f64)> {
++fn project_claim(matrix: [f64; 9], quad: Quad) -> Option<Quad> {
+     let mut points = [[0.; 2]; 4];
+     for (i, p) in quad.iter().enumerate() {
+         let (x, y) = (p[0] + 0.5, p[1] + 0.5);
+@@ -362,21 +395,43 @@
+         if !u.is_finite() || !v.is_finite() {
+             return None;
+         }
+-        points[i] = if axis == 0 { [u, v] } else { [v, u] };
+-    }
+-    let mut xs = Vec::with_capacity(4);
++        points[i] = [u, v];
++    }
++    Some(points)
++}
++
++fn projected_interval(points: Quad, axis: usize, fraction: f64) -> Option<(f64, f64)> {
++    let mut xs = [0.; 4];
++    let mut count = 0;
+     for i in 0..4 {
+         let (a, b) = (points[i], points[(i + 1) % 4]);
++        let (a, b) = if axis == 0 {
++            (a, b)
++        } else {
++            ([a[1], a[0]], [b[1], b[0]])
++        };
+         if (a[1] <= fraction && fraction < b[1]) || (b[1] <= fraction && fraction < a[1]) {
+-            xs.push(a[0] + (b[0] - a[0]) * (fraction - a[1]) / (b[1] - a[1]));
+-        }
+-    }
+-    if xs.len() != 2 {
++            xs[count] = a[0] + (b[0] - a[0]) * (fraction - a[1]) / (b[1] - a[1]);
++            count += 1;
++        }
++    }
++    if count != 2 {
+         return None;
+     }
+-    xs.sort_by(f64::total_cmp);
++    if xs[0].total_cmp(&xs[1]).is_gt() {
++        xs.swap(0, 1);
++    }
+     Some((xs[0], xs[1]))
+ }
++fn claimed_interval(
++    matrix: [f64; 9],
++    axis: usize,
++    fraction: f64,
++    quad: Quad,
++) -> Option<(f64, f64)> {
++    projected_interval(project_claim(matrix, quad)?, axis, fraction)
++}
++
+ fn unresolved_plan(
+     m: [f64; 9],
+     detections: &[experiment::Detection],
+@@ -696,11 +751,23 @@
+         // The first pass is completed across every initial candidate before any
+         // retry. Coverage is retained independently of observations/detections.
+         let mut budget = experiment::AssociationBudget {
+-            checks_left: policy.max_association_checks,
+-            pixels_left: policy.max_association_pixels,
++            checks_left: if policy.complete {
++                usize::MAX
++            } else {
++                policy.max_association_checks
++            },
++            pixels_left: if policy.complete {
++                usize::MAX
++            } else {
++                policy.max_association_pixels
++            },
+         };
+-        let mut outputs =
+-            self.scan_with_budget(im, candidates, experiment::MULTI_FIXED, &mut budget);
++        let mut outputs = self.scan_with_budget(
++            im,
++            candidates,
++            experiment::MULTI_FIXED.with_three_rows(),
++            &mut budget,
++        );
+         let mut used = 0;
+         if scaled {
+             // Independent broad discovery after every candidate's fixed pass.
+@@ -708,7 +775,7 @@
+             // or repeated symbols before selecting subdivision scale.
+             for i in 0..10 {
+                 for c in &mut outputs {
+-                    if used >= policy.max_retry_paths_per_frame
++                    if (!policy.complete && used >= policy.max_retry_paths_per_frame)
+                         || c.work.retry_paths >= policy.max_retry_paths_per_candidate
+                     {
+                         c.work.retry_paths_pending += 1;
+@@ -776,8 +843,106 @@
+             }
+             q
+         };
++        // Decide effort only after every candidate has received fixed and
++        // native discovery. Never return early on a successful read. Retain
++        // all candidates and explicit pending work on lower-effort frames.
++        // Native discovery adds observations after the fixed-pass detections
++        // were assembled. Use bounded, strict assembly only to choose effort;
++        // final returned detections still go through the ordinary final assembly.
++        // These probes spend the same frame association budget, not a hidden one.
++        let mut discovery_reads = Vec::new();
++        let mut probe_checks = budget.checks_left.min(policy.max_association_checks / 10);
++        let mut probe_pixels = budget.pixels_left.min(policy.max_association_pixels / 10);
++        if scaled && budget.checks_left >= 10_000 && budget.pixels_left >= 10_000 {
++            for c in &mut outputs {
++                if c.observations.len() < 2 || probe_checks == 0 || probe_pixels == 0 {
++                    continue;
++                }
++                let Ok(m) = scan::transform(c.coverage) else {
++                    continue;
++                };
++                let checks = probe_checks.min(2_000);
++                let pixels = probe_pixels.min(32768);
++                let mut small = experiment::AssociationBudget {
++                    checks_left: checks,
++                    pixels_left: pixels,
++                };
++                let mut work = Work::default();
++                let reads = experiment::assemble_many_budget_options(
++                    im,
++                    m.0,
++                    &c.observations,
++                    &mut work,
++                    true,
++                    &mut small,
++                    false,
++                );
++                let used_checks = checks - small.checks_left;
++                let used_pixels = pixels - small.pixels_left;
++                probe_checks -= used_checks;
++                probe_pixels -= used_pixels;
++                budget.checks_left -= used_checks;
++                budget.pixels_left -= used_pixels;
++                c.work.association_checks += used_checks;
++                c.work.continuity_samples += work.continuity_samples;
++                if work.association_truncated == 0 {
++                    discovery_reads.extend(reads);
++                }
++            }
++        }
++        let strong = outputs
++            .iter()
++            .any(|c| c.detections.iter().any(|d| d.support >= 2))
++            || discovery_reads.iter().any(|d| d.support >= 2);
++        let multiple = multiple_initial(
++            outputs
++                .iter()
++                .flat_map(|c| c.detections.iter())
++                .chain(discovery_reads.iter()),
++        );
++        let confident = outputs
++            .iter()
++            .any(|c| c.detections.iter().any(|d| d.support >= 4))
++            || discovery_reads.iter().any(|d| d.support >= 4);
++        let cap = if multiple {
++            192
++        } else if confident {
++            10
++        } else if strong {
++            16
++        } else {
++            512
++        };
++        let policy = Policy {
++            max_retry_paths_per_candidate: policy.max_retry_paths_per_candidate.min(cap),
++            ..policy
++        };
++        for c in &mut outputs {
++            let dimensions = u32::try_from(im.width.saturating_sub(1))
++                .ok()
++                .zip(u32::try_from(im.height.saturating_sub(1)).ok());
++            let broad = dimensions.is_some_and(|(width, height)| {
++                let (right, bottom) = (f64::from(width), f64::from(height));
++                let full = [[0., 0.], [right, 0.], [right, bottom], [0., bottom]];
++                c.coverage
++                    .iter()
++                    .flatten()
++                    .zip(full.iter().flatten())
++                    .all(|(a, b)| (a - b).abs() <= f64::EPSILON)
++            });
++            c.work.selected_retry_limit = if !multiple && !strong && !broad {
++                let evidence_cap = if c.work.guard_pass > 0 { 512 } else { 64 };
++                policy.max_retry_paths_per_candidate.min(evidence_cap)
++            } else {
++                policy.max_retry_paths_per_candidate
++            };
++        }
+         let mut plans = Vec::with_capacity(candidates.len());
+         for c in &mut outputs {
++            let policy = Policy {
++                max_retry_paths_per_candidate: c.work.selected_retry_limit,
++                ..policy
++            };
+             let start = Timer::now();
+             let p = match scan::transform(c.coverage) {
+                 Ok(m) => {
+@@ -788,10 +953,21 @@
+                             None
+                         };
+                         c.work.scale_hint_used = usize::from(width.is_some());
++                        let reserve = if (129..=256).contains(&policy.max_retry_paths_per_candidate)
++                        {
++                            16
++                        } else if (24..=128).contains(&policy.max_retry_paths_per_candidate) {
++                            8
++                        } else if (16..24).contains(&policy.max_retry_paths_per_candidate) {
++                            4
++                        } else {
++                            0
++                        };
+                         let remaining = Policy {
+                             max_retry_paths_per_candidate: policy
+                                 .max_retry_paths_per_candidate
+-                                .saturating_sub(c.work.retry_paths),
++                                .saturating_sub(c.work.retry_paths)
++                                .saturating_sub(reserve),
+                             ..policy
+                         };
+                         // A visual width may guide tile size and retain its existing work allowance,
+@@ -822,6 +998,13 @@
+                         let p = reuse_plan(m.0, p, &claims, &mut reuse_budget, &mut c.work);
+                         #[cfg(feature = "experimental-structural-retry")]
+                         let p = defer_structurally_weak_retries(c, scaled, p);
++                        let p = if policy.candidate_retry_mask & (1_u64 << c.index) == 0
++                            && c.work.accepted_paths == 0
++                        {
++                            Vec::new()
++                        } else {
++                            p
++                        };
+                         Ok(p)
+                     })() {
+                         Some((m.0, p))
+@@ -836,17 +1019,17 @@
+             c.ms += start.ms();
+         }
+         for step in 0..policy.max_retry_paths_per_candidate {
+-            if used >= policy.max_retry_paths_per_frame {
++            if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                 break;
+             }
+             for (c, p) in outputs.iter_mut().zip(&plans) {
+-                if used >= policy.max_retry_paths_per_frame {
++                if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                     break;
+                 }
+                 let Some((m, paths)) = p else { continue };
+                 let Some(s) = paths.get(step) else { continue };
+                 #[cfg(feature = "experimental-verified-coverage-reuse")]
+-                if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
++                if c.work.retry_paths >= c.work.selected_retry_limit {
+                     continue;
+                 }
+                 used += 1;
+@@ -860,6 +1043,47 @@
+                     policy.interior_normalization,
+                     policy.guard_bias,
+                 );
++            }
++            // Refresh effort only after every candidate has received the same
++            // retry prefix. Strict assembly selects effort; final assembly still
++            // determines returned reads. Association work shares the frame budget.
++            if !multiple && !strong && matches!(step, 31 | 95) {
++                for (candidate, plan) in outputs.iter_mut().zip(&plans) {
++                    if candidate.work.selected_retry_limit <= 128
++                        || candidate.observations.len() < 4
++                        || budget.checks_left < 2_000
++                        || budget.pixels_left < 131_072
++                    {
++                        continue;
++                    }
++                    let Some((transform, _)) = plan else { continue };
++                    let mut probe = experiment::AssociationBudget {
++                        checks_left: 2_000,
++                        pixels_left: 131_072,
++                    };
++                    let mut work = Work::default();
++                    let reads = experiment::assemble_many_budget_options(
++                        im,
++                        *transform,
++                        &candidate.observations,
++                        &mut work,
++                        true,
++                        &mut probe,
++                        false,
++                    );
++                    let checks_used = 2_000 - probe.checks_left;
++                    let pixels_used = 131_072 - probe.pixels_left;
++                    budget.checks_left -= checks_used;
++                    budget.pixels_left -= pixels_used;
++                    candidate.work.association_checks += checks_used;
++                    candidate.work.continuity_samples += work.continuity_samples;
++                    if work.association_truncated == 0
++                        && reads.iter().any(|read| read.support >= 4)
++                        && !multiple_initial(reads.iter())
++                    {
++                        candidate.work.selected_retry_limit = 128;
++                    }
++                }
+             }
+         }
+         // Low-resolution interpolation is complementary to native evidence.
+@@ -917,14 +1141,14 @@
+             } else {
+                 42
+             } {
+-                if used >= policy.max_retry_paths_per_frame {
++                if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                     break;
+                 }
+                 for ((c, p), extra) in outputs.iter_mut().zip(&plans).zip(&refinements) {
+-                    if used >= policy.max_retry_paths_per_frame {
++                    if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                         break;
+                     }
+-                    if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
++                    if c.work.retry_paths >= c.work.selected_retry_limit {
+                         continue;
+                     }
+                     let (Some((m, _)), Some(s)) = (p, extra.get(step)) else {
+@@ -1049,14 +1273,14 @@
+         } else {
+             64
+         } {
+-            if used >= policy.max_retry_paths_per_frame {
++            if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                 break;
+             }
+             for ((c, p), extra) in outputs.iter_mut().zip(&plans).zip(&confirmation) {
+-                if used >= policy.max_retry_paths_per_frame {
++                if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                     break;
+                 }
+-                if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
++                if c.work.retry_paths >= c.work.selected_retry_limit {
+                     continue;
+                 }
+                 let (Some((m, _)), Some(s)) = (p, extra.get(step)) else {
+@@ -1179,8 +1403,8 @@
+                     .unwrap();
+                 assert_eq!(out.len(), 3);
+                 assert!(out[1].error);
+-                assert_eq!(out[0].work.paths, 10 + out[0].work.retry_paths);
+-                assert_eq!(out[2].work.paths, 10 + out[2].work.retry_paths);
++                assert_eq!(out[0].work.paths, 6 + out[0].work.retry_paths);
++                assert_eq!(out[2].work.paths, 6 + out[2].work.retry_paths);
+                 assert!(out[0].work.retry_paths_pending > 0);
+                 assert!(out[2].work.retry_paths_pending > 0);
+                 assert_eq!(
+@@ -1212,7 +1436,7 @@
+         let mut dense = Work::default();
+         let a = plan(m.0, Policy::default(), &mut dense).unwrap();
+         let mut scaled = Work::default();
+-        let b = scaled_plan(m.0, Policy::default(), &mut scaled, Some(2000.), true).unwrap();
++        let b = scaled_plan(m.0, Policy::default(), &mut scaled, Some(2_000.), true).unwrap();
+         assert!(b.len() > 10);
+         assert!(b.len() < a.len() / 4);
+         assert!(b.iter().any(|p| p.axis == 0));
+@@ -1523,7 +1747,6 @@
+             21
+         );
+     }
+-    #[cfg(feature = "experimental-single-row-search")]
+     #[test]
+     #[expect(
+         clippy::float_cmp,
+@@ -1940,3 +2163,134 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod adaptive_multi_tests {
++    use super::*;
++    #[test]
++    fn distinct_equal_text_regions_keep_full_effort() {
++        let a = experiment::Detection {
++            digits: [1; 13],
++            polygon: [[0., 0.], [200., 0.], [200., 50.], [0., 50.]],
++            support: 4,
++            axis: 0,
++        };
++        let same = a.clone();
++        assert!(!multiple_initial([&a, &same].into_iter()));
++        let mut b = a.clone();
++        b.polygon = b.polygon.map(|[x, y]| [x, y + 62.]);
++        assert!(multiple_initial([&a, &b].into_iter()));
++        let mut c = a.clone();
++        c.digits[0] = 2;
++        assert!(multiple_initial([&a, &c].into_iter()));
++    }
++}
++
++#[cfg(test)]
++mod completion_tests {
++    use super::*;
++    #[test]
++    fn completion_ignores_frame_budget_but_preserves_candidate_effort() {
++        let pixels = vec![255; 600 * 300];
++        let im = ImageView::new(&pixels, 600, 300, 1, 600).unwrap();
++        let q = [[0., 0.], [599., 0.], [599., 299.], [0., 299.]];
++        let policy = Policy {
++            max_retry_paths_per_frame: 0,
++            ..Policy::default()
++        };
++        let mut engine = Experiment::default();
++        let bounded = engine.scan_scaled(im, &[q; 3], policy).unwrap();
++        let complete = engine
++            .scan_scaled(
++                im,
++                &[q; 3],
++                Policy {
++                    complete: true,
++                    ..policy
++                },
++            )
++            .unwrap();
++        let reference = engine
++            .scan_scaled(
++                im,
++                &[q; 3],
++                Policy {
++                    max_retry_paths_per_frame: 65536,
++                    ..policy
++                },
++            )
++            .unwrap();
++        assert!(bounded.iter().all(|c| c.work.retry_paths == 0));
++        for (c, r) in complete.iter().zip(&reference) {
++            assert!(c.work.retry_paths > 0);
++            assert_eq!(c.work.retry_paths, r.work.retry_paths);
++            assert_eq!(c.work.retry_paths_pending, r.work.retry_paths_pending);
++            #[cfg(feature = "experimental-structural-retry")]
++            assert_eq!(
++                c.work.structural_retry_skipped,
++                r.work.structural_retry_skipped
++            );
++            assert!(c.work.retry_paths <= policy.max_retry_paths_per_candidate);
++        }
++    }
++}
++
++#[cfg(test)]
++mod candidate_retry_mask_tests {
++    use super::*;
++
++    #[test]
++    fn weak_candidates_keep_initial_discovery_and_pending_work() {
++        let pixels = vec![255; 512 * 512];
++        let image = ImageView::new(&pixels, 512, 512, 1, 512).unwrap();
++        let quad = [[0., 0.], [511., 0.], [511., 511.], [0., 511.]];
++        let mut engine = Experiment::default();
++        let candidates = engine
++            .scan_scaled(
++                image,
++                &[quad, quad],
++                Policy {
++                    candidate_retry_mask: 0,
++                    ..Policy::default()
++                },
++            )
++            .unwrap();
++        assert_eq!(candidates.len(), 2);
++        for candidate in candidates {
++            assert_eq!(candidate.coverage, quad);
++            assert!(candidate.work.paths > 0);
++            assert_eq!(candidate.work.discovery_paths, 10);
++            assert_eq!(candidate.work.retry_paths, 10);
++            assert!(candidate.work.retry_paths_pending > 0);
++        }
++    }
++
++    #[test]
++    fn mask_keeps_the_sixty_fourth_candidates_existing_retry_policy() {
++        let pixels = vec![255; 128 * 128];
++        let image = ImageView::new(&pixels, 128, 128, 1, 128).unwrap();
++        let quad = [[0., 0.], [127., 0.], [127., 127.], [0., 127.]];
++        let mut engine = Experiment::default();
++        let candidates = engine
++            .scan_scaled(
++                image,
++                &[quad; 64],
++                Policy {
++                    candidate_retry_mask: 1_u64 << 63,
++                    ..Policy::default()
++                },
++            )
++            .unwrap();
++        assert!(candidates[..63]
++            .iter()
++            .all(|c| c.work.discovery_paths == 10 && c.work.retry_paths == 10));
++        let control = engine
++            .scan_scaled(image, &[quad], Policy::default())
++            .unwrap();
++        // Very High already defers blank regions through its structural gate.
++        // Enabling bit 63 must preserve that mode's existing behavior too.
++        assert_eq!(candidates[63].work.retry_paths, control[0].work.retry_paths);
++        #[cfg(not(feature = "experimental-structural-retry"))]
++        assert!(candidates[63].work.retry_paths > 10);
++    }
++}
+--- a/src/orientation.rs
++++ b/src/orientation.rs
+@@ -287,7 +287,7 @@
+         assert!(f.orientation.pixels <= 64 * 48 * 48 * 8);
+         for c in f.frame.candidates {
+             assert_eq!(c.coverage, q);
+-            assert_eq!(c.work.paths, 10);
++            assert_eq!(c.work.paths, 6);
+         }
+         assert!(Experiment::default()
+             .scan_oriented_frame(im, &[q; 65], Policy::default())
+--- a/src/region_abi.rs
++++ b/src/region_abi.rs
+@@ -140,6 +140,33 @@
+     pixels: usize,
+     results: usize,
+ ) -> u32 {
++    regions_scan_mask(
++        id,
++        count,
++        flags,
++        per_candidate,
++        per_frame,
++        checks,
++        pixels,
++        results,
++        u32::MAX,
++        u32::MAX,
++    )
++}
++/// Research-only region retry scheduling; the fixed/discovery passes still run everywhere.
++#[no_mangle]
++pub extern "C" fn regions_scan_mask(
++    id: u32,
++    count: usize,
++    flags: u32,
++    per_candidate: usize,
++    per_frame: usize,
++    checks: usize,
++    pixels: usize,
++    results: usize,
++    mask_low: u32,
++    mask_high: u32,
++) -> u32 {
+     REGISTRY.with(|r| {
+         let mut r = r.borrow_mut();
+         let Some(s) = r.states.get_mut(&id) else {
+@@ -149,10 +176,12 @@
+         let Some((width, height, c, stride)) = s.shape else {
+             return 4;
+         };
+-        if count > 64 || flags > 31 {
++        if count > 64 || flags > 63 {
+             return 5;
+         }
+         let policy = Policy {
++            candidate_retry_mask: u64::from(mask_low) | (u64::from(mask_high) << 32),
++            complete: flags & 32 != 0,
+             max_retry_paths_per_candidate: per_candidate,
+             max_retry_paths_per_frame: per_frame,
+             max_association_checks: checks,
+@@ -205,7 +234,7 @@
+     1
+ }
+ 
+-#[cfg(feature = "experimental-orientation-stripes")]
++/// Localize the already-owned source buffer. No second image allocation/copy.
+ /// Returned JSON is invalidated by the next operation on this handle.
+ #[no_mangle]
+ #[expect(
+@@ -334,7 +363,13 @@
+     })
+ }
+ 
+-#[cfg(all(test, feature = "experimental-orientation-stripes"))]
++/// Capability check for completing effort-selected work (scan flag 32).
++#[no_mangle]
++pub extern "C" fn regions_completion_supported() -> u32 {
++    1
++}
++
++#[cfg(test)]
+ mod shared_image_tests {
+     use super::*;
+     #[test]
+@@ -399,20 +434,6 @@
+         }
+     })
+ }
+-
+-// Default ABI compatibility: localization requires the stripe recipe.
+-#[cfg(not(feature = "experimental-orientation-stripes"))]
+-#[no_mangle]
+-pub extern "C" fn regions_localize(id: u32, _fit_limit: usize) -> u32 {
+-    REGISTRY.with(|r| {
+-        if r.borrow().states.contains_key(&id) {
+-            5
+-        } else {
+-            1
+-        }
+-    })
+-}
+-
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -427,7 +448,7 @@
+         assert!(regions_output_len(id) > 0);
+         assert_eq!(regions_scan(id, 0, 16, 0, 0, 0, 0, 1), 0);
+         assert_eq!(regions_scan(id, 0, 31, 0, 0, 0, 0, 1), 0);
+-        assert_eq!(regions_scan(id, 0, 32, 0, 0, 0, 0, 1), 5);
++        assert_eq!(regions_scan(id, 0, 64, 0, 0, 0, 0, 1), 5);
+         assert_eq!(regions_output_len(id), 0);
+ 
+         assert_eq!(regions_scan(id, 65, 0, 0, 0, 0, 0, 1), 5);
+--- a/src/region_json.rs
++++ b/src/region_json.rs
+@@ -78,6 +78,13 @@
+         let _ = write!(s, ",\"extrema_calls\":{},\"extrema_examined\":{},\"extrema_capped\":{},\"extrema_ambiguous\":{},\"extrema_decoder_calls\":{}}}",w.extrema_calls,w.extrema_examined,w.extrema_capped,w.extrema_ambiguous,w.extrema_decoder_calls);
+         s
+     };
++    let s = {
++        use std::fmt::Write as _;
++        let mut s = s;
++        s.pop();
++        let _ = write!(s, ",\"selected_retry_limit\":{}}}", w.selected_retry_limit);
++        s
++    };
+     s
+ }
+ fn coverage_json(q: scan::Quad) -> String {
+--- a/src/sampling.rs
++++ b/src/sampling.rs
+@@ -87,6 +87,11 @@
+     }
+     /// Share the clamped integer coordinates and row offsets of a bilinear
+     /// footprint, retaining the legacy grayscale and interpolation order.
++    #[expect(
++        clippy::inline_always,
++        reason = "The pinned sampling experiment forces these inner pixel operations inline; retain its code-generation policy and validate with paired end-to-end measurements."
++    )]
++    #[inline(always)]
+     pub(crate) fn bilinear(self, x: f64, y: f64) -> f32 {
+         let x0 = x.floor();
+         let y0 = y.floor();
+@@ -121,6 +126,11 @@
+                     * fy,
+         )
+     }
++    #[expect(
++        clippy::inline_always,
++        reason = "The pinned sampling experiment forces these inner pixel operations inline; retain its code-generation policy and validate with paired end-to-end measurements."
++    )]
++    #[inline(always)]
+     pub(crate) fn gray(self, x: f64, y: f64) -> f64 {
+         let x = crate::numeric::f64_usize(x.clamp(0., crate::numeric::usize_f64(self.width - 1)));
+         let y = crate::numeric::f64_usize(y.clamp(0., crate::numeric::usize_f64(self.height - 1)));
+--- a/src/shear.rs
++++ b/src/shear.rs
+@@ -101,6 +101,9 @@
+     }
+     Some(result)
+ }
++// Sobel components come from byte luminance and are bounded by 1020.
++// Their squared norm cannot overflow/underflow: use hardware sqrt rather
++// than general-purpose scaled hypot. No coordinate norms are changed.
+ #[must_use]
+ #[expect(
+     clippy::too_many_lines,
+@@ -125,7 +128,7 @@
+                 quad[0][0] + u * horizontal_edge[0] + v * vertical_edge[0],
+                 quad[0][1] + u * horizontal_edge[1] + v * vertical_edge[1],
+             ) {
+-                let m = d[0].hypot(d[1]);
++                let m = (d[0] * d[0] + d[1] * d[1]).sqrt();
+                 derivatives.push((d, m));
+                 magnitudes.push(m);
+             }
+@@ -177,7 +180,7 @@
+                 center[1] + alpha * normal[1] + beta * tangent[1],
+             ) {
+                 let response = (d[0] * normal[0] + d[1] * normal[1]).abs();
+-                if response / d[0].hypot(d[1]).max(1.) >= 0.86 {
++                if response / (d[0] * d[0] + d[1] * d[1]).sqrt().max(1.) >= 0.86 {
+                     samples.push((i / 4, beta, response));
+                     values.push(response);
+                 }
+--- a/src/stripes.rs
++++ b/src/stripes.rs
+@@ -136,6 +136,7 @@
+         crate::numeric::f64_usize((crate::numeric::usize_f64(im.height) * scale).round()).max(3),
+     );
+     let mut gray = vec![0f32; working_width * working_height];
++    let mut histogram_lanes = [[0usize; 256]; 4];
+     let mut gx = vec![0f32; working_width * working_height];
+     let mut gy = vec![0f32; working_width * working_height];
+     if bilinear {
+@@ -175,7 +176,9 @@
+                 let bottom_right = luminance(x1, y1);
+                 let u = top_left + (top_right - top_left) * fx;
+                 let v = bottom_left + (bottom_right - bottom_left) * fx;
+-                gray[y * working_width + x] = crate::numeric::f64_f32(u + (v - u) * fy);
++                let value = crate::numeric::f64_f32(u + (v - u) * fy);
++                gray[y * working_width + x] = value;
++                histogram_lanes[x & 3][crate::numeric::f32_usize(value)] += 1;
+             }
+         }
+     } else {
+@@ -203,25 +206,26 @@
+             let dst = &mut gray[y * working_width..(y + 1) * working_width];
+             if im.channels == 1 {
+                 for (x, &i) in columns.iter().enumerate() {
+-                    dst[x] = f32::from(row[i]);
++                    let value = row[i];
++                    dst[x] = f32::from(value);
++                    histogram_lanes[x & 3][usize::from(value)] += 1;
+                 }
+             } else {
+                 for (x, &i) in columns.iter().enumerate() {
+-                    dst[x] = crate::numeric::f64_f32(f64::from(
+-                        77 * u32::from(row[i])
+-                            + 150 * u32::from(row[i + 1])
+-                            + 29 * u32::from(row[i + 2]),
+-                    )) / 256.;
++                    let weighted = 77 * u32::from(row[i])
++                        + 150 * u32::from(row[i + 1])
++                        + 29 * u32::from(row[i + 2]);
++                    dst[x] = crate::numeric::f64_f32(f64::from(weighted)) / 256.;
++                    // The bounded 16-bit weighted sum's high byte equals floor(gray).
++                    histogram_lanes[x & 3][usize::from(weighted.to_le_bytes()[1])] += 1;
+                 }
+             }
+         }
+     }
+     // Only the <=768px working gray raster is conditioned. Source RGB stays
+     // untouched; the decoder samples original pixels with its own contrast gates.
+-    let mut histogram = [0usize; 256];
+-    for &v in &gray {
+-        histogram[crate::numeric::f32_usize(v.clamp(0., 255.).floor())] += 1;
+-    }
++    let histogram: [usize; 256] =
++        std::array::from_fn(|i| histogram_lanes.iter().map(|lane| lane[i]).sum());
+     let quantile = |target: usize| {
+         let mut sum = 0;
+         for (i, &neighbor_index) in histogram.iter().enumerate() {
+--- a/src/verified_coverage.rs
++++ b/src/verified_coverage.rs
+@@ -1,6 +1,9 @@
+ //! Optional conservative subtraction of already verified source-pixel bands.
+ //! Claims never come from text-only identity or unsupported observations.
+-use super::{claimed_interval, experiment, scan, Candidate, Error, ImageView, Quad, Segment, Work};
++use super::{
++    experiment, project_claim, projected_interval, scan, Candidate, Error, ImageView, Quad,
++    Segment, Work,
++};
+ #[cfg(test)]
+ use super::{Experiment, Policy};
+ 
+@@ -164,10 +167,16 @@
+     let (mut lo, mut hi) = (255f64, 0f64);
+     for (i, v) in r.iter_mut().enumerate() {
+         let t = (crate::numeric::usize_f64(i) + 0.5) / 192.;
+-        *v = im.gray(
+-            (edge[0][0] + t * (edge[1][0] - edge[0][0])).round(),
+-            (edge[0][1] + t * (edge[1][1] - edge[0][1])).round(),
+-        );
++        let x = (edge[0][0] + t * (edge[1][0] - edge[0][0])).round();
++        let y = (edge[0][1] + t * (edge[1][1] - edge[0][1])).round();
++        // Endpoints were checked above; convex interpolation remains in bounds.
++        *v = if im.channels == 1 {
++            f64::from(
++                im.data[crate::numeric::f64_usize(y) * im.stride + crate::numeric::f64_usize(x)],
++            )
++        } else {
++            im.gray(x, y)
++        };
+         lo = lo.min(*v);
+         hi = hi.max(*v);
+     }
+@@ -188,6 +197,74 @@
+         *v /= norm;
+     }
+     Some(r)
++}
++#[cfg(feature = "experimental-coverage-extension")]
++fn extension_correlation(
++    im: ImageView<'_>,
++    reference: &[f64; 192],
++    edge: [[f64; 2]; 2],
++    work: &mut Work,
++    budget: &mut ReuseBudget,
++) -> Option<f64> {
++    for p in edge {
++        if !p[0].is_finite()
++            || !p[1].is_finite()
++            || p[0] < 0.
++            || p[1] < 0.
++            || p[0] > crate::numeric::usize_f64(im.width) - 1.
++            || p[1] > crate::numeric::usize_f64(im.height) - 1.
++        {
++            return None;
++        }
++    }
++    if budget.pixels_remaining < 192 {
++        work.extension_capped += 1;
++        return None;
++    }
++    budget.pixels_remaining -= 192;
++    work.extension_samples += 192;
++    let mut r = [0.; 192];
++    let (mut lo, mut hi) = (255f64, 0f64);
++    for (i, v) in r.iter_mut().enumerate() {
++        let t = (crate::numeric::usize_f64(i) + 0.5) / 192.;
++        let x = (edge[0][0] + t * (edge[1][0] - edge[0][0])).round();
++        let y = (edge[0][1] + t * (edge[1][1] - edge[0][1])).round();
++        // Endpoints were checked above; convex interpolation remains in bounds.
++        *v = if im.channels == 1 {
++            f64::from(
++                im.data[crate::numeric::f64_usize(y) * im.stride + crate::numeric::f64_usize(x)],
++            )
++        } else {
++            im.gray(x, y)
++        };
++        lo = lo.min(*v);
++        hi = hi.max(*v);
++    }
++    if hi - lo < 8. {
++        return None;
++    }
++    let mean = r.iter().sum::<f64>() / 192.;
++    let mut norm = 0.;
++    let mut dot = 0.;
++    for (v, a) in r.iter_mut().zip(reference) {
++        *v -= mean;
++        norm += *v * *v;
++        dot += a * *v;
++    }
++    if norm < 1. {
++        return None;
++    }
++    let norm = norm.sqrt();
++    let corr = dot / norm;
++    // Preserve the original decision if floating-point reassociation is close
++    // enough to the threshold to matter. No sampling or budget changes.
++    if (corr - 0.98).abs() < 1e-12 {
++        for v in &mut r {
++            *v /= norm;
++        }
++        return Some(reference.iter().zip(r).map(|(a, b)| a * b).sum());
++    }
++    Some(corr)
+ }
+ #[cfg(feature = "experimental-coverage-extension")]
+ fn extend_claim(im: ImageView<'_>, quad: Quad, work: &mut Work, budget: &mut ReuseBudget) -> Quad {
+@@ -218,10 +295,9 @@
+         for step in 1..=steps {
+             let d = crate::numeric::usize_f64(step) * 0.5;
+             let e = edge.map(|p| [p[0] + sign * d * v[0], p[1] + sign * d * v[1]]);
+-            let Some(row) = extension_row(im, e, work, budget) else {
++            let Some(corr) = extension_correlation(im, &reference, e, work, budget) else {
+                 break;
+             };
+-            let corr = reference.iter().zip(row).map(|(a, b)| a * b).sum::<f64>();
+             if corr < 0.98 {
+                 break;
+             }
+@@ -247,10 +323,10 @@
+     out
+ }
+ 
+-fn reuse_segment(
++fn reuse_projected_segment(
+     m: [f64; 9],
+     s: Segment,
+-    claims: &[Quad],
++    claims: &[Option<Quad>],
+     budget: &mut ReuseBudget,
+     work: &mut Work,
+ ) -> Result<Vec<Segment>, Error> {
+@@ -259,7 +335,7 @@
+         if !budget.check(work) {
+             return Ok(vec![s]);
+         }
+-        if let Some((a, b)) = claimed_interval(m, s.axis, s.fraction, *q) {
++        if let Some((a, b)) = q.and_then(|q| projected_interval(q, s.axis, s.fraction)) {
+             let (a, b) = (a.max(s.lo), b.min(s.hi));
+             if b > a {
+                 intervals.push((a, b));
+@@ -317,9 +393,11 @@
+     if claims.is_empty() {
+         return paths;
+     }
++    let projected: Vec<_> = claims.iter().map(|q| project_claim(m, *q)).collect();
+     let mut out = Vec::new();
+     for s in paths {
+-        let pieces = reuse_segment(m, s, claims, budget, work).unwrap_or_else(|_| vec![s]);
++        let pieces =
++            reuse_projected_segment(m, s, &projected, budget, work).unwrap_or_else(|_| vec![s]);
+         // The planner already counted this original segment. Unmaterialized
+         // paths stay pending; only these concrete replaced paths are adjusted.
+         work.retry_paths_pending = work.retry_paths_pending.saturating_sub(1) + pieces.len();
+@@ -328,6 +406,17 @@
+     out
+ }
+ 
++#[cfg(test)]
++fn reuse_segment(
++    m: [f64; 9],
++    s: Segment,
++    claims: &[Quad],
++    budget: &mut ReuseBudget,
++    work: &mut Work,
++) -> Result<Vec<Segment>, Error> {
++    let projected: Vec<_> = claims.iter().map(|q| project_claim(m, *q)).collect();
++    reuse_projected_segment(m, s, &projected, budget, work)
++}
+ #[cfg(test)]
+ mod reuse_tests {
+     use super::*;
+@@ -531,7 +620,7 @@
+             for (c, q) in result.iter().zip(qs) {
+                 assert_eq!(c.coverage, q);
+                 assert_eq!(c.work.discovery_paths, 10);
+-                assert_eq!(c.work.paths, c.work.retry_paths + 10);
++                assert_eq!(c.work.paths, c.work.retry_paths + 6);
+                 assert!(c
+                     .detections
+                     .iter()
+@@ -882,3 +971,7 @@
+         assert_eq!(w.extension_cache_hits, 1);
+     }
+ }
++
++#[cfg(test)]
++#[path = "coverage_arithmetic_tests.rs"]
++mod coverage_arithmetic_tests;
+--- /dev/null
++++ b/src/coverage_arithmetic_tests.rs
+@@ -0,0 +1,40 @@
++use super::*;
++#[test]
++fn fused_coverage_correlation_preserves_threshold_decisions() {
++    for channels in [1, 3, 4] {
++        let stride = 400 * channels + 7;
++        let mut pixels = vec![0; stride * 16];
++        for y in 0..16 {
++            for x in 0..400 {
++                for c in 0..channels {
++                    pixels[y * stride + x * channels + c] =
++                        u8::try_from(30 + ((x * 17 + c * 13) % 150) + (y * (x % 5))).unwrap();
++                }
++            }
++        }
++        let im = ImageView::new(&pixels, 400, 16, channels, stride).unwrap();
++        for y in 0..15 {
++            for offset in 0..16 {
++                let edge = [[4., 0.], [395., 0.]];
++                let mut budget = ReuseBudget {
++                    pixels_remaining: 100_000,
++                    ..Default::default()
++                };
++                let mut work = Work::default();
++                let reference = extension_row(im, edge, &mut work, &mut budget).unwrap();
++                let d = crate::numeric::usize_f64(offset) / 20.;
++                let row_edge = [
++                    [4. + d, crate::numeric::usize_f64(y)],
++                    [395. + d, crate::numeric::usize_f64(y)],
++                ];
++                let row = extension_row(im, row_edge, &mut work, &mut budget).unwrap();
++                let expected: f64 = reference.iter().zip(row).map(|(a, b)| a * b).sum();
++                let observed =
++                    extension_correlation(im, &reference, row_edge, &mut work, &mut budget)
++                        .unwrap();
++                assert!((expected - observed).abs() < 1e-12);
++                assert_eq!(expected < 0.98, observed < 0.98);
++            }
++        }
++    }
++}

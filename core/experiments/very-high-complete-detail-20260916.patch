@@ -1,0 +1,3021 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -11,10 +11,7 @@
+ panic = "abort"
+ 
+ [features]
+-# Stable entry points; experimental feature details stay pinned in build-recipes.json.
+-fast = ["experimental-identity-phase", "experimental-stripe-bands", "experimental-profile-aperture", "experimental-dense-unsupported-scale", "experimental-native-wide-tiles", "experimental-interior-bounds", "experimental-shared-coverage-identity", "experimental-complete-tile-prefix", "experimental-profile-guard-precheck", "experimental-verified-coverage-reuse", "experimental-nearest-lowres", "experimental-forward-blur", "experimental-coverage-extension", "experimental-gap-density", "experimental-strong-single-row", "experimental-redundant-decode", "experimental-compact-output", "experimental-flat-envelope", "experimental-source-angle", "experimental-angle-replace", "experimental-flexible-identity", "experimental-identity-budgeted-link", "experimental-identity-optional", "experimental-extrema-runs", "experimental-asymmetric-quiet", "experimental-unresolved-256", "experimental-local-extrema-gaps", "experimental-invalid-visual-veto"]
+-quality = ["fast", "experimental-native-soft"]
+-
++experimental-invalid-consensus = ["experimental-invalid-visual-veto"]
+ experimental-secondary-grid = ["experimental-stripe-bands"]
+ experimental-invalid-visual-veto = []
+ experimental-native-soft = ["experimental-forward-blur"]
+@@ -134,10 +131,3 @@
+ experimental-redundant-decode = []
+ 
+ experimental-angle-replace = []
+-
+-# This diagnostic imports the feature-gated stripe localizer. Keep the default
+-# feature set buildable and make the diagnostic available in balanced recipes.
+-[[bin]]
+-name = "stripe_diagnostic"
+-path = "src/bin/stripe_diagnostic.rs"
+-required-features = ["experimental-orientation-stripes"]
+--- a/src/experiment.rs
++++ b/src/experiment.rs
+@@ -8,6 +8,8 @@
+ };
+ #[derive(Clone, Copy, Debug)]
+ pub struct Observation {
++    #[cfg(feature = "experimental-invalid-consensus")]
++    pub invalid_checksum: bool,
+     pub short_quiet: bool,
+     pub ambiguous: bool,
+     pub digits: [u8; 13],
+@@ -20,6 +22,10 @@
+ }
+ #[derive(Default, Debug, Clone)]
+ pub struct Work {
++    #[cfg(feature = "experimental-invalid-consensus")]
++    pub invalid_consensus_observations: usize,
++    #[cfg(feature = "experimental-invalid-consensus")]
++    pub invalid_consensus_blocks: usize,
+     pub invalid_visual_seen: usize,
+     pub invalid_veto_intervals: usize,
+     pub invalid_veto_reads: usize,
+@@ -77,6 +83,7 @@
+     pub interpretation_ms: f64,
+     #[cfg(all(feature = "native-timing", not(target_arch = "wasm32")))]
+     pub support_ms: f64,
++    pub phase_rescue_paths: usize,
+     pub paths: usize,
+     pub samples: usize,
+     pub low_contrast: usize,
+@@ -95,6 +102,7 @@
+     pub retry_paths: usize,
+     pub retry_paths_pending: usize,
+     pub sampling_plan_capped: usize,
++    pub discovery_requests: usize,
+     pub discovery_paths: usize,
+     pub scale_hint_used: usize,
+     pub unresolved_probe_paths: usize,
+@@ -571,7 +579,7 @@
+         self.blur_rejected_intervals.clear();
+         if self.signal.len() != 512
+             && !(cfg!(feature = "experimental-native-soft")
+-                && (76..=384).contains(&self.signal.len()))
++                && (76..=1536).contains(&self.signal.len()))
+         {
+             return None;
+         }
+@@ -824,6 +832,8 @@
+             let n = crate::numeric::usize_f64(self.signal.len());
+             for (left, right) in short.rejected_intervals {
+                 observations.push(Observation {
++                    #[cfg(feature = "experimental-invalid-consensus")]
++                    invalid_checksum: false,
+                     short_quiet: true,
+                     ambiguous: true,
+                     digits: [0; 13],
+@@ -837,6 +847,8 @@
+             }
+             for r in short.symbols {
+                 observations.push(Observation {
++                    #[cfg(feature = "experimental-invalid-consensus")]
++                    invalid_checksum: false,
+                     short_quiet: true,
+                     ambiguous: false,
+                     digits: r.digits,
+@@ -901,6 +913,8 @@
+                 let n = crate::numeric::usize_f64(self.signal.len());
+                 for (left, right) in short.rejected_intervals {
+                     observations.push(Observation {
++                        #[cfg(feature = "experimental-invalid-consensus")]
++                        invalid_checksum: false,
+                         short_quiet: true,
+                         ambiguous: true,
+                         digits: [0; 13],
+@@ -914,6 +928,8 @@
+                 }
+                 for r in short.symbols {
+                     observations.push(Observation {
++                        #[cfg(feature = "experimental-invalid-consensus")]
++                        invalid_checksum: false,
+                         short_quiet: true,
+                         ambiguous: false,
+                         digits: r.digits,
+@@ -982,7 +998,7 @@
+         // ambiguity must not be resurrected through the single-result fallback.
+         if (self.signal.len() == 512
+             || (cfg!(feature = "experimental-native-soft")
+-                && (76..=384).contains(&self.signal.len())))
++                && (76..=1536).contains(&self.signal.len())))
+             && reads.ambiguous_intervals == 0
+         {
+             if let Some(p) = self.profile_decode(work) {
+@@ -1009,7 +1025,7 @@
+         #[cfg(feature = "experimental-forward-blur")]
+         if (self.signal.len() == 512
+             || (cfg!(feature = "experimental-native-soft")
+-                && (76..=384).contains(&self.signal.len())))
++                && (76..=1536).contains(&self.signal.len())))
+             && reads.ambiguous_intervals == 0
+         {
+             // A same-window legacy/blur contradiction must not be resurrected by
+@@ -1028,6 +1044,8 @@
+         for (left, right) in reads.rejected_intervals {
+             let n = crate::numeric::usize_f64(self.signal.len());
+             observations.push(Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous: true,
+                 digits: [0; 13],
+@@ -1042,6 +1060,8 @@
+         for r in reads.symbols {
+             let n = crate::numeric::usize_f64(self.signal.len());
+             observations.push(Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous: false,
+                 digits: r.digits,
+@@ -1316,6 +1336,8 @@
+                             out.work.accepted_paths += 1;
+                             let n = crate::numeric::usize_f64(self.signal.len());
+                             out.observations.push(Observation {
++                                #[cfg(feature = "experimental-invalid-consensus")]
++                                invalid_checksum: false,
+                                 short_quiet: false,
+                                 ambiguous: false,
+                                 digits: r.digits,
+@@ -1659,6 +1681,79 @@
+     let _ = timer;
+     result
+ }
++// Invalid vetoes require three physically separated paths, and full interval
++// containment so a broad unsupported row cannot borrow a narrow track's support.
++#[cfg(feature = "experimental-invalid-consensus")]
++fn invalid_contains(detection: &Detection, p: [f64; 2]) -> bool {
++    let (mut positive, mut negative) = (false, false);
++    for i in 0..4 {
++        let a = detection.polygon[i];
++        let b = detection.polygon[(i + 1) % 4];
++        let c = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
++        positive |= c > 1e-6;
++        negative |= c < -1e-6;
++    }
++    !(positive && negative)
++}
++#[cfg(feature = "experimental-invalid-consensus")]
++fn invalid_interval(
++    matrix: [f64; 9],
++    t: &Detection,
++    o: &Observation,
++) -> Option<([f64; 2], [f64; 2])> {
++    if o.axis != t.axis || o.digits != t.digits {
++        return None;
++    }
++    let (a, b) = (
++        point(matrix, o.axis, o.left, o.fraction).ok()?,
++        point(matrix, o.axis, o.right, o.fraction).ok()?,
++    );
++    (invalid_contains(t, a) && invalid_contains(t, b)).then_some((a, b))
++}
++#[cfg(feature = "experimental-invalid-consensus")]
++fn invalid_track_spaced(
++    m: [f64; 9],
++    t: &Detection,
++    observations: &[Observation],
++    budget: &mut AssociationBudget,
++    work: &mut Work,
++) -> bool {
++    if t.support < 3 {
++        return false;
++    }
++    let mut rows = Vec::new();
++    for o in observations {
++        if !budget.check(work) {
++            return false;
++        }
++        if let Some((a, b)) = invalid_interval(m, t, o) {
++            rows.push((o.fraction, a, b));
++        }
++    }
++    rows.sort_by(|a, b| a.0.total_cmp(&b.0));
++    let mut selected: Vec<([f64; 2], [f64; 2])> = Vec::new();
++    'rows: for (_, a, b) in rows {
++        for (x, y) in &selected {
++            if !budget.check(work) {
++                return false;
++            }
++            let v = [y[0] - x[0], y[1] - x[1]];
++            let n = v[0].hypot(v[1]);
++            if n <= 0.
++                || ((a[0] - x[0]) * v[1] - (a[1] - x[1]) * v[0]).abs() / n < 1. - 1e-6
++                || ((b[0] - y[0]) * v[1] - (b[1] - y[1]) * v[0]).abs() / n < 1. - 1e-6
++            {
++                continue 'rows;
++            }
++        }
++        selected.push((a, b));
++        if selected.len() == 3 {
++            return true;
++        }
++    }
++    false
++}
++
+ #[expect(
+     clippy::float_cmp,
+     reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
+@@ -1676,6 +1771,60 @@
+     budget: &mut AssociationBudget,
+     allow_single_row: bool,
+ ) -> Vec<Detection> {
++    #[cfg(feature = "experimental-invalid-consensus")]
++    if observations.iter().any(|o| o.invalid_checksum) {
++        let invalid: Vec<_> = observations
++            .iter()
++            .filter(|o| o.invalid_checksum)
++            .map(|o| {
++                let mut o = *o;
++                o.invalid_checksum = false;
++                o.ambiguous = false;
++                o
++            })
++            .collect();
++        // Same grouping/continuity machinery, but invalid values are never emitted.
++        let tracks: Vec<_> =
++            assemble_many_budget_inner(im, m, &invalid, work, source_support, budget, false)
++                .into_iter()
++                .filter(|t| invalid_track_spaced(m, t, &invalid, budget, work))
++                .collect();
++        let mut valid: Vec<_> = observations
++            .iter()
++            .filter(|o| !o.invalid_checksum)
++            .copied()
++            .collect();
++        for mut o in invalid {
++            let mut supported = false;
++            for t in &tracks {
++                if !budget.check(work) {
++                    break;
++                }
++                if invalid_interval(m, t, &o).is_some() {
++                    supported = true;
++                    break;
++                }
++            }
++            if supported {
++                o.ambiguous = true;
++                valid.push(o);
++                work.invalid_consensus_blocks += 1;
++            }
++            if work.association_truncated > 0 {
++                break;
++            }
++        }
++        return assemble_many_budget_inner(
++            im,
++            m,
++            &valid,
++            work,
++            source_support,
++            budget,
++            allow_single_row,
++        );
++    }
++
+     #[cfg(feature = "experimental-gap-density")]
+     let mut density_cache = std::collections::HashMap::new();
+     let mut results = vec![];
+@@ -2023,6 +2172,8 @@
+         assert!(assemble_many(im, m.0, &repeated, &mut Work::default(), true).is_empty());
+         let mut conflict = obs[..4].to_vec();
+         conflict.push(Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             ambiguous: true,
+             ..obs[2]
+         });
+@@ -2090,6 +2241,8 @@
+         let im = ImageView::new(&pixels, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap();
+         let a = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [0; 13],
+@@ -2101,14 +2254,23 @@
+             gap: 1.,
+         };
+         let b = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             fraction: 0.1 + 0.2,
+             ..a
+         };
+-        let c = Observation { fraction: 0.7, ..a };
++        let c = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
++            fraction: 0.7,
++            ..a
++        };
+         let ds = assemble_many(im, m.0, &[a, b, c], &mut Work::default(), false);
+         assert_eq!(ds.len(), 1);
+         assert_eq!(ds[0].support, 2);
+         let conflict = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             digits: [1; 13],
+             ..b
+         };
+@@ -2137,6 +2299,8 @@
+         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap();
+         let a = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [0; 13],
+@@ -2157,6 +2321,8 @@
+         let mut obs = vec![];
+         for (fraction, value) in [(0.1, 0), (0.2, 0), (0.3, 1), (0.4, 1), (0.5, 0), (0.6, 0)] {
+             obs.push(Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous: false,
+                 digits: [value; 13],
+@@ -2178,6 +2344,8 @@
+         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap().0;
+         let o = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7],
+@@ -2206,6 +2374,8 @@
+         assert!((distance(ds[0].polygon[0], ds[0].polygon[3]) - 1.).abs() < 1e-8);
+         assert!(run(
+             &[Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 ambiguous: true,
+                 ..o
+             }],
+@@ -2214,6 +2384,8 @@
+         .is_empty());
+         assert!(run(
+             &[Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: true,
+                 ..o
+             }],
+@@ -2225,6 +2397,8 @@
+                 &[
+                     o,
+                     Observation {
++                        #[cfg(feature = "experimental-invalid-consensus")]
++                        invalid_checksum: false,
+                         fraction,
+                         ambiguous: true,
+                         ..o
+@@ -2237,6 +2411,8 @@
+                 &[
+                     o,
+                     Observation {
++                        #[cfg(feature = "experimental-invalid-consensus")]
++                        invalid_checksum: false,
+                         fraction,
+                         digits: [4; 13],
+                         ..o
+@@ -2250,6 +2426,8 @@
+             &[
+                 o,
+                 Observation {
++                    #[cfg(feature = "experimental-invalid-consensus")]
++                    invalid_checksum: false,
+                     digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+                     ..o
+                 }
+@@ -2265,6 +2443,8 @@
+         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap();
+         let o = |fraction, digits| Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits,
+@@ -2299,6 +2479,8 @@
+         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap();
+         let a = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [0; 13],
+@@ -2309,7 +2491,12 @@
+             cost: 0.,
+             gap: 1.,
+         };
+-        let b = Observation { fraction: 0.8, ..a };
++        let b = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
++            fraction: 0.8,
++            ..a
++        };
+         for (checks, pixels) in [(0, 100_000), (100, 31)] {
+             let mut work = Work::default();
+             let mut budget = AssociationBudget {
+@@ -2427,6 +2614,8 @@
+         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
+         let m = scan::transform(qs[0]).unwrap();
+         let raw = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7],
+@@ -2438,10 +2627,14 @@
+             gap: 1.,
+         };
+         let filtered = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+             ..raw
+         };
+         let second = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             fraction: 0.7,
+             ..raw
+         };
+@@ -2628,6 +2821,8 @@
+         let im = ImageView::new(&pixels, 600, 200, 1, 600).unwrap();
+         let m = scan::transform([[0., 0.], [600., 0.], [600., 200.], [0., 200.]]).unwrap();
+         let a = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [1; 13],
+@@ -2639,6 +2834,8 @@
+             gap: 1.,
+         };
+         let b = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             digits: [2; 13],
+             fraction: 0.5,
+             left: 0.6,
+@@ -2853,6 +3050,8 @@
+         let quad = [[0., 0.], [360., 0.], [360., 100.], [0., 100.]];
+         let m = scan::transform(quad).unwrap().0;
+         let obs = |f, cost, gap| Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: d,
+@@ -2987,7 +3186,8 @@
+         assert_eq!(result.len(), 1);
+         let c = &result[0];
+         assert_eq!(c.coverage, q);
+-        assert_eq!(c.work.discovery_paths, 10);
++        assert_eq!(c.work.discovery_requests, 10);
++        assert!(c.work.discovery_paths >= 4);
+         assert!(c.work.forward_blur_calls > 0);
+         assert!(c.work.forward_blur_windows > 0);
+         assert!(c.work.forward_blur_accepted_windows > 0);
+@@ -3099,6 +3299,8 @@
+         let quad = [[0., 0.], [384., 0.], [384., 4.], [0., 4.]];
+         let m = scan::transform(quad).unwrap().0;
+         let a = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [0; 13],
+@@ -3110,6 +3312,8 @@
+             gap: 1.,
+         };
+         let b = Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             fraction: 0.625,
+             ..a
+         };
+@@ -3282,6 +3486,8 @@
+                 );
+                 let mut conflict = obs[..4].to_vec();
+                 conflict.push(Observation {
++                    #[cfg(feature = "experimental-invalid-consensus")]
++                    invalid_checksum: false,
+                     ambiguous: true,
+                     ..obs[1]
+                 });
+@@ -3290,3 +3496,161 @@
+         }
+     }
+ }
++
++#[cfg(all(test, feature = "experimental-invalid-consensus"))]
++mod invalid_consensus_tests {
++    use super::*;
++    #[test]
++    fn invalid_values_never_escape_and_only_three_distinct_rows_block() {
++        let pixels: Vec<u8> = (0..600 * 100)
++            .map(|i| if i % 600 % 4 < 2 { 0 } else { 255 })
++            .collect();
++        let im = ImageView::new(&pixels, 600, 100, 1, 600).unwrap();
++        let q = [[0., 0.], [599., 0.], [599., 99.], [0., 99.]];
++        let m = scan::transform(q).unwrap().0;
++        let good = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
++        let mut bad = good;
++        bad[12] = 8;
++        let o = |fraction, invalid, left, right| Observation {
++            invalid_checksum: invalid,
++            short_quiet: false,
++            ambiguous: invalid,
++            digits: if invalid { bad } else { good },
++            axis: 0,
++            fraction,
++            left,
++            right,
++            cost: 0.01,
++            gap: 0.2,
++        };
++        let run = |rows: &[Observation]| {
++            let mut w = Work::default();
++            let out = assemble_many_budget_inner(
++                im,
++                m,
++                rows,
++                &mut w,
++                true,
++                &mut AssociationBudget::default(),
++                false,
++            );
++            (out, w)
++        };
++        let invalid: Vec<_> = [0.2, 0.5, 0.8]
++            .into_iter()
++            .map(|f| o(f, true, 0.05, 0.45))
++            .collect();
++        let (out, w) = run(&invalid);
++        assert!(out.is_empty());
++        assert!(w.invalid_consensus_blocks >= 3);
++        let valid: Vec<_> = [0.2, 0.5, 0.8]
++            .into_iter()
++            .map(|f| o(f, false, 0.05, 0.45))
++            .collect();
++        let mut all = valid.clone();
++        all.extend(&invalid);
++        assert!(run(&all).0.is_empty());
++        let mut only_two = valid.clone();
++        only_two.extend(&invalid[..2]);
++        assert!(run(&only_two).0.iter().any(|d| d.digits == good));
++        let mut duplicate = valid.clone();
++        duplicate.extend([invalid[0]; 8]);
++        assert!(run(&duplicate).0.iter().any(|d| d.digits == good));
++        let mut separated = invalid;
++        separated.extend([0.2, 0.5, 0.8].into_iter().map(|f| o(f, false, 0.55, 0.95)));
++        let result = run(&separated).0;
++        assert!(result.iter().any(|d| d.digits == good));
++        assert!(result.iter().all(|d| d.digits != bad));
++    }
++}
++
++#[cfg(all(test, feature = "experimental-invalid-consensus"))]
++mod invalid_spacing_tests {
++    use super::*;
++    #[test]
++    fn fractional_repeats_do_not_count_as_distinct_source_rows() {
++        let q = [[0., 0.], [199., 0.], [199., 99.], [0., 99.]];
++        let m = scan::transform(q).unwrap().0;
++        let d = Detection {
++            digits: [1; 13],
++            polygon: q,
++            support: 3,
++            axis: 0,
++        };
++        let obs = |fraction| Observation {
++            invalid_checksum: true,
++            short_quiet: false,
++            ambiguous: true,
++            digits: [1; 13],
++            axis: 0,
++            fraction,
++            left: 0.1,
++            right: 0.9,
++            cost: 0.01,
++            gap: 0.2,
++        };
++        let spaced = |v: &[Observation]| {
++            invalid_track_spaced(
++                m,
++                &d,
++                v,
++                &mut AssociationBudget::default(),
++                &mut Work::default(),
++            )
++        };
++        assert!(!spaced(&[obs(0.3), obs(0.3001), obs(0.3002)]));
++        assert!(!spaced(&[obs(0.3), obs(0.3001), obs(0.4)]));
++        assert!(spaced(&[obs(0.3), obs(0.32), obs(0.4)]));
++        assert!(!spaced(&[obs(0.3), obs(0.3), obs(0.4)]));
++    }
++}
++
++#[cfg(all(test, feature = "experimental-invalid-consensus"))]
++mod invalid_bounded_tests {
++    use super::*;
++    #[test]
++    fn wide_unsupported_interval_cannot_borrow_narrow_track_support() {
++        let matrix = scan::transform([[0., 0.], [100., 0.], [100., 100.], [0., 100.]])
++            .unwrap()
++            .0;
++        let d = Detection {
++            digits: [1; 13],
++            polygon: [
++                point(matrix, 0, 0.3, 0.2).unwrap(),
++                point(matrix, 0, 0.5, 0.2).unwrap(),
++                point(matrix, 0, 0.5, 0.8).unwrap(),
++                point(matrix, 0, 0.3, 0.8).unwrap(),
++            ],
++            support: 3,
++            axis: 0,
++        };
++        let o = Observation {
++            invalid_checksum: true,
++            short_quiet: false,
++            ambiguous: true,
++            digits: [1; 13],
++            axis: 0,
++            fraction: 0.5,
++            left: 0.,
++            right: 0.8,
++            cost: 0.01,
++            gap: 0.2,
++        };
++        assert!(invalid_contains(&d, [40., 50.]));
++        assert!(invalid_interval(matrix, &d, &o).is_none());
++        let o = Observation {
++            left: 0.3,
++            right: 0.5,
++            ..o
++        };
++        assert!(invalid_interval(matrix, &d, &o).is_some());
++        let mut work = Work::default();
++        let mut b = AssociationBudget {
++            checks_left: 0,
++            pixels_left: 1000,
++        };
++        assert!(!invalid_track_spaced(matrix, &d, &[o], &mut b, &mut work));
++        assert_eq!(work.association_truncated, 1);
++        assert_eq!(work.association_checks, 0);
++    }
++}
+--- a/src/frame.rs
++++ b/src/frame.rs
+@@ -23,6 +23,7 @@
+     pub source_matches: usize,
+     pub source_pixels: usize,
+     pub source_capped: usize,
++    pub source_cache_hits: usize,
+     pub optional_identity_deferred: usize,
+     pub pending_coverage_checks: usize,
+     pub pending_quarantined: usize,
+@@ -185,16 +186,17 @@
+     budget: &mut AssociationBudget,
+     counter: &mut Work,
+     work: &mut ReconciliationWork,
++    cache: &mut crate::identity::IdentityCache,
+ ) -> bool {
+     #[cfg(not(feature = "experimental-identity-optional"))]
+     {
+         let _ = work;
+-        crate::identity::connected(im, a, b, budget, counter)
++        crate::identity::connected_cached(im, a, b, budget, counter, cache)
+     }
+     #[cfg(feature = "experimental-identity-optional")]
+     {
+         let mut local = Work::default();
+-        let connected = crate::identity::connected(im, a, b, budget, &mut local);
++        let connected = crate::identity::connected_cached(im, a, b, budget, &mut local, cache);
+         counter.continuity_samples += local.continuity_samples;
+         counter.continuity_capped_links += local.continuity_capped_links;
+         counter.continuity_rejects += local.continuity_rejects;
+@@ -211,6 +213,202 @@
+         connected
+     }
+ }
++// Only resolve an existing broad-versus-thin conflict through fresh source pixels.
++// A support count alone never selects a value. Inconclusive probes retain the veto.
++fn pattern_residual(row: &[f64], digits: &[u8; 13]) -> f64 {
++    if digits.iter().any(|d| *d > 9) {
++        return f64::INFINITY;
++    }
++    let bits = crate::ean::encode(digits);
++    let mean = row.iter().sum::<f64>() / crate::numeric::usize_f64(row.len());
++    let variance = row.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>();
++    if variance < crate::numeric::usize_f64(row.len()) * 16. {
++        return f64::INFINITY;
++    }
++    let mut best = f64::INFINITY;
++    for reverse in [false, true] {
++        let mut prefix = [0f64; 96];
++        for i in 0..95 {
++            prefix[i + 1] = prefix[i] + f64::from(bits[if reverse { 94 - i } else { i }]);
++        }
++        let integral = |x: f64| {
++            let x = x.clamp(0., 95.);
++            let i = crate::numeric::f64_usize(x.floor()).min(94);
++            prefix[i] + (x - crate::numeric::usize_f64(i)) * (prefix[i + 1] - prefix[i])
++        };
++        for radius in [0.05, 0.15, 0.35, 0.6, 1.0] {
++            for shift in [-0.6, -0.3, -0.15, 0., 0.15, 0.3, 0.6] {
++                for stretch in [-0.6, 0., 0.6] {
++                    let (mut sx, mut sxx, mut covariance) = (0., 0., 0.);
++                    for (i, y) in row.iter().enumerate() {
++                        let u = shift
++                            + (crate::numeric::usize_f64(i) + 0.5)
++                                / crate::numeric::usize_f64(row.len())
++                                * (95. + stretch);
++                        let x = (integral(u + radius) - integral(u - radius)) / (2. * radius);
++                        sx += x;
++                        sxx += x * x;
++                        covariance += x * (y - mean);
++                    }
++                    let vx = sxx - sx * sx / crate::numeric::usize_f64(row.len());
++                    if vx <= 1e-9 || covariance <= 0. {
++                        continue;
++                    }
++                    best = best.min((1. - covariance * covariance / (variance * vx)).max(0.));
++                }
++            }
++        }
++    }
++    best
++}
++// Every fresh row in both decoded bands must prefer the same hypothesis.
++// No new text is emitted; inconclusive/budget-limited comparisons retain evidence.
++fn source_pair_winner(
++    im: ImageView<'_>,
++    winner: &Detection,
++    other: &Detection,
++    budget: &mut AssociationBudget,
++    counter: &mut Work,
++) -> bool {
++    const PIXELS: usize = 6 * 384;
++    const FITS: usize = 6 * 2 * 2 * 5 * 7 * 3;
++
++    if winner.digits == other.digits || winner.support < 3 || other.support < 2 {
++        return false;
++    }
++    if crate::identity::gap_edges(winner.polygon, other.polygon).is_none() {
++        return false;
++    }
++    if budget.pixels_left < PIXELS || budget.checks_left < FITS {
++        return false;
++    }
++    budget.pixels_left -= PIXELS;
++    budget.checks_left -= FITS;
++    counter.continuity_samples += PIXELS;
++    counter.association_checks += FITS;
++    for (q, max_residual) in [(winner.polygon, 0.45), (other.polygon, 0.8)] {
++        let Ok(m) = crate::scan::transform(q) else {
++            return false;
++        };
++        for fraction in [0.2, 0.5, 0.8] {
++            let mut row = [0f64; 384];
++            for (i, value) in row.iter_mut().enumerate() {
++                let Ok(p) = crate::experiment::point(
++                    m.0,
++                    0,
++                    (crate::numeric::usize_f64(i) + 0.5) / 384.,
++                    fraction,
++                ) else {
++                    return false;
++                };
++                *value = 255. - f64::from(im.bilinear(p[0], p[1]));
++            }
++            let a = pattern_residual(&row, &winner.digits);
++            let b = pattern_residual(&row, &other.digits);
++            if !a.is_finite() || !b.is_finite() || a > max_residual || b - a < 0.04 || a >= 0.95 * b
++            {
++                return false;
++            }
++        }
++    }
++    true
++}
++fn source_conflict_winner(
++    im: ImageView<'_>,
++    broad: &Detection,
++    thin: &Detection,
++    budget: &mut AssociationBudget,
++    counter: &mut Work,
++) -> bool {
++    const PIXELS: usize = 3 * 512;
++
++    if broad.digits == thin.digits
++        || broad.support < 8
++        || broad.support < thin.support.saturating_mul(3)
++    {
++        return false;
++    }
++    let quad = broad.polygon;
++    let thin_quad = thin.polygon;
++    let width = crate::experiment::distance(quad[0], quad[1]);
++    let tw = crate::experiment::distance(thin_quad[0], thin_quad[1]);
++    let height = crate::experiment::distance(quad[0], quad[3]);
++    let th = crate::experiment::distance(thin_quad[0], thin_quad[3]);
++    if width < 95.
++        || width.min(tw) / width.max(tw) < 0.85
++        || height < 4. * th.max(1.)
++        || th > width / 95.
++    {
++        return false;
++    }
++    let top = [
++        (quad[0][0] + quad[1][0]) * 0.5,
++        (quad[0][1] + quad[1][1]) * 0.5,
++    ];
++    let bottom = [
++        (quad[2][0] + quad[3][0]) * 0.5,
++        (quad[2][1] + quad[3][1]) * 0.5,
++    ];
++    let direction = [bottom[0] - top[0], bottom[1] - top[1]];
++    let v2 = direction[0] * direction[0] + direction[1] * direction[1];
++    if v2 < 16. {
++        return false;
++    }
++    let center = [
++        thin_quad.iter().map(|profile| profile[0]).sum::<f64>() * 0.25,
++        thin_quad.iter().map(|profile| profile[1]).sum::<f64>() * 0.25,
++    ];
++    let fraction = ((center[0] - top[0]) * direction[0] + (center[1] - top[1]) * direction[1]) / v2;
++    let dy = 1.5 / v2.sqrt();
++    if fraction - dy < 0. || fraction + dy > 1. {
++        return false;
++    }
++    let Ok(matrix) = crate::scan::transform(quad) else {
++        return false;
++    };
++    if budget.pixels_left < PIXELS || budget.checks_left < 3 {
++        return false;
++    }
++    budget.pixels_left -= PIXELS;
++    budget.checks_left -= 3;
++    counter.continuity_samples += PIXELS;
++    counter.association_checks += 3;
++    let mut agreeing_rows = 0;
++    for fraction in [fraction - dy, fraction, fraction + dy] {
++        let mut profile = [0f32; 512];
++        for (i, value) in profile.iter_mut().enumerate() {
++            let Ok(a) = crate::experiment::point(
++                matrix.0,
++                0,
++                -0.15 + 1.3 * (crate::numeric::usize_f64(i) + 0.5) / 512.,
++                fraction,
++            ) else {
++                return false;
++            };
++            *value = im.bilinear(a[0], a[1]);
++        }
++        let mut sorted = profile;
++        let (lo, hi) = crate::sampling::contrast_bounds(&mut sorted);
++        if hi - lo < 24. {
++            continue;
++        }
++        for value in &mut profile {
++            *value = (1. - (*value - lo) / (hi - lo)).clamp(0., 1.);
++        }
++        let Ok(reads) = crate::multi_profile::decode_many(&profile, 4) else {
++            return false;
++        };
++        if reads.ambiguous_intervals > 0 {
++            return false;
++        }
++        if reads.symbols.iter().any(|read| read.digits != broad.digits) {
++            return false;
++        }
++        agreeing_rows += usize::from(reads.symbols.iter().any(|read| read.digits == broad.digits));
++    }
++    agreeing_rows >= 2
++}
++
+ #[expect(
+     clippy::too_many_lines,
+     reason = "Frame reconciliation retains raw candidates while applying identity checks and ranking in their established order."
+@@ -218,13 +416,22 @@
+ fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy: Policy) -> Frame {
+     let used_checks: usize = candidates.iter().map(|c| c.work.association_checks).sum();
+     let mut budget = AssociationBudget {
+-        checks_left: policy.max_association_checks.saturating_sub(used_checks),
+-        pixels_left: policy
+-            .max_association_pixels
+-            .saturating_sub(candidates.iter().map(|c| c.work.continuity_samples).sum()),
++        checks_left: if policy.complete {
++            usize::MAX
++        } else {
++            policy.max_association_checks.saturating_sub(used_checks)
++        },
++        pixels_left: if policy.complete {
++            usize::MAX
++        } else {
++            policy
++                .max_association_pixels
++                .saturating_sub(candidates.iter().map(|c| c.work.continuity_samples).sum())
++        },
+     };
+     let mut counter = Work::default();
+     let mut work = ReconciliationWork::default();
++    let mut identity_cache = crate::identity::IdentityCache::default();
+     work.pending_observations = candidates
+         .iter()
+         .map(|c| {
+@@ -262,6 +469,52 @@
+             .then(a.cmp(&c))
+             .then(b.cmp(&d))
+     });
++    // Finite, source-validated rejection of thin alias tracks. Keep raw candidate evidence.
++    if let Some(im) = im.filter(|_| {
++        entries.first().is_some_and(|&(a, b)| {
++            entries.iter().any(|&(c, d)| {
++                candidates[c].detections[d].digits != candidates[a].detections[b].digits
++            })
++        })
++    }) {
++        let mut rejected = vec![false; entries.len()];
++        let mut probes = 0;
++        'outer: for i in 0..entries.len() {
++            for j in 0..entries.len() {
++                if i == j || rejected[i] || rejected[j] {
++                    continue;
++                }
++                if budget.checks_left == 0 || probes >= 32 {
++                    break 'outer;
++                }
++                budget.checks_left -= 1;
++                counter.association_checks += 1;
++                let (a, b) = entries[i];
++                let (c, d) = entries[j];
++                let thin = &candidates[a].detections[b];
++                let broad = &candidates[c].detections[d];
++                if thin.digits == broad.digits {
++                    continue;
++                }
++                let overlap = same_space(thin.polygon, broad.polygon);
++                if !overlap && crate::identity::gap_edges(thin.polygon, broad.polygon).is_none() {
++                    continue;
++                }
++                probes += 1;
++                if (overlap && source_conflict_winner(im, broad, thin, &mut budget, &mut counter))
++                    || (probes <= 4
++                        && source_pair_winner(im, broad, thin, &mut budget, &mut counter))
++                {
++                    rejected[i] = true;
++                }
++            }
++        }
++        entries = entries
++            .into_iter()
++            .enumerate()
++            .filter_map(|(i, e)| (!rejected[i]).then_some(e))
++            .collect();
++    }
+     let mut groups: Vec<Group> = vec![];
+     'observations: for (position, &(ci, di)) in entries.iter().enumerate() {
+         let d = &candidates[ci].detections[di];
+@@ -300,7 +553,15 @@
+                             b.reverse();
+                         }
+                         work.source_pairs += 1;
+-                        if same_text_identity(im, a, b, &mut budget, &mut counter, &mut work) {
++                        if same_text_identity(
++                            im,
++                            a,
++                            b,
++                            &mut budget,
++                            &mut counter,
++                            &mut work,
++                            &mut identity_cache,
++                        ) {
+                             overlap = true;
+                             work.source_matches += 1;
+                         }
+@@ -335,6 +596,10 @@
+                                 };
+                                 let source_axis = if source == ci { d.axis } else { member.axis };
+                                 for o in candidates[source].observations.iter().filter(|o| {
++                                    #[cfg(feature = "experimental-invalid-consensus")]
++                                    if o.invalid_checksum {
++                                        return false;
++                                    }
+                                     (o.ambiguous && o.axis == source_axis)
+                                         || (!o.ambiguous && o.digits != d.digits)
+                                 }) {
+@@ -373,6 +638,7 @@
+                                     &mut budget,
+                                     &mut counter,
+                                     &mut work,
++                                    &mut identity_cache,
+                                 ) {
+                                     overlap = true;
+                                     work.source_matches += 1;
+@@ -421,6 +687,7 @@
+             });
+         }
+     }
++    work.source_cache_hits = identity_cache.hits;
+     work.comparisons = counter.association_checks;
+     work.source_pixels = counter.continuity_samples;
+     work.source_capped = counter.continuity_capped_links;
+@@ -549,6 +816,8 @@
+         ];
+         candidate.detections.push(second);
+         let observation = crate::experiment::Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [7, 8, 5, 8, 1, 7, 7, 0, 0, 0, 4, 8, 3],
+@@ -618,6 +887,8 @@
+         ];
+         candidate.detections.push(second);
+         let observation = crate::experiment::Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits: [7, 0, 2, 5, 6, 4, 7, 1, 0, 2, 4, 3, 9],
+@@ -682,6 +953,8 @@
+         ];
+         candidate.detections.push(second);
+         let observation = crate::experiment::Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             digits: [3, 6, 4, 1, 2, 0, 0, 3, 5, 9, 3, 0, 6],
+             axis: 0,
+@@ -868,6 +1141,8 @@
+                     b.detections[0].polygon = q(50., 55., 400., 60.);
+                     if contradictory {
+                         b.observations.push(crate::experiment::Observation {
++                            #[cfg(feature = "experimental-invalid-consensus")]
++                            invalid_checksum: false,
+                             short_quiet: false,
+                             ambiguous: false,
+                             digits: [2; 13],
+@@ -921,6 +1196,8 @@
+                     b.detections[0].polygon = q(50., 80., 400., 40.);
+                     if contradictory {
+                         b.observations.push(crate::experiment::Observation {
++                            #[cfg(feature = "experimental-invalid-consensus")]
++                            invalid_checksum: false,
+                             short_quiet: false,
+                             ambiguous: false,
+                             digits: [2; 13],
+@@ -1141,6 +1418,8 @@
+                 },
+             ];
+             c.observations.push(crate::experiment::Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous: true,
+                 digits: [0; 13],
+@@ -1172,6 +1451,8 @@
+         contradictory
+             .observations
+             .push(crate::experiment::Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous: false,
+                 digits: [2; 13],
+@@ -1431,7 +1712,8 @@
+             [[22., 100.], [402., 100.]],
+             &mut budget,
+             &mut w,
+-            &mut r
++            &mut r,
++            &mut crate::identity::IdentityCache::default()
+         ));
+         assert_eq!(w.continuity_samples, 192);
+         assert_eq!(budget.pixels_left, 992);
+@@ -1441,3 +1723,160 @@
+         assert_eq!(budget.checks_left, 10);
+     }
+ }
++#[cfg(test)]
++mod source_conflict_probe_tests {
++    use super::*;
++    fn q(y: f64, h: f64) -> Quad {
++        [[20., y], [400., y], [400., y + h], [20., y + h]]
++    }
++    #[test]
++    fn source_pixels_resolve_alias_but_not_real_competing_code() {
++        let good = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
++        let other = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
++        let bits = crate::ean::encode(&good);
++        let mut pixels = vec![255; 440 * 120];
++        for y in 0..120 {
++            for x in 0..380 {
++                pixels[y * 440 + 20 + x] = if bits[x / 4] > 0.5 { 0 } else { 255 };
++            }
++        }
++        let broad = Detection {
++            digits: good,
++            polygon: q(10., 100.),
++            support: 20,
++            axis: 0,
++        };
++        let thin = Detection {
++            digits: other,
++            polygon: q(58., 3.),
++            support: 2,
++            axis: 0,
++        };
++        let mut budget = AssociationBudget::default();
++        let mut counter = Work::default();
++        let before = budget.pixels_left;
++        assert!(source_conflict_winner(
++            ImageView::new(&pixels, 440, 120, 1, 440).unwrap(),
++            &broad,
++            &thin,
++            &mut budget,
++            &mut counter
++        ));
++        assert_eq!(before - budget.pixels_left, counter.continuity_samples);
++        assert!(counter.continuity_samples > 0);
++        let mut empty = AssociationBudget {
++            checks_left: 0,
++            pixels_left: 0,
++        };
++        assert!(!source_conflict_winner(
++            ImageView::new(&pixels, 440, 120, 1, 440).unwrap(),
++            &broad,
++            &thin,
++            &mut empty,
++            &mut Work::default()
++        ));
++        let bits = crate::ean::encode(&other);
++        for y in 55..65 {
++            for x in 0..380 {
++                pixels[y * 440 + 20 + x] = if bits[x / 4] > 0.5 { 0 } else { 255 };
++            }
++        }
++        assert!(!source_conflict_winner(
++            ImageView::new(&pixels, 440, 120, 1, 440).unwrap(),
++            &broad,
++            &thin,
++            &mut AssociationBudget::default(),
++            &mut Work::default()
++        ));
++        pixels.fill(128);
++        assert!(!source_conflict_winner(
++            ImageView::new(&pixels, 440, 120, 1, 440).unwrap(),
++            &broad,
++            &thin,
++            &mut AssociationBudget::default(),
++            &mut Work::default()
++        ));
++    }
++}
++
++#[cfg(test)]
++mod paired_pixel_tests {
++    use super::*;
++    fn band(y: f64, digits: [u8; 13]) -> Detection {
++        Detection {
++            digits,
++            polygon: [[20., y], [305., y], [305., y + 15.], [20., y + 15.]],
++            support: 4,
++            axis: 0,
++        }
++    }
++    #[expect(
++        clippy::float_cmp,
++        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
++    )]
++    fn render(top: [u8; 13], bottom: [u8; 13]) -> Vec<u8> {
++        let mut p = vec![255u8; 330 * 100];
++        for y in 0..100 {
++            let bits = crate::ean::encode(&if y < 50 { top } else { bottom });
++            for x in 20..305 {
++                p[y * 330 + x] = if bits[(x - 20) / 3] == 1. { 0 } else { 255 };
++            }
++        }
++        p
++    }
++    #[test]
++    fn actual_contrary_code_is_not_outvoted_by_a_neighbor() {
++        let a = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
++        let b = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
++        let p = render(a, b);
++        let im = ImageView::new(&p, 330, 100, 1, 330).unwrap();
++        assert!(!source_pair_winner(
++            im,
++            &band(20., a),
++            &band(65., b),
++            &mut AssociationBudget::default(),
++            &mut Work::default()
++        ));
++        assert!(!source_pair_winner(
++            im,
++            &band(65., b),
++            &band(20., a),
++            &mut AssociationBudget::default(),
++            &mut Work::default()
++        ));
++    }
++    #[test]
++    fn false_alias_can_only_be_rejected_when_both_bands_support_the_winner() {
++        let a = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
++        let b = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
++        let p = render(a, a);
++        let im = ImageView::new(&p, 330, 100, 1, 330).unwrap();
++        assert!(source_pair_winner(
++            im,
++            &band(20., a),
++            &band(65., b),
++            &mut AssociationBudget::default(),
++            &mut Work::default()
++        ));
++        assert!(!source_pair_winner(
++            im,
++            &band(65., b),
++            &band(20., a),
++            &mut AssociationBudget::default(),
++            &mut Work::default()
++        ));
++        let mut budget = AssociationBudget {
++            pixels_left: 0,
++            checks_left: 0,
++        };
++        let mut work = Work::default();
++        assert!(!source_pair_winner(
++            im,
++            &band(20., a),
++            &band(65., b),
++            &mut budget,
++            &mut work
++        ));
++        assert_eq!(work.continuity_samples, 0);
++    }
++}
+--- a/src/identity.rs
++++ b/src/identity.rs
+@@ -6,6 +6,66 @@
+     scan::Quad,
+ };
+ const N: usize = 96;
++// Keys preserve every coordinate bit. Only complete row computations enter the
++// finite cache, including definitive flat/out-of-image rejections. Budget
++// exhaustion is never cached. A cache belongs to one immutable source frame.
++#[derive(Default)]
++pub(crate) struct IdentityCache {
++    rows: std::collections::BTreeMap<[u64; 4], Option<[f64; N]>>,
++    #[cfg(feature = "experimental-identity-phase")]
++    dense: std::collections::BTreeMap<[u64; 4], Option<[f64; 384]>>,
++    pub hits: usize,
++}
++fn row_key(e: [[f64; 2]; 2]) -> [u64; 4] {
++    [
++        e[0][0].to_bits(),
++        e[0][1].to_bits(),
++        e[1][0].to_bits(),
++        e[1][1].to_bits(),
++    ]
++}
++fn cached_row(
++    im: ImageView<'_>,
++    e: [[f64; 2]; 2],
++    budget: &mut AssociationBudget,
++    work: &mut Work,
++    cache: &mut IdentityCache,
++) -> Option<[f64; N]> {
++    let key = row_key(e);
++    if let Some(r) = cache.rows.get(&key) {
++        cache.hits += 1;
++        return *r;
++    }
++    let before = work.association_truncated;
++    let enough = budget.pixels_left >= N;
++    let result = row(im, e, budget, work);
++    if enough && work.association_truncated == before && cache.rows.len() < 256 {
++        cache.rows.insert(key, result);
++    }
++    result
++}
++#[cfg(feature = "experimental-identity-phase")]
++fn cached_dense_row(
++    im: ImageView<'_>,
++    e: [[f64; 2]; 2],
++    budget: &mut AssociationBudget,
++    work: &mut Work,
++    cache: &mut IdentityCache,
++) -> Option<[f64; 384]> {
++    let key = row_key(e);
++    if let Some(r) = cache.dense.get(&key) {
++        cache.hits += 1;
++        return *r;
++    }
++    let before = work.association_truncated;
++    let enough = budget.pixels_left >= 384 * 5;
++    let result = dense_row(im, e, budget, work);
++    if enough && work.association_truncated == before && cache.dense.len() < 256 {
++        cache.dense.insert(key, result);
++    }
++    result
++}
++
+ fn midpoint(e: [[f64; 2]; 2]) -> [f64; 2] {
+     [(e[0][0] + e[1][0]) * 0.5, (e[0][1] + e[1][1]) * 0.5]
+ }
+@@ -130,12 +190,23 @@
+ }
+ /// Every <=0.5pixel cross-gap step must retain contrast and correlate with both
+ /// observed endpoint patterns. No expected-code reconstruction is used.
++#[cfg(any(test, feature = "experimental-source-rescue"))]
+ pub(crate) fn connected(
+     im: ImageView<'_>,
+     a: [[f64; 2]; 2],
+     b: [[f64; 2]; 2],
+     budget: &mut AssociationBudget,
+     work: &mut Work,
++) -> bool {
++    connected_cached(im, a, b, budget, work, &mut IdentityCache::default())
++}
++pub(crate) fn connected_cached(
++    im: ImageView<'_>,
++    a: [[f64; 2]; 2],
++    b: [[f64; 2]; 2],
++    budget: &mut AssociationBudget,
++    work: &mut Work,
++    cache: &mut IdentityCache,
+ ) -> bool {
+     let steps = crate::numeric::f64_usize(
+         (experiment::distance(a[0], b[0]).max(experiment::distance(a[1], b[1])) * 2.).ceil(),
+@@ -148,16 +219,16 @@
+         work.association_truncated = 1;
+         return false;
+     }
+-    let Some(ra) = row(im, a, budget, work) else {
++    let Some(ra) = cached_row(im, a, budget, work, cache) else {
+         return false;
+     };
+-    let Some(rb) = row(im, b, budget, work) else {
++    let Some(rb) = cached_row(im, b, budget, work, cache) else {
+         return false;
+     };
+     if corr(&ra, &rb) < 0.85 {
+         #[cfg(feature = "experimental-identity-phase")]
+         {
+-            return connected_phase(im, a, b, budget, work);
++            return connected_phase(im, a, b, budget, work, cache);
+         }
+         #[cfg(not(feature = "experimental-identity-phase"))]
+         {
+@@ -172,7 +243,7 @@
+                 a[j][1] + fraction * (b[j][1] - a[j][1]),
+             ]
+         });
+-        let Some(r) = row(im, e, budget, work) else {
++        let Some(r) = cached_row(im, e, budget, work, cache) else {
+             return false;
+         };
+         if corr(&r, &ra) < 0.85 || corr(&r, &rb) < 0.85 {
+@@ -241,8 +312,9 @@
+     b: [[f64; 2]; 2],
+     budget: &mut AssociationBudget,
+     work: &mut Work,
++    cache: &mut IdentityCache,
+ ) -> bool {
+-    let Some(ra) = dense_row(im, a, budget, work) else {
++    let Some(ra) = cached_dense_row(im, a, budget, work, cache) else {
+         return false;
+     };
+     let dot = |a: &[f64; 384], b: &[f64; 384]| a.iter().zip(b).map(|(x, y)| x * y).sum::<f64>();
+@@ -256,7 +328,7 @@
+             fraction * (b[1][1] - b[0][1]),
+         ];
+         let shifted = b.map(|p| [p[0] + delta[0], p[1] + delta[1]]);
+-        let Some(rb) = dense_row(im, shifted, budget, work) else {
++        let Some(rb) = cached_dense_row(im, shifted, budget, work, cache) else {
+             return false;
+         };
+         let c = dot(&ra, &rb);
+@@ -285,7 +357,7 @@
+                 a[j][1] + fraction * (b[j][1] - a[j][1]),
+             ]
+         });
+-        let Some(r) = dense_row(im, e, budget, work) else {
++        let Some(r) = cached_dense_row(im, e, budget, work, cache) else {
+             return false;
+         };
+         if dot(&r, &ra) < 0.85 || dot(&r, &rb) < 0.85 {
+@@ -313,14 +385,22 @@
+             a,
+             b,
+             &mut AssociationBudget::default(),
+-            &mut Work::default()
++            &mut Work::default(),
++            &mut IdentityCache::default()
+         ));
+         let mut budget = AssociationBudget {
+             checks_left: 100,
+             pixels_left: 1919,
+         };
+         let mut work = Work::default();
+-        assert!(!connected_phase(im, a, b, &mut budget, &mut work));
++        assert!(!connected_phase(
++            im,
++            a,
++            b,
++            &mut budget,
++            &mut work,
++            &mut IdentityCache::default()
++        ));
+         assert_eq!(work.association_truncated, 1);
+         assert_eq!(work.continuity_samples, 0);
+         pixels[60 * 420..61 * 420].fill(255);
+@@ -329,7 +409,8 @@
+             a,
+             b,
+             &mut AssociationBudget::default(),
+-            &mut Work::default()
++            &mut Work::default(),
++            &mut IdentityCache::default()
+         ));
+     }
+ 
+@@ -489,3 +570,60 @@
+         assert_eq!(w.continuity_capped_links, 1);
+     }
+ }
++#[cfg(test)]
++mod cache_tests {
++    use super::*;
++    #[test]
++    #[expect(
++        clippy::float_cmp,
++        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
++    )]
++    fn exact_rows_reuse_work_and_exhaustion_is_not_cached() {
++        let pixels: Vec<u8> = (0..420 * 50)
++            .map(|i| if (i % 420) / 3 % 2 == 0 { 0 } else { 255 })
++            .collect();
++        let im = ImageView::new(&pixels, 420, 50, 1, 420).unwrap();
++        let e = [[20., 20.], [400., 20.]];
++        let mut cache = IdentityCache::default();
++        let mut work = Work::default();
++        let mut budget = AssociationBudget {
++            checks_left: 10,
++            pixels_left: 0,
++        };
++        assert!(cached_row(im, e, &mut budget, &mut work, &mut cache).is_none());
++        assert!(cache.rows.is_empty());
++        let mut work = Work::default();
++        budget.pixels_left = N;
++        let a = cached_row(im, e, &mut budget, &mut work, &mut cache).unwrap();
++        assert_eq!(work.continuity_samples, N);
++        assert_eq!(budget.pixels_left, 0);
++        let b = cached_row(im, e, &mut budget, &mut work, &mut cache).unwrap();
++        assert_eq!(a, b);
++        assert_eq!(work.continuity_samples, N);
++        assert_eq!(cache.hits, 1);
++        assert_eq!(work.association_truncated, 0);
++        let mut fresh = IdentityCache::default();
++        let inverted: Vec<_> = pixels.iter().map(|v| 255 - v).collect();
++        let im2 = ImageView::new(&inverted, 420, 50, 1, 420).unwrap();
++        budget.pixels_left = N;
++        let c = cached_row(im2, e, &mut budget, &mut Work::default(), &mut fresh).unwrap();
++        assert_ne!(a, c);
++        assert_eq!(fresh.hits, 0);
++    }
++    #[test]
++    fn row_cache_has_a_fixed_capacity() {
++        let pixels: Vec<u8> = (0..420 * 310)
++            .map(|i| if (i % 420) / 3 % 2 == 0 { 0 } else { 255 })
++            .collect();
++        let im = ImageView::new(&pixels, 420, 310, 1, 420).unwrap();
++        let mut cache = IdentityCache::default();
++        let mut budget = AssociationBudget::default();
++        let mut work = Work::default();
++        for y in 1..300 {
++            let e = [[20., f64::from(y)], [400., f64::from(y)]];
++            assert!(cached_row(im, e, &mut budget, &mut work, &mut cache).is_some());
++        }
++        assert_eq!(cache.rows.len(), 256);
++        assert_eq!(cache.hits, 0);
++    }
++}
+--- a/src/invalid_visual.rs
++++ b/src/invalid_visual.rs
+@@ -125,6 +125,8 @@
+         // A soft/intensity contradiction is explicitly unresolved; its different
+         // cost units never decide a winner. Existing spatial ambiguity rules apply.
+         observations.push(Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: true,
+             digits: [0; 13],
+@@ -135,6 +137,34 @@
+             cost: v.cost,
+             gap: v.gap,
+         });
++    }
++    #[cfg(feature = "experimental-invalid-consensus")]
++    for v in e
++        .iter()
++        .filter(|v| !v.checksum_valid && v.read.cost <= 0.06 && v.read.gap >= 0.1)
++    {
++        // Require the invalid visual interpretation to beat every valid run fit in
++        // the same interval. Its checksum is evidence to reject, never to repair.
++        if e.iter().any(|a| {
++            a.checksum_valid
++                && same(a.read.left, a.read.right, v.read.left, v.read.right)
++                && a.read.cost <= v.read.cost
++        }) {
++            continue;
++        }
++        observations.push(Observation {
++            invalid_checksum: true,
++            short_quiet: false,
++            ambiguous: true,
++            digits: v.read.digits,
++            axis,
++            fraction,
++            left: lo + (hi - lo) * (v.read.left + 0.5) / crate::numeric::usize_f64(n),
++            right: lo + (hi - lo) * (v.read.right + 0.5) / crate::numeric::usize_f64(n),
++            cost: v.read.cost,
++            gap: v.read.gap,
++        });
++        work.invalid_consensus_observations += 1;
+     }
+ }
+ #[cfg(test)]
+@@ -216,6 +246,8 @@
+             evidence(true, 120., 215., 0.09),
+         ];
+         let obs = |left, right| Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             digits: [1; 13],
+             axis: 0,
+             fraction: 0.5,
+--- a/src/multi_scan.rs
++++ b/src/multi_scan.rs
+@@ -15,6 +15,11 @@
+ )]
+ #[derive(Clone, Copy, Debug)]
+ pub struct Policy {
++    /// Deep-retry selection; initial discovery remains enabled for every candidate.
++    pub candidate_retry_mask: u64,
++    /// Remove shared frame execution/association budgets. Per-candidate effort,
++    /// weak-candidate deferral, sampling geometry and safety caps still apply.
++    pub complete: bool,
+     pub max_retry_paths_per_candidate: usize,
+     pub max_retry_paths_per_frame: usize,
+     pub max_association_checks: usize,
+@@ -29,6 +34,8 @@
+ impl Default for Policy {
+     fn default() -> Self {
+         Self {
++            candidate_retry_mask: u64::MAX,
++            complete: false,
+             max_retry_paths_per_candidate: 512,
+             max_retry_paths_per_frame: 8192,
+             max_association_checks: 200_000,
+@@ -337,12 +344,7 @@
+     clippy::many_single_char_names,
+     reason = "The 2x2 projective inverse uses conventional a,b,c,d,e,g coefficients and paired x,y and u,v coordinates."
+ )]
+-fn claimed_interval(
+-    matrix: [f64; 9],
+-    axis: usize,
+-    fraction: f64,
+-    quad: Quad,
+-) -> Option<(f64, f64)> {
++fn project_claim(matrix: [f64; 9], quad: Quad) -> Option<Quad> {
+     let mut points = [[0.; 2]; 4];
+     for (i, p) in quad.iter().enumerate() {
+         let (x, y) = (p[0] + 0.5, p[1] + 0.5);
+@@ -362,21 +364,43 @@
+         if !u.is_finite() || !v.is_finite() {
+             return None;
+         }
+-        points[i] = if axis == 0 { [u, v] } else { [v, u] };
+-    }
+-    let mut xs = Vec::with_capacity(4);
++        points[i] = [u, v];
++    }
++    Some(points)
++}
++
++fn projected_interval(points: Quad, axis: usize, fraction: f64) -> Option<(f64, f64)> {
++    let mut xs = [0.; 4];
++    let mut count = 0;
+     for i in 0..4 {
+         let (a, b) = (points[i], points[(i + 1) % 4]);
++        let (a, b) = if axis == 0 {
++            (a, b)
++        } else {
++            ([a[1], a[0]], [b[1], b[0]])
++        };
+         if (a[1] <= fraction && fraction < b[1]) || (b[1] <= fraction && fraction < a[1]) {
+-            xs.push(a[0] + (b[0] - a[0]) * (fraction - a[1]) / (b[1] - a[1]));
+-        }
+-    }
+-    if xs.len() != 2 {
++            xs[count] = a[0] + (b[0] - a[0]) * (fraction - a[1]) / (b[1] - a[1]);
++            count += 1;
++        }
++    }
++    if count != 2 {
+         return None;
+     }
+-    xs.sort_by(f64::total_cmp);
++    if xs[0].total_cmp(&xs[1]).is_gt() {
++        xs.swap(0, 1);
++    }
+     Some((xs[0], xs[1]))
+ }
++fn claimed_interval(
++    matrix: [f64; 9],
++    axis: usize,
++    fraction: f64,
++    quad: Quad,
++) -> Option<(f64, f64)> {
++    projected_interval(project_claim(matrix, quad)?, axis, fraction)
++}
++
+ fn unresolved_plan(
+     m: [f64; 9],
+     detections: &[experiment::Detection],
+@@ -696,11 +720,47 @@
+         // The first pass is completed across every initial candidate before any
+         // retry. Coverage is retained independently of observations/detections.
+         let mut budget = experiment::AssociationBudget {
+-            checks_left: policy.max_association_checks,
+-            pixels_left: policy.max_association_pixels,
++            checks_left: if policy.complete {
++                usize::MAX
++            } else {
++                policy.max_association_checks
++            },
++            pixels_left: if policy.complete {
++                usize::MAX
++            } else {
++                policy.max_association_pixels
++            },
+         };
+         let mut outputs =
+             self.scan_with_budget(im, candidates, experiment::MULTI_FIXED, &mut budget);
++        // Reuse only strictly verified spatial coverage from the completed
++        // fixed pass. Uncovered pieces, including between equal-value symbols,
++        // remain scheduled. Both phases spend the same reuse budget.
++        #[cfg(feature = "experimental-verified-coverage-reuse")]
++        let mut reuse_budget = ReuseBudget {
++            remaining: policy.max_association_checks,
++            pixels_remaining: 262_144,
++            ..Default::default()
++        };
++        #[cfg(feature = "experimental-verified-coverage-reuse")]
++        let early_claims =
++            if policy.max_association_checks < 10_000 || policy.max_association_pixels < 10_000 {
++                Vec::new()
++            } else {
++                let mut w = Work::default();
++                let q = verified_claims(&outputs, &mut reuse_budget, &mut w, im);
++                if let Some(c) = outputs.first_mut() {
++                    c.work.extension_cache_hits += w.extension_cache_hits;
++                    c.work.extension_samples += w.extension_samples;
++                    c.work.extension_claims += w.extension_claims;
++                    c.work.extension_capped += w.extension_capped;
++                    c.work.reuse_claims += w.reuse_claims;
++                    c.work.reuse_claims_rejected += w.reuse_claims_rejected;
++                    c.work.reuse_checks += w.reuse_checks;
++                    c.work.reuse_checks_capped += w.reuse_checks_capped;
++                }
++                q
++            };
+         let mut used = 0;
+         if scaled {
+             // Independent broad discovery after every candidate's fixed pass.
+@@ -708,7 +768,8 @@
+             // or repeated symbols before selecting subdivision scale.
+             for i in 0..10 {
+                 for c in &mut outputs {
+-                    if used >= policy.max_retry_paths_per_frame
++                    c.work.discovery_requests += 1;
++                    if (!policy.complete && used >= policy.max_retry_paths_per_frame)
+                         || c.work.retry_paths >= policy.max_retry_paths_per_candidate
+                     {
+                         c.work.retry_paths_pending += 1;
+@@ -736,17 +797,40 @@
+                         sample_cap: length > 4096.,
+                         unresolved: false,
+                     };
+-                    self.retry_segment(
+-                        im,
+-                        m.0,
+-                        segment,
+-                        c,
+-                        policy.transition_cleanup,
+-                        policy.interior_normalization,
+-                        policy.guard_bias,
+-                    );
+-                    used += 1;
+-                    c.work.discovery_paths += 1;
++                    c.work.retry_paths_pending += 1;
++                    #[cfg(feature = "experimental-verified-coverage-reuse")]
++                    let segments = if i == 2 || i == 3 || i == 6 || i == 7 {
++                        vec![segment]
++                    } else {
++                        reuse_plan(
++                            m.0,
++                            vec![segment],
++                            &early_claims,
++                            &mut reuse_budget,
++                            &mut c.work,
++                        )
++                    };
++                    #[cfg(not(feature = "experimental-verified-coverage-reuse"))]
++                    let segments = vec![segment];
++                    for segment in segments {
++                        if (!policy.complete && used >= policy.max_retry_paths_per_frame)
++                            || c.work.retry_paths >= policy.max_retry_paths_per_candidate
++                        {
++                            continue;
++                        }
++                        c.work.retry_paths_pending = c.work.retry_paths_pending.saturating_sub(1);
++                        self.retry_segment(
++                            im,
++                            m.0,
++                            segment,
++                            c,
++                            policy.transition_cleanup,
++                            policy.interior_normalization,
++                            policy.guard_bias,
++                        );
++                        used += 1;
++                        c.work.discovery_paths += 1;
++                    }
+                 }
+             }
+         }
+@@ -754,12 +838,7 @@
+         for c in &mut outputs {
+             c.work.structural_discovery_complete = true;
+         }
+-        #[cfg(feature = "experimental-verified-coverage-reuse")]
+-        let mut reuse_budget = ReuseBudget {
+-            remaining: policy.max_association_checks,
+-            pixels_remaining: 262_144,
+-            ..Default::default()
+-        };
++
+         #[cfg(feature = "experimental-verified-coverage-reuse")]
+         let claims = {
+             let mut w = Work::default();
+@@ -822,6 +901,13 @@
+                         let p = reuse_plan(m.0, p, &claims, &mut reuse_budget, &mut c.work);
+                         #[cfg(feature = "experimental-structural-retry")]
+                         let p = defer_structurally_weak_retries(c, scaled, p);
++                        let p = if policy.candidate_retry_mask & (1_u64 << c.index) == 0
++                            && c.work.accepted_paths == 0
++                        {
++                            Vec::new()
++                        } else {
++                            p
++                        };
+                         Ok(p)
+                     })() {
+                         Some((m.0, p))
+@@ -836,11 +922,11 @@
+             c.ms += start.ms();
+         }
+         for step in 0..policy.max_retry_paths_per_candidate {
+-            if used >= policy.max_retry_paths_per_frame {
++            if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                 break;
+             }
+             for (c, p) in outputs.iter_mut().zip(&plans) {
+-                if used >= policy.max_retry_paths_per_frame {
++                if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                     break;
+                 }
+                 let Some((m, paths)) = p else { continue };
+@@ -917,11 +1003,11 @@
+             } else {
+                 42
+             } {
+-                if used >= policy.max_retry_paths_per_frame {
++                if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                     break;
+                 }
+                 for ((c, p), extra) in outputs.iter_mut().zip(&plans).zip(&refinements) {
+-                    if used >= policy.max_retry_paths_per_frame {
++                    if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                         break;
+                     }
+                     if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
+@@ -1049,11 +1135,11 @@
+         } else {
+             64
+         } {
+-            if used >= policy.max_retry_paths_per_frame {
++            if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                 break;
+             }
+             for ((c, p), extra) in outputs.iter_mut().zip(&plans).zip(&confirmation) {
+-                if used >= policy.max_retry_paths_per_frame {
++                if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                     break;
+                 }
+                 if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
+@@ -1097,6 +1183,84 @@
+                     // including these raw partial detections when initial was empty.
+                     c.ms += start.ms();
+                 }
++            }
++        }
++        // Different sampling phases of a source row are not independent
++        // row votes. Existing canonical-row grouping and source checks apply.
++        for (c, p) in outputs.iter_mut().zip(&plans) {
++            if c.error
++                || c.work.association_truncated > 0
++                || !c.detections.is_empty()
++                || c.work.max_run_count < 30
++            {
++                continue;
++            }
++            let Some((m, _)) = p else { continue };
++            let before = c.work.phase_rescue_paths;
++            for axis in 0..2 {
++                let (Ok(a), Ok(b)) = (
++                    experiment::point(*m, axis, 0., 0.5),
++                    experiment::point(*m, axis, 1., 0.5),
++                ) else {
++                    continue;
++                };
++                let width = experiment::distance(a, b);
++                if !(76. ..=384.).contains(&width) {
++                    continue;
++                }
++                c.work.retry_paths_pending += 10;
++                for fraction in [0.1, 0.3, 0.5, 0.7, 0.9] {
++                    for phase in [-0.5, 0.5] {
++                        if (!policy.complete && used >= policy.max_retry_paths_per_frame)
++                            || c.work.retry_paths >= policy.max_retry_paths_per_candidate
++                        {
++                            continue;
++                        }
++                        let delta = phase / width;
++                        let lo = -0.15 + delta;
++                        let hi = 1.15 + delta;
++                        let (Ok(a), Ok(b)) = (
++                            experiment::point(*m, axis, lo, fraction),
++                            experiment::point(*m, axis, hi, fraction),
++                        ) else {
++                            c.error = true;
++                            continue;
++                        };
++                        let length = experiment::distance(a, b);
++                        let seg = Segment {
++                            axis,
++                            fraction,
++                            lo,
++                            hi,
++                            samples: crate::numeric::f64_usize(length.ceil().clamp(64., 4096.)),
++                            sample_cap: length > 4096.,
++                            unresolved: false,
++                        };
++                        used += 1;
++                        c.work.retry_paths_pending -= 1;
++                        c.work.phase_rescue_paths += 1;
++                        self.retry_segment(
++                            im,
++                            *m,
++                            seg,
++                            c,
++                            policy.transition_cleanup,
++                            policy.interior_normalization,
++                            policy.guard_bias,
++                        );
++                    }
++                }
++            }
++            if c.work.phase_rescue_paths > before {
++                c.detections = experiment::assemble_many_budget_options(
++                    im,
++                    *m,
++                    &c.observations,
++                    &mut c.work,
++                    true,
++                    &mut budget,
++                    policy.allow_single_row,
++                );
+             }
+         }
+         Ok(outputs)
+@@ -1523,7 +1687,6 @@
+             21
+         );
+     }
+-    #[cfg(feature = "experimental-single-row-search")]
+     #[test]
+     #[expect(
+         clippy::float_cmp,
+@@ -1533,6 +1696,8 @@
+         let quad = [[0., 0.], [600., 0.], [600., 200.], [0., 200.]];
+         let matrix = scan::transform(quad).unwrap().0;
+         let obs = |digits, left, right, fraction| experiment::Observation {
++            #[cfg(feature = "experimental-invalid-consensus")]
++            invalid_checksum: false,
+             short_quiet: false,
+             ambiguous: false,
+             digits,
+@@ -1808,7 +1973,8 @@
+         assert_eq!(result.len(), qs.len());
+         for (c, q) in result.iter().zip(qs) {
+             assert_eq!(c.coverage, q);
+-            assert_eq!(c.work.discovery_paths, 10);
++            assert_eq!(c.work.discovery_requests, 10);
++            assert!(c.work.discovery_paths >= 4);
+             assert_eq!(c.work.paths, 20);
+             assert_eq!(c.work.retry_paths, 10);
+             assert_eq!(c.work.accepted_paths, 0);
+@@ -1873,7 +2039,8 @@
+                 )
+                 .unwrap();
+             for c in result {
+-                assert_eq!(c.work.discovery_paths, 10);
++                assert_eq!(c.work.discovery_requests, 10);
++                assert!(c.work.discovery_paths >= 4);
+                 assert!(c.work.accepted_paths > 0);
+                 assert_eq!(c.work.structural_retry_skipped, 0);
+                 assert!(c
+@@ -1940,3 +2107,112 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod completion_tests {
++    use super::*;
++    #[test]
++    fn completion_ignores_frame_budget_but_preserves_candidate_effort() {
++        let pixels = vec![255; 600 * 300];
++        let im = ImageView::new(&pixels, 600, 300, 1, 600).unwrap();
++        let q = [[0., 0.], [599., 0.], [599., 299.], [0., 299.]];
++        let policy = Policy {
++            max_retry_paths_per_frame: 0,
++            ..Policy::default()
++        };
++        let mut engine = Experiment::default();
++        let bounded = engine.scan_scaled(im, &[q; 3], policy).unwrap();
++        let complete = engine
++            .scan_scaled(
++                im,
++                &[q; 3],
++                Policy {
++                    complete: true,
++                    ..policy
++                },
++            )
++            .unwrap();
++        let reference = engine
++            .scan_scaled(
++                im,
++                &[q; 3],
++                Policy {
++                    max_retry_paths_per_frame: 65536,
++                    ..policy
++                },
++            )
++            .unwrap();
++        assert!(bounded.iter().all(|c| c.work.retry_paths == 0));
++        for (c, r) in complete.iter().zip(&reference) {
++            assert!(c.work.retry_paths > 0);
++            assert_eq!(c.work.retry_paths, r.work.retry_paths);
++            assert_eq!(c.work.retry_paths_pending, r.work.retry_paths_pending);
++            #[cfg(feature = "experimental-structural-retry")]
++            assert_eq!(
++                c.work.structural_retry_skipped,
++                r.work.structural_retry_skipped
++            );
++            assert!(c.work.retry_paths <= policy.max_retry_paths_per_candidate);
++        }
++    }
++}
++
++#[cfg(test)]
++mod candidate_retry_mask_tests {
++    use super::*;
++
++    #[test]
++    fn weak_candidates_keep_initial_discovery_and_pending_work() {
++        let pixels = vec![255; 512 * 512];
++        let image = ImageView::new(&pixels, 512, 512, 1, 512).unwrap();
++        let quad = [[0., 0.], [511., 0.], [511., 511.], [0., 511.]];
++        let mut engine = Experiment::default();
++        let candidates = engine
++            .scan_scaled(
++                image,
++                &[quad, quad],
++                Policy {
++                    candidate_retry_mask: 0,
++                    ..Policy::default()
++                },
++            )
++            .unwrap();
++        assert_eq!(candidates.len(), 2);
++        for candidate in candidates {
++            assert_eq!(candidate.coverage, quad);
++            assert!(candidate.work.paths > 0);
++            assert_eq!(candidate.work.discovery_paths, 10);
++            assert_eq!(candidate.work.retry_paths, 10);
++            assert!(candidate.work.retry_paths_pending > 0);
++        }
++    }
++
++    #[test]
++    fn mask_keeps_the_sixty_fourth_candidates_existing_retry_policy() {
++        let pixels = vec![255; 128 * 128];
++        let image = ImageView::new(&pixels, 128, 128, 1, 128).unwrap();
++        let quad = [[0., 0.], [127., 0.], [127., 127.], [0., 127.]];
++        let mut engine = Experiment::default();
++        let candidates = engine
++            .scan_scaled(
++                image,
++                &[quad; 64],
++                Policy {
++                    candidate_retry_mask: 1_u64 << 63,
++                    ..Policy::default()
++                },
++            )
++            .unwrap();
++        assert!(candidates[..63]
++            .iter()
++            .all(|c| c.work.discovery_paths == 10 && c.work.retry_paths == 10));
++        let control = engine
++            .scan_scaled(image, &[quad], Policy::default())
++            .unwrap();
++        // Very High already defers blank regions through its structural gate.
++        // Enabling bit 63 must preserve that mode's existing behavior too.
++        assert_eq!(candidates[63].work.retry_paths, control[0].work.retry_paths);
++        #[cfg(not(feature = "experimental-structural-retry"))]
++        assert!(candidates[63].work.retry_paths > 10);
++    }
++}
+--- a/src/profile.rs
++++ b/src/profile.rs
+@@ -141,7 +141,7 @@
+     #[cfg(feature = "experimental-forward-blur")] trace: &mut BlurTrace,
+ ) -> Result<Option<Read>, Error> {
+     if if native {
+-        !(76..=384).contains(&p.len())
++        !(76..=1536).contains(&p.len())
+     } else {
+         p.len() != LEN
+     } {
+--- a/src/region_abi.rs
++++ b/src/region_abi.rs
+@@ -140,6 +140,33 @@
+     pixels: usize,
+     results: usize,
+ ) -> u32 {
++    regions_scan_mask(
++        id,
++        count,
++        flags,
++        per_candidate,
++        per_frame,
++        checks,
++        pixels,
++        results,
++        u32::MAX,
++        u32::MAX,
++    )
++}
++/// Research-only region retry scheduling; the fixed/discovery passes still run everywhere.
++#[no_mangle]
++pub extern "C" fn regions_scan_mask(
++    id: u32,
++    count: usize,
++    flags: u32,
++    per_candidate: usize,
++    per_frame: usize,
++    checks: usize,
++    pixels: usize,
++    results: usize,
++    mask_low: u32,
++    mask_high: u32,
++) -> u32 {
+     REGISTRY.with(|r| {
+         let mut r = r.borrow_mut();
+         let Some(s) = r.states.get_mut(&id) else {
+@@ -149,10 +176,12 @@
+         let Some((width, height, c, stride)) = s.shape else {
+             return 4;
+         };
+-        if count > 64 || flags > 31 {
++        if count > 64 || flags > 63 {
+             return 5;
+         }
+         let policy = Policy {
++            candidate_retry_mask: u64::from(mask_low) | (u64::from(mask_high) << 32),
++            complete: flags & 32 != 0,
+             max_retry_paths_per_candidate: per_candidate,
+             max_retry_paths_per_frame: per_frame,
+             max_association_checks: checks,
+@@ -205,7 +234,7 @@
+     1
+ }
+ 
+-#[cfg(feature = "experimental-orientation-stripes")]
++/// Localize the already-owned source buffer. No second image allocation/copy.
+ /// Returned JSON is invalidated by the next operation on this handle.
+ #[no_mangle]
+ #[expect(
+@@ -334,7 +363,13 @@
+     })
+ }
+ 
+-#[cfg(all(test, feature = "experimental-orientation-stripes"))]
++/// Capability check for completing effort-selected work (scan flag 32).
++#[no_mangle]
++pub extern "C" fn regions_completion_supported() -> u32 {
++    1
++}
++
++#[cfg(test)]
+ mod shared_image_tests {
+     use super::*;
+     #[test]
+@@ -399,20 +434,6 @@
+         }
+     })
+ }
+-
+-// Default ABI compatibility: localization requires the stripe recipe.
+-#[cfg(not(feature = "experimental-orientation-stripes"))]
+-#[no_mangle]
+-pub extern "C" fn regions_localize(id: u32, _fit_limit: usize) -> u32 {
+-    REGISTRY.with(|r| {
+-        if r.borrow().states.contains_key(&id) {
+-            5
+-        } else {
+-            1
+-        }
+-    })
+-}
+-
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -427,7 +448,7 @@
+         assert!(regions_output_len(id) > 0);
+         assert_eq!(regions_scan(id, 0, 16, 0, 0, 0, 0, 1), 0);
+         assert_eq!(regions_scan(id, 0, 31, 0, 0, 0, 0, 1), 0);
+-        assert_eq!(regions_scan(id, 0, 32, 0, 0, 0, 0, 1), 5);
++        assert_eq!(regions_scan(id, 0, 64, 0, 0, 0, 0, 1), 5);
+         assert_eq!(regions_output_len(id), 0);
+ 
+         assert_eq!(regions_scan(id, 65, 0, 0, 0, 0, 0, 1), 5);
+--- a/src/region_json.rs
++++ b/src/region_json.rs
+@@ -10,6 +10,33 @@
+ // Writing formatted primitives to String is infallible; append without temporary allocations.
+ fn work(w: &Work) -> String {
+     let s = format!("{{\"paths\":{},\"samples\":{},\"low_contrast\":{},\"run_windows\":{},\"quiet_pass\":{},\"guard_pass\":{},\"run_decoder_calls\":{},\"accepted_paths\":{},\"conflicts\":{},\"continuity_samples\":{},\"continuity_rejects\":{},\"capped_paths\":{},\"profile_boundary_pairs\":{},\"profile_digit_hypotheses\":{},\"truncated_paths\":{},\"retry_paths\":{},\"retry_paths_pending\":{},\"sampling_plan_capped\":{},\"discovery_paths\":{},\"scale_hint_used\":{},\"unresolved_probe_paths\":{},\"sparse_normalizations\":{},\"association_checks\":{},\"association_truncated\":{},\"continuity_capped_links\":{},\"retained_initial_detections\":{},\"cleanup_paths\":{},\"cleanup_examined\":{},\"cleanup_removed_runs\":{},\"cleanup_pixels\":{},\"interior_paths\":{},\"interior_values\":{},\"bias_paths\":{},\"bias_model_pass\":{},\"bias_guard_pass\":{}}}",w.paths,w.samples,w.low_contrast,w.windows,w.quiet_pass,w.guard_pass,w.decoder_calls,w.accepted_paths,w.conflicts,w.continuity_samples,w.continuity_rejects,w.capped_paths,w.profile_boundary_pairs,w.profile_digit_hypotheses,w.truncated_paths,w.retry_paths,w.retry_paths_pending,w.sampling_plan_capped,w.discovery_paths,w.scale_hint_used,w.unresolved_probe_paths,w.sparse_normalizations,w.association_checks,w.association_truncated,w.continuity_capped_links,w.retained_initial_detections,w.cleanup_paths,w.cleanup_examined,w.cleanup_removed_runs,w.cleanup_pixels,w.interior_paths,w.interior_values,w.bias_paths,w.bias_model_pass,w.bias_guard_pass);
++    let s = {
++        use std::fmt::Write as _;
++        let mut s = s;
++        s.pop();
++        let _ = write!(s, ",\"discovery_requests\":{}}}", w.discovery_requests);
++        s
++    };
++    let s = {
++        use std::fmt::Write as _;
++        let mut s = s;
++        s.pop();
++        let _ = write!(s, ",\"phase_rescue_paths\":{}}}", w.phase_rescue_paths);
++        s
++    };
++    #[cfg(feature = "experimental-invalid-consensus")]
++    let s = {
++        use std::fmt::Write as _;
++        let mut s = s;
++        s.pop();
++        let _ = write!(
++            s,
++            ",\"invalid_consensus_observations\":{},\"invalid_consensus_blocks\":{}}}",
++            w.invalid_consensus_observations, w.invalid_consensus_blocks
++        );
++        s
++    };
++
+     #[cfg(feature = "experimental-invalid-visual-veto")]
+     let s = {
+         use std::fmt::Write as _;
+@@ -124,5 +151,6 @@
+     );
+     #[cfg(not(feature = "experimental-identity-optional"))]
+     let optional = String::new();
++    let optional = format!("{optional},\"source_cache_hits\":{}", w.source_cache_hits);
+     format!("{{\"unfinished\":{}{},\"reconciliation\":{{\"comparisons\":{},\"merged\":{},\"ambiguous\":{},\"conflicting\":{},\"pending_observations\":{},\"truncated\":{},\"source_pairs\":{},\"source_matches\":{},\"source_pixels\":{},\"source_capped\":{},\"pending_coverage_checks\":{},\"pending_quarantined\":{}{}}},\"barcodes\":[{}],\"candidates\":[{}]}}",frame.unfinished,trace,w.comparisons,w.merged,w.ambiguous,w.conflicting,w.pending_observations,w.truncated,w.source_pairs,w.source_matches,w.source_pixels,w.source_capped,w.pending_coverage_checks,w.pending_quarantined,optional,barcodes.join(","),candidate_json(&frame.candidates))
+ }
+--- a/src/sampling.rs
++++ b/src/sampling.rs
+@@ -87,23 +87,44 @@
+     }
+     /// Share the clamped integer coordinates and row offsets of a bilinear
+     /// footprint, retaining the legacy grayscale and interpolation order.
++    #[expect(
++        clippy::inline_always,
++        reason = "The pinned sampling experiment forces these inner pixel operations inline; retain its code-generation policy and validate with paired end-to-end measurements."
++    )]
++    #[inline(always)]
+     pub(crate) fn bilinear(self, x: f64, y: f64) -> f32 {
+         let x0 = x.floor();
+         let y0 = y.floor();
+         let fx = x - x0;
+         let fy = y - y0;
+-        let left_offset =
+-            crate::numeric::f64_usize(x0.clamp(0., crate::numeric::usize_f64(self.width - 1)))
+-                * self.channels;
+-        let right_offset = crate::numeric::f64_usize(
+-            (x0 + 1.).clamp(0., crate::numeric::usize_f64(self.width - 1)),
+-        ) * self.channels;
+-        let top_offset =
+-            crate::numeric::f64_usize(y0.clamp(0., crate::numeric::usize_f64(self.height - 1)))
+-                * self.stride;
+-        let bottom_offset = crate::numeric::f64_usize(
+-            (y0 + 1.).clamp(0., crate::numeric::usize_f64(self.height - 1)),
+-        ) * self.stride;
++        let (left_offset, right_offset, top_offset, bottom_offset) = if x0 >= 0.
++            && y0 >= 0.
++            && x0 < crate::numeric::usize_f64(self.width - 1)
++            && y0 < crate::numeric::usize_f64(self.height - 1)
++        {
++            let left_offset = crate::numeric::f64_usize(x0) * self.channels;
++            let top_offset = crate::numeric::f64_usize(y0) * self.stride;
++            (
++                left_offset,
++                left_offset + self.channels,
++                top_offset,
++                top_offset + self.stride,
++            )
++        } else {
++            let left_offset =
++                crate::numeric::f64_usize(x0.clamp(0., crate::numeric::usize_f64(self.width - 1)))
++                    * self.channels;
++            let right_offset = crate::numeric::f64_usize(
++                (x0 + 1.).clamp(0., crate::numeric::usize_f64(self.width - 1)),
++            ) * self.channels;
++            let top_offset =
++                crate::numeric::f64_usize(y0.clamp(0., crate::numeric::usize_f64(self.height - 1)))
++                    * self.stride;
++            let bottom_offset = crate::numeric::f64_usize(
++                (y0 + 1.).clamp(0., crate::numeric::usize_f64(self.height - 1)),
++            ) * self.stride;
++            (left_offset, right_offset, top_offset, bottom_offset)
++        };
+         let gray = |i: usize| {
+             if self.channels == 1 {
+                 f64::from(self.data[i])
+@@ -121,6 +142,11 @@
+                     * fy,
+         )
+     }
++    #[expect(
++        clippy::inline_always,
++        reason = "The pinned sampling experiment forces these inner pixel operations inline; retain its code-generation policy and validate with paired end-to-end measurements."
++    )]
++    #[inline(always)]
+     pub(crate) fn gray(self, x: f64, y: f64) -> f64 {
+         let x = crate::numeric::f64_usize(x.clamp(0., crate::numeric::usize_f64(self.width - 1)));
+         let y = crate::numeric::f64_usize(y.clamp(0., crate::numeric::usize_f64(self.height - 1)));
+--- a/src/shear.rs
++++ b/src/shear.rs
+@@ -125,7 +125,7 @@
+                 quad[0][0] + u * horizontal_edge[0] + v * vertical_edge[0],
+                 quad[0][1] + u * horizontal_edge[1] + v * vertical_edge[1],
+             ) {
+-                let m = d[0].hypot(d[1]);
++                let m = (d[0] * d[0] + d[1] * d[1]).sqrt();
+                 derivatives.push((d, m));
+                 magnitudes.push(m);
+             }
+@@ -177,7 +177,7 @@
+                 center[1] + alpha * normal[1] + beta * tangent[1],
+             ) {
+                 let response = (d[0] * normal[0] + d[1] * normal[1]).abs();
+-                if response / d[0].hypot(d[1]).max(1.) >= 0.86 {
++                if response / (d[0] * d[0] + d[1] * d[1]).sqrt().max(1.) >= 0.86 {
+                     samples.push((i / 4, beta, response));
+                     values.push(response);
+                 }
+--- a/src/stripes.rs
++++ b/src/stripes.rs
+@@ -33,7 +33,7 @@
+ }
+ // For finite Scharr gradients, max(|dx|,|dy|) <= hypot <= |dx|+|dy|.
+ // These one-sided bounds only reject edges the original tests must reject;
+-// retained weights still use exactly the original hypot computation.
++// Bounded image gradients use direct sqrt; coordinate norms remain robust hypot.
+ fn edge_weight(dx: f64, dy: f64, ax: f64, ay: f64) -> Option<f64> {
+     let (x, y) = (dx.abs(), dy.abs());
+     if x + y <= 18. {
+@@ -43,7 +43,7 @@
+     if projection <= 0.85 * x.max(y) {
+         return None;
+     }
+-    let weight = dx.hypot(dy);
++    let weight = (dx * dx + dy * dy).sqrt();
+     (weight > 18. && projection > 0.85 * weight).then_some(weight)
+ }
+ fn distance(a: f64, b: f64) -> f64 {
+@@ -99,6 +99,61 @@
+     pub bounds: [f64; 4],
+     pub reason: &'static str,
+ }
++// Column geometry is invariant across rows. The integer RGB dot product is
++// exactly the former f64 sum: bounded integer inputs and binary denominator256.
++fn secondary_gray(
++    im: ImageView<'_>,
++    width: usize,
++    height: usize,
++    gray: &mut [f32],
++    histogram: &mut [[usize; 256]; 4],
++) {
++    let columns: Vec<_> = (0..width)
++        .map(|x| {
++            let sx = ((crate::numeric::usize_f64(x) + 0.5) * crate::numeric::usize_f64(im.width)
++                / crate::numeric::usize_f64(width)
++                - 0.5)
++                .clamp(0., crate::numeric::usize_f64(im.width - 1));
++            let x0 = crate::numeric::f64_usize(sx.floor());
++            (
++                x0 * im.channels,
++                (x0 + 1).min(im.width - 1) * im.channels,
++                sx - crate::numeric::usize_f64(x0),
++            )
++        })
++        .collect();
++    let lum = |row: &[u8], i: usize| {
++        if im.channels == 1 {
++            f64::from(row[i])
++        } else {
++            f64::from(
++                77 * u32::from(row[i]) + 150 * u32::from(row[i + 1]) + 29 * u32::from(row[i + 2]),
++            ) / 256.
++        }
++    };
++    for y in 0..height {
++        let sy = ((crate::numeric::usize_f64(y) + 0.5) * crate::numeric::usize_f64(im.height)
++            / crate::numeric::usize_f64(height)
++            - 0.5)
++            .clamp(0., crate::numeric::usize_f64(im.height - 1));
++        let y0 = crate::numeric::f64_usize(sy.floor());
++        let y1 = (y0 + 1).min(im.height - 1);
++        let fy = sy - crate::numeric::usize_f64(y0);
++        let top = &im.data[y0 * im.stride..];
++        let bottom = &im.data[y1 * im.stride..];
++        for (x, &(x0, x1, fx)) in columns.iter().enumerate() {
++            let top_left = lum(top, x0);
++            let top_right = lum(top, x1);
++            let bottom_left = lum(bottom, x0);
++            let bottom_right = lum(bottom, x1);
++            let u = top_left + (top_right - top_left) * fx;
++            let v = bottom_left + (bottom_right - bottom_left) * fx;
++            let value = crate::numeric::f64_f32(u + (v - u) * fy);
++            gray[y * width + x] = value;
++            histogram[x & 3][crate::numeric::f32_usize(value)] += 1;
++        }
++    }
++}
+ /// # Errors
+ /// Returns `Dimensions` when the image exceeds supported detector dimensions.
+ pub fn detect(im: ImageView<'_>) -> std::result::Result<Result, Error> {
+@@ -136,48 +191,17 @@
+         crate::numeric::f64_usize((crate::numeric::usize_f64(im.height) * scale).round()).max(3),
+     );
+     let mut gray = vec![0f32; working_width * working_height];
++    let mut histogram_lanes = [[0usize; 256]; 4];
+     let mut gx = vec![0f32; working_width * working_height];
+     let mut gy = vec![0f32; working_width * working_height];
+     if bilinear {
+-        // Diagnostic antialiased working-raster hypothesis; decoder source pixels
+-        // stay untouched. Same legacy RGB weights, bilinear center sampling.
+-        let luminance = |x: usize, y: usize| {
+-            let i = y * im.stride + x * im.channels;
+-            if im.channels == 1 {
+-                f64::from(im.data[i])
+-            } else {
+-                (77. * f64::from(im.data[i])
+-                    + 150. * f64::from(im.data[i + 1])
+-                    + 29. * f64::from(im.data[i + 2]))
+-                    / 256.
+-            }
+-        };
+-        for y in 0..working_height {
+-            let sy = ((crate::numeric::usize_f64(y) + 0.5) * crate::numeric::usize_f64(im.height)
+-                / crate::numeric::usize_f64(working_height)
+-                - 0.5)
+-                .clamp(0., crate::numeric::usize_f64(im.height - 1));
+-            let y0 = crate::numeric::f64_usize(sy.floor());
+-            let y1 = (y0 + 1).min(im.height - 1);
+-            let fy = sy - crate::numeric::usize_f64(y0);
+-            for x in 0..working_width {
+-                let sx = ((crate::numeric::usize_f64(x) + 0.5)
+-                    * crate::numeric::usize_f64(im.width)
+-                    / crate::numeric::usize_f64(working_width)
+-                    - 0.5)
+-                    .clamp(0., crate::numeric::usize_f64(im.width - 1));
+-                let x0 = crate::numeric::f64_usize(sx.floor());
+-                let x1 = (x0 + 1).min(im.width - 1);
+-                let fx = sx - crate::numeric::usize_f64(x0);
+-                let top_left = luminance(x0, y0);
+-                let top_right = luminance(x1, y0);
+-                let bottom_left = luminance(x0, y1);
+-                let bottom_right = luminance(x1, y1);
+-                let u = top_left + (top_right - top_left) * fx;
+-                let v = bottom_left + (bottom_right - bottom_left) * fx;
+-                gray[y * working_width + x] = crate::numeric::f64_f32(u + (v - u) * fy);
+-            }
+-        }
++        secondary_gray(
++            im,
++            working_width,
++            working_height,
++            &mut gray,
++            &mut histogram_lanes,
++        );
+     } else {
+         // Source-column mapping is invariant across all output rows. Integer RGB
+         // weights are exactly the legacy binary-fraction luminance, not a new filter.
+@@ -203,25 +227,26 @@
+             let dst = &mut gray[y * working_width..(y + 1) * working_width];
+             if im.channels == 1 {
+                 for (x, &i) in columns.iter().enumerate() {
+-                    dst[x] = f32::from(row[i]);
++                    let value = row[i];
++                    dst[x] = f32::from(value);
++                    histogram_lanes[x & 3][usize::from(value)] += 1;
+                 }
+             } else {
+                 for (x, &i) in columns.iter().enumerate() {
+-                    dst[x] = crate::numeric::f64_f32(f64::from(
+-                        77 * u32::from(row[i])
+-                            + 150 * u32::from(row[i + 1])
+-                            + 29 * u32::from(row[i + 2]),
+-                    )) / 256.;
++                    let weighted = 77 * u32::from(row[i])
++                        + 150 * u32::from(row[i + 1])
++                        + 29 * u32::from(row[i + 2]);
++                    dst[x] = crate::numeric::f64_f32(f64::from(weighted)) / 256.;
++                    // The bounded 16-bit weighted sum's high byte equals floor(gray).
++                    histogram_lanes[x & 3][usize::from(weighted.to_le_bytes()[1])] += 1;
+                 }
+             }
+         }
+     }
+     // Only the <=768px working gray raster is conditioned. Source RGB stays
+     // untouched; the decoder samples original pixels with its own contrast gates.
+-    let mut histogram = [0usize; 256];
+-    for &v in &gray {
+-        histogram[crate::numeric::f32_usize(v.clamp(0., 255.).floor())] += 1;
+-    }
++    let histogram: [usize; 256] =
++        std::array::from_fn(|i| histogram_lanes.iter().map(|lane| lane[i]).sum());
+     let quantile = |target: usize| {
+         let mut sum = 0;
+         for (i, &neighbor_index) in histogram.iter().enumerate() {
+@@ -291,7 +316,10 @@
+         neighbor_tile.angle =
+             0.5 * (2. * neighbor_tile.xy).atan2(neighbor_tile.xx - neighbor_tile.yy);
+         neighbor_tile.active = energy > 64. * 80.
+-            && (neighbor_tile.xx - neighbor_tile.yy).hypot(2. * neighbor_tile.xy) / (energy + 1.)
++            && ((neighbor_tile.xx - neighbor_tile.yy) * (neighbor_tile.xx - neighbor_tile.yy)
++                + 4. * neighbor_tile.xy * neighbor_tile.xy)
++                .sqrt()
++                / (energy + 1.)
+                 > 0.60;
+     }
+     let mut groups: Vec<Vec<usize>> = Vec::new();
+@@ -428,8 +456,10 @@
+                             let neighbor_tile = &tiles[neighbor_index];
+                             let energy = neighbor_tile.xx + neighbor_tile.yy;
+                             if energy <= 64. * 80.
+-                                || (neighbor_tile.xx - neighbor_tile.yy)
+-                                    .hypot(2. * neighbor_tile.xy)
++                                || ((neighbor_tile.xx - neighbor_tile.yy)
++                                    * (neighbor_tile.xx - neighbor_tile.yy)
++                                    + 4. * neighbor_tile.xy * neighbor_tile.xy)
++                                    .sqrt()
+                                     / (energy + 1.)
+                                     < 0.4
+                                 || distance(neighbor_tile.angle, axis) > std::f64::consts::PI / 9.
+@@ -678,7 +708,9 @@
+                                 point(bu1 + 1., bv1),
+                                 point(bu0 - 1., bv1),
+                             ],
+-                            score: 0.99f64.min((xx - yy).hypot(2. * xy) / (xx + yy + 1.)),
++                            score: 0.99f64.min(
++                                ((xx - yy) * (xx - yy) + 4. * xy * xy).sqrt() / (xx + yy + 1.),
++                            ),
+                         });
+                         if cfg!(feature = "experimental-band-local-angle")
+                             && group_index < base_count
+@@ -732,7 +764,7 @@
+         })
+         .push(Proposal {
+             polygon: [point(u0, v0), point(u1, v0), point(u1, v1), point(u0, v1)],
+-            score: 0.99f64.min((xx - yy).hypot(2. * xy) / (xx + yy + 1.)),
++            score: 0.99f64.min(((xx - yy) * (xx - yy) + 4. * xy * xy).sqrt() / (xx + yy + 1.)),
+         });
+     }
+     proposals.extend(bands);
+@@ -1179,10 +1211,10 @@
+     let quad = &p.polygon;
+     let ex = [quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]];
+     let ey = [quad[3][0] - quad[0][0], quad[3][1] - quad[0][1]];
+-    let (w, _h) = extent_dimensions(p)?;
+-    let margin = (w * 0.35).min(100.);
++    let (width, _h) = extent_dimensions(p)?;
++    let margin = (width * 0.35).min(100.);
+     let start = -crate::numeric::f64_isize(margin.ceil());
+-    let end = crate::numeric::f64_isize((w + margin).ceil());
++    let end = crate::numeric::f64_isize((width + margin).ceil());
+     let count = (end - start + 1).cast_unsigned();
+     let gray = |x: usize, y: usize| {
+         let i = y * im.stride + x * im.channels;
+@@ -1221,7 +1253,7 @@
+     for fraction in [0.2, 0.35, 0.5, 0.65, 0.8] {
+         let mut last = None;
+         for i in 0..count {
+-            let u = crate::numeric::isize_f64(start + (i).cast_signed()) / w;
++            let u = crate::numeric::isize_f64(start + (i).cast_signed()) / width;
+             let v = sample(
+                 quad[0][0] + ex[0] * u + ey[0] * fraction,
+                 quad[0][1] + ex[1] * u + ey[1] * fraction,
+@@ -1252,7 +1284,7 @@
+         }
+         prior = polarity;
+     }
+-    let gap = (w * 0.05).clamp(8., 24.);
++    let gap = (width * 0.05).clamp(8., 24.);
+     let (mut begin, mut best_begin, mut best_end) = (0, 0, 0);
+     while begin < events.len() {
+         let mut end = begin + 1;
+@@ -1260,8 +1292,8 @@
+             end += 1;
+         }
+         if end - begin >= 30
+-            && events[begin] < w * 0.5
+-            && events[end - 1] > w * 0.5
++            && events[begin] < width * 0.5
++            && events[end - 1] > width * 0.5
+             && end - begin > best_end - best_begin
+         {
+             best_begin = begin;
+@@ -1273,14 +1305,14 @@
+         return None;
+     }
+     let lo = (events[best_begin] - 2.).min(0.);
+-    let hi = (events[best_end - 1] + 2.).max(w);
+-    if lo >= -2. && hi <= w + 2. {
++    let hi = (events[best_end - 1] + 2.).max(width);
++    if lo >= -2. && hi <= width + 2. {
+         return None;
+     }
+     let at = |u: f64, v: f64| {
+         [
+-            quad[0][0] + ex[0] * u / w + ey[0] * v,
+-            quad[0][1] + ex[1] * u / w + ey[1] * v,
++            quad[0][0] + ex[0] * u / width + ey[0] * v,
++            quad[0][1] + ex[1] * u / width + ey[1] * v,
+         ]
+     };
+     Some(Proposal {
+@@ -1454,21 +1486,21 @@
+         reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+     )]
+     fn dense_barcode_band_survives_tall_connected_border() {
+-        let (w, h) = (400, 400);
+-        let mut d = vec![255u8; w * h];
++        let (width, height) = (400, 400);
++        let mut d = vec![255u8; width * height];
+         for y in 20..380 {
+             for x in 80..83 {
+-                d[y * w + x] = 0;
++                d[y * width + x] = 0;
+             }
+         }
+         for y in 200..260 {
+             for x in 80..280 {
+                 if ((x - 80) / 3) % 2 == 0 {
+-                    d[y * w + x] = 0;
+-                }
+-            }
+-        }
+-        let im = ImageView::new(&d, w, h, 1, w).unwrap();
++                    d[y * width + x] = 0;
++                }
++            }
++        }
++        let im = ImageView::new(&d, width, height, 1, width).unwrap();
+         let mut tall = false;
+         let r = detect_with_observer(im, |g| {
+             tall |= g.reason == "tall" && g.edges > 1000;
+@@ -1905,3 +1937,91 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod secondary_sampler_tests {
++    use super::*;
++    #[test]
++    fn cached_columns_preserve_every_output_bit_with_stride_and_channel_variants() {
++        for channels in [1, 3, 4] {
++            for (iw, ih, w, h) in [
++                (3, 3, 3, 3),
++                (17, 29, 11, 19),
++                (83, 57, 41, 29),
++                (31, 11, 43, 15),
++            ] {
++                let stride = iw * channels + 7;
++                let mut bytes = vec![0; stride * ih];
++                let mut seed = 0x1293_87ab_u32;
++                for top_right in &mut bytes {
++                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
++                    *top_right = (seed >> 24) as u8;
++                }
++                let im = ImageView::new(&bytes, iw, ih, channels, stride).unwrap();
++                let mut actual = vec![0.; w * h];
++                let mut histogram = [[0usize; 256]; 4];
++                secondary_gray(im, w, h, &mut actual, &mut histogram);
++                let mut gray = vec![0f32; w * h];
++                // Diagnostic antialiased working-raster hypothesis; decoder source pixels
++                // stay untouched. Same legacy RGB weights, bilinear center sampling.
++                let luminance = |x: usize, y: usize| {
++                    let i = y * im.stride + x * im.channels;
++                    if im.channels == 1 {
++                        f64::from(im.data[i])
++                    } else {
++                        (77. * f64::from(im.data[i])
++                            + 150. * f64::from(im.data[i + 1])
++                            + 29. * f64::from(im.data[i + 2]))
++                            / 256.
++                    }
++                };
++                for y in 0..h {
++                    let sy = ((crate::numeric::usize_f64(y) + 0.5)
++                        * crate::numeric::usize_f64(im.height)
++                        / crate::numeric::usize_f64(h)
++                        - 0.5)
++                        .clamp(0., crate::numeric::usize_f64(im.height - 1));
++                    let y0 = crate::numeric::f64_usize(sy.floor());
++                    let y1 = (y0 + 1).min(im.height - 1);
++                    let fy = sy - crate::numeric::usize_f64(y0);
++                    for x in 0..w {
++                        let sx = ((crate::numeric::usize_f64(x) + 0.5)
++                            * crate::numeric::usize_f64(im.width)
++                            / crate::numeric::usize_f64(w)
++                            - 0.5)
++                            .clamp(0., crate::numeric::usize_f64(im.width - 1));
++                        let x0 = crate::numeric::f64_usize(sx.floor());
++                        let x1 = (x0 + 1).min(im.width - 1);
++                        let fx = sx - crate::numeric::usize_f64(x0);
++                        let top_left = luminance(x0, y0);
++                        let top_right = luminance(x1, y0);
++                        let bottom_left = luminance(x0, y1);
++                        let bottom_right = luminance(x1, y1);
++                        let u = top_left + (top_right - top_left) * fx;
++                        let v = bottom_left + (bottom_right - bottom_left) * fx;
++                        gray[y * w + x] = crate::numeric::f64_f32(u + (v - u) * fy);
++                    }
++                }
++
++                let mut expected_histogram = [0usize; 256];
++                for &value in &gray {
++                    expected_histogram[crate::numeric::f32_usize(value.clamp(0., 255.).floor())] +=
++                        1;
++                }
++                for (bin, expected) in expected_histogram.iter().enumerate() {
++                    assert_eq!(
++                        histogram.iter().map(|lane| lane[bin]).sum::<usize>(),
++                        *expected
++                    );
++                }
++                assert!(
++                    actual
++                        .iter()
++                        .zip(&gray)
++                        .all(|(top_left, top_right)| top_left.to_bits() == top_right.to_bits()),
++                    "channels={channels} input={iw}x{ih} output={w}x{h}"
++                );
++            }
++        }
++    }
++}
+--- a/src/verified_coverage.rs
++++ b/src/verified_coverage.rs
+@@ -1,6 +1,9 @@
+ //! Optional conservative subtraction of already verified source-pixel bands.
+ //! Claims never come from text-only identity or unsupported observations.
+-use super::{claimed_interval, experiment, scan, Candidate, Error, ImageView, Quad, Segment, Work};
++use super::{
++    experiment, project_claim, projected_interval, scan, Candidate, Error, ImageView, Quad,
++    Segment, Work,
++};
+ #[cfg(test)]
+ use super::{Experiment, Policy};
+ 
+@@ -76,6 +79,13 @@
+             continue;
+         };
+         for o in &c.observations {
++            // Auxiliary invalid evidence is candidate-local; only a supported
++            // three-row track becomes an assembly barrier. It is never a
++            // standalone frame contradiction or coverage claim blocker.
++            #[cfg(feature = "experimental-invalid-consensus")]
++            if o.invalid_checksum {
++                continue;
++            }
+             let (Ok(a), Ok(b)) = (
+                 experiment::point(m.0, o.axis, o.left, o.fraction),
+                 experiment::point(m.0, o.axis, o.right, o.fraction),
+@@ -164,10 +174,16 @@
+     let (mut lo, mut hi) = (255f64, 0f64);
+     for (i, v) in r.iter_mut().enumerate() {
+         let t = (crate::numeric::usize_f64(i) + 0.5) / 192.;
+-        *v = im.gray(
+-            (edge[0][0] + t * (edge[1][0] - edge[0][0])).round(),
+-            (edge[0][1] + t * (edge[1][1] - edge[0][1])).round(),
+-        );
++        let x = (edge[0][0] + t * (edge[1][0] - edge[0][0])).round();
++        let y = (edge[0][1] + t * (edge[1][1] - edge[0][1])).round();
++        // Endpoints were checked above; convex interpolation remains in bounds.
++        *v = if im.channels == 1 {
++            f64::from(
++                im.data[crate::numeric::f64_usize(y) * im.stride + crate::numeric::f64_usize(x)],
++            )
++        } else {
++            im.gray(x, y)
++        };
+         lo = lo.min(*v);
+         hi = hi.max(*v);
+     }
+@@ -188,6 +204,74 @@
+         *v /= norm;
+     }
+     Some(r)
++}
++#[cfg(feature = "experimental-coverage-extension")]
++fn extension_correlation(
++    im: ImageView<'_>,
++    reference: &[f64; 192],
++    edge: [[f64; 2]; 2],
++    work: &mut Work,
++    budget: &mut ReuseBudget,
++) -> Option<f64> {
++    for p in edge {
++        if !p[0].is_finite()
++            || !p[1].is_finite()
++            || p[0] < 0.
++            || p[1] < 0.
++            || p[0] > crate::numeric::usize_f64(im.width) - 1.
++            || p[1] > crate::numeric::usize_f64(im.height) - 1.
++        {
++            return None;
++        }
++    }
++    if budget.pixels_remaining < 192 {
++        work.extension_capped += 1;
++        return None;
++    }
++    budget.pixels_remaining -= 192;
++    work.extension_samples += 192;
++    let mut r = [0.; 192];
++    let (mut lo, mut hi) = (255f64, 0f64);
++    for (i, v) in r.iter_mut().enumerate() {
++        let t = (crate::numeric::usize_f64(i) + 0.5) / 192.;
++        let x = (edge[0][0] + t * (edge[1][0] - edge[0][0])).round();
++        let y = (edge[0][1] + t * (edge[1][1] - edge[0][1])).round();
++        // Endpoints were checked above; convex interpolation remains in bounds.
++        *v = if im.channels == 1 {
++            f64::from(
++                im.data[crate::numeric::f64_usize(y) * im.stride + crate::numeric::f64_usize(x)],
++            )
++        } else {
++            im.gray(x, y)
++        };
++        lo = lo.min(*v);
++        hi = hi.max(*v);
++    }
++    if hi - lo < 8. {
++        return None;
++    }
++    let mean = r.iter().sum::<f64>() / 192.;
++    let mut norm = 0.;
++    let mut dot = 0.;
++    for (v, a) in r.iter_mut().zip(reference) {
++        *v -= mean;
++        norm += *v * *v;
++        dot += a * *v;
++    }
++    if norm < 1. {
++        return None;
++    }
++    let norm = norm.sqrt();
++    let corr = dot / norm;
++    // Preserve the original decision if floating-point reassociation is close
++    // enough to the threshold to matter. No sampling or budget changes.
++    if (corr - 0.98).abs() < 1e-12 {
++        for v in &mut r {
++            *v /= norm;
++        }
++        return Some(reference.iter().zip(r).map(|(a, b)| a * b).sum());
++    }
++    Some(corr)
+ }
+ #[cfg(feature = "experimental-coverage-extension")]
+ fn extend_claim(im: ImageView<'_>, quad: Quad, work: &mut Work, budget: &mut ReuseBudget) -> Quad {
+@@ -218,10 +302,9 @@
+         for step in 1..=steps {
+             let d = crate::numeric::usize_f64(step) * 0.5;
+             let e = edge.map(|p| [p[0] + sign * d * v[0], p[1] + sign * d * v[1]]);
+-            let Some(row) = extension_row(im, e, work, budget) else {
++            let Some(corr) = extension_correlation(im, &reference, e, work, budget) else {
+                 break;
+             };
+-            let corr = reference.iter().zip(row).map(|(a, b)| a * b).sum::<f64>();
+             if corr < 0.98 {
+                 break;
+             }
+@@ -247,10 +330,10 @@
+     out
+ }
+ 
+-fn reuse_segment(
++fn reuse_projected_segment(
+     m: [f64; 9],
+     s: Segment,
+-    claims: &[Quad],
++    claims: &[Option<Quad>],
+     budget: &mut ReuseBudget,
+     work: &mut Work,
+ ) -> Result<Vec<Segment>, Error> {
+@@ -259,7 +342,7 @@
+         if !budget.check(work) {
+             return Ok(vec![s]);
+         }
+-        if let Some((a, b)) = claimed_interval(m, s.axis, s.fraction, *q) {
++        if let Some((a, b)) = q.and_then(|q| projected_interval(q, s.axis, s.fraction)) {
+             let (a, b) = (a.max(s.lo), b.min(s.hi));
+             if b > a {
+                 intervals.push((a, b));
+@@ -317,9 +400,11 @@
+     if claims.is_empty() {
+         return paths;
+     }
++    let projected: Vec<_> = claims.iter().map(|q| project_claim(m, *q)).collect();
+     let mut out = Vec::new();
+     for s in paths {
+-        let pieces = reuse_segment(m, s, claims, budget, work).unwrap_or_else(|_| vec![s]);
++        let pieces =
++            reuse_projected_segment(m, s, &projected, budget, work).unwrap_or_else(|_| vec![s]);
+         // The planner already counted this original segment. Unmaterialized
+         // paths stay pending; only these concrete replaced paths are adjusted.
+         work.retry_paths_pending = work.retry_paths_pending.saturating_sub(1) + pieces.len();
+@@ -328,6 +413,17 @@
+     out
+ }
+ 
++#[cfg(test)]
++fn reuse_segment(
++    m: [f64; 9],
++    s: Segment,
++    claims: &[Quad],
++    budget: &mut ReuseBudget,
++    work: &mut Work,
++) -> Result<Vec<Segment>, Error> {
++    let projected: Vec<_> = claims.iter().map(|q| project_claim(m, *q)).collect();
++    reuse_projected_segment(m, s, &projected, budget, work)
++}
+ #[cfg(test)]
+ mod reuse_tests {
+     use super::*;
+@@ -446,6 +542,8 @@
+         for ambiguous in [false, true] {
+             let mut c = candidate(q, vec![detection(band, 1)]);
+             c.observations.push(experiment::Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous,
+                 digits: if ambiguous { [1; 13] } else { [2; 13] },
+@@ -530,7 +628,8 @@
+             assert_eq!(result.len(), 2);
+             for (c, q) in result.iter().zip(qs) {
+                 assert_eq!(c.coverage, q);
+-                assert_eq!(c.work.discovery_paths, 10);
++                assert_eq!(c.work.discovery_requests, 10);
++                assert!(c.work.discovery_paths >= 4);
+                 assert_eq!(c.work.paths, c.work.retry_paths + 10);
+                 assert!(c
+                     .detections
+@@ -681,6 +780,8 @@
+         for ambiguous in [false, true] {
+             let mut c = make();
+             c.observations.push(experiment::Observation {
++                #[cfg(feature = "experimental-invalid-consensus")]
++                invalid_checksum: false,
+                 short_quiet: false,
+                 ambiguous,
+                 digits: if ambiguous { [1; 13] } else { [2; 13] },
+@@ -849,7 +950,8 @@
+                 };
+                 let result = Experiment::default().scan_scaled(im, &qs, policy).unwrap();
+                 for c in result {
+-                    assert_eq!(c.work.discovery_paths, 10);
++                    assert_eq!(c.work.discovery_requests, 10);
++                    assert!(c.work.discovery_paths >= 4);
+                     for (digits, sign) in [(A, -1.), (second, 1.)] {
+                         if !c.detections.iter().any(|d| {
+                             d.digits == digits
+@@ -882,3 +984,7 @@
+         assert_eq!(w.extension_cache_hits, 1);
+     }
+ }
++
++#[cfg(test)]
++#[path = "coverage_arithmetic_tests.rs"]
++mod coverage_arithmetic_tests;
+--- /dev/null
++++ b/src/coverage_arithmetic_tests.rs
+@@ -0,0 +1,40 @@
++use super::*;
++#[test]
++fn fused_coverage_correlation_preserves_threshold_decisions() {
++    for channels in [1, 3, 4] {
++        let stride = 400 * channels + 7;
++        let mut pixels = vec![0; stride * 16];
++        for y in 0..16 {
++            for x in 0..400 {
++                for c in 0..channels {
++                    pixels[y * stride + x * channels + c] =
++                        u8::try_from(30 + ((x * 17 + c * 13) % 150) + (y * (x % 5))).unwrap();
++                }
++            }
++        }
++        let im = ImageView::new(&pixels, 400, 16, channels, stride).unwrap();
++        for y in 0..15 {
++            for offset in 0..16 {
++                let edge = [[4., 0.], [395., 0.]];
++                let mut budget = ReuseBudget {
++                    pixels_remaining: 100_000,
++                    ..Default::default()
++                };
++                let mut work = Work::default();
++                let reference = extension_row(im, edge, &mut work, &mut budget).unwrap();
++                let d = crate::numeric::usize_f64(offset) / 20.;
++                let row_edge = [
++                    [4. + d, crate::numeric::usize_f64(y)],
++                    [395. + d, crate::numeric::usize_f64(y)],
++                ];
++                let row = extension_row(im, row_edge, &mut work, &mut budget).unwrap();
++                let expected: f64 = reference.iter().zip(row).map(|(a, b)| a * b).sum();
++                let observed =
++                    extension_correlation(im, &reference, row_edge, &mut work, &mut budget)
++                        .unwrap();
++                assert!((expected - observed).abs() < 1e-12);
++                assert_eq!(expected < 0.98, observed < 0.98);
++            }
++        }
++    }
++}

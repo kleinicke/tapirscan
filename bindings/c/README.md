@@ -86,3 +86,10 @@ text capacity must be `text_length + 1`, using the explicit length for embedded 
 For a runnable consumer and compile/link setup, use
 [the C smoke example](tests/smoke.c) and the [CMake build](../cpp/README.md).
 The mixed `tapirscan_*`/`barcode_*` names are the current ABI, not separate libraries.
+
+## Finishing candidate work
+
+Enable the `BARCODE_FINISH_CANDIDATES` scan flag to remove shared frame retry and association budgets
+for EAN13/UPC-A candidates. Default is disabled; selected formats must include
+EAN13 or UPCA. Per-candidate effort and other limits remain; unfinished work is
+still reported. See [API design](../../docs/API_DESIGN.md) for scope and cost.

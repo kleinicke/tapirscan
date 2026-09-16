@@ -1,3 +1,4 @@
+import { mergeLinearDuplicates } from "./multiformat/linear-duplicates.js";
 import type { Recovery, DetailRegion } from "./detail-20260914/scanner.mjs";
 import { ReleaseDetailScanner, fitLimits } from "./detail.js";
 import { policy } from "./policy.js";
@@ -17,7 +18,7 @@ import {
   type Image as HostImage,
   type ScanFrame,
   type Quad as HostQuad,
-} from "./host.js";
+} from "./completion-host.mjs";
 /** Source-image corners, in pixels. */
 export type Quad = readonly [
   readonly [number, number],
@@ -33,10 +34,12 @@ export interface Image {
   readonly channels: 1 | 3 | 4;
   readonly stride?: number;
 }
-export { ScannerError } from "./host.js";
+export { ScannerError } from "./completion-host.mjs";
 type RawDiagnosticBarcode = FormatBarcode | (ScanFrame["barcodes"][number] & { format: "EAN13" });
 export type Mode = "low" | "medium" | "high" | "very-high";
 export interface ScanOptions {
+  /** Finish effort-selected EAN13/UPCA work beyond shared frame budgets. */
+  finishCandidates?: boolean;
   /** Per-call subset of the formats configured at creation. */
   formats?: FormatSelection;
   debug?: boolean;
@@ -246,10 +249,10 @@ function publicResult(raw: RawDiagnostics, image: HostImage, debug: boolean): Sc
   });
 }
 const modes = {
-  low: "low-release-20260916.wasm",
-  medium: "medium-release-20260916.wasm",
-  high: "high-release-20260916.wasm",
-  "very-high": "very-high-release-20260916.wasm",
+  low: "low-complete-release-20260916.wasm",
+  medium: "medium-complete-release-20260916.wasm",
+  high: "high-complete-release-20260916.wasm",
+  "very-high": "very-high-complete-release-20260916.wasm",
 } as const;
 /** Mode selects a compiled implementation. Create another instance to switch. */
 export class Scanner {
@@ -328,17 +331,26 @@ export class Scanner {
     if (input === null || typeof input !== "object" || Array.isArray(input))
       throw new TypeError("Invalid scan options");
     for (const key of Object.keys(options))
-      if (key !== "debug" && key !== "formats") throw new TypeError(`Unknown scan option: ${key}`);
+      if (key !== "debug" && key !== "formats" && key !== "finishCandidates")
+        throw new TypeError(`Unknown scan option: ${key}`);
     if (options.debug !== undefined && typeof options.debug !== "boolean")
       throw new TypeError("debug must be a boolean");
+    if (options.finishCandidates !== undefined && typeof options.finishCandidates !== "boolean")
+      throw new TypeError("finishCandidates must be a boolean");
     const debug = options.debug ?? false;
+    const scanPolicy = { ...policy, finishCandidates: options.finishCandidates ?? false };
     const formats = options.formats === undefined ? this.formats : resolveFormats(options.formats);
     if (formats.some((format) => !this.formats.includes(format)))
       throw new TypeError(
         `Scan formats must be a subset of configured formats. Requested: ${formats.join(", ")}; configured: ${this.formats.join(", ")}`,
       );
     if (this.host instanceof MediumMultiformatScanner) {
-      const frame = this.host.scan(image, formats, { eanAddOnSymbol: this.eanAddOnPolicy });
+      if (options.finishCandidates && !formats.some((f) => f === "EAN13" || f === "UPCA"))
+        throw new TypeError("finishCandidates requires EAN13 or UPCA");
+      const frame = this.host.scan(image, formats, {
+        eanAddOnSymbol: this.eanAddOnPolicy,
+        finishCandidates: options.finishCandidates,
+      });
       const barcodes = frame.barcodes;
       const primary = frame.primary;
       const localization = primary?.localization as RawDiagnostics["localization"];
@@ -369,13 +381,16 @@ export class Scanner {
         debug,
       );
     }
-    const full = this.host.scanLocalized(image, policy, fitLimits[this.mode], true);
+    const full = this.host.scanLocalized(image, scanPolicy, fitLimits[this.mode], true);
     // Isolate the imported host's JSON result at the public ABI type boundary.
     const localization = full.localization as NonNullable<RawDiagnostics["localization"]>;
-    const barcodes = full.scan.barcodes.map((b) => ({
-      ...b,
-      format: "EAN13" as const,
-    }));
+    const barcodes = mergeLinearDuplicates(
+      full.scan.barcodes.map((b) => ({
+        ...b,
+        format: "EAN13" as const,
+      })),
+      image,
+    );
     return publicResult(
       {
         schemaVersion: 2,
@@ -414,12 +429,12 @@ export async function scan(
   const input: unknown = options;
   if (input === null || typeof input !== "object" || Array.isArray(input))
     throw new TypeError("Invalid scan options");
-  const { debug, ...creation } = options;
+  const { debug, finishCandidates, ...creation } = options;
   if (debug !== undefined && typeof debug !== "boolean")
     throw new TypeError("debug must be a boolean");
   const scanner = await Scanner.create(creation);
   try {
-    return scanner.scan(image, { debug });
+    return scanner.scan(image, { debug, finishCandidates });
   } finally {
     scanner.dispose();
   }

@@ -1,8 +1,18 @@
 // CLI used by the cross-language parity suite; not an additional node:test case.
 import { readFile } from "node:fs/promises";
 import { Scanner } from "../dist/index.js";
-const [mode, width, height, channels, stride, file, multiple, includeRegions, formats] =
-  process.argv.slice(2);
+const [
+  mode,
+  width,
+  height,
+  channels,
+  stride,
+  file,
+  multiple,
+  includeRegions,
+  formats,
+  finishCandidates,
+] = process.argv.slice(2);
 const scanner = await Scanner.create({
   mode,
   ...(formats ? { formats: formats.split(",") } : {}),
@@ -22,6 +32,7 @@ try {
     },
     {
       debug: true,
+      finishCandidates: finishCandidates === "1",
     },
   );
   // The native ABI still supports single selection; compare it with JS .best.

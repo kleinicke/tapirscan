@@ -21,6 +21,70 @@ fn pixel(image: &[u8], width: usize, height: usize, x: f32, y: f32) -> Option<f3
                 * fy,
     )
 }
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+fn pixels4(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    x: core::arch::wasm32::v128,
+    y: core::arch::wasm32::v128,
+) -> Option<[f32; 4]> {
+    use core::arch::wasm32::{
+        f32x4, f32x4_add, f32x4_extract_lane, f32x4_floor, f32x4_ge, f32x4_lt, f32x4_mul,
+        f32x4_splat, f32x4_sub, i32x4_all_true, v128_and,
+    };
+    let valid = v128_and(
+        v128_and(
+            f32x4_ge(x, f32x4_splat(0.)),
+            f32x4_lt(x, f32x4_splat(crate::numeric::usize_f32(width - 1))),
+        ),
+        v128_and(
+            f32x4_ge(y, f32x4_splat(0.)),
+            f32x4_lt(y, f32x4_splat(crate::numeric::usize_f32(height - 1))),
+        ),
+    );
+    if !i32x4_all_true(valid) {
+        return None;
+    }
+    let floor_x = f32x4_floor(x);
+    let floor_y = f32x4_floor(y);
+    let left = [
+        f32x4_extract_lane::<0>(floor_x),
+        f32x4_extract_lane::<1>(floor_x),
+        f32x4_extract_lane::<2>(floor_x),
+        f32x4_extract_lane::<3>(floor_x),
+    ]
+    .map(crate::numeric::f32_usize);
+    let top = [
+        f32x4_extract_lane::<0>(floor_y),
+        f32x4_extract_lane::<1>(floor_y),
+        f32x4_extract_lane::<2>(floor_y),
+        f32x4_extract_lane::<3>(floor_y),
+    ]
+    .map(crate::numeric::f32_usize);
+    let offsets: [usize; 4] = std::array::from_fn(|i| top[i] * width + left[i]);
+    let read = |offset: usize| {
+        f32x4(
+            f32::from(image[offsets[0] + offset]),
+            f32::from(image[offsets[1] + offset]),
+            f32::from(image[offsets[2] + offset]),
+            f32::from(image[offsets[3] + offset]),
+        )
+    };
+    let fx = f32x4_sub(x, floor_x);
+    let fy = f32x4_sub(y, floor_y);
+    let ix = f32x4_sub(f32x4_splat(1.), fx);
+    let iy = f32x4_sub(f32x4_splat(1.), fy);
+    let upper = f32x4_add(f32x4_mul(read(0), ix), f32x4_mul(read(1), fx));
+    let lower = f32x4_add(f32x4_mul(read(width), ix), f32x4_mul(read(width + 1), fx));
+    let value = f32x4_add(f32x4_mul(upper, iy), f32x4_mul(lower, fy));
+    Some([
+        f32x4_extract_lane::<0>(value),
+        f32x4_extract_lane::<1>(value),
+        f32x4_extract_lane::<2>(value),
+        f32x4_extract_lane::<3>(value),
+    ])
+}
 pub(crate) fn refine(image: &[u8], width: usize, height: usize, quad: Quad) -> Quad {
     refine_axes(image, width, height, quad, false)
 }
@@ -92,26 +156,60 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
     let b = -center[0] * rotation_sine + center[1] * cosine;
     let sample_count = crate::numeric::f32_usize(axis_width.ceil()).clamp(64, 256);
     let a0 = a - axis_width * 0.5;
-    let profile = |cross: f32| -> Option<Vec<f32>> {
-        (0..sample_count)
-            .map(|i| {
-                let along = a0
-                    + axis_width * (crate::numeric::usize_f32(i) + 0.5)
-                        / crate::numeric::usize_f32(sample_count)
-                    + shear * (cross - b);
-                pixel(
-                    image,
-                    width,
-                    height,
-                    along * cosine - cross * rotation_sine,
-                    along * rotation_sine + cross * cosine,
-                )
-            })
-            .collect()
+    let along_samples: Vec<f32> = (0..sample_count)
+        .map(|i| {
+            a0 + axis_width * (crate::numeric::usize_f32(i) + 0.5)
+                / crate::numeric::usize_f32(sample_count)
+        })
+        .collect();
+    let profile = |cross: f32, output: &mut Vec<f32>| -> bool {
+        output.clear();
+        let shear_offset = shear * (cross - b);
+        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+        let remaining = {
+            use core::arch::wasm32::{f32x4, f32x4_add, f32x4_mul, f32x4_splat, f32x4_sub};
+            let mut chunks = along_samples.chunks_exact(4);
+            for chunk in &mut chunks {
+                let along = f32x4_add(
+                    f32x4(chunk[0], chunk[1], chunk[2], chunk[3]),
+                    f32x4_splat(shear_offset),
+                );
+                let x = f32x4_sub(
+                    f32x4_mul(along, f32x4_splat(cosine)),
+                    f32x4_splat(cross * rotation_sine),
+                );
+                let y = f32x4_add(
+                    f32x4_mul(along, f32x4_splat(rotation_sine)),
+                    f32x4_splat(cross * cosine),
+                );
+                let Some(values) = pixels4(image, width, height, x, y) else {
+                    return false;
+                };
+                output.extend_from_slice(&values);
+            }
+            chunks.remainder()
+        };
+        #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+        let remaining = &along_samples;
+        for &base_along in remaining {
+            let along = base_along + shear_offset;
+            let Some(value) = pixel(
+                image,
+                width,
+                height,
+                along * cosine - cross * rotation_sine,
+                along * rotation_sine + cross * cosine,
+            ) else {
+                return false;
+            };
+            output.push(value);
+        }
+        true
     };
-    let Some(reference) = profile(b) else {
+    let mut reference = Vec::with_capacity(sample_count);
+    if !profile(b, &mut reference) {
         return quad;
-    };
+    }
     let mean = reference.iter().sum::<f32>() / crate::numeric::usize_f32(sample_count);
     let reference: Vec<_> = reference.iter().map(|v| v - mean).collect();
     let variance = reference.iter().map(|v| v * v).sum::<f32>();
@@ -125,6 +223,14 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
             return None;
         }
         let correlation = |offset: isize| {
+            if offset == 0 {
+                let cov = reference
+                    .iter()
+                    .zip(row)
+                    .map(|(&r, &v)| r * (v - mean))
+                    .sum::<f32>();
+                return cov / (variance * var).sqrt().max(1.);
+            }
             let mut cov = 0_f32;
             let mut reference_var = 0_f32;
             let mut row_var = 0_f32;
@@ -158,14 +264,15 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
         let mut last = b;
         let mut misses = 0;
         let mut shift = 0;
+        let mut row = Vec::with_capacity(sample_count);
         for i in 1..=crate::numeric::f32_usize(
             (crate::numeric::usize_f32(width).hypot(crate::numeric::usize_f32(height)) / step)
                 .ceil(),
         ) {
             let cross = b + direction * crate::numeric::usize_f32(i) * step;
-            let Some(row) = profile(cross) else {
+            if !profile(cross, &mut row) {
                 break;
-            };
+            }
             if let Some(next_shift) = continuous(&row, shift) {
                 shift = next_shift;
                 last = cross;

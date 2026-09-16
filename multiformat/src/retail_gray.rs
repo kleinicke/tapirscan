@@ -43,14 +43,21 @@ fn templates() -> &'static [Template] {
         let mut bank = Vec::new();
         for sigma in [0.3, 0.45, 0.6, 0.8, 1.] {
             for phase in [-0.2, 0., 0.2] {
+                // All digit edges lie on the same eight integer module positions.
+                // Reuse exact CDF evaluations across the ten patterns.
+                let integrals: [[f32; 8]; SAMPLES] = std::array::from_fn(|i| {
+                    let x = (crate::numeric::usize_f32(i) + 0.5) / 6. - phase;
+                    std::array::from_fn(|edge| {
+                        normal_cdf((x - crate::numeric::usize_f32(edge)) / sigma)
+                    })
+                });
                 for (digit, widths) in crate::linear::DIGITS.iter().enumerate() {
                     let mut values = std::array::from_fn(|i| {
-                        let x = (crate::numeric::usize_f32(i) + 0.5) / 6. - phase;
-                        let mut v = 1. - normal_cdf(x / sigma) - normal_cdf((x - 7.) / sigma);
-                        let mut edge = 0.;
+                        let mut v = 1. - integrals[i][0] - integrals[i][7];
+                        let mut edge = 0;
                         for (j, &width) in widths.iter().take(3).enumerate() {
-                            edge += f32::from(width);
-                            v += normal_cdf((x - edge) / sigma) * if j % 2 == 0 { 1. } else { -1. };
+                            edge += usize::from(width);
+                            v += integrals[i][edge] * if j % 2 == 0 { 1. } else { -1. };
                         }
                         v
                     });
@@ -180,5 +187,39 @@ mod tests {
         let (row, widths) = blurred_symbol("96385075");
         assert!(super::decode(&row, &widths, 1, false).is_none());
         assert!(super::decode(&vec![180; row.len()], &widths, 1, false).is_none());
+    }
+}
+
+#[cfg(test)]
+mod shared_integral_tests {
+    use super::*;
+    #[test]
+    fn shared_integrals_preserve_every_template_bit() {
+        let mut index = 0;
+        for sigma in [0.3, 0.45, 0.6, 0.8, 1.] {
+            for phase in [-0.2, 0., 0.2] {
+                for (digit, widths) in crate::linear::DIGITS.iter().enumerate() {
+                    let mut values = std::array::from_fn(|i| {
+                        let x = (crate::numeric::usize_f32(i) + 0.5) / 6. - phase;
+                        let mut value = 1. - normal_cdf(x / sigma) - normal_cdf((x - 7.) / sigma);
+                        let mut edge = 0.;
+                        for (j, &width) in widths.iter().take(3).enumerate() {
+                            edge += f32::from(width);
+                            value +=
+                                normal_cdf((x - edge) / sigma) * if j % 2 == 0 { 1. } else { -1. };
+                        }
+                        value
+                    });
+                    normalize(&mut values);
+                    assert_eq!(usize::from(templates()[index].digit), digit);
+                    assert_eq!(
+                        templates()[index].values.map(f32::to_bits),
+                        values.map(f32::to_bits)
+                    );
+                    index += 1;
+                }
+            }
+        }
+        assert_eq!(index, templates().len());
     }
 }

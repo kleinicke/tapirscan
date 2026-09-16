@@ -287,14 +287,25 @@ fn digit(r: &[f32], even: bool, gain: f32) -> Option<(u8, f32)> {
     let module = r[..4].iter().sum::<f32>() / 7.;
     let adjusted: [f32; 4] =
         std::array::from_fn(|i| r[i] - gain * module * if i % 2 == 0 { 1. } else { -1. });
+    let sum: f32 = adjusted.iter().sum();
+    let adjusted_module = sum / 7.;
+    if adjusted_module < 0.65 {
+        return None;
+    }
     let mut best = (0, 10.);
     let mut second = 10.;
     for (i, p) in DIGITS.iter().enumerate() {
-        let mut q = *p;
-        if even {
-            q.reverse();
+        let mut e = 0.;
+        for (j, &value) in adjusted.iter().enumerate() {
+            let pattern = p[if even { 3 - j } else { j }];
+            let delta = (value - f32::from(pattern) * adjusted_module).abs();
+            if delta > adjusted_module {
+                e = 10. * sum;
+                break;
+            }
+            e += delta;
         }
-        let e = error(&adjusted, &q);
+        let e = e / sum;
         if e < best.1 {
             second = best.1;
             best = ((i).to_le_bytes()[0], e);
@@ -350,6 +361,12 @@ fn ean_guards(r: &[f32], s: usize, end: usize, count: usize) -> bool {
     reason = "The symbol parser keeps start/stop, parity, checksum and work-limit transitions together for the same run cursor."
 )]
 fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
+    let module = r.get(s..s + 3)?.iter().sum::<f32>() / 3.;
+    // Every retail layout requires this same leading quiet zone. Reject before
+    // guard fitting and share the measured guard scale across candidate layouts.
+    if !(s > 0 && r[s - 1] >= module * if s == 1 { 0.5 } else { 4. }) {
+        return None;
+    }
     if error_adjusted(&r[s..], &[1, 1, 1]) > 0.25 {
         return None;
     }
@@ -365,7 +382,6 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
         if end > r.len() {
             continue;
         }
-        let module = r[s..s + 3].iter().sum::<f32>() / 3.;
         if !quiet(r, s, end, module, 4.) {
             continue;
         }
@@ -1041,7 +1057,18 @@ fn decode_impl(
 ) -> Vec<Read> {
     let mut out = Vec::new();
     let mut s = usize::from(!first_black);
-    while s + 16 <= r.len() {
+    let minimum_runs = if mask & !(15 | ADDON_READ | ADDON_REQUIRE) == 0 {
+        if mask & UPCE != 0 {
+            33
+        } else if mask & EAN8 != 0 {
+            43
+        } else {
+            59
+        }
+    } else {
+        16
+    };
+    while s + minimum_runs <= r.len() {
         // GS1 DataBar has no required quiet zone; its finder and checksum
         // validate starts even when the first white guard touches the image edge.
         let quiet = s > 0 && (s == 1 || r[s - 1] >= r[s] * 2.);
@@ -1104,6 +1131,52 @@ fn decode_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn digit_reference(r: &[f32], even: bool, gain: f32) -> Option<(u8, f32)> {
+        let module = r[..4].iter().sum::<f32>() / 7.;
+        let adjusted: [f32; 4] =
+            std::array::from_fn(|i| r[i] - gain * module * if i % 2 == 0 { 1. } else { -1. });
+        let mut best = (0, 10.);
+        let mut second = 10.;
+        for (i, p) in DIGITS.iter().enumerate() {
+            let mut q = *p;
+            if even {
+                q.reverse();
+            }
+            let e = error(&adjusted, &q);
+            if e < best.1 {
+                second = best.1;
+                best = ((i).to_le_bytes()[0], e);
+            } else {
+                second = second.min(e);
+            }
+        }
+        (best.1 < 0.23 && second - best.1 > 0.012).then_some(best)
+    }
+    #[test]
+    fn retail_digit_kernel_matches_original() {
+        let mut state = 0x9160_0011_u32;
+        for trial in 0..100_000 {
+            let widths: [f32; 4] = std::array::from_fn(|i| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                if trial % 2 == 0 {
+                    f32::from(DIGITS[(trial / 2) % 10][i]) * 2.
+                        + f32::from(state.to_be_bytes()[0]) / 255.
+                        - 0.5
+                } else {
+                    f32::from(state.to_be_bytes()[0]) / 17.
+                }
+            });
+            for gain in [-0.5, -0.25, 0., 0.25, 0.5] {
+                for even in [false, true] {
+                    assert_eq!(
+                        digit(&widths, even, gain),
+                        digit_reference(&widths, even, gain)
+                    );
+                }
+            }
+        }
+    }
 
     #[expect(
         clippy::too_many_lines,
@@ -1601,6 +1674,17 @@ mod tests {
                     .expect("valid reordered fixture")
                     .decoded
             );
+            for leading in [0., 0.49, 0.5, 1., 3.99, 4., 10.] {
+                for prefix in [0, 2] {
+                    let mut trial = vec![1.; prefix];
+                    trial.extend_from_slice(&runs);
+                    trial[prefix] = leading;
+                    assert_eq!(
+                        parity_read(ean(&trial, prefix + 1, mask, true)),
+                        parity_read(ean_reference(&trial, prefix + 1, mask, true))
+                    );
+                }
+            }
             for perturbation in 0..3 {
                 if perturbation == 1 {
                     runs[10] += 0.25;

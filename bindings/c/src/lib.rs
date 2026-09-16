@@ -66,6 +66,11 @@ fn boundary(f: impl FnOnce() -> Result<(), i32>) -> i32 {
 fn output(id: u64) -> Result<Arc<Output>, i32> {
     registry()?.results.get(&id).cloned().ok_or(HANDLE)
 }
+/// Bit 0: finishing effort-selected EAN/UPC candidates is supported.
+#[no_mangle]
+pub extern "C" fn barcode_capabilities() -> u32 {
+    1
+}
 #[no_mangle]
 pub extern "C" fn barcode_abi_version() -> u32 {
     4
@@ -156,7 +161,7 @@ pub unsafe extern "C" fn barcode_scan_formats(
             return Err(ARG);
         }
         *out = 0;
-        if flags & !15 != 0
+        if flags & !31 != 0
             || flags & 12 == 12
             || pixels.is_null()
             || length > MAX_BYTES
@@ -189,6 +194,7 @@ pub unsafe extern "C" fn barcode_scan_formats(
                     stride: usize::try_from(stride).map_err(|_| ARG)?,
                 },
                 ScanOptions {
+                    finish_candidates: flags & 16 != 0,
                     multiple: flags & 1 == 0,
                     include_regions: flags & 2 != 0,
                 },
@@ -335,7 +341,7 @@ mod tests {
             let mut id = 0;
             assert_eq!(tapirscan_create(&raw mut id), 0);
             let pixels = [255u8; 64 * 64];
-            for flags in [4, 8, 12, 16] {
+            for flags in [4, 8, 12, 16, 20, 24, 32] {
                 let mut result = 99;
                 let status = barcode_scan_with_options(
                     id,
@@ -348,7 +354,7 @@ mod tests {
                     flags,
                     &raw mut result,
                 );
-                if flags == 4 || flags == 8 {
+                if matches!(flags, 4 | 8 | 16 | 20 | 24) {
                     assert_eq!(status, 0);
                     assert_eq!(barcode_result_destroy(result), 0);
                 } else {
@@ -384,7 +390,7 @@ mod tests {
                     64,
                     1,
                     64,
-                    16,
+                    32,
                     &raw mut result
                 ),
                 ARG

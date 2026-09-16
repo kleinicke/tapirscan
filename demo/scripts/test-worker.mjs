@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { prepareZXingModule, writeBarcode } from "zxing-wasm/writer";
 import { retailFormats, commonFormats } from "../../bindings/javascript/dist/index.js";
 
 const selections = [["EAN13"], retailFormats, commonFormats, ["QRCode"], ["EAN13"]];
@@ -75,6 +76,7 @@ for (const mode of modes) {
         height: fixture.height,
         buffer: rgba.slice().buffer,
         scannerVersion: mode,
+        finishCandidates: formats.includes("EAN13"),
         formats,
         engineBaseUrl: base + "engines/",
       },
@@ -95,6 +97,54 @@ assert.equal(
   modes.length + 1,
   "Selected EAN engines and the additional reader must load",
 );
+
+// Independent test-only encoder: ensure non-EAN13 results survive the demo adapter.
+await prepareZXingModule({
+  overrides: {
+    wasmBinary: await readFile(
+      new URL("../node_modules/zxing-wasm/dist/writer/zxing_writer.wasm", import.meta.url),
+    ),
+  },
+  fireImmediately: true,
+});
+for (const [format, text, formats] of [
+  ["EAN8", "96385074", retailFormats],
+  ["QRCode", "Tapirscan QR camera test", commonFormats],
+]) {
+  const encoded = await writeBarcode(text, { format });
+  assert.equal(encoded.error, "");
+  const { width, height, data } = encoded.symbol;
+  const scale = 6,
+    padding = 60,
+    w = width * scale + padding * 2,
+    h = height * scale + padding * 2;
+  const pixels = new Uint8Array(w * h * 4).fill(255);
+  for (let y = 0; y < height * scale; y++)
+    for (let x = 0; x < width * scale; x++) {
+      const value = data[Math.floor(y / scale) * width + Math.floor(x / scale)];
+      pixels.set([value, value, value, 255], ((y + padding) * w + x + padding) * 4);
+    }
+  for (const mode of modes) {
+    messages.length = 0;
+    await context.self.onmessage({
+      data: {
+        width: w,
+        height: h,
+        buffer: pixels.slice().buffer,
+        scannerVersion: mode,
+        formats,
+        engineBaseUrl: base + "engines/",
+      },
+    });
+    const message = messages.at(-1);
+    assert.ok(message.result, JSON.stringify(message));
+    assert.ok(
+      message.result.regions.some((region) => region.text === text),
+      `${mode} ${format} must reach the demo: ${JSON.stringify(message)}`,
+    );
+  }
+  console.log(`${format}: decoded value reaches demo in all modes`);
+}
 
 const reference = (await readdir(new URL("assets/", dist))).find((p) =>
   p.startsWith("reference.worker-"),

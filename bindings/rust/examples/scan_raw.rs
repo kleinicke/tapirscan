@@ -28,6 +28,7 @@ fn main() {
                 stride,
             },
             ScanOptions {
+                finish_candidates: false,
                 multiple: true,
                 include_regions: true,
             },

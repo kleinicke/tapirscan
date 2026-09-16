@@ -18,6 +18,7 @@ fn main() {
         .scan_formats(
             image,
             ScanOptions {
+                finish_candidates: false,
                 multiple: args[7] == "1",
                 include_regions: args[8] == "1",
             },

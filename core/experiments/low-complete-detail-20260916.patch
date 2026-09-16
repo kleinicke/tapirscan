@@ -1,0 +1,1971 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -11,10 +11,6 @@
+ panic = "abort"
+ 
+ [features]
+-# Stable entry points; experimental feature details stay pinned in build-recipes.json.
+-fast = ["experimental-identity-phase", "experimental-stripe-bands", "experimental-profile-aperture", "experimental-dense-unsupported-scale", "experimental-native-wide-tiles", "experimental-interior-bounds", "experimental-shared-coverage-identity", "experimental-complete-tile-prefix", "experimental-profile-guard-precheck", "experimental-verified-coverage-reuse", "experimental-nearest-lowres", "experimental-forward-blur", "experimental-coverage-extension", "experimental-gap-density", "experimental-strong-single-row", "experimental-redundant-decode", "experimental-compact-output", "experimental-flat-envelope", "experimental-source-angle", "experimental-angle-replace", "experimental-flexible-identity", "experimental-identity-budgeted-link", "experimental-identity-optional", "experimental-extrema-runs", "experimental-asymmetric-quiet", "experimental-unresolved-256", "experimental-local-extrema-gaps", "experimental-invalid-visual-veto"]
+-quality = ["fast", "experimental-native-soft"]
+-
+ experimental-secondary-grid = ["experimental-stripe-bands"]
+ experimental-invalid-visual-veto = []
+ experimental-native-soft = ["experimental-forward-blur"]
+@@ -134,10 +130,3 @@
+ experimental-redundant-decode = []
+ 
+ experimental-angle-replace = []
+-
+-# This diagnostic imports the feature-gated stripe localizer. Keep the default
+-# feature set buildable and make the diagnostic available in balanced recipes.
+-[[bin]]
+-name = "stripe_diagnostic"
+-path = "src/bin/stripe_diagnostic.rs"
+-required-features = ["experimental-orientation-stripes"]
+--- a/src/experiment.rs
++++ b/src/experiment.rs
+@@ -20,6 +20,7 @@
+ }
+ #[derive(Default, Debug, Clone)]
+ pub struct Work {
++    pub selected_retry_limit: usize,
+     pub invalid_visual_seen: usize,
+     pub invalid_veto_intervals: usize,
+     pub invalid_veto_reads: usize,
+@@ -170,6 +171,7 @@
+     native: bool,
+     dense: bool,
+     decoder: DecoderMode,
++    fixed3: bool,
+ }
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum DecoderMode {
+@@ -179,6 +181,11 @@
+     Many,
+ }
+ impl Config {
++    pub(crate) fn with_three_rows(mut self) -> Self {
++        self.fixed3 = true;
++        self.name = "multi_fixed3";
++        self
++    }
+     /// # Errors
+     /// Returns `Parameters` when native-length sampling is combined with a fixed-length profile decoder.
+     pub fn new(
+@@ -195,6 +202,7 @@
+             native,
+             dense,
+             decoder,
++            fixed3: false,
+         })
+     }
+ }
+@@ -203,6 +211,7 @@
+     native: false,
+     dense: false,
+     decoder: DecoderMode::Many,
++    fixed3: false,
+ };
+ pub const CONFIGS: [Config; 5] = [
+     Config {
+@@ -210,30 +219,35 @@
+         native: false,
+         dense: false,
+         decoder: DecoderMode::Profile,
++        fixed3: false,
+     },
+     Config {
+         name: "runs_fixed5",
+         native: false,
+         dense: false,
+         decoder: DecoderMode::Runs,
++        fixed3: false,
+     },
+     Config {
+         name: "runs_native5",
+         native: true,
+         dense: false,
+         decoder: DecoderMode::Runs,
++        fixed3: false,
+     },
+     Config {
+         name: "runs_native21",
+         native: true,
+         dense: true,
+         decoder: DecoderMode::Runs,
++        fixed3: false,
+     },
+     Config {
+         name: "combined_fixed5",
+         native: false,
+         dense: false,
+         decoder: DecoderMode::Combined,
++        fixed3: false,
+     },
+ ];
+ // Exact contiguous selection using the same coordinate expression as the legacy scan.
+@@ -1205,16 +1219,26 @@
+     ) -> Vec<Candidate> {
+         self.scan_with_budget(im, candidates, config, &mut AssociationBudget::default())
+     }
+-    #[expect(
+-        clippy::too_many_lines,
+-        reason = "This evidence pass keeps ordered hypotheses, contradiction vetoes and work accounting together within one scan transaction."
+-    )]
+     pub(crate) fn scan_with_budget(
+         &mut self,
+         im: ImageView<'_>,
+         candidates: &[Quad],
+         config: Config,
+         budget: &mut AssociationBudget,
++    ) -> Vec<Candidate> {
++        self.scan_with_budget_axes(im, candidates, config, budget, false)
++    }
++    #[expect(
++        clippy::too_many_lines,
++        reason = "This evidence pass keeps ordered hypotheses, contradiction vetoes and work accounting together within one scan transaction."
++    )]
++    pub(crate) fn scan_with_budget_axes(
++        &mut self,
++        im: ImageView<'_>,
++        candidates: &[Quad],
++        config: Config,
++        budget: &mut AssociationBudget,
++        module_axis: bool,
+     ) -> Vec<Candidate> {
+         candidates
+             .iter()
+@@ -1234,9 +1258,26 @@
+                     out.error = true;
+                     return out;
+                 };
++                let full = coverage
++                    .iter()
++                    .zip([
++                        [0., 0.],
++                        [crate::numeric::usize_f64(im.width - 1), 0.],
++                        [
++                            crate::numeric::usize_f64(im.width - 1),
++                            crate::numeric::usize_f64(im.height - 1),
++                        ],
++                        [0., crate::numeric::usize_f64(im.height - 1)],
++                    ])
++                    .all(|(a, b)| (a[0] - b[0]).abs() <= 1. && (a[1] - b[1]).abs() <= 1.);
+                 for axis in 0..2 {
++                    if module_axis && axis == 1 && !full {
++                        continue;
++                    }
+                     let fractions: Vec<f64> = if config.dense {
+                         (0..21).map(|i| 0.2 + 0.03 * f64::from(i)).collect()
++                    } else if config.fixed3 {
++                        vec![0.2, 0.5, 0.8]
+                     } else {
+                         vec![0.2, 0.35, 0.5, 0.65, 0.8]
+                     };
+@@ -2987,7 +3028,10 @@
+         assert_eq!(result.len(), 1);
+         let c = &result[0];
+         assert_eq!(c.coverage, q);
+-        assert_eq!(c.work.discovery_paths, 10);
++        assert!(
++            (5..=10).contains(&c.work.discovery_paths),
++            "both normalized axes and at least five native module-axis rows"
++        );
+         assert!(c.work.forward_blur_calls > 0);
+         assert!(c.work.forward_blur_windows > 0);
+         assert!(c.work.forward_blur_accepted_windows > 0);
+--- a/src/frame.rs
++++ b/src/frame.rs
+@@ -218,10 +218,18 @@
+ fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy: Policy) -> Frame {
+     let used_checks: usize = candidates.iter().map(|c| c.work.association_checks).sum();
+     let mut budget = AssociationBudget {
+-        checks_left: policy.max_association_checks.saturating_sub(used_checks),
+-        pixels_left: policy
+-            .max_association_pixels
+-            .saturating_sub(candidates.iter().map(|c| c.work.continuity_samples).sum()),
++        checks_left: if policy.complete {
++            usize::MAX
++        } else {
++            policy.max_association_checks.saturating_sub(used_checks)
++        },
++        pixels_left: if policy.complete {
++            usize::MAX
++        } else {
++            policy
++                .max_association_pixels
++                .saturating_sub(candidates.iter().map(|c| c.work.continuity_samples).sum())
++        },
+     };
+     let mut counter = Work::default();
+     let mut work = ReconciliationWork::default();
+@@ -1053,7 +1061,10 @@
+             )
+             .unwrap();
+         assert!(frame.unfinished);
+-        assert!(frame.candidates.iter().all(|c| c.work.paths == 10));
++        assert!(frame
++            .candidates
++            .iter()
++            .all(|c| matches!(c.work.paths, 3 | 6)));
+         assert!(
+             frame
+                 .candidates
+--- a/src/multi_scan.rs
++++ b/src/multi_scan.rs
+@@ -15,6 +15,9 @@
+ )]
+ #[derive(Clone, Copy, Debug)]
+ pub struct Policy {
++    /// Remove shared frame execution/association budgets. Per-candidate effort,
++    /// weak-candidate deferral, sampling geometry and safety caps still apply.
++    pub complete: bool,
+     pub max_retry_paths_per_candidate: usize,
+     pub max_retry_paths_per_frame: usize,
+     pub max_association_checks: usize,
+@@ -29,6 +32,7 @@
+ impl Default for Policy {
+     fn default() -> Self {
+         Self {
++            complete: false,
+             max_retry_paths_per_candidate: 512,
+             max_retry_paths_per_frame: 8192,
+             max_association_checks: 200_000,
+@@ -59,6 +63,37 @@
+ #[cfg(feature = "experimental-verified-coverage-reuse")]
+ use verified_coverage::{reuse_plan, verified_claims, ReuseBudget};
+ 
++// Equal text can denote separate physical barcodes. Only overlapping,
++// agreeing initial detections may share the easier-frame effort allocation.
++fn multiple_initial<'a>(items: impl Iterator<Item = &'a experiment::Detection>) -> bool {
++    let bounds = |q: Quad| {
++        [
++            q.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min),
++            q.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min),
++            q.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max),
++            q.iter().map(|p| p[1]).fold(f64::NEG_INFINITY, f64::max),
++        ]
++    };
++    let mut seen: Vec<([u8; 13], [f64; 4])> = Vec::new();
++    for d in items {
++        let b = bounds(d.polygon);
++        for (a, q) in &seen {
++            if *a != d.digits
++                || q[2] + 2. < b[0]
++                || b[2] + 2. < q[0]
++                || q[3] + 2. < b[1]
++                || b[3] + 2. < q[1]
++            {
++                return true;
++            }
++        }
++        if seen.len() >= 64 {
++            return true;
++        }
++        seen.push((d.digits, b));
++    }
++    false
++}
+ /// Breadth-first interval centers spread every short prefix across the extent.
+ fn spread_order(n: usize) -> Vec<usize> {
+     let mut queue = std::collections::VecDeque::from([(0, n)]);
+@@ -337,12 +372,7 @@
+     clippy::many_single_char_names,
+     reason = "The 2x2 projective inverse uses conventional a,b,c,d,e,g coefficients and paired x,y and u,v coordinates."
+ )]
+-fn claimed_interval(
+-    matrix: [f64; 9],
+-    axis: usize,
+-    fraction: f64,
+-    quad: Quad,
+-) -> Option<(f64, f64)> {
++fn project_claim(matrix: [f64; 9], quad: Quad) -> Option<Quad> {
+     let mut points = [[0.; 2]; 4];
+     for (i, p) in quad.iter().enumerate() {
+         let (x, y) = (p[0] + 0.5, p[1] + 0.5);
+@@ -362,21 +392,43 @@
+         if !u.is_finite() || !v.is_finite() {
+             return None;
+         }
+-        points[i] = if axis == 0 { [u, v] } else { [v, u] };
+-    }
+-    let mut xs = Vec::with_capacity(4);
++        points[i] = [u, v];
++    }
++    Some(points)
++}
++
++fn projected_interval(points: Quad, axis: usize, fraction: f64) -> Option<(f64, f64)> {
++    let mut xs = [0.; 4];
++    let mut count = 0;
+     for i in 0..4 {
+         let (a, b) = (points[i], points[(i + 1) % 4]);
++        let (a, b) = if axis == 0 {
++            (a, b)
++        } else {
++            ([a[1], a[0]], [b[1], b[0]])
++        };
+         if (a[1] <= fraction && fraction < b[1]) || (b[1] <= fraction && fraction < a[1]) {
+-            xs.push(a[0] + (b[0] - a[0]) * (fraction - a[1]) / (b[1] - a[1]));
+-        }
+-    }
+-    if xs.len() != 2 {
++            xs[count] = a[0] + (b[0] - a[0]) * (fraction - a[1]) / (b[1] - a[1]);
++            count += 1;
++        }
++    }
++    if count != 2 {
+         return None;
+     }
+-    xs.sort_by(f64::total_cmp);
++    if xs[0].total_cmp(&xs[1]).is_gt() {
++        xs.swap(0, 1);
++    }
+     Some((xs[0], xs[1]))
+ }
++fn claimed_interval(
++    matrix: [f64; 9],
++    axis: usize,
++    fraction: f64,
++    quad: Quad,
++) -> Option<(f64, f64)> {
++    projected_interval(project_claim(matrix, quad)?, axis, fraction)
++}
++
+ fn unresolved_plan(
+     m: [f64; 9],
+     detections: &[experiment::Detection],
+@@ -696,11 +748,24 @@
+         // The first pass is completed across every initial candidate before any
+         // retry. Coverage is retained independently of observations/detections.
+         let mut budget = experiment::AssociationBudget {
+-            checks_left: policy.max_association_checks,
+-            pixels_left: policy.max_association_pixels,
++            checks_left: if policy.complete {
++                usize::MAX
++            } else {
++                policy.max_association_checks
++            },
++            pixels_left: if policy.complete {
++                usize::MAX
++            } else {
++                policy.max_association_pixels
++            },
+         };
+-        let mut outputs =
+-            self.scan_with_budget(im, candidates, experiment::MULTI_FIXED, &mut budget);
++        let mut outputs = self.scan_with_budget_axes(
++            im,
++            candidates,
++            experiment::MULTI_FIXED.with_three_rows(),
++            &mut budget,
++            true,
++        );
+         let mut used = 0;
+         if scaled {
+             // Independent broad discovery after every candidate's fixed pass.
+@@ -708,7 +773,28 @@
+             // or repeated symbols before selecting subdivision scale.
+             for i in 0..10 {
+                 for c in &mut outputs {
+-                    if used >= policy.max_retry_paths_per_frame
++                    let full = c
++                        .coverage
++                        .iter()
++                        .zip([
++                            [0., 0.],
++                            [crate::numeric::usize_f64(im.width - 1), 0.],
++                            [
++                                crate::numeric::usize_f64(im.width - 1),
++                                crate::numeric::usize_f64(im.height - 1),
++                            ],
++                            [0., crate::numeric::usize_f64(im.height - 1)],
++                        ])
++                        .all(|(a, b)| (a[0] - b[0]).abs() <= 1. && (a[1] - b[1]).abs() <= 1.);
++                    // Localizer quads identify the module axis. Fixed discovery still covers
++                    // both axes; retain both native axes for full frames or contrary evidence.
++                    if i % 2 == 1
++                        && !full
++                        && !c.observations.iter().any(|o| o.axis == 1 && !o.ambiguous)
++                    {
++                        continue;
++                    }
++                    if (!policy.complete && used >= policy.max_retry_paths_per_frame)
+                         || c.work.retry_paths >= policy.max_retry_paths_per_candidate
+                     {
+                         c.work.retry_paths_pending += 1;
+@@ -741,8 +827,8 @@
+                         m.0,
+                         segment,
+                         c,
+-                        policy.transition_cleanup,
+-                        policy.interior_normalization,
++                        policy.transition_cleanup && !full,
++                        policy.interior_normalization && !full,
+                         policy.guard_bias,
+                     );
+                     used += 1;
+@@ -776,6 +862,89 @@
+             }
+             q
+         };
++        // Decide effort only after every candidate has received fixed and
++        // native discovery. Never return early on a successful read. Retain
++        // all candidates and explicit pending work on lower-effort frames.
++        // Native discovery adds observations after the fixed-pass detections
++        // were assembled. Use bounded, strict assembly only to choose effort;
++        // final returned detections still go through the ordinary final assembly.
++        // These probes spend the same frame association budget, not a hidden one.
++        let mut discovery_reads = Vec::new();
++        let mut probe_checks = budget.checks_left.min(policy.max_association_checks / 10);
++        let mut probe_pixels = budget.pixels_left.min(policy.max_association_pixels / 10);
++        if scaled && budget.checks_left >= 10_000 && budget.pixels_left >= 10_000 {
++            for c in &mut outputs {
++                if c.observations.len() < 2 || probe_checks == 0 || probe_pixels == 0 {
++                    continue;
++                }
++                let Ok(m) = scan::transform(c.coverage) else {
++                    continue;
++                };
++                let checks = probe_checks.min(2000);
++                let pixels = probe_pixels.min(32768);
++                let mut small = experiment::AssociationBudget {
++                    checks_left: checks,
++                    pixels_left: pixels,
++                };
++                let mut work = Work::default();
++                let reads = experiment::assemble_many_budget_options(
++                    im,
++                    m.0,
++                    &c.observations,
++                    &mut work,
++                    true,
++                    &mut small,
++                    false,
++                );
++                let used_checks = checks - small.checks_left;
++                let used_pixels = pixels - small.pixels_left;
++                probe_checks -= used_checks;
++                probe_pixels -= used_pixels;
++                budget.checks_left -= used_checks;
++                budget.pixels_left -= used_pixels;
++                c.work.association_checks += used_checks;
++                c.work.continuity_samples += work.continuity_samples;
++                if work.association_truncated == 0 {
++                    discovery_reads.extend(reads);
++                }
++            }
++        }
++        let strong = outputs
++            .iter()
++            .any(|c| c.detections.iter().any(|d| d.support >= 2))
++            || discovery_reads.iter().any(|d| d.support >= 2);
++        let multiple = multiple_initial(
++            outputs
++                .iter()
++                .flat_map(|c| c.detections.iter())
++                .chain(discovery_reads.iter()),
++        );
++        let confident = outputs
++            .iter()
++            .any(|c| c.detections.iter().any(|d| d.support >= 4))
++            || discovery_reads.iter().any(|d| d.support >= 4);
++        let cap = if multiple {
++            192
++        } else if confident {
++            10
++        } else if strong {
++            16
++        } else {
++            64
++        };
++        let policy = Policy {
++            max_retry_paths_per_candidate: policy.max_retry_paths_per_candidate.min(cap),
++            ..policy
++        };
++        for c in &mut outputs {
++            c.work.selected_retry_limit = if confident && !multiple {
++                c.work
++                    .discovery_paths
++                    .min(policy.max_retry_paths_per_candidate)
++            } else {
++                policy.max_retry_paths_per_candidate
++            };
++        }
+         let mut plans = Vec::with_capacity(candidates.len());
+         for c in &mut outputs {
+             let start = Timer::now();
+@@ -788,10 +957,22 @@
+                             None
+                         };
+                         c.work.scale_hint_used = usize::from(width.is_some());
++                        let reserve = if (129..=256).contains(&policy.max_retry_paths_per_candidate)
++                        {
++                            16
++                        } else if (24..=128).contains(&policy.max_retry_paths_per_candidate) {
++                            8
++                        } else if (16..24).contains(&policy.max_retry_paths_per_candidate) {
++                            4
++                        } else {
++                            0
++                        };
+                         let remaining = Policy {
+-                            max_retry_paths_per_candidate: policy
+-                                .max_retry_paths_per_candidate
+-                                .saturating_sub(c.work.retry_paths),
++                            max_retry_paths_per_candidate: c
++                                .work
++                                .selected_retry_limit
++                                .saturating_sub(c.work.retry_paths)
++                                .saturating_sub(reserve),
+                             ..policy
+                         };
+                         // A visual width may guide tile size and retain its existing work allowance,
+@@ -836,17 +1017,17 @@
+             c.ms += start.ms();
+         }
+         for step in 0..policy.max_retry_paths_per_candidate {
+-            if used >= policy.max_retry_paths_per_frame {
++            if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                 break;
+             }
+             for (c, p) in outputs.iter_mut().zip(&plans) {
+-                if used >= policy.max_retry_paths_per_frame {
++                if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                     break;
+                 }
+                 let Some((m, paths)) = p else { continue };
+                 let Some(s) = paths.get(step) else { continue };
+                 #[cfg(feature = "experimental-verified-coverage-reuse")]
+-                if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
++                if c.work.retry_paths >= c.work.selected_retry_limit {
+                     continue;
+                 }
+                 used += 1;
+@@ -917,14 +1098,14 @@
+             } else {
+                 42
+             } {
+-                if used >= policy.max_retry_paths_per_frame {
++                if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                     break;
+                 }
+                 for ((c, p), extra) in outputs.iter_mut().zip(&plans).zip(&refinements) {
+-                    if used >= policy.max_retry_paths_per_frame {
++                    if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                         break;
+                     }
+-                    if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
++                    if c.work.retry_paths >= c.work.selected_retry_limit {
+                         continue;
+                     }
+                     let (Some((m, _)), Some(s)) = (p, extra.get(step)) else {
+@@ -1049,11 +1230,11 @@
+         } else {
+             64
+         } {
+-            if used >= policy.max_retry_paths_per_frame {
++            if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                 break;
+             }
+             for ((c, p), extra) in outputs.iter_mut().zip(&plans).zip(&confirmation) {
+-                if used >= policy.max_retry_paths_per_frame {
++                if !policy.complete && used >= policy.max_retry_paths_per_frame {
+                     break;
+                 }
+                 if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
+@@ -1179,8 +1360,8 @@
+                     .unwrap();
+                 assert_eq!(out.len(), 3);
+                 assert!(out[1].error);
+-                assert_eq!(out[0].work.paths, 10 + out[0].work.retry_paths);
+-                assert_eq!(out[2].work.paths, 10 + out[2].work.retry_paths);
++                assert_eq!(out[0].work.paths, 6 + out[0].work.retry_paths);
++                assert_eq!(out[2].work.paths, 6 + out[2].work.retry_paths);
+                 assert!(out[0].work.retry_paths_pending > 0);
+                 assert!(out[2].work.retry_paths_pending > 0);
+                 assert_eq!(
+@@ -1523,7 +1704,6 @@
+             21
+         );
+     }
+-    #[cfg(feature = "experimental-single-row-search")]
+     #[test]
+     #[expect(
+         clippy::float_cmp,
+@@ -1754,7 +1934,7 @@
+     paths: Vec<Segment>,
+ ) -> Vec<Segment> {
+     if scaled
+-        && c.work.discovery_paths == 10
++        && matches!(c.work.discovery_paths, 5 | 10)
+         && c.work.accepted_paths == 0
+         && c.work.max_run_count < 30
+     {
+@@ -1808,9 +1988,9 @@
+         assert_eq!(result.len(), qs.len());
+         for (c, q) in result.iter().zip(qs) {
+             assert_eq!(c.coverage, q);
+-            assert_eq!(c.work.discovery_paths, 10);
+-            assert_eq!(c.work.paths, 20);
+-            assert_eq!(c.work.retry_paths, 10);
++            assert!(matches!(c.work.discovery_paths, 5 | 10));
++            assert!(matches!(c.work.paths, 8 | 16));
++            assert_eq!(c.work.retry_paths, c.work.discovery_paths);
+             assert_eq!(c.work.accepted_paths, 0);
+             assert_eq!(c.work.max_run_count, 0);
+             assert!(c.work.structural_retry_skipped > 0);
+@@ -1873,7 +2053,7 @@
+                 )
+                 .unwrap();
+             for c in result {
+-                assert_eq!(c.work.discovery_paths, 10);
++                assert!(matches!(c.work.discovery_paths, 5 | 10));
+                 assert!(c.work.accepted_paths > 0);
+                 assert_eq!(c.work.structural_retry_skipped, 0);
+                 assert!(c
+@@ -1940,3 +2120,74 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod adaptive_multi_tests {
++    use super::*;
++    #[test]
++    fn distinct_equal_text_regions_keep_full_effort() {
++        let a = experiment::Detection {
++            digits: [1; 13],
++            polygon: [[0., 0.], [200., 0.], [200., 50.], [0., 50.]],
++            support: 4,
++            axis: 0,
++        };
++        let same = a.clone();
++        assert!(!multiple_initial([&a, &same].into_iter()));
++        let mut b = a.clone();
++        b.polygon = b.polygon.map(|[x, y]| [x, y + 62.]);
++        assert!(multiple_initial([&a, &b].into_iter()));
++        let mut c = a.clone();
++        c.digits[0] = 2;
++        assert!(multiple_initial([&a, &c].into_iter()));
++    }
++}
++
++#[cfg(test)]
++mod completion_tests {
++    use super::*;
++    #[test]
++    fn completion_ignores_frame_budget_but_preserves_candidate_effort() {
++        let pixels = vec![255; 600 * 300];
++        let im = ImageView::new(&pixels, 600, 300, 1, 600).unwrap();
++        let q = [[0., 0.], [599., 0.], [599., 299.], [0., 299.]];
++        let policy = Policy {
++            max_retry_paths_per_frame: 0,
++            ..Policy::default()
++        };
++        let mut engine = Experiment::default();
++        let bounded = engine.scan_scaled(im, &[q; 3], policy).unwrap();
++        let complete = engine
++            .scan_scaled(
++                im,
++                &[q; 3],
++                Policy {
++                    complete: true,
++                    ..policy
++                },
++            )
++            .unwrap();
++        let reference = engine
++            .scan_scaled(
++                im,
++                &[q; 3],
++                Policy {
++                    max_retry_paths_per_frame: 65536,
++                    ..policy
++                },
++            )
++            .unwrap();
++        assert!(bounded.iter().all(|c| c.work.retry_paths == 0));
++        for (c, r) in complete.iter().zip(&reference) {
++            assert!(c.work.retry_paths > 0);
++            assert_eq!(c.work.retry_paths, r.work.retry_paths);
++            assert_eq!(c.work.retry_paths_pending, r.work.retry_paths_pending);
++            #[cfg(feature = "experimental-structural-retry")]
++            assert_eq!(
++                c.work.structural_retry_skipped,
++                r.work.structural_retry_skipped
++            );
++            assert!(c.work.retry_paths <= policy.max_retry_paths_per_candidate);
++        }
++    }
++}
+--- a/src/orientation.rs
++++ b/src/orientation.rs
+@@ -287,7 +287,7 @@
+         assert!(f.orientation.pixels <= 64 * 48 * 48 * 8);
+         for c in f.frame.candidates {
+             assert_eq!(c.coverage, q);
+-            assert_eq!(c.work.paths, 10);
++            assert_eq!(c.work.paths, 6);
+         }
+         assert!(Experiment::default()
+             .scan_oriented_frame(im, &[q; 65], Policy::default())
+--- a/src/region_abi.rs
++++ b/src/region_abi.rs
+@@ -149,10 +149,11 @@
+         let Some((width, height, c, stride)) = s.shape else {
+             return 4;
+         };
+-        if count > 64 || flags > 31 {
++        if count > 64 || flags > 63 {
+             return 5;
+         }
+         let policy = Policy {
++            complete: flags & 32 != 0,
+             max_retry_paths_per_candidate: per_candidate,
+             max_retry_paths_per_frame: per_frame,
+             max_association_checks: checks,
+@@ -205,7 +206,7 @@
+     1
+ }
+ 
+-#[cfg(feature = "experimental-orientation-stripes")]
++/// Localize the already-owned source buffer. No second image allocation/copy.
+ /// Returned JSON is invalidated by the next operation on this handle.
+ #[no_mangle]
+ #[expect(
+@@ -334,7 +335,13 @@
+     })
+ }
+ 
+-#[cfg(all(test, feature = "experimental-orientation-stripes"))]
++/// Capability check for completing effort-selected work (scan flag 32).
++#[no_mangle]
++pub extern "C" fn regions_completion_supported() -> u32 {
++    1
++}
++
++#[cfg(test)]
+ mod shared_image_tests {
+     use super::*;
+     #[test]
+@@ -399,20 +406,6 @@
+         }
+     })
+ }
+-
+-// Default ABI compatibility: localization requires the stripe recipe.
+-#[cfg(not(feature = "experimental-orientation-stripes"))]
+-#[no_mangle]
+-pub extern "C" fn regions_localize(id: u32, _fit_limit: usize) -> u32 {
+-    REGISTRY.with(|r| {
+-        if r.borrow().states.contains_key(&id) {
+-            5
+-        } else {
+-            1
+-        }
+-    })
+-}
+-
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -427,7 +420,7 @@
+         assert!(regions_output_len(id) > 0);
+         assert_eq!(regions_scan(id, 0, 16, 0, 0, 0, 0, 1), 0);
+         assert_eq!(regions_scan(id, 0, 31, 0, 0, 0, 0, 1), 0);
+-        assert_eq!(regions_scan(id, 0, 32, 0, 0, 0, 0, 1), 5);
++        assert_eq!(regions_scan(id, 0, 64, 0, 0, 0, 0, 1), 5);
+         assert_eq!(regions_output_len(id), 0);
+ 
+         assert_eq!(regions_scan(id, 65, 0, 0, 0, 0, 0, 1), 5);
+--- a/src/region_json.rs
++++ b/src/region_json.rs
+@@ -78,6 +78,13 @@
+         let _ = write!(s, ",\"extrema_calls\":{},\"extrema_examined\":{},\"extrema_capped\":{},\"extrema_ambiguous\":{},\"extrema_decoder_calls\":{}}}",w.extrema_calls,w.extrema_examined,w.extrema_capped,w.extrema_ambiguous,w.extrema_decoder_calls);
+         s
+     };
++    let s = {
++        use std::fmt::Write as _;
++        let mut s = s;
++        s.pop();
++        let _ = write!(s, ",\"selected_retry_limit\":{}}}", w.selected_retry_limit);
++        s
++    };
+     s
+ }
+ fn coverage_json(q: scan::Quad) -> String {
+--- a/src/sampling.rs
++++ b/src/sampling.rs
+@@ -87,23 +87,44 @@
+     }
+     /// Share the clamped integer coordinates and row offsets of a bilinear
+     /// footprint, retaining the legacy grayscale and interpolation order.
++    #[expect(
++        clippy::inline_always,
++        reason = "The pinned sampling experiment forces these inner pixel operations inline; retain its code-generation policy and validate with paired end-to-end measurements."
++    )]
++    #[inline(always)]
+     pub(crate) fn bilinear(self, x: f64, y: f64) -> f32 {
+         let x0 = x.floor();
+         let y0 = y.floor();
+         let fx = x - x0;
+         let fy = y - y0;
+-        let left_offset =
+-            crate::numeric::f64_usize(x0.clamp(0., crate::numeric::usize_f64(self.width - 1)))
+-                * self.channels;
+-        let right_offset = crate::numeric::f64_usize(
+-            (x0 + 1.).clamp(0., crate::numeric::usize_f64(self.width - 1)),
+-        ) * self.channels;
+-        let top_offset =
+-            crate::numeric::f64_usize(y0.clamp(0., crate::numeric::usize_f64(self.height - 1)))
+-                * self.stride;
+-        let bottom_offset = crate::numeric::f64_usize(
+-            (y0 + 1.).clamp(0., crate::numeric::usize_f64(self.height - 1)),
+-        ) * self.stride;
++        let (left_offset, right_offset, top_offset, bottom_offset) = if x0 >= 0.
++            && y0 >= 0.
++            && x0 < crate::numeric::usize_f64(self.width - 1)
++            && y0 < crate::numeric::usize_f64(self.height - 1)
++        {
++            let left_offset = crate::numeric::f64_usize(x0) * self.channels;
++            let top_offset = crate::numeric::f64_usize(y0) * self.stride;
++            (
++                left_offset,
++                left_offset + self.channels,
++                top_offset,
++                top_offset + self.stride,
++            )
++        } else {
++            let left_offset =
++                crate::numeric::f64_usize(x0.clamp(0., crate::numeric::usize_f64(self.width - 1)))
++                    * self.channels;
++            let right_offset = crate::numeric::f64_usize(
++                (x0 + 1.).clamp(0., crate::numeric::usize_f64(self.width - 1)),
++            ) * self.channels;
++            let top_offset =
++                crate::numeric::f64_usize(y0.clamp(0., crate::numeric::usize_f64(self.height - 1)))
++                    * self.stride;
++            let bottom_offset = crate::numeric::f64_usize(
++                (y0 + 1.).clamp(0., crate::numeric::usize_f64(self.height - 1)),
++            ) * self.stride;
++            (left_offset, right_offset, top_offset, bottom_offset)
++        };
+         let gray = |i: usize| {
+             if self.channels == 1 {
+                 f64::from(self.data[i])
+@@ -121,6 +142,11 @@
+                     * fy,
+         )
+     }
++    #[expect(
++        clippy::inline_always,
++        reason = "The pinned sampling experiment forces these inner pixel operations inline; retain its code-generation policy and validate with paired end-to-end measurements."
++    )]
++    #[inline(always)]
+     pub(crate) fn gray(self, x: f64, y: f64) -> f64 {
+         let x = crate::numeric::f64_usize(x.clamp(0., crate::numeric::usize_f64(self.width - 1)));
+         let y = crate::numeric::f64_usize(y.clamp(0., crate::numeric::usize_f64(self.height - 1)));
+--- a/src/shear.rs
++++ b/src/shear.rs
+@@ -101,6 +101,9 @@
+     }
+     Some(result)
+ }
++// Sobel components come from byte luminance and are bounded by 1020.
++// Their squared norm cannot overflow/underflow: use hardware sqrt rather
++// than general-purpose scaled hypot. No coordinate norms are changed.
+ #[must_use]
+ #[expect(
+     clippy::too_many_lines,
+@@ -125,7 +128,7 @@
+                 quad[0][0] + u * horizontal_edge[0] + v * vertical_edge[0],
+                 quad[0][1] + u * horizontal_edge[1] + v * vertical_edge[1],
+             ) {
+-                let m = d[0].hypot(d[1]);
++                let m = (d[0] * d[0] + d[1] * d[1]).sqrt();
+                 derivatives.push((d, m));
+                 magnitudes.push(m);
+             }
+@@ -177,7 +180,7 @@
+                 center[1] + alpha * normal[1] + beta * tangent[1],
+             ) {
+                 let response = (d[0] * normal[0] + d[1] * normal[1]).abs();
+-                if response / d[0].hypot(d[1]).max(1.) >= 0.86 {
++                if response / (d[0] * d[0] + d[1] * d[1]).sqrt().max(1.) >= 0.86 {
+                     samples.push((i / 4, beta, response));
+                     values.push(response);
+                 }
+--- a/src/stripes.rs
++++ b/src/stripes.rs
+@@ -33,7 +33,8 @@
+ }
+ // For finite Scharr gradients, max(|dx|,|dy|) <= hypot <= |dx|+|dy|.
+ // These one-sided bounds only reject edges the original tests must reject;
+-// retained weights still use exactly the original hypot computation.
++// Nano computes the bounded gradient norm directly; image gradients cannot
++// overflow or underflow. This changes last-bit rounding versus hypot.
+ fn edge_weight(dx: f64, dy: f64, ax: f64, ay: f64) -> Option<f64> {
+     let (x, y) = (dx.abs(), dy.abs());
+     if x + y <= 18. {
+@@ -43,7 +44,7 @@
+     if projection <= 0.85 * x.max(y) {
+         return None;
+     }
+-    let weight = dx.hypot(dy);
++    let weight = (dx * dx + dy * dy).sqrt();
+     (weight > 18. && projection > 0.85 * weight).then_some(weight)
+ }
+ fn distance(a: f64, b: f64) -> f64 {
+@@ -119,7 +120,7 @@
+ }
+ #[expect(
+     clippy::too_many_lines,
+-    reason = "Stripe detection retains the ordered geometry refinements and shared source-evidence gates in one bounded pass."
++    reason = "The bounded stripe pass shares ordered geometry refinement, source-evidence gates and work accounting."
+ )]
+ fn detect_grid(
+     im: ImageView<'_>,
+@@ -136,6 +137,7 @@
+         crate::numeric::f64_usize((crate::numeric::usize_f64(im.height) * scale).round()).max(3),
+     );
+     let mut gray = vec![0f32; working_width * working_height];
++    let mut histogram_lanes = [[0usize; 256]; 4];
+     let mut gx = vec![0f32; working_width * working_height];
+     let mut gy = vec![0f32; working_width * working_height];
+     if bilinear {
+@@ -175,7 +177,9 @@
+                 let bottom_right = luminance(x1, y1);
+                 let u = top_left + (top_right - top_left) * fx;
+                 let v = bottom_left + (bottom_right - bottom_left) * fx;
+-                gray[y * working_width + x] = crate::numeric::f64_f32(u + (v - u) * fy);
++                let value = crate::numeric::f64_f32(u + (v - u) * fy);
++                gray[y * working_width + x] = value;
++                histogram_lanes[x & 3][crate::numeric::f32_usize(value)] += 1;
+             }
+         }
+     } else {
+@@ -203,29 +207,30 @@
+             let dst = &mut gray[y * working_width..(y + 1) * working_width];
+             if im.channels == 1 {
+                 for (x, &i) in columns.iter().enumerate() {
+-                    dst[x] = f32::from(row[i]);
++                    let value = row[i];
++                    dst[x] = f32::from(value);
++                    histogram_lanes[x & 3][usize::from(value)] += 1;
+                 }
+             } else {
+                 for (x, &i) in columns.iter().enumerate() {
+-                    dst[x] = crate::numeric::f64_f32(f64::from(
+-                        77 * u32::from(row[i])
+-                            + 150 * u32::from(row[i + 1])
+-                            + 29 * u32::from(row[i + 2]),
+-                    )) / 256.;
++                    let weighted = 77 * u32::from(row[i])
++                        + 150 * u32::from(row[i + 1])
++                        + 29 * u32::from(row[i + 2]);
++                    dst[x] = crate::numeric::f64_f32(f64::from(weighted)) / 256.;
++                    // The bounded 16-bit weighted sum's high byte equals floor(gray).
++                    histogram_lanes[x & 3][usize::from(weighted.to_le_bytes()[1])] += 1;
+                 }
+             }
+         }
+     }
+     // Only the <=768px working gray raster is conditioned. Source RGB stays
+     // untouched; the decoder samples original pixels with its own contrast gates.
+-    let mut histogram = [0usize; 256];
+-    for &v in &gray {
+-        histogram[crate::numeric::f32_usize(v.clamp(0., 255.).floor())] += 1;
+-    }
++    let histogram: [usize; 256] =
++        std::array::from_fn(|i| histogram_lanes.iter().map(|lane| lane[i]).sum());
+     let quantile = |target: usize| {
+         let mut sum = 0;
+-        for (i, &neighbor_index) in histogram.iter().enumerate() {
+-            sum += neighbor_index;
++        for (i, &sample_count) in histogram.iter().enumerate() {
++            sum += sample_count;
+             if sum > target {
+                 return crate::numeric::usize_f32(i);
+             }
+@@ -244,8 +249,21 @@
+     }
+     let (tw, th) = (working_width.div_ceil(8), working_height.div_ceil(8));
+     let mut tiles = vec![Tile::default(); tw * th];
++    let sparse = working_width.max(working_height) > 512 && !conditioned;
++    let weight = if sparse { 4. } else { 1. };
+     for y in 1..working_height - 1 {
+-        for x in 1..working_width - 1 {
++        // Enumerate the exact quarter lattice in its original x order.
++        let [a, bin_index] = [[0usize, 3], [1, 6], [4, 7], [2, 5]][(4 - (y + y / 2) % 4) % 4];
++        let mut x = if sparse {
++            if a == 0 {
++                bin_index
++            } else {
++                a
++            }
++        } else {
++            1
++        };
++        while x < working_width - 1 {
+             let i = y * working_width + x;
+             // Unconditioned samples are exact multiples of 1/256. Every Scharr
+             // intermediate fits within 20 significant bits, so f32 is exact.
+@@ -280,18 +298,25 @@
+             };
+             gx[i] = crate::numeric::f64_f32(dx);
+             gy[i] = crate::numeric::f64_f32(dy);
+-            let neighbor_tile = &mut tiles[y / 8 * tw + x / 8];
+-            neighbor_tile.xx += dx * dx;
+-            neighbor_tile.xy += dx * dy;
+-            neighbor_tile.yy += dy * dy;
+-        }
+-    }
+-    for neighbor_tile in &mut tiles {
+-        let energy = neighbor_tile.xx + neighbor_tile.yy;
+-        neighbor_tile.angle =
+-            0.5 * (2. * neighbor_tile.xy).atan2(neighbor_tile.xx - neighbor_tile.yy);
+-        neighbor_tile.active = energy > 64. * 80.
+-            && (neighbor_tile.xx - neighbor_tile.yy).hypot(2. * neighbor_tile.xy) / (energy + 1.)
++            let tile = &mut tiles[y / 8 * tw + x / 8];
++            tile.xx += dx * dx * weight;
++            tile.xy += dx * dy * weight;
++            tile.yy += dy * dy * weight;
++            x += if !sparse {
++                1
++            } else if x % 8 == a {
++                bin_index - a
++            } else {
++                8 + a - bin_index
++            };
++        }
++    }
++    for tile in &mut tiles {
++        let energy = tile.xx + tile.yy;
++        tile.angle = 0.5 * (2. * tile.xy).atan2(tile.xx - tile.yy);
++        tile.active = energy > 64. * 80.
++            && ((tile.xx - tile.yy) * (tile.xx - tile.yy) + 4. * tile.xy * tile.xy).sqrt()
++                / (energy + 1.)
+                 > 0.60;
+     }
+     let mut groups: Vec<Vec<usize>> = Vec::new();
+@@ -300,11 +325,11 @@
+         if seen[seed] || !tiles[seed].active {
+             continue;
+         }
+-        let mut quad = vec![seed];
++        let mut q = vec![seed];
+         seen[seed] = true;
+         let mut head = 0;
+-        while head < quad.len() {
+-            let k = quad[head];
++        while head < q.len() {
++            let k = q[head];
+             head += 1;
+             let (tx, ty) = ((k % tw).cast_signed(), (k / tw).cast_signed());
+             for oy in -1..=1 {
+@@ -313,20 +338,20 @@
+                     if nx < 0 || ny < 0 || nx >= (tw).cast_signed() || ny >= (th).cast_signed() {
+                         continue;
+                     }
+-                    let neighbor_index = (ny).cast_unsigned() * tw + (nx).cast_unsigned();
+-                    if !seen[neighbor_index]
+-                        && tiles[neighbor_index].active
+-                        && distance(tiles[k].angle, tiles[neighbor_index].angle)
++                    let sample_count = (ny).cast_unsigned() * tw + (nx).cast_unsigned();
++                    if !seen[sample_count]
++                        && tiles[sample_count].active
++                        && distance(tiles[k].angle, tiles[sample_count].angle)
+                             < std::f64::consts::PI / 9.
+                     {
+-                        seen[neighbor_index] = true;
+-                        quad.push(neighbor_index);
++                        seen[sample_count] = true;
++                        q.push(sample_count);
+                     }
+                 }
+             }
+         }
+-        if quad.len() >= 3 {
+-            groups.push(quad);
++        if q.len() >= 3 {
++            groups.push(q);
+         }
+     }
+     groups.sort_by_key(|g| std::cmp::Reverse(g.len()));
+@@ -354,16 +379,14 @@
+                 if used[i] {
+                     continue;
+                 }
+-                let neighbor_bounds = *cache[i].get_or_insert_with(|| bounds(&groups[i], axis, tw));
++                let bin_index = *cache[i].get_or_insert_with(|| bounds(&groups[i], axis, tw));
+                 let (mut close, mut compatible) = (false, true);
+                 for &j in &members {
+                     merge_checks += 1;
+                     let a = *cache[j].get_or_insert_with(|| bounds(&groups[j], axis, tw));
+-                    let (ha, hb) = (a.v1 - a.v0, neighbor_bounds.v1 - neighbor_bounds.v0);
+-                    let overlap = a.v1.min(neighbor_bounds.v1) - a.v0.max(neighbor_bounds.v0);
+-                    let gap = (a.u0 - neighbor_bounds.u1)
+-                        .max(neighbor_bounds.u0 - a.u1)
+-                        .max(0.);
++                    let (ha, hb) = (a.v1 - a.v0, bin_index.v1 - bin_index.v0);
++                    let overlap = a.v1.min(bin_index.v1) - a.v0.max(bin_index.v0);
++                    let gap = (a.u0 - bin_index.u1).max(bin_index.u0 - a.u1).max(0.);
+                     if distance(angles[i], angles[j]) > std::f64::consts::PI / 18.
+                         || ha.min(hb) / ha.max(hb) < 0.65
+                         || overlap < 0.8 * ha.min(hb)
+@@ -404,7 +427,7 @@
+                 continue;
+             }
+             let axis = angle(seed, &tiles);
+-            let neighbor_bounds = bounds(seed, axis, tw);
++            let bin_index = bounds(seed, axis, tw);
+             let (cos_angle, sin_angle) = (axis.cos(), axis.sin());
+             let mut ids = seed.clone();
+             let mut frontier = seed.clone();
+@@ -421,18 +444,19 @@
+                             {
+                                 continue;
+                             }
+-                            let neighbor_index = (y).cast_unsigned() * tw + (x).cast_unsigned();
+-                            if ids.contains(&neighbor_index) || ids.len() >= 64 {
++                            let sample_count = (y).cast_unsigned() * tw + (x).cast_unsigned();
++                            if ids.contains(&sample_count) || ids.len() >= 64 {
+                                 continue;
+                             }
+-                            let neighbor_tile = &tiles[neighbor_index];
+-                            let energy = neighbor_tile.xx + neighbor_tile.yy;
++                            let tile = &tiles[sample_count];
++                            let energy = tile.xx + tile.yy;
+                             if energy <= 64. * 80.
+-                                || (neighbor_tile.xx - neighbor_tile.yy)
+-                                    .hypot(2. * neighbor_tile.xy)
++                                || ((tile.xx - tile.yy) * (tile.xx - tile.yy)
++                                    + 4. * tile.xy * tile.xy)
++                                    .sqrt()
+                                     / (energy + 1.)
+                                     < 0.4
+-                                || distance(neighbor_tile.angle, axis) > std::f64::consts::PI / 9.
++                                || distance(tile.angle, axis) > std::f64::consts::PI / 9.
+                             {
+                                 continue;
+                             }
+@@ -444,15 +468,15 @@
+                                 px * cos_angle + py * sin_angle,
+                                 -px * sin_angle + py * cos_angle,
+                             );
+-                            if u < neighbor_bounds.u0 - 24.
+-                                || u > neighbor_bounds.u1 + 24.
+-                                || v < neighbor_bounds.v0
+-                                || v > neighbor_bounds.v1
++                            if u < bin_index.u0 - 24.
++                                || u > bin_index.u1 + 24.
++                                || v < bin_index.v0
++                                || v > bin_index.v1
+                             {
+                                 continue;
+                             }
+-                            ids.push(neighbor_index);
+-                            next.push(neighbor_index);
++                            ids.push(sample_count);
++                            next.push(sample_count);
+                         }
+                     }
+                 }
+@@ -490,7 +514,7 @@
+         for &k in queue {
+             let (tx, ty) = (k % tw, k / tw);
+             for y in (ty * 8).max(1)..((ty + 1) * 8).min(working_height - 1) {
+-                for x in (tx * 8).max(1)..((tx + 1) * 8).min(working_width - 1) {
++                let mut visit = |x: usize| {
+                     let i = y * working_width + x;
+                     let (dx, dy) = (f64::from(gx[i]), f64::from(gy[i]));
+                     if let Some(weight) = edge_weight(dx, dy, ax, ay) {
+@@ -500,23 +524,31 @@
+                             weight,
+                         });
+                     }
+-                }
+-            }
+-        }
+-        if edges.len() < 80 {
+-            let neighbor_bounds = bounds(queue, angle, tw);
++                };
++                if sparse {
++                    let [a, bin_index] =
++                        [[0usize, 3], [1, 6], [4, 7], [2, 5]][(4 - (y + y / 2) % 4) % 4];
++                    for x in [tx * 8 + a, tx * 8 + bin_index] {
++                        if x >= 1 && x < working_width - 1 {
++                            visit(x);
++                        }
++                    }
++                } else {
++                    for x in (tx * 8).max(1)..((tx + 1) * 8).min(working_width - 1) {
++                        visit(x);
++                    }
++                }
++            }
++        }
++        if crate::numeric::usize_f64(edges.len()) * weight < 80. {
++            let bin_index = bounds(queue, angle, tw);
+             observe(GroupDiagnostic {
+                 index: group_index,
+                 tiles: queue.len(),
+                 edges: edges.len(),
+                 angle,
+                 initial_angle: angle,
+-                bounds: [
+-                    neighbor_bounds.u0,
+-                    neighbor_bounds.u1,
+-                    neighbor_bounds.v0,
+-                    neighbor_bounds.v1,
+-                ],
++                bounds: [bin_index.u0, bin_index.u1, bin_index.v0, bin_index.v1],
+                 reason: "few_edges",
+             });
+             continue;
+@@ -527,36 +559,57 @@
+             .hypot(crate::numeric::usize_f64(working_height));
+         let mut bins = vec![0f32; crate::numeric::f64_usize((offset * 4.).ceil()) + 8];
+         let (mut clear_start, mut clear_end) = (0, 0);
+-        for step in -10..=10 {
+-            let a = initial + f64::from(step) * std::f64::consts::PI / 360.;
+-            let (cos_angle, sin_angle) = (a.cos(), a.sin());
+-            bins[clear_start..clear_end].fill(0.);
+-            let (mut lo, mut hi) = (bins.len(), 0);
+-            for e in &edges {
+-                let p = (e.x * cos_angle + e.y * sin_angle + offset) * 2.;
+-                let neighbor_bounds = crate::numeric::f64_isize(p.floor());
+-                let f = p - crate::numeric::isize_f64(neighbor_bounds);
+-                if neighbor_bounds >= 0 && ((neighbor_bounds).cast_unsigned() + 1) < bins.len() {
+-                    let neighbor_bounds = (neighbor_bounds).cast_unsigned();
+-                    lo = lo.min(neighbor_bounds);
+-                    hi = hi.max(neighbor_bounds + 2);
+-                    bins[neighbor_bounds] = crate::numeric::f64_f32(
+-                        f64::from(bins[neighbor_bounds]) + e.weight * (1. - f),
+-                    );
+-                    bins[neighbor_bounds + 1] = crate::numeric::f64_f32(
+-                        f64::from(bins[neighbor_bounds + 1]) + e.weight * f,
+-                    );
+-                }
+-            }
+-            clear_start = lo;
+-            clear_end = hi;
+-            let mut score = 0.;
+-            for &neighbor_bounds in &bins[lo..hi] {
+-                score += f64::from(neighbor_bounds) * f64::from(neighbor_bounds);
+-            }
+-            if score > best {
+-                best = score;
+-                angle = a;
++        // Coarse-to-fine search over the same +/-5 degree envelope.
++        // Coarse samples are 1 degree apart; refine the winning cell at 0.5 degrees.
++        let mut best_step = 0;
++        for pass in 0..3 {
++            let steps: Vec<i32> = if pass == 0 {
++                vec![-4, -2, 0, 2, 4]
++            } else if pass == 1 {
++                if best_step == -4 {
++                    vec![-10, -8, -6]
++                } else if best_step == 4 {
++                    vec![6, 8, 10]
++                } else {
++                    vec![]
++                }
++            } else {
++                [best_step - 1, best_step + 1]
++                    .into_iter()
++                    .filter(|sin_angle| (-10..=10).contains(sin_angle))
++                    .collect()
++            };
++            for step in steps {
++                let a = initial + f64::from(step) * std::f64::consts::PI / 360.;
++                let (cos_angle, sin_angle) = (a.cos(), a.sin());
++                bins[clear_start..clear_end].fill(0.);
++                let (mut lo, mut hi) = (bins.len(), 0);
++                for e in edges.iter().step_by(edges.len().div_ceil(2048).max(1)) {
++                    let p = (e.x * cos_angle + e.y * sin_angle + offset) * 2.;
++                    let bin_index = crate::numeric::f64_isize(p.floor());
++                    let f = p - crate::numeric::isize_f64(bin_index);
++                    if bin_index >= 0 && ((bin_index).cast_unsigned() + 1) < bins.len() {
++                        let bin_index = (bin_index).cast_unsigned();
++                        lo = lo.min(bin_index);
++                        hi = hi.max(bin_index + 2);
++                        bins[bin_index] = crate::numeric::f64_f32(
++                            f64::from(bins[bin_index]) + e.weight * (1. - f),
++                        );
++                        bins[bin_index + 1] =
++                            crate::numeric::f64_f32(f64::from(bins[bin_index + 1]) + e.weight * f);
++                    }
++                }
++                clear_start = lo;
++                clear_end = hi;
++                let mut score = 0.;
++                for &bin_index in &bins[lo..hi] {
++                    score += f64::from(bin_index) * f64::from(bin_index);
++                }
++                if score > best {
++                    best = score;
++                    angle = a;
++                    best_step = step;
++                }
+             }
+         }
+         let (cos_angle, sin_angle) = (angle.cos(), angle.sin());
+@@ -608,34 +661,34 @@
+         // A table/label bridge can make the parent much taller than the barcode.
+         // Retain the parent; append bounded cross-axis dense-edge bands later.
+         if cfg!(feature = "experimental-stripe-bands") && along >= 24. {
+-            let neighbor_index = crate::numeric::f64_usize(along.ceil()) + 1;
+-            let mut density = vec![0usize; neighbor_index];
++            let sample_count = crate::numeric::f64_usize(along.ceil()) + 1;
++            let mut density = vec![0usize; sample_count];
+             for e in &edges {
+                 let v =
+                     crate::numeric::f64_usize((-e.x * sin_angle + e.y * cos_angle - v0).floor());
+-                if v < neighbor_index {
++                if v < sample_count {
+                     density[v] += 1;
+                 }
+             }
+-            let smooth: Vec<f64> = (0..neighbor_index)
++            let smooth: Vec<f64> = (0..sample_count)
+                 .map(|i| {
+                     let lo = i.saturating_sub(2);
+-                    let hi = (i + 3).min(neighbor_index);
++                    let hi = (i + 3).min(sample_count);
+                     crate::numeric::usize_f64(density[lo..hi].iter().sum::<usize>())
+                         / crate::numeric::usize_f64(hi - lo)
+                 })
+                 .collect();
+             let peak = smooth.iter().copied().fold(0f64, f64::max);
+-            let threshold = (peak * 0.55).max(12.);
++            let threshold = (peak * 0.55).max(12. / weight);
+             let mut start = 0;
+             let mut admitted = 0;
+-            while start < neighbor_index && admitted < 2 {
++            while start < sample_count && admitted < 2 {
+                 if smooth[start] < threshold {
+                     start += 1;
+                     continue;
+                 }
+                 let mut end = start + 1;
+-                while end < neighbor_index && smooth[end] >= threshold {
++                while end < sample_count && smooth[end] >= threshold {
+                     end += 1;
+                 }
+                 if end - start >= 7 && crate::numeric::usize_f64(end - start) <= along * 0.55 {
+@@ -678,7 +731,9 @@
+                                 point(bu1 + 1., bv1),
+                                 point(bu0 - 1., bv1),
+                             ],
+-                            score: 0.99f64.min((xx - yy).hypot(2. * xy) / (xx + yy + 1.)),
++                            score: 0.99f64.min(
++                                ((xx - yy) * (xx - yy) + 4. * xy * xy).sqrt() / (xx + yy + 1.),
++                            ),
+                         });
+                         if cfg!(feature = "experimental-band-local-angle")
+                             && group_index < base_count
+@@ -732,7 +787,7 @@
+         })
+         .push(Proposal {
+             polygon: [point(u0, v0), point(u1, v0), point(u1, v1), point(u0, v1)],
+-            score: 0.99f64.min((xx - yy).hypot(2. * xy) / (xx + yy + 1.)),
++            score: 0.99f64.min(((xx - yy) * (xx - yy) + 4. * xy * xy).sqrt() / (xx + yy + 1.)),
+         });
+     }
+     proposals.extend(bands);
+@@ -761,9 +816,9 @@
+         let mut extended = Vec::new();
+         for index in scheduled {
+             let p = &proposals[index];
+-            if let Some(quad) = source_extent(im, p) {
++            if let Some(q) = source_extent(im, p) {
+                 if extended.len() < 8 {
+-                    extended.push(quad);
++                    extended.push(q);
+                 } else {
+                     extent_omitted += 1;
+                 }
+@@ -777,21 +832,21 @@
+     proposals.extend(angle_bands);
+     let mut fragment_omitted = 0;
+     if cfg!(feature = "experimental-post-band-fragments") {
+-        let neighbor_index = proposals.len().min(24);
++        let sample_count = proposals.len().min(24);
+         let mut joined = Vec::new();
+-        for i in 0..neighbor_index {
+-            for j in i + 1..neighbor_index {
+-                if let Some(quad) = join_fragments(&proposals[i], &proposals[j], 16. / scale) {
++        for i in 0..sample_count {
++            for j in i + 1..sample_count {
++                if let Some(q) = join_fragments(&proposals[i], &proposals[j], 16. / scale) {
+                     if cfg!(feature = "experimental-fragment-coverage")
+                         && proposals
+                             .iter()
+                             .take(24)
+-                            .any(|old| covers_fragment(old, &quad, 2. / scale))
++                            .any(|old| covers_fragment(old, &q, 2. / scale))
+                     {
+                         continue;
+                     }
+                     if joined.len() < 8 {
+-                        joined.push(quad);
++                        joined.push(q);
+                     } else {
+                         fragment_omitted += 1;
+                     }
+@@ -983,7 +1038,7 @@
+             let (x, y) = (crate::numeric::f64_usize(x), crate::numeric::f64_usize(y));
+             let dx = gray(x + 1, y) - gray(x - 1, y);
+             let dy = gray(x, y + 1) - gray(x, y - 1);
+-            if dx.hypot(dy) < 18. {
++            if dx * dx + dy * dy < 18. * 18. {
+                 continue;
+             }
+             xx += dx * dx;
+@@ -992,7 +1047,7 @@
+             count += 1;
+         }
+     }
+-    let coherence = (xx - yy).hypot(2. * xy) / (xx + yy + 1.);
++    let coherence = ((xx - yy) * (xx - yy) + 4. * xy * xy).sqrt() / (xx + yy + 1.);
+     if count < 80 || coherence < 0.6 {
+         return None;
+     }
+@@ -1028,7 +1083,7 @@
+ )]
+ #[expect(
+     clippy::too_many_lines,
+-    reason = "The weighted angle fit keeps source gradients, projection bins and acceptance gates in one refinement pass."
++    reason = "The bounded stripe pass shares ordered geometry refinement, source-evidence gates and work accounting."
+ )]
+ fn refine_band_angle(
+     edges: &[Edge],
+@@ -1060,7 +1115,7 @@
+         xy += dx * dy;
+         yy += dy * dy;
+     }
+-    let coherence = (xx - yy).hypot(2. * xy) / (xx + yy + 1.);
++    let coherence = ((xx - yy) * (xx - yy) + 4. * xy * xy).sqrt() / (xx + yy + 1.);
+     if coherence < 0.60 {
+         return None;
+     }
+@@ -1173,16 +1228,16 @@
+ /// Signed source-pixel multiline edge evidence, ported from061/extent.mts.
+ #[expect(
+     clippy::too_many_lines,
+-    reason = "Stripe detection retains the ordered geometry refinements and shared source-evidence gates in one bounded pass."
++    reason = "The bounded stripe pass shares ordered geometry refinement, source-evidence gates and work accounting."
+ )]
+ fn source_extent(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
+     let quad = &p.polygon;
+     let ex = [quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]];
+     let ey = [quad[3][0] - quad[0][0], quad[3][1] - quad[0][1]];
+-    let (w, _h) = extent_dimensions(p)?;
+-    let margin = (w * 0.35).min(100.);
++    let (width, _h) = extent_dimensions(p)?;
++    let margin = (width * 0.35).min(100.);
+     let start = -crate::numeric::f64_isize(margin.ceil());
+-    let end = crate::numeric::f64_isize((w + margin).ceil());
++    let end = crate::numeric::f64_isize((width + margin).ceil());
+     let count = (end - start + 1).cast_unsigned();
+     let gray = |x: usize, y: usize| {
+         let i = y * im.stride + x * im.channels;
+@@ -1221,7 +1276,7 @@
+     for fraction in [0.2, 0.35, 0.5, 0.65, 0.8] {
+         let mut last = None;
+         for i in 0..count {
+-            let u = crate::numeric::isize_f64(start + (i).cast_signed()) / w;
++            let u = crate::numeric::isize_f64(start + (i).cast_signed()) / width;
+             let v = sample(
+                 quad[0][0] + ex[0] * u + ey[0] * fraction,
+                 quad[0][1] + ex[1] * u + ey[1] * fraction,
+@@ -1252,7 +1307,7 @@
+         }
+         prior = polarity;
+     }
+-    let gap = (w * 0.05).clamp(8., 24.);
++    let gap = (width * 0.05).clamp(8., 24.);
+     let (mut begin, mut best_begin, mut best_end) = (0, 0, 0);
+     while begin < events.len() {
+         let mut end = begin + 1;
+@@ -1260,8 +1315,8 @@
+             end += 1;
+         }
+         if end - begin >= 30
+-            && events[begin] < w * 0.5
+-            && events[end - 1] > w * 0.5
++            && events[begin] < width * 0.5
++            && events[end - 1] > width * 0.5
+             && end - begin > best_end - best_begin
+         {
+             best_begin = begin;
+@@ -1273,14 +1328,14 @@
+         return None;
+     }
+     let lo = (events[best_begin] - 2.).min(0.);
+-    let hi = (events[best_end - 1] + 2.).max(w);
+-    if lo >= -2. && hi <= w + 2. {
++    let hi = (events[best_end - 1] + 2.).max(width);
++    if lo >= -2. && hi <= width + 2. {
+         return None;
+     }
+     let at = |u: f64, v: f64| {
+         [
+-            quad[0][0] + ex[0] * u / w + ey[0] * v,
+-            quad[0][1] + ex[1] * u / w + ey[1] * v,
++            quad[0][0] + ex[0] * u / width + ey[0] * v,
++            quad[0][1] + ex[1] * u / width + ey[1] * v,
+         ]
+     };
+     Some(Proposal {
+@@ -1314,7 +1369,7 @@
+         let im = ImageView::new(&d, 360, 100, 1, 360).unwrap();
+         let a = 5f64.to_radians();
+         let (cos_angle, sin_angle) = (a.cos(), a.sin());
+-        let quad = Proposal {
++        let q = Proposal {
+             polygon: [[90., 40.], [275., 40.], [275., 60.], [90., 60.]].map(|p| {
+                 let (x, y) = (p[0] - 182.5, p[1] - 50.);
+                 [
+@@ -1324,17 +1379,17 @@
+             }),
+             score: 1.,
+         };
+-        let corrected = source_angle(im, &quad).expect("native stripe tensor corrects slant");
++        let corrected = source_angle(im, &q).expect("native stripe tensor corrects slant");
+         let grown = source_extent(im, &corrected).expect("clipped stripe extent grows");
+         assert!(grown.polygon[0][0] < 70.);
+         assert!((grown.polygon[1][1] - grown.polygon[0][1]).abs() < 1.);
+         let blank = image(0);
+-        assert!(source_angle(ImageView::new(&blank, 360, 100, 1, 360).unwrap(), &quad).is_none());
++        assert!(source_angle(ImageView::new(&blank, 360, 100, 1, 360).unwrap(), &q).is_none());
+     }
+     #[test]
+     #[expect(
+         clippy::float_cmp,
+-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
++        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
+     )]
+     fn source_extent_recovers_clipped_bars_and_polarity() {
+         for kind in [1, 2] {
+@@ -1413,7 +1468,7 @@
+     #[test]
+     #[expect(
+         clippy::float_cmp,
+-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
++        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
+     )]
+     fn modulo_distance_matches_trigonometric_reference() {
+         let pi = std::f64::consts::PI;
+@@ -1451,24 +1506,24 @@
+     #[test]
+     #[expect(
+         clippy::float_cmp,
+-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
++        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
+     )]
+     fn dense_barcode_band_survives_tall_connected_border() {
+-        let (w, h) = (400, 400);
+-        let mut d = vec![255u8; w * h];
++        let (width, height) = (400, 400);
++        let mut d = vec![255u8; width * height];
+         for y in 20..380 {
+             for x in 80..83 {
+-                d[y * w + x] = 0;
++                d[y * width + x] = 0;
+             }
+         }
+         for y in 200..260 {
+             for x in 80..280 {
+                 if ((x - 80) / 3) % 2 == 0 {
+-                    d[y * w + x] = 0;
+-                }
+-            }
+-        }
+-        let im = ImageView::new(&d, w, h, 1, w).unwrap();
++                    d[y * width + x] = 0;
++                }
++            }
++        }
++        let im = ImageView::new(&d, width, height, 1, width).unwrap();
+         let mut tall = false;
+         let r = detect_with_observer(im, |g| {
+             tall |= g.reason == "tall" && g.edges > 1000;
+@@ -1477,10 +1532,10 @@
+         assert!(tall, "must exercise rejected connected parent");
+         assert!(
+             r.proposals.iter().any(|p| {
+-                let quad = p.polygon;
+-                let width = (quad[1][0] - quad[0][0]).hypot(quad[1][1] - quad[0][1]);
+-                let height = (quad[3][0] - quad[0][0]).hypot(quad[3][1] - quad[0][1]);
+-                let cy = quad.iter().map(|p| p[1]).sum::<f64>() / 4.;
++                let q = p.polygon;
++                let width = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]);
++                let height = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
++                let cy = q.iter().map(|p| p[1]).sum::<f64>() / 4.;
+                 width > 180. && height < 80. && (200. ..260.).contains(&cy)
+             }),
+             "dense band missing"
+@@ -1514,7 +1569,7 @@
+ mod edge_bound_tests {
+     use super::edge_weight;
+     #[test]
+-    fn prefilter_keeps_exact_original_weights_and_decisions() {
++    fn bounded_norm_preserves_decisions_and_weights_within_roundoff() {
+         for ix in -255..=255 {
+             for iy in -255..=255 {
+                 let (dx, dy) = (f64::from(ix) / 2., f64::from(iy) / 2.);
+@@ -1522,7 +1577,11 @@
+                     let (ax, ay) = (angle.cos(), angle.sin());
+                     let w = dx.hypot(dy);
+                     let original = (w > 18. && (dx * ax + dy * ay).abs() > 0.85 * w).then_some(w);
+-                    assert_eq!(edge_weight(dx, dy, ax, ay), original);
++                    let actual = edge_weight(dx, dy, ax, ay);
++                    assert_eq!(actual.is_some(), original.is_some());
++                    if let (Some(a), Some(b)) = (actual, original) {
++                        assert!((a - b).abs() <= 2. * f64::EPSILON * b.max(1.));
++                    }
+                 }
+             }
+         }
+@@ -1614,8 +1673,8 @@
+         }
+         let p = refine_band_angle(&edges, &gx, &gy, width, 0., [50., 270., 85., 155.], 1., 1.)
+             .expect("coherent slanted band");
+-        let quad = p.polygon;
+-        let angle = (quad[1][1] - quad[0][1]).atan2(quad[1][0] - quad[0][0]);
++        let q = p.polygon;
++        let angle = (q[1][1] - q[0][1]).atan2(q[1][0] - q[0][0]);
+         assert!(distance(angle, a) < 1f64.to_radians());
+     }
+ }
+@@ -1630,14 +1689,14 @@
+         return None;
+     }
+     let (cos_angle, sin_angle) = (angle.cos(), angle.sin());
+-    let bounds = |quad: crate::scan::Quad| {
++    let bounds = |q: crate::scan::Quad| {
+         let mut extents = [
+             f64::INFINITY,
+             f64::NEG_INFINITY,
+             f64::INFINITY,
+             f64::NEG_INFINITY,
+         ];
+-        for p in quad {
++        for p in q {
+             let (u, v) = (
+                 p[0] * cos_angle + p[1] * sin_angle,
+                 -p[0] * sin_angle + p[1] * cos_angle,
+@@ -1783,7 +1842,7 @@
+     #[test]
+     #[expect(
+         clippy::float_cmp,
+-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
++        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
+     )]
+     fn only_high_coherence_small_correction_replaces_parent_geometry() {
+         for (angle, score, replaces) in [
+@@ -1839,7 +1898,7 @@
+     #[test]
+     #[expect(
+         clippy::float_cmp,
+-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
++        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
+     )]
+     fn source_tensor_replaces_qualified_angle_only_but_preserves_large_correction() {
+         let (w, h) = (360, 160);
+@@ -1905,3 +1964,41 @@
+         }
+     }
+ }
++
++#[cfg(test)]
++mod quarter_lattice_tests {
++    #[test]
++    fn stepped_positions_match_original_on_tiny_and_odd_rasters() {
++        for w in 3..800 {
++            for y in 1..12 {
++                for sparse in [false, true] {
++                    let expected: Vec<_> = (1..w - 1)
++                        .filter(|x| !sparse || (x + y + x / 2 + y / 2) % 4 == 0)
++                        .collect();
++                    let [a, b] = [[0usize, 3], [1, 6], [4, 7], [2, 5]][(4 - (y + y / 2) % 4) % 4];
++                    let mut x = if sparse {
++                        if a == 0 {
++                            b
++                        } else {
++                            a
++                        }
++                    } else {
++                        1
++                    };
++                    let mut actual = Vec::new();
++                    while x < w - 1 {
++                        actual.push(x);
++                        x += if !sparse {
++                            1
++                        } else if x % 8 == a {
++                            b - a
++                        } else {
++                            8 + a - b
++                        };
++                    }
++                    assert_eq!(actual, expected);
++                }
++            }
++        }
++    }
++}
+--- a/src/verified_coverage.rs
++++ b/src/verified_coverage.rs
+@@ -1,6 +1,9 @@
+ //! Optional conservative subtraction of already verified source-pixel bands.
+ //! Claims never come from text-only identity or unsupported observations.
+-use super::{claimed_interval, experiment, scan, Candidate, Error, ImageView, Quad, Segment, Work};
++use super::{
++    experiment, project_claim, projected_interval, scan, Candidate, Error, ImageView, Quad,
++    Segment, Work,
++};
+ #[cfg(test)]
+ use super::{Experiment, Policy};
+ 
+@@ -164,10 +167,16 @@
+     let (mut lo, mut hi) = (255f64, 0f64);
+     for (i, v) in r.iter_mut().enumerate() {
+         let t = (crate::numeric::usize_f64(i) + 0.5) / 192.;
+-        *v = im.gray(
+-            (edge[0][0] + t * (edge[1][0] - edge[0][0])).round(),
+-            (edge[0][1] + t * (edge[1][1] - edge[0][1])).round(),
+-        );
++        let x = (edge[0][0] + t * (edge[1][0] - edge[0][0])).round();
++        let y = (edge[0][1] + t * (edge[1][1] - edge[0][1])).round();
++        // Endpoints were checked above; convex interpolation remains in bounds.
++        *v = if im.channels == 1 {
++            f64::from(
++                im.data[crate::numeric::f64_usize(y) * im.stride + crate::numeric::f64_usize(x)],
++            )
++        } else {
++            im.gray(x, y)
++        };
+         lo = lo.min(*v);
+         hi = hi.max(*v);
+     }
+@@ -188,6 +197,74 @@
+         *v /= norm;
+     }
+     Some(r)
++}
++#[cfg(feature = "experimental-coverage-extension")]
++fn extension_correlation(
++    im: ImageView<'_>,
++    reference: &[f64; 192],
++    edge: [[f64; 2]; 2],
++    work: &mut Work,
++    budget: &mut ReuseBudget,
++) -> Option<f64> {
++    for p in edge {
++        if !p[0].is_finite()
++            || !p[1].is_finite()
++            || p[0] < 0.
++            || p[1] < 0.
++            || p[0] > crate::numeric::usize_f64(im.width) - 1.
++            || p[1] > crate::numeric::usize_f64(im.height) - 1.
++        {
++            return None;
++        }
++    }
++    if budget.pixels_remaining < 192 {
++        work.extension_capped += 1;
++        return None;
++    }
++    budget.pixels_remaining -= 192;
++    work.extension_samples += 192;
++    let mut r = [0.; 192];
++    let (mut lo, mut hi) = (255f64, 0f64);
++    for (i, v) in r.iter_mut().enumerate() {
++        let t = (crate::numeric::usize_f64(i) + 0.5) / 192.;
++        let x = (edge[0][0] + t * (edge[1][0] - edge[0][0])).round();
++        let y = (edge[0][1] + t * (edge[1][1] - edge[0][1])).round();
++        // Endpoints were checked above; convex interpolation remains in bounds.
++        *v = if im.channels == 1 {
++            f64::from(
++                im.data[crate::numeric::f64_usize(y) * im.stride + crate::numeric::f64_usize(x)],
++            )
++        } else {
++            im.gray(x, y)
++        };
++        lo = lo.min(*v);
++        hi = hi.max(*v);
++    }
++    if hi - lo < 8. {
++        return None;
++    }
++    let mean = r.iter().sum::<f64>() / 192.;
++    let mut norm = 0.;
++    let mut dot = 0.;
++    for (v, a) in r.iter_mut().zip(reference) {
++        *v -= mean;
++        norm += *v * *v;
++        dot += a * *v;
++    }
++    if norm < 1. {
++        return None;
++    }
++    let norm = norm.sqrt();
++    let corr = dot / norm;
++    // Preserve the original decision if floating-point reassociation is close
++    // enough to the threshold to matter. No sampling or budget changes.
++    if (corr - 0.98).abs() < 1e-12 {
++        for v in &mut r {
++            *v /= norm;
++        }
++        return Some(reference.iter().zip(r).map(|(a, b)| a * b).sum());
++    }
++    Some(corr)
+ }
+ #[cfg(feature = "experimental-coverage-extension")]
+ fn extend_claim(im: ImageView<'_>, quad: Quad, work: &mut Work, budget: &mut ReuseBudget) -> Quad {
+@@ -218,10 +295,9 @@
+         for step in 1..=steps {
+             let d = crate::numeric::usize_f64(step) * 0.5;
+             let e = edge.map(|p| [p[0] + sign * d * v[0], p[1] + sign * d * v[1]]);
+-            let Some(row) = extension_row(im, e, work, budget) else {
++            let Some(corr) = extension_correlation(im, &reference, e, work, budget) else {
+                 break;
+             };
+-            let corr = reference.iter().zip(row).map(|(a, b)| a * b).sum::<f64>();
+             if corr < 0.98 {
+                 break;
+             }
+@@ -247,10 +323,10 @@
+     out
+ }
+ 
+-fn reuse_segment(
++fn reuse_projected_segment(
+     m: [f64; 9],
+     s: Segment,
+-    claims: &[Quad],
++    claims: &[Option<Quad>],
+     budget: &mut ReuseBudget,
+     work: &mut Work,
+ ) -> Result<Vec<Segment>, Error> {
+@@ -259,7 +335,7 @@
+         if !budget.check(work) {
+             return Ok(vec![s]);
+         }
+-        if let Some((a, b)) = claimed_interval(m, s.axis, s.fraction, *q) {
++        if let Some((a, b)) = q.and_then(|q| projected_interval(q, s.axis, s.fraction)) {
+             let (a, b) = (a.max(s.lo), b.min(s.hi));
+             if b > a {
+                 intervals.push((a, b));
+@@ -317,9 +393,11 @@
+     if claims.is_empty() {
+         return paths;
+     }
++    let projected: Vec<_> = claims.iter().map(|q| project_claim(m, *q)).collect();
+     let mut out = Vec::new();
+     for s in paths {
+-        let pieces = reuse_segment(m, s, claims, budget, work).unwrap_or_else(|_| vec![s]);
++        let pieces =
++            reuse_projected_segment(m, s, &projected, budget, work).unwrap_or_else(|_| vec![s]);
+         // The planner already counted this original segment. Unmaterialized
+         // paths stay pending; only these concrete replaced paths are adjusted.
+         work.retry_paths_pending = work.retry_paths_pending.saturating_sub(1) + pieces.len();
+@@ -328,6 +406,17 @@
+     out
+ }
+ 
++#[cfg(test)]
++fn reuse_segment(
++    m: [f64; 9],
++    s: Segment,
++    claims: &[Quad],
++    budget: &mut ReuseBudget,
++    work: &mut Work,
++) -> Result<Vec<Segment>, Error> {
++    let projected: Vec<_> = claims.iter().map(|q| project_claim(m, *q)).collect();
++    reuse_projected_segment(m, s, &projected, budget, work)
++}
+ #[cfg(test)]
+ mod reuse_tests {
+     use super::*;
+@@ -530,8 +619,11 @@
+             assert_eq!(result.len(), 2);
+             for (c, q) in result.iter().zip(qs) {
+                 assert_eq!(c.coverage, q);
+-                assert_eq!(c.work.discovery_paths, 10);
+-                assert_eq!(c.work.paths, c.work.retry_paths + 10);
++                assert!(
++                    (5..=10).contains(&c.work.discovery_paths),
++                    "both normalized axes and at least five native module-axis rows"
++                );
++                assert!(matches!(c.work.paths - c.work.retry_paths, 3 | 6));
+                 assert!(c
+                     .detections
+                     .iter()
+@@ -849,7 +941,10 @@
+                 };
+                 let result = Experiment::default().scan_scaled(im, &qs, policy).unwrap();
+                 for c in result {
+-                    assert_eq!(c.work.discovery_paths, 10);
++                    assert!(
++                        (5..=10).contains(&c.work.discovery_paths),
++                        "both normalized axes and at least five native module-axis rows"
++                    );
+                     for (digits, sign) in [(A, -1.), (second, 1.)] {
+                         if !c.detections.iter().any(|d| {
+                             d.digits == digits
+@@ -882,3 +977,7 @@
+         assert_eq!(w.extension_cache_hits, 1);
+     }
+ }
++
++#[cfg(test)]
++#[path = "coverage_arithmetic_tests.rs"]
++mod coverage_arithmetic_tests;
+--- /dev/null
++++ b/src/coverage_arithmetic_tests.rs
+@@ -0,0 +1,40 @@
++use super::*;
++#[test]
++fn fused_coverage_correlation_preserves_threshold_decisions() {
++    for channels in [1, 3, 4] {
++        let stride = 400 * channels + 7;
++        let mut pixels = vec![0; stride * 16];
++        for y in 0..16 {
++            for x in 0..400 {
++                for c in 0..channels {
++                    pixels[y * stride + x * channels + c] =
++                        u8::try_from(30 + ((x * 17 + c * 13) % 150) + (y * (x % 5))).unwrap();
++                }
++            }
++        }
++        let im = ImageView::new(&pixels, 400, 16, channels, stride).unwrap();
++        for y in 0..15 {
++            for offset in 0..16 {
++                let edge = [[4., 0.], [395., 0.]];
++                let mut budget = ReuseBudget {
++                    pixels_remaining: 100_000,
++                    ..Default::default()
++                };
++                let mut work = Work::default();
++                let reference = extension_row(im, edge, &mut work, &mut budget).unwrap();
++                let d = crate::numeric::usize_f64(offset) / 20.;
++                let row_edge = [
++                    [4. + d, crate::numeric::usize_f64(y)],
++                    [395. + d, crate::numeric::usize_f64(y)],
++                ];
++                let row = extension_row(im, row_edge, &mut work, &mut budget).unwrap();
++                let expected: f64 = reference.iter().zip(row).map(|(a, b)| a * b).sum();
++                let observed =
++                    extension_correlation(im, &reference, row_edge, &mut work, &mut budget)
++                        .unwrap();
++                assert!((expected - observed).abs() < 1e-12);
++                assert_eq!(expected < 0.98, observed < 0.98);
++            }
++        }
++    }
++}

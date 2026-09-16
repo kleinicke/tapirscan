@@ -69,6 +69,9 @@ impl Scanner {
         addons: EanAddOnPolicy,
     ) -> Result<Value, Error> {
         validate(image, mask)?;
+        if options.finish_candidates && mask.trailing_zeros() >= 2 {
+            return Err(Error::Parameters);
+        }
         if mask == 1 && addons == EanAddOnPolicy::Ignore {
             let result = self.scan_with_options(image, options)?;
             let mut value: Value =
@@ -83,12 +86,13 @@ impl Scanner {
         let start = std::time::Instant::now();
         // Rank only after all selected readers have finished.
         let full_options = ScanOptions {
+            finish_candidates: options.finish_candidates,
             multiple: true,
             include_regions: options.include_regions,
         };
         let (extras, coverage) = scan_additional(image, mask, addons)?;
         let mut value = if mask & 3 != 0 {
-            let result = self.scan_with_coverage(image, full_options, &coverage)?;
+            let result = self.scan_with_coverage(image, full_options, &coverage, false)?;
             serde_json::from_str(&result.to_json(MODE, 0.0)).map_err(|_| Error::Parameters)?
         } else {
             json!({"schemaVersion":2,"mode":MODE,"multiple":true,"elapsedMs":0.0,"localizationLimited":false,"scan":{"barcodes":[],"unfinished":false}})
@@ -134,6 +138,7 @@ impl Scanner {
             unread.retain(|region| !reads.iter().any(|b| overlap(region, b).1 >= 0.65));
             unread = distinct(unread);
         }
+        reads = crate::linear_duplicates::merge(reads, image);
         reads.sort_by_key(|b| std::cmp::Reverse(b["support"].as_u64().unwrap_or(0)));
         for (i, b) in reads.iter_mut().enumerate() {
             b["rank"] = json!(i + 1);
@@ -202,7 +207,7 @@ fn attach_supplements(reads: &mut [Value]) {
     }
 }
 
-fn quad(value: &Value) -> [[f64; 2]; 4] {
+pub(crate) fn quad(value: &Value) -> [[f64; 2]; 4] {
     std::array::from_fn(|i| std::array::from_fn(|j| value["polygon"][i][j].as_f64().unwrap_or(0.0)))
 }
 fn signed_area(points: &[[f64; 2]]) -> f64 {
@@ -220,7 +225,7 @@ fn signed_area(points: &[[f64; 2]]) -> f64 {
         / 2.0
 }
 // Same convex clipping and 0.65 thresholds as the research JS reconciliation.
-fn overlap(first: &Value, second: &Value) -> (f64, f64) {
+pub(crate) fn overlap(first: &Value, second: &Value) -> (f64, f64) {
     let first_quad = quad(first);
     let second_quad = quad(second);
     let first_area = signed_area(&first_quad).abs();

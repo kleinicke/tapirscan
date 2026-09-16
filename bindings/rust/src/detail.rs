@@ -324,6 +324,7 @@ pub fn recover(
     scanner: &mut recovery_core::region_scan::RegionScanner,
     directions: usize,
     coverage: &[Quad],
+    complete: bool,
 ) -> Result<Value, Error> {
     let start = std::time::Instant::now();
     let seeds = seeds(im);
@@ -372,6 +373,7 @@ pub fn recover(
         for polygon in quads {
             let q = polygon.map(|[a, b]| [(a - x as f64) * 3., (b - y as f64) * 3.]);
             let policy = recovery_core::multi_scan::Policy {
+                complete,
                 transition_cleanup: true,
                 source_identity: true,
                 interior_normalization: true,

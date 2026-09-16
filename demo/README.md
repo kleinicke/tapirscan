@@ -57,11 +57,11 @@ site output is ignored too. License texts and source/build links are included in
 - Changing Resolution immediately reanalyzes the loaded photo from its retained
   original pixels. Full HD/4K cap the long edge at 1920/3840 pixels, preserving
   aspect ratio without upscaling. Original is capped at the scanner’s 32 MP limit.
-- Pesto is the default at 1.2× zoom and 0° rotation, with Medium, ZXing and ZBar enabled.
+- Pesto is the default at 1.2× zoom and 0° rotation, with TS-Med, ZXing and ZBar enabled.
   Sauce loads at 2.21× zoom and 34° rotation.
   Pills loads at 2.33× zoom and 45° rotation. Other images start at 1× zoom and 0° rotation. Demo-image buttons include the synthetic example, Pesto, Pills, Sauce, and Sunscreen.
   Camera access begins only after Use camera is pressed.
-- Compact scanner buttons include scan time. Result cards immediately below the
+- Compact scanner buttons select the readers and show scan time. Result cards immediately below the
   image controls show each scanner’s decoded values and runtime.
 - Take photo, camera settings, repeated capture, image adjustments and region
   overlays are under More options.
@@ -103,6 +103,13 @@ ignored root `MAINTAINER.local.md`; they are not needed to develop or host a for
 
 ## Image interaction and overlays
 
+Double-click a point in a photo or frozen frame to make it the view center without
+changing zoom or rotation. Subsequent zoom and rotation use that center; Reset image
+restores the original center. New images and camera sessions start centered.
+A small contrasting crosshair marks the center while dragging, briefly after
+recentering, and while scrolling to zoom or rotate. It fades away without
+intercepting gestures or changing the analyzed pixels.
+
 The image stage suppresses text selection, long-press callouts and native drag/
 context-menu behavior; controls and result text outside it retain normal behavior.
 While rotating or zooming a still image, scans continue in batches using identical
@@ -113,3 +120,45 @@ resolution clears incompatible overlays.
 
 SVG outlines use non-scaling strokes so their visible thickness stays consistent
 at Full HD, 4K and Original resolution, including while zooming.
+
+## Fullscreen viewer and result labels
+
+Fullscreen expands the existing photo or live-camera viewer, keeping the same
+scan pixels, transforms and overlays. Fullscreen shows only the analyzed frame,
+without the surrounding preview margin. Back or Escape returns to the page and
+restores keyboard focus. Browsers without native fullscreen use an expanded
+viewport instead. On entry, the demo requests a lock to the current screen
+orientation; unsupported or denied locks are ignored silently. A viewport resize fits the image without changing its scan rotation.
+Actual camera orientation and lock support still require physical-device testing.
+
+Decoded results use the public barcode list for every selected format, including
+EAN-8 and QR; EAN-specific diagnostic regions are never used as the decoded list.
+Undecoded geometry remains separately available through More options.
+
+Labels group equal values only when their reported locations overlap. Separate
+physical instances keep separate labels. Each group shows the barcode once, with
+compact color-matched scanner names on one line below. Name slots keep their
+positions as later results arrive. Tapirscan modes use TS-Low, TS-Med, TS-High and TS-VHigh consistently
+in buttons, overlays and results. A note next to the scanner selection explains
+that TS means Tapirscan and the suffixes indicate scan effort.
+
+The normal view shows runtimes in the scanner buttons above the image. Fullscreen
+shows scanner names and runtimes in a translucent overlay beside Back, without
+shrinking or moving the image. Its order and runtime widths stay fixed while scanners finish.
+
+The checkbox at the bottom enables ZXing tryHarder, tryRotate and tryDownscale
+by default. Unchecking explicitly disables all three; other library defaults remain.
+Changing it clears only ZXing’s result and restarts only its worker before reanalysis;
+other readers keep their results for the same image.
+
+Label placement retains any valid existing position, then prefers small nearby
+corrections. A move of more than 24 screen pixels requires a consistent alternative
+for 650 ms. If temporarily obstructed, the label is hidden instead of covering a
+barcode; its position is remembered for 1.2 seconds without displaying stale
+results. Source/view changes reset placement. Crowded views omit labels with a
+count; all values remain in Results. Long payloads are shortened on the image,
+with the full value in the title and Results.
+
+The “Finish EAN/UPC candidate work” control forwards the optional per-scan
+`finishCandidates` setting to Tapirscan. It is off by default and may increase
+runtime; other search limits still apply.

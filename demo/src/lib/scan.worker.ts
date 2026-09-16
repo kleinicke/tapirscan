@@ -1,4 +1,5 @@
 import { Scanner, type Mode, type Format } from "tapirscan";
+import type { Region } from "./types";
 let scanner: Scanner | undefined;
 let key = "";
 self.onmessage = async ({
@@ -9,6 +10,7 @@ self.onmessage = async ({
   buffer: ArrayBuffer;
   scannerVersion: Mode;
   formats: Format[];
+  finishCandidates?: boolean;
   engineBaseUrl: string;
 }>) => {
   try {
@@ -32,20 +34,21 @@ self.onmessage = async ({
         channels: 4,
         stride: data.width * 4,
       },
-      { debug: true },
+      { debug: true, finishCandidates: data.finishCandidates ?? false },
     );
-    const diagnostic = result.debug!;
-    const reads = diagnostic.scan.barcodes;
-    const decoded = new Set(
-      reads.flatMap((b) => ("candidate_indices" in b ? b.candidate_indices : [])),
-    );
+    const diagnostic = result.debug;
+    if (!diagnostic) throw new Error("Scanner diagnostics are unavailable");
+    const recovery = diagnostic.recovery as { proposals?: Region[] } | undefined;
     const proposals = diagnostic.localization?.proposals ?? [];
-    const unread = proposals.filter((_, i) => !decoded.has(i));
-    const regions = diagnostic.detailRegions ?? diagnostic.scan.regions ?? [...reads, ...unread];
+    // Public results contain every selected format; primary detailRegions are EAN-only.
+    const regions = [
+      ...result.barcodes,
+      ...diagnostic.regions.undecoded.map((region) => ({ polygon: region.polygon, text: "" })),
+    ];
     self.postMessage({
       result: {
         regions,
-        proposals: [...proposals, ...(diagnostic.recovery?.proposals ?? [])],
+        proposals: [...proposals, ...(recovery?.proposals ?? [])],
         searchWindows: diagnostic.searchWindows,
         width: data.width,
         height: data.height,

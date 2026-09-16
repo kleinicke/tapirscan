@@ -18,7 +18,8 @@ import static java.lang.foreign.ValueLayout.*;
 /** JDK 22+ native scanner. Close the scanner; returned results own all their data. */
 public final class Tapirscan implements AutoCloseable {
     public enum Mode { LOW, MEDIUM, HIGH, VERY_HIGH }
-    public record ScanOptions(boolean multiple, boolean includeRegions, int formats) {
+    public record ScanOptions(boolean multiple, boolean includeRegions, int formats, boolean finishCandidates) {
+        public ScanOptions(boolean multiple, boolean includeRegions, int formats) { this(multiple, includeRegions, formats, false); }
         public ScanOptions(boolean multiple, boolean includeRegions) { this(multiple, includeRegions, 1); }
         public static ScanOptions defaults() { return new ScanOptions(true,false); }
     }
@@ -106,7 +107,7 @@ public final class Tapirscan implements AutoCloseable {
             MemorySegment input = arena.allocate(required);
             input.copyFrom(MemorySegment.ofArray(pixels).asSlice(0,required));
             MemorySegment out = arena.allocate(JAVA_LONG);
-            int flags=(options.multiple() ? 0 : 1) | (options.includeRegions() ? 2 : 0);
+            int flags=(options.multiple() ? 0 : 1) | (options.includeRegions() ? 2 : 0) | (options.finishCandidates() ? 16 : 0);
             check(call(scan,handle,input,required,(long)width,(long)height,channels,stride,flags,options.formats(),out));
             long result = out.get(JAVA_LONG,0);
             try {

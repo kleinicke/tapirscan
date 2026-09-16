@@ -46,7 +46,9 @@ def facade_manifest(mode: str, manifest: dict[str, Any]) -> str:
             "@LOW_FEATURES@",
             json.dumps(
                 json.loads(
-                    (ROOT / "core/experiments/nano-clippy-20260916.json").read_text()
+                    (
+                        ROOT / "core/experiments/low-complete-detail-20260916.json"
+                    ).read_text()
                 )["expandedFeatures"]
             ),
         )
@@ -88,7 +90,7 @@ def prepare_recovery_source(out: Path) -> None:
                 sys.executable,
                 str(ROOT / "core/experiments/build_guarded.py"),
                 "--recipe",
-                "nano-clippy-20260916",
+                "low-complete-detail-20260916",
                 "--out",
                 str(dest),
                 "--prepare-only",
@@ -97,7 +99,7 @@ def prepare_recovery_source(out: Path) -> None:
         )
     source = dest / "temporarysource"
     recipe = json.loads(
-        (ROOT / "core/experiments/nano-clippy-20260916.json").read_text()
+        (ROOT / "core/experiments/low-complete-detail-20260916.json").read_text()
     )
     for rel, expected in (recipe["baseHashes"] | recipe["targetHashes"]).items():
         if hashlib.sha256((source / rel).read_bytes()).hexdigest() != expected:
@@ -121,7 +123,7 @@ def prepare_recovery_source(out: Path) -> None:
         json.dumps(
             {
                 "change": "Isolate recovery features and native symbols",
-                "recipe": "nano-clippy-20260916",
+                "recipe": "low-complete-detail-20260916",
             },
             indent=2,
         )

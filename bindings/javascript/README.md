@@ -292,3 +292,18 @@ Invalid options can raise TypeError. Scanner validation and engine failures can
 raise the exported `ScannerError` with a `.code` and `.message`. Loader/fetch
 errors propagate to the caller; creation and the one-shot helper reject their
 promises on failure. Always dispose reusable scanners with `finally`.
+
+## Finishing candidate work
+
+Use `scanner.scan(image, { finishCandidates: true })` or
+`await scan(image, { finishCandidates: true })` to let all selected EAN13/UPC-A
+candidates use their effort budget, without the shared frame retry and association
+budgets stopping later candidates. The default is `false`; at least one of
+`EAN13` or `UPCA` must be selected. This is a per-scan option.
+
+Crowded or difficult images can take longer. Per-candidate effort, intentional
+weak-candidate deferral, localization, sampling and result limits still apply.
+Other formats keep their existing budgets. The synchronous scan has no library
+wall-clock deadline; use a Worker when responsiveness matters.
+`result.unfinished` can remain true, so this is not an exhaustiveness guarantee.
+Custom WASM engines must advertise support; unsupported engines fail clearly.

@@ -42,7 +42,9 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
     scanner.scan(image, { multiple: false });
     // @ts-expect-error There is one diagnostic option.
     scanner.scan(image, { includeRegions: true });
-    scanner.scan(image, { formats: "EAN13" });
+    scanner.scan(image, { formats: "EAN13", finishCandidates: true });
+    // @ts-expect-error Continuation is a boolean.
+    scanner.scan(image, { finishCandidates: "yes" });
     const support: number | undefined = best?.support;
     const append: number | undefined = best?.structuredAppend?.index;
     if (best?.structuredAppend) {

@@ -5,8 +5,10 @@
   import { comparisonOptions, type ComparisonSpec, type ComparisonEntry } from "./lib/comparison";
   import type { Result } from "./lib/types";
   import { retailFormats, commonFormats, type Format } from "tapirscan";
+  import { LabelLayout } from "./lib/labels";
   import { version } from "../package.json";
 
+  let finishCandidates = false;
   let detection: "ean13" | "retail" | "common" = "ean13";
   $: formats =
     detection === "common"
@@ -25,14 +27,85 @@
     if (source || live) requestScan(0);
   }
 
-  const options = [
-    ["veryhigh", "Very high"],
-    ["quality", "High"],
-    ["fast", "Medium"],
-    ["nano", "Low"],
-    ["zxing", "ZXing"],
-    ["zbar", "ZBar"],
-  ].map(([id, label]) => ({ ...comparisonOptions.find((s) => s.id === id)!, label }));
+  let viewer: HTMLDivElement;
+  let fullscreenButton: HTMLButtonElement;
+  let expanded = false;
+  let nativeFullscreen = false;
+  let orientationLocked = false;
+  let savedOverflow = "";
+  let stageWidth = 800;
+  let zxingEnhanced = true;
+  let zxingRevision = 0;
+  function changeZxing() {
+    zxingRevision++;
+    entries = entries.filter((entry) => entry.id !== "zxing");
+    pending.get("zxing")?.(new Error("ZXing settings changed"));
+    workers.get("zxing")?.terminate();
+    workers.delete("zxing");
+    if ((source || live) && selected.includes("zxing")) requestScan(0);
+  }
+  let windowWidth = window.innerWidth,
+    windowHeight = window.innerHeight;
+  function restoreViewer() {
+    expanded = false;
+    nativeFullscreen = false;
+    if (orientationLocked) screen.orientation.unlock();
+    orientationLocked = false;
+    document.body.style.overflow = savedOverflow;
+    fullscreenButton?.focus();
+  }
+  async function exitViewer() {
+    if (document.fullscreenElement === viewer) await document.exitFullscreen();
+    if (expanded) restoreViewer();
+  }
+  async function enterViewer() {
+    const orientation = screen.orientation?.type;
+    savedOverflow = document.body.style.overflow;
+    expanded = true;
+    document.body.style.overflow = "hidden";
+    try {
+      await viewer.requestFullscreen();
+      nativeFullscreen = true;
+    } catch {
+      /* A viewport-filling viewer also works without native fullscreen. */
+    }
+    if (!expanded) return;
+    const lockable = screen.orientation as ScreenOrientation & {
+      lock?: (_type: string) => Promise<void>;
+    };
+    try {
+      if (!orientation || !lockable?.lock) throw new Error("Unavailable");
+      await lockable.lock(orientation);
+      orientationLocked = true;
+      if (!expanded) {
+        screen.orientation.unlock();
+        orientationLocked = false;
+      }
+    } catch {
+      // Orientation locking is optional; keep the viewer usable when unavailable.
+    }
+    await tick();
+    viewer.querySelector<HTMLButtonElement>(".exit-viewer")?.focus();
+  }
+  function fullscreenChanged() {
+    if (nativeFullscreen && document.fullscreenElement !== viewer) restoreViewer();
+  }
+  function viewerKey(event: KeyboardEvent) {
+    if (!expanded) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      void exitViewer();
+    }
+    if (event.key === "Tab") {
+      const controls = [...viewer.querySelectorAll<HTMLElement>("button, [tabindex='0']")];
+      const index = controls.indexOf(document.activeElement as HTMLElement);
+      event.preventDefault();
+      controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
+    }
+  }
+  const options = ["veryhigh", "quality", "fast", "nano", "zxing", "zbar"].map((id) =>
+    comparisonOptions.find((spec) => spec.id === id)!,
+  );
   let selected = ["fast", "zxing", "zbar"];
   const demoImages = [
     { file: "synthetic-barcode.png", label: "Synthetic barcode" },
@@ -77,6 +150,8 @@
     hasTorch = false;
   let error = "",
     status = "Choose a photo or start your camera.";
+  let centerX = 0,
+    centerY = 0;
   let scale = 1,
     angle = 0;
   let frameWidth = 1920,
@@ -104,8 +179,11 @@
   $: W = frameWidth + margin * 2;
   $: H = frameHeight + margin * 2;
   $: fit = Math.min(frameWidth / mediaWidth, frameHeight / mediaHeight);
-  $: displayWidth = ((mediaWidth * fit) / W) * 100;
-  $: displayHeight = ((mediaHeight * fit) / H) * 100;
+  $: viewWidth = expanded ? frameWidth : W;
+  $: viewHeight = expanded ? frameHeight : H;
+  $: viewOffset = expanded ? margin : 0;
+  $: displayWidth = ((mediaWidth * fit) / viewWidth) * 100;
+  $: displayHeight = ((mediaHeight * fit) / viewHeight) * 100;
   function setFrame(width: number, height: number) {
     mediaWidth = width;
     mediaHeight = height;
@@ -123,6 +201,58 @@
   function overlayTransform(entry: ViewEntry, currentAngle: number, currentScale: number) {
     return `translate(${entry.width / 2} ${entry.height / 2}) rotate(${currentAngle - entry.angle}) scale(${currentScale / entry.scale}) translate(${-entry.width / 2} ${-entry.height / 2})`;
   }
+  $: labelUnit = viewWidth / Math.max(stageWidth, 1);
+  const labelLayout = new LabelLayout();
+  $: labels = labelLayout.update(
+    overlayEntries.flatMap((entry) => {
+      const radians = ((angle - entry.angle) * Math.PI) / 180;
+      const ratio = scale / entry.scale;
+      return (entry.result?.regions ?? [])
+        .filter((region) => region.text && region.polygon.length)
+        .map((region) => ({
+          text: region.text,
+          scanner: entry.id,
+          scanMs: entry.result!.scanMs,
+          polygon: region.polygon.map(([x, y]) => {
+            const dx = (x - entry.width / 2) * ratio,
+              dy = (y - entry.height / 2) * ratio;
+            return [
+              margin -
+                viewOffset +
+                entry.width / 2 +
+                dx * Math.cos(radians) -
+                dy * Math.sin(radians),
+              margin -
+                viewOffset +
+                entry.height / 2 +
+                dx * Math.sin(radians) +
+                dy * Math.cos(radians),
+            ];
+          }),
+        }));
+    }),
+    chosen.map((spec) => ({
+      id: spec.id,
+      label: spec.label,
+      color: spec.color,
+      pending: !entries.some((entry) => entry.id === spec.id && entry.viewRevision === revision),
+    })),
+    viewWidth,
+    viewHeight,
+    labelUnit,
+    JSON.stringify([
+      loadId,
+      cameraId,
+      detection,
+      expanded,
+      viewWidth,
+      viewHeight,
+      stageWidth,
+      angle,
+      scale,
+      selected.join(","),
+    ]),
+  );
   function invalidate(preserveOverlays = false) {
     revision++;
     if (!preserveOverlays) contentRevision++;
@@ -161,7 +291,7 @@
     context.translate(W / 2, H / 2);
     context.rotate((angle * Math.PI) / 180);
     context.scale(fit * scale, fit * scale);
-    context.drawImage(source, -mediaWidth / 2, -mediaHeight / 2);
+    context.drawImage(source, -mediaWidth / 2 - centerX, -mediaHeight / 2 - centerY);
     context.restore();
     detailRevision = revision;
     detailReady = true;
@@ -175,7 +305,28 @@
       });
     }
   }
+  let centerHint = false;
+  let centerHintTimer: ReturnType<typeof setTimeout> | undefined;
+  function flashCenter(duration = 900) {
+    clearTimeout(centerHintTimer);
+    centerHint = true;
+    centerHintTimer = setTimeout(() => (centerHint = false), duration);
+  }
+  function recenter(event: MouseEvent) {
+    if (!source || live) return;
+    const bounds = surface.getBoundingClientRect();
+    const dx = ((event.clientX - bounds.left) / bounds.width - 0.5) * viewWidth;
+    const dy = ((event.clientY - bounds.top) / bounds.height - 0.5) * viewHeight;
+    const radians = (angle * Math.PI) / 180;
+    centerX += (dx * Math.cos(radians) + dy * Math.sin(radians)) / (fit * scale);
+    centerY += (-dx * Math.sin(radians) + dy * Math.cos(radians)) / (fit * scale);
+    flashCenter();
+    invalidate();
+    requestScan(0);
+  }
   function reset() {
+    centerX = centerY = 0;
+    invalidate();
     scale = 1;
     angle = 0;
     transform();
@@ -257,6 +408,7 @@
     const delta =
       event.deltaY *
       (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? surface.clientHeight : 1);
+    flashCenter(450);
     if (event.shiftKey) angle = wrapAngle(angle + delta * 0.15);
     else scale = clampZoom(scale * Math.exp(-delta * 0.002));
     transform();
@@ -319,7 +471,9 @@
           engine: spec.engine,
           scannerVersion: spec.version,
           searchFurther: true,
+          finishCandidates,
           formats: scanFormats,
+          zxingEnhanced,
           engineBaseUrl: new URL(`${import.meta.env.BASE_URL}engines/`, document.baseURI).href,
           width: image.width,
           height: image.height,
@@ -348,6 +502,7 @@
         }
         source?.close();
         source = next;
+        centerX = centerY = 0;
         scale = 1;
         angle = 0;
         setFrame(next.width, next.height);
@@ -392,6 +547,7 @@
         if (!selected.includes(spec.id)) continue;
         if (!live && entries.some((entry) => entry.id === spec.id && entry.viewRevision === token))
           continue;
+        const settingsRevision = zxingRevision;
         try {
           if (!workers.has(spec.id)) {
             status = `Warming up ${spec.label}…`;
@@ -403,6 +559,10 @@
           batch.push({ ...spec, ...view, result: await run(spec, image, scanFormats) });
         } catch (reason) {
           batch.push({ ...spec, ...view, error: String(reason) });
+        }
+        if (spec.id === "zxing" && settingsRevision !== zxingRevision) {
+          batch.pop();
+          continue;
         }
         if (contentToken !== contentRevision || disposed) break;
         // Publish this decoder immediately, without waiting for later decoders.
@@ -543,6 +703,7 @@
       source = null;
       cameraPaused = false;
       detailReady = false;
+      centerX = centerY = 0;
       scale = 1;
       angle = 0;
       setFrame(video.videoWidth, video.videoHeight);
@@ -620,6 +781,7 @@
     setFrame(next.width, next.height);
     preparePreview(next, next.width, next.height);
     error = "";
+    centerX = centerY = 0;
     scale = initialScale;
     angle = initialAngle;
     transform();
@@ -658,6 +820,7 @@
     target.value = "";
   }
   onMount(() => {
+    document.addEventListener("fullscreenchange", fullscreenChanged);
     void demo();
     // Some mobile browsers pause an offscreen video without ending its stream.
     const resumePreview = () => {
@@ -674,8 +837,14 @@
     observer.observe(video);
     document.addEventListener("visibilitychange", resumePreview);
     return () => {
+      document.removeEventListener("fullscreenchange", fullscreenChanged);
+      if (expanded) {
+        void exitViewer();
+        restoreViewer();
+      }
       observer.disconnect();
       document.removeEventListener("visibilitychange", resumePreview);
+      clearTimeout(centerHintTimer);
       disposed = true;
       ++loadId;
       stopCamera();
@@ -694,6 +863,12 @@
     content="Compare barcode scanners on your camera or an image. Everything runs in your browser."
   /></svelte:head
 >
+<svelte:window
+  bind:innerWidth={windowWidth}
+  bind:innerHeight={windowHeight}
+  on:keydown={viewerKey}
+/>
+
 <div class="demo">
   <div class="heading">
     <a href={import.meta.env.BASE_URL} class="wordmark">▥ <span>Tapirscan</span></a>
@@ -709,6 +884,7 @@
     </div>
   </div>
   <main>
+    <p class="scanner-key">TS = Tapirscan · Low, Med, High and VHigh indicate scan effort.</p>
     <div class="scanner-buttons" aria-label="Scanners">
       {#each options as option (option.id)}
         {@const active = selected.includes(option.id)}
@@ -737,149 +913,248 @@
           on:click={() => toggle(option.id)}
         >
           <span class="scanner-label"><i></i>{option.label}</span>
-          <span class="scanner-outcome">{outcome}</span>
-          <span class="scanner-time"
-            >{active && entry?.result ? `${entry.result.scanMs.toFixed(1)} ms` : "—"}</span
+          <span class="scanner-outcome"
+            >{outcome}{#if active && entry?.result}
+              · {entry.result.scanMs.toFixed(1)} ms{/if}</span
           >
         </button>
       {/each}
     </div>
-    <div
-      class="stage"
-      use:suppressImageSelection
-      style:aspect-ratio={`${W} / ${H}`}
-      style:max-width={`min(100%, calc(66svh * ${W} / ${H}))`}
-    >
-      <video
-        bind:this={video}
-        class:visible={live && !source}
-        muted
-        playsinline
-        aria-label="Live camera"
-        on:resize={cameraResize}
-        style:width={`${displayWidth}%`}
-        style:height={`${displayHeight}%`}
-      ></video>
-      <canvas
-        bind:this={preview}
-        class="image-preview"
-        class:visible={(!!source && !detailReady) || cameraPaused}
-        style:width={`${displayWidth}%`}
-        style:height={`${displayHeight}%`}
-        style:transform={`translate(-50%, -50%) rotate(${angle}deg) scale(${scale})`}
-        aria-label="Image preview"
-      ></canvas>
-      <canvas
-        bind:this={detail}
-        class="detail-preview"
-        class:visible={!!source && detailReady}
-        aria-label="Captured image and surrounding context"
-      ></canvas>
-      <canvas
-        width="1"
-        height="1"
-        class="gesture-surface"
-        style:pointer-events={source && !live ? "auto" : "none"}
-        style:touch-action={source ? "none" : "pan-y"}
-        bind:this={surface}
-        tabindex="0"
-        aria-label="Image controls. Drag toward the center to zoom out, away to zoom in, or around it to rotate. Scroll to zoom. Shift-scroll to rotate."
-        on:pointerdown={pointerDown}
-        on:pointermove={pointerMove}
-        on:pointerup={pointerUp}
-        on:pointercancel={pointerUp}
-        on:lostpointercapture={pointerUp}
-        on:wheel|nonpassive={wheel}
-        on:keydown={keyTransform}
-        on:contextmenu|preventDefault={() => {}}
-        on:dragstart|preventDefault={() => {}}
-      ></canvas>
-      <svg
-        class="scan-overlay"
-        viewBox={`0 0 ${W} ${H}`}
-        aria-label="Analysis frame and barcode results"
+    <div class="viewer" class:expanded bind:this={viewer}>
+      <div
+        class="stage"
+        bind:clientWidth={stageWidth}
+        use:suppressImageSelection
+        style:aspect-ratio={`${viewWidth} / ${viewHeight}`}
+        style:max-width={expanded
+          ? `${Math.min(windowWidth, (windowHeight * viewWidth) / viewHeight)}px`
+          : `min(100%, calc(66svh * ${W} / ${H}))`}
       >
-        <path
-          d={`M0 0H${W}V${H}H0Z M${margin} ${margin}V${margin + frameHeight}H${margin + frameWidth}V${margin}Z`}
-          fill="#071512"
-          fill-opacity=".62"
-          fill-rule="evenodd"
-        />
-        <rect
-          x="240"
-          y="240"
-          width={frameWidth}
-          height={frameHeight}
-          fill="none"
-          stroke="#edf5df"
-          stroke-width="1.5"
-          vector-effect="non-scaling-stroke"
-        />
-        <text x="240" y="195" fill="#edf5df" font-size="30"
-          >SCAN · {frameWidth} × {frameHeight}</text
-        >
+        <video
+          bind:this={video}
+          class:visible={live && !source}
+          muted
+          playsinline
+          aria-label="Live camera"
+          on:resize={cameraResize}
+          style:width={`${displayWidth}%`}
+          style:height={`${displayHeight}%`}
+        ></video>
+        <canvas
+          bind:this={preview}
+          class="image-preview"
+          class:visible={(!!source && !detailReady) || cameraPaused}
+          style:width={`${displayWidth}%`}
+          style:height={`${displayHeight}%`}
+          style:transform={`translate(-50%, -50%) rotate(${angle}deg) scale(${scale}) translate(${(-centerX / mediaWidth) * 100}%, ${(-centerY / mediaHeight) * 100}%)`}
+          aria-label="Image preview"
+        ></canvas>
+        <canvas
+          bind:this={detail}
+          class="detail-preview"
+          style:width={`${(W / viewWidth) * 100}%`}
+          style:height={`${(H / viewHeight) * 100}%`}
+          style:left={`${(-viewOffset / viewWidth) * 100}%`}
+          style:top={`${(-viewOffset / viewHeight) * 100}%`}
+          class:visible={!!source && detailReady}
+          aria-label="Captured image and surrounding context"
+        ></canvas>
+        <canvas
+          width="1"
+          height="1"
+          class="gesture-surface"
+          style:pointer-events={source && !live ? "auto" : "none"}
+          style:touch-action={source ? "none" : "pan-y"}
+          bind:this={surface}
+          tabindex="0"
+          aria-label="Image controls. Drag toward the center to zoom out, away to zoom in, or around it to rotate. Scroll to zoom. Shift-scroll to rotate. Double-click a point to center it without changing zoom."
+          on:pointerdown={pointerDown}
+          on:pointermove={pointerMove}
+          on:pointerup={pointerUp}
+          on:pointercancel={pointerUp}
+          on:lostpointercapture={pointerUp}
+          on:dblclick={recenter}
+          on:wheel|nonpassive={wheel}
+          on:keydown={keyTransform}
+          on:contextmenu|preventDefault={() => {}}
+          on:dragstart|preventDefault={() => {}}
+        ></canvas>
+        <span
+          class="center-marker"
+          class:shown={!!source && !live && (pointers.size > 0 || centerHint)}
+          aria-hidden="true"
+        ></span>
         <svg
-          x={margin}
-          y={margin}
-          width={frameWidth}
-          height={frameHeight}
-          viewBox={`0 0 ${frameWidth} ${frameHeight}`}
-          overflow="hidden"
+          class="scan-overlay"
+          viewBox={`${viewOffset} ${viewOffset} ${viewWidth} ${viewHeight}`}
+          aria-label="Analysis frame and barcode results"
         >
-          {#each overlayEntries as entry (entry.id)}
-            <g transform={overlayTransform(entry, angle, scale)}>
-              {#if showAreas}
-                {#each entry.result?.searchWindows ?? [] as area, i (i)}
+          {#if !expanded}<path
+              d={`M0 0H${W}V${H}H0Z M${margin} ${margin}V${margin + frameHeight}H${margin + frameWidth}V${margin}Z`}
+              fill="#071512"
+              fill-opacity=".62"
+              fill-rule="evenodd"
+            />
+            <rect
+              x="240"
+              y="240"
+              width={frameWidth}
+              height={frameHeight}
+              fill="none"
+              stroke="#edf5df"
+              stroke-width="1.5"
+              vector-effect="non-scaling-stroke"
+            />
+            <text x="240" y="195" fill="#edf5df" font-size="30"
+              >SCAN · {frameWidth} × {frameHeight}</text
+            >{/if}
+          <svg
+            x={margin}
+            y={margin}
+            width={frameWidth}
+            height={frameHeight}
+            viewBox={`0 0 ${frameWidth} ${frameHeight}`}
+            overflow="hidden"
+          >
+            {#each overlayEntries as entry (entry.id)}
+              <g transform={overlayTransform(entry, angle, scale)}>
+                {#if showAreas}
+                  {#each entry.result?.searchWindows ?? [] as area, i (i)}
+                    <polygon
+                      points={area.polygon.map((p) => p.join(",")).join(" ")}
+                      fill={entry.color}
+                      fill-opacity=".07"
+                      stroke={entry.color}
+                      stroke-width="1"
+                      stroke-dasharray="6 4"
+                      vector-effect="non-scaling-stroke"
+                    />
+                  {/each}
+                  {#each entry.result?.proposals ?? [] as area, i (i)}
+                    <polygon
+                      points={area.polygon.map((p) => p.join(",")).join(" ")}
+                      fill={entry.color}
+                      fill-opacity=".1"
+                      stroke={entry.color}
+                      stroke-width="1"
+                      stroke-dasharray="4 3"
+                      vector-effect="non-scaling-stroke"
+                    />
+                  {/each}
+                {/if}
+                {#each (entry.result?.regions ?? []).filter((region) => region.text || showAreas) as region, i (i)}
                   <polygon
-                    points={area.polygon.map((p) => p.join(",")).join(" ")}
-                    fill={entry.color}
-                    fill-opacity=".07"
+                    points={region.polygon.map((p) => p.join(",")).join(" ")}
+                    fill="none"
                     stroke={entry.color}
-                    stroke-width="1"
-                    stroke-dasharray="6 4"
+                    stroke-width="2.5"
+                    stroke-dasharray={region.text ? undefined : "5 4"}
                     vector-effect="non-scaling-stroke"
-                  />
+                  >
+                    <title>{entry.label}: {region.text || "Located, unreadable"}</title>
+                  </polygon>
                 {/each}
-                {#each entry.result?.proposals ?? [] as area, i (i)}
-                  <polygon
-                    points={area.polygon.map((p) => p.join(",")).join(" ")}
-                    fill={entry.color}
-                    fill-opacity=".1"
-                    stroke={entry.color}
-                    stroke-width="1"
-                    stroke-dasharray="4 3"
-                    vector-effect="non-scaling-stroke"
-                  />
-                {/each}
-              {/if}
-              {#each (entry.result?.regions ?? []).filter((region) => region.text || showAreas) as region, i (i)}
-                <polygon
-                  points={region.polygon.map((p) => p.join(",")).join(" ")}
-                  fill="none"
-                  stroke={entry.color}
-                  stroke-width="2.5"
-                  stroke-dasharray={region.text ? undefined : "5 4"}
-                  vector-effect="non-scaling-stroke"
+              </g>
+            {/each}
+          </svg>
+          {#each labels.placed as label (label.id)}
+            <g transform={`translate(${viewOffset} ${viewOffset})`} aria-label={label.text}>
+              <title>{label.text}</title>
+              <rect
+                x={label.x}
+                y={label.y}
+                width={label.width}
+                height={label.height}
+                rx={3 * labelUnit}
+                fill="#102724"
+                stroke="#b7c9c0"
+                vector-effect="non-scaling-stroke"
+              />
+              <text
+                class="region-label"
+                x={label.x + 6 * labelUnit}
+                y={label.y + 16 * labelUnit}
+                fill="white"
+                style:font-size={`${12 * labelUnit}px`}>{label.displayText}</text
+              >
+              {#each label.rows as row (row.id)}
+                <text
+                  class="region-label"
+                  x={label.x + row.offset * labelUnit}
+                  y={label.y + 29 * labelUnit}
+                  fill={row.color}
+                  opacity={row.found ? 1 : 0}
+                  aria-hidden={!row.found}
+                  style:font-size={`${9 * labelUnit}px`}>{row.label}</text
                 >
-                  <title>{entry.label}: {region.text || "Located, unreadable"}</title>
-                </polygon>
               {/each}
             </g>
           {/each}
         </svg>
-      </svg>
-      {#if !source && !live && !cameraPaused && !entries.length}<div class="welcome">
-          <h1>{opening ? "Opening your camera…" : "A clearer view of every barcode."}</h1>
-          <p>Try a photo, or scan with your camera.</p>
-          <button class="primary" on:click={() => void demo()}>Try demo image</button>
+        {#if !source && !live && !cameraPaused && !entries.length}<div class="welcome">
+            <h1>{opening ? "Opening your camera…" : "A clearer view of every barcode."}</h1>
+            <p>Try a photo, or scan with your camera.</p>
+            <button class="primary" on:click={() => void demo()}>Try demo image</button>
+          </div>{/if}
+        {#if busy || overlaysUpdating}<span class="scanning"
+            >{overlaysUpdating ? "Previous outlines · updating…" : status}</span
+          >{/if}
+      </div>
+      {#if expanded}<div class="viewer-header">
+          <button
+            class="exit-viewer"
+            on:click={() => void exitViewer()}
+            aria-label="Exit fullscreen">← Back</button
+          >
+          <div class="runtime-strip" aria-label="Scanner runtimes">
+            {#each chosen as spec (spec.id)}
+              {@const entry = entries.find(
+                (item) => item.id === spec.id && item.viewRevision === revision,
+              )}
+              <span style:color={spec.color}
+                ><span>{spec.label}</span><strong
+                  >{entry?.result
+                    ? `${entry.result.scanMs.toFixed(1)} ms`
+                    : entry?.error
+                      ? "Failed"
+                      : "—"}</strong
+                ></span
+              >
+            {/each}
+          </div>
         </div>{/if}
-      {#if busy || overlaysUpdating}<span class="scanning"
-          >{overlaysUpdating ? "Previous outlines · updating…" : status}</span
-        >{/if}
     </div>
-    {#if source}
-      <p class="gesture-hint">Drag with your mouse to rotate and zoom</p>
-    {/if}
+    <div class="viewer-actions">
+      <button bind:this={fullscreenButton} on:click={() => void enterViewer()}>Fullscreen</button>
+      {#if source}<span class="gesture-hint">Drag to rotate and zoom · Double-click to center</span
+        >{/if}
+      <label class="resolution-control"
+        >Detect<select
+          bind:value={detection}
+          on:change={changeDetection}
+          aria-describedby="detection-note"
+        >
+          <option value="ean13">EAN-13</option>
+          <option value="retail">Retail</option>
+          <option value="common">Common</option>
+        </select></label
+      >
+      <label class="resolution-control"
+        >Read up to<select
+          aria-label="Resolution"
+          bind:value={resolution}
+          on:change={changeResolution}
+          disabled={opening}
+        >
+          <option value="1080">Full HD</option><option value="2160">4K</option><option
+            value="original">Original</option
+          >
+        </select></label
+      >
+    </div>
+    {#if labels.hidden}<p class="hint">
+        {labels.hidden} labels hidden to avoid overlap; see Results.
+      </p>{/if}
     <div class="controls essential-controls">
       <div class="control-group examples-group">
         <span class="control-heading" id="examples-heading">Examples</span>
@@ -906,33 +1181,17 @@
           >
         </div>
       </div>
-      <label class="resolution-control"
-        >Detect<select
-          bind:value={detection}
-          on:change={changeDetection}
-          aria-describedby="detection-note"
-        >
-          <option value="ean13">EAN-13</option>
-          <option value="retail">Retail</option>
-          <option value="common">Common</option>
-        </select></label
-      >
-      <label class="resolution-control"
-        >Read up to<select
-          aria-label="Resolution"
-          bind:value={resolution}
-          on:change={changeResolution}
-          disabled={opening}
-        >
-          <option value="1080">Full HD</option><option value="2160">4K</option><option
-            value="original">Original</option
-          >
-        </select></label
-      >
     </div>
     <p class="hint" id="detection-note">
       {formats.join(", ")}.{#if detection === "common"}
         ZBar is unavailable because it does not support Data Matrix.{/if}
+    </p>
+    <label class="hint">
+      <input type="checkbox" bind:checked={finishCandidates} on:change={changeDetection} />
+      Finish EAN/UPC candidate work (Tapirscan)
+    </label>
+    <p class="hint">
+      Allows more time for later candidates at the selected effort. Other search limits still apply.
     </p>
     <input
       bind:this={photoInput}
@@ -1099,6 +1358,16 @@
         Dashed outlines show reported candidate regions and search windows. An unfinished search
         does not guarantee that every visible symbol was examined.
       </p>{/if}
+    <div class="zxing-settings">
+      <label
+        ><input type="checkbox" bind:checked={zxingEnhanced} on:change={changeZxing} />
+        ZXing: enable tryHarder, tryRotate and tryDownscale</label
+      >
+      <p class="hint">
+        Enabled by default: more thorough search, quarter-turn rotation checks and downscaled scans.
+        Uncheck to disable these three options; other ZXing settings stay at their library defaults.
+      </p>
+    </div>
     <footer>
       <span>Local processing. No image uploads.</span>
       <nav aria-label="Project and legal links">
@@ -1201,8 +1470,8 @@
     color: #234e6d;
   }
   .gesture-hint {
-    margin: 8px 0 0;
-    text-align: center;
+    margin: 0;
+    flex: 1;
     font-size: 12px;
     color: #61776b;
   }
@@ -1252,6 +1521,11 @@
   .camera-info {
     min-height: 20px;
   }
+  .scanner-key {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: #52675d;
+  }
   .scanner-buttons {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1263,7 +1537,7 @@
     min-width: 0;
     width: 100%;
     overflow: hidden;
-    font-size: 16px;
+    font-size: 13px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1289,14 +1563,6 @@
     font-size: 11px;
     line-height: 15px;
     font-weight: 500;
-    opacity: 0.8;
-  }
-  .scanner-time {
-    height: 14px;
-    flex: 0 0 14px;
-    font-size: 10px;
-    line-height: 14px;
-    font-variant-numeric: tabular-nums;
     opacity: 0.8;
   }
   .scanner-buttons i {
@@ -1330,6 +1596,77 @@
   .hint {
     line-height: 1.6;
     margin: 10px 0 18px;
+  }
+  .viewer {
+    position: relative;
+  }
+  .viewer-header {
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top));
+    left: max(12px, env(safe-area-inset-left));
+    right: max(12px, env(safe-area-inset-right));
+    z-index: 3;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    pointer-events: none;
+  }
+  .runtime-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    padding: 8px 10px;
+    background: #102724cc;
+    border-radius: 8px;
+    font-size: 11px;
+    min-width: 0;
+  }
+  .runtime-strip > span {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+  }
+  .runtime-strip strong {
+    min-width: 9ch;
+    text-align: right;
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+  }
+  .viewer.expanded {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: #071512;
+    width: 100%;
+    height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .expanded .stage {
+    margin: 0;
+    border-radius: 0;
+    flex-shrink: 0;
+  }
+  .exit-viewer {
+    flex-shrink: 0;
+    pointer-events: auto;
+  }
+  .zxing-settings {
+    margin-top: 20px;
+    font-size: 13px;
+  }
+  .viewer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .scan-overlay .region-label {
+    letter-spacing: 0;
+    font-family: ui-monospace, monospace;
   }
   .stage {
     -webkit-user-select: none;
@@ -1382,6 +1719,47 @@
     inset: 0;
     touch-action: none;
     cursor: move;
+  }
+  .center-marker {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 26px;
+    height: 26px;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 220ms ease-out;
+    filter: drop-shadow(0 0 1px #071512) drop-shadow(0 1px 1px #071512);
+  }
+  .center-marker.shown {
+    opacity: 0.85;
+    transition-duration: 80ms;
+  }
+  .center-marker::before,
+  .center-marker::after {
+    content: "";
+    position: absolute;
+    background: white;
+    border-radius: 1px;
+  }
+  .center-marker::before {
+    left: 12px;
+    top: 0;
+    width: 2px;
+    height: 26px;
+  }
+  .center-marker::after {
+    top: 12px;
+    left: 0;
+    height: 2px;
+    width: 26px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .center-marker {
+      transition: none;
+    }
   }
   .gesture-surface:focus-visible {
     outline: 3px solid #edf5df;
@@ -1588,7 +1966,7 @@
     }
     .scanner-buttons button {
       padding: 8px 3px;
-      font-size: 12px;
+      font-size: 11px;
       gap: 3px;
       height: 70px;
       min-height: 70px;

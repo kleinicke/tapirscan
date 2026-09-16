@@ -44,6 +44,12 @@ export default [
       parserOptions: { project: path.join(root, "tsconfig.quality.json"), tsconfigRootDir: root },
     },
   },
+  {
+    files: ["demo/src/**/*.ts"],
+    languageOptions: {
+      parserOptions: { project: path.join(root, "demo/tsconfig.json"), tsconfigRootDir: root },
+    },
+  },
   ...svelte.configs["flat/recommended"],
   { files: ["**/*.svelte"], languageOptions: { parserOptions: { parser: tseslint.parser } } },
   prettier,

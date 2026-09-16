@@ -2,6 +2,15 @@
 
 ## 1.1.0 — unreleased
 
+- Optional per-scan `finish_candidates` / `finishCandidates` lets selected
+  EAN13/UPC-A candidates continue beyond shared frame budgets. Default scanning
+  stays bounded; per-candidate effort and other limits still apply.
+- Retail decoding shares grayscale/template work and coverage calculations.
+  Source-pixel evidence consolidates duplicate linear observations while preserving
+  separate products and different supplements.
+- The demo supports candidate continuation alongside camera, comparison and
+  ground-truth label controls.
+
 - One-shot `scan()` and reusable scanners return all decoded instances with
   immutable results, source-image geometry, support, timing and work-limit status.
 - Python accepts Pillow images, NumPy arrays, PyTorch tensors and explicit pixel

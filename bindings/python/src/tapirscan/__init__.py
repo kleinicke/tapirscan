@@ -270,6 +270,7 @@ class Scanner:
         image: ImageInput,
         *,
         debug: bool = False,
+        finish_candidates: bool = False,
         formats: FormatSelection | None = None,
         layout: Layout = "auto",
         value_range: ValueRange = "auto",
@@ -280,6 +281,20 @@ class Scanner:
         if type(debug) is not bool:
             msg = "debug must be a boolean"
             raise TypeError(msg)
+        if type(finish_candidates) is not bool:
+            msg = "finish_candidates must be a boolean"
+            raise TypeError(msg)
+        if finish_candidates:
+            if mask & 3 == 0:
+                msg = "finish_candidates requires EAN13 or UPCA"
+                raise ValueError(msg)
+            capability = getattr(self._lib, "barcode_capabilities", None)
+            if capability is None or not capability() & 1:
+                msg = (
+                    "This native library does not support finish_candidates; "
+                    "rebuild or update it"
+                )
+                raise RuntimeError(msg)
         with self._lock:
             if not self._handle.value:
                 msg = "Scanner is closed"
@@ -292,7 +307,11 @@ class Scanner:
                 msg = "Scanner is closed"
                 raise RuntimeError(msg)
             result = c.c_uint64()
-            flags = (2 if debug else 0) | _ADDON_FLAGS[self.ean_add_on_policy]
+            flags = (
+                (2 if debug else 0)
+                | (16 if finish_candidates else 0)
+                | _ADDON_FLAGS[self.ean_add_on_policy]
+            )
             _check(
                 self._lib.barcode_scan_formats(
                     self._handle,
@@ -351,6 +370,7 @@ def scan(
     ean_add_on_policy: EanAddOnPolicy = "Ignore",
     library_dir: str | os.PathLike[str] | None = None,
     debug: bool = False,
+    finish_candidates: bool = False,
     formats: FormatSelection | None = None,
     layout: Layout = "auto",
     value_range: ValueRange = "auto",
@@ -366,6 +386,7 @@ def scan(
         return scanner.scan(
             image,
             debug=debug,
+            finish_candidates=finish_candidates,
             layout=layout,
             value_range=value_range,
             color_order=color_order,
