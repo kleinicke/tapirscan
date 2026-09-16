@@ -71,7 +71,8 @@ Native errors retain numeric status codes and provide descriptive messages.
 
 ## Candidate continuation
 
-`finish_candidates=True` (Python/Rust) and `finishCandidates: true` (JavaScript)
+`finish_candidates=True` (Python), `finish_candidates: true` (Rust), and
+`finishCandidates: true` (JavaScript)
 are per-scan options, disabled by default. They remove shared frame retry and
 association budgets in the primary EAN13/UPC-A reader, including source-detail
 recovery. The selected formats must contain EAN13 or UPCA. C uses flag 16

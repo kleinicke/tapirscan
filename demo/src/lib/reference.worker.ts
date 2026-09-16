@@ -51,11 +51,8 @@ self.onmessage = async ({
       ready = true;
     }
     if (data.engine === "zbar") {
-      const unsupported = data.formats.filter((format) => zbarFormats[format] === undefined);
-      if (unsupported.length)
-        throw Error(
-          `ZBar comparison does not support: ${unsupported.join(", ")}. Deselect these formats to compare.`,
-        );
+      if (!data.formats.some((format) => zbarFormats[format] !== undefined))
+        throw Error("ZBar does not support any of the selected formats.");
       zbar.setConfig(zb.ZBarSymbolType.ZBAR_NONE, zb.ZBarConfigType.ZBAR_CFG_ENABLE, 0);
       for (const format of data.formats) {
         const symbol = zbarFormats[format];

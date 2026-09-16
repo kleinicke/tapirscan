@@ -5,9 +5,22 @@ import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { prepareZXingModule, writeBarcode } from "zxing-wasm/writer";
-import { retailFormats, commonFormats } from "../../bindings/javascript/dist/index.js";
+import {
+  retailFormats,
+  commonFormats,
+  linearFormats,
+  matrixFormats,
+} from "../../bindings/javascript/dist/index.js";
 
-const selections = [["EAN13"], retailFormats, commonFormats, ["QRCode"], ["EAN13"]];
+const selections = [
+  ["EAN13"],
+  retailFormats,
+  commonFormats,
+  linearFormats,
+  matrixFormats,
+  ["QRCode"],
+  ["EAN13"],
+];
 
 const root = new URL("../../", import.meta.url);
 const dist = new URL("demo/dist/", root);
@@ -89,7 +102,7 @@ for (const mode of modes) {
     );
   }
   console.log(
-    `${mode}: production worker switches EAN13, retail, common, QR-only, and back under a hosting subpath`,
+    `${mode}: production worker switches EAN13, retail, common, all, QR-only, and back under a hosting subpath`,
   );
 }
 assert.equal(
@@ -186,15 +199,11 @@ for (const engine of ["zxing", "zbar"]) {
       },
     });
     const message = messages.at(-1);
-    if (engine === "zbar" && formats.includes("DataMatrix")) {
-      assert.match(message.error, /does not support: DataMatrix/);
-    } else {
-      assert.ok(message.result, JSON.stringify(message));
-      assert.equal(
-        message.result.regions.some((b) => b.text === "4006381333931"),
-        formats.includes("EAN13"),
-      );
-    }
+    assert.ok(message.result, JSON.stringify(message));
+    assert.equal(
+      message.result.regions.some((b) => b.text === "4006381333931"),
+      formats.includes("EAN13"),
+    );
   }
   console.log(`${engine}: production comparison worker switches formats and enforces coverage`);
 }

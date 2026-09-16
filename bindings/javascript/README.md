@@ -135,14 +135,15 @@ call and does not change the default formats. Previously returned results surviv
 
 ## All options
 
-| Option           | Where               | Default                | Meaning                                                                                                                                                           |
-| ---------------- | ------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mode`           | Creation            | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                                                     |
-| `formats`        | Creation / scan     | `["EAN13"]`            | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call selections must be subsets of creation formats. |
-| `wasmBaseUrl`    | Creation            | Module-relative assets | Directory URL for packaged WASMs. Use this for normal browser hosting.                                                                                            |
-| `loadWasm`       | Creation            | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`. Uses HTTP fetch in browsers and filesystem reads for Node file URLs.                                                        |
-| `eanAddOnPolicy` | Creation / one-shot | `"Ignore"`             | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                            |
-| `debug`          | Scan                | `false`                | Include search evidence under `result.debug`. Decoded polygons are always returned.                                                                               |
+| Option             | Where               | Default                | Meaning                                                                                                                                                           |
+| ------------------ | ------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`             | Creation            | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                                                     |
+| `formats`          | Creation / scan     | `["EAN13"]`            | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call selections must be subsets of creation formats. |
+| `wasmBaseUrl`      | Creation            | Module-relative assets | Directory URL for packaged WASMs. Use this for normal browser hosting.                                                                                            |
+| `loadWasm`         | Creation            | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`. Uses HTTP fetch in browsers and filesystem reads for Node file URLs.                                                        |
+| `eanAddOnPolicy`   | Creation / one-shot | `"Ignore"`             | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                            |
+| `finishCandidates` | Scan / one-shot     | `false`                | Let selected EAN13/UPC-A candidates continue beyond shared frame budgets; other limits remain. See [finishing candidate work](#finishing-candidate-work).         |
+| `debug`            | Scan                | `false`                | Include search evidence under `result.debug`. Decoded polygons are always returned.                                                                               |
 
 Format presets cover supported symbologies. Exports `commonFormats`, `commonLinearFormats`, `linearFormats`, `matrixFormats`
 and `retailFormats` let you compose custom selections; `formatBits` provides their

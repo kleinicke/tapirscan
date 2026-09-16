@@ -9,7 +9,7 @@
     "build": "node scripts/prepare.mjs && vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test scripts/camera.test.mjs scripts/labels.test.mjs && node scripts/test-worker.mjs"
+    "test": "node --test scripts/camera.test.mjs scripts/labels.test.mjs scripts/taps.test.mjs && node scripts/test-worker.mjs"
   },
   "dependencies": {
     "@undecaf/zbar-wasm": "0.11.0",

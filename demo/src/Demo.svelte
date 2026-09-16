@@ -4,23 +4,30 @@
   import { SvelteMap } from "svelte/reactivity";
   import { comparisonOptions, type ComparisonSpec, type ComparisonEntry } from "./lib/comparison";
   import type { Result } from "./lib/types";
-  import { retailFormats, commonFormats, type Format } from "tapirscan";
+  import {
+    retailFormats,
+    commonFormats,
+    linearFormats,
+    matrixFormats,
+    type Format,
+  } from "tapirscan";
+  import { DoubleTap } from "./lib/taps";
   import { LabelLayout } from "./lib/labels";
   import { version } from "../package.json";
 
-  let finishCandidates = false;
-  let detection: "ean13" | "retail" | "common" = "ean13";
+  let detection: "ean13" | "retail" | "common" | "all" = "ean13";
   $: formats =
-    detection === "common"
-      ? commonFormats
-      : detection === "retail"
-        ? retailFormats
-        : (["EAN13"] as const);
+    detection === "all"
+      ? [...linearFormats, ...matrixFormats]
+      : detection === "common"
+        ? commonFormats
+        : detection === "retail"
+          ? retailFormats
+          : (["EAN13"] as const);
 
   function changeDetection() {
     invalidate();
     entries = [];
-    if (detection === "common") selected = selected.filter((id) => id !== "zbar");
     for (const reject of pending.values()) reject(new Error("Detection selection changed"));
     for (const worker of workers.values()) worker.terminate();
     workers.clear();
@@ -312,7 +319,7 @@
     centerHint = true;
     centerHintTimer = setTimeout(() => (centerHint = false), duration);
   }
-  function recenter(event: MouseEvent) {
+  function recenter(event: Pick<MouseEvent, "clientX" | "clientY">) {
     if (!source || live) return;
     const bounds = surface.getBoundingClientRect();
     const dx = ((event.clientX - bounds.left) / bounds.width - 0.5) * viewWidth;
@@ -330,6 +337,12 @@
     scale = 1;
     angle = 0;
     transform();
+  }
+  const doubleTap = new DoubleTap();
+  let lastTouchTime = -Infinity;
+  function mouseRecenter(event: MouseEvent) {
+    // Some browsers also emit dblclick after touch; never recenter twice.
+    if (performance.now() - lastTouchTime > 800) recenter(event);
   }
   const pointers = new SvelteMap<number, { x: number; y: number }>();
   const clampZoom = (value: number) => Math.max(0.25, Math.min(12, value));
@@ -353,6 +366,11 @@
   }
   function pointerDown(event: PointerEvent) {
     if (!source || event.button !== 0) return;
+    if (event.pointerType === "touch") {
+      lastTouchTime = performance.now();
+      if (!pointers.size) doubleTap.down(event);
+      else doubleTap.cancel();
+    } else doubleTap.cancel();
     if (!pointers.size) gestureBounds = surface.getBoundingClientRect();
     surface.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, point(event));
@@ -360,6 +378,7 @@
   function pointerMove(event: PointerEvent) {
     const previous = pointers.get(event.pointerId);
     if (!previous || !source) return;
+    if (event.pointerType === "touch" && pointers.size === 1 && doubleTap.move(event)) return;
     const next = point(event);
     const other = [...pointers.entries()].find(([id]) => id !== event.pointerId)?.[1];
     if (other) {
@@ -396,6 +415,13 @@
     transform();
   }
   function pointerUp(event: PointerEvent) {
+    if (!pointers.has(event.pointerId)) return;
+    if (event.pointerType === "touch") {
+      lastTouchTime = performance.now();
+      if (event.type === "pointerup" && pointers.size === 1) {
+        if (doubleTap.up(event)) recenter(event);
+      } else doubleTap.cancel();
+    }
     pointers.delete(event.pointerId);
     if (!pointers.size) {
       gestureBounds = null;
@@ -471,7 +497,7 @@
           engine: spec.engine,
           scannerVersion: spec.version,
           searchFurther: true,
-          finishCandidates,
+          finishCandidates: false,
           formats: scanFormats,
           zxingEnhanced,
           engineBaseUrl: new URL(`${import.meta.env.BASE_URL}engines/`, document.baseURI).href,
@@ -596,6 +622,7 @@
     }
   }
   function stopCamera() {
+    doubleTap.cancel();
     clearTimeout(timer);
     timer = undefined;
     invalidate();
@@ -904,7 +931,6 @@
                 : "Ready"}
         <button
           aria-pressed={active}
-          disabled={detection === "common" && option.id === "zbar"}
           aria-label={`${option.label}: ${outcome}`}
           class:chosen={active}
           class:has-reads={active && !!entry?.result && count > 0}
@@ -967,13 +993,13 @@
           style:touch-action={source ? "none" : "pan-y"}
           bind:this={surface}
           tabindex="0"
-          aria-label="Image controls. Drag toward the center to zoom out, away to zoom in, or around it to rotate. Scroll to zoom. Shift-scroll to rotate. Double-click a point to center it without changing zoom."
+          aria-label="Image controls. Drag toward the center to zoom out, away to zoom in, or around it to rotate. Scroll to zoom. Shift-scroll to rotate. Double-click or double-tap a point to center it without changing zoom."
           on:pointerdown={pointerDown}
           on:pointermove={pointerMove}
           on:pointerup={pointerUp}
           on:pointercancel={pointerUp}
           on:lostpointercapture={pointerUp}
-          on:dblclick={recenter}
+          on:dblclick={mouseRecenter}
           on:wheel|nonpassive={wheel}
           on:keydown={keyTransform}
           on:contextmenu|preventDefault={() => {}}
@@ -1137,6 +1163,7 @@
           <option value="ean13">EAN-13</option>
           <option value="retail">Retail</option>
           <option value="common">Common</option>
+          <option value="all">All</option>
         </select></label
       >
       <label class="resolution-control"
@@ -1183,15 +1210,10 @@
       </div>
     </div>
     <p class="hint" id="detection-note">
-      {formats.join(", ")}.{#if detection === "common"}
-        ZBar is unavailable because it does not support Data Matrix.{/if}
-    </p>
-    <label class="hint">
-      <input type="checkbox" bind:checked={finishCandidates} on:change={changeDetection} />
-      Finish EAN/UPC candidate work (Tapirscan)
-    </label>
-    <p class="hint">
-      Allows more time for later candidates at the selected effort. Other search limits still apply.
+      {formats.join(", ")}.{#if detection === "common" || detection === "all"}
+        ZBar scans its supported formats only; it skips Data Matrix{detection === "all"
+          ? ", PDF417, Aztec and MaxiCode"
+          : ""}.{/if}
     </p>
     <input
       bind:this={photoInput}
@@ -1248,8 +1270,8 @@
     <details class="more-options">
       <summary>More options</summary>
       <p class="hint">
-        Compare readers on the same pixels and selected formats. Scanner times exclude
-        initialization, the one-time warm-up scan, and transfers.
+        Compare readers on the same pixels. ZBar scans the supported subset of selected formats.
+        Scanner times exclude initialization, the one-time warm-up scan, and transfers.
         {#if totalMs}Preparation {preparationMs.toFixed(1)} ms · Total {totalMs.toFixed(1)} ms.{/if}
       </p>
       <div class="camera-settings">

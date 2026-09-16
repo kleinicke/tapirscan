@@ -5,10 +5,11 @@
 A browser interface for trying Tapirscan on photos and camera frames. It uses
 the `tapirscan` package, four EAN13 effort modes, and separately loaded
 ZXing-WASM 3.1.1 and ZBar-WASM 0.11.0 comparisons. The Detect selector offers
-EAN-13 (default), Retail (EAN-13, UPC-A, EAN-8, UPC-E), and Common (Retail plus
-Code 128, Code 39, ITF, QR Code, and Data Matrix). Every selected scanner receives
-the same transformed pixels and format restriction. ZBar is deselected and disabled
-for Common because it does not support Data Matrix. Initialization is
+EAN-13 (default), Retail (EAN-13, UPC-A, EAN-8, UPC-E), Common (Retail plus
+Code 128, Code 39, ITF, QR Code, and Data Matrix), and All (all Tapirscan formats). Every selected scanner receives
+the same transformed pixels. ZBar stays selected in Common and All, scanning its
+supported subset. It skips Data Matrix, PDF417, Aztec and MaxiCode; the UI notes
+these coverage differences. Initialization is
 excluded from displayed scan times, and engines differ in search strategies and
 completion reporting; this interactive comparison is not a benchmark. Camera and image processing are local to the browser.
 
@@ -103,8 +104,9 @@ ignored root `MAINTAINER.local.md`; they are not needed to develop or host a for
 
 ## Image interaction and overlays
 
-Double-click a point in a photo or frozen frame to make it the view center without
-changing zoom or rotation. Subsequent zoom and rotation use that center; Reset image
+Double-click or double-tap a point in a photo or frozen frame to make it the view center without
+changing zoom or rotation. Touch taps allow small finger movements; drags,
+pinches and canceled gestures do not count as taps. Subsequent zoom and rotation use that center; Reset image
 restores the original center. New images and camera sessions start centered.
 A small contrasting crosshair marks the center while dragging, briefly after
 recentering, and while scrolling to zoom or rotate. It fades away without
@@ -158,7 +160,3 @@ barcode; its position is remembered for 1.2 seconds without displaying stale
 results. Source/view changes reset placement. Crowded views omit labels with a
 count; all values remain in Results. Long payloads are shortened on the image,
 with the full value in the title and Results.
-
-The “Finish EAN/UPC candidate work” control forwards the optional per-scan
-`finishCandidates` setting to Tapirscan. It is off by default and may increase
-runtime; other search limits still apply.
