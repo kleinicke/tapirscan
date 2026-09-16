@@ -74,11 +74,12 @@ engines. See [camera behavior and hosting](../demo/README.md).
 ```sh
 python3 scripts/verify_import.py
 node tools/quality/install.mjs
-node tools/quality/release.mjs all
+node tools/quality/all.mjs
 ```
 
-The full gate needs the optional image libraries in `QUALITY_PYTHON` and a JDK
-in `JAVA_HOME`. See [quality tools](QUALITY.md) and [validation](VALIDATION.md)
+The gate needs the demo dependencies, optional image libraries in `QUALITY_PYTHON`
+and a JDK in `JAVA_HOME`. You can save local tool paths in the ignored
+`.quality-tools/environment.json`. See [quality tools](QUALITY.md) and [validation](VALIDATION.md)
 for the focused tests, platform matrix, and reproduction commands.
 
 Algorithm changes are promoted from exact experiments. Follow

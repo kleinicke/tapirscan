@@ -59,8 +59,9 @@ public final class Tapirscan implements AutoCloseable {
             String suffix = os.contains("win") ? ".dll" : os.contains("mac") ? ".dylib" : ".so";
             Path library = libraryDirectory.toAbsolutePath().resolve(prefix + "tapirscan_" + mode.name().toLowerCase(Locale.ROOT) + suffix);
             SymbolLookup symbols = SymbolLookup.libraryLookup(library, libraryArena);
-            if (call(bind(symbols,"barcode_abi_version",FunctionDescriptor.of(JAVA_INT))) != 3)
-                throw new IllegalStateException("Unsupported scanner ABI");
+            long abi = call(bind(symbols,"barcode_abi_version",FunctionDescriptor.of(JAVA_INT)));
+            if (abi != 4)
+                throw new IllegalStateException("Native ABI mismatch: expected 4, got " + abi + ". Rebuild the native libraries.");
             if (call(bind(symbols,"barcode_mode",FunctionDescriptor.of(JAVA_INT))) != mode.ordinal())
                 throw new IllegalStateException("Native library mode mismatch");
             MethodHandle create = bind(symbols,"tapirscan_create",FunctionDescriptor.of(JAVA_INT,ADDRESS));

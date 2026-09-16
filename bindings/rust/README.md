@@ -85,7 +85,7 @@ removing that internal conversion is a future optimization. Ordinary Rust caller
 do not need to parse JSON. `scan_formats_json(image, options, mask)` retains the
 raw path used by the C ABI.
 
-The older EAN13-only `scan`/`scan_with_options` methods retain the lower-level
+The EAN13-only `scan`/`scan_with_options` methods retain the lower-level
 research result type, where text is accessed through `barcode.detection.text`.
 Use `scan_formats` for the consistent typed multi-format interface, even for EAN13.
 `MODE` and `MODE_ID` identify the compiled mode. Rust's native API is separate from

@@ -1,0 +1,34 @@
+{
+  "id": "multiformat-payload-bytes-20260916",
+  "description": "Release-owned work-limit corrections and additive original matrix payload bytes. Decoding thresholds, work caps and frozen EAN modes are unchanged.",
+  "patch": "provenance/multiformat-payload-bytes-20260916.patch",
+  "patchSha256": "b7aefdb90aebab6c9b8811d2ecc865a2eb8b43274acf5fe2296a74c498e2475e",
+  "baseHashes": {
+    "multiformat/src/aztec_detect.rs": "5fa708f3e32edebde60e4b1579557d4daf9e09d19c7dacecca658f3b801ee510",
+    "multiformat/src/component_geometry.rs": "625b2f140a0ee83937cbd519f99a81e97f083ad344f46577eab591e31fd066b0",
+    "multiformat/src/databar.rs": "bab08e1812cb0fb5b0252098671301eb1dd0392cf86436bd1dd2dc5e0cecea0c",
+    "multiformat/src/dm_detect.rs": "745d079b66c7ccbfa2b9b063d789fec8499d16b93a1736d0f50da36dc221573a",
+    "multiformat/src/expanded.rs": "d66359aa6dd86754fdc94ca613fb1f33f2de39ca00d16c9ae09cf0ab8c54876e",
+    "multiformat/src/lib.rs": "c2c2eb3694b58fbeab90f7679f45def33596c9c6ffc6541b08096907f25bda0f",
+    "multiformat/src/linear.rs": "8537e512a778027bbe4cec4ec4cf5aeb4b2f1dae87575fd59bd8fb08ee07d599",
+    "multiformat/src/linear_geometry.rs": "5a8f63ed3ee3b97e093e351539855aa1685123c7c2081338635d8386e93915ee",
+    "multiformat/src/maxicode_detect.rs": "a18c1883848a7cafe14674e79b2e312eb77ac1dffb118662a6624ad67ea510ef",
+    "multiformat/src/pdf417.rs": "03c798274045a899f4f2a352e7391c32ecb10c3db6d88298da5ce5b8a07032a4",
+    "multiformat/src/qr_detect.rs": "b61904174e574cb993e23867cdf0df8af48a907a68629b238c3ac5048840ed42",
+    "multiformat/src/qr_detect/partial.rs": "d57d3cd309973cc40bc155ab340fcf7dbeac2e7f27e165069c645f1c44061b8c"
+  },
+  "targetHashes": {
+    "multiformat/src/aztec_detect.rs": "a41cb5e45aeaaf976f8f02d8438fb18160b23812b3ad593bb5f5442058f7d6d2",
+    "multiformat/src/component_geometry.rs": "ddc3144a07563859ca49cb842f46ba9acb6135d300f636c419e12cd7c2b9f439",
+    "multiformat/src/databar.rs": "2e5fc7331e111d314164ce4a50dc68193b767ae865375013341aa1fc5601958b",
+    "multiformat/src/dm_detect.rs": "e86985284ed97ccaab47670ffa59ea06bead5c589fd24eddd7ada96aa71f6985",
+    "multiformat/src/expanded.rs": "317d073bdcd619b4b3ec1c9f678ac92ab16990256268356bbaebf022e41687b8",
+    "multiformat/src/lib.rs": "4c4e1af69f979b0673901cd07bdfb6b59f9ea68c94189b1e26d33615cfc627f5",
+    "multiformat/src/linear.rs": "4febbbcf77e1af7278eedc64c6e56d7f31798b02050e055a183dc3d511f9448a",
+    "multiformat/src/linear_geometry.rs": "eef313834d2988e32cd334a66bab2c48b9a869e21ca1ce9eac459aa45d490b07",
+    "multiformat/src/maxicode_detect.rs": "a972e9bcb93aa7e684cd9ae4f25a50047c4da651bbc485948b3c86f7440532e0",
+    "multiformat/src/pdf417.rs": "0bac572f1634336dc32489500e91cdf94eaba21929151a04bb055221b4dc6282",
+    "multiformat/src/qr_detect.rs": "84149816c5e7d65146a40b798bf5a4f73f2bcae8b21c593220dbca476df140ff",
+    "multiformat/src/qr_detect/partial.rs": "33d08e1aca14ab290bffc2677913263d9657848ef1cdc2517bfe111d73990ceb"
+  }
+}

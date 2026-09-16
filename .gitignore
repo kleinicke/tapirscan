@@ -22,6 +22,11 @@ __pycache__/
 /demo/public/engines/
 
 /demo/.netlify/
+# Local build settings such as the analytics script URL.
+/demo/.env*.local
 
 # Optional machine-specific maintainer instructions; never published.
 /MAINTAINER.local.md
+
+# Local audit, measurement and development notes; excluded from publication.
+/docs/internal/

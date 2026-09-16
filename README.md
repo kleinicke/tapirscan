@@ -6,7 +6,7 @@
 
 Orientation-aware barcode scanning for JavaScript and Python, powered by Rust.
 
-[Try the live demo](https://tapirscan.netlify.app) · [JavaScript](bindings/javascript/README.md) · [Python](bindings/python/README.md) · [How it works](docs/ARCHITECTURE.md) · [Compare scanners](docs/COMPARISON.md)
+[Try the live demo](https://tapirscan.netlify.app) · [npm](https://www.npmjs.com/package/tapirscan) · [PyPI](https://pypi.org/project/tapirscan/) · [JavaScript](bindings/javascript/README.md) · [Python](bindings/python/README.md) · [How it works](docs/ARCHITECTURE.md) · [Compare scanners](docs/COMPARISON.md)
 
 </div>
 
@@ -47,7 +47,9 @@ processed in your browser. The demo currently compares **EAN-13 only**.
 
 All use the selected release algorithms. Packaging and convenience differ:
 Java/C/C++ need native libraries; Rust provides typed multi-format results but
-still uses a generated local Cargo package. Registry publication is pending; each guide explains local setup.
+still uses a generated local Cargo package. JavaScript and Python are available on
+[npm](https://www.npmjs.com/package/tapirscan) and [PyPI](https://pypi.org/project/tapirscan/).
+The other language guides explain how to build their bindings from source.
 
 Want another language? An AI coding assistant can scaffold a binding from the
 C ABI with a single prompt. See [the binding guide](docs/ADDING_BINDINGS.md) for a
@@ -55,9 +57,10 @@ starter prompt and the checks needed before using or publishing the result.
 
 ## Quick start
 
-Version **1.0.0** is being prepared for its first package publication. The commands
-below show the intended registry installation; until it is published, use the
-[local package build](docs/DEVELOPMENT.md).
+Install Tapirscan from [npm](https://www.npmjs.com/package/tapirscan) or
+[PyPI](https://pypi.org/project/tapirscan/). See the
+[GitHub release](https://github.com/kleinicke/tapirscan/releases/latest) for release notes
+and downloadable packages, or [build locally](docs/DEVELOPMENT.md).
 
 ### JavaScript / TypeScript
 
@@ -180,9 +183,8 @@ See [format coverage](docs/FORMATS.md) before choosing Tapirscan for a particula
 symbology. The four effort modes tune the EAN-13/UPC-A path; additional readers
 currently share one effort setting.
 
-Results preserve source-image polygons. `multiple=False` in Python or
-`multiple: false` in JavaScript selects the highest-support result **after** the
-scan. Support is a ranking heuristic, not a probability. `unfinished` reports
+Results preserve source-image polygons. Python and JavaScript return all decoded
+instances; `result.best` gives the highest-support read or an empty value. Support is a ranking heuristic, not a probability. `unfinished` reports
 incomplete work; it does not invalidate a returned read or promise that another
 barcode exists. Wrong reads, duplicates, and missed symbols remain possible.
 
@@ -222,8 +224,7 @@ benchmark.
 
 Licensed under the [MIT License](LICENSE), copyright © 2026 Florian Nick.
 Third-party components retain their own licenses and
-[notices](multiformat/THIRD_PARTY_NOTICES.md). The public repository URL is being
-finalized for the first release.
+[notices](multiformat/THIRD_PARTY_NOTICES.md). Release preparation is described in the [release checklist](docs/RELEASING.md).
 
-The documented 1.0 API is frozen. See the [compatibility policy](CONTRIBUTING.md#api-stability)
-for changes within the 1.x series.
+The current release API is 1.1.0. See the [compatibility policy](CONTRIBUTING.md#api-stability)
+for API stability and release changes.

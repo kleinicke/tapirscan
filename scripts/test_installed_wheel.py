@@ -14,12 +14,13 @@ from fixture_data import TEXT, fixtures
 MODE_COUNT = 4
 
 SMOKE = """
-import json, pathlib, sys
+import importlib.util, json, pathlib, sys
 import tapirscan
+assert importlib.util.find_spec("tapirscan.pyzbar") is None
 pixels = pathlib.Path(sys.argv[1]).read_bytes()
 for mode in ('low', 'medium', 'high', 'very-high'):
     with tapirscan.Scanner(mode) as scanner:
-        result = scanner.scan(pixels, 480, 180, channels=1, stride=480)
+        result = scanner.scan(tapirscan.PixelImage(pixels, width=480, height=180))
         if result.values != [sys.argv[2]]:
             raise AssertionError((mode, result.values))
 print(json.dumps({'package': tapirscan.__file__, 'modes': 4, 'bundled': True}))
@@ -30,7 +31,9 @@ def main() -> None:
     """Reject pure wheels and prove no explicit native path is required."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("wheel", type=Path)
-    wheel = parser.parse_args().wheel.resolve()
+    parser.add_argument("--fixtures", type=Path)
+    args = parser.parse_args()
+    wheel = args.wheel.resolve()
     with zipfile.ZipFile(wheel) as archive:
         native = [
             entry.filename
@@ -71,6 +74,17 @@ def main() -> None:
             msg = "Smoke test imported outside the isolated environment"
             raise RuntimeError(msg)
         print(output.strip())
+        if args.fixtures:
+            consumer = root / "consumer.py"
+            consumer.write_bytes(
+                (Path(__file__).parent / "test_api_consumer.py").read_bytes()
+            )
+            subprocess.run(
+                [str(python), "-I", str(consumer), str(args.fixtures.resolve())],
+                cwd=root,
+                env=env,
+                check=True,
+            )
 
 
 if __name__ == "__main__":

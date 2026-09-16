@@ -22,6 +22,28 @@ pub const FORMATS: [(&str, u32); 16] = [
     ("MaxiCode", 131_072),
 ];
 
+/// Whether a retail barcode needs its adjacent two- or five-digit supplement.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EanAddOnPolicy {
+    /// Decode the main value without searching for a supplement.
+    #[default]
+    Ignore,
+    /// Attach a confirmed supplement when available; keep the main value otherwise.
+    Read,
+    /// Accept retail reads only when a supplement is confirmed.
+    Require,
+}
+
+impl EanAddOnPolicy {
+    fn engine_bits(self) -> u32 {
+        match self {
+            Self::Ignore => 0,
+            Self::Read => 32768,
+            Self::Require => 65536,
+        }
+    }
+}
+
 impl Scanner {
     /// Scan selected formats and return the shared JSON result contract.
     /// Additional readers retain the research scanline effort (1) in every mode.
@@ -33,8 +55,21 @@ impl Scanner {
         options: ScanOptions,
         mask: u32,
     ) -> Result<Value, Error> {
+        self.scan_formats_json_with_addons(image, options, mask, EanAddOnPolicy::Ignore)
+    }
+
+    /// Scan with an explicit EAN/UPC supplement policy. Non-retail formats are unaffected.
+    /// # Errors
+    /// Rejects invalid masks, image layouts, and inputs above 32 megapixels.
+    pub fn scan_formats_json_with_addons(
+        &mut self,
+        image: Image<'_>,
+        options: ScanOptions,
+        mask: u32,
+        addons: EanAddOnPolicy,
+    ) -> Result<Value, Error> {
         validate(image, mask)?;
-        if mask == 1 {
+        if mask == 1 && addons == EanAddOnPolicy::Ignore {
             let result = self.scan_with_options(image, options)?;
             let mut value: Value =
                 serde_json::from_str(&result.to_json(MODE, 0.0)).map_err(|_| Error::Parameters)?;
@@ -77,9 +112,20 @@ impl Scanner {
         } else {
             Vec::new()
         };
-        if mask & !3 != 0 {
+        let extra_formats = if addons == EanAddOnPolicy::Ignore {
+            mask & !3
+        } else {
+            mask
+        };
+        if extra_formats != 0 {
             let gray = gray_image(image)?;
-            let extra = barcode_multiformat::scan(&gray, image.width, image.height, mask & !3, 1);
+            let extra = barcode_multiformat::scan(
+                &gray,
+                image.width,
+                image.height,
+                extra_formats | addons.engine_bits(),
+                1,
+            );
             for b in &extra.barcodes {
                 let mut b = serde_json::to_value(b).map_err(|_| Error::Parameters)?;
                 b["axis"] = json!(0);
@@ -94,7 +140,8 @@ impl Scanner {
             value["scan"]["unfinished"] =
                 json!(value["scan"]["unfinished"].as_bool().unwrap_or(false) || extra.unfinished);
         }
-        if mask & !3 != 0 {
+        if extra_formats != 0 {
+            apply_supplement_policy(&mut reads, &mut unread, addons, options.include_regions);
             reads = distinct(reads);
             unread.retain(|region| !reads.iter().any(|b| overlap(region, b).1 >= 0.65));
             unread = distinct(unread);
@@ -118,6 +165,52 @@ impl Scanner {
         value["multiple"] = json!(options.multiple);
         value["elapsedMs"] = json!(start.elapsed().as_secs_f64() * 1000.0);
         Ok(value)
+    }
+}
+
+fn apply_supplement_policy(
+    reads: &mut Vec<Value>,
+    unread: &mut Vec<Value>,
+    policy: EanAddOnPolicy,
+    include_regions: bool,
+) {
+    attach_supplements(reads);
+    if policy == EanAddOnPolicy::Require {
+        reads.retain(|read| {
+            let accepted = !is_retail(read) || read["eanAddOn"].is_string();
+            if !accepted && include_regions {
+                unread.push(json!({"format":read["format"],"text":"",
+                                  "polygon":read["polygon"],"support":0}));
+            }
+            accepted
+        });
+    }
+}
+
+fn is_retail(read: &Value) -> bool {
+    matches!(
+        read["format"].as_str(),
+        Some("EAN13" | "UPCA" | "EAN8" | "UPCE")
+    )
+}
+
+// Match confirmed supplements to the same physical base symbol, never text alone.
+fn attach_supplements(reads: &mut [Value]) {
+    let supplemental: Vec<Value> = reads
+        .iter()
+        .filter(|read| read["eanAddOn"].is_string())
+        .cloned()
+        .collect();
+    for read in &supplemental {
+        for base in &mut *reads {
+            if base["format"] == read["format"]
+                && base["text"] == read["text"]
+                && !base["eanAddOn"].is_string()
+                && overlap(base, read).0 >= 0.65
+            {
+                base["eanAddOn"] = read["eanAddOn"].clone();
+            }
+        }
     }
 }
 

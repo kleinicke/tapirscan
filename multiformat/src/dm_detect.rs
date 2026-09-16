@@ -53,7 +53,11 @@ pub(crate) fn quad(mut poly: Vec<Point>) -> Option<[Point; 4]> {
 }
 // Intersect supporting hull edges to retain a missing white corner. Simply
 // deleting hull vertices gives an inscribed quadrilateral and clips that corner.
-pub(crate) fn enclosing_quad(poly: &[Point], pixel_margin: f32) -> Option<[Point; 4]> {
+pub(crate) fn enclosing_quad(
+    poly: &[Point],
+    pixel_margin: f32,
+    limited: &mut bool,
+) -> Option<[Point; 4]> {
     if poly.len() < 4 {
         return None;
     }
@@ -66,6 +70,7 @@ pub(crate) fn enclosing_quad(poly: &[Point], pixel_margin: f32) -> Option<[Point
         };
         length(b).total_cmp(&length(a))
     });
+    *limited |= edges.len() > 12;
     edges.truncate(12);
     edges.sort_unstable();
     let lines: Vec<_> = edges
@@ -275,12 +280,13 @@ fn candidates(image: &[bool], w: usize, h: usize) -> (Vec<[Point; 4]>, bool) {
     components.sort_by_key(|p| std::cmp::Reverse(p.0));
     let mut proposals = Vec::new();
     let mut base_count = 0;
+    let mut limited = false;
     for (count, polygon, x0, x1, y0, y1) in components {
         let before = proposals.len();
         if let Some(q) = rotated_rectangle(&polygon) {
             proposals.push((count, q));
         }
-        if let Some(q) = enclosing_quad(&polygon, 0.) {
+        if let Some(q) = enclosing_quad(&polygon, 0., &mut limited) {
             proposals.push((count, q));
         }
         let inscribed = quad(polygon);
@@ -316,7 +322,7 @@ fn candidates(image: &[bool], w: usize, h: usize) -> (Vec<[Point; 4]>, bool) {
             break;
         }
     }
-    let limited = base_count > 100 || proposals.len() > 200;
+    limited |= base_count > 100 || proposals.len() > 200;
     proposals.truncate(200);
     (proposals.into_iter().map(|p| p.1).collect(), limited)
 }
@@ -537,6 +543,7 @@ pub fn detect(
                 }
             }
             hypotheses.sort_by(|a, b| a.0.total_cmp(&b.0));
+            regions.limited |= hypotheses.len() > 12;
             for (score, size, t, polygon) in hypotheses.into_iter().take(12) {
                 attempts += 1;
                 if attempts > 800 {
@@ -559,6 +566,7 @@ pub fn detect(
                     }
                     if let Some(read) = datamatrix::decode_matrix(&matrix, size.w, size.h) {
                         results.push(Detection {
+                            bytes: Some(read.bytes),
                             structured_append: read.structured_append,
                             reader_initialization: read.reader_initialization,
                             addon: None,
@@ -601,9 +609,27 @@ mod geometry_tests {
         }
     }
     #[test]
+    fn enclosing_edge_budget_reports_only_truncation() {
+        for count in [12, 13] {
+            let points: Vec<_> = (0..count)
+                .map(|i| {
+                    let angle = i as f32 * std::f32::consts::TAU / count as f32;
+                    [20. * angle.cos(), 20. * angle.sin()]
+                })
+                .collect();
+            let mut limited = false;
+            let _ = enclosing_quad(&points, 0., &mut limited);
+            assert_eq!(limited, count > 12);
+        }
+    }
+    #[test]
     fn reconstructs_an_unprinted_corner_from_supporting_edges() {
-        let q =
-            enclosing_quad(&[[0., 0.], [8., 0.], [10., 2.], [10., 10.], [0., 10.]], 0.).unwrap();
+        let q = enclosing_quad(
+            &[[0., 0.], [8., 0.], [10., 2.], [10., 10.], [0., 10.]],
+            0.,
+            &mut false,
+        )
+        .unwrap();
         for expected in [[0., 0.], [10., 0.], [10., 10.], [0., 10.]] {
             assert!(q
                 .iter()

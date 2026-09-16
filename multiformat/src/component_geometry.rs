@@ -101,12 +101,13 @@ pub(crate) fn quads(
     seed: [usize; 2],
     bounds: [usize; 4],
     count_range: [f32; 2],
+    limited: &mut bool,
 ) -> Option<Vec<Quad>> {
     let hull = outline(bits, width, seed, bounds, count_range)?;
     Some(
         crate::dm_detect::quad(hull.clone())
             .into_iter()
-            .chain(crate::dm_detect::enclosing_quad(&hull, 0.))
+            .chain(crate::dm_detect::enclosing_quad(&hull, 0., limited))
             .collect(),
     )
 }

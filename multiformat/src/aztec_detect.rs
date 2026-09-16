@@ -257,6 +257,7 @@ fn ring_quads(
     theta: f32,
     module: f32,
     ring: usize,
+    limited: &mut bool,
 ) -> Option<Vec<[f32; 8]>> {
     let x = (center.x + theta.cos() * ring as f32 * module).floor() as isize;
     let y = (center.y + theta.sin() * ring as f32 * module).floor() as isize;
@@ -281,6 +282,7 @@ fn ring_quads(
         [x as usize, y as usize],
         [left as usize, top as usize, right as usize, bottom as usize],
         [expected_area * 0.5, expected_area * 1.75],
+        limited,
     )?;
     let half = ring as f32 + 0.5;
     Some(
@@ -450,7 +452,7 @@ pub fn detect(
                 for scale in [1., 0.8, 1.2] {
                     let module = c.module * theta.cos().abs().max(theta.sin().abs()) * scale;
                     for ring in [3, 5, 2] {
-                        for t in ring_quads(bits, w, h, &c, theta, module, ring)
+                        for t in ring_quads(bits, w, h, &c, theta, module, ring, &mut limited)
                             .into_iter()
                             .flatten()
                         {
@@ -484,9 +486,10 @@ pub fn detect(
                 }
             }
             grids.sort_by_key(|g| g.0);
+            limited |= grids.len() > 12;
             for (_, theta, module) in grids.into_iter().take(12) {
                 transforms.push(transform(&c, theta, module, 0));
-                for t in ring_quads(bits, w, h, &c, theta, module, 2)
+                for t in ring_quads(bits, w, h, &c, theta, module, 2, &mut limited)
                     .into_iter()
                     .flatten()
                 {
@@ -518,6 +521,7 @@ pub fn detect(
                                 aztec::decode_rune(&rotate(&grid, 11, turn, mirror), 11)
                             {
                                 results.push(Detection {
+                                    bytes: Some(read.bytes),
                                     structured_append: read.structured_append,
                                     reader_initialization: read.reader_initialization,
                                     addon: None,
@@ -577,6 +581,7 @@ pub fn detect(
                                 aztec::decode_matrix(&rotate(&grid, n, turn, mirror), n)
                             {
                                 results.push(Detection {
+                                    bytes: Some(read.bytes),
                                     structured_append: read.structured_append,
                                     reader_initialization: read.reader_initialization,
                                     addon: None,
@@ -606,6 +611,7 @@ pub fn detect(
                 }
             }
             reference_retries.sort_by(|a, b| a.0.total_cmp(&b.0));
+            limited |= reference_retries.len() > 6;
             for (_, t, n, turn, mirror) in reference_retries.into_iter().take(6) {
                 let t = refine_reference(bits, w, h, t, n, c.module);
                 let Some(grid) = qr_detect::sample(bits, w, h, n, &t, 0.) else {
@@ -613,6 +619,7 @@ pub fn detect(
                 };
                 if let Some(read) = aztec::decode_matrix(&rotate(&grid, n, turn, mirror), n) {
                     results.push(Detection {
+                        bytes: Some(read.bytes),
                         structured_append: read.structured_append,
                         reader_initialization: read.reader_initialization,
                         addon: None,

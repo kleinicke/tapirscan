@@ -43,7 +43,7 @@ prefix. A vcpkg/Conan recipe and Windows validation remain release work.
 selection follows the full scan, preserving normal scan effort. Typed `barcodes()`
 returns a vector in either mode; it is empty when no barcode decoded. With regions
 disabled, JSON omits localization, search windows and candidate evidence. The
-native ABI is now version 3; rebuild clients and libraries together.
+native ABI is now version 4; rebuild clients and libraries together.
 
 ## API reference
 
@@ -67,6 +67,6 @@ coordinates; support is not a probability. Repeated `barcodes()`/`best()` calls
 copy reads again. Store the returned vector when reusing it. There are no image
 loading, values-only or rectangle helpers. Decode image files before scanning.
 
-The CMake install is version 1.0.0 and includes the matching ABI-3 library. Effort
+The CMake install is version 1.1.0 and includes the matching ABI-4 library. Effort
 is selected by linking one mode, unlike Python/Java's runtime selection. CMake
 installation works locally; Conan/vcpkg distribution is not yet provided.

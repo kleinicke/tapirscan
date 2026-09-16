@@ -19,9 +19,8 @@ base crate do not include the selected patches. Follow
 
 ## Changes and verification
 
-The documented 1.0 API is frozen. Follow the 1.x compatibility policy in
-[CONTRIBUTING.md](CONTRIBUTING.md#api-stability); avoid further API redesign
-during release preparation.
+The release version is 1.1.0. Implement the current documented APIs. Follow the compatibility policy in
+[CONTRIBUTING.md](CONTRIBUTING.md#api-stability) and [API design](docs/API_DESIGN.md).
 
 - Follow `docs/QUALITY.md`; format a coherent batch before running relevant checks.
 - C, C++, Python and Java share the native ABI. ABI changes need cross-language

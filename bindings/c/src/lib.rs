@@ -1,13 +1,13 @@
 //! Version 3 native ABI. Handles are registry IDs, never dereferenced pointers.
 //! Caller-owned pointer ranges must be valid, correctly aligned and nonoverlapping.
 #[cfg(not(target_pointer_width = "64"))]
-compile_error!("Native ABI v3 currently supports 64-bit targets only");
+compile_error!("Native ABI v4 currently supports 64-bit targets only");
 use std::{
     collections::HashMap,
     panic::{catch_unwind, AssertUnwindSafe},
     sync::{Arc, Mutex, OnceLock},
 };
-use tapirscan::{Image, ScanOptions, Scanner};
+use tapirscan::{formats::EanAddOnPolicy, Image, ScanOptions, Scanner};
 const ARG: i32 = 1;
 const HANDLE: i32 = 2;
 const BUFFER: i32 = 3;
@@ -68,7 +68,7 @@ fn output(id: u64) -> Result<Arc<Output>, i32> {
 }
 #[no_mangle]
 pub extern "C" fn barcode_abi_version() -> u32 {
-    3
+    4
 }
 #[no_mangle]
 pub extern "C" fn barcode_mode() -> u32 {
@@ -156,7 +156,8 @@ pub unsafe extern "C" fn barcode_scan_formats(
             return Err(ARG);
         }
         *out = 0;
-        if flags & !3 != 0
+        if flags & !15 != 0
+            || flags & 12 == 12
             || pixels.is_null()
             || length > MAX_BYTES
             || width < 3
@@ -179,7 +180,7 @@ pub unsafe extern "C" fn barcode_scan_formats(
         let result = scanner
             .lock()
             .map_err(|_| PANIC)?
-            .scan_formats_json(
+            .scan_formats_json_with_addons(
                 Image {
                     data,
                     width: usize::try_from(width).map_err(|_| ARG)?,
@@ -192,6 +193,11 @@ pub unsafe extern "C" fn barcode_scan_formats(
                     include_regions: flags & 2 != 0,
                 },
                 formats,
+                match flags & 12 {
+                    4 => EanAddOnPolicy::Read,
+                    8 => EanAddOnPolicy::Require,
+                    _ => EanAddOnPolicy::Ignore,
+                },
             )
             .map_err(|_| ARG)?;
         let barcodes = result["scan"]["barcodes"].as_array().ok_or(PANIC)?;
@@ -324,6 +330,37 @@ pub unsafe extern "C" fn barcode_result_copy_text(
 mod tests {
     use super::*;
     #[test]
+    fn supplement_flags_are_mutually_exclusive() {
+        unsafe {
+            let mut id = 0;
+            assert_eq!(tapirscan_create(&raw mut id), 0);
+            let pixels = [255u8; 64 * 64];
+            for flags in [4, 8, 12, 16] {
+                let mut result = 99;
+                let status = barcode_scan_with_options(
+                    id,
+                    pixels.as_ptr(),
+                    pixels.len() as u64,
+                    64,
+                    64,
+                    1,
+                    64,
+                    flags,
+                    &raw mut result,
+                );
+                if flags == 4 || flags == 8 {
+                    assert_eq!(status, 0);
+                    assert_eq!(barcode_result_destroy(result), 0);
+                } else {
+                    assert_eq!(status, ARG);
+                    assert_eq!(result, 0);
+                }
+            }
+            assert_eq!(tapirscan_destroy(id), 0);
+        }
+    }
+
+    #[test]
     fn handles_buffers_and_owned_results() {
         unsafe {
             assert_eq!(std::mem::size_of::<BarcodeRead>(), 104);
@@ -347,7 +384,7 @@ mod tests {
                     64,
                     1,
                     64,
-                    4,
+                    16,
                     &raw mut result
                 ),
                 ARG

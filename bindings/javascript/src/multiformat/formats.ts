@@ -19,11 +19,15 @@ export const formatBits = {
 } as const;
 export type Format = keyof typeof formatBits;
 export const retailFormats: readonly Format[] = ["EAN13", "UPCA", "EAN8", "UPCE"];
-export const linearFormats: readonly Format[] = [
+export const commonLinearFormats: readonly Format[] = [
   ...retailFormats,
   "Code128",
   "Code39",
   "ITF",
+];
+export const commonFormats: readonly Format[] = [...commonLinearFormats, "QRCode", "DataMatrix"];
+export const linearFormats: readonly Format[] = [
+  ...commonLinearFormats,
   "Codabar",
   "Code93",
   "DataBar",
@@ -36,12 +40,17 @@ export const matrixFormats: readonly Format[] = [
   "Aztec",
   "MaxiCode",
 ];
-export type FormatSelection = readonly Format[] | "1D" | "2D" | "all";
-export function resolveFormats(input?: readonly string[] | "1D" | "2D" | "all"): Format[] {
+export type FormatSelection =
+  Format | readonly Format[] | "retail" | "common1D" | "common" | "1D" | "2D" | "all";
+export function resolveFormats(input?: readonly string[] | string): Format[] {
+  if (input === "retail") return [...retailFormats];
+  if (input === "common1D") return [...commonLinearFormats];
+  if (input === "common") return [...commonFormats];
   if (input === "1D") return [...linearFormats];
   if (input === "2D") return [...matrixFormats];
   if (input === "all") return [...linearFormats, ...matrixFormats];
   if (input === undefined) return ["EAN13"];
+  if (typeof input === "string" && Object.hasOwn(formatBits, input)) return [input as Format];
   if (!Array.isArray(input) || input.length === 0)
     throw Error("Choose at least one barcode format.");
   for (const value of input as readonly unknown[]) {

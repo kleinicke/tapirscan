@@ -1,0 +1,22 @@
+{
+  "id": "multiformat-work-limits-20260915",
+  "description": "Release-owned status reporting correction; preserves decoding thresholds, ordering and work limits. Original imported hashes remain in import.json.",
+  "patch": "provenance/multiformat-work-limits-20260915.patch",
+  "patchSha256": "69a4f4dce020a4569d7caa1e2c539c9a517474c189949bbe897651f8a4a6e0bd",
+  "baseHashes": {
+    "multiformat/src/aztec_detect.rs": "5fa708f3e32edebde60e4b1579557d4daf9e09d19c7dacecca658f3b801ee510",
+    "multiformat/src/component_geometry.rs": "625b2f140a0ee83937cbd519f99a81e97f083ad344f46577eab591e31fd066b0",
+    "multiformat/src/dm_detect.rs": "745d079b66c7ccbfa2b9b063d789fec8499d16b93a1736d0f50da36dc221573a",
+    "multiformat/src/lib.rs": "c2c2eb3694b58fbeab90f7679f45def33596c9c6ffc6541b08096907f25bda0f",
+    "multiformat/src/linear.rs": "8537e512a778027bbe4cec4ec4cf5aeb4b2f1dae87575fd59bd8fb08ee07d599",
+    "multiformat/src/qr_detect.rs": "b61904174e574cb993e23867cdf0df8af48a907a68629b238c3ac5048840ed42"
+  },
+  "targetHashes": {
+    "multiformat/src/aztec_detect.rs": "2467552884c8a92ffb7c393db6390c1d59d3463a340c92cb9d3ebaddea10be5f",
+    "multiformat/src/component_geometry.rs": "ddc3144a07563859ca49cb842f46ba9acb6135d300f636c419e12cd7c2b9f439",
+    "multiformat/src/dm_detect.rs": "44c439cf3197f54d261190bd45267edba1b9ea454012df8b93932e52cb1930d2",
+    "multiformat/src/lib.rs": "53966c39244693ca9c68c478c555a8210dbaca0420cecfa54b7d14834a9b7b18",
+    "multiformat/src/linear.rs": "4febbbcf77e1af7278eedc64c6e56d7f31798b02050e055a183dc3d511f9448a",
+    "multiformat/src/qr_detect.rs": "d34802c128e426536648fd2895618ed1878057cf77845f5c58b9d54f82200839"
+  }
+}

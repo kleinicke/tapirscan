@@ -93,7 +93,12 @@ fn c93_match(r: &[f32]) -> Option<(usize, f32)> {
     }
     (best.1 < 0.23 && second - best.1 > 0.012).then_some(best)
 }
-fn code93(runs: &[f32], start_index: usize, retain_failed: bool) -> Option<Read> {
+fn code93(
+    runs: &[f32],
+    start_index: usize,
+    retain_failed: bool,
+    limited: &mut bool,
+) -> Option<Read> {
     if error(&runs[start_index..], &c93_pattern(C93[47])) > 0.2 {
         return None;
     }
@@ -196,6 +201,7 @@ fn code93(runs: &[f32], start_index: usize, retain_failed: bool) -> Option<Read>
         values.push(v);
         at += 6;
     }
+    *limited |= at + 7 <= runs.len() && values.len() >= 256;
     None
 }
 
@@ -604,7 +610,7 @@ fn c128_match(r: &[f32], lo: usize, hi: usize) -> Option<(usize, f32)> {
     }
     (best.1 < 0.23 && second - best.1 > 0.012).then_some(best)
 }
-fn code128(r: &[f32], s: usize, retain_failed: bool) -> Option<Read> {
+fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Option<Read> {
     let (start, mut err) = c128_match(&r[s..], 103, 106)?;
     let module = r[s..s + 6].iter().sum::<f32>() / 11.;
     if s == 0 || (s != 1 && r[s - 1] < module * 2.5) {
@@ -657,6 +663,7 @@ fn code128(r: &[f32], s: usize, retain_failed: bool) -> Option<Read> {
         values.push(v);
         at += 6;
     }
+    *limited |= at + 7 <= r.len() && values.len() >= 256;
     None
 }
 fn c128_text(v: &[usize]) -> Option<(String, bool)> {
@@ -754,7 +761,7 @@ fn wide_bits(r: &[f32], n: usize, wides: usize) -> Option<(u16, f32)> {
     }
     Some((bits, e / r[..n].iter().sum::<f32>()))
 }
-fn code39(r: &[f32], s: usize) -> Option<Read> {
+fn code39(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     if r.len() < s + 9 {
         return None;
     }
@@ -769,7 +776,7 @@ fn code39(r: &[f32], s: usize) -> Option<Read> {
         return None;
     }
     if black_max.max(white_max) < black_min.min(white_min) {
-        if let Some(read) = code39_with_gain(r, s, 0.) {
+        if let Some(read) = code39_with_gain(r, s, 0., limited) {
             return Some(read);
         }
     }
@@ -780,9 +787,14 @@ fn code39(r: &[f32], s: usize) -> Option<Read> {
     if gain.abs() < narrow * 0.1 || gain.abs() > narrow * 0.75 {
         return None;
     }
-    code39_with_gain(r, s, gain)
+    code39_with_gain(r, s, gain, limited)
 }
-fn code39_with_gain(runs: &[f32], start_index: usize, gain: f32) -> Option<Read> {
+fn code39_with_gain(
+    runs: &[f32],
+    start_index: usize,
+    gain: f32,
+    limited: &mut bool,
+) -> Option<Read> {
     let adjusted = |at: usize| -> [f32; 9] {
         std::array::from_fn(|i| runs[at + i] - if i % 2 == 0 { gain } else { -gain })
     };
@@ -822,9 +834,10 @@ fn code39_with_gain(runs: &[f32], start_index: usize, gain: f32) -> Option<Read>
         }
         at += 10;
     }
+    *limited |= at + 9 <= runs.len() && out.len() >= 128;
     None
 }
-fn itf(r: &[f32], s: usize) -> Option<Read> {
+fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     if error(&r[s..], &[1, 1, 1, 1]) > 0.18 {
         return None;
     }
@@ -862,9 +875,10 @@ fn itf(r: &[f32], s: usize) -> Option<Read> {
         }
         at += 10;
     }
+    *limited |= at + 3 <= r.len() && out.len() >= 80;
     None
 }
-fn codabar(r: &[f32], s: usize) -> Option<Read> {
+fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     fn one(r: &[f32]) -> Option<(usize, f32)> {
         let mut best = None;
         for wides in [2, 3] {
@@ -951,20 +965,32 @@ fn codabar(r: &[f32], s: usize) -> Option<Read> {
         out.push(CODA_ALPHABET[c]);
         at += 8;
     }
+    *limited |= at + 7 <= r.len() && out.len() >= 128;
     None
 }
 
 #[must_use]
 pub fn decode(r: &[f32], first_black: bool, mask: u32) -> Vec<Read> {
-    decode_impl(r, first_black, mask, false)
+    decode_impl(r, first_black, mask, false, &mut false)
 }
 /// `decoded: false` denotes a structurally parsed symbol with a failed checksum.
 /// The image scanner requires repeated spatial evidence before retaining it.
 #[must_use]
-pub(crate) fn decode_candidates(r: &[f32], first_black: bool, mask: u32) -> Vec<Read> {
-    decode_impl(r, first_black, mask, true)
+pub(crate) fn decode_candidates(
+    r: &[f32],
+    first_black: bool,
+    mask: u32,
+    limited: &mut bool,
+) -> Vec<Read> {
+    decode_impl(r, first_black, mask, true, limited)
 }
-fn decode_impl(r: &[f32], first_black: bool, mask: u32, retain_failed: bool) -> Vec<Read> {
+fn decode_impl(
+    r: &[f32],
+    first_black: bool,
+    mask: u32,
+    retain_failed: bool,
+    limited: &mut bool,
+) -> Vec<Read> {
     let mut out = Vec::new();
     let mut s = usize::from(!first_black);
     while s + 16 <= r.len() {
@@ -987,13 +1013,13 @@ fn decode_impl(r: &[f32], first_black: bool, mask: u32, retain_failed: bool) -> 
             found = accepted(ean(r, s, mask, retain_failed));
         }
         if quiet && found.is_none() && mask & CODE128 != 0 {
-            found = accepted(code128(r, s, retain_failed));
+            found = accepted(code128(r, s, retain_failed, limited));
         }
         if quiet && found.is_none() && mask & CODE39 != 0 {
-            found = code39(r, s);
+            found = code39(r, s, limited);
         }
         if quiet && found.is_none() && mask & CODE93 != 0 {
-            found = accepted(code93(r, s, retain_failed));
+            found = accepted(code93(r, s, retain_failed, limited));
         }
         if found.is_none() && mask & DATABAR_EXPANDED != 0 {
             found = crate::expanded::decode(r, s);
@@ -1002,10 +1028,10 @@ fn decode_impl(r: &[f32], first_black: bool, mask: u32, retain_failed: bool) -> 
             found = crate::databar::decode(r, s);
         }
         if quiet && found.is_none() && mask & ITF != 0 {
-            found = itf(r, s);
+            found = itf(r, s, limited);
         }
         if quiet && found.is_none() && mask & CODABAR != 0 {
-            found = codabar(r, s);
+            found = codabar(r, s, limited);
         }
         if let Some(read) = found {
             s = read.end;
@@ -1026,6 +1052,29 @@ fn decode_impl(r: &[f32], first_black: bool, mask: u32, retain_failed: bool) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn long_code128_reports_cap_without_losing_short_reads() {
+        for count in [20, 252, 256] {
+            let mut values = vec![104];
+            values.extend(std::iter::repeat_n(33, count));
+            let check = (104 + (1..=count).map(|i| i * 33).sum::<usize>()) % 103;
+            values.push(check);
+            let mut runs = vec![10];
+            for value in values {
+                runs.extend(C128[value].map(|v| usize::from(v - b'0')));
+            }
+            runs.extend([2, 3, 3, 1, 1, 1, 2, 10]);
+            let (image, w, h) = checksum_scene(&runs);
+            let result = crate::scan(&image, w, h, CODE128, 0);
+            assert_eq!(result.unfinished, count == 256);
+            if count < 256 {
+                assert_eq!(result.barcodes.len(), 2);
+                assert!(result.barcodes.iter().all(|b| b.text == "A".repeat(count)));
+            } else {
+                assert!(result.barcodes.is_empty());
+            }
+        }
+    }
     fn checksum_scene(runs: &[usize]) -> (Vec<u8>, usize, usize) {
         let width = runs.iter().sum::<usize>() * 3;
         let height = 180;

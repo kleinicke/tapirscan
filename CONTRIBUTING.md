@@ -36,18 +36,17 @@ new format commitments, or distribution changes before building a large patch.
 
 ## API stability
 
-The documented public API is frozen for 1.0.0. Keep documented functions, keyword
-arguments, defaults, public result fields, format identifiers and ownership/error
-contracts compatible throughout 1.x. This includes documented diagnostic accessors
-and retained migration aliases. Breaking changes require a new major version;
-minor versions may add backward-compatible capabilities and patch versions fix bugs.
+Version 1.1.0 is documented in the binding guides and [API design](docs/API_DESIGN.md).
+After publication, documented functions, defaults, result fields, identifiers and
+ownership/error contracts stay compatible within a major version. Minor versions
+may add compatible capabilities; patch versions fix bugs.
 
 Decoder improvements can change reads, geometry, ordering and runtime on a given
 image. Those outputs are not bit-for-bit compatibility promises. Experimental
 format coverage describes decoding maturity, not permission to break the API.
 Undocumented internal counters, private modules and generated build paths are not
-public interfaces. The C ABI remains version 3; Rust binary ABI stability is not
+public interfaces. The C ABI is version 4; Rust binary ABI stability is not
 promised across compiler versions.
 
-Freeze the interface now: focus pre-release changes on defects, packaging,
-documentation and validation rather than further API redesign.
+Keep the public interface small. Validate API changes through consumers, packaging
+and cross-language parity tests.

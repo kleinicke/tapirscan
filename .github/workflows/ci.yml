@@ -69,30 +69,48 @@ jobs:
           else
             python3 -m pip install torch
           fi
+      - name: Fetch pinned test-only supplement encoder
+        uses: actions/checkout@v4
+        with:
+          repository: zint/zint
+          ref: 55541e139e62b9209b71cd9b0ba9010cec28b1d9 # Zint 2.16.0
+          path: build/zint-source
+          persist-credentials: false
+      - name: Build test-only supplement encoder
+        run: |
+          cmake -S build/zint-source -B build/zint-encoder -DCMAKE_BUILD_TYPE=Release -DZINT_USE_QT=OFF -DZINT_USE_PNG=OFF -DZINT_USE_GS1SE=OFF -DZINT_SHARED=OFF -DZINT_STATIC=ON
+          cmake --build build/zint-encoder --parallel 2
+          build/zint-encoder/frontend/zint --version
+      - name: Check supplements across installed Python and JavaScript
+        env:
+          BARCODE_PYTHON_PACKAGE: ${{ github.workspace }}/build/python-installed
+        run: python3 scripts/test_supplements.py --encoder build/zint-encoder/frontend/zint
       - name: Validate image inputs and unified typed API
         env:
           BARCODE_PYTHON_PACKAGE: ${{ github.workspace }}/build/python-installed
         run: python3 scripts/test_python_images.py
-      - name: Check Python formatting and types
+      - name: Install demo and quality tools
         run: |
-          python3 -m pip install 'ruff==0.16.7' 'mypy==2.3.1' 'ty==0.0.80'
-          ruff check .
-          ruff format --check .
-          MYPYPATH=bindings/python/src mypy --config-file bindings/python/pyproject.toml bindings/python/src/tapirscan bindings/python/tests/typecheck_api.py
-          ty check
-
-      - name: Check maintained bindings in every language
-        run: |
+          npm install --global pnpm@10.15.1
+          pnpm --dir demo install --frozen-lockfile
           node tools/quality/install.mjs
-          QUALITY_PYTHON="$(command -v python3)" node tools/quality/release.mjs all
+
+      - name: Check formatting, lint and types
+        run: QUALITY_PYTHON="$(command -v python3)" node tools/quality/all.mjs
+
+      - name: Preserve quality check logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-diagnostics-${{ matrix.os }}
+          path: .quality-cache/check-*/*.log
+          include-hidden-files: true
+          if-no-files-found: ignore
 
       - run: python3 scripts/test_multiformat.py
       - run: python3 scripts/test_detail.py
       - name: Build the public demo
         run: |
-          npm install --global pnpm@10.15.1
-          pnpm --dir demo install --frozen-lockfile
-          pnpm --dir demo check
           pnpm --dir demo build
           pnpm --dir demo test
 

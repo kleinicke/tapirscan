@@ -114,5 +114,7 @@ def build(mode: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("modes", nargs="*", choices=list(MODES), default=list(MODES))
-    for mode in parser.parse_args().modes:
+    selected = parser.parse_args().modes
+    subprocess.run([sys.executable, str(ROOT / "scripts/verify_import.py")], check=True)
+    for mode in selected:
         build(mode)

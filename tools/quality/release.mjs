@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { root } from "./format.mjs";
+import { qualityEnvironment, pythonExecutable } from "./environment.mjs";
+const environment = qualityEnvironment(root);
 const mode = process.argv[2] ?? "all";
 const supported = ["all", "rust", "python", "native", "js"];
 if (!supported.includes(mode)) throw new Error(`Use ${supported.join(", ")}`);
@@ -11,14 +13,14 @@ function run(command, args, extraEnv = {}) {
   const result = spawnSync(command, args, {
     cwd: root,
     stdio: "inherit",
-    env: { ...process.env, ...extraEnv },
+    env: { ...environment, ...extraEnv },
   });
   if (result.error) console.error(result.error.message);
   failed ||= result.status !== 0;
   return result.status === 0;
 }
 const selected = (name) => mode === "all" || mode === name;
-const python = process.env.QUALITY_PYTHON ?? "python3";
+const python = selected("python") || selected("rust") ? pythonExecutable(root, environment) : null;
 if (selected("js")) run(process.execPath, ["tools/quality/check.mjs", "js"]);
 if (selected("python")) {
   const bin = path.join(root, ".quality-tools/python/bin");
@@ -60,7 +62,7 @@ if (selected("native")) {
       "-Ibindings/cpp/include",
       source,
     ]);
-  const java = process.env.JAVA_HOME ? path.join(process.env.JAVA_HOME, "bin/javac") : "javac";
+  const java = environment.JAVA_HOME ? path.join(environment.JAVA_HOME, "bin/javac") : "javac";
   run(java, [
     "--release",
     "22",

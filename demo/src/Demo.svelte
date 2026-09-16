@@ -671,9 +671,17 @@
 >
 <div class="demo">
   <div class="heading">
-    <a href={import.meta.env.BASE_URL} class="wordmark">▥ <span>Tapirscan</span></a><span
-      class="private">Images stay in your browser</span
-    >
+    <a href={import.meta.env.BASE_URL} class="wordmark">▥ <span>Tapirscan</span></a>
+    <div class="heading-links">
+      <span class="private">Images stay in your browser</span>
+      <a class="github" href="https://github.com/kleinicke/tapirscan">
+        <svg viewBox="0 0 16 16" aria-hidden="true"
+          ><path
+            d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.37A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"
+          /></svg
+        ><span><span class="github-prefix">View on&nbsp;</span>GitHub</span>
+      </a>
+    </div>
   </div>
   <main>
     <div class="scanner-buttons" aria-label="Scanners">
@@ -1052,9 +1060,13 @@
       </p>{/if}
     <footer>
       <span>Local processing. No image uploads.</span>
-      <a href={`${import.meta.env.BASE_URL}THIRD_PARTY_NOTICES.txt`}>Third-party licenses</a><span
-        >Tapirscan · Experimental release</span
-      >
+      <nav aria-label="Project and legal links">
+        <a href="https://github.com/kleinicke/tapirscan">GitHub</a>
+        <a href="https://f-kleinicke.de/">About</a>
+        <a href="https://f-kleinicke.de/impressum">Impressum</a>
+        <a href={`${import.meta.env.BASE_URL}THIRD_PARTY_NOTICES.txt`}>Third-party licenses</a>
+      </nav>
+      <span>Tapirscan · v1.1.0</span>
     </footer>
   </main>
 </div>
@@ -1079,6 +1091,33 @@
     font-weight: 700;
     text-decoration: none;
     letter-spacing: -0.6px;
+  }
+  .heading-links {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .github {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 9px 16px;
+    border-radius: 9px;
+    background: #173633;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .github:hover {
+    background: #2a5550;
+  }
+  .github svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
   }
   .private,
   .hint {
@@ -1424,7 +1463,7 @@
   }
   .runtime {
     min-width: 0;
-    height: 112px;
+    min-height: 112px;
     border: 1px solid #d7dfd2;
     border-top: 3px solid var(--scanner-color);
     border-radius: 10px;
@@ -1438,6 +1477,7 @@
   }
   .result-title {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: baseline;
     gap: 8px;
@@ -1457,10 +1497,10 @@
     font-weight: 400;
   }
   .barcode-values {
-    overflow: auto;
     margin-top: 10px;
     flex: 1;
     font-size: 12px;
+    line-height: 1.5;
   }
   .barcode-values code {
     display: block;
@@ -1476,12 +1516,26 @@
   }
   footer {
     margin-top: 28px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  footer nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+  }
+  footer a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    font-size: 12px;
   }
   @media (max-width: 600px) {
     .heading {
       padding: 20px 16px;
     }
-    .private {
+    .private,
+    .github-prefix {
       display: none;
     }
     main {
@@ -1525,7 +1579,7 @@
       min-width: 0;
     }
     .runtime {
-      height: 90px;
+      min-height: 112px;
     }
     .runtime-heading {
       align-items: flex-start;

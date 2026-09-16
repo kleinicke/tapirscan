@@ -4,7 +4,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Native ABI v3. All functions use the platform C calling convention.
+/* Native ABI v4. All functions use the platform C calling convention.
    Mode: 0 Low, 1 Medium, 2 High, 3 Very High. Handles belong to the library that created them.
    Pointer arguments must reference valid, aligned, nonoverlapping caller memory.
    Scan borrows immutable pixels for the call; it does not retain their address.
@@ -15,7 +15,12 @@ extern "C" {
    that guarantee. JSON copies include NUL; json_length excludes it. */
 enum barcode_status { BARCODE_OK=0, BARCODE_INVALID_ARGUMENT=1, BARCODE_INVALID_HANDLE=2,
     BARCODE_BUFFER_TOO_SMALL=3, BARCODE_INTERNAL_ERROR=4, BARCODE_CAPACITY=5 };
-enum barcode_scan_flags { BARCODE_SINGLE=1, BARCODE_INCLUDE_REGIONS=2 };
+enum barcode_scan_flags { BARCODE_SINGLE=1, BARCODE_INCLUDE_REGIONS=2,
+    BARCODE_READ_EAN_ADDON=4, BARCODE_REQUIRE_EAN_ADDON=8 };
+/* READ_EAN_ADDON attempts optional 2/5-digit EAN/UPC supplements.
+   REQUIRE_EAN_ADDON accepts retail reads only with a confirmed supplement.
+   The two flags are mutually exclusive; neither affects non-retail formats.
+   Supplement text is returned as eanAddOn in result JSON. Default: ignore. */
 /* Flags 0: multiple results, no region evidence. SINGLE ranks a completed scan;
    it does not stop scanning early. JSON schema 2 omits region fields by default. */
 typedef uint64_t tapirscan_handle;

@@ -1,88 +1,70 @@
-# Result selection and Python API direction
+# Python and JavaScript API design
 
-Implemented defaults:
+The 1.1.0 APIs use one-shot `scan(image)` and reusable `Scanner` entry points.
+Both return a consistent result containing all decoded instances, source-image
+geometry, effort, timing and incomplete-work status. `.best` selects the
+highest-support read; selection does not change decoding work. Support is reader-specific,
+so this is not a cross-format reliability comparison. Empty results
+remain valid results. Python results are iterable sequences; JavaScript exposes
+`result.barcodes`. Results survive scanner disposal and are immutable. Python's
+`.values` returns a fresh list; JavaScript's `.values` is a frozen array.
 
-- Multiple decoded barcodes: enabled.
-- Localization and attempted-region evidence: omitted unless requested.
-- One-result choice: select the highest-support read after full scanning; no early exit.
-- A stable barcode-list result type: zero entries on failure, at most one in single mode.
-- Decoded positions, input dimensions and unfinished flag: always available.
+## Options and inputs
 
-Python uses one typed result interface (see [Python guide](../bindings/python/README.md)):
+See the complete option tables in the [Python](../bindings/python/README.md) and
+[JavaScript](../bindings/javascript/README.md) guides.
 
-```python
-import tapirscan
+- Effort selects a compiled mode. A new scanner is needed to change it.
+- Formats default to EAN13; explicit selections and retail/common1D/common/1D/2D/all presets are supported.
+  Python can override formats for a single call. JavaScript permits per-call subsets
+  of its creation formats, so scanning stays synchronous without loading engines.
+- Optional EAN/UPC supplement policy is fixed at creation: `Ignore` (default),
+  `Read` or `Require`. It is independent of effort; nonretail formats are unaffected.
+- `debug` adds diagnostic search evidence. Decoded text, geometry, support and
+  supported semantic metadata are always returned.
+- Python directly accepts Pillow images, NumPy arrays and tensors, with explicit
+  `layout` and `value_range` overrides for ambiguous arrays/tensors. GPU tensors
+  detach and transfer to CPU without changing the input or autograd graph.
+- Python float arrays/tensors default to [0,1] regardless of their contents; byte-unit floats require `value_range="0_255"`. Optional `color_order="BGR"` supports OpenCV without affecting default RGB calls or adding a dependency.
+- Raw Python buffers use `PixelImage(data, width=..., height=..., channels=..., stride=...)`.
+  JS accepts ImageData or an object with data, dimensions and channels. Both default
+  stride to packed rows; Python defaults channels to grayscale.
+- Native library paths, browser WASM directories and advanced WASM loading remain
+  configurable. Neither binding decodes image files or manages cameras.
 
-result = tapirscan.scan(image, multiple=False, debug=True)
-print(result.values)
-if result.debug is not None and result.debug.regions is not None:
-    localized = result.debug.regions.proposals
-    search_windows = result.debug.regions.search_windows
-    candidates = result.debug.regions.candidates
-```
+## Ownership and evidence
 
-Search coverage is not a claim of exhaustive decoding. Candidate evidence remains
-separate from the selected decoded-result list, and localization confidence is
-not interchangeable with decode support. Effort levels and one/multiple are
-independent axes. Single mode can still return a wrong read; support is uncalibrated.
+Python snapshots input bytes before native scanning. JS callers keep input pixels
+stable during synchronous scanning. Reusable scanners release resources through
+Python context managers / `close()` and JavaScript `dispose()` in `finally`.
 
-## Python image inputs and migration
+Candidate evidence and undecoded coverage remain separate from decoded results.
+Search coverage does not promise exhaustive decoding. Support is an uncalibrated
+ranking heuristic with reader-specific meaning; it is not comparable confidence
+across formats or effort modes. Validated decodes can still be wrong. Recovered
+candidate indices are local to their crop, not tracking identifiers. `unfinished`
+combines decoding, localization, candidate-selection and parsing limits without
+invalidating returned reads. False is not a guarantee of exhaustive scanning. Effort limits remain explicit inside
+the implementation; arbitrary budgets and timeouts are not public scan options.
 
-`tapirscan.scan(image)` and `scanner.scan(image)` return the same immutable,
-iterable `ScanResult`. Simple consumers use `.values` or iterate barcodes and read
-`.text`/`.data`; advanced consumers access typed status and optional `.debug`.
-`to_dict()` preserves the complete native diagnostics as independent JSON data.
+Python's `as_dict()` exports JSON-compatible public results without diagnostics, with original payload bytes represented as integer lists.
 
-The old `tapirscan.pyzbar.decode` import is a direct alias, not a separate
-API implementation or result conversion. `.quality` aliases support and is not
-comparable to ZBar quality; `.orientation` remains None. EAN-13 is the default; additional formats are opt-in.
-The earlier unpublished `symbols` parameter and dictionary-returning scan contract
-have been removed. Multiple results remain the default.
+Python's `to_raw_dict()` exports independent native schema-2 JSON data. JS exposes
+immutable raw evidence through `result.debug`; `structuredClone` makes a mutable
+copy. Raw engine schemas are distinct from the compact public result.
 
-Input preparation:
+Matrix decoders expose original decoded payload bytes through Python
+`payload_bytes` and JavaScript `payloadBytes` when available; there is no text
+re-encoding fallback. JS `scanner.formats` exposes its immutable configuration.
+Diagnostics provide a stable collection of `UndecodedRegion` geometry records,
+separate from decoded `Barcode` objects, with explicit absence
+for unavailable proposals/search windows. Engine-specific evidence remains raw.
 
-- Pillow: grayscale `L` stays grayscale; other modes convert to RGB before native
-  luminance conversion. Alpha is ignored.
-- NumPy: the same layout/range rules as tensors below. Noncontiguous views and
-  ndarray subclasses work. Colors are RGB/RGBA; convert OpenCV BGR to RGB first.
-  Out-of-range values are rejected instead of silently cast to uint8.
-- Raw tuple: `(pixels, width, height)` containing exactly width*height grayscale
-  bytes. Encoded JPEG/PNG bytes must first be opened with Pillow or OpenCV.
-- PyTorch: dense real HW, CHW or HWC image tensors, with 1/3/4 channels and an
-  optional leading batch dimension of size 1. CPU and accelerator tensors are
-  automatically detached, synchronously copied to CPU, and made contiguous.
-  No original pixels or autograd state are modified; scanning is not differentiable.
-  Tensor colors are RGB/RGBA and alpha is ignored. uint8/integer values use
-  [0,255], booleans use black/white, floating values use [0,1] when all values
-  fit that range, otherwise [0,255]. Use `value_range="0_1"` or `"0_255"`
-  to resolve dark-image ambiguity. Use `layout="CHW"` or `"HWC"` when both
-  first and last axes could be channels. NaN/infinity, values outside these
-  ranges, batches larger than one, sparse/quantized/complex/meta tensors are
-  rejected clearly. Undo model-specific mean/std normalization before scanning.
+## Native integration and validation
 
-```python
-result = scanner.scan(tensor, debug=True)  # even CUDA + requires_grad
-reads = tapirscan.scan(tensor, multiple=False, library_dir="build/native")
-```
+Native consumers require matching ABI-4 libraries. C provides supplement flags;
+Rust provides an explicit supplement-policy method. Library initialization checks
+the required ABI and reports mismatches.
 
-Pillow, NumPy and torch remain optional: install only the libraries used to
-create your images. Torch conversion does not require NumPy. Package extras
-`pillow`, `numpy`, and `torch` describe these optional dependencies.
-
-## Installation
-
-The package and import name are `tapirscan`. Version 1.0.0 platform wheels bundle
-all four native modes and load them from the installed package. Callers do not
-need Rust, ZBar or ZXing. Source checkouts can explicitly select a native build
-with `library_dir` or `TAPIRSCAN_LIBRARY_DIR`; the current directory is never
-searched implicitly. The first registry publication and cross-platform artifact
-validation remain separate steps. See [release preparation](RELEASING.md).
-
-## Provenance
-
-[Pyzbar is MIT licensed](https://github.com/NaturalHistoryMuseum/pyzbar/blob/master/LICENSE.txt).
-It is copyrighted; the license permits use, modification and redistribution subject
-to retaining its copyright and permission notices in copies or substantial portions.
-An independently implemented convenience interface need not copy pyzbar source.
-No pyzbar code or ZBar engine is incorporated here, and this does not select the
-license for the scanner itself. Copying code later requires preserving its notices.
+Python validates the 32-megapixel limit before image conversion or pixel copying.
+Native errors retain numeric status codes and provide descriptive messages.

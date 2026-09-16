@@ -1,6 +1,6 @@
 {
   "name": "tapirscan",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Orientation-aware barcode scanning with a Rust/WASM core and four effort modes",
   "exports": {
@@ -11,6 +11,7 @@
   },
   "files": [
     "dist",
+    "examples",
     "wasm/multiformat.json",
     "THIRD_PARTY_NOTICES.md",
     "wasm/low-release-20260915.wasm",
@@ -21,7 +22,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test test/scanner.mjs",
+    "test": "node --test test/scanner.mjs && tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext test/api-types.ts",
     "prepack": "npm run build && node scripts/verify-package.mjs"
   },
   "devDependencies": {

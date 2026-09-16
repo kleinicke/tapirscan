@@ -1,6 +1,6 @@
 # Native bindings and result contract
 
-C, C++, Python and Java share the safe Rust facade and native ABI 3. Build the
+C, C++, Python and Java share the safe Rust facade and native ABI 4. Build the
 four independent libraries with `python3 scripts/build_native.py low medium high very-high`.
 Python and Java select a mode at runtime; C/C++ link one selected library.
 Mode IDs are low=0, medium=1, high=2 and very-high=3. Medium is the default.

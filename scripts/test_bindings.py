@@ -20,7 +20,7 @@ from build import ROOT
 sys.path.insert(
     0, os.environ.get("BARCODE_PYTHON_PACKAGE", str(ROOT / "bindings/python/src"))
 )
-from tapirscan import Scanner
+from tapirscan import PixelImage, Scanner
 
 LIBS = ROOT / "build/native"
 
@@ -46,13 +46,11 @@ class Bindings(unittest.TestCase):
                             path = Path(temp) / "pixels.raw"
                             path.write_bytes(pixels)
                             result = scanner.scan(
-                                pixels,
-                                w,
-                                h,
-                                channels=c,
-                                stride=stride,
-                                include_regions=True,
-                            ).to_dict()
+                                PixelImage(
+                                    pixels, width=w, height=h, channels=c, stride=stride
+                                ),
+                                debug=True,
+                            ).to_raw_dict()
                             reads = result["scan"]["barcodes"]
                             self.assertEqual(len(reads), expected)
                             self.assertTrue(all(b["text"] == TEXT for b in reads))
@@ -82,7 +80,7 @@ class Bindings(unittest.TestCase):
                                 map(
                                     str,
                                     [
-                                        ROOT / "build/java/tapirscan-1.0.0.jar",
+                                        ROOT / "build/java/tapirscan-1.1.0.jar",
                                         ROOT / "build/java/test-classes",
                                     ],
                                 )
@@ -172,7 +170,7 @@ class Bindings(unittest.TestCase):
             map(
                 str,
                 [
-                    ROOT / "build/java/tapirscan-1.0.0.jar",
+                    ROOT / "build/java/tapirscan-1.1.0.jar",
                     ROOT / "build/java/test-classes",
                 ],
             )
@@ -182,25 +180,23 @@ class Bindings(unittest.TestCase):
             path.write_bytes(pixels)
             for mode in ("low", "medium", "high", "very-high"):
                 with Scanner(mode, library_dir=LIBS) as scanner:
-                    defaults = scanner.scan(pixels, w, h).to_dict()
+                    defaults = scanner.scan(
+                        PixelImage(pixels, width=w, height=h)
+                    ).to_raw_dict()
                     self.assertTrue(defaults["multiple"])
                     self.assertEqual(len(defaults["scan"]["barcodes"]), 2)
                     self.assertNotIn("localization", defaults)
                     all_details = scanner.scan(
-                        pixels, w, h, include_regions=True
-                    ).to_dict()
+                        PixelImage(pixels, width=w, height=h), debug=True
+                    ).to_raw_dict()
                     for multiple in (True, False):
                         for regions in (False, True):
                             with self.subTest(
                                 mode=mode, multiple=multiple, regions=regions
                             ):
                                 result = scanner.scan(
-                                    pixels,
-                                    w,
-                                    h,
-                                    multiple=multiple,
-                                    include_regions=regions,
-                                ).to_dict()
+                                    PixelImage(pixels, width=w, height=h), debug=regions
+                                ).to_raw_dict()
                                 self.assertEqual(result["schemaVersion"], 2)
                                 expected = (
                                     defaults["scan"]["barcodes"]
@@ -212,7 +208,10 @@ class Bindings(unittest.TestCase):
                                         )
                                     ]
                                 )
-                                self.assertEqual(result["scan"]["barcodes"], expected)
+                                self.assertEqual(
+                                    result["scan"]["barcodes"],
+                                    defaults["scan"]["barcodes"],
+                                )
                                 self.assertEqual(
                                     result["scan"]["unfinished"],
                                     defaults["scan"]["unfinished"],
@@ -282,8 +281,8 @@ class Bindings(unittest.TestCase):
                                             result["scan"]["candidates"],
                                         )
                     blank = scanner.scan(
-                        bytes([255]) * len(pixels), w, h, multiple=False
-                    ).to_dict()
+                        PixelImage(bytes([255]) * len(pixels), width=w, height=h)
+                    ).to_raw_dict()
                     self.assertEqual(blank["scan"]["barcodes"], [])
 
     def test_python_validation_and_lifetime(self) -> None:
@@ -291,7 +290,7 @@ class Bindings(unittest.TestCase):
         for mode in ("low", "medium", "high", "very-high"):
             scanner = Scanner(mode, library_dir=LIBS)
             _, pixels, w, h, _c, _stride, _ = next(fixtures())
-            first = scanner.scan(pixels, w, h).to_dict()
+            first = scanner.scan(PixelImage(pixels, width=w, height=h)).to_raw_dict()
             frozen = json.dumps(first)
             for options, data in [
                 ({"width": -1, "height": h}, pixels),
@@ -299,24 +298,24 @@ class Bindings(unittest.TestCase):
                 ({"width": w, "height": h, "channels": 2}, pixels),
                 ({"width": w, "height": h, "stride": w - 1}, pixels),
                 ({"width": w, "height": h}, pixels[:1]),
-                ({"width": w, "height": h, "multiple": 1}, pixels),
-                ({"width": w, "height": h, "include_regions": "yes"}, pixels),
             ]:
                 with self.assertRaises(ValueError):
-                    scanner.scan(data, **options).to_dict()  # ty: ignore[invalid-argument-type]
+                    scanner.scan(PixelImage(data, **options)).to_raw_dict()
             with self.assertRaises(ValueError):
-                scanner.scan(memoryview(pixels)[::2], w, h).to_dict()
+                scanner.scan(
+                    PixelImage(memoryview(pixels)[::2], width=w, height=h)
+                ).to_raw_dict()
             self.assertEqual(
-                scanner.scan(bytes([255]) * len(pixels), w, h).to_dict()["scan"][
-                    "barcodes"
-                ],
+                scanner.scan(
+                    PixelImage(bytes([255]) * len(pixels), width=w, height=h)
+                ).to_raw_dict()["scan"]["barcodes"],
                 [],
             )
             self.assertEqual(json.dumps(first), frozen)
             scanner.close()
             scanner.close()
             with self.assertRaises(RuntimeError):
-                scanner.scan(pixels, w, h).to_dict()
+                scanner.scan(PixelImage(pixels, width=w, height=h)).to_raw_dict()
             self.assertEqual(json.dumps(first), frozen)
         with self.assertRaises(ValueError):
             Scanner("typo", library_dir=LIBS)  # ty: ignore[invalid-argument-type]
@@ -332,7 +331,10 @@ class Bindings(unittest.TestCase):
                 scanners = [fast, quality, fast, quality]
                 results = list(
                     pool.map(
-                        lambda scanner: scanner.scan(pixels, w, h).to_dict(), scanners
+                        lambda scanner: scanner.scan(
+                            PixelImage(pixels, width=w, height=h)
+                        ).to_raw_dict(),
+                        scanners,
                     )
                 )
             self.assertEqual(

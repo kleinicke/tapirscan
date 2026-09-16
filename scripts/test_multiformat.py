@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import zxingcpp
 from build_java import tool
-from test_bindings import LIBS, Scanner, run
+from test_bindings import LIBS, PixelImage, Scanner, run
 
 from build import ROOT
 
@@ -61,11 +61,9 @@ class Formats(unittest.TestCase):
                     Scanner(mode, library_dir=LIBS) as scanner,
                 ):
                     result = scanner.scan(
-                        pixels,
-                        1000,
-                        700,
+                        PixelImage(pixels, width=1000, height=700),
                         formats=["Code128", "QRCode"],
-                        include_regions=True,
+                        debug=True,
                     )
                     self.assertCountEqual(
                         result.values, ["TAPIR123", "TAPIR123", "Tapir matrix"]
@@ -87,21 +85,10 @@ class Formats(unittest.TestCase):
                         [(b.text, b.format) for b in result],
                         [(b["text"], b["format"]) for b in js["scan"]["barcodes"]],
                     )
-                    single = scanner.scan(
-                        pixels,
-                        1000,
-                        700,
-                        formats=["Code128", "QRCode"],
-                        multiple=False,
-                        include_regions=True,
+                    self.assertEqual(result.best, result[0])
+                    linear_only = scanner.scan(
+                        PixelImage(pixels, width=1000, height=700), formats=["Code128"]
                     )
-                    self.assertEqual(single.values, result.values[:1])
-                    self.assertEqual(single.unfinished, result.unfinished)
-                    self.assertEqual(
-                        single.to_dict()["scan"]["regions"],
-                        result.to_dict()["scan"]["regions"],
-                    )
-                    linear_only = scanner.scan(pixels, 1000, 700, formats=["Code128"])
                     self.assertEqual(linear_only.values, ["TAPIR123", "TAPIR123"])
 
     def test_formats_across_languages(self) -> None:
@@ -126,11 +113,13 @@ class Formats(unittest.TestCase):
                         Scanner(mode, library_dir=LIBS) as scanner,
                     ):
                         result = scanner.scan(
-                            pixels, width, height, formats=[fmt], include_regions=True
+                            PixelImage(pixels, width=width, height=height),
+                            formats=[fmt],
+                            debug=True,
                         )
                         self.assertEqual(result.values, [text])
                         self.assertEqual(result[0].format, fmt)
-                        self.assertEqual(result[0].data, text.encode())
+                        self.assertEqual(result[0].text.encode(), text.encode())
                         js = run(
                             "node",
                             ROOT / "bindings/javascript/test/native_parity.mjs",
@@ -161,7 +150,7 @@ class Formats(unittest.TestCase):
                             "-cp",
                             os.pathsep.join(
                                 [
-                                    str(ROOT / "build/java/tapirscan-1.0.0.jar"),
+                                    str(ROOT / "build/java/tapirscan-1.1.0.jar"),
                                     str(ROOT / "build/java/test-classes"),
                                 ]
                             ),
@@ -193,20 +182,26 @@ class Formats(unittest.TestCase):
                         )
                         self.assertEqual(
                             rust["scan"]["barcodes"],
-                            result.to_dict()["scan"]["barcodes"],
+                            result.to_raw_dict()["scan"]["barcodes"],
                         )
                         for foreign in (cpp, java):
                             self.assertEqual(foreign["typed"][0]["text"], text)
                             self.assertEqual(
                                 foreign["result"]["scan"]["barcodes"],
-                                result.to_dict()["scan"]["barcodes"],
+                                result.to_raw_dict()["scan"]["barcodes"],
                             )
+                        if result.debug is None:
+                            self.fail("Diagnostics were requested")
+                        self.assertEqual(
+                            [b.support for b in result.debug.barcodes],
+                            [b["support"] for b in js["scan"]["barcodes"]],
+                        )
                         for b, other in zip(
                             result, js["scan"]["barcodes"], strict=True
                         ):
                             self.assertEqual(
-                                (b.text, b.format, b.quality),
-                                (other["text"], other["format"], other["support"]),
+                                (b.text, b.format),
+                                (other["text"], other["format"]),
                             )
                             for point, foreign in zip(
                                 b.polygon, other["polygon"], strict=True
@@ -215,7 +210,10 @@ class Formats(unittest.TestCase):
                                 self.assertAlmostEqual(point.y, foreign[1], places=4)
                         self.assertEqual(result.unfinished, js["scan"]["unfinished"])
                         with self.assertRaises(ValueError):
-                            scanner.scan(pixels, width, height, formats=[])
+                            scanner.scan(
+                                PixelImage(pixels, width=width, height=height),
+                                formats=[],
+                            )
 
 
 if __name__ == "__main__":

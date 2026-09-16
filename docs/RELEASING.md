@@ -1,11 +1,11 @@
 # Releasing Tapirscan
 
-The first npm/PyPI release is **1.0.0**. The demo is already public at
+The first npm/PyPI release is **1.1.0**. The demo is already public at
 [tapirscan.netlify.app](https://tapirscan.netlify.app). Publishing the library,
 publishing a GitHub release, and updating the demo are separate actions.
 
 The license is **MIT**, copyright © 2026 **Florian Nick**. License files and
-author metadata are included in the release packages. The documented 1.0 API
+author metadata are included in the release packages. The documented 1.1.0 API
 is frozen under the [compatibility policy](../CONTRIBUTING.md#api-stability).
 
 ## Registry setup
@@ -102,7 +102,7 @@ The separate `publish.yml` workflow publishes only when explicitly selected.
    and all five wheel platforms. It also checks Python distribution metadata and
    installs the npm tarball. Download the resulting `release-bundle` artifact:
    it contains `npm/`, `wheels/`, and `SHA256SUMS`.
-3. Review this exact bundle, then tag the validated commit `v1.0.0` and push the
+3. Review this exact bundle, then tag the validated commit `v1.1.0` and push the
    tag. Run the publication workflow **from that tag**, supplying the same two
    successful build run IDs. Select `pypi`, `npm`, or `both` once the corresponding
    trusted publishers are configured. Jobs use the `pypi` and `npm` GitHub
@@ -112,7 +112,7 @@ The separate `publish.yml` workflow publishes only when explicitly selected.
 ```sh
 # From the downloaded release-bundle directory:
 npm login
-npm publish npm/tapirscan-1.0.0.tgz --access public
+npm publish npm/tapirscan-1.1.0.tgz --access public
 ```
 
 This publishes the already-tested tarball without rebuilding it. Use only the

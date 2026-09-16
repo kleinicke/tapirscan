@@ -1,0 +1,590 @@
+--- a/multiformat/src/aztec_detect.rs
++++ b/multiformat/src/aztec_detect.rs
+@@ -257,6 +257,7 @@
+     theta: f32,
+     module: f32,
+     ring: usize,
++    limited: &mut bool,
+ ) -> Option<Vec<[f32; 8]>> {
+     let x = (center.x + theta.cos() * ring as f32 * module).floor() as isize;
+     let y = (center.y + theta.sin() * ring as f32 * module).floor() as isize;
+@@ -281,6 +282,7 @@
+         [x as usize, y as usize],
+         [left as usize, top as usize, right as usize, bottom as usize],
+         [expected_area * 0.5, expected_area * 1.75],
++        limited,
+     )?;
+     let half = ring as f32 + 0.5;
+     Some(
+@@ -450,7 +452,7 @@
+                 for scale in [1., 0.8, 1.2] {
+                     let module = c.module * theta.cos().abs().max(theta.sin().abs()) * scale;
+                     for ring in [3, 5, 2] {
+-                        for t in ring_quads(bits, w, h, &c, theta, module, ring)
++                        for t in ring_quads(bits, w, h, &c, theta, module, ring, &mut limited)
+                             .into_iter()
+                             .flatten()
+                         {
+@@ -484,9 +486,10 @@
+                 }
+             }
+             grids.sort_by_key(|g| g.0);
++            limited |= grids.len() > 12;
+             for (_, theta, module) in grids.into_iter().take(12) {
+                 transforms.push(transform(&c, theta, module, 0));
+-                for t in ring_quads(bits, w, h, &c, theta, module, 2)
++                for t in ring_quads(bits, w, h, &c, theta, module, 2, &mut limited)
+                     .into_iter()
+                     .flatten()
+                 {
+@@ -518,6 +521,7 @@
+                                 aztec::decode_rune(&rotate(&grid, 11, turn, mirror), 11)
+                             {
+                                 results.push(Detection {
++                                    bytes: Some(read.bytes),
+                                     structured_append: read.structured_append,
+                                     reader_initialization: read.reader_initialization,
+                                     addon: None,
+@@ -577,6 +581,7 @@
+                                 aztec::decode_matrix(&rotate(&grid, n, turn, mirror), n)
+                             {
+                                 results.push(Detection {
++                                    bytes: Some(read.bytes),
+                                     structured_append: read.structured_append,
+                                     reader_initialization: read.reader_initialization,
+                                     addon: None,
+@@ -606,6 +611,7 @@
+                 }
+             }
+             reference_retries.sort_by(|a, b| a.0.total_cmp(&b.0));
++            limited |= reference_retries.len() > 6;
+             for (_, t, n, turn, mirror) in reference_retries.into_iter().take(6) {
+                 let t = refine_reference(bits, w, h, t, n, c.module);
+                 let Some(grid) = qr_detect::sample(bits, w, h, n, &t, 0.) else {
+@@ -613,6 +619,7 @@
+                 };
+                 if let Some(read) = aztec::decode_matrix(&rotate(&grid, n, turn, mirror), n) {
+                     results.push(Detection {
++                        bytes: Some(read.bytes),
+                         structured_append: read.structured_append,
+                         reader_initialization: read.reader_initialization,
+                         addon: None,
+--- a/multiformat/src/component_geometry.rs
++++ b/multiformat/src/component_geometry.rs
+@@ -101,12 +101,13 @@
+     seed: [usize; 2],
+     bounds: [usize; 4],
+     count_range: [f32; 2],
++    limited: &mut bool,
+ ) -> Option<Vec<Quad>> {
+     let hull = outline(bits, width, seed, bounds, count_range)?;
+     Some(
+         crate::dm_detect::quad(hull.clone())
+             .into_iter()
+-            .chain(crate::dm_detect::enclosing_quad(&hull, 0.))
++            .chain(crate::dm_detect::enclosing_quad(&hull, 0., limited))
+             .collect(),
+     )
+ }
+--- a/multiformat/src/databar.rs
++++ b/multiformat/src/databar.rs
+@@ -495,6 +495,7 @@
+                     continue;
+                 }
+                 out.push(crate::Detection {
++                    bytes: None,
+                     structured_append: None,
+                     reader_initialization: false,
+                     addon: None,
+--- a/multiformat/src/dm_detect.rs
++++ b/multiformat/src/dm_detect.rs
+@@ -53,7 +53,11 @@
+ }
+ // Intersect supporting hull edges to retain a missing white corner. Simply
+ // deleting hull vertices gives an inscribed quadrilateral and clips that corner.
+-pub(crate) fn enclosing_quad(poly: &[Point], pixel_margin: f32) -> Option<[Point; 4]> {
++pub(crate) fn enclosing_quad(
++    poly: &[Point],
++    pixel_margin: f32,
++    limited: &mut bool,
++) -> Option<[Point; 4]> {
+     if poly.len() < 4 {
+         return None;
+     }
+@@ -66,6 +70,7 @@
+         };
+         length(b).total_cmp(&length(a))
+     });
++    *limited |= edges.len() > 12;
+     edges.truncate(12);
+     edges.sort_unstable();
+     let lines: Vec<_> = edges
+@@ -275,12 +280,13 @@
+     components.sort_by_key(|p| std::cmp::Reverse(p.0));
+     let mut proposals = Vec::new();
+     let mut base_count = 0;
++    let mut limited = false;
+     for (count, polygon, x0, x1, y0, y1) in components {
+         let before = proposals.len();
+         if let Some(q) = rotated_rectangle(&polygon) {
+             proposals.push((count, q));
+         }
+-        if let Some(q) = enclosing_quad(&polygon, 0.) {
++        if let Some(q) = enclosing_quad(&polygon, 0., &mut limited) {
+             proposals.push((count, q));
+         }
+         let inscribed = quad(polygon);
+@@ -316,7 +322,7 @@
+             break;
+         }
+     }
+-    let limited = base_count > 100 || proposals.len() > 200;
++    limited |= base_count > 100 || proposals.len() > 200;
+     proposals.truncate(200);
+     (proposals.into_iter().map(|p| p.1).collect(), limited)
+ }
+@@ -537,6 +543,7 @@
+                 }
+             }
+             hypotheses.sort_by(|a, b| a.0.total_cmp(&b.0));
++            regions.limited |= hypotheses.len() > 12;
+             for (score, size, t, polygon) in hypotheses.into_iter().take(12) {
+                 attempts += 1;
+                 if attempts > 800 {
+@@ -559,6 +566,7 @@
+                     }
+                     if let Some(read) = datamatrix::decode_matrix(&matrix, size.w, size.h) {
+                         results.push(Detection {
++                            bytes: Some(read.bytes),
+                             structured_append: read.structured_append,
+                             reader_initialization: read.reader_initialization,
+                             addon: None,
+@@ -601,9 +609,27 @@
+         }
+     }
+     #[test]
++    fn enclosing_edge_budget_reports_only_truncation() {
++        for count in [12, 13] {
++            let points: Vec<_> = (0..count)
++                .map(|i| {
++                    let angle = i as f32 * std::f32::consts::TAU / count as f32;
++                    [20. * angle.cos(), 20. * angle.sin()]
++                })
++                .collect();
++            let mut limited = false;
++            let _ = enclosing_quad(&points, 0., &mut limited);
++            assert_eq!(limited, count > 12);
++        }
++    }
++    #[test]
+     fn reconstructs_an_unprinted_corner_from_supporting_edges() {
+-        let q =
+-            enclosing_quad(&[[0., 0.], [8., 0.], [10., 2.], [10., 10.], [0., 10.]], 0.).unwrap();
++        let q = enclosing_quad(
++            &[[0., 0.], [8., 0.], [10., 2.], [10., 10.], [0., 10.]],
++            0.,
++            &mut false,
++        )
++        .unwrap();
+         for expected in [[0., 0.], [10., 0.], [10., 10.], [0., 10.]] {
+             assert!(q
+                 .iter()
+--- a/multiformat/src/expanded.rs
++++ b/multiformat/src/expanded.rs
+@@ -652,6 +652,7 @@
+                 return;
+             }
+             out.push(crate::Detection {
++                bytes: None,
+                 structured_append: None,
+                 reader_initialization: false,
+                 addon: None,
+--- a/multiformat/src/lib.rs
++++ b/multiformat/src/lib.rs
+@@ -40,6 +40,9 @@
+ }
+ #[derive(Clone, Serialize)]
+ pub struct Detection {
++    /// Decoded payload bytes before character-set interpretation, when available.
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub bytes: Option<Vec<u8>>,
+     #[serde(rename = "structuredAppend", skip_serializing_if = "Option::is_none")]
+     pub structured_append: Option<StructuredAppend>,
+     #[serde(
+@@ -460,12 +463,14 @@
+                                 step,
+                             });
+                         }
+-                        let mut reads = linear::decode_candidates(&r, first_black, mask);
++                        let mut reads =
++                            linear::decode_candidates(&r, first_black, mask, &mut regions.limited);
+                         if mask & linear::CODABAR != 0 {
+-                            reads.extend(linear::decode(
++                            reads.extend(linear::decode_candidates(
+                                 &integer_runs,
+                                 first_black,
+                                 linear::CODABAR,
++                                &mut regions.limited,
+                             ));
+                         }
+                         for mut read in reads {
+@@ -598,6 +603,7 @@
+         });
+         if !duplicate {
+             results.push(Detection {
++                bytes: None,
+                 structured_append: None,
+                 reader_initialization: false,
+                 addon: if addon_confirmed { g.addon } else { None },
+--- a/multiformat/src/linear.rs
++++ b/multiformat/src/linear.rs
+@@ -93,7 +93,12 @@
+     }
+     (best.1 < 0.23 && second - best.1 > 0.012).then_some(best)
+ }
+-fn code93(runs: &[f32], start_index: usize, retain_failed: bool) -> Option<Read> {
++fn code93(
++    runs: &[f32],
++    start_index: usize,
++    retain_failed: bool,
++    limited: &mut bool,
++) -> Option<Read> {
+     if error(&runs[start_index..], &c93_pattern(C93[47])) > 0.2 {
+         return None;
+     }
+@@ -196,6 +201,7 @@
+         values.push(v);
+         at += 6;
+     }
++    *limited |= at + 7 <= runs.len() && values.len() >= 256;
+     None
+ }
+ 
+@@ -604,7 +610,7 @@
+     }
+     (best.1 < 0.23 && second - best.1 > 0.012).then_some(best)
+ }
+-fn code128(r: &[f32], s: usize, retain_failed: bool) -> Option<Read> {
++fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Option<Read> {
+     let (start, mut err) = c128_match(&r[s..], 103, 106)?;
+     let module = r[s..s + 6].iter().sum::<f32>() / 11.;
+     if s == 0 || (s != 1 && r[s - 1] < module * 2.5) {
+@@ -657,6 +663,7 @@
+         values.push(v);
+         at += 6;
+     }
++    *limited |= at + 7 <= r.len() && values.len() >= 256;
+     None
+ }
+ fn c128_text(v: &[usize]) -> Option<(String, bool)> {
+@@ -754,7 +761,7 @@
+     }
+     Some((bits, e / r[..n].iter().sum::<f32>()))
+ }
+-fn code39(r: &[f32], s: usize) -> Option<Read> {
++fn code39(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
+     if r.len() < s + 9 {
+         return None;
+     }
+@@ -769,7 +776,7 @@
+         return None;
+     }
+     if black_max.max(white_max) < black_min.min(white_min) {
+-        if let Some(read) = code39_with_gain(r, s, 0.) {
++        if let Some(read) = code39_with_gain(r, s, 0., limited) {
+             return Some(read);
+         }
+     }
+@@ -780,9 +787,14 @@
+     if gain.abs() < narrow * 0.1 || gain.abs() > narrow * 0.75 {
+         return None;
+     }
+-    code39_with_gain(r, s, gain)
+-}
+-fn code39_with_gain(runs: &[f32], start_index: usize, gain: f32) -> Option<Read> {
++    code39_with_gain(r, s, gain, limited)
++}
++fn code39_with_gain(
++    runs: &[f32],
++    start_index: usize,
++    gain: f32,
++    limited: &mut bool,
++) -> Option<Read> {
+     let adjusted = |at: usize| -> [f32; 9] {
+         std::array::from_fn(|i| runs[at + i] - if i % 2 == 0 { gain } else { -gain })
+     };
+@@ -822,9 +834,10 @@
+         }
+         at += 10;
+     }
++    *limited |= at + 9 <= runs.len() && out.len() >= 128;
+     None
+ }
+-fn itf(r: &[f32], s: usize) -> Option<Read> {
++fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
+     if error(&r[s..], &[1, 1, 1, 1]) > 0.18 {
+         return None;
+     }
+@@ -862,9 +875,10 @@
+         }
+         at += 10;
+     }
++    *limited |= at + 3 <= r.len() && out.len() >= 80;
+     None
+ }
+-fn codabar(r: &[f32], s: usize) -> Option<Read> {
++fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
+     fn one(r: &[f32]) -> Option<(usize, f32)> {
+         let mut best = None;
+         for wides in [2, 3] {
+@@ -951,20 +965,32 @@
+         out.push(CODA_ALPHABET[c]);
+         at += 8;
+     }
++    *limited |= at + 7 <= r.len() && out.len() >= 128;
+     None
+ }
+ 
+ #[must_use]
+ pub fn decode(r: &[f32], first_black: bool, mask: u32) -> Vec<Read> {
+-    decode_impl(r, first_black, mask, false)
++    decode_impl(r, first_black, mask, false, &mut false)
+ }
+ /// `decoded: false` denotes a structurally parsed symbol with a failed checksum.
+ /// The image scanner requires repeated spatial evidence before retaining it.
+ #[must_use]
+-pub(crate) fn decode_candidates(r: &[f32], first_black: bool, mask: u32) -> Vec<Read> {
+-    decode_impl(r, first_black, mask, true)
+-}
+-fn decode_impl(r: &[f32], first_black: bool, mask: u32, retain_failed: bool) -> Vec<Read> {
++pub(crate) fn decode_candidates(
++    r: &[f32],
++    first_black: bool,
++    mask: u32,
++    limited: &mut bool,
++) -> Vec<Read> {
++    decode_impl(r, first_black, mask, true, limited)
++}
++fn decode_impl(
++    r: &[f32],
++    first_black: bool,
++    mask: u32,
++    retain_failed: bool,
++    limited: &mut bool,
++) -> Vec<Read> {
+     let mut out = Vec::new();
+     let mut s = usize::from(!first_black);
+     while s + 16 <= r.len() {
+@@ -987,13 +1013,13 @@
+             found = accepted(ean(r, s, mask, retain_failed));
+         }
+         if quiet && found.is_none() && mask & CODE128 != 0 {
+-            found = accepted(code128(r, s, retain_failed));
++            found = accepted(code128(r, s, retain_failed, limited));
+         }
+         if quiet && found.is_none() && mask & CODE39 != 0 {
+-            found = code39(r, s);
++            found = code39(r, s, limited);
+         }
+         if quiet && found.is_none() && mask & CODE93 != 0 {
+-            found = accepted(code93(r, s, retain_failed));
++            found = accepted(code93(r, s, retain_failed, limited));
+         }
+         if found.is_none() && mask & DATABAR_EXPANDED != 0 {
+             found = crate::expanded::decode(r, s);
+@@ -1002,10 +1028,10 @@
+             found = crate::databar::decode(r, s);
+         }
+         if quiet && found.is_none() && mask & ITF != 0 {
+-            found = itf(r, s);
++            found = itf(r, s, limited);
+         }
+         if quiet && found.is_none() && mask & CODABAR != 0 {
+-            found = codabar(r, s);
++            found = codabar(r, s, limited);
+         }
+         if let Some(read) = found {
+             s = read.end;
+@@ -1026,6 +1052,29 @@
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    #[test]
++    fn long_code128_reports_cap_without_losing_short_reads() {
++        for count in [20, 252, 256] {
++            let mut values = vec![104];
++            values.extend(std::iter::repeat_n(33, count));
++            let check = (104 + (1..=count).map(|i| i * 33).sum::<usize>()) % 103;
++            values.push(check);
++            let mut runs = vec![10];
++            for value in values {
++                runs.extend(C128[value].map(|v| usize::from(v - b'0')));
++            }
++            runs.extend([2, 3, 3, 1, 1, 1, 2, 10]);
++            let (image, w, h) = checksum_scene(&runs);
++            let result = crate::scan(&image, w, h, CODE128, 0);
++            assert_eq!(result.unfinished, count == 256);
++            if count < 256 {
++                assert_eq!(result.barcodes.len(), 2);
++                assert!(result.barcodes.iter().all(|b| b.text == "A".repeat(count)));
++            } else {
++                assert!(result.barcodes.is_empty());
++            }
++        }
++    }
+     fn checksum_scene(runs: &[usize]) -> (Vec<u8>, usize, usize) {
+         let width = runs.iter().sum::<usize>() * 3;
+         let height = 180;
+--- a/multiformat/src/linear_geometry.rs
++++ b/multiformat/src/linear_geometry.rs
+@@ -283,6 +283,7 @@
+     use super::*;
+     fn read(top: f32, bottom: f32) -> Detection {
+         Detection {
++            bytes: None,
+             structured_append: None,
+             reader_initialization: false,
+             addon: None,
+--- a/multiformat/src/maxicode_detect.rs
++++ b/multiformat/src/maxicode_detect.rs
+@@ -287,6 +287,7 @@
+                 }
+                 if let Some(read) = maxicode::decode_matrix(&matrix) {
+                     results.push(Detection {
++                        bytes: Some(read.bytes),
+                         structured_append: read.structured_append,
+                         reader_initialization: read.reader_initialization,
+                         addon: None,
+--- a/multiformat/src/pdf417.rs
++++ b/multiformat/src/pdf417.rs
+@@ -351,6 +351,7 @@
+     Some(parse_payload(code)?.text.into_bytes())
+ }
+ struct DecodedPayload {
++    bytes: Vec<u8>,
+     text: String,
+     reader_initialization: bool,
+ }
+@@ -458,6 +459,7 @@
+     }
+     text.push_str(&crate::encoding::decode(&out[segment_start..], Some(eci))?);
+     Some(DecodedPayload {
++        bytes: out,
+         text,
+         reader_initialization,
+     })
+@@ -633,6 +635,7 @@
+                                 < (x1 - x0) * 0.3
+                     }) {
+                         results.push(Detection {
++                            bytes: Some(read.bytes),
+                             structured_append: None,
+                             reader_initialization: read.reader_initialization,
+                             addon: None,
+--- a/multiformat/src/qr_detect.rs
++++ b/multiformat/src/qr_detect.rs
+@@ -80,7 +80,7 @@
+     }
+     Some((center, module))
+ }
+-fn finders(image: &[bool], w: usize, h: usize) -> Vec<Finder> {
++fn finders(image: &[bool], w: usize, h: usize) -> (Vec<Finder>, bool) {
+     let mut found: Vec<Finder> = Vec::new();
+     let step = (h / 600).max(1);
+     for y in (0..h).step_by(step) {
+@@ -144,12 +144,13 @@
+     found.retain(|f| f.support >= 2);
+     found.retain(|f| crate::binarization::has_two_directions(image, w, h, f.x, f.y, f.module * 4.));
+     found.sort_by_key(|f| std::cmp::Reverse(f.support));
++    let limited = found.len() > 512;
+     found.truncate(512);
+     for f in &mut found {
+         f.quad = central_quad(image, w, h, f);
+     }
+     found.retain(|f| isolated_finder_valid(image, w, h, f));
+-    found
++    (found, limited)
+ }
+ fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) -> bool {
+     let Some(quad) = finder.quad else {
+@@ -304,7 +305,7 @@
+ #[must_use]
+ pub fn diagnostic_finders(image: &[bool], w: usize, h: usize) -> serde_json::Value {
+     serde_json::Value::Array(
+-        finders(image, w, h)
++        finders(image, w, h).0
+             .iter()
+             .map(|f| serde_json::json!({"x":f.x,"y":f.y,"module":f.module,"support":f.support,"quad":f.quad}))
+             .collect(),
+@@ -603,8 +604,8 @@
+         }
+         prior_count = results.len();
+         let image = binary_images.get(mode);
+-        let mut finders = finders(image, w, h);
+-        regions.limited |= finders.len() >= 512;
++        let (mut finders, capped) = finders(image, w, h);
++        regions.limited |= capped;
+         // Already decoded patterns cannot form another physical QR symbol.
+         // Removing them also exposes distant corners of a large remaining code
+         // after surrounding small symbols were decoded on an earlier pass.
+@@ -613,6 +614,8 @@
+                 .iter()
+                 .any(|q| distance(p, q) < p.module.min(q.module) * 2.)
+         });
++        // Dense scenes skip the exhaustive fallback beyond the local triples.
++        regions.limited |= finders.len() > 80;
+         for [a, b, c] in local_triples(&finders) {
+             let finder_triple = [&finders[a], &finders[b], &finders[c]];
+             // A decoded symbol owns its three finder patterns. Reusing those
+@@ -814,6 +817,7 @@
+                                 if let Some(read) = qr::decode_matrix(&matrix, n) {
+                                     used.extend(finder_triple.iter().map(|p| (*p).clone()));
+                                     results.push(Detection {
++                                        bytes: Some(read.bytes),
+                                         structured_append: read.structured_append,
+                                         reader_initialization: false,
+                                         addon: None,
+@@ -858,3 +862,33 @@
+     }
+     (results, limited)
+ }
++
++#[cfg(test)]
++mod limit_tests {
++    #[test]
++    fn finder_limit_is_recorded_before_candidate_validation() {
++        for count in [512, 513] {
++            let width = 23 * 25;
++            let height = 23 * 21;
++            let mut bits = vec![false; width * height];
++            for i in 0..count {
++                let left = (i % 25) * 23 + 4;
++                let top = (i / 25) * 23 + 4;
++                for y in 0..14 {
++                    for x in 0..14 {
++                        let a = x / 2;
++                        let b = y / 2;
++                        bits[(top + y) * width + left + x] = a == 0
++                            || a == 6
++                            || b == 0
++                            || b == 6
++                            || ((2..=4).contains(&a) && (2..=4).contains(&b));
++                    }
++                }
++            }
++            let (finders, limited) = super::finders(&bits, width, height);
++            assert_eq!(finders.len(), 512);
++            assert_eq!(limited, count > 512);
++        }
++    }
++}
+--- a/multiformat/src/qr_detect/partial.rs
++++ b/multiformat/src/qr_detect/partial.rs
+@@ -269,6 +269,7 @@
+                             if let Some(read) = qr::decode_matrix(&grid, n) {
+                                 used.extend([first.clone(), second.clone()]);
+                                 results.push(Detection {
++                                    bytes: Some(read.bytes),
+                                     structured_append: read.structured_append,
+                                     reader_initialization: false,
+                                     addon: None,

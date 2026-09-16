@@ -10,7 +10,7 @@
 #include <vector>
 
 namespace tapirscan {
-static_assert(sizeof(void*)==8, "Native ABI v3 requires a 64-bit target");
+static_assert(sizeof(void*)==8, "Native ABI v4 requires a 64-bit target");
 class Error : public std::runtime_error {
 public:
     const int code;
@@ -63,7 +63,8 @@ class Scanner {
     tapirscan_handle handle_ = 0;
 public:
     Scanner() {
-        if(barcode_abi_version()!=3) throw std::runtime_error("Unsupported scanner ABI");
+        const auto abi = barcode_abi_version();
+        if(abi!=4) throw std::runtime_error("Native ABI mismatch: expected 4, got " + std::to_string(abi) + ". Rebuild the native libraries.");
         check(tapirscan_create(&handle_));
     }
     ~Scanner() { close(); }

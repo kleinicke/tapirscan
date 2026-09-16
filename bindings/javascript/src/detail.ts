@@ -1,5 +1,5 @@
 import { DetailScanner, type DetailResult } from "./detail-20260914/scanner.mjs";
-import { IndependentScanner, type Image, type ScanFrame, type Quad } from "./host.js";
+import { IndependentScanner, type Image, type Quad } from "./host.js";
 import type { Mode } from "./index.js";
 
 export const fitLimits = { low: 0, medium: 1, high: 4, "very-high": 1 } as const;
@@ -88,12 +88,6 @@ export class ReleaseDetailScanner {
           result.recovery.attempts.some((a) => a.unfinished),
       },
     };
-  }
-  best(frame: ScanFrame) {
-    return frame.barcodes.reduce<ScanFrame["barcodes"][number] | undefined>(
-      (best, b) => (!best || b.support > best.support ? b : best),
-      undefined,
-    );
   }
   dispose() {
     if (!this.disposed) {

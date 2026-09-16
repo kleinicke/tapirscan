@@ -40,6 +40,9 @@ pub struct StructuredAppend {
 }
 #[derive(Clone, Serialize)]
 pub struct Detection {
+    /// Decoded payload bytes before character-set interpretation, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<Vec<u8>>,
     #[serde(rename = "structuredAppend", skip_serializing_if = "Option::is_none")]
     pub structured_append: Option<StructuredAppend>,
     #[serde(
@@ -460,12 +463,14 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
                                 step,
                             });
                         }
-                        let mut reads = linear::decode_candidates(&r, first_black, mask);
+                        let mut reads =
+                            linear::decode_candidates(&r, first_black, mask, &mut regions.limited);
                         if mask & linear::CODABAR != 0 {
-                            reads.extend(linear::decode(
+                            reads.extend(linear::decode_candidates(
                                 &integer_runs,
                                 first_black,
                                 linear::CODABAR,
+                                &mut regions.limited,
                             ));
                         }
                         for mut read in reads {
@@ -598,6 +603,7 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
         });
         if !duplicate {
             results.push(Detection {
+                bytes: None,
                 structured_append: None,
                 reader_initialization: false,
                 addon: if addon_confirmed { g.addon } else { None },

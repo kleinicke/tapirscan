@@ -351,6 +351,7 @@ pub fn payload(code: &[usize]) -> Option<Vec<u8>> {
     Some(parse_payload(code)?.text.into_bytes())
 }
 struct DecodedPayload {
+    bytes: Vec<u8>,
     text: String,
     reader_initialization: bool,
 }
@@ -458,6 +459,7 @@ fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
     }
     text.push_str(&crate::encoding::decode(&out[segment_start..], Some(eci))?);
     Some(DecodedPayload {
+        bytes: out,
         text,
         reader_initialization,
     })
@@ -633,6 +635,7 @@ fn detect_axes(
                                 < (x1 - x0) * 0.3
                     }) {
                         results.push(Detection {
+                            bytes: Some(read.bytes),
                             structured_append: None,
                             reader_initialization: read.reader_initialization,
                             addon: None,

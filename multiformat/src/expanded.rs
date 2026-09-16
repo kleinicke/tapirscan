@@ -652,6 +652,7 @@ impl Stacked {
                 return;
             }
             out.push(crate::Detection {
+                bytes: None,
                 structured_append: None,
                 reader_initialization: false,
                 addon: None,

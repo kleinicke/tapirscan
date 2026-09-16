@@ -80,7 +80,7 @@ fn cross(
     }
     Some((center, module))
 }
-fn finders(image: &[bool], w: usize, h: usize) -> Vec<Finder> {
+fn finders(image: &[bool], w: usize, h: usize) -> (Vec<Finder>, bool) {
     let mut found: Vec<Finder> = Vec::new();
     let step = (h / 600).max(1);
     for y in (0..h).step_by(step) {
@@ -144,12 +144,13 @@ fn finders(image: &[bool], w: usize, h: usize) -> Vec<Finder> {
     found.retain(|f| f.support >= 2);
     found.retain(|f| crate::binarization::has_two_directions(image, w, h, f.x, f.y, f.module * 4.));
     found.sort_by_key(|f| std::cmp::Reverse(f.support));
+    let limited = found.len() > 512;
     found.truncate(512);
     for f in &mut found {
         f.quad = central_quad(image, w, h, f);
     }
     found.retain(|f| isolated_finder_valid(image, w, h, f));
-    found
+    (found, limited)
 }
 fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) -> bool {
     let Some(quad) = finder.quad else {
@@ -304,7 +305,7 @@ fn component_affine(tl: &Finder, tr: &Finder, bl: &Finder, n: f32) -> Option<[f3
 #[must_use]
 pub fn diagnostic_finders(image: &[bool], w: usize, h: usize) -> serde_json::Value {
     serde_json::Value::Array(
-        finders(image, w, h)
+        finders(image, w, h).0
             .iter()
             .map(|f| serde_json::json!({"x":f.x,"y":f.y,"module":f.module,"support":f.support,"quad":f.quad}))
             .collect(),
@@ -603,8 +604,8 @@ pub fn detect(
         }
         prior_count = results.len();
         let image = binary_images.get(mode);
-        let mut finders = finders(image, w, h);
-        regions.limited |= finders.len() >= 512;
+        let (mut finders, capped) = finders(image, w, h);
+        regions.limited |= capped;
         // Already decoded patterns cannot form another physical QR symbol.
         // Removing them also exposes distant corners of a large remaining code
         // after surrounding small symbols were decoded on an earlier pass.
@@ -613,6 +614,8 @@ pub fn detect(
                 .iter()
                 .any(|q| distance(p, q) < p.module.min(q.module) * 2.)
         });
+        // Dense scenes skip the exhaustive fallback beyond the local triples.
+        regions.limited |= finders.len() > 80;
         for [a, b, c] in local_triples(&finders) {
             let finder_triple = [&finders[a], &finders[b], &finders[c]];
             // A decoded symbol owns its three finder patterns. Reusing those
@@ -814,6 +817,7 @@ pub fn detect(
                                 if let Some(read) = qr::decode_matrix(&matrix, n) {
                                     used.extend(finder_triple.iter().map(|p| (*p).clone()));
                                     results.push(Detection {
+                                        bytes: Some(read.bytes),
                                         structured_append: read.structured_append,
                                         reader_initialization: false,
                                         addon: None,
@@ -857,4 +861,34 @@ pub fn detect(
         );
     }
     (results, limited)
+}
+
+#[cfg(test)]
+mod limit_tests {
+    #[test]
+    fn finder_limit_is_recorded_before_candidate_validation() {
+        for count in [512, 513] {
+            let width = 23 * 25;
+            let height = 23 * 21;
+            let mut bits = vec![false; width * height];
+            for i in 0..count {
+                let left = (i % 25) * 23 + 4;
+                let top = (i / 25) * 23 + 4;
+                for y in 0..14 {
+                    for x in 0..14 {
+                        let a = x / 2;
+                        let b = y / 2;
+                        bits[(top + y) * width + left + x] = a == 0
+                            || a == 6
+                            || b == 0
+                            || b == 6
+                            || ((2..=4).contains(&a) && (2..=4).contains(&b));
+                    }
+                }
+            }
+            let (finders, limited) = super::finders(&bits, width, height);
+            assert_eq!(finders.len(), 512);
+            assert_eq!(limited, count > 512);
+        }
+    }
 }

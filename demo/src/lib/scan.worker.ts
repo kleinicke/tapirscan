@@ -18,17 +18,7 @@ self.onmessage = async ({
       const fresh = await Scanner.create({
         mode: data.scannerVersion,
         formats: data.formats,
-        loadWasm: async (url) => {
-          const file = url.pathname.split("/").pop()!;
-          const response = await fetch(
-            new URL(
-              file.startsWith("multiformat-") ? "multiformat.wasm" : file,
-              data.engineBaseUrl,
-            ),
-          );
-          if (!response.ok) throw Error("Scanner engine could not be loaded");
-          return response.arrayBuffer();
-        },
+        wasmBaseUrl: data.engineBaseUrl,
       });
       scanner?.dispose();
       scanner = fresh;
@@ -60,7 +50,7 @@ self.onmessage = async ({
         width: data.width,
         height: data.height,
         scanMs: result.elapsedMs,
-        unfinished: result.unfinished || diagnostic.localizationLimited,
+        unfinished: result.unfinished,
       },
     });
   } catch (error) {

@@ -1,6 +1,6 @@
 """Explicit opt-in barcode formats, matching the native ABI."""
 
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, cast
 
 Format: TypeAlias = Literal[
     "EAN13",
@@ -41,14 +41,21 @@ FORMAT_BITS: dict[str, int] = {
 
 
 FormatSelection: TypeAlias = (
-    tuple[Format, ...] | list[Format] | Literal["1D", "2D", "all"]
+    Format
+    | tuple[Format, ...]
+    | list[Format]
+    | Literal["retail", "common1D", "common", "1D", "2D", "all"]
 )
 retail_formats: tuple[Format, ...] = ("EAN13", "UPCA", "EAN8", "UPCE")
-linear_formats: tuple[Format, ...] = (
+common_linear_formats: tuple[Format, ...] = (
     *retail_formats,
     "Code128",
     "Code39",
     "ITF",
+)
+common_formats: tuple[Format, ...] = (*common_linear_formats, "QRCode", "DataMatrix")
+linear_formats: tuple[Format, ...] = (
+    *common_linear_formats,
     "Codabar",
     "Code93",
     "DataBar",
@@ -68,7 +75,12 @@ def resolve_formats(formats: FormatSelection | None) -> tuple[Format, ...]:
     if formats is None:
         return ("EAN13",)
     if isinstance(formats, str):
+        if formats in FORMAT_BITS:
+            return (cast("Format", formats),)
         presets = {
+            "retail": retail_formats,
+            "common1D": common_linear_formats,
+            "common": common_formats,
             "1D": linear_formats,
             "2D": matrix_formats,
             "all": (*linear_formats, *matrix_formats),

@@ -21,11 +21,25 @@ try {
       stride: +stride,
     },
     {
-      multiple: multiple === undefined ? true : multiple === "1",
       debug: true,
     },
   );
-  const raw = result.debug;
+  // The native ABI still supports single selection; compare it with JS .best.
+  const raw = structuredClone(result.debug);
+  if (multiple === "0") {
+    raw.multiple = false;
+    const best = result.best;
+    raw.scan.barcodes = best
+      ? [
+          raw.scan.barcodes.find(
+            (b) =>
+              b.text === best.text &&
+              b.format === best.format &&
+              JSON.stringify(b.polygon) === JSON.stringify(best.polygon),
+          ),
+        ]
+      : [];
+  }
   if (includeRegions !== "1") {
     for (const key of ["localization", "recovery", "detailRegions", "searchWindows"])
       delete raw[key];

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <title>Tapirscan worker example</title>
+  <button id="start">Start camera</button>
+  <button id="stop" disabled>Stop</button>
+  <video autoplay muted playsinline style="max-width: 100%"></video>
+  <pre role="status"></pre>
+  <script type="module">
+    import { createScannerWorker } from "./worker-client.mjs";
+    const video = document.querySelector("video");
+    const status = document.querySelector("pre");
+    const start = document.querySelector("#start");
+    const stop = document.querySelector("#stop");
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    let running = false;
+    let scanner;
+    let stream;
+    function shutdown() {
+      running = false;
+      scanner?.dispose();
+      scanner = undefined;
+      stream?.getTracks().forEach((track) => track.stop());
+      stream = undefined;
+      video.srcObject = null;
+    }
+    start.onclick = async () => {
+      start.disabled = true;
+      running = true;
+      try {
+        scanner = await createScannerWorker({ formats: ["EAN13", "QRCode"] });
+        if (!running) return;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+        });
+        if (!running) return;
+        video.srcObject = stream;
+        await video.play();
+        stop.disabled = false;
+        while (running) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          context.drawImage(video, 0, 0);
+          const result = await scanner.scan(
+            context.getImageData(0, 0, canvas.width, canvas.height),
+          );
+          status.textContent = JSON.stringify(result.values);
+          // Backpressure: capture only after the previous scan has completed.
+          await new Promise(requestAnimationFrame);
+        }
+      } catch (error) {
+        if (running) status.textContent = error.message;
+      } finally {
+        shutdown();
+        start.disabled = false;
+        stop.disabled = true;
+      }
+    };
+    stop.onclick = shutdown;
+    window.addEventListener("pagehide", shutdown);
+  </script>
+</html>

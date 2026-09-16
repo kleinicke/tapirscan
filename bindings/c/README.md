@@ -1,7 +1,7 @@
 # C native interface
 
 `python3 scripts/build_native.py low medium high very-high` builds four independent shared libraries
-in `build/native/`. All implement ABI version 3 from `include/tapirscan.h`.
+in `build/native/`. All implement ABI version 4 from `include/tapirscan.h`.
 The core source and WASM mode recipes remain unchanged. Native builds use unwinding
 so Rust panics can be caught at the C boundary; invalid raw pointers and allocation
 failure are outside that guarantee.
@@ -49,7 +49,13 @@ adds localization/search/candidate evidence to JSON. Combine flags with bitwise 
 zero uses the defaults and unknown bits return `BARCODE_INVALID_ARGUMENT`.
 The typed result count follows the selected mode; no-read results have count zero.
 JSON schema 2 keeps completion flags even when region fields are omitted. ABI
-version 3 adds variable-length UTF-8 text and format selection; older wrappers must be rebuilt.
+version 4 requires supplement-policy support. Rebuild clients and native libraries
+together. The wrappers check the required ABI during initialization.
+
+`BARCODE_READ_EAN_ADDON` attempts a supplement; `BARCODE_REQUIRE_EAN_ADDON`
+accepts retail reads only with a confirmed supplement. These flags are mutually
+exclusive and leave other formats unaffected. Supplement text is in JSON
+`eanAddOn`; geometry describes the main barcode.
 
 ## Functions and format selection
 

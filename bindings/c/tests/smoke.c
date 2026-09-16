@@ -5,7 +5,7 @@
 int main(void) {
     assert(sizeof(barcode_read)==104);
     assert(sizeof(barcode_result_metadata)==24);
-    assert(barcode_abi_version()==3);
+    assert(barcode_abi_version()==4);
     uint8_t pixels[4096]; memset(pixels,255,sizeof(pixels));
     tapirscan_handle scanner=0; barcode_result result=123;
     assert(tapirscan_create(&scanner)==0);

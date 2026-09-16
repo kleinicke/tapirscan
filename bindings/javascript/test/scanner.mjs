@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Scanner, scan } from "../dist/index.js";
+import { Scanner, scan, retailFormats, commonFormats, commonLinearFormats } from "../dist/index.js";
 const loadWasm = async (url) => {
   const b = await readFile(url);
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
@@ -61,12 +61,12 @@ for (const mode of ["low", "medium", "high", "very-high"]) {
       assert.deepEqual(compact.image, { width: image.width, height: image.height });
       assert.deepEqual(compact.values, [text]);
       assert.equal(compact.debug, undefined);
-      assert.equal("support" in compact.best, false);
+      assert.ok(compact.best.support > 0);
+      assert.equal("confidence" in compact.best, false);
       assert.equal("localization" in compact, false);
       assert.equal("searchWindows" in compact, false);
       assert.equal("scan" in compact, false);
-      const single = scanner.scan(image, { multiple: false });
-      assert.deepEqual(single.barcodes, [scanner.best(compact)]);
+      assert.equal(compact.best, compact.barcodes[0]);
       assert.throws(() => scanner.scan(image, null), TypeError);
       assert.throws(() => scanner.scan(image, []), TypeError);
       assert.throws(() => scanner.scan(image, { multiple: 1 }), TypeError);
@@ -128,9 +128,15 @@ test("default Node loader, ImageData input and one-shot scan", async () => {
   assert.equal(result.best.polygon.length, 4);
 });
 test("format presets and invalid format validation", async () => {
-  for (const formats of ["1D", "2D", "all"]) {
+  assert.deepEqual(retailFormats, ["EAN13", "UPCA", "EAN8", "UPCE"]);
+  assert.deepEqual(commonLinearFormats, [...retailFormats, "Code128", "Code39", "ITF"]);
+  assert.deepEqual(commonFormats, [...commonLinearFormats, "QRCode", "DataMatrix"]);
+  for (const formats of ["retail", "common1D", "common", "1D", "2D", "all"]) {
     const scanner = await Scanner.create({ formats });
     try {
+      if (formats === "retail") assert.deepEqual(scanner.formats, retailFormats);
+      if (formats === "common1D") assert.deepEqual(scanner.formats, commonLinearFormats);
+      if (formats === "common") assert.deepEqual(scanner.formats, commonFormats);
       const result = scanner.scan(fixture().image);
       assert.deepEqual(result.values, formats === "2D" ? [] : [fixture().text]);
     } finally {
@@ -146,4 +152,312 @@ test("format presets and invalid format validation", async () => {
     }),
     /format/i,
   );
+});
+
+test("results are deeply immutable and survive subsequent scans and disposal", async () => {
+  for (const formats of [["EAN13"], "all"]) {
+    const scanner = await Scanner.create({ mode: "low", formats });
+    try {
+      const { image, text } = fixture();
+      const result = scanner.scan(image, { debug: true });
+      for (const mutate of [
+        () => {
+          result.barcodes.pop();
+        },
+        () => {
+          result.barcodes[0].text = "changed";
+        },
+        () => {
+          result.values[0] = "changed";
+        },
+        () => {
+          result.best.polygon[0][0] = -100;
+        },
+        () => {
+          result.best.rect.left = -100;
+        },
+        () => {
+          result.debug.scan.barcodes[0].polygon[0][0] = -100;
+        },
+      ])
+        assert.throws(mutate, TypeError);
+      const snapshot = JSON.stringify(result);
+      scanner.scan({ ...image, data: new Uint8Array(image.data.length).fill(255) });
+      scanner.dispose();
+      scanner.dispose();
+      assert.throws(() => scanner.scan(image));
+      assert.equal(JSON.stringify(result), snapshot);
+      assert.deepEqual(result.values, [text]);
+      assert.equal(Object.isFrozen(image.data), false);
+    } finally {
+      scanner.dispose();
+    }
+  }
+});
+
+test("explicit buffers default stride and validate storage across engine paths", async () => {
+  const { image, text } = fixture();
+  const { stride: _stride, ...packed } = image;
+  for (const formats of [["EAN13"], "all"]) {
+    const scanner = await Scanner.create({ mode: "low", formats });
+    try {
+      assert.deepEqual(scanner.scan(packed).values, [text]);
+      for (const invalid of [
+        null,
+        {},
+        { ...image, channels: 2 },
+        { ...image, width: 2 },
+        { ...image, stride: image.width - 1 },
+        { ...image, stride: 128 * 1024 * 1024 },
+        { ...image, data: new Uint8Array(1) },
+      ])
+        assert.throws(() => scanner.scan(invalid), TypeError);
+      for (const options of [{ multiple: false }, { includeRegions: true }, { debug: 1 }])
+        assert.throws(() => scanner.scan(image, options), TypeError);
+    } finally {
+      scanner.dispose();
+    }
+  }
+});
+
+test("WASM base directory composes with the advanced loader", async () => {
+  const { image, text } = fixture();
+  const base = new URL("../wasm/", import.meta.url);
+  const result = await scan(image, { wasmBaseUrl: base.href.replace(/\/$/, ""), formats: "all" });
+  assert.deepEqual(result.values, [text]);
+  for (const options of [
+    null,
+    [],
+    { debug: 1 },
+    { loadWasm: 1 },
+    { wasmBaseUrl: 42 },
+    { multiple: false },
+  ])
+    await assert.rejects(scan(image, options), TypeError);
+  const loaded = [];
+  const scanner = await Scanner.create({
+    mode: "medium",
+    formats: "all",
+    wasmBaseUrl: base,
+    loadWasm: async (url) => {
+      assert.equal(new URL(".", url).href, base.href);
+      loaded.push(url.pathname.split("/").pop());
+      return loadWasm(url);
+    },
+  });
+  scanner.dispose();
+  assert.deepEqual(loaded, [
+    "medium-release-20260915.wasm",
+    "low-release-20260915.wasm",
+    "multiformat.wasm",
+  ]);
+});
+
+test("UPC-A selection owns only one primary engine", async () => {
+  const instantiate = WebAssembly.instantiate;
+  let instances = 0;
+  WebAssembly.instantiate = (...args) => {
+    instances++;
+    return instantiate(...args);
+  };
+  try {
+    for (const formats of [["EAN13"], ["UPCA"]]) {
+      instances = 0;
+      const scanner = await Scanner.create({ mode: "low", formats });
+      try {
+        assert.equal(instances, 1);
+      } finally {
+        scanner.dispose();
+      }
+    }
+  } finally {
+    WebAssembly.instantiate = instantiate;
+  }
+});
+
+test("per-call format subsets reuse engines and preserve defaults", async () => {
+  const scanner = await Scanner.create({ mode: "low", formats: ["EAN13", "QRCode"] });
+  try {
+    const { image, text } = fixture();
+    assert.deepEqual(scanner.scan(image, { formats: "EAN13" }).values, [text]);
+    assert.deepEqual(scanner.scan(image, { formats: "QRCode" }).values, []);
+    assert.deepEqual(scanner.scan(image).values, [text]);
+    assert.throws(() => scanner.scan(image, { formats: "Code128" }), /subset/);
+    assert.throws(() => scanner.scan(image, { formats: [] }), /format/i);
+  } finally {
+    scanner.dispose();
+  }
+  assert.deepEqual((await scan(fixture().image, { formats: "EAN13" })).values, [fixture().text]);
+});
+
+test("QR-only creation loads only the additional engine", async () => {
+  const loaded = [];
+  const scanner = await Scanner.create({
+    formats: "QRCode",
+    loadWasm: async (url) => {
+      loaded.push(url.pathname.split("/").pop());
+      return loadWasm(url);
+    },
+  });
+  try {
+    assert.deepEqual(loaded, ["multiformat.wasm"]);
+    assert.deepEqual(scanner.scan(fixture().image).values, []);
+    assert.throws(() => scanner.scan(fixture().image, { formats: "EAN13" }), /subset/);
+  } finally {
+    scanner.dispose();
+  }
+});
+
+test("public results preserve semantic metadata independently of diagnostics", async () => {
+  const scanner = await Scanner.create({ formats: "QRCode" });
+  try {
+    // Exercise the public adapter with metadata combinations the engine may return.
+    scanner.host.scan = () => ({
+      barcodes: [
+        {
+          text: "part",
+          format: "QRCode",
+          support: 3,
+          polygon: [
+            [0, 0],
+            [10, 0],
+            [10, 10],
+            [0, 10],
+          ],
+          gs1: true,
+          readerInitialization: false,
+          structuredAppend: { index: 1, count: 2, id: "group", parity: 7 },
+          eanAddOn: "12",
+        },
+      ],
+      scanMs: 1,
+      unfinished: true,
+      regions: [],
+    });
+    for (const debug of [false, true]) {
+      const result = scanner.scan(fixture().image, { debug });
+      assert.equal(result.best.gs1, true);
+      assert.equal(result.best.readerInitialization, false);
+      assert.equal(result.best.support, 3);
+      assert.equal(result.best.eanAddOn, "12");
+      assert.deepEqual(result.best.structuredAppend, {
+        index: 1,
+        count: 2,
+        id: "group",
+        parity: 7,
+      });
+      assert.throws(() => {
+        result.best.structuredAppend.index = 2;
+      }, TypeError);
+      assert.equal(result.unfinished, true);
+      assert.equal(Boolean(result.debug), debug);
+    }
+  } finally {
+    scanner.dispose();
+  }
+});
+
+test("localization limits reach compact results without diagnostics", async () => {
+  const scanner = await Scanner.create({ mode: "low" });
+  try {
+    for (const [workLimited, omitted] of [
+      [true, 0],
+      [false, 1],
+      [false, 0],
+    ]) {
+      scanner.host.scanLocalized = () => ({
+        scan: { barcodes: [], unfinished: false },
+        scanMs: 1,
+        localization: { proposals: [], omitted, workLimited },
+      });
+      for (const debug of [false, true]) {
+        const result = scanner.scan(fixture().image, { debug });
+        assert.equal(result.unfinished, workLimited || omitted > 0);
+        assert.equal(Boolean(result.debug), debug);
+      }
+    }
+  } finally {
+    scanner.dispose();
+  }
+});
+
+test("formats are public and immutable, with actionable subset errors", async () => {
+  const scanner = await Scanner.create({ mode: "low", formats: ["EAN13", "QRCode"] });
+  try {
+    assert.deepEqual(scanner.formats, ["EAN13", "QRCode"]);
+    assert.throws(() => scanner.formats.push("Code128"), TypeError);
+    assert.throws(() => {
+      scanner.formats = ["Code128"];
+    }, TypeError);
+    assert.throws(
+      () => scanner.scan(fixture().image, { formats: "Code128" }),
+      /Requested: Code128; configured: EAN13, QRCode/,
+    );
+  } finally {
+    scanner.dispose();
+  }
+});
+
+test("EAN evidence stays available when creation enables additional formats", async () => {
+  for (const mode of ["low", "medium", "high", "very-high"]) {
+    const results = [];
+    for (const formats of ["EAN13", "all"]) {
+      const scanner = await Scanner.create({ mode, formats });
+      try {
+        const result = scanner.scan(fixture().image, { formats: "EAN13", debug: true });
+        results.push(result);
+        assert.ok(Object.isFrozen(result.debug.regions.undecoded));
+      } finally {
+        scanner.dispose();
+      }
+    }
+    assert.deepEqual(results[0].debug.regions, results[1].debug.regions);
+    assert.deepEqual(results[0].values, results[1].values);
+  }
+  const scanner = await Scanner.create({ formats: "QRCode" });
+  try {
+    const result = scanner.scan(fixture().image, { debug: true });
+    assert.equal(result.debug.regions.proposals, null);
+    assert.equal(result.debug.regions.searchWindows, null);
+    assert.ok(Array.isArray(result.debug.regions.undecoded));
+  } finally {
+    scanner.dispose();
+  }
+});
+
+test("supplement policy is opt-in, validated at creation and fixed for scans", async () => {
+  const { image, text } = fixture();
+  for (const policy of ["Ignore", "Read", "Require"]) {
+    const loaded = [];
+    const scanner = await Scanner.create({
+      mode: "low",
+      eanAddOnPolicy: policy,
+      loadWasm: async (url) => {
+        loaded.push(url.pathname.split("/").pop());
+        return loadWasm(url);
+      },
+    });
+    try {
+      assert.equal(scanner.eanAddOnPolicy, policy);
+      assert.equal(loaded.includes("multiformat.wasm"), policy !== "Ignore");
+      assert.deepEqual(scanner.scan(image).values, policy === "Require" ? [] : [text]);
+      assert.throws(() => {
+        scanner.eanAddOnPolicy = "Read";
+      }, TypeError);
+      assert.throws(() => scanner.scan(image, { eanAddOnPolicy: "Read" }), TypeError);
+    } finally {
+      scanner.dispose();
+    }
+  }
+  assert.deepEqual((await scan(image, { eanAddOnPolicy: "Require" })).values, []);
+  for (const policy of [null, "read", true, 0, {}])
+    await assert.rejects(
+      Scanner.create({
+        eanAddOnPolicy: policy,
+        loadWasm: () => {
+          throw Error("must validate before loading");
+        },
+      }),
+      /eanAddOnPolicy/,
+    );
 });

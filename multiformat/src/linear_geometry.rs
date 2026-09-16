@@ -283,6 +283,7 @@ mod tests {
     use super::*;
     fn read(top: f32, bottom: f32) -> Detection {
         Detection {
+            bytes: None,
             structured_append: None,
             reader_initialization: false,
             addon: None,

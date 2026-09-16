@@ -1,5 +1,59 @@
 # Shared formatting and checks
 
+## One-command quality check
+
+```sh
+node tools/quality/all.mjs
+```
+
+This is also the CI quality gate on macOS and Linux. It checks repository-wide
+formatting (excluding protected snapshots), import provenance, maintained Rust
+and C ABI bindings in all four modes, JS/TS lint and package/consumer types, Python
+lint and types, C/C++/Java compiler warnings, Svelte diagnostics and quality-tool
+regression tests. It continues after failures, prints a final summary, and exits
+nonzero if any stage fails. Each run saves full logs in `.quality-cache/check-*/`;
+CI uploads them on failure. Checks do not rewrite source files.
+
+Runtime tests, package installation tests and scanner parity remain separate CI
+steps; a passing static gate does not replace them.
+
+### Local prerequisites
+
+Run `node tools/quality/install.mjs` and install the binding and demo dependencies
+as described in [development](DEVELOPMENT.md). Use a Python 3.10–3.12 environment
+with `Pillow`, `numpy==2.2.6`, `torch`, `zxing-cpp` and `typing_extensions` installed.
+NumPy's version matches CI and provides stubs compatible with the Python 3.10 API
+target. Set `QUALITY_PYTHON` to that interpreter and `JAVA_HOME` to a JDK 22+.
+
+Alternatively, save your machine's paths once in the Git-ignored file
+`.quality-tools/environment.json`:
+
+```json
+{
+  "QUALITY_PYTHON": "/absolute/path/to/python-environment/bin/python",
+  "JAVA_HOME": "/absolute/path/to/jdk"
+}
+```
+
+Explicit environment variables override this file. Without a Python setting,
+the gate resolves `python3` on PATH to its executable path before calling ty.
+Missing dependencies or a missing JDK fail checks; they are never silently skipped.
+
+### Historical imported-core audit
+
+```sh
+node tools/quality/all.mjs --with-core
+```
+
+This additionally runs the strict Clippy audit of the frozen base core's fast and
+quality features. It currently fails on historical lint debt. The ordinary gate
+explicitly reports that this audit was not run; it does not claim imported code is
+lint-clean. Resolving that debt requires synchronized recipes/provenance and
+rebuilt scanner parity through [the promotion procedure](PROMOTING_CHANGES.md).
+No baseline suppressions or relaxed rules turn these diagnostics into a pass.
+
+## Tools and focused checks
+
 The release and sibling `../barcode` research repositories share pinned
 Rust 1.91.1 rustfmt/Clippy and the exact JS tooling lockfile in `tools/quality/`.
 Prettier formats JS/TS/Svelte and ordinary JSON/CSS/Markdown/YAML. ESLint checks JS,
@@ -95,7 +149,7 @@ Sources: [Claude Code hooks](https://code.claude.com/docs/en/hooks),
 Run `node tools/quality/release.mjs all` (or `rust`, `js`, `python`, `native`).
 Set `QUALITY_PYTHON` to the Python environment containing Pillow, NumPy and torch;
 set `JAVA_HOME` to a JDK 22+ installation. Install clang/clang++ for C/C++ checks.
-The gate checks both reproduced modes of the Rust facade and C ABI with Clippy
+The gate checks all four reproduced modes of the Rust facade and C ABI with Clippy
 all/pedantic and warnings as errors; TypeScript with strict ESLint and tsc; Python
 with Ruff ALL, ty and strict mypy; C/C++ with compiler conversion/sign warnings
 as errors; and Java with javac all warnings as errors. Java's restricted native

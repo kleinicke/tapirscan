@@ -1,4 +1,4 @@
-"""Build the pinned opt-in readers without modifying their imported sources."""
+"""Build the pinned opt-in readers with verified source provenance."""
 
 import hashlib
 import json
@@ -51,11 +51,17 @@ def main() -> None:
         ROOT / "multiformat/THIRD_PARTY_NOTICES.md",
         ROOT / "bindings/javascript/THIRD_PARTY_NOTICES.md",
     )
+    source_manifest = (ROOT / "provenance/import.json").read_bytes()
+    revision = json.loads(source_manifest).get("releaseRevision")
+    source_digest = hashlib.sha256(
+        source_manifest + ((ROOT / revision).read_bytes() if revision else b"")
+    ).hexdigest()
     (dest / "multiformat.json").write_text(
         json.dumps(
             {
                 "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
                 "sourceManifest": "provenance/import.json",
+                "sourceDigest": source_digest,
                 "rustToolchain": "1.91.1",
                 "rustflags": env["RUSTFLAGS"],
             },

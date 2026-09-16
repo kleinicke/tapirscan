@@ -37,7 +37,7 @@ if __name__ == "__main__":
             tool("jar"),
             "--create",
             "--file",
-            str(ROOT / "build/java/tapirscan-1.0.0.jar"),
+            str(ROOT / "build/java/tapirscan-1.1.0.jar"),
             "-C",
             str(classes),
             ".",

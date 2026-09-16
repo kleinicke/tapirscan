@@ -9,7 +9,7 @@ from typing import Any
 
 from fixture_data import fixtures
 from PIL import Image
-from test_bindings import LIBS, ROOT, Scanner, run
+from test_bindings import LIBS, ROOT, PixelImage, Scanner, run
 
 PAIR_ANGLE = 43
 FIXTURE_ARG_COUNT = 3
@@ -69,13 +69,15 @@ class Detail(unittest.TestCase):
                             width, height = fixture["width"], fixture["height"]
                             path = destination / f"{fixture['name']}.rgba"
                             native = scanner.scan(
-                                path.read_bytes(),
-                                width,
-                                height,
-                                channels=4,
-                                stride=width * 4,
-                                include_regions=True,
-                            ).to_dict()
+                                PixelImage(
+                                    path.read_bytes(),
+                                    width=width,
+                                    height=height,
+                                    channels=4,
+                                    stride=width * 4,
+                                ),
+                                debug=True,
+                            ).to_raw_dict()
                             wasm = run(
                                 "node",
                                 ROOT / "bindings/javascript/test/native_parity.mjs",

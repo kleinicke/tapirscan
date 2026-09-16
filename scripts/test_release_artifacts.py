@@ -18,14 +18,14 @@ class ReleaseArtifacts(unittest.TestCase):
         """A directory entry is harmless; a missing native library is not."""
         with tempfile.TemporaryDirectory() as temporary:
             wheel = (
-                Path(temporary) / "tapirscan-1.0.0-py3-none-manylinux_2_28_x86_64.whl"
+                Path(temporary) / "tapirscan-1.1.0-py3-none-manylinux_2_28_x86_64.whl"
             )
             for modes in (("low", "medium", "high", "very_high"), ("low",)):
                 with zipfile.ZipFile(wheel, "w") as archive:
                     archive.writestr("tapirscan/_native/", "")
                     archive.writestr(
-                        "tapirscan-1.0.0.dist-info/METADATA",
-                        "Name: tapirscan\nVersion: 1.0.0\n",
+                        "tapirscan-1.1.0.dist-info/METADATA",
+                        "Name: tapirscan\nVersion: 1.1.0\n",
                     )
                     for mode in modes:
                         archive.writestr(
@@ -33,10 +33,10 @@ class ReleaseArtifacts(unittest.TestCase):
                         )
                 if len(modes) == 1:
                     with self.assertRaisesRegex(SystemExit, "Missing medium"):
-                        wheel_platform(wheel, "1.0.0")
+                        wheel_platform(wheel, "1.1.0")
                 else:
                     self.assertEqual(
-                        wheel_platform(wheel, "1.0.0"), "manylinux_2_28_x86_64"
+                        wheel_platform(wheel, "1.1.0"), "manylinux_2_28_x86_64"
                     )
                     with self.assertRaisesRegex(SystemExit, "Unexpected wheel"):
                         wheel_platform(wheel, "1.0.1")

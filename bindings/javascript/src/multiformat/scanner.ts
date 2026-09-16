@@ -13,6 +13,7 @@ import {
 } from "./formats.js";
 
 export interface Barcode {
+  bytes?: number[];
   format: Format | "Unknown";
   text: string;
   polygon: Quad;
@@ -27,6 +28,9 @@ export interface Barcode {
 }
 export type EanAddOnSymbol = "Ignore" | "Read" | "Require";
 export interface Frame {
+  primary?:
+    | ReturnType<ReleaseDetailScanner["scanLocalized"]>
+    | ReturnType<IndependentScanner["scanLocalized"]>;
   eanAddOnSymbol: EanAddOnSymbol;
   barcodes: Barcode[];
   regions: Barcode[];
@@ -63,7 +67,7 @@ export class MediumMultiformatScanner {
   private disposed = false;
   private constructor() {}
   static async create(
-    mediumBytes: ArrayBuffer,
+    mediumBytes: ArrayBuffer | undefined,
     extraBytes?: ArrayBuffer,
     mode: Mode = "medium",
     recoveryBytes?: ArrayBuffer,
@@ -71,10 +75,11 @@ export class MediumMultiformatScanner {
     const scanner = new MediumMultiformatScanner();
     try {
       scanner.mode = mode;
-      scanner.medium =
-        mode !== "low" && recoveryBytes
-          ? await ReleaseDetailScanner.create(mediumBytes, recoveryBytes, mode)
-          : await IndependentScanner.create(mediumBytes);
+      if (mediumBytes)
+        scanner.medium =
+          mode !== "low" && recoveryBytes
+            ? await ReleaseDetailScanner.create(mediumBytes, recoveryBytes, mode)
+            : await IndependentScanner.create(mediumBytes);
       if (extraBytes) {
         const instance = await WebAssembly.instantiate(extraBytes, {});
         const e = instance.instance.exports as ExtraExports;
@@ -112,7 +117,6 @@ export class MediumMultiformatScanner {
   ): Frame {
     if (this.disposed) throw Error("Scanner is disposed.");
     const medium = this.medium;
-    if (!medium) throw Error("Medium reader has not been initialized.");
     const formats = resolveFormats(inputFormats);
     const eanAddOnSymbol = options.eanAddOnSymbol ?? "Ignore";
     if (!["Ignore", "Read", "Require"].includes(eanAddOnSymbol))
@@ -144,15 +148,18 @@ export class MediumMultiformatScanner {
       throw Error("Invalid image dimensions or buffer.");
     const barcodes: Barcode[] = [],
       regions: Barcode[] = [];
+    let primary: Frame["primary"];
     let unfinished = false,
       mediumMs = 0,
       additionalMs = 0,
       preparationMs = 0,
       localizationMs = 0;
     if (formats.includes("EAN13") || formats.includes("UPCA")) {
+      if (!medium) throw Error("EAN13 engine has not been initialized.");
       const begin = performance.now();
 
       const found = medium.scanLocalized(image, policy, fitLimits[this.mode], true);
+      primary = found;
       const localization = found.localization as unknown as Localization;
       proposals = localization.proposals;
       localizationMs = found.localizationMs;
@@ -189,6 +196,7 @@ export class MediumMultiformatScanner {
       mediumMs = performance.now() - begin;
     }
     if (localized && !formats.includes("EAN13") && !formats.includes("UPCA")) {
+      if (!medium) throw Error("EAN13 localization engine has not been initialized.");
       const begin = performance.now();
       const found = medium.scanLocalized(image, policy, fitLimits[this.mode], true)
         .localization as Localization;
@@ -283,6 +291,7 @@ export class MediumMultiformatScanner {
       b.rank = i + 1;
     });
     return {
+      primary,
       barcodes,
       eanAddOnSymbol,
       regions: [...barcodes, ...regions],

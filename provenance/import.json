@@ -148,5 +148,6 @@
     "config": "provenance/detail-20260914.json",
     "note": "Exact primary recipes and JS recovery composition; native recovery port tracked separately. Low and additional-format readers unchanged.",
     "platformAdapter": "direct-recovery.mjs uses makeCanvas and a plain pixel descriptor; browsers retain native Canvas interpolation, Node uses a bilinear software canvas."
-  }
+  },
+  "releaseRevision": "provenance/multiformat-payload-bytes-20260916.json"
 }

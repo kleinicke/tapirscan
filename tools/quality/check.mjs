@@ -48,7 +48,12 @@ if (mode === "rust") {
       "--config",
       "tools/quality/eslint.config.mjs",
       ...(release
-        ? ["bindings/javascript/src", "bindings/javascript/test", "tools/quality"]
+        ? [
+            "bindings/javascript/src",
+            "bindings/javascript/test",
+            "bindings/javascript/examples",
+            "tools/quality",
+          ]
         : ["js", "nxing-js", "tools/quality"]),
     ],
   ]);
@@ -61,6 +66,21 @@ if (mode === "rust") {
       release ? "bindings/javascript/tsconfig.json" : "tsconfig.quality.json",
     ],
   ]);
+  if (release)
+    commands.push([
+      process.execPath,
+      [
+        "tools/quality/node_modules/typescript/bin/tsc",
+        "--noEmit",
+        "--strict",
+        "--skipLibCheck",
+        "--target",
+        "ES2022",
+        "--module",
+        "NodeNext",
+        "bindings/javascript/test/api-types.ts",
+      ],
+    ]);
 } else throw new Error("Use rust or js");
 let failed = false;
 for (const [command, args] of commands) {
