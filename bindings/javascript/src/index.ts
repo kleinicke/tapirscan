@@ -38,8 +38,8 @@ export { ScannerError } from "./completion-host.mjs";
 type RawDiagnosticBarcode = FormatBarcode | (ScanFrame["barcodes"][number] & { format: "EAN13" });
 export type Mode = "low" | "medium" | "high" | "very-high";
 export interface ScanOptions {
-  /** Finish effort-selected EAN13/UPCA work beyond shared frame budgets. */
-  finishCandidates?: boolean;
+  /** Allow reader-specific extra work. Supported for every format; exact budgets may evolve. */
+  extendedBudget?: boolean;
   /** Per-call subset of the formats configured at creation. */
   formats?: FormatSelection;
   debug?: boolean;
@@ -115,6 +115,7 @@ export interface ScanResult {
   readonly mode: Mode;
   readonly elapsedMs: number;
   readonly unfinished: boolean;
+  readonly undecoded: readonly UndecodedRegion[];
   readonly debug?: Diagnostics;
 }
 export type EanAddOnPolicy = "Ignore" | "Read" | "Require";
@@ -236,16 +237,18 @@ function publicResult(raw: RawDiagnostics, image: HostImage, debug: boolean): Sc
   for (let i = 0; i < barcodes.length; i++)
     if (bestIndex < 0 || raw.scan.barcodes[i].support > raw.scan.barcodes[bestIndex].support)
       bestIndex = i;
+  const regions = regionEvidence(raw);
   return freeze({
     barcodes,
     values: barcodes.map((b) => b.text),
     best: barcodes[bestIndex],
+    undecoded: regions.undecoded,
     image: { width: image.width, height: image.height },
     mode: raw.mode,
     elapsedMs: raw.elapsedMs,
     unfinished:
       raw.scan.unfinished || raw.localizationLimited || (raw.localization?.omitted ?? 0) > 0,
-    ...(debug ? { debug: { ...raw, regions: regionEvidence(raw) } } : {}),
+    ...(debug ? { debug: { ...raw, regions } } : {}),
   });
 }
 const modes = {
@@ -331,25 +334,24 @@ export class Scanner {
     if (input === null || typeof input !== "object" || Array.isArray(input))
       throw new TypeError("Invalid scan options");
     for (const key of Object.keys(options))
-      if (key !== "debug" && key !== "formats" && key !== "finishCandidates")
+      if (key !== "debug" && key !== "formats" && key !== "extendedBudget")
         throw new TypeError(`Unknown scan option: ${key}`);
     if (options.debug !== undefined && typeof options.debug !== "boolean")
       throw new TypeError("debug must be a boolean");
-    if (options.finishCandidates !== undefined && typeof options.finishCandidates !== "boolean")
-      throw new TypeError("finishCandidates must be a boolean");
+    if (options.extendedBudget !== undefined && typeof options.extendedBudget !== "boolean")
+      throw new TypeError("extendedBudget must be a boolean");
+    const finishCandidates = options.extendedBudget ?? false;
     const debug = options.debug ?? false;
-    const scanPolicy = { ...policy, finishCandidates: options.finishCandidates ?? false };
+    const scanPolicy = { ...policy, finishCandidates };
     const formats = options.formats === undefined ? this.formats : resolveFormats(options.formats);
     if (formats.some((format) => !this.formats.includes(format)))
       throw new TypeError(
         `Scan formats must be a subset of configured formats. Requested: ${formats.join(", ")}; configured: ${this.formats.join(", ")}`,
       );
     if (this.host instanceof MediumMultiformatScanner) {
-      if (options.finishCandidates && !formats.some((f) => f === "EAN13" || f === "UPCA"))
-        throw new TypeError("finishCandidates requires EAN13 or UPCA");
       const frame = this.host.scan(image, formats, {
         eanAddOnSymbol: this.eanAddOnPolicy,
-        finishCandidates: options.finishCandidates,
+        finishCandidates,
       });
       const barcodes = frame.barcodes;
       const primary = frame.primary;
@@ -363,12 +365,12 @@ export class Scanner {
           // Preserve the aggregate limit flag when additional readers cannot separate causes.
           localizationLimited: frame.unfinished,
           scan: {
-            ...(debug ? primary?.scan : {}),
+            ...primary?.scan,
             barcodes,
             unfinished: frame.unfinished,
-            ...(debug ? { regions: frame.regions } : {}),
+            regions: frame.regions,
           },
-          ...(debug && primary
+          ...(primary
             ? {
                 localization,
                 searchWindows: primary.searchWindows,
@@ -398,17 +400,13 @@ export class Scanner {
         multiple: true,
         elapsedMs: full.scanMs,
         localizationLimited: localization.workLimited || localization.omitted > 0,
-        scan: debug ? { ...full.scan, barcodes } : { barcodes, unfinished: full.scan.unfinished },
-        ...(debug
+        scan: { ...full.scan, barcodes },
+        localization,
+        searchWindows: full.searchWindows,
+        ...("recovery" in full && "detailRegions" in full
           ? {
-              localization,
-              searchWindows: full.searchWindows,
-              ...("recovery" in full && "detailRegions" in full
-                ? {
-                    recovery: full.recovery as Recovery,
-                    detailRegions: full.detailRegions as DetailRegion[],
-                  }
-                : {}),
+              recovery: full.recovery as Recovery,
+              detailRegions: full.detailRegions as DetailRegion[],
             }
           : {}),
       },
@@ -429,12 +427,12 @@ export async function scan(
   const input: unknown = options;
   if (input === null || typeof input !== "object" || Array.isArray(input))
     throw new TypeError("Invalid scan options");
-  const { debug, finishCandidates, ...creation } = options;
+  const { debug, extendedBudget, ...creation } = options;
   if (debug !== undefined && typeof debug !== "boolean")
     throw new TypeError("debug must be a boolean");
   const scanner = await Scanner.create(creation);
   try {
-    return scanner.scan(image, { debug, finishCandidates });
+    return scanner.scan(image, { debug, extendedBudget });
   } finally {
     scanner.dispose();
   }

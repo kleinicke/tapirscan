@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, cast
 
-from build_java import tool
+from build_java import JAR, tool
 from fixture_data import TEXT, fixtures
 
 from build import ROOT
@@ -54,7 +54,7 @@ class Bindings(unittest.TestCase):
                                     stride=stride,
                                 ),
                                 debug=True,
-                                finish_candidates=True,
+                                extended_budget=True,
                             ).to_raw_dict()
                             wasm = run(
                                 "node",
@@ -121,7 +121,7 @@ class Bindings(unittest.TestCase):
                                 map(
                                     str,
                                     [
-                                        ROOT / "build/java/tapirscan-1.1.0.jar",
+                                        JAR,
                                         ROOT / "build/java/test-classes",
                                     ],
                                 )
@@ -211,7 +211,7 @@ class Bindings(unittest.TestCase):
             map(
                 str,
                 [
-                    ROOT / "build/java/tapirscan-1.1.0.jar",
+                    JAR,
                     ROOT / "build/java/test-classes",
                 ],
             )

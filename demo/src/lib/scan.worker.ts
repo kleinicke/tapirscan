@@ -34,7 +34,7 @@ self.onmessage = async ({
         channels: 4,
         stride: data.width * 4,
       },
-      { debug: true, finishCandidates: data.finishCandidates ?? false },
+      { debug: true, extendedBudget: data.finishCandidates ?? false },
     );
     const diagnostic = result.debug;
     if (!diagnostic) throw new Error("Scanner diagnostics are unavailable");

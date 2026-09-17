@@ -81,6 +81,16 @@ jobs:
           cmake -S build/zint-source -B build/zint-encoder -DCMAKE_BUILD_TYPE=Release -DZINT_USE_QT=OFF -DZINT_USE_PNG=OFF -DZINT_USE_GS1SE=OFF -DZINT_SHARED=OFF -DZINT_STATIC=ON
           cmake --build build/zint-encoder --parallel 2
           build/zint-encoder/frontend/zint --version
+      - name: Validate the standalone Rust package
+        run: |
+          python3 scripts/prepare_rust.py build/crates/tapirscan
+          cargo +1.91.1 fetch --manifest-path build/crates/tapirscan/Cargo.toml
+          cargo +1.91.1 test --offline --release --manifest-path build/crates/tapirscan/Cargo.toml
+          cargo +1.91.1 test --offline --release --no-default-features --manifest-path build/crates/tapirscan/Cargo.toml
+          cargo +1.91.1 clippy --offline --all-targets --manifest-path build/crates/tapirscan/Cargo.toml -- -D warnings -W clippy::all -W clippy::pedantic
+          RUSTDOCFLAGS="-D warnings" cargo +1.91.1 doc --offline --no-deps --manifest-path build/crates/tapirscan/Cargo.toml
+          python3 scripts/test_rust_package.py build/crates/tapirscan
+          cargo +1.91.1 package --offline --manifest-path build/crates/tapirscan/Cargo.toml
       - name: Check supplements across installed Python and JavaScript
         env:
           BARCODE_PYTHON_PACKAGE: ${{ github.workspace }}/build/python-installed
@@ -125,4 +135,5 @@ jobs:
           path: |
             build/packages/*.tgz
             build/wheels/*.whl
+            build/crates/tapirscan/target/package/*.crate
           if-no-files-found: error

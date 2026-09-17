@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import zxingcpp
-from build_java import tool
+from build_java import JAR, tool
 from test_bindings import LIBS, PixelImage, Scanner, run
 
 from build import ROOT
@@ -237,7 +237,7 @@ class Formats(unittest.TestCase):
                             "-cp",
                             os.pathsep.join(
                                 [
-                                    str(ROOT / "build/java/tapirscan-1.1.0.jar"),
+                                    str(JAR),
                                     str(ROOT / "build/java/test-classes"),
                                 ]
                             ),

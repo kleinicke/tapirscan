@@ -1,0 +1,28 @@
+[package]
+name = "tapirscan"
+version = "1.2.0"
+edition = "2021"
+rust-version = "1.91"
+license = "MIT"
+authors = ["Florian Nick"]
+description = "Barcode scanning with source-image geometry and reusable Rust scanners"
+repository = "https://github.com/kleinicke/tapirscan"
+homepage = "https://tapirscan.netlify.app"
+readme = "README.md"
+keywords = ["barcode", "scanner", "ean", "qrcode", "image"]
+categories = ["multimedia::images", "computer-vision"]
+include = ["api/**", "generated/**", "tests/**", "LICENSE", "README.md", "provenance.json", "build.rs"]
+autoexamples = false
+
+[lib]
+path = "api/lib.rs"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.150", features = ["float_roundtrip"] }
+encoding_rs = "0.8.35"
+image = { version = "0.25.10", default-features = false, optional = true }
+
+[features]
+default = ["image"]
+image = ["dep:image"]

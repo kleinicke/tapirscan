@@ -21,7 +21,8 @@ pixels = pathlib.Path(sys.argv[1]).read_bytes()
 for mode in ('low', 'medium', 'high', 'very-high'):
     with tapirscan.Scanner(mode) as scanner:
         result = scanner.scan(
-            tapirscan.PixelImage(pixels, width=480, height=180), finish_candidates=True
+            tapirscan.PixelImage(pixels, width=480, height=180),
+            extended_budget=True,
         )
         if result.values != [sys.argv[2]]:
             raise AssertionError((mode, result.values))

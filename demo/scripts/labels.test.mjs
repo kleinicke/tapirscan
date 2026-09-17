@@ -114,3 +114,24 @@ test("brief missing detection retains placement memory without displaying stale 
     box(original),
   );
 });
+
+test("rotation keeps distant relocations on hold even past the normal delay", () => {
+  const layout = new LabelLayout();
+  const original = layout.update([region], scanners, 800, 600, 1, "photo", 0).placed[0];
+  const obstacle = {
+    ...region,
+    text: "other",
+    polygon: [
+      [original.x - 10, original.y - 10],
+      [original.x + original.width + 10, original.y - 10],
+      [original.x + original.width + 10, original.y + original.height + 10],
+      [original.x - 10, original.y + original.height + 10],
+    ],
+  };
+  for (const now of [100, 500, 900, 1400]) {
+    const result = layout.update([region, obstacle], scanners, 800, 600, 1, "photo", now, true);
+    assert.ok(!result.placed.some((label) => label.id === original.id));
+  }
+  const recovered = layout.update([region], scanners, 800, 600, 1, "photo", 1500).placed;
+  assert.deepEqual(box(recovered.find((label) => label.id === original.id)), box(original));
+});

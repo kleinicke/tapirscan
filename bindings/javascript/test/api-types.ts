@@ -14,6 +14,10 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
     const best: Barcode | undefined = result.best;
     const values: readonly string[] = result.values;
     const formats = scanner.formats;
+    for (const region of result.undecoded) {
+      // @ts-expect-error Undecoded regions have no decoded text.
+      region.text = "decoded";
+    }
     // @ts-expect-error Supplement policy is fixed at creation.
     scanner.eanAddOnPolicy = "Ignore";
     // @ts-expect-error No per-call supplement policy.
@@ -42,9 +46,9 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
     scanner.scan(image, { multiple: false });
     // @ts-expect-error There is one diagnostic option.
     scanner.scan(image, { includeRegions: true });
-    scanner.scan(image, { formats: "EAN13", finishCandidates: true });
+    scanner.scan(image, { formats: "EAN13", extendedBudget: true });
     // @ts-expect-error Continuation is a boolean.
-    scanner.scan(image, { finishCandidates: "yes" });
+    scanner.scan(image, { extendedBudget: "yes" });
     const support: number | undefined = best?.support;
     const append: number | undefined = best?.structuredAppend?.index;
     if (best?.structuredAppend) {

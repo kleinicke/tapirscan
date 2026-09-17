@@ -49,7 +49,7 @@ export async function runApiChecks(Scanner, fixtures, options = {}) {
             },
             {
               debug,
-              finishCandidates: debug && scanner.formats.some((f) => f === "EAN13" || f === "UPCA"),
+              extendedBudget: debug,
             },
           );
           checkGeometry(result, fixture);
@@ -95,6 +95,7 @@ export async function runApiChecks(Scanner, fixtures, options = {}) {
             a.text.localeCompare(b.text) || (a.eanAddOn ?? "").localeCompare(b.eanAddOn ?? "");
           equal(actual.sort(order), [...fixture.expected].sort(order), `${fixture.name}: metadata`);
           check(Boolean(result.debug) === debug, "debug selection");
+          if (fixture.expectUnread) check(result.undecoded.length > 0, "public undecoded regions");
           if (debug && fixture.expectUnread)
             check(result.debug.regions.undecoded.length > 0, `${fixture.name}: unread evidence`);
           if (!debug)

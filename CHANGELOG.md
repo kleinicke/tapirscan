@@ -1,6 +1,27 @@
 # Release notes
 
+## 1.2.0 — 2026-09-17
+
+**Breaking changes:** this early-library minor release intentionally changes the
+application APIs. Existing callers should follow the migration guide below.
+
+- Mark all retail formats (EAN13, UPCA, EAN8 and UPCE) as supported. Formats
+  outside the retail group remain experimental.
+- Unify JavaScript, Python and standalone Rust around scan results with decoded
+  instances, undecoded proposal geometry and truthful work-limit status.
+- Replace finish-candidates booleans with a format-independent extended-budget flag
+  while retaining the concise `best` selection helper. Align Rust metadata absence and bounds.
+- See [migration](docs/API_MIGRATION.md) for intentional breaking changes. Native
+  ABI 4 and pinned decoding recipes are unchanged.
+- Rust supports `scan(image)` with defaults and `scan_with_options(image, options)`
+  for explicit settings. `best` remains the selection helper across bindings.
+
 ## 1.1.0 — 2026-09-17
+
+- Standalone Rust crate with one-shot scanning, reusable scanners, all four runtime
+  modes, borrowed raw/image buffers and owned typed results. Packaging reproduces
+  pinned engines with no local path dependencies; default EAN-13 results avoid a
+  JSON round trip. Cross-language parity covers metadata and undecoded evidence.
 
 - Optional per-scan `finish_candidates` / `finishCandidates` lets selected
   EAN13/UPC-A candidates continue beyond shared frame budgets. Default scanning

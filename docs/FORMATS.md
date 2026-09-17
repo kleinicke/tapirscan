@@ -1,6 +1,7 @@
 # Format coverage
 
-EAN13 is the default. Additional formats are explicitly selected at scanner
+**The retail group—EAN13, UPCA, EAN8 and UPCE—is supported, not experimental.**
+Formats outside this group remain experimental. EAN13 is the default. Additional formats are explicitly selected at scanner
 creation in JavaScript and Python. Python also allows per-scan overrides;
 JavaScript accepts per-scan subsets of the creation selection.
 Rust and the native ABI select formats per scan. Python and JavaScript accept
@@ -33,8 +34,8 @@ The supported public identifiers and native bits are:
 | --------------- | -----: | ---------------------------------------------------------------- |
 | EAN13           |      1 | Pinned effort-mode scanner                                       |
 | UPCA            |      2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected |
-| EAN8            |      4 | Experimental retail reader                                       |
-| UPCE            |      8 | Experimental retail reader                                       |
+| EAN8            |      4 | Supported retail reader                                          |
+| UPCE            |      8 | Supported retail reader                                          |
 | Code128         |     16 | Experimental, including GS1 metadata                             |
 | Code39          |     32 | Standard characters; no automatic full-ASCII expansion           |
 | ITF             |     64 | Experimental                                                     |
@@ -80,7 +81,7 @@ unsupported format variants are not completeness guarantees. Scores are not cali
 inherited from the promoted experiment, not release performance guarantees.
 
 Python and JavaScript optionally expose two- and five-digit EAN/UPC supplements
-through the creation policy `Ignore` (default), `Read` or `Require`. Supplement
-reading remains experimental; EAN8 supplements are a nonstandard extension.
+through the creation policy `Ignore` (default), `Read` or `Require`. EAN8
+supplements are a nonstandard extension.
 The experimental localized-linear strategy remains internal; public scanning
 uses the full-frame strategy.

@@ -270,28 +270,27 @@ class Scanner:
         image: ImageInput,
         *,
         debug: bool = False,
-        finish_candidates: bool = False,
+        extended_budget: bool = False,
         formats: FormatSelection | None = None,
         layout: Layout = "auto",
         value_range: ValueRange = "auto",
         color_order: ColorOrder = "RGB",
     ) -> ScanResult:
-        """Scan an image; use .values, .best, .image and optional .debug evidence."""
+        """Return decoded instances, undecoded proposals and reported work limits."""
         mask = format_mask(self.formats if formats is None else formats)
         if type(debug) is not bool:
             msg = "debug must be a boolean"
             raise TypeError(msg)
-        if type(finish_candidates) is not bool:
-            msg = "finish_candidates must be a boolean"
+        if type(extended_budget) is not bool:
+            msg = "extended_budget must be a boolean"
             raise TypeError(msg)
+        # The current native ABI extends primary-reader budgets only.
+        finish_candidates = extended_budget and bool(mask & 3)
         if finish_candidates:
-            if mask & 3 == 0:
-                msg = "finish_candidates requires EAN13 or UPCA"
-                raise ValueError(msg)
             capability = getattr(self._lib, "barcode_capabilities", None)
             if capability is None or not capability() & 1:
                 msg = (
-                    "This native library does not support finish_candidates; "
+                    "This native library does not support extended budget; "
                     "rebuild or update it"
                 )
                 raise RuntimeError(msg)
@@ -308,7 +307,7 @@ class Scanner:
                 raise RuntimeError(msg)
             result = c.c_uint64()
             flags = (
-                (2 if debug else 0)
+                2
                 | (16 if finish_candidates else 0)
                 | _ADDON_FLAGS[self.ean_add_on_policy]
             )
@@ -370,7 +369,7 @@ def scan(
     ean_add_on_policy: EanAddOnPolicy = "Ignore",
     library_dir: str | os.PathLike[str] | None = None,
     debug: bool = False,
-    finish_candidates: bool = False,
+    extended_budget: bool = False,
     formats: FormatSelection | None = None,
     layout: Layout = "auto",
     value_range: ValueRange = "auto",
@@ -386,7 +385,7 @@ def scan(
         return scanner.scan(
             image,
             debug=debug,
-            finish_candidates=finish_candidates,
+            extended_budget=extended_budget,
             layout=layout,
             value_range=value_range,
             color_order=color_order,

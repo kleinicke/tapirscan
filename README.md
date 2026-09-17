@@ -4,7 +4,7 @@
 
 **Find barcodes at their own angle.**
 
-Orientation-aware barcode scanning for JavaScript and Python, powered by Rust.
+Orientation-aware barcode scanning for JavaScript, Python and Rust.
 
 [Try the live demo](https://tapirscan.netlify.app) · [npm](https://www.npmjs.com/package/tapirscan) · [PyPI](https://pypi.org/project/tapirscan/) · [JavaScript](bindings/javascript/README.md) · [Python](bindings/python/README.md) · [How it works](docs/ARCHITECTURE.md) · [Compare scanners](docs/COMPARISON.md)
 
@@ -14,9 +14,10 @@ Tapirscan’s AI-developed algorithm finds barcode regions, estimates their orie
 and samples across the bars, including diagonally. It is built for photos and camera frames where a
 clean horizontal or vertical scanline may be hard to find.
 
-The current focus is **EAN-13**. Four effort modes let you choose how much work to
-spend on a frame. Additional linear and matrix formats, including QR Code, are
-available as **experimental, opt-in readers**.
+**EAN-13, UPC-A, EAN-8 and UPC-E are supported** through the retail group.
+EAN-13 is enabled by default. Four effort modes let you choose how much work to
+spend on a frame. Formats outside the retail group, including QR Code, remain
+**experimental and opt-in**.
 
 - **Find multiple symbols.** Return decoded values and positions in the original image.
 - **Keep useful evidence.** Inspect localized regions even when decoding fails.
@@ -43,11 +44,11 @@ processed in your browser. The demo currently compares **EAN-13 only**.
 | Java                    | JDK 22+ JAR with separate native libraries; no Android            | [Java](bindings/java/README.md)        |
 | C++                     | C++17 RAII wrapper and CMake installation; one linked effort mode | [C++](bindings/cpp/README.md)          |
 | C                       | Shared-library ABI with explicit handles and buffers              | [C](bindings/c/README.md)              |
-| Rust                    | Generated local Cargo facade; one compiled effort mode            | [Rust](bindings/rust/README.md)        |
+| Rust                    | Standalone Cargo package; all four runtime effort modes           | [Rust](bindings/rust/README.md)        |
 
 All use the selected release algorithms. Packaging and convenience differ:
-Java/C/C++ need native libraries; Rust provides typed multi-format results but
-still uses a generated local Cargo package. JavaScript and Python are available on
+Java/C/C++ need native libraries. Rust has a self-contained source package prepared
+for crates.io, with typed results and runtime mode selection. JavaScript and Python are available on
 [npm](https://www.npmjs.com/package/tapirscan) and [PyPI](https://pypi.org/project/tapirscan/).
 The other language guides explain how to build their bindings from source.
 
@@ -56,6 +57,10 @@ C ABI with a single prompt. See [the binding guide](docs/ADDING_BINDINGS.md) for
 starter prompt and the checks needed before using or publishing the result.
 
 ## Quick start
+
+The API below describes this checkout. For the unreleased changes, build/install
+locally using [the development guide](docs/DEVELOPMENT.md); an older registry
+package may expose the previous API.
 
 Install Tapirscan from [npm](https://www.npmjs.com/package/tapirscan) or
 [PyPI](https://pypi.org/project/tapirscan/). See the
@@ -125,7 +130,7 @@ for barcode in result:
 ```
 
 `formats="1D"` enables all supported linear formats; `"2D"` and `"all"` are also
-available. Additional formats are experimental.
+available. The retail formats (EAN13, UPCA, EAN8 and UPCE) are supported; formats outside this group remain experimental.
 
 **PyTorch tensor:**
 
@@ -175,8 +180,11 @@ See the [architecture guide](docs/ARCHITECTURE.md) for implementation details.
 
 ## Formats and results
 
-EAN-13 is enabled by default. UPC-A uses the same optical path. Opt-in experimental
-readers include EAN-8, UPC-E, Code 128, Code 39, Code 93, ITF, Codabar, DataBar,
+The supported retail group includes EAN-13, UPC-A, EAN-8 and UPC-E. Select
+`formats="retail"` in Python or `formats: "retail"` in JavaScript to enable all
+four; Rust provides `Formats::RETAIL`. EAN-13 remains enabled by default, and
+UPC-A uses the same optical path. Opt-in experimental readers outside this group
+include Code 128, Code 39, Code 93, ITF, Codabar, DataBar,
 DataBar Expanded, QR Code, Data Matrix, PDF417, Aztec, and MaxiCode.
 
 See [format coverage](docs/FORMATS.md) before choosing Tapirscan for a particular
@@ -184,7 +192,7 @@ symbology. The four effort modes tune EAN-13/UPC-A, Common1D and QR Code. Other 
 readers use a fixed effort setting.
 
 Results preserve source-image polygons. Python and JavaScript return all decoded
-instances; `result.best` gives the highest-support read or an empty value. Support is a ranking heuristic, not a probability. `unfinished` reports
+instances; `result.best` (`result.best()` in Rust) selects the largest reader-specific support. Support is a ranking heuristic, not a probability. `unfinished` reports
 incomplete work; it does not invalidate a returned read or promise that another
 barcode exists. Wrong reads, duplicates, and missed symbols remain possible.
 
@@ -216,8 +224,8 @@ and refined the evaluation process.
 
 ## Project status
 
-This is a young library with an optimized EAN-13 path and experimental additional
-formats. macOS arm64 has been exercised locally; the release workflows must pass
+This is a young library with supported EAN-13, UPC-A, EAN-8 and UPC-E scanning.
+Formats outside the retail group remain experimental. macOS arm64 has been exercised locally; the release workflows must pass
 for each additional platform before its artifacts are published. No general
 claim of superiority over ZXing or ZBar is made without a reproducible paired
 benchmark.
@@ -226,10 +234,12 @@ Licensed under the [MIT License](LICENSE), copyright © 2026 Florian Nick.
 Third-party components retain their own licenses and
 [notices](multiformat/THIRD_PARTY_NOTICES.md). Release preparation is described in the [release checklist](docs/RELEASING.md).
 
-The current release API is 1.1.0. See the [compatibility policy](CONTRIBUTING.md#api-stability)
+This checkout prepares version **1.2.0**, a breaking API revision; see [migration](docs/API_MIGRATION.md).
+See the [compatibility policy](CONTRIBUTING.md#api-stability)
 for API stability and release changes.
 
-For crowded EAN13/UPC-A images, the optional per-scan `finish_candidates=True`
-(Python) / `finishCandidates: true` (JavaScript) lets later candidates use their
-effort budget. It can increase runtime and does not guarantee exhaustive results;
-see [candidate continuation](docs/API_DESIGN.md#candidate-continuation).
+Set `extended_budget=True` (Python), `extendedBudget: true` (JavaScript), or
+`extended_budget: true` (Rust) to allow extra reader work for any format selection.
+Exact budgets may evolve. Today the flag relaxes shared EAN/UPC retry limits;
+other readers retain their existing budgets. It does not guarantee exhaustive
+search, and `unfinished` may remain true.

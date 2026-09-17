@@ -39,7 +39,8 @@ See [the native contract](NATIVE_BINDINGS.md) and [Python input rules](API_DESIG
 
 ## Additional formats
 
-`multiformat/` contains independent, opt-in experimental readers. JavaScript loads
+`multiformat/` contains the supported EAN8/UPCE readers and experimental readers
+for formats outside the retail group. All are opt-in. JavaScript loads
 that WASM only when requested formats need it. EAN-13 and UPC-A retain the selected
 primary effort mode. Common1D uses effort 0/1/2/2 and QR Code uses 0/1/2/3
 for Low/Medium/High/Very High; other matrix readers use effort 1.
@@ -60,7 +61,7 @@ from an EAN-13 result.
 | `bindings/javascript/`                    | Browser/Node API and WASM orchestration              |
 | `bindings/rust/`                          | Safe native facade and source-detail recovery port   |
 | `bindings/c/`, `cpp/`, `python/`, `java/` | Native language interfaces                           |
-| `multiformat/`                            | Pinned experimental additional readers               |
+| `multiformat/`                            | Pinned EAN8/UPCE and experimental nonretail readers  |
 | `demo/`                                   | Camera/photo app with independent comparison workers |
 | `scripts/`                                | Reproduction, packaging and regression checks        |
 

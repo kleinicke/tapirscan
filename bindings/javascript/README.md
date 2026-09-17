@@ -1,6 +1,9 @@
 # Tapirscan for JavaScript and TypeScript
 
-This guide describes Tapirscan 1.1.0.
+This guide describes the 1.2.0 API revision. See [migration](../../docs/API_MIGRATION.md).
+Build/install this checkout using [the development guide](../../docs/DEVELOPMENT.md)
+to use these changes before publication; older registry packages use their own
+versioned API.
 
 Scan image pixels in a browser or Node with the same Rust/WASM core.
 [Try the live demo](https://tapirscan.netlify.app) · [Quick start](#quick-start) · [WASM loading](#wasm-loading) · [Functions](#functions) · [All options](#all-options) · [Results](#results)
@@ -48,7 +51,7 @@ try {
 ```
 
 Here `image` is the `ImageData` above. `formats: "1D"` enables all supported linear
-formats; additional readers are experimental. Settings also work with the helper:
+formats; readers outside the retail group remain experimental. Settings also work with the helper:
 `await scan(image, { mode: "high", formats: "1D" })`.
 
 `formats: "retail"` selects EAN13, UPCA,
@@ -135,15 +138,15 @@ call and does not change the default formats. Previously returned results surviv
 
 ## All options
 
-| Option             | Where               | Default                | Meaning                                                                                                                                                           |
-| ------------------ | ------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mode`             | Creation            | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                                                     |
-| `formats`          | Creation / scan     | `["EAN13"]`            | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call selections must be subsets of creation formats. |
-| `wasmBaseUrl`      | Creation            | Module-relative assets | Directory URL for packaged WASMs. Use this for normal browser hosting.                                                                                            |
-| `loadWasm`         | Creation            | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`. Uses HTTP fetch in browsers and filesystem reads for Node file URLs.                                                        |
-| `eanAddOnPolicy`   | Creation / one-shot | `"Ignore"`             | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                            |
-| `finishCandidates` | Scan / one-shot     | `false`                | Let selected EAN13/UPC-A candidates continue beyond shared frame budgets; other limits remain. See [finishing candidate work](#finishing-candidate-work).         |
-| `debug`            | Scan                | `false`                | Include search evidence under `result.debug`. Decoded polygons are always returned.                                                                               |
+| Option           | Where               | Default                | Meaning                                                                                                                                                           |
+| ---------------- | ------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`           | Creation            | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                                                     |
+| `formats`        | Creation / scan     | `["EAN13"]`            | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call selections must be subsets of creation formats. |
+| `wasmBaseUrl`    | Creation            | Module-relative assets | Directory URL for packaged WASMs. Use this for normal browser hosting.                                                                                            |
+| `loadWasm`       | Creation            | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`. Uses HTTP fetch in browsers and filesystem reads for Node file URLs.                                                        |
+| `eanAddOnPolicy` | Creation / one-shot | `"Ignore"`             | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                            |
+| `extendedBudget` | Scan / one-shot     | `false`                | Allow extra reader work for any format. Exact budgets may evolve.                                                                                                 |
+| `debug`          | Scan                | `false`                | Include search evidence under `result.debug`. Decoded polygons are always returned.                                                                               |
 
 Format presets cover supported symbologies. Exports `commonFormats`, `commonLinearFormats`, `linearFormats`, `matrixFormats`
 and `retailFormats` let you compose custom selections; `formatBits` provides their
@@ -180,6 +183,7 @@ call. Convert DOM image elements or encoded images to pixels before scanning.
 | `result.mode`                  | `Mode`                                                         | Selected effort.                                                                                           |
 | `result.elapsedMs`             | `number`                                                       | Host scan time in milliseconds; excludes file loading and scanner initialization.                          |
 | `result.unfinished`            | `boolean`                                                      | Incomplete work; returned reads may still be useful.                                                       |
+| `result.undecoded`             | `readonly UndecodedRegion[]`                                   | Localized proposals without accepted decodes; always available.                                            |
 | `result.debug`                 | `Diagnostics \| undefined`                                     | Requested diagnostic evidence; absent by default.                                                          |
 | `barcode.payloadBytes`         | `readonly number[] \| undefined`                               | Original decoded matrix payload bytes when available; use `Uint8Array.from(...)` for an owned byte buffer. |
 | `barcode.text`                 | `string`                                                       | Decoded text.                                                                                              |
@@ -194,7 +198,8 @@ call. Convert DOM image elements or encoded images to pixels before scanning.
 
 Results, including nested geometry and requested diagnostics, are immutable at
 runtime and in TypeScript. Use `structuredClone(result)` if you need a mutable
-copy. Both result arrays are empty when nothing is decoded. Use `result.best` for
+copy. `barcodes` and `values` are empty when nothing is decoded; `undecoded` may still
+contain proposals. Use `result.best` for
 one read, or `undefined` when empty. All decoded instances remain available,
 including separate copies of the same value. Coordinates start at the
 top left, x rightward and y downward. Geometry is returned, not a cropped bitmap.
@@ -221,9 +226,9 @@ The policy is fixed for that scanner; its default is `"Ignore"`.
 supplement. Supplement geometry is not exposed separately.
 
 The supplement appears separately in `barcode.eanAddOn`; `barcode.text` remains
-the main payload. Reading supplements enables additional experimental decoding
-work independently of the effort mode. With debug enabled, retail reads rejected
-by `"Require"` remain available as undecoded-region evidence.
+the main payload. Reading supplements enables additional decoding
+work independently of the effort mode. Retail reads rejected
+by `"Require"` remain available in `result.undecoded`.
 
 ## Evidence and work limits
 
@@ -294,17 +299,22 @@ raise the exported `ScannerError` with a `.code` and `.message`. Loader/fetch
 errors propagate to the caller; creation and the one-shot helper reject their
 promises on failure. Always dispose reusable scanners with `finally`.
 
-## Finishing candidate work
+## Extended work budget
 
-Use `scanner.scan(image, { finishCandidates: true })` or
-`await scan(image, { finishCandidates: true })` to let all selected EAN13/UPC-A
-candidates use their effort budget, without the shared frame retry and association
-budgets stopping later candidates. The default is `false`; at least one of
-`EAN13` or `UPCA` must be selected. This is a per-scan option.
+Use `scanner.scan(image, { extendedBudget: true })` to allow additional reader work. The default
+is false. This option is valid for every format; the exact budgets and stages are
+implementation details that may evolve. Effort mode remains a separate setting.
 
-Crowded or difficult images can take longer. Per-candidate effort, intentional
-weak-candidate deferral, localization, sampling and result limits still apply.
-Other formats keep their existing budgets. The synchronous scan has no library
-wall-clock deadline; use a Worker when responsiveness matters.
-`result.unfinished` can remain true, so this is not an exhaustiveness guarantee.
-Custom WASM engines must advertise support; unsupported engines fail clearly.
+Today this relaxes shared EAN-13/UPC-A retry and association limits. Other readers
+currently retain their existing budgets. Per-candidate limits and intentional
+deferrals remain; `unfinished` can still be true. This is not unlimited search,
+an exhaustiveness guarantee or a wall-clock deadline. Custom primary-reader
+engines must support the extended-work capability or report an error.
+
+## Undecoded regions
+
+`result.undecoded` is always available, independently of `debug`. Each entry has
+a source-image polygon and a format hint. It is a localized proposal without an
+accepted decode, not proof of a real or permanently unreadable barcode. Entries
+can overlap or describe false candidates. An empty collection does not prove
+that every barcode was found. Raw candidate attempts remain in debug diagnostics.

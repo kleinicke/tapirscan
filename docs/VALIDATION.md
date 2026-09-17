@@ -8,6 +8,9 @@ The native bindings share ABI 4. Python tests cover pixel inputs, float ranges,
 layouts, optional BGR conversion, tensor ownership, serialization, diagnostics,
 error handling and resource lifetime. JavaScript tests cover typed results,
 format subsets, optional supplement policies, WASM loading and resource lifetime.
+The Rust API checks cover default `scan(image)`, explicit `scan_with_options`,
+owned results and cross-language parity. Exercise both extended-budget settings
+for every selected format, and undecoded geometry independently of debug.
 Installed-package checks also exercise browser workers and relocated assets.
 
 ## Checks to run

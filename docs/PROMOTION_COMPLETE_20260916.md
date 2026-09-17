@@ -1,5 +1,9 @@
 # Retail and candidate-continuation promotion — 16 September 2026
 
+This is a historical promotion record. API names below describe that revision;
+use [API design](API_DESIGN.md) and [migration](API_MIGRATION.md) for the current
+application interfaces. Native ABI flag meanings remain unchanged.
+
 The selected 1.1.0 recipes import retail grayscale/template reuse, coverage
 arithmetic improvements, linear duplicate consolidation and optional completion
 of EAN13/UPC-A candidate work. Source files and experiment recipes are identified

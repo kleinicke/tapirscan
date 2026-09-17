@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Compile the dependency-free Java binding and package a JAR. Requires JDK 22+."""
 
+import json
 import os
 import shutil
 import subprocess
 from pathlib import Path
 
 from build import ROOT
+
+VERSION = json.loads((ROOT / "bindings/javascript/package.json").read_text())["version"]
+JAR = ROOT / f"build/java/tapirscan-{VERSION}.jar"
 
 
 def tool(name: str) -> str:
@@ -37,7 +41,7 @@ if __name__ == "__main__":
             tool("jar"),
             "--create",
             "--file",
-            str(ROOT / "build/java/tapirscan-1.1.0.jar"),
+            str(JAR),
             "-C",
             str(classes),
             ".",

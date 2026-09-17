@@ -32,7 +32,7 @@ try {
     },
     {
       debug: true,
-      finishCandidates: finishCandidates === "1",
+      extendedBudget: finishCandidates === "1",
     },
   );
   // The native ABI still supports single selection; compare it with JS .best.

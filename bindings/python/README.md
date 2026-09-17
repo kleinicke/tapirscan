@@ -1,6 +1,9 @@
 # Tapirscan for Python
 
-This guide describes Tapirscan 1.1.0.
+This guide describes the 1.2.0 API revision. See [migration](../../docs/API_MIGRATION.md).
+Build/install this checkout using [the development guide](../../docs/DEVELOPMENT.md)
+to use these changes before publication; older registry packages use their own
+versioned API.
 
 Scan Pillow images, NumPy arrays and PyTorch tensors with `tapirscan.scan(image)`.
 [Try the live demo](https://tapirscan.netlify.app) · [Quick start](#quick-start) · [Functions](#functions) · [All options](#all-options) · [Results](#results-and-public-types)
@@ -46,7 +49,7 @@ for barcode in result:
 ```
 
 `formats="1D"` enables all supported linear formats; `"2D"` and `"all"` are also
-available. Additional formats are experimental.
+available. The retail formats (EAN13, UPCA, EAN8 and UPCE) are supported; formats outside this group remain experimental.
 
 `formats="retail"` selects EAN13, UPCA,
 EAN8 and UPCE. `"common1D"` adds Code128, Code39 and ITF; `"common"` adds
@@ -83,10 +86,10 @@ with tapirscan.Scanner(mode="high", formats="1D") as scanner:
 Signatures (all settings are optional):
 
 ```text
-scan(image, *, mode="medium", formats=None, ean_add_on_policy="Ignore", debug=False, finish_candidates=False,
+scan(image, *, mode="medium", formats=None, ean_add_on_policy="Ignore", debug=False, extended_budget=False,
      layout="auto", value_range="auto", color_order="RGB", library_dir=None) -> ScanResult
 Scanner(mode="medium", *, formats=None, ean_add_on_policy="Ignore", library_dir=None)
-scanner.scan(image, *, debug=False, formats=None, finish_candidates=False,
+scanner.scan(image, *, debug=False, formats=None, extended_budget=False,
              layout="auto", value_range="auto", color_order="RGB") -> ScanResult
 scanner.close()
 ```
@@ -105,7 +108,7 @@ override the constructor selection for that call only; `None` inherits it.
 | `mode`              | Creation / one-shot       | `"medium"`        | `"low"`, `"medium"`, `"high"`, `"very-high"`: select EAN13/UPCA, Common1D and QR Code search effort.                                                                            |
 | `formats`           | Creation / scan           | EAN13             | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty list/tuple of exact identifiers. On a scanner, `None` inherits its selection. |
 | `ean_add_on_policy` | Creation / one-shot       | `"Ignore"`        | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                                          |
-| `finish_candidates` | Scan / one-shot           | `False`           | Let selected EAN13/UPC-A candidates continue beyond shared frame budgets; other limits remain. See [finishing candidate work](#finishing-candidate-work).                       |
+| `extended_budget`   | Scan / one-shot           | `False`           | Allow extra reader work for any format. Exact budgets may evolve.                                                                                                               |
 | `debug`             | Scan                      | `False`           | Include typed search evidence and raw diagnostics. Decoded polygons are always available.                                                                                       |
 | `layout`            | Scan, arrays/tensors only | `"auto"`          | `"HW"`, `"HWC"`, `"CHW"`; specify when channel position is ambiguous.                                                                                                           |
 | `value_range`       | Scan, arrays/tensors only | `"auto"`          | `"0_1"` or `"0_255"`. Auto uses [0,1] for all floats and [0,255] for integers, independently of image contents. Byte-unit floats require `"0_255"`.                             |
@@ -121,7 +124,7 @@ scanning work. Support is a ranking heuristic, not a confidence probability.
 
 Formats and group exports: `Format`, `FormatSelection`, `retail_formats`,
 `common_formats`, `common_linear_formats`, `linear_formats`, `matrix_formats`. See [identifiers and reader limitations](../../docs/FORMATS.md).
-Additional readers are experimental. Modes tune EAN13/UPCA, Common1D and QR Code; other matrix readers use fixed effort.
+Retail formats (EAN13, UPCA, EAN8 and UPCE) are supported. Other readers remain experimental. Modes tune EAN13/UPCA, Common1D and QR Code; other matrix readers use fixed effort.
 ROI, resizing, rotation and camera acquisition belong to the caller. Exact work
 budgets, timeouts and confidence thresholds are not exposed as scan options.
 
@@ -140,9 +143,9 @@ The policy is fixed for that scanner; its default is `"Ignore"`.
 supplement. Supplement geometry is not exposed separately.
 
 The supplement appears separately in `barcode.ean_add_on`; `barcode.text` remains
-the main payload. Reading supplements enables additional experimental decoding
-work independently of the effort mode. With debug enabled, retail reads rejected
-by `"Require"` remain available as undecoded-region evidence.
+the main payload. Reading supplements enables additional decoding
+work independently of the effort mode. Retail reads rejected
+by `"Require"` remain available in `result.undecoded`.
 
 ## Evidence and work limits
 
@@ -227,27 +230,28 @@ use `value_range="0_255"` for floats stored in byte units.
 `ScanResult` is an immutable sequence: iterate, index, slice, use `len(result)` or
 check its truth value. Empty results are false.
 
-| Field/method                    | Meaning                                                                                                    |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `result.barcodes`               | Tuple of immutable `Barcode` objects.                                                                      |
-| `result.values`                 | Fresh list of decoded strings.                                                                             |
-| `result.best`                   | Highest-support barcode, or None. Support is not a confidence probability.                                 |
-| `result.image`                  | `ImageSize(width, height)` of supplied pixels.                                                             |
-| `result.mode`                   | Applied effort mode.                                                                                       |
-| `result.elapsed_ms`             | Native scanner time; excludes image conversion and result construction.                                    |
-| `result.unfinished`             | Incomplete scanning work; returned reads can still be useful.                                              |
-| `result.debug`                  | `Diagnostics`, or None when not requested.                                                                 |
-| `result.as_dict()`              | Independent JSON-compatible application result, including geometry, values and best; excludes diagnostics. |
-| `result.to_raw_dict()`          | Independent copy of the native schema-2 JSON, with requested diagnostics.                                  |
-| `barcode.payload_bytes`         | Immutable decoded payload bytes before character-set interpretation, or None when unavailable.             |
-| `barcode.text`, `.format`       | Decoded text and format identifier.                                                                        |
-| `barcode.polygon`               | Tuple of `Point(x, y)` source-image coordinates.                                                           |
-| `barcode.rect`                  | Enclosing integer `Rect(left, top, width, height)`.                                                        |
-| `barcode.support`               | Reader-specific ranking evidence; not confidence or a probability.                                         |
-| `barcode.gs1`                   | GS1 indicator, or None if not supplied by the reader.                                                      |
-| `barcode.reader_initialization` | Whether the payload is reader initialization data, or None if unspecified; never executed.                 |
-| `barcode.structured_append`     | Immutable `StructuredAppend(index, count, id, parity)`, or None; index is one-based.                       |
-| `barcode.ean_add_on`            | Optional EAN supplement text; populated when `ean_add_on_policy` is `"Read"` or `"Require"`.               |
+| Field/method                    | Meaning                                                                                                         |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `result.barcodes`               | Tuple of immutable `Barcode` objects.                                                                           |
+| `result.values`                 | Fresh list of decoded strings.                                                                                  |
+| `result.best`                   | Highest-support barcode, or None. Support is not a confidence probability.                                      |
+| `result.image`                  | `ImageSize(width, height)` of supplied pixels.                                                                  |
+| `result.mode`                   | Applied effort mode.                                                                                            |
+| `result.elapsed_ms`             | Native scanner time; excludes image conversion and result construction.                                         |
+| `result.unfinished`             | Incomplete scanning work; returned reads can still be useful.                                                   |
+| `result.undecoded`              | Localized proposals without accepted decodes; always available.                                                 |
+| `result.debug`                  | `Diagnostics`, or None when not requested.                                                                      |
+| `result.as_dict()`              | Independent JSON-compatible application result, including decoded and undecoded geometry; excludes diagnostics. |
+| `result.to_raw_dict()`          | Independent native schema-2 JSON; may contain evidence even without public debug.                               |
+| `barcode.payload_bytes`         | Immutable decoded payload bytes before character-set interpretation, or None when unavailable.                  |
+| `barcode.text`, `.format`       | Decoded text and format identifier.                                                                             |
+| `barcode.polygon`               | Tuple of `Point(x, y)` source-image coordinates.                                                                |
+| `barcode.rect`                  | Enclosing integer `Rect(left, top, width, height)`.                                                             |
+| `barcode.support`               | Reader-specific ranking evidence; not confidence or a probability.                                              |
+| `barcode.gs1`                   | GS1 indicator, or None if not supplied by the reader.                                                           |
+| `barcode.reader_initialization` | Whether the payload is reader initialization data, or None if unspecified; never executed.                      |
+| `barcode.structured_append`     | Immutable `StructuredAppend(index, count, id, parity)`, or None; index is one-based.                            |
+| `barcode.ean_add_on`            | Optional EAN supplement text; populated when `ean_add_on_policy` is `"Read"` or `"Require"`.                    |
 
 Coordinates start at the top left. The API returns geometry, not a cropped bitmap.
 If you resize before scanning, map coordinates back when drawing on the original.
@@ -309,20 +313,27 @@ with a descriptive message and a numeric `.code` attribute. Native codes are:
 unused scanners. Unknown codes retain their number. Scanning after close raises RuntimeError.
 
 `result.to_raw_dict()` and `result.debug.to_raw_dict()` return independent native
-schema-2 dictionaries; these are raw engine exports, not serialization of the
+schema-2 dictionaries. Raw results can include evidence even when `debug=False`,
+because public undecoded geometry uses that evidence. These are engine exports,
+not serialization of the
 public Python object. Support is available directly as `barcode.support` and in `result.debug.barcodes`.
 
-## Finishing candidate work
+## Extended work budget
 
-Use `scanner.scan(image, finish_candidates=True)` or
-`tapirscan.scan(image, finish_candidates=True)` to let all selected EAN13/UPC-A
-candidates use their effort budget, without the shared frame retry and association
-budgets stopping later candidates. The default is `False` and incurs no additional
-search. At least one of `EAN13` or `UPCA` must be selected.
+Use `scanner.scan(image, extended_budget=True)` to allow additional reader work. The default
+is false. This option is valid for every format; the exact budgets and stages are
+implementation details that may evolve. Effort mode remains a separate setting.
 
-This can take longer on crowded or difficult images. Per-candidate effort,
-intentional weak-candidate deferral, localization, sampling and result limits
-still apply; other formats keep their existing budgets. There is no library
-wall-clock deadline. `result.unfinished` can remain true: this option is not an
-exhaustiveness guarantee. Custom native libraries must advertise the capability;
-an unsupported library raises an actionable error.
+Today this relaxes shared EAN-13/UPC-A retry and association limits. Other readers
+currently retain their existing budgets. Per-candidate limits and intentional
+deferrals remain; `unfinished` can still be true. This is not unlimited search,
+an exhaustiveness guarantee or a wall-clock deadline. Custom primary-reader
+engines must support the extended-work capability or report an error.
+
+## Undecoded regions
+
+`result.undecoded` is always available, independently of `debug`. Each entry has
+a source-image polygon and a format hint. It is a localized proposal without an
+accepted decode, not proof of a real or permanently unreadable barcode. Entries
+can overlap or describe false candidates. An empty collection does not prove
+that every barcode was found. Raw candidate attempts remain in debug diagnostics.

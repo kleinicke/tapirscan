@@ -196,6 +196,7 @@ class ScanResult(Sequence[Barcode]):
     mode: Mode
     elapsed_ms: float
     unfinished: bool
+    undecoded: tuple[UndecodedRegion, ...]
     image: ImageSize
     debug: Diagnostics | None
     _json: bytes = field(repr=False, compare=False)
@@ -239,6 +240,10 @@ class ScanResult(Sequence[Barcode]):
             "mode": self.mode,
             "elapsed_ms": self.elapsed_ms,
             "unfinished": self.unfinished,
+            "undecoded": [
+                {"format": r.format, "polygon": [[p.x, p.y] for p in r.polygon]}
+                for r in self.undecoded
+            ],
         }
 
     def to_raw_dict(self) -> dict[str, JSONValue]:
@@ -302,8 +307,9 @@ def _from_json(raw: bytes, width: int, height: int, *, debug: bool) -> ScanResul
         msg = "Unsupported native result schema or mode"
         raise RuntimeError(msg)
     frame = value["scan"]
+    undecoded = _undecoded(value)
     regions = None
-    if "localization" in value or "regions" in frame:
+    if debug and ("localization" in value or "regions" in frame):
         loc = value.get(
             "localization", {"proposals": [], "omitted": 0, "workLimited": False}
         )
@@ -333,7 +339,7 @@ def _from_json(raw: bytes, width: int, height: int, *, debug: bool) -> ScanResul
             ),
             loc["omitted"],
             loc["workLimited"],
-            _undecoded(value),
+            undecoded,
         )
     barcodes = tuple(_barcode(b) for b in frame["barcodes"])
     best_index = max(
@@ -347,6 +353,7 @@ def _from_json(raw: bytes, width: int, height: int, *, debug: bool) -> ScanResul
         value["mode"],
         value["elapsedMs"],
         frame["unfinished"] or value["localizationLimited"],
+        undecoded,
         ImageSize(width, height),
         Diagnostics(
             regions,

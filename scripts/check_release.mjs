@@ -7,12 +7,30 @@ const toml = read("bindings/python/pyproject.toml");
 const section = (name) => toml.split(`[${name}]`)[1]?.split(/^\[/m)[0] ?? "";
 const field = (text, name) => text.match(new RegExp(`^${name}\\s*=\\s*"([^"]+)"`, "m"))?.[1];
 const project = section("project");
+const lock = JSON.parse(read("bindings/javascript/package-lock.json"));
+const versions = [
+  ["Python", field(project, "version")],
+  ["Rust", field(read("bindings/rust/Cargo.toml"), "version")],
+  ["Rust facade", field(read("bindings/rust/Cargo.toml.in"), "version")],
+  ["C facade", field(read("bindings/c/Cargo.toml.in"), "version")],
+  ["C++", read("bindings/cpp/CMakeLists.txt").match(/project\(Tapirscan VERSION (\S+)/)?.[1]],
+  [
+    "Java",
+    read("bindings/java/pom.xml").match(/<artifactId>tapirscan<\/artifactId><version>([^<]+)/)?.[1],
+  ],
+  ["Demo", JSON.parse(read("demo/package.json")).version],
+  ["npm lockfile", lock.version],
+  ["npm lockfile root", lock.packages?.[""].version],
+];
 const issues = [
   [
     npm.name === "tapirscan" && field(project, "name") === "tapirscan",
     "Package names must both be tapirscan",
   ],
-  [npm.version === field(project, "version"), "npm and Python versions differ"],
+  ...versions.map(([name, version]) => [
+    version === npm.version,
+    `${name} version ${version} differs from npm ${npm.version}`,
+  ]),
   [existsSync(new URL("LICENSE", root)), "Choose the project license and add LICENSE"],
   [
     npm.license && field(project, "license"),

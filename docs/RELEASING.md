@@ -1,21 +1,25 @@
 # Releasing Tapirscan
 
-The first npm/PyPI release is **1.1.0**. The demo is already public at
-[tapirscan.netlify.app](https://tapirscan.netlify.app). Publishing the library,
-publishing a GitHub release, and updating the demo are separate actions.
+This checkout prepares **1.2.0**, a breaking API revision. npm and PyPI already
+published 1.1.0. This early-library release intentionally includes incompatible
+API changes in a minor version, as an explicit exception to our compatibility policy. Rust will use the same version for its first crates.io
+release. See [API migration](API_MIGRATION.md).
+
+All release-owned manifests and artifact names use 1.2.0. The demo is already
+public at [tapirscan.netlify.app](https://tapirscan.netlify.app). Publishing the
+library, publishing a GitHub release, and updating the demo are separate actions.
 
 The license is **MIT**, copyright © 2026 **Florian Nick**. License files and
-author metadata are included in the release packages. The documented 1.1.0 API
-is frozen under the [compatibility policy](../CONTRIBUTING.md#api-stability).
+author metadata are included in the release packages. Published API compatibility is governed by the [compatibility policy](../CONTRIBUTING.md#api-stability).
 
 ## Registry setup
 
 The public repository is [kleinicke/tapirscan](https://github.com/kleinicke/tapirscan).
-Both package manifests include its URLs. Run `node scripts/check_release.mjs`
+The package manifests include its URLs. Run `node scripts/check_release.mjs`
 to check publication metadata.
 
-For PyPI, sign in as the package owner and add a pending publisher at
-<https://pypi.org/manage/account/publishing/>:
+For PyPI, sign in as the package owner and verify the trusted publisher in the
+existing project’s publishing settings:
 
 | Field             | Value         |
 | ----------------- | ------------- |
@@ -25,15 +29,10 @@ For PyPI, sign in as the package owner and add a pending publisher at
 | Workflow filename | `publish.yml` |
 | Environment       | `pypi`        |
 
-The first successful upload creates the PyPI project. Pending publisher setup
-is not a name reservation. No API token is needed.
+The PyPI project already exists. No API token is needed with trusted publishing.
 
-For npm's first publication, log in with `npm login` and publish the reviewed
-release tarball using the command below. Complete interactive authentication
-when requested. Once the package exists, add a GitHub trusted publisher in its
-npm package settings: owner `kleinicke`, repository `tapirscan`, workflow
-`publish.yml`, environment `npm`, with direct publishing allowed. Subsequent
-releases can use the workflow without a stored npm token.
+For npm, verify the GitHub trusted publisher in the existing package settings: owner `kleinicke`, repository `tapirscan`, workflow
+`publish.yml`, environment `npm`, with direct publishing allowed. The workflow can then publish without a stored npm token.
 
 Official setup: [PyPI pending publishers](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
 and [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
@@ -44,7 +43,7 @@ Never commit credentials or paste authentication tokens into issues or chat.
 1. Run the [development build](DEVELOPMENT.md) and
    [validation checks](VALIDATION.md) at the intended release commit.
 2. Verify the [mode manifest](../provenance/modes.json), source hashes, package
-   versions, README examples and changelog. Keep additional formats experimental.
+   versions, README examples and changelog. Treat the full retail group as supported; keep formats outside it experimental.
 3. Pack npm from `bindings/javascript`. Its `prepack` step rebuilds TypeScript
    and rejects stale mode selections, missing recovery files, or incorrect WASMs.
 4. Build Python wheels with all four native libraries. Install each artifact in
@@ -83,7 +82,7 @@ configuration is not evidence that the other targets pass. Run it in GitHub and
 publish only successful artifacts. These are Python-independent `py3-none`
 platform wheels using ctypes, with Python 3.10+ declared in metadata.
 
-The first PyPI distribution is wheel-only. Do not upload a Python-only sdist
+The PyPI distribution is wheel-only. Do not upload a Python-only sdist
 that cannot reproduce its native libraries. Unsupported platforms can build from
 the full Git checkout; musllinux and Windows ARM64 are not currently advertised.
 
@@ -102,28 +101,66 @@ The separate `publish.yml` workflow publishes only when explicitly selected.
    and all five wheel platforms. It also checks Python distribution metadata and
    installs the npm tarball. Download the resulting `release-bundle` artifact:
    it contains `npm/`, `wheels/`, and `SHA256SUMS`.
-3. Review this exact bundle, then tag the validated commit `v1.1.0` and push the
+3. Review this exact bundle, then tag the validated commit `v1.2.0` and push the
    tag. Run the publication workflow **from that tag**, supplying the same two
    successful build run IDs. Select `pypi`, `npm`, or `both` once the corresponding
    trusted publishers are configured. Jobs use the `pypi` and `npm` GitHub
    environments. Publication from an unversioned branch is rejected.
-4. For the first npm upload, use an authenticated local session instead:
+4. If trusted publishing is unavailable, an authenticated local session can publish
+   the reviewed npm artifact instead:
 
 ```sh
 # From the downloaded release-bundle directory:
 npm login
-npm publish npm/tapirscan-1.1.0.tgz --access public
+npm publish npm/tapirscan-1.2.0.tgz --access public
 ```
 
 This publishes the already-tested tarball without rebuilding it. Use only the
-reviewed bundle; do not substitute local development wheels. PyPI starts with
+reviewed bundle; do not substitute local development wheels. PyPI uses
 five platform wheels and no source distribution. Each release number is final;
 use a new patch version for subsequent corrections.
 
 Create the GitHub release with the changelog, actual platform support, demo link,
 and experimental format limitations. Verify fresh `npm install tapirscan` and
-`pip install tapirscan` installations after publishing. Crates.io/Maven/vcpkg/
-Conan publication is outside the initial npm/PyPI launch.
+`pip install tapirscan` installations after publishing. Maven/vcpkg/Conan publication is outside the initial npm/PyPI launch.
+Rust publication is handled separately below.
+
+## Rust crate
+
+The Rust crate uses version 1.2.0 too. Preparation packages all four exact
+mode recipes and the multiformat readers into one crate. Internal source copies
+are generated only for distribution; edit `bindings/rust/api` for the public API
+and keep scanner changes under the normal promotion procedure.
+
+```sh
+# Use a fresh destination each time. This verifies source provenance first.
+python3 scripts/prepare_rust.py build/crates/tapirscan
+cargo +1.91.1 test --release --manifest-path build/crates/tapirscan/Cargo.toml
+cargo +1.91.1 test --release --no-default-features --manifest-path build/crates/tapirscan/Cargo.toml
+cargo +1.91.1 clippy --all-targets --manifest-path build/crates/tapirscan/Cargo.toml -- -D warnings -W clippy::all -W clippy::pedantic
+# Requires built native libraries, Pillow, and the pinned test-only Zint encoder.
+python3 scripts/test_rust_package.py build/crates/tapirscan
+cargo +1.91.1 publish --dry-run --manifest-path build/crates/tapirscan/Cargo.toml
+```
+
+Inspect `target/package/tapirscan-1.2.0.crate` inside the prepared package. It must
+contain only Rust sources, manifests, license, README, tests, small text fixtures
+and provenance. No native binaries, private images, model weights, credentials or
+repository-relative dependencies belong in the archive. The generated build
+script only emits fixed private cfg flags; it never downloads or patches code.
+
+After the macOS/Linux CI checks pass on the release commit and publication is
+authorized, authenticate locally with `cargo login`, then publish that prepared
+source package:
+
+```sh
+cargo +1.91.1 publish --locked --manifest-path build/crates/tapirscan/Cargo.toml
+```
+
+Cargo credentials stay outside the repository. Verify a fresh consumer using
+`tapirscan = "1.2.0"` from crates.io after publication. Publication is permanent
+for a version; fixes need a new version. See the
+[Cargo publishing guide](https://doc.rust-lang.org/cargo/reference/publishing.html).
 
 ## Demo deployment
 

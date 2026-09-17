@@ -1,92 +1,77 @@
-# Python and JavaScript API design
+# Public API design
 
-The 1.1.0 APIs use one-shot `scan(image)` and reusable `Scanner` entry points.
-Both return a consistent result containing all decoded instances, source-image
-geometry, effort, timing and incomplete-work status. `.best` selects the
-highest-support read; selection does not change decoding work. Support is reader-specific,
-so this is not a cross-format reliability comparison. Empty results
-remain valid results. Python results are iterable sequences; JavaScript exposes
-`result.barcodes`. Results survive scanner disposal and are immutable. Python's
-`.values` returns a fresh list; JavaScript's `.values` is a frozen array.
+This is the 1.2.0 API revision. See [migration](API_MIGRATION.md).
+Python, JavaScript and Rust expose one scan operation returning `ScanResult`.
+One-shot calls clean up automatically; reusable scanners amortize initialization.
+Rust uses `scan(image)` for defaults and `scan_with_options(image, options)` for
+overrides; Python uses keyword arguments and JavaScript an options object. All return independent results, including empty results.
 
-## Options and inputs
+## Results
 
-See the complete option tables in the [Python](../bindings/python/README.md) and
-[JavaScript](../bindings/javascript/README.md) guides.
+- `barcodes`: accepted decoded physical instances, including separate copies of
+  the same payload. Text, format, source-image polygon and payload metadata remain
+  available without debugging.
+- `undecoded`: reported localized proposals without an accepted decode. These
+  may be false candidates, failed attempts or deferred work; they are not a list
+  of proven real barcodes. Entries may overlap. Empty does not prove coverage.
+- `unfinished`: the engine reported a work limit or deferral. Reads remain usable.
+  False does not promise every visible barcode was found.
+- Image dimensions, selected mode and scan timing. Rust uses `Duration`;
+  Python and JavaScript expose milliseconds.
+- `debug`: optional engine-specific evidence. It does not control whether public
+  decoded or undecoded geometry is returned. Raw schemas are not stable API.
 
-- Effort selects a compiled mode. A new scanner is needed to change it.
-- Formats default to EAN13; explicit selections and retail/common1D/common/1D/2D/all presets are supported.
-  Python can override formats for a single call. JavaScript permits per-call subsets
-  of its creation formats, so scanning stays synchronous without loading engines.
-- Optional EAN/UPC supplement policy is fixed at creation: `Ignore` (default),
-  `Read` or `Require`. It is independent of effort; nonretail formats are unaffected.
-- `debug` adds diagnostic search evidence. Decoded text, geometry, support and
-  supported semantic metadata are always returned.
-- Python directly accepts Pillow images, NumPy arrays and tensors, with explicit
-  `layout` and `value_range` overrides for ambiguous arrays/tensors. GPU tensors
-  detach and transfer to CPU without changing the input or autograd graph.
-- Python float arrays/tensors default to [0,1] regardless of their contents; byte-unit floats require `value_range="0_255"`. Optional `color_order="BGR"` supports OpenCV without affecting default RGB calls or adding a dependency.
-- Raw Python buffers use `PixelImage(data, width=..., height=..., channels=..., stride=...)`.
-  JS accepts ImageData or an object with data, dimensions and channels. Both default
-  stride to packed rows; Python defaults channels to grayscale.
-- Native library paths, browser WASM directories and advanced WASM loading remain
-  configurable. Neither binding decodes image files or manages cameras.
+`values` is a convenience projection of decoded text. `best` selects the largest reader-specific support,
+keeping first-read ties. It is not a most-reliable selection across formats or
+efforts and does not change scan work. Applications should select by the format,
+payload or position they need. Support remains uncalibrated evidence.
 
-## Ownership and evidence
+Polygons use source-image pixels, origin top-left, x rightward and y downward.
+`rect` encloses the polygon with floor(minimum) and ceil(maximum) pixel bounds in
+all three bindings. Rust returns `[left, top, width, height]`; Python/JS use named
+fields. GS1 and reader-initialization metadata preserve unavailable versus false.
+Payload bytes are original decoded bytes when available, never text re-encoding.
+Supplements remain separate from the main text and polygon.
 
-Python snapshots input bytes before native scanning. JS callers keep input pixels
-stable during synchronous scanning. Reusable scanners release resources through
-Python context managers / `close()` and JavaScript `dispose()` in `finally`.
+## Candidates and budgets
 
-Candidate evidence and undecoded coverage remain separate from decoded results.
-Search coverage does not promise exhaustive decoding. Support is an uncalibrated
-ranking heuristic with reader-specific meaning; it is not comparable confidence
-across formats or effort modes. Validated decodes can still be wrong. Recovered
-candidate indices are local to their crop, not tracking identifiers. `unfinished`
-combines decoding, localization, candidate-selection and parsing limits without
-invalidating returned reads. False is not a guarantee of exhaustive scanning. Effort limits remain explicit inside
-the implementation; arbitrary budgets and timeouts are not public scan options.
+Localization proposes barcode-like regions. Initial discovery evaluates selected
+candidates; additional retries depend on the effort policy and work budgets.
+Source-detail recovery can discover additional candidates.
 
-Python's `as_dict()` exports JSON-compatible public results without diagnostics, with original payload bytes represented as integer lists.
+`extended_budget=False` is the default (`extendedBudget: false` in JavaScript,
+`extended_budget: false` in Rust). Set it to true to allow additional reader work.
+It is valid for every format selection, including selections changed per call.
+The public contract does not prescribe candidate counts, iteration limits,
+shared versus per-candidate budgets, or which internal search stages expand.
+Those details may evolve without changing this API. Effort mode remains separate.
 
-Python's `to_raw_dict()` exports independent native schema-2 JSON data. JS exposes
-immutable raw evidence through `result.debug`; `structuredClone` makes a mutable
-copy. Raw engine schemas are distinct from the compact public result.
+Currently, true removes the primary EAN-13/UPC-A shared retry and association caps.
+Other readers currently keep their existing budgets; accepting the flag does not
+claim that every reader already performs extra work. Future readers can extend
+appropriate budgets under the same flag. Per-candidate effort, intentional
+deferral, localization, sampling, result and ambiguity limits still apply.
+It is not unlimited search or a deadline, and `unfinished` may remain true.
+The adapters translate this intent to existing engine controls; ABI 4 and pinned
+recipes are unchanged. There is no retry-until-finished loop.
 
-Matrix decoders expose original decoded payload bytes through Python
-`payload_bytes` and JavaScript `payloadBytes` when available; there is no text
-re-encoding fallback. JS `scanner.formats` exposes its immutable configuration.
-Diagnostics provide a stable collection of `UndecodedRegion` geometry records,
-separate from decoded `Barcode` objects, with explicit absence
-for unavailable proposals/search windows. Engine-specific evidence remains raw.
+## Configuration and ownership
 
-## Native integration and validation
+Defaults remain Medium effort, EAN-13 and ignored supplements. Effort and
+supplement policy are fixed at creation. Per-call format selection does not
+mutate configuration. JavaScript selections must be subsets of loaded formats;
+native bindings can use any supported format without asynchronous loading.
 
-Native consumers require matching ABI-4 libraries. C provides supplement flags;
-Rust provides an explicit supplement-policy method. Library initialization checks
-the required ABI and reports mismatches.
+Inputs are decoded pixels, not filenames, URLs or encoded images. Python accepts
+Pillow/NumPy/tensors plus `PixelImage`; Rust accepts borrowed image buffers; JS
+accepts `ImageData` or explicit byte buffers. Input validation and errors remain
+binding-native. No detection is a successful empty result, never an error.
 
-Python validates the 32-megapixel limit before image conversion or pixel copying.
-Native errors retain numeric status codes and provide descriptive messages.
+Python snapshots input and releases scanners with a context manager or `close`.
+Rust borrows pixels synchronously and uses RAII. JavaScript initializes
+asynchronously, scans synchronously and releases WASM sessions with `dispose`.
+Use a worker for browser responsiveness. Results survive scanner disposal.
 
-## Candidate continuation
-
-`finish_candidates=True` (Python), `finish_candidates: true` (Rust), and
-`finishCandidates: true` (JavaScript)
-are per-scan options, disabled by default. They remove shared frame retry and
-association budgets in the primary EAN13/UPC-A reader, including source-detail
-recovery. The selected formats must contain EAN13 or UPCA. C uses flag 16
-(`BARCODE_FINISH_CANDIDATES`); C++ and Java expose corresponding scan options.
-`barcode_capabilities()` bit 0 advertises native support; the region WASM ABI
-advertises it through `regions_completion_supported()` and uses its own flag 32.
-
-Per-candidate effort, intentional weak-candidate deferral, coverage reuse,
-localization, sampling, result and ambiguity limits still apply. Additional
-readers retain their budgets. There is no wall-clock deadline in the library.
-This can increase latency, and `unfinished` remains truthful rather than being
-forced false. Completion is not equivalent to finding every barcode in an image.
-
-Duplicate observations of a linear barcode can be merged when aligned bands are
-connected by source-image bars and spaces. Equal payloads alone are insufficient:
-separate products and differing supplements remain separate. Exhausting the
-bounded duplicate-evidence budget preserves unchecked observations.
+The native ABI remains version 4. C, C++ and Java retain their existing ABI-facing
+interfaces. This revision changes the Python, JavaScript and standalone Rust
+application APIs; publication and release versioning are separate steps.

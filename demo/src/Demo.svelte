@@ -37,6 +37,9 @@
   let viewer: HTMLDivElement;
   let fullscreenButton: HTMLButtonElement;
   let expanded = false;
+  let showAdjust = false;
+  let labelMotion = false;
+  let labelSettleTimer: ReturnType<typeof setTimeout> | undefined;
   let nativeFullscreen = false;
   let orientationLocked = false;
   let savedOverflow = "";
@@ -104,7 +107,7 @@
       void exitViewer();
     }
     if (event.key === "Tab") {
-      const controls = [...viewer.querySelectorAll<HTMLElement>("button, [tabindex='0']")];
+      const controls = [...viewer.querySelectorAll<HTMLElement>("button, input, [tabindex='0']")];
       const index = controls.indexOf(document.activeElement as HTMLElement);
       event.preventDefault();
       controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
@@ -255,10 +258,12 @@
       viewWidth,
       viewHeight,
       stageWidth,
-      angle,
-      scale,
+      centerX,
+      centerY,
       selected.join(","),
     ]),
+    performance.now(),
+    pointers.size > 0 || labelMotion,
   );
   function invalidate(preserveOverlays = false) {
     revision++;
@@ -304,6 +309,9 @@
     detailReady = true;
   }
   function transform() {
+    labelMotion = true;
+    clearTimeout(labelSettleTimer);
+    labelSettleTimer = setTimeout(() => (labelMotion = false), 900);
     if (!gestureFrame) {
       invalidate(true);
       gestureFrame = requestAnimationFrame(() => {
@@ -344,6 +352,7 @@
     // Some browsers also emit dblclick after touch; never recenter twice.
     if (performance.now() - lastTouchTime > 800) recenter(event);
   }
+  let zoomGuideRadius = 0;
   const pointers = new SvelteMap<number, { x: number; y: number }>();
   const clampZoom = (value: number) => Math.max(0.25, Math.min(12, value));
   const wrapAngle = (value: number) => ((((value + 180) % 360) + 360) % 360) - 180;
@@ -373,7 +382,9 @@
     } else doubleTap.cancel();
     if (!pointers.size) gestureBounds = surface.getBoundingClientRect();
     surface.setPointerCapture(event.pointerId);
-    pointers.set(event.pointerId, point(event));
+    const position = point(event);
+    pointers.set(event.pointerId, position);
+    if (pointers.size === 1) zoomGuideRadius = Math.hypot(position.x, position.y);
   }
   function pointerMove(event: PointerEvent) {
     const previous = pointers.get(event.pointerId);
@@ -397,8 +408,6 @@
         );
       }
     } else {
-      // Polar movement around the fixed view center: radius controls zoom,
-      // angle controls rotation. Ignore the tiny center where angle is undefined.
       const before = Math.hypot(previous.x, previous.y);
       const after = Math.hypot(next.x, next.y);
       if (before >= 12 && after >= 12) {
@@ -423,6 +432,8 @@
       } else doubleTap.cancel();
     }
     pointers.delete(event.pointerId);
+    const remaining = pointers.values().next().value;
+    if (remaining) zoomGuideRadius = Math.hypot(remaining.x, remaining.y);
     if (!pointers.size) {
       gestureBounds = null;
       requestScan(220);
@@ -872,6 +883,7 @@
       observer.disconnect();
       document.removeEventListener("visibilitychange", resumePreview);
       clearTimeout(centerHintTimer);
+      clearTimeout(labelSettleTimer);
       disposed = true;
       ++loadId;
       stopCamera();
@@ -917,7 +929,9 @@
         {@const active = selected.includes(option.id)}
         <!-- Keep the last completed outcome visible until this scanner finishes again. -->
         {@const entry = entries.find((value) => value.id === option.id)}
-        {@const count = entry?.result?.regions.filter((region) => region.text).length ?? 0}
+        {@const count = new Set(
+          entry?.result?.regions.filter((region) => region.text).map((region) => region.text) ?? [],
+        ).size}
         {@const outcome = !active
           ? "Not selected"
           : entry?.error
@@ -934,14 +948,15 @@
           aria-label={`${option.label}: ${outcome}`}
           class:chosen={active}
           class:has-reads={active && !!entry?.result && count > 0}
+          data-found-tier={active ? Math.min(count, 3) : 0}
           class:failed={active && !!entry?.error}
           style:--scanner-color={option.color}
           on:click={() => toggle(option.id)}
         >
           <span class="scanner-label"><i></i>{option.label}</span>
-          <span class="scanner-outcome"
-            >{outcome}{#if active && entry?.result}
-              · {entry.result.scanMs.toFixed(1)} ms{/if}</span
+          <span class="scanner-outcome">{outcome}</span>
+          <span class="scanner-time"
+            >{active && entry?.result ? `${entry.result.scanMs.toFixed(1)} ms` : " "}</span
           >
         </button>
       {/each}
@@ -993,7 +1008,7 @@
           style:touch-action={source ? "none" : "pan-y"}
           bind:this={surface}
           tabindex="0"
-          aria-label="Image controls. Drag toward the center to zoom out, away to zoom in, or around it to rotate. Scroll to zoom. Shift-scroll to rotate. Double-click or double-tap a point to center it without changing zoom."
+          aria-label="Image controls. Drag toward the center to zoom out, away to zoom in, or around it to rotate. Follow the guide circle to keep the starting zoom. Scroll to zoom. Shift-scroll to rotate. Double-click or double-tap a point to center it without changing zoom."
           on:pointerdown={pointerDown}
           on:pointermove={pointerMove}
           on:pointerup={pointerUp}
@@ -1005,6 +1020,13 @@
           on:contextmenu|preventDefault={() => {}}
           on:dragstart|preventDefault={() => {}}
         ></canvas>
+        <span
+          class="zoom-guide"
+          class:shown={!!source && !live && pointers.size === 1 && zoomGuideRadius >= 12}
+          style:width={`${zoomGuideRadius * 2}px`}
+          style:height={`${zoomGuideRadius * 2}px`}
+          aria-hidden="true"
+        ></span>
         <span
           class="center-marker"
           class:shown={!!source && !live && (pointers.size > 0 || centerHint)}
@@ -1117,6 +1139,32 @@
             </g>
           {/each}
         </svg>
+        {#if showAdjust && source && !live}
+          <label class="edge-adjust rotation-adjust">
+            <span>Rotate <output>{Math.round(angle)}°</output></span>
+            <input
+              aria-label="Image rotation"
+              type="range"
+              min="-180"
+              max="180"
+              step="1"
+              bind:value={angle}
+              on:input={transform}
+            />
+          </label>
+          <label class="edge-adjust zoom-adjust">
+            <span>Zoom</span><output>{scale.toFixed(2)}×</output>
+            <input
+              aria-label="Image zoom"
+              type="range"
+              min="0.25"
+              max="12"
+              step="0.01"
+              bind:value={scale}
+              on:input={transform}
+            />
+          </label>
+        {/if}
         {#if !source && !live && !cameraPaused && !entries.length}<div class="welcome">
             <h1>{opening ? "Opening your camera…" : "A clearer view of every barcode."}</h1>
             <p>Try a photo, or scan with your camera.</p>
@@ -1132,6 +1180,11 @@
             on:click={() => void exitViewer()}
             aria-label="Exit fullscreen">← Back</button
           >
+          {#if source && !live}<button
+              class="adjust-button"
+              aria-pressed={showAdjust}
+              on:click={() => (showAdjust = !showAdjust)}>Adjust</button
+            >{/if}
           <div class="runtime-strip" aria-label="Scanner runtimes">
             {#each chosen as spec (spec.id)}
               {@const entry = entries.find(
@@ -1152,7 +1205,13 @@
     </div>
     <div class="viewer-actions">
       <button bind:this={fullscreenButton} on:click={() => void enterViewer()}>Fullscreen</button>
-      {#if source}<span class="gesture-hint">Drag to rotate and zoom · Double-click to center</span
+      {#if source && !live}<button
+          aria-pressed={showAdjust}
+          on:click={() => (showAdjust = !showAdjust)}>Adjust</button
+        >{/if}
+      {#if source}<span class="gesture-hint"
+          >Drag to rotate and zoom · Follow the circle to keep zoom · Double-tap / double-click to
+          center</span
         >{/if}
       <label class="resolution-control"
         >Detect<select
@@ -1554,6 +1613,7 @@
     gap: 10px;
   }
   .scanner-buttons button {
+    padding: 8px 6px;
     height: 76px;
     min-height: 76px;
     min-width: 0;
@@ -1564,28 +1624,32 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 3px;
+    gap: 2px;
   }
   .scanner-label {
     white-space: nowrap;
-    flex: 0 0 20px;
+    flex: 0 0 18px;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 7px;
   }
-  .scanner-outcome {
+  .scanner-outcome,
+  .scanner-time {
     display: block;
     width: 100%;
-    height: 15px;
-    flex: 0 0 15px;
+    height: 14px;
+    flex: 0 0 14px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     font-size: 11px;
-    line-height: 15px;
+    line-height: 14px;
     font-weight: 500;
     opacity: 0.8;
+  }
+  .scanner-time {
+    font-variant-numeric: tabular-nums;
   }
   .scanner-buttons i {
     flex-shrink: 0;
@@ -1603,6 +1667,22 @@
     background: #285b43;
     border-color: #77bb8f;
     box-shadow: inset 0 -3px #8ddba7;
+  }
+  .scanner-buttons .chosen.has-reads[data-found-tier="2"] {
+    background: #25635a;
+    border-color: #78c4b2;
+    box-shadow: inset 0 -3px #98e2cf;
+  }
+  .scanner-buttons .chosen.has-reads[data-found-tier="3"] {
+    background: #295f70;
+    border-color: #83bfce;
+    box-shadow: inset 0 -3px #a1ddeb;
+  }
+  .scanner-buttons .has-reads[data-found-tier="2"] .scanner-outcome {
+    color: #d0f7ed;
+  }
+  .scanner-buttons .has-reads[data-found-tier="3"] .scanner-outcome {
+    color: #d4f3fa;
   }
   .scanner-buttons .has-reads .scanner-outcome {
     color: #c4f6d3;
@@ -1669,6 +1749,10 @@
   .expanded .stage {
     margin: 0;
     border-radius: 0;
+    flex-shrink: 0;
+  }
+  .adjust-button {
+    pointer-events: auto;
     flex-shrink: 0;
   }
   .exit-viewer {
@@ -1742,6 +1826,65 @@
     touch-action: none;
     cursor: move;
   }
+  .edge-adjust {
+    position: absolute;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 8px;
+    color: white;
+    background: #102724e6;
+    font-size: 11px;
+    touch-action: none;
+  }
+  .edge-adjust output {
+    font-variant-numeric: tabular-nums;
+  }
+  .edge-adjust input {
+    accent-color: #b4e7ca;
+    margin: 0;
+    cursor: pointer;
+  }
+  .rotation-adjust {
+    bottom: 10px;
+    left: 10px;
+    right: 80px;
+    flex-direction: column;
+  }
+  .rotation-adjust input {
+    width: 100%;
+    height: 24px;
+  }
+  .zoom-adjust {
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    flex-direction: column;
+  }
+  .zoom-adjust input {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 28px;
+    height: clamp(70px, 22vh, 180px);
+  }
+  .zoom-guide {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    border: 1px dashed #ffffffb3;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px #07151266;
+    pointer-events: none;
+    z-index: 2;
+    opacity: 0;
+    transition: opacity 180ms ease-out;
+  }
+  .zoom-guide.shown {
+    opacity: 1;
+  }
   .center-marker {
     position: absolute;
     left: 50%;
@@ -1779,7 +1922,8 @@
     width: 26px;
   }
   @media (prefers-reduced-motion: reduce) {
-    .center-marker {
+    .center-marker,
+    .zoom-guide {
       transition: none;
     }
   }
@@ -1989,7 +2133,7 @@
     .scanner-buttons button {
       padding: 8px 3px;
       font-size: 11px;
-      gap: 3px;
+      gap: 2px;
       height: 70px;
       min-height: 70px;
     }

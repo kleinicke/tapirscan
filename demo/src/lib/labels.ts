@@ -65,6 +65,7 @@ export class LabelLayout {
     unit: number,
     context: string,
     now = performance.now(),
+    holdRelocations = false,
   ) {
     if (context !== this.context) {
       this.previous = [];
@@ -168,10 +169,14 @@ export class LabelLayout {
           ) {
             this.relocations.set(old.id, { box: position, since: now });
             position = undefined;
-          } else if (now - pending.since < 650) position = undefined;
+          } else if (holdRelocations || now - pending.since < 650) position = undefined;
         }
       } else if (old) this.relocations.delete(old.id);
-      if (old) this.lastSeen.set(old.id, now);
+      if (old) {
+        this.lastSeen.set(old.id, now);
+        // Track the detection even when its label is temporarily hidden by a collision.
+        old.anchor = group.anchor;
+      }
       if (!position) continue;
       let nameOffset = 6;
       const label: GroupLabel = {

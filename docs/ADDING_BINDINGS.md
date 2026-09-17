@@ -10,8 +10,10 @@ Start with this prompt, replacing the language and target platforms:
 > Create a Tapirscan binding for LANGUAGE on TARGET PLATFORMS using
 > bindings/c/include/tapirscan.h and docs/NATIVE_BINDINGS.md. Follow the current
 > Java and C++ wrappers for ownership and UTF-8 handling. Provide a simple scan
-> API returning typed text, format and source-image polygons, with optional
-> diagnostics and format selection. Preserve native status codes, explicit buffer
+> API following docs/API_DESIGN.md: decoded instances, undecoded proposals,
+> source-image polygons and work-limit status, with optional diagnostics and
+> format selection. Expose the format-independent extended-budget intent through
+> the appropriate native controls; keep engine-specific budget details internal. Preserve native status codes, explicit buffer
 > lengths and result cleanup on errors. Use the same native library for every
 > operation on a handle. Include build instructions, one minimal example and
 > tests against the existing cross-language fixtures. Do not claim it works until

@@ -13,6 +13,8 @@ def consumer(image: ImageInput, scanner: barcode.Scanner) -> None:
     assert_type(result.values, list[str])
     assert_type(result[0], Barcode)
     assert_type(result.best, Barcode | None)
+    assert_type(result.undecoded, tuple[barcode.UndecodedRegion, ...])
+    scanner.scan(image, extended_budget=True)
     assert_type(scanner.scan(image, color_order="BGR"), ScanResult)
     assert_type(result[0].payload_bytes, bytes | None)
     result.as_dict()

@@ -19,7 +19,9 @@ base crate do not include the selected patches. Follow
 
 ## Changes and verification
 
-The release version is 1.1.0. Implement the current documented APIs. Follow the compatibility policy in
+This checkout prepares version 1.2.0, the breaking API revision described in
+`docs/API_MIGRATION.md`. Implement the current documented APIs and preserve the
+synchronized release versions. Follow the compatibility policy in
 [CONTRIBUTING.md](CONTRIBUTING.md#api-stability) and [API design](docs/API_DESIGN.md).
 
 - Follow `docs/QUALITY.md`; format a coherent batch before running relevant checks.

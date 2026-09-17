@@ -103,6 +103,8 @@ def check(manifest_path: Path, library_dir: str | None = None) -> list[dict[str,
                         )
                     checks.assertCountEqual(actual, case["expected"], case["name"])
                     checks.assertEqual(result.debug is not None, debug)
+                    if case.get("expectUnread"):
+                        checks.assertTrue(result.undecoded, case["name"])
                     if debug and case.get("expectUnread"):
                         checks.assertIsNotNone(result.debug)
                         if (

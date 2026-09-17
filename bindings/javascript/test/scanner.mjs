@@ -73,10 +73,12 @@ for (const mode of ["low", "medium", "high", "very-high"]) {
       assert.throws(() => scanner.scan(image, { includeRegions: "yes" }), TypeError);
       assert.throws(() => scanner.scan(image, { unknown: true }), TypeError);
 
-      assert.deepEqual(scanner.scan(image, { finishCandidates: false }).values, compact.values);
-      assert.deepEqual(scanner.scan(image, { finishCandidates: true }).values, compact.values);
-      assert.throws(() => scanner.scan(image, { finishCandidates: "yes" }), /boolean/);
+      assert.deepEqual(scanner.scan(image, { extendedBudget: false }).values, compact.values);
+      assert.deepEqual(scanner.scan(image, { extendedBudget: true }).values, compact.values);
+      assert.throws(() => scanner.scan(image, { extendedBudget: "yes" }), /a boolean/);
       const result = scanner.scan(image, { debug: true });
+      assert.deepEqual(compact.undecoded, result.undecoded);
+      assert.deepEqual(result.undecoded, result.debug.regions.undecoded);
       assert.ok(result.debug.scan.barcodes.some((b) => b.text === text));
       assert.ok(result.debug.scan.barcodes.every((b) => b.text === text));
       assert.equal(result.debug.searchWindows.length, 1);
@@ -494,16 +496,16 @@ test("coverage defers only contained retries and preserves the full-frame bit", 
   );
 });
 
-test("continuation rejects formats without the primary reader", async () => {
+test("extended budget accepts formats without the primary reader", async () => {
   const scanner = await Scanner.create({ formats: "QRCode", loadWasm });
   try {
-    assert.throws(() => scanner.scan(fixture().image, { finishCandidates: true }), /EAN13 or UPCA/);
+    assert.deepEqual(scanner.scan(fixture().image, { extendedBudget: true }).values, []);
   } finally {
     scanner.dispose();
   }
 });
 test("one-shot forwards continuation", async () => {
-  assert.deepEqual((await scan(fixture().image, { finishCandidates: true, loadWasm })).values, [
+  assert.deepEqual((await scan(fixture().image, { extendedBudget: true, loadWasm })).values, [
     fixture().text,
   ]);
 });

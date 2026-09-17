@@ -1,101 +1,106 @@
-# Rust
+# Tapirscan for Rust
 
-`python3 scripts/build_native.py MODE` creates a local Cargo package at `build/MODE/rust` using
-this facade and the exact mode-specific patched core. For example, run `python3 scripts/build_native.py medium` from the repository
-root, then add this dependency to another local project:
-
-```toml
-[dependencies]
-tapirscan = { path = "/absolute/path/to/tapirscan/build/medium/rust" }
-```
+Scan decoded pixels and receive every accepted barcode, source-image geometry,
+undecoded proposals and reported work limits. Defaults are Medium effort and
+EAN-13. This is the 1.2.0 API; see [migration](../../docs/API_MIGRATION.md).
 
 ```rust
-use tapirscan::{Format, Image, ScanOptions, Scanner};
-let mut scanner = Scanner::default();
-let pixels = vec![255; 64 * 64];
-let result = scanner.scan_formats(Image {
-    data: &pixels, width: 64, height: 64, channels: 1, stride: 64,
-}, ScanOptions::default(), Format::Ean13).unwrap();
-assert!(result.barcodes().is_empty());
-for barcode in result.barcodes() {
+use tapirscan::Image;
+let pixels = vec![255; 640 * 480];
+let result = tapirscan::scan(Image::gray(&pixels, 640, 480))?;
+for barcode in &result {
     println!("{} {:?} {:?}", barcode.text, barcode.format, barcode.polygon);
 }
+println!("{} undecoded; work limited: {}", result.undecoded.len(), result.unfinished);
+# Ok::<(), tapirscan::Error>(())
 ```
 
-Mode selection is currently at build time. The facade connects the existing safe
-localizer, shear refinement and region scanner, mirroring the selected browser mode's refinement budget, full-frame search,
-retry mask and bounded source-detail recovery. Supplied-region callers can
-use the re-exported `RegionScanner`. Inputs are borrowed; results own their data.
-Before crates.io publication, replace generated path-based packages with a
-maintainable versioned crate layout while preserving measured mode behavior.
+No detection is an empty `barcodes` vector. Invalid input or engine failures are
+`Error` values. Results own their data and survive the input and scanner.
+Equal payloads at distinct locations remain separate physical instances.
 
-`Result::to_json(mode, elapsed_ms)` serializes full native evidence for the C ABI.
-The native build helper refreshes this facade without changing the core snapshot.
-
-`scan(image)` defaults to multiple results and no exposed region evidence. Use
-`scan_with_options(image, ScanOptions { multiple: false, include_regions: true, ..ScanOptions::default() })`
-to choose before scanning. `result.barcodes()` always returns a slice; single mode
-selects the highest-support read after full scanning, with stable tie ordering.
-`result.regions()` is `Some` only when requested; it exposes localized proposals,
-the full-frame search window and all per-candidate evidence. The underlying
-undecoded evidence is retained internally. `unfinished()` and
-`localization_limited()` are always available. Serialized results use schema 2.
-
-## Functions and options
-
-| Call                                                   | Result                                                                   |
-| ------------------------------------------------------ | ------------------------------------------------------------------------ |
-| `Scanner::default()`                                   | Scanner for this compiled mode.                                          |
-| `scan(image)`                                          | `Result<tapirscan::Result, Error>` for EAN13 with defaults.              |
-| `scan_with_options(image, options)`                    | Typed EAN13 result with explicit output options.                         |
-| `scan_formats(image, options, mask)`                   | `Result<DecodedResult, Error>` with typed formats, strings and polygons. |
-| `result.barcodes()`, `result.best()`                   | Barcode slice and optional highest-support read.                         |
-| `result.unfinished()`, `result.localization_limited()` | Separate completion flags.                                               |
-| `result.regions()`                                     | Optional borrowed diagnostic evidence.                                   |
-| `result.to_json(mode, elapsed_ms)`                     | Native JSON serialization; caller supplies mode label and timing.        |
-
-`Image` requires `data`, `width`, `height`, `channels` (1/3/4), and `stride` in
-bytes. Use decoded gray/RGB/RGBA pixels; alpha is ignored. No image codec is
-bundled. `ScanOptions` contains `multiple` (default true), `include_regions`
-(default false), and `finish_candidates` (default false). Polygons are in source-image coordinates; support is a ranking
-heuristic, not a probability.
-
-For additional formats:
+## Reuse and configuration
 
 ```rust
-use tapirscan::Formats;
-let result = scanner.scan_formats(image, ScanOptions::default(), Formats::ALL)?;
-let values: Vec<&str> = result.values().collect();
-let best = result.best();
-println!("{values:?} {best:?}");
+use tapirscan::{Format, Image, ScanOptions, Scanner, ScannerOptions};
+let mut scanner = Scanner::new(ScannerOptions {
+    formats: Format::Ean13 | Format::QrCode,
+    ..ScannerOptions::default()
+});
+let pixels = vec![255; 320 * 240];
+let result = scanner.scan_with_options(Image::gray(&pixels, 320, 240), ScanOptions {
+    extended_budget: true,
+    ..ScanOptions::default()
+})?;
+# Ok::<(), tapirscan::Error>(())
 ```
 
-`Formats::LINEAR`, `MATRIX`, `RETAIL` and `ALL` are supported presets. Compose
-individual formats with `Format::Ean13 | Format::Code128`, or use
-`Formats::try_from(mask)` to validate native format bits. `Format` is a typed enum;
-see [coverage](../../docs/FORMATS.md). `DecodedResult` exposes `barcodes()`,
-`values()` (iterator), `best()`, `image_size()` ([width, height]), `unfinished()`
-and `localization_limited()`. Each `DecodedBarcode` has `text`, `format` and
-`polygon`. Results own their data and survive scanner destruction.
+`scan(image)` uses default per-image options; `scan_with_options(image, options)`
+sets overrides. Both forms are available as free functions and scanner methods.
 
-`debug()` returns optional raw evidence when `include_regions` was requested;
-`json()` exposes the underlying schema-2 payload and reader metadata explicitly.
-Typed result construction currently converts the shared internal JSON payload;
-removing that internal conversion is a future optimization. Ordinary Rust callers
-do not need to parse JSON. `scan_formats_json(image, options, mask)` retains the
-raw path used by the C ABI.
+Reuse a scanner across frames; ordinary RAII releases resources. Scans borrow
+pixels synchronously and have no wall-clock timeout. `scanner.options()` returns
+configuration. `Scanner::default()` needs no configuration.
 
-The EAN13-only `scan`/`scan_with_options` methods retain the lower-level
-research result type, where text is accessed through `barcode.detection.text`.
-Use `scan_formats` for the consistent typed multi-format interface, even for EAN13.
-`MODE` and `MODE_ID` identify the compiled mode. Rust's native API is separate from
-the stable C ABI: there is no promise of a stable Rust binary ABI across compilers.
+| Scanner option      | Default                  | Choices                                     |
+| ------------------- | ------------------------ | ------------------------------------------- |
+| `mode`              | `Mode::Medium`           | `Low`, `Medium`, `High`, `VeryHigh`         |
+| `formats`           | `Format::Ean13.into()`   | One format, combinations with `\|`, presets |
+| `ean_add_on_policy` | `EanAddOnPolicy::Ignore` | `Ignore`, `Read`, `Require`                 |
 
-This is a generated local facade, not a published crates.io package. Keep its
-referenced core directories alongside it; copying just the generated `rust/`
-directory is insufficient. See [build and release status](../../docs/RELEASING.md).
+Presets: `Formats::RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX`, `ALL`.
+Retail formats (EAN13, UPCA, EAN8 and UPCE) are supported. Other readers remain experimental. Effort tunes EAN13/UPCA, common linear and
+QR readers; other matrix readers retain fixed effort. `Read` preserves the main
+barcode without a readable supplement; `Require` filters retail reads without
+one. Nonretail formats are unaffected.
 
-Set `ScanOptions { finish_candidates: true, ..ScanOptions::default() }` to remove
-shared frame retry and association budgets for EAN13/UPC-A candidates. The selected
-formats must include one of those readers. Per-candidate effort and other limits
-remain; `unfinished()` may still be true. See [API design](../../docs/API_DESIGN.md).
+| Per-scan option   | Default | Meaning                                |
+| ----------------- | ------- | -------------------------------------- |
+| `formats`         | `None`  | Override readers for this call         |
+| `debug`           | `false` | Retain raw engine evidence             |
+| `extended_budget` | `false` | Allow extra reader work for any format |
+
+`extended_budget: true` allows additional reader work for any selected format.
+Exact budgets and search stages may evolve without changing this option. Today
+it relaxes shared EAN/UPC retry and association caps; other readers retain their
+current budgets. Per-candidate effort, weak-candidate deferral and other limits
+remain. It can cost more time and does not promise exhaustive decoding. Per-call
+options never change scanner configuration.
+
+## Results
+
+`ScanResult` exposes `barcodes`, `undecoded`, `image_size`, `mode`, `elapsed`
+(`Duration`), `unfinished` and optional `debug`. Iterate by reference or consume
+it to move barcodes. `values()` borrows text. `best()` borrows the
+largest-support read, keeping first-read ties. Support is reader-specific and
+not comparable confidence across formats or efforts.
+
+`Barcode` contains `text`, `format`, `polygon`, `support` and optional payload metadata. `rect()` returns
+`[left, top, width, height]` enclosing integer pixel bounds. Coordinates refer to
+the supplied image, top-left origin. Metadata includes support, original optional
+payload bytes, supplement text, structured append and optional GS1/initialization
+flags. `None` flags mean unavailable, not false. Structured append indices are
+one-based; the caller assembles messages. Main geometry excludes supplements.
+
+`undecoded` contains localized proposals without accepted decodes, independently
+of debug. These can be false candidates, overlapping regions or deferred work.
+They do not prove a real barcode is unreadable. An empty list and `unfinished:
+false` do not guarantee exhaustive coverage. Debug raw schemas are unstable.
+
+## Images
+
+The default `image` feature accepts borrowed `GrayImage`, `RgbImage`, `RgbaImage`
+without copying pixels. The application decodes image files. Convert other
+formats explicitly. Use `default-features = false` to omit the image dependency.
+
+Raw buffers use `Image::gray(data, width, height)`, `Image::rgb(...)` or
+`Image::rgba(...)`, optionally `.with_stride(bytes_per_row)`. RGB order is
+interleaved; alpha is ignored, including zero alpha. Composite transparency
+before scanning if needed. BGR, planar, float and 16-bit pixels need conversion.
+
+Construction borrows without validation; scanning validates before access.
+Dimensions are at least 3×3 and at most 32 megapixels. Stride is at least
+`width * channels`. The buffer must address `(height - 1) * stride + width *
+channels` bytes, at most 128 MiB; final-row padding is optional. Extra bytes are
+ignored. `Error` implements `std::error::Error` with `InvalidImage`,
+`InvalidOptions` and `Engine` variants.

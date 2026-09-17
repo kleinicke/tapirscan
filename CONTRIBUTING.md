@@ -36,8 +36,10 @@ new format commitments, or distribution changes before building a large patch.
 
 ## API stability
 
-Version 1.1.0 is documented in the binding guides and [API design](docs/API_DESIGN.md).
-After publication, documented functions, defaults, result fields, identifiers and
+The binding guides and [API design](docs/API_DESIGN.md) describe the
+1.2.0 API revision prepared for release. See [migration](docs/API_MIGRATION.md).
+The early-library 1.2.0 release explicitly makes a one-time exception by including
+breaking changes in a minor version. From 1.2.0 onward, documented functions, defaults, result fields, identifiers and
 ownership/error contracts stay compatible within a major version. Minor versions
 may add compatible capabilities; patch versions fix bugs.
 

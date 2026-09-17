@@ -60,17 +60,20 @@ class Images(unittest.TestCase):
             with Scanner(mode, library_dir=LIBS) as scanner:
                 self.assertEqual(
                     scanner.scan(image).values,
-                    scanner.scan(image, finish_candidates=False).values,
+                    scanner.scan(image, extended_budget=False).values,
                 )
                 self.assertEqual(
-                    scanner.scan(image, finish_candidates=True).values, [TEXT]
+                    scanner.scan(image, extended_budget=True).values, [TEXT]
                 )
-                with self.assertRaisesRegex(TypeError, "boolean"):
-                    scanner.scan(image, finish_candidates=1)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-                with self.assertRaisesRegex(ValueError, "EAN13 or UPCA"):
-                    scanner.scan(image, formats="QRCode", finish_candidates=True)
+                with self.assertRaisesRegex(TypeError, "a boolean"):
+                    scanner.scan(image, extended_budget=1)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+                self.assertEqual(
+                    scanner.scan(image, formats="QRCode", extended_budget=True).values,
+                    [],
+                )
         self.assertEqual(
-            decode(image, library_dir=LIBS, finish_candidates=True).values, [TEXT]
+            decode(image, library_dir=LIBS, extended_budget=True).values,
+            [TEXT],
         )
 
     def test_missing_continuation_capability(self) -> None:
@@ -82,9 +85,9 @@ class Images(unittest.TestCase):
             image = PixelImage(RAW, width=W, height=H)
             self.assertEqual(scanner.scan(image).values, [TEXT])
             with self.assertRaisesRegex(
-                RuntimeError, "does not support finish_candidates"
+                RuntimeError, "does not support extended budget"
             ):
-                scanner.scan(image, finish_candidates=True)
+                scanner.scan(image, extended_budget=True)
 
     def test_supplement_policy(self) -> None:
         """Policy is opt-in, creation-only and forwarded by one-shot scanning."""

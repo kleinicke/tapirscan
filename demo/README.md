@@ -62,7 +62,9 @@ site output is ignored too. License texts and source/build links are included in
   Sauce loads at 2.21× zoom and 34° rotation.
   Pills loads at 2.33× zoom and 45° rotation. Other images start at 1× zoom and 0° rotation. Demo-image buttons include the synthetic example, Pesto, Pills, Sauce, and Sunscreen.
   Camera access begins only after Use camera is pressed.
-- Compact scanner buttons select the readers and show scan time. Result cards immediately below the
+- Compact scanner buttons select the readers and show scan time. Their success
+  shades distinguish 1 (green), 2 (teal), and 3+ (blue-teal) distinct decoded values;
+  repeated copies of the same value count once. The exact count remains visible. Result cards immediately below the
   image controls show each scanner’s decoded values and runtime.
 - Take photo, camera settings, repeated capture, image adjustments and region
   overlays are under More options.
@@ -103,6 +105,11 @@ is ignored. Maintainer-specific deployment details may be kept in the optional,
 ignored root `MAINTAINER.local.md`; they are not needed to develop or host a fork.
 
 ## Image interaction and overlays
+
+The radial controls use distance from the view center for zoom and angle for
+rotation. A thin guide circle through the initial pointer position appears while
+dragging: following it keeps the starting zoom, moving inside zooms out, and moving
+outside zooms in. It fades on release and is hidden during pinch-and-twist.
 
 Double-click or double-tap a point in a photo or frozen frame to make it the view center without
 changing zoom or rotation. Touch taps allow small finger movements; drags,
@@ -160,3 +167,7 @@ barcode; its position is remembered for 1.2 seconds without displaying stale
 results. Source/view changes reset placement. Crowded views omit labels with a
 count; all values remain in Results. Long payloads are shortened on the image,
 with the full value in the title and Results.
+
+Adjust toggles precision sliders at the bottom (rotation) and right (zoom) of the
+image, including fullscreen. They preserve the current image center. Label history
+survives rotation and zoom; distant relocations wait until adjustment has settled.
