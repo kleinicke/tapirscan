@@ -221,12 +221,12 @@ class Bindings(unittest.TestCase):
             path.write_bytes(pixels)
             for mode in ("low", "medium", "high", "very-high"):
                 with Scanner(mode, library_dir=LIBS) as scanner:
-                    defaults = scanner.scan(
-                        PixelImage(pixels, width=w, height=h)
-                    ).to_raw_dict()
+                    default_result = scanner.scan(PixelImage(pixels, width=w, height=h))
+                    self.assertIsNone(default_result.debug)
+                    defaults = default_result.to_raw_dict()
                     self.assertTrue(defaults["multiple"])
                     self.assertEqual(len(defaults["scan"]["barcodes"]), 2)
-                    self.assertNotIn("localization", defaults)
+                    self.assertIn("localization", defaults)
                     all_details = scanner.scan(
                         PixelImage(pixels, width=w, height=h), debug=True
                     ).to_raw_dict()
@@ -235,9 +235,14 @@ class Bindings(unittest.TestCase):
                             with self.subTest(
                                 mode=mode, multiple=multiple, regions=regions
                             ):
-                                result = scanner.scan(
+                                scan_result = scanner.scan(
                                     PixelImage(pixels, width=w, height=h), debug=regions
-                                ).to_raw_dict()
+                                )
+                                self.assertEqual(scan_result.debug is not None, regions)
+                                self.assertEqual(
+                                    scan_result.undecoded, default_result.undecoded
+                                )
+                                result = scan_result.to_raw_dict()
                                 self.assertEqual(result["schemaVersion"], 2)
                                 expected = (
                                     defaults["scan"]["barcodes"]
@@ -258,10 +263,8 @@ class Bindings(unittest.TestCase):
                                     defaults["scan"]["unfinished"],
                                 )
                                 for key in ("localization", "searchWindows"):
-                                    self.assertEqual(key in result, regions)
-                                self.assertEqual(
-                                    "candidates" in result["scan"], regions
-                                )
+                                    self.assertIn(key, result)
+                                self.assertEqual("candidates" in result["scan"], True)
                                 if regions:
                                     self.assertEqual(
                                         result["scan"]["candidates"],
