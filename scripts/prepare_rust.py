@@ -41,6 +41,26 @@ def copy_module(
         )
         # Rust-only modules must not export duplicate ABI symbols.
         text = re.sub(r"(?m)^[ \t]*#\[no_mangle\]\n", "", text)
+        # The pinned test compares hypot with sqrt(x*x + y*y), whose final bit
+        # can differ across libm implementations. Preserve exact accept/reject
+        # decisions and permit only rounding error in accepted weights.
+        if namespace == "core_very_high" and path.name == "stripes.rs":
+            original = "assert_eq!(edge_weight(dx, dy, ax, ay), original);"
+            if text.count(original) != 1:
+                msg = (
+                    "Pinned edge-weight test changed; review its portability adaptation"
+                )
+                raise ValueError(msg)
+            text = text.replace(
+                original,
+                """let actual = edge_weight(dx, dy, ax, ay);
+                    assert_eq!(actual.is_some(), original.is_some());
+                    if let (Some(actual), Some(expected)) = (actual, original) {
+                        assert!(
+                            (actual - expected).abs() <= 4. * f64::EPSILON * expected
+                        );
+                    }""",
+            )
         target = destination / (
             "mod.rs" if path == source / "lib.rs" else path.relative_to(source)
         )
@@ -162,6 +182,10 @@ def prepare(destination: Path) -> None:
             "crate paths relocated into private modules",
             "recipe features fixed as private namespaced cfg flags",
             "C exports use Rust symbol mangling",
+            (
+                "edge-weight test preserves exact decisions with "
+                "4-epsilon relative weight tolerance across libm implementations"
+            ),
             "low core reused for recovery; secondary detector visibility widened",
         ],
         "sourceHashes": {
