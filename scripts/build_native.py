@@ -22,7 +22,16 @@ from build import (
 def verify(root: Path, hashes: dict[str, str]) -> None:
     """Check prepared source files against the pinned content hashes."""
     for rel, expected in hashes.items():
-        if hashlib.sha256((root / rel).read_bytes()).hexdigest() != expected:
+        if (
+            hashlib.sha256(
+                (root / rel)
+                .read_bytes()
+                .replace((ROOT / "multiformat").as_posix().encode(), b"@MULTIFORMAT@")
+                if rel == "Cargo.toml"
+                else (root / rel).read_bytes()
+            ).hexdigest()
+            != expected
+        ):
             msg = f"Source hash mismatch: {root / rel}"
             raise RuntimeError(msg)
 
@@ -32,6 +41,7 @@ def build(mode: str) -> None:
     recipe, tag = MODES[mode]
     manifest = json.loads((ROOT / f"core/experiments/{recipe}.json").read_text())
     verify(ROOT / "core", manifest["baseHashes"])
+    verify(ROOT, manifest.get("externalHashes", {}))
     out = ROOT / "build" / mode
     if not out.exists():
         subprocess.run(

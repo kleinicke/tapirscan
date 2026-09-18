@@ -11,8 +11,11 @@ application APIs. Existing callers should follow the migration guide below.
   instances, undecoded proposal geometry and truthful work-limit status.
 - Replace finish-candidates booleans with a format-independent extended-budget flag
   while retaining the concise `best` selection helper. Align Rust metadata absence and bounds.
+- Medium shares primary EAN/UPC profile evidence when EAN8 or UPCE is enabled,
+  with bounded short-code recovery. EAN8-only uses the same recovery as retail
+  selection. EAN13-only and opt-in supplement policies retain their reader paths.
 - See [migration](docs/API_MIGRATION.md) for intentional breaking changes. Native
-  ABI 4 and pinned decoding recipes are unchanged.
+  ABI 4 is unchanged; shared retail recipes have new immutable tags.
 - Rust supports `scan(image)` with defaults and `scan_with_options(image, options)`
   for explicit settings. `best` remains the selection helper across bindings.
 

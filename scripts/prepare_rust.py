@@ -134,7 +134,13 @@ def prepare(destination: Path) -> None:
             features.update(dependencies)
         core = f"core_{name}"
         flags.update(
-            copy_module(out / "native-core/src", generated / core, core, features, {})
+            copy_module(
+                out / "native-core/src",
+                generated / core,
+                core,
+                features,
+                {"barcode_multiformat": "multiformat"},
+            )
         )
         flags.update(
             copy_module(

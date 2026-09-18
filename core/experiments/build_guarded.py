@@ -33,7 +33,10 @@ def require_space(path: Path) -> None:
 
 def verify_hashes(root: Path, hashes: dict[str, str], label: str) -> None:
     for relative, expected in hashes.items():
-        actual = sha256(root / relative)
+        data = (root / relative).read_bytes()
+        if relative == "Cargo.toml":
+            data = data.replace((BASE.parent / "multiformat").as_posix().encode(), b"@MULTIFORMAT@")
+        actual = hashlib.sha256(data).hexdigest()
         if actual != expected:
             raise RuntimeError(f"{label} hash mismatch for {relative}: {actual} != {expected}")
 
@@ -55,7 +58,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", required=True, type=Path, help="new, empty experiment output directory")
     parser.add_argument("--prepare-only", action="store_true", help="apply and verify the patch but do not compile")
-    parser.add_argument("--recipe", choices=["low-complete-detail-20260916", "medium-complete-detail-20260916", "high-complete-detail-20260916", "very-high-complete-detail-20260916", "medium-detail-clippy-20260916", "high-detail-clippy-20260916", "very-high-detail-clippy-20260916", "nano-clippy-20260916", "medium-evidence64-clippy-20260916", "guarded-quality-clippy-20260916", "high-effort-transfer-clippy-20260916", "medium-detail-20260914", "high-detail-20260914", "very-high-detail-20260914", "medium-evidence64-pinned-20260914", "medium-evidence64-20260914", "guarded-quality", "sampling-inline", "very-fast", "very-fast-v2", "very-fast-v3", "nano", "high-effort-transfer", "nano-lint-20260913", "very-fast-v2-lint-20260913", "guarded-quality-lint-20260913", "high-effort-transfer-lint-20260913"], default="guarded-quality-clippy-20260916")
+    parser.add_argument("--recipe", choices=["low-shared-retail-20260918", "medium-shared-retail-20260918", "low-complete-detail-20260916", "medium-complete-detail-20260916", "high-complete-detail-20260916", "very-high-complete-detail-20260916", "medium-detail-clippy-20260916", "high-detail-clippy-20260916", "very-high-detail-clippy-20260916", "nano-clippy-20260916", "medium-evidence64-clippy-20260916", "guarded-quality-clippy-20260916", "high-effort-transfer-clippy-20260916", "medium-detail-20260914", "high-detail-20260914", "very-high-detail-20260914", "medium-evidence64-pinned-20260914", "medium-evidence64-20260914", "guarded-quality", "sampling-inline", "very-fast", "very-fast-v2", "very-fast-v3", "nano", "high-effort-transfer", "nano-lint-20260913", "very-fast-v2-lint-20260913", "guarded-quality-lint-20260913", "high-effort-transfer-lint-20260913"], default="guarded-quality-clippy-20260916")
     args = parser.parse_args()
     manifest_file = HERE / (args.recipe + ".json")
     manifest = json.loads(manifest_file.read_text())
@@ -70,12 +73,15 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     require_space(out.parent)
     verify_hashes(BASE, manifest["baseHashes"], "base")
+    verify_hashes(BASE.parent, manifest.get("externalHashes", {}), "dependency")
 
     temporary = out / "temporarysource"
     temporary.mkdir(parents=True)
     copy_declared_sources(temporary, manifest["copyFiles"])
     run(["patch", "--batch", "--forward", "-p1", "-i", str(HERE / manifest["patch"])], os.environ.copy(), temporary)
     verify_hashes(temporary, manifest["targetHashes"], "patched target")
+    cargo = temporary / "Cargo.toml"
+    cargo.write_text(cargo.read_text().replace("@MULTIFORMAT@", (BASE.parent / "multiformat").as_posix()))
     (out / "reproduction.json").write_text(json.dumps({
         "manifest": manifest,
         "manifestSha256": manifest_hash,

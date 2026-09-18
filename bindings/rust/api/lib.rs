@@ -40,6 +40,9 @@ pub struct Scanner {
     engine: Engine,
 }
 
+// The long-code variants keep comparable reusable scratch (about 9 KiB).
+// Keep construction inline rather than adding heap indirection for that small difference.
+#[allow(clippy::large_enum_variant)]
 enum Engine {
     Low(engine::low::Scanner),
     Medium(engine::medium::Scanner),

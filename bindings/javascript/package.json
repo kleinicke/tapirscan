@@ -14,15 +14,15 @@
     "examples",
     "wasm/multiformat.json",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-complete-release-20260916.wasm",
-    "wasm/medium-complete-release-20260916.wasm",
-    "wasm/high-complete-release-20260916.wasm",
-    "wasm/very-high-complete-release-20260916.wasm",
+    "wasm/low-shared-retail-release-20260918.wasm",
+    "wasm/medium-shared-retail-release-20260918.wasm",
+    "wasm/high-shared-retail-release-20260918.wasm",
+    "wasm/very-high-shared-retail-release-20260918.wasm",
     "wasm/multiformat.wasm"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test test/scanner.mjs test/linear-duplicates.mjs && tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext test/api-types.ts",
+    "test": "node --test test/scanner.mjs test/linear-duplicates.mjs test/shared-retail.mjs && tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext test/api-types.ts",
     "prepack": "npm run build && node scripts/verify-package.mjs"
   },
   "devDependencies": {

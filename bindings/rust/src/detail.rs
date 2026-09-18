@@ -325,6 +325,7 @@ pub fn recover(
     directions: usize,
     coverage: &[Quad],
     complete: bool,
+    shared_retail: bool,
 ) -> Result<Value, Error> {
     let start = std::time::Instant::now();
     let seeds = seeds(im);
@@ -382,12 +383,18 @@ pub fn recover(
                 max_retry_paths_per_frame: 64,
                 ..Default::default()
             };
+            scanner
+                .retail_configure(if shared_retail { 15 } else { 1 })
+                .map_err(|_| Error::Parameters)?;
             let result = scanner
                 .scan(view, &[q], policy)
                 .map_err(|_| Error::Parameters)?;
-            let raw: Value =
+            let mut raw: Value =
                 serde_json::from_str(&recovery_core::region_json::frame_json(&result.frame))
                     .map_err(|_| Error::OutputShape)?;
+            if let Some(retail) = scanner.retail_finish(view, &result.frame) {
+                raw["retail"] = serde_json::from_str(&retail).map_err(|_| Error::OutputShape)?;
+            }
             let mut reads = Vec::new();
             let mut deferred = Vec::new();
             let mut seed_covered = false;

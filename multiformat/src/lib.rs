@@ -1031,12 +1031,12 @@ pub fn scan_observed(
 /// Bit 3 supports timing-guided curved QR grids at effort >=3.
 /// Bit 4 retains a source image and samples exact f64 projective crops.
 #[must_use]
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 pub extern "C" fn multi_capabilities() -> u32 {
     31
 }
 
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 pub extern "C" fn multi_new() -> *mut Session {
     Box::into_raw(Box::new(Session {
         input: vec![],
@@ -1047,7 +1047,7 @@ pub extern "C" fn multi_new() -> *mut Session {
         height: 0,
     }))
 }
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Release a session created by `multi_new`.
 ///
 /// # Safety
@@ -1058,7 +1058,7 @@ pub unsafe extern "C" fn multi_free(s: *mut Session) {
         drop(Box::from_raw(s));
     }
 }
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Resize the grayscale input buffer.
 ///
 /// # Safety
@@ -1079,7 +1079,7 @@ pub unsafe extern "C" fn multi_prepare(s: *mut Session, w: usize, h: usize) -> u
     s.height = h;
     0
 }
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Obtain the prepared grayscale input buffer.
 ///
 /// # Safety
@@ -1089,7 +1089,7 @@ pub unsafe extern "C" fn multi_prepare(s: *mut Session, w: usize, h: usize) -> u
 pub unsafe extern "C" fn multi_input(s: *mut Session) -> *mut u8 {
     (*s).input.as_mut_ptr()
 }
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Retain the current grayscale input as a source for subsequent crops.
 ///
 /// # Safety
@@ -1101,7 +1101,7 @@ pub unsafe extern "C" fn multi_capture_source(s: *mut Session) -> u32 {
     };
     u32::from(!s.source.capture(&s.input, s.width, s.height))
 }
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Obtain storage for eight f64 projective-transform coefficients.
 ///
 /// # Safety
@@ -1110,7 +1110,7 @@ pub unsafe extern "C" fn multi_capture_source(s: *mut Session) -> u32 {
 pub unsafe extern "C" fn multi_crop_transform(s: *mut Session) -> *mut f64 {
     (*s).source.transform.as_mut_ptr()
 }
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Sample the retained source into the ordinary grayscale input buffer.
 ///
 /// # Safety
@@ -1127,7 +1127,7 @@ pub unsafe extern "C" fn multi_crop(s: *mut Session, width: usize, height: usize
     s.height = height;
     0
 }
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Scan the prepared grayscale input and replace the serialized result.
 ///
 /// # Safety
@@ -1141,7 +1141,7 @@ pub unsafe extern "C" fn multi_scan(s: *mut Session, mask: u32, effort: usize) -
     s.output = serde_json::to_vec(&result).unwrap_or_default();
     0
 }
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Obtain the serialized result buffer.
 ///
 /// # Safety
@@ -1150,7 +1150,7 @@ pub unsafe extern "C" fn multi_scan(s: *mut Session, mask: u32, effort: usize) -
 pub unsafe extern "C" fn multi_output(s: *mut Session) -> *const u8 {
     (*s).output.as_ptr()
 }
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Obtain the serialized result length.
 ///
 /// # Safety
@@ -1428,7 +1428,7 @@ mod packed_run_tests {
     }
 }
 
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Prepare a packed RGBA input buffer, retaining the integer grayscale rule.
 ///
 /// # Safety
@@ -1442,7 +1442,7 @@ pub unsafe extern "C" fn multi_prepare_rgba(s: *mut Session, w: usize, h: usize)
     (*s).rgba.resize(w * h * 4, 0);
     0
 }
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Obtain the prepared packed RGBA buffer.
 ///
 /// # Safety
@@ -1451,7 +1451,7 @@ pub unsafe extern "C" fn multi_prepare_rgba(s: *mut Session, w: usize, h: usize)
 pub unsafe extern "C" fn multi_input_rgba(s: *mut Session) -> *mut u8 {
     (*s).rgba.as_mut_ptr()
 }
-#[no_mangle]
+#[cfg_attr(feature = "ffi", no_mangle)]
 /// Convert packed RGBA and scan; alpha is ignored exactly as in the JS host.
 ///
 /// # Safety
@@ -1607,4 +1607,64 @@ mod itf_fragment_tests {
         assert_eq!(contained.len(), 1);
         assert_eq!(contained[0].text, "123456789012");
     }
+}
+
+/// Bounded access to the unchanged EAN8 blurred-intensity matcher.
+/// # Panics
+/// Internal run boundaries must remain consistent with their cumulative edges.
+#[must_use]
+pub fn recovery_gray(row: &[u8], limit: usize) -> (Vec<(String, f64, f64, f32)>, usize) {
+    if !(64..=4096).contains(&row.len()) || limit == 0 {
+        return (Vec::new(), 0);
+    }
+    let (bits, mut widths, _) = retail_profile::runs(row);
+    if bits.is_empty() || !(45..=512).contains(&widths.len()) {
+        return (Vec::new(), 0);
+    }
+    let mut edges = vec![0f64];
+    for w in &widths {
+        edges.push(edges.last().unwrap() + f64::from(*w));
+    }
+    let mut out = Vec::new();
+    let mut calls = 0;
+    let mut limited = false;
+    for reverse in [false, true] {
+        if reverse {
+            widths.reverse();
+        }
+        let dark = if reverse {
+            *bits.last().unwrap()
+        } else {
+            bits[0]
+        };
+        for mut read in linear::decode_candidates(&widths, dark, linear::EAN8, &mut limited) {
+            if !read.decoded {
+                if calls >= limit {
+                    break;
+                }
+                calls += 1;
+                if let Some((text, error)) = retail_gray::decode(row, &widths, read.start, reverse)
+                {
+                    read.text = text;
+                    read.error = error;
+                    read.decoded = true;
+                }
+            }
+            let (a, b) = if reverse {
+                (widths.len() - read.end, widths.len() - read.start)
+            } else {
+                (read.start, read.end)
+            };
+            if read.decoded
+                && read.error <= 0.14
+                && read.text.len() == 8
+                && a < b
+                && b < edges.len()
+                && out.len() < 64
+            {
+                out.push((read.text, edges[a] - 0.5, edges[b] - 0.5, read.error));
+            }
+        }
+    }
+    (out, calls)
 }

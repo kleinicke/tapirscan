@@ -45,6 +45,7 @@ pub struct Result {
     scan: ScanResult,
     options: ScanOptions,
     recovery: Option<serde_json::Value>,
+    retail: Vec<serde_json::Value>,
 }
 /// Detailed region evidence is exposed only when requested before scanning.
 pub struct Regions<'a> {
@@ -77,18 +78,32 @@ impl Scanner {
         image: Image<'_>,
         options: ScanOptions,
     ) -> std::result::Result<Result, Error> {
-        self.scan_with_coverage(image, options, &[], true)
+        self.scan_with_coverage(image, options, &[], true, false)
     }
 
+    // Keep primary decisions and crop recovery in the same ordered transaction.
+    #[allow(clippy::too_many_lines)]
     fn scan_with_coverage(
         &mut self,
         image: Image<'_>,
         options: ScanOptions,
         coverage: &[Quad],
         consolidate: bool,
+        shared_retail: bool,
     ) -> std::result::Result<Result, Error> {
         #[cfg(feature = "low")]
         let _ = coverage;
+        checked_image(image)?;
+        // The validated shared browser path samples packed RGBA. Preserve the
+        // same interpolation order for gray/RGB callers before short recovery.
+        let packed = shared_retail.then(|| retail_pixels(image)).flatten();
+        let image = packed.as_ref().map_or(image, |data| Image {
+            data,
+            width: image.width,
+            height: image.height,
+            channels: 4,
+            stride: image.width * 4,
+        });
         let im = checked_image(image)?;
         let found = stripes::detect(im)?;
         let count = found.proposals.len();
@@ -149,7 +164,20 @@ impl Scanner {
             guard_bias: true,
             ..Policy::default()
         };
+        #[cfg(feature = "medium")]
+        self.regions
+            .retail_configure(if shared_retail { 15 } else { 1 })?;
+        #[cfg(not(feature = "medium"))]
+        let _ = shared_retail;
         let mut scan = self.regions.scan(im, &candidates, policy)?;
+        let mut retail = Vec::new();
+        #[cfg(feature = "medium")]
+        if let Some(raw) = self.regions.retail_finish(im, &scan.frame) {
+            let value: serde_json::Value =
+                serde_json::from_str(&raw).map_err(|_| Error::OutputShape)?;
+            retail.extend(value["barcodes"].as_array().cloned().unwrap_or_default());
+            scan.frame.unfinished |= value["unfinished"].as_bool().unwrap_or(false);
+        }
         #[cfg(not(feature = "low"))]
         let recovery = {
             let result = detail::recover(
@@ -159,12 +187,34 @@ impl Scanner {
                 if cfg!(feature = "medium") { 1 } else { 2 },
                 coverage,
                 options.finish_candidates,
+                shared_retail,
             )?;
             scan.frame.unfinished = true;
             Some(result)
         };
         #[cfg(feature = "low")]
-        let recovery = None;
+        let recovery: Option<serde_json::Value> = None;
+        if shared_retail {
+            if let Some(recovery) = &recovery {
+                for attempt in recovery["attempts"].as_array().into_iter().flatten() {
+                    for b in attempt["frame"]["retail"]["barcodes"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                    {
+                        let mut read = b.clone();
+                        let polygon = formats::quad(b).map(|[x, y]| {
+                            [
+                                attempt["x"].as_f64().unwrap_or(0.) + x / 3.,
+                                attempt["y"].as_f64().unwrap_or(0.) + y / 3.,
+                            ]
+                        });
+                        read["polygon"] = serde_json::json!(polygon);
+                        retail.push(read);
+                    }
+                }
+            }
+        }
         if consolidate {
             linear_duplicates::merge_primary(&mut scan.frame.barcodes, image);
         }
@@ -182,8 +232,25 @@ impl Scanner {
             scan,
             options,
             recovery,
+            retail,
         })
     }
+}
+fn retail_pixels(image: Image<'_>) -> Option<Vec<u8>> {
+    if image.channels == 4 && image.stride == image.width * 4 {
+        return None;
+    }
+    let mut pixels = vec![255; image.width * image.height * 4];
+    for y in 0..image.height {
+        for x in 0..image.width {
+            let source = y * image.stride + x * image.channels;
+            let target = (y * image.width + x) * 4;
+            pixels[target] = image.data[source];
+            pixels[target + 1] = image.data[source + usize::from(image.channels != 1)];
+            pixels[target + 2] = image.data[source + 2 * usize::from(image.channels != 1)];
+        }
+    }
+    Some(pixels)
 }
 fn checked_image(image: Image<'_>) -> std::result::Result<ImageView<'_>, Error> {
     if image.width < 3 || image.height < 3 {

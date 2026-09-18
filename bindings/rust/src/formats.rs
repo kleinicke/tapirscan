@@ -69,9 +69,7 @@ impl Scanner {
         addons: EanAddOnPolicy,
     ) -> Result<Value, Error> {
         validate(image, mask)?;
-        if options.finish_candidates && mask.trailing_zeros() >= 2 {
-            return Err(Error::Parameters);
-        }
+
         if mask == 1 && addons == EanAddOnPolicy::Ignore {
             let result = self.scan_with_options(image, options)?;
             let mut value: Value =
@@ -90,9 +88,15 @@ impl Scanner {
             multiple: true,
             include_regions: options.include_regions,
         };
-        let (extras, coverage) = scan_additional(image, mask, addons)?;
-        let mut value = if mask & 3 != 0 {
-            let result = self.scan_with_coverage(image, full_options, &coverage, false)?;
+        let shared_retail =
+            cfg!(feature = "medium") && addons == EanAddOnPolicy::Ignore && mask & 12 != 0;
+        let (extras, coverage) =
+            scan_additional(image, if shared_retail { mask & !12 } else { mask }, addons)?;
+        let mut retail = Vec::new();
+        let mut value = if shared_retail || mask & 3 != 0 {
+            let result =
+                self.scan_with_coverage(image, full_options, &coverage, false, shared_retail)?;
+            retail.clone_from(&result.retail);
             serde_json::from_str(&result.to_json(MODE, 0.0)).map_err(|_| Error::Parameters)?
         } else {
             json!({"schemaVersion":2,"mode":MODE,"multiple":true,"elapsedMs":0.0,"localizationLimited":false,"scan":{"barcodes":[],"unfinished":false}})
@@ -112,6 +116,11 @@ impl Scanner {
                 mask & 1 != 0
             }
         });
+        reads.extend(retail.into_iter().filter(|b| match b["format"].as_str() {
+            Some("EAN8") => mask & 4 != 0,
+            Some("UPCE") => mask & 8 != 0,
+            _ => false,
+        }));
         let mut unread = if options.include_regions {
             unread_regions(&value, &reads)
         } else {

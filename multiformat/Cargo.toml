@@ -16,3 +16,7 @@ encoding_rs = "=0.8.35"
 lto = true
 codegen-units = 1
 panic = "abort"
+
+[features]
+default = ["ffi"]
+ffi = []

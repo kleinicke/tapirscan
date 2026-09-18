@@ -252,10 +252,10 @@ function publicResult(raw: RawDiagnostics, image: HostImage, debug: boolean): Sc
   });
 }
 const modes = {
-  low: "low-complete-release-20260916.wasm",
-  medium: "medium-complete-release-20260916.wasm",
-  high: "high-complete-release-20260916.wasm",
-  "very-high": "very-high-complete-release-20260916.wasm",
+  low: "low-shared-retail-release-20260918.wasm",
+  medium: "medium-shared-retail-release-20260918.wasm",
+  high: "high-shared-retail-release-20260918.wasm",
+  "very-high": "very-high-shared-retail-release-20260918.wasm",
 } as const;
 /** Mode selects a compiled implementation. Create another instance to switch. */
 export class Scanner {
@@ -305,13 +305,19 @@ export class Scanner {
           );
     if (!base.pathname.endsWith("/")) base.pathname += "/";
     const load = options.loadWasm ?? loadDefault;
-    const needsPrimary = formats.some((f) => f === "EAN13" || f === "UPCA");
+    const sharedRetail = mode === "medium" && addonPolicy === "Ignore";
+    const needsPrimary = formats.some(
+      (f) => f === "EAN13" || f === "UPCA" || (sharedRetail && (f === "EAN8" || f === "UPCE")),
+    );
     const bytes = needsPrimary ? await load(new URL(modes[mode], base)) : undefined;
     const recovery =
       !needsPrimary || mode === "low" ? undefined : await load(new URL(modes.low, base));
     const multiformat = addonPolicy !== "Ignore" || formats.length !== 1 || formats[0] !== "EAN13";
     const extra =
-      addonPolicy !== "Ignore" || formats.some((f) => f !== "EAN13" && f !== "UPCA")
+      addonPolicy !== "Ignore" ||
+      formats.some(
+        (f) => f !== "EAN13" && f !== "UPCA" && (!sharedRetail || (f !== "EAN8" && f !== "UPCE")),
+      )
         ? await load(new URL("multiformat.wasm", base))
         : undefined;
     if (multiformat)

@@ -47,7 +47,7 @@ def facade_manifest(mode: str, manifest: dict[str, Any]) -> str:
             json.dumps(
                 json.loads(
                     (
-                        ROOT / "core/experiments/low-complete-detail-20260916.json"
+                        ROOT / "core/experiments/low-shared-retail-20260918.json"
                     ).read_text()
                 )["expandedFeatures"]
             ),
@@ -90,7 +90,7 @@ def prepare_recovery_source(out: Path) -> None:
                 sys.executable,
                 str(ROOT / "core/experiments/build_guarded.py"),
                 "--recipe",
-                "low-complete-detail-20260916",
+                "low-shared-retail-20260918",
                 "--out",
                 str(dest),
                 "--prepare-only",
@@ -99,10 +99,19 @@ def prepare_recovery_source(out: Path) -> None:
         )
     source = dest / "temporarysource"
     recipe = json.loads(
-        (ROOT / "core/experiments/low-complete-detail-20260916.json").read_text()
+        (ROOT / "core/experiments/low-shared-retail-20260918.json").read_text()
     )
     for rel, expected in (recipe["baseHashes"] | recipe["targetHashes"]).items():
-        if hashlib.sha256((source / rel).read_bytes()).hexdigest() != expected:
+        if (
+            hashlib.sha256(
+                (source / rel)
+                .read_bytes()
+                .replace((ROOT / "multiformat").as_posix().encode(), b"@MULTIFORMAT@")
+                if rel == "Cargo.toml"
+                else (source / rel).read_bytes()
+            ).hexdigest()
+            != expected
+        ):
             msg = f"Recovery source hash mismatch: {rel}"
             raise RuntimeError(msg)
     copied = out / "recovery-core"
@@ -123,7 +132,7 @@ def prepare_recovery_source(out: Path) -> None:
         json.dumps(
             {
                 "change": "Isolate recovery features and native symbols",
-                "recipe": "low-complete-detail-20260916",
+                "recipe": "low-shared-retail-20260918",
             },
             indent=2,
         )
@@ -168,6 +177,7 @@ def resume_core(out: Path, recipe: str) -> None:
     """Verify and finish an existing core build without trusting stale artifacts."""
     manifest = json.loads((ROOT / f"core/experiments/{recipe}.json").read_text())
     for base, hashes in [
+        (ROOT, manifest.get("externalHashes", {})),
         (ROOT / "core", manifest["baseHashes"]),
         (
             out / "temporarysource",
@@ -175,7 +185,18 @@ def resume_core(out: Path, recipe: str) -> None:
         ),
     ]:
         for rel, expected in hashes.items():
-            if hashlib.sha256((base / rel).read_bytes()).hexdigest() != expected:
+            if (
+                hashlib.sha256(
+                    (base / rel)
+                    .read_bytes()
+                    .replace(
+                        (ROOT / "multiformat").as_posix().encode(), b"@MULTIFORMAT@"
+                    )
+                    if rel == "Cargo.toml"
+                    else (base / rel).read_bytes()
+                ).hexdigest()
+                != expected
+            ):
                 msg = f"Source hash mismatch: {base / rel}"
                 raise RuntimeError(msg)
     env = dict(

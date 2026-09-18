@@ -71,7 +71,7 @@ function scanGray(image: Image): Uint8Array {
     ? image.data.subarray(0, image.width * image.height)
     : toGray(image);
 }
-/** Frozen EAN13 Medium plus project-owned opt-in readers. No reference decoder. */
+/** Shared retail evidence over primary profiles, plus independent additional readers. */
 export class MediumMultiformatScanner {
   private medium?: IndependentScanner | WideScanner | ReleaseDetailScanner;
   private mode: Mode = "medium";
@@ -187,8 +187,15 @@ export class MediumMultiformatScanner {
       additionalMs = 0,
       preparationMs = 0,
       localizationMs = 0;
+    const sharedRetail =
+      this.mode === "medium" &&
+      eanAddOnSymbol === "Ignore" &&
+      formats.some((f) => f === "EAN8" || f === "UPCE");
+    const retailPolicy = { ...scanPolicy, ...(sharedRetail ? { retailMask: 15 } : {}) };
     const extraFormats = formats.filter(
-      (f) => eanAddOnSymbol !== "Ignore" || (f !== "EAN13" && f !== "UPCA"),
+      (f) =>
+        (!sharedRetail || (f !== "EAN8" && f !== "UPCE")) &&
+        (eanAddOnSymbol !== "Ignore" || (f !== "EAN13" && f !== "UPCA")),
     );
     const conservative =
       medium instanceof ReleaseDetailScanner &&
@@ -225,13 +232,13 @@ export class MediumMultiformatScanner {
         if (checked || unchecked) coverage.push(read.polygon);
       }
     }
-    if (formats.includes("EAN13") || formats.includes("UPCA")) {
+    if (sharedRetail || formats.includes("EAN13") || formats.includes("UPCA")) {
       if (!medium) throw Error("EAN13 engine has not been initialized.");
       const begin = performance.now();
 
       const found =
         medium instanceof ReleaseDetailScanner
-          ? medium.scanLocalized(image, scanPolicy, fitLimits[this.mode], true, coverage)
+          ? medium.scanLocalized(image, retailPolicy, fitLimits[this.mode], true, coverage)
           : medium.scanLocalized(image, scanPolicy, fitLimits[this.mode], true);
       primary = found;
       const localization = found.localization as unknown as Localization;
@@ -248,6 +255,32 @@ export class MediumMultiformatScanner {
         else if (formats.includes("EAN13"))
           barcodes.push({ format: "EAN13", text: b.text, polygon: b.polygon, support: b.support });
       }
+      if (sharedRetail) {
+        const evidence = found as unknown as {
+          scan: { retail?: { barcodes: Barcode[]; unfinished: boolean } };
+          recovery?: {
+            attempts: {
+              x: number;
+              y: number;
+              factor: number;
+              frame: { retail?: { barcodes: Barcode[]; unfinished: boolean } };
+            }[];
+          };
+        };
+        const shared: Barcode[] = [...(evidence.scan.retail?.barcodes ?? [])];
+        unfinished ||= evidence.scan.retail?.unfinished ?? false;
+        for (const attempt of evidence.recovery?.attempts ?? []) {
+          unfinished ||= attempt.frame.retail?.unfinished ?? false;
+          for (const b of attempt.frame.retail?.barcodes ?? []) {
+            const polygon = b.polygon.map(([x, y]) => [
+              attempt.x + x / attempt.factor,
+              attempt.y + y / attempt.factor,
+            ]) as unknown as Quad;
+            shared.push({ ...b, polygon });
+          }
+        }
+        barcodes.push(...shared.filter((b) => formats.includes(b.format as Format)));
+      }
       const decoded = new Set(found.scan.barcodes.flatMap((b) => b.candidate_indices));
       localization.proposals.forEach((p: { polygon: Quad }, i: number) => {
         if (!decoded.has(i))
@@ -263,13 +296,13 @@ export class MediumMultiformatScanner {
           });
         }
       }
-      unfinished =
+      unfinished ||=
         found.scan.unfinished ||
         Boolean(localization.workLimited) ||
         (localization.omitted ?? 0) > 0;
       mediumMs = performance.now() - begin;
     }
-    if (localized && !formats.includes("EAN13") && !formats.includes("UPCA")) {
+    if (!sharedRetail && localized && !formats.includes("EAN13") && !formats.includes("UPCA")) {
       if (!medium) throw Error("EAN13 localization engine has not been initialized.");
       const begin = performance.now();
       const found = medium.scanLocalized(image, scanPolicy, fitLimits[this.mode], true)

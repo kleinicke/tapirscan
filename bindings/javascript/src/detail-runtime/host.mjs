@@ -293,6 +293,7 @@ export class IndependentScanner {
         coordinates[i * 8 + j * 2 + 1] = p[1];
       }),
     );
+    if (e.regions_retail) status(e.regions_retail(id, policy.retailMask ?? 1, policy.retailMask ? 3 : 0));
     const mask = policy.retryMask ?? [4294967295, 4294967295];
     if (!Array.isArray(mask) || mask.length !== 2)
       throw new ScannerError("invalid_input", "Invalid retry mask");

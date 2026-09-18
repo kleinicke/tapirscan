@@ -12,7 +12,7 @@
     "bindings/javascript/src/detail-20260914/scanner.mjs": "89c9ef454be51e6f8ff2fac63f298e6ffc8e5f882769d39d2d64946f496278e9",
     "bindings/javascript/src/detail-20260914/source-evidence.mjs": "e684f303eb3dfaba6557cfe9d204fffc5e023efaa444076c38a398cf58872a44",
     "bindings/javascript/src/detail-runtime/direct-recovery.mjs": "6a9ea82e8ad473814782de4fd50960cc0240437fbd131a28bd463a0fd2781de9",
-    "bindings/javascript/src/detail-runtime/host.mjs": "5fd9ef44e11c488c81eeed23f3aab5967c6ada78bad5dfae266d9454a2b92d4a",
+    "bindings/javascript/src/detail-runtime/host.mjs": "a90e12d453239138527b09c92fc24dd4a72641187d71b13c1065b4e9651cf96c",
     "bindings/javascript/src/detail-runtime/scanner.d.mts": "6d93e08ca6123cfa9100451790896133ec1d6edd5fd394c209f8474f473ae7ea",
     "bindings/javascript/src/detail-runtime/scanner.mjs": "6ce2759394b0840aba3659845062d879a2dddcbc6f9177fda06a25e4ab635ffc",
     "bindings/javascript/src/host.ts": "7a973b75791a2038a2113bddb969bebc11b9693eb4c85907a2c9a6bd602984be",
@@ -26,7 +26,7 @@
     "core/build-recipes.json": "4c9707309afd480cdc3ee345be9cfe2f43861b994d5c4d826332413effc7b1fe",
     "core/examples/row_scan_pgm.rs": "2c4e68229e4bb0732ffb137ce4600fc2990abcc748c4eb645b992708bfa96896",
     "core/examples/scan_pgm.rs": "9e9743312633dde68bcbd62b4d921fdf9064e32b450aeb645601df7cd8c96a8f",
-    "core/experiments/build_guarded.py": "669a2649622c26842f811f4e718fbf11fbe641bd12bb97c724e5e6469c9e1618",
+    "core/experiments/build_guarded.py": "47d2573d2d8d29ab7da1449c49dadafe8e0523c8a52ef2e5486ba35741f1e7e7",
     "core/experiments/guarded-quality-lint-20260913.json": "524013daa270b3cba9a34bd2963473b81bc142e3208afe0ca6e04540206adff4",
     "core/experiments/guarded-quality-lint-20260913.patch": "ab7a306d04484b9910ef107503d2b086f67f516220efb712c3b214650daa0e54",
     "core/experiments/high-complete-detail-20260916.json": "133bb03af717140bce06dcd08f6cd5ded055e75ca09d9ad480f9e827c0cc8690",
@@ -117,7 +117,7 @@
     "core/src/warp.rs": "3378185d019fb7576ea0262d104b0dc7135664a4050257ac31d4a801fd76e650",
     "core/tests/row_group.rs": "bea3d6907db6430c4dd18933f07502fa285f74f2b88cc38a3362f6719321323e",
     "multiformat/Cargo.lock": "df2ac9308658ddd8c8b2a464f281c99cf133e94406a04c0286cbe4011ae4889e",
-    "multiformat/Cargo.toml": "e5b2bb8c86598164cefedc0fa1a1107dd93cd271ca72e3b014965e93ba27a1e7",
+    "multiformat/Cargo.toml": "9443ba5bbbb5a550d0a9a118eed32bcd691657beec74d832ab279eb4a2f2b47b",
     "multiformat/README.md": "5fef70b7d32f4eb617f1c20a1babf9d5a2a0c03bea88ed5b2bcd9ec1aff24820",
     "multiformat/THIRD_PARTY_NOTICES.md": "94fdb0e9f5dc4046ff9392e9b0d225464d9a595679e4b54ed46023d7a2a285a8",
     "multiformat/src/aztec.rs": "7be10cbc7cdf9e984985f5261fa2f5d34d1c7209f9a19e908a60f383653a31a6",
@@ -136,7 +136,7 @@
     "multiformat/src/encoding.rs": "d7d0ef73385b16206479977aebe85babdb41f76abc5d9260098b35d99ca50b6b",
     "multiformat/src/encoding_tables.rs": "17162b094e106b6f175d021e74de97daa64fc6b0fcef26f74195af58ffcdce5a",
     "multiformat/src/expanded.rs": "26c8278254e70679fbbb829fc0ede8d01ef48467139564dde85a009ff6fef90c",
-    "multiformat/src/lib.rs": "5d6990a9655001d235d20233d3dbd628cdede8849dee5573ccdba5e811aefb4d",
+    "multiformat/src/lib.rs": "f1bbdebed2b682dd474fd6e183d48d894b7f65b613d5316a009ece853983c39a",
     "multiformat/src/linear.rs": "d7b347cc1a904f8aa7ce12cb35a056c8cfa4e814a2347818234b677c37df8712",
     "multiformat/src/linear_geometry.rs": "fc22d47e5c8bbf9c72c5f23ee00ffb9cacd5f0504699c226622a8123c2d6660b",
     "multiformat/src/maxicode.rs": "da867be60244301944bcd957a925dc6d8bc3c1a50a3c8c144218e8431c239d42",
@@ -165,10 +165,15 @@
     "provenance/demo-versions.ts": "f3ff10336c681ab63b6334fb6d932a03f88a8633a5a2ba578c1bce165d76d89f",
     "provenance/detail-20260914.json": "94b47985cfadae5b063fd55a50279b57f82f51d4ffa06800736a240d83f0332f",
     "provenance/direct-recovery-upstream.mjs": "8cf6c2338bcfe032d987aa00aa8b4c620ad1591d21de9994dc286a8e8eb6f3b7",
-    "provenance/modes.json": "48b053cfe322a9e059291e107f29330306e70075b18100b8761df7b4e92741aa",
-    "provenance/promotion-complete-20260916.json": "74df8664746f875d4a9981576c2299155a4a028086a383df6b39c20d19fa6d63"
+    "provenance/modes.json": "c7209e837ada30e9880bce724782d920d9577c5b9b9ba94f4a891cec19327a61",
+    "provenance/promotion-complete-20260916.json": "74df8664746f875d4a9981576c2299155a4a028086a383df6b39c20d19fa6d63",
+    "provenance/promotion-shared-retail-20260918.json": "4977bee4efb2018f0ede5fed1500b9388dad801faec4e518034f9cebab17254c",
+    "core/experiments/medium-shared-retail-20260918.json": "58b05b3b096e8ec5df319f097cf0706ee9224c015b2687d4d9e56b9520910a18",
+    "core/experiments/medium-shared-retail-20260918.patch": "437073fb4b97a013b6920ab1eaacfc148c3a4f9eba7bd39c74c676ecedcfcaaf",
+    "core/experiments/low-shared-retail-20260918.json": "fea814b59f6807965c2c62732781178aaecde6f28f3932d319bd12dd83ac7e01",
+    "core/experiments/low-shared-retail-20260918.patch": "4c86c9a50a924f2c65fa6c981dc30aadbbae5855f83cde03f2fff104f8c84566"
   },
-  "note": "Completion and retail promotion from a hash-pinned research working tree. See promotion manifest for source origins and release adaptations.",
+  "note": "Shared retail faithful promotion; frozen base and previous recipes retained. See promotion manifest for scope and adapters.",
   "mediumPromotion": {
     "tag": "medium-evidence64-pinned-20260914",
     "date": "2026-09-14",
@@ -186,7 +191,7 @@
   "releaseAdaptations": {
     "core/experiments/build_guarded.py": "Register release detail and continuation recipes; build algorithm unchanged."
   },
-  "promotion": "provenance/promotion-complete-20260916.json",
+  "promotion": "provenance/promotion-shared-retail-20260918.json",
   "sourceOrigins": {
     "core": "Frozen research base retained from release 48e1ef8; selected patches are from the exact working-tree hashes in the promotion manifest.",
     "multiformat": "Research working tree, retail-twohour-20260916 sourceHashes; see promotion manifest.",

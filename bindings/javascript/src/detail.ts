@@ -54,13 +54,13 @@ export class ReleaseDetailScanner {
   }
   scanLocalized(
     image: Image,
-    policy: Parameters<IndependentScanner["scanLocalized"]>[1],
+    policy: Parameters<IndependentScanner["scanLocalized"]>[1] & { retailMask?: number },
     fit: number,
     full: boolean,
     coverage: readonly Quad[] = [],
   ): DetailResult {
     if (this.disposed) throw Error("Scanner is disposed");
-    const result = this.scanner.scanLocalized(packed(image), policy ?? {}, fit, full, coverage);
+    const result = this.scanner.scanLocalized(packed(image), policy, fit, full, coverage);
     const primaryCount = result.scan.barcodes.length;
     const barcodes = result.recovery.barcodes.map((b, i) =>
       i < primaryCount ? b : { ...b, candidate_indices: [] },
