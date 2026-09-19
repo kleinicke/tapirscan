@@ -26,6 +26,7 @@ def verify(root: Path, hashes: dict[str, str]) -> None:
             hashlib.sha256(
                 (root / rel)
                 .read_bytes()
+                .replace(b"\r\n", b"\n")
                 .replace((ROOT / "multiformat").as_posix().encode(), b"@MULTIFORMAT@")
                 if rel == "Cargo.toml"
                 else (root / rel).read_bytes()

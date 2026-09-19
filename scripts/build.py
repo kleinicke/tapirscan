@@ -106,6 +106,7 @@ def prepare_recovery_source(out: Path) -> None:
             hashlib.sha256(
                 (source / rel)
                 .read_bytes()
+                .replace(b"\r\n", b"\n")
                 .replace((ROOT / "multiformat").as_posix().encode(), b"@MULTIFORMAT@")
                 if rel == "Cargo.toml"
                 else (source / rel).read_bytes()
@@ -189,6 +190,7 @@ def resume_core(out: Path, recipe: str) -> None:
                 hashlib.sha256(
                     (base / rel)
                     .read_bytes()
+                    .replace(b"\r\n", b"\n")
                     .replace(
                         (ROOT / "multiformat").as_posix().encode(), b"@MULTIFORMAT@"
                     )
