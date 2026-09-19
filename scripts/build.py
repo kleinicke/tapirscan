@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -44,6 +45,34 @@ def prepare_wasm_source(out: Path) -> Path:
         dest / "multiformat",
         dirs_exist_ok=True,
         ignore=shutil.ignore_patterns("target"),
+    )
+    # The shared WASM uses only these dependency-free reader modules. Keeping
+    # serialization/proc-macro dependencies out also keeps crate identities
+    # independent of the host compiler platform.
+    reader = dest / "multiformat"
+    (reader / "Cargo.toml").write_text(
+        '[package]\nname = "barcode-multiformat"\nversion = "0.1.0"\n'
+        'edition = "2021"\n[lib]\ncrate-type = ["rlib"]\n',
+        newline="\n",
+    )
+    original_lib = (ROOT / "multiformat/src/lib.rs").read_text()
+    marker = "/// Bounded access to the unchanged EAN8 blurred-intensity matcher."
+    if original_lib.count(marker) != 1:
+        msg = "Unexpected shared retail entry point"
+        raise RuntimeError(msg)
+    types = original_lib.split("/// One symbol in a structured-append sequence;")[1]
+    types = (
+        "/// One symbol in a structured-append sequence;"
+        + types.split("#[derive(Serialize)]\npub struct Scan")[0]
+    )
+    types = re.sub(r"#\[serde\([\s\S]*?\)\]\s*", "", types).replace(", Serialize", "")
+    (reader / "src/lib.rs").write_text(
+        "pub mod linear;\npub mod databar;\npub mod expanded;\npub mod numeric;\n"
+        "mod retail_gray;\nmod retail_profile;\n"
+        + types
+        + marker
+        + original_lib.split(marker)[1],
+        newline="\n",
     )
     manifest = dest / "Cargo.toml"
     manifest.write_text(

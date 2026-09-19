@@ -3,53 +3,53 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-shared-retail-release-20260919",
+      "tag": "low-shared-retail-portable-20260919",
       "recipe": "low-shared-retail-20260918",
-      "binarySha256": "956ccccbe25768b1b95ec15350e475ccc3717ff04b14e84d8ed2465568c531e3",
+      "binarySha256": "16b71ed8989537f13ef42978b786f6fe361e82f9b682c89edd4125012e962ea8",
       "hostSha256": "6bc31557998f9cb80d765ac035b4d372a147ed00780f00c48029caea52616775",
       "fitLimit": 0,
       "maxLocalizedProposals": 32,
-      "previousTag": "low-shared-retail-release-20260918",
-      "previousBinarySha256": "44a13dcd13f08ba666dff6eebe6c24229aea3d05e3fa64c95476da9140bfb306"
+      "previousTag": "low-shared-retail-release-20260919",
+      "previousBinarySha256": "956ccccbe25768b1b95ec15350e475ccc3717ff04b14e84d8ed2465568c531e3"
     },
     {
       "mode": "medium",
-      "tag": "medium-shared-retail-release-20260919",
+      "tag": "medium-shared-retail-portable-20260919",
       "recipe": "medium-shared-retail-20260918",
-      "binarySha256": "d4783be7f1ff6f266d7e6e906003d43ad852b4effa2f4ed6cc41f0e8ddd40a15",
+      "binarySha256": "6285ed2478e475787370c5c7623fa7985bb99dadd2f0d530ae2715266d06ded6",
       "hostSha256": "a90e12d453239138527b09c92fc24dd4a72641187d71b13c1065b4e9651cf96c",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
-      "previousTag": "medium-shared-retail-release-20260918",
-      "previousBinarySha256": "cdebbffdb907b8a57b2d73a04dfbefef49c5199eb8d2636f06b6e64dadf368be",
+      "previousTag": "medium-shared-retail-release-20260919",
+      "previousBinarySha256": "d4783be7f1ff6f266d7e6e906003d43ad852b4effa2f4ed6cc41f0e8ddd40a15",
       "directions": 1,
-      "recoveryTag": "low-shared-retail-release-20260919"
+      "recoveryTag": "low-shared-retail-portable-20260919"
     },
     {
       "mode": "high",
-      "tag": "high-shared-retail-release-20260919",
+      "tag": "high-shared-retail-portable-20260919",
       "recipe": "high-complete-detail-20260916",
       "binarySha256": "438070742aa89110c159046907b5e99a32bce3f30bcc711e8150f37fe54996da",
       "hostSha256": "a90e12d453239138527b09c92fc24dd4a72641187d71b13c1065b4e9651cf96c",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
-      "previousTag": "high-shared-retail-release-20260918",
+      "previousTag": "high-shared-retail-release-20260919",
       "previousBinarySha256": "438070742aa89110c159046907b5e99a32bce3f30bcc711e8150f37fe54996da",
       "directions": 2,
-      "recoveryTag": "low-shared-retail-release-20260919"
+      "recoveryTag": "low-shared-retail-portable-20260919"
     },
     {
       "mode": "very-high",
-      "tag": "very-high-shared-retail-release-20260919",
+      "tag": "very-high-shared-retail-portable-20260919",
       "recipe": "very-high-complete-detail-20260916",
       "binarySha256": "c1f2eb06c503fab081d705fab7100d2be879c3e4d7e00f4cef3c7d09817941c8",
       "hostSha256": "a90e12d453239138527b09c92fc24dd4a72641187d71b13c1065b4e9651cf96c",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
-      "previousTag": "very-high-shared-retail-release-20260918",
+      "previousTag": "very-high-shared-retail-release-20260919",
       "previousBinarySha256": "c1f2eb06c503fab081d705fab7100d2be879c3e4d7e00f4cef3c7d09817941c8",
       "directions": 2,
-      "recoveryTag": "low-shared-retail-release-20260919"
+      "recoveryTag": "low-shared-retail-portable-20260919"
     }
   ]
 }
