@@ -49,7 +49,7 @@ export function resolveFormats(input?: readonly string[] | string): Format[] {
   if (input === "1D") return [...linearFormats];
   if (input === "2D") return [...matrixFormats];
   if (input === "all") return [...linearFormats, ...matrixFormats];
-  if (input === undefined) return ["EAN13"];
+  if (input === undefined) return [...retailFormats];
   if (typeof input === "string" && Object.hasOwn(formatBits, input)) return [input as Format];
   if (!Array.isArray(input) || input.length === 0)
     throw Error("Choose at least one barcode format.");

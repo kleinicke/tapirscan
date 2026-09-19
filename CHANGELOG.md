@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.2.1 — 2026-09-19
+
+- Enable retail formats (EAN13, UPCA, EAN8 and UPCE) by default across all public
+  bindings. Explicit EAN13 selection retains its existing reader path.
+- Keep Medium effort and ignored supplements as defaults; native ABI 4 is unchanged.
+
 ## 1.2.0 — 2026-09-17
 
 **Breaking changes:** this early-library minor release intentionally changes the

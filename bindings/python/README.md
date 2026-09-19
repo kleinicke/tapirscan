@@ -1,10 +1,5 @@
 # Tapirscan for Python
 
-This guide describes the 1.2.0 API revision. See [migration](../../docs/API_MIGRATION.md).
-Build/install this checkout using [the development guide](../../docs/DEVELOPMENT.md)
-to use these changes before publication; older registry packages use their own
-versioned API.
-
 Scan Pillow images, NumPy arrays and PyTorch tensors with `tapirscan.scan(image)`.
 [Try the live demo](https://tapirscan.netlify.app) · [Quick start](#quick-start) · [Functions](#functions) · [All options](#all-options) · [Results](#results-and-public-types)
 
@@ -106,7 +101,7 @@ override the constructor selection for that call only; `None` inherits it.
 | ------------------- | ------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `image`             | Scan                      | Required          | Pillow image, NumPy array, PyTorch tensor, or `PixelImage`. Encoded bytes and filenames must be decoded first.                                                                  |
 | `mode`              | Creation / one-shot       | `"medium"`        | `"low"`, `"medium"`, `"high"`, `"very-high"`: select EAN13/UPCA, Common1D and QR Code search effort.                                                                            |
-| `formats`           | Creation / scan           | EAN13             | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty list/tuple of exact identifiers. On a scanner, `None` inherits its selection. |
+| `formats`           | Creation / scan           | retail            | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty list/tuple of exact identifiers. On a scanner, `None` inherits its selection. |
 | `ean_add_on_policy` | Creation / one-shot       | `"Ignore"`        | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                                          |
 | `extended_budget`   | Scan / one-shot           | `False`           | Allow extra reader work for any format. Exact budgets may evolve.                                                                                                               |
 | `debug`             | Scan                      | `False`           | Include typed search evidence and raw diagnostics. Decoded polygons are always available.                                                                                       |

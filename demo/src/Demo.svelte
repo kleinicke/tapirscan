@@ -11,11 +11,12 @@
     matrixFormats,
     type Format,
   } from "tapirscan";
+  import SpringSlider from "./SpringSlider.svelte";
   import { DoubleTap } from "./lib/taps";
   import { LabelLayout } from "./lib/labels";
   import { version } from "../package.json";
 
-  let detection: "ean13" | "retail" | "common" | "all" = "ean13";
+  let detection: "ean13" | "retail" | "common" | "all" = "retail";
   $: formats =
     detection === "all"
       ? [...linearFormats, ...matrixFormats]
@@ -38,8 +39,6 @@
   let fullscreenButton: HTMLButtonElement;
   let expanded = false;
   let showAdjust = false;
-  let labelMotion = false;
-  let labelSettleTimer: ReturnType<typeof setTimeout> | undefined;
   let nativeFullscreen = false;
   let orientationLocked = false;
   let savedOverflow = "";
@@ -140,7 +139,14 @@
     detail: HTMLCanvasElement;
   let detailReady = false,
     detailRevision = -1;
+  let livePreview: HTMLCanvasElement;
+  let livePreviewFrame = 0;
+  let lastPreviewTime = 0;
+  let lastScanImage: ImageData | null = null;
+  let lastScanContent = -1;
+  let saving = false;
   let cameraPaused = false;
+  let cameraFrame = false;
   let captureMode: "video" | "photos" = "video";
   let resolution = "1080";
   let captureInfo = "";
@@ -189,9 +195,10 @@
   $: W = frameWidth + margin * 2;
   $: H = frameHeight + margin * 2;
   $: fit = Math.min(frameWidth / mediaWidth, frameHeight / mediaHeight);
-  $: viewWidth = expanded ? frameWidth : W;
-  $: viewHeight = expanded ? frameHeight : H;
-  $: viewOffset = expanded ? margin : 0;
+  $: frameOnly = expanded || live || cameraFrame;
+  $: viewWidth = frameOnly ? frameWidth : W;
+  $: viewHeight = frameOnly ? frameHeight : H;
+  $: viewOffset = frameOnly ? margin : 0;
   $: displayWidth = ((mediaWidth * fit) / viewWidth) * 100;
   $: displayHeight = ((mediaHeight * fit) / viewHeight) * 100;
   function setFrame(width: number, height: number) {
@@ -263,7 +270,6 @@
       selected.join(","),
     ]),
     performance.now(),
-    pointers.size > 0 || labelMotion,
   );
   function invalidate(preserveOverlays = false) {
     revision++;
@@ -309,9 +315,6 @@
     detailReady = true;
   }
   function transform() {
-    labelMotion = true;
-    clearTimeout(labelSettleTimer);
-    labelSettleTimer = setTimeout(() => (labelMotion = false), 900);
     if (!gestureFrame) {
       invalidate(true);
       gestureFrame = requestAnimationFrame(() => {
@@ -352,7 +355,6 @@
     // Some browsers also emit dblclick after touch; never recenter twice.
     if (performance.now() - lastTouchTime > 800) recenter(event);
   }
-  let zoomGuideRadius = 0;
   const pointers = new SvelteMap<number, { x: number; y: number }>();
   const clampZoom = (value: number) => Math.max(0.25, Math.min(12, value));
   const wrapAngle = (value: number) => ((((value + 180) % 360) + 360) % 360) - 180;
@@ -384,7 +386,6 @@
     surface.setPointerCapture(event.pointerId);
     const position = point(event);
     pointers.set(event.pointerId, position);
-    if (pointers.size === 1) zoomGuideRadius = Math.hypot(position.x, position.y);
   }
   function pointerMove(event: PointerEvent) {
     const previous = pointers.get(event.pointerId);
@@ -432,8 +433,6 @@
       } else doubleTap.cancel();
     }
     pointers.delete(event.pointerId);
-    const remaining = pointers.values().next().value;
-    if (remaining) zoomGuideRadius = Math.hypot(remaining.x, remaining.y);
     if (!pointers.size) {
       gestureBounds = null;
       requestScan(220);
@@ -520,6 +519,71 @@
       );
     });
   }
+  function captureScanImage(): ImageData {
+    if (source) {
+      renderDetailedPreview();
+      return detail
+        .getContext("2d", { willReadFrequently: true })!
+        .getImageData(margin, margin, frameWidth, frameHeight);
+    }
+    if (input.width !== frameWidth) input.width = frameWidth;
+    if (input.height !== frameHeight) input.height = frameHeight;
+    ctx.fillStyle = "#142421";
+    ctx.fillRect(0, 0, frameWidth, frameHeight);
+    ctx.save();
+    ctx.translate(frameWidth / 2, frameHeight / 2);
+    ctx.scale(fit, fit);
+    ctx.drawImage(video, -mediaWidth / 2, -mediaHeight / 2);
+    ctx.restore();
+    return ctx.getImageData(0, 0, frameWidth, frameHeight);
+  }
+  async function saveImage() {
+    if (saving || (!source && !live)) return;
+    saving = true;
+    try {
+      const image = live ? lastScanImage : captureScanImage();
+      if (!image || (live && lastScanContent !== contentRevision))
+        throw new Error("Wait for a camera frame to be analyzed.");
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      canvas.getContext("2d")!.putImageData(image, 0, 0);
+      const blob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(
+          (blob) => (blob ? resolve(blob) : reject(new Error("PNG export failed"))),
+          "image/png",
+        ),
+      );
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `tapirscan-input-${image.width}x${image.height}-${Date.now()}.png`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (reason) {
+      error = `Could not save image: ${String(reason)}`;
+    } finally {
+      saving = false;
+    }
+  }
+  // Paint the stream ourselves so iOS video-layer sizing cannot shrink the preview.
+  // This canvas is display-only; scanning and PNG export retain the selected resolution.
+  function paintLivePreview(time: number) {
+    if (!live || disposed) return;
+    if (!document.hidden && !source && video.readyState >= 2 && time - lastPreviewTime >= 33) {
+      cameraResize();
+      const ratio = Math.min(1, 1600 / Math.max(video.videoWidth, video.videoHeight));
+      const width = Math.max(1, Math.round(video.videoWidth * ratio));
+      const height = Math.max(1, Math.round(video.videoHeight * ratio));
+      if (livePreview.width !== width) livePreview.width = width;
+      if (livePreview.height !== height) livePreview.height = height;
+      livePreview.getContext("2d")!.drawImage(video, 0, 0, width, height);
+      lastPreviewTime = time;
+    }
+    livePreviewFrame = requestAnimationFrame(paintLivePreview);
+  }
   async function scan() {
     if (disposed || (!source && !live)) return;
     if (busy || !selected.length || (live && document.hidden)) return;
@@ -550,25 +614,9 @@
         contentToken = contentRevision;
         await tick();
       }
-      if (source) renderDetailedPreview();
-      let image: ImageData;
-      if (source) {
-        // All selected scanners receive the same captured pixels.
-        image = detail
-          .getContext("2d", { willReadFrequently: true })!
-          .getImageData(margin, margin, frameWidth, frameHeight);
-      } else {
-        if (input.width !== frameWidth) input.width = frameWidth;
-        if (input.height !== frameHeight) input.height = frameHeight;
-        ctx.fillStyle = "#142421";
-        ctx.fillRect(0, 0, frameWidth, frameHeight);
-        ctx.save();
-        ctx.translate(frameWidth / 2, frameHeight / 2);
-        ctx.scale(fit, fit);
-        ctx.drawImage(video, -mediaWidth / 2, -mediaHeight / 2);
-        ctx.restore();
-        image = ctx.getImageData(0, 0, frameWidth, frameHeight);
-      }
+      const image = captureScanImage();
+      lastScanImage = image;
+      lastScanContent = contentToken;
       const view = {
         viewRevision: token,
         contentRevision: contentToken,
@@ -633,6 +681,8 @@
     }
   }
   function stopCamera() {
+    cancelAnimationFrame(livePreviewFrame);
+    lastScanImage = null;
     doubleTap.cancel();
     clearTimeout(timer);
     timer = undefined;
@@ -747,7 +797,13 @@
       setFrame(video.videoWidth, video.videoHeight);
       invalidate();
       selectedDemo = "";
+      cameraFrame = true;
       live = true;
+      await tick();
+      if (token !== cameraId || disposed) return;
+      cameraResize();
+      lastPreviewTime = 0;
+      livePreviewFrame = requestAnimationFrame(paintLivePreview);
       const track = next.getVideoTracks()[0];
       const caps = capabilities(track);
       hasTorch = !!caps.torch;
@@ -814,6 +870,7 @@
     stopCamera();
     source?.close();
     source = next;
+    cameraFrame = false;
     captureInfo = `Photo · ${next.width} × ${next.height}`;
     cameraPaused = false;
     setFrame(next.width, next.height);
@@ -883,7 +940,6 @@
       observer.disconnect();
       document.removeEventListener("visibilitychange", resumePreview);
       clearTimeout(centerHintTimer);
-      clearTimeout(labelSettleTimer);
       disposed = true;
       ++loadId;
       stopCamera();
@@ -896,12 +952,6 @@
   });
 </script>
 
-<svelte:head
-  ><title>Tapirscan</title><meta
-    name="description"
-    content="Compare barcode scanners on your camera or an image. Everything runs in your browser."
-  /></svelte:head
->
 <svelte:window
   bind:innerWidth={windowWidth}
   bind:innerHeight={windowHeight}
@@ -969,7 +1019,7 @@
         style:aspect-ratio={`${viewWidth} / ${viewHeight}`}
         style:max-width={expanded
           ? `${Math.min(windowWidth, (windowHeight * viewWidth) / viewHeight)}px`
-          : `min(100%, calc(66svh * ${W} / ${H}))`}
+          : `min(100%, calc(66svh * ${viewWidth} / ${viewHeight}))`}
       >
         <video
           bind:this={video}
@@ -977,10 +1027,15 @@
           muted
           playsinline
           aria-label="Live camera"
+          on:loadedmetadata={cameraResize}
           on:resize={cameraResize}
-          style:width={`${displayWidth}%`}
-          style:height={`${displayHeight}%`}
         ></video>
+        <canvas
+          bind:this={livePreview}
+          class="live-preview"
+          class:visible={live && !source}
+          aria-label="Live camera preview"
+        ></canvas>
         <canvas
           bind:this={preview}
           class="image-preview"
@@ -1008,7 +1063,7 @@
           style:touch-action={source ? "none" : "pan-y"}
           bind:this={surface}
           tabindex="0"
-          aria-label="Image controls. Drag toward the center to zoom out, away to zoom in, or around it to rotate. Follow the guide circle to keep the starting zoom. Scroll to zoom. Shift-scroll to rotate. Double-click or double-tap a point to center it without changing zoom."
+          aria-label="Image controls. Drag toward the center to zoom out, away to zoom in, or around it to rotate. Scroll to zoom. Shift-scroll to rotate. Double-click or double-tap a point to center it without changing zoom."
           on:pointerdown={pointerDown}
           on:pointermove={pointerMove}
           on:pointerup={pointerUp}
@@ -1021,13 +1076,6 @@
           on:dragstart|preventDefault={() => {}}
         ></canvas>
         <span
-          class="zoom-guide"
-          class:shown={!!source && !live && pointers.size === 1 && zoomGuideRadius >= 12}
-          style:width={`${zoomGuideRadius * 2}px`}
-          style:height={`${zoomGuideRadius * 2}px`}
-          aria-hidden="true"
-        ></span>
-        <span
           class="center-marker"
           class:shown={!!source && !live && (pointers.size > 0 || centerHint)}
           aria-hidden="true"
@@ -1037,7 +1085,7 @@
           viewBox={`${viewOffset} ${viewOffset} ${viewWidth} ${viewHeight}`}
           aria-label="Analysis frame and barcode results"
         >
-          {#if !expanded}<path
+          {#if !frameOnly}<path
               d={`M0 0H${W}V${H}H0Z M${margin} ${margin}V${margin + frameHeight}H${margin + frameWidth}V${margin}Z`}
               fill="#071512"
               fill-opacity=".62"
@@ -1140,30 +1188,31 @@
           {/each}
         </svg>
         {#if showAdjust && source && !live}
-          <label class="edge-adjust rotation-adjust">
-            <span>Rotate <output>{Math.round(angle)}°</output></span>
-            <input
-              aria-label="Image rotation"
-              type="range"
-              min="-180"
-              max="180"
-              step="1"
-              bind:value={angle}
-              on:input={transform}
+          <div
+            class="edge-adjust"
+            style:--adjust-track-height={`${Math.max(24, Math.min(65, ((stageWidth * viewHeight) / viewWidth - 148) / 2))}px`}
+          >
+            <SpringSlider
+              label="Rotate"
+              value={`${Math.round(angle)}°`}
+              negative="↶"
+              positive="↷"
+              move={(amount) => {
+                angle = wrapAngle(angle + amount * 90);
+                transform();
+              }}
             />
-          </label>
-          <label class="edge-adjust zoom-adjust">
-            <span>Zoom</span><output>{scale.toFixed(2)}×</output>
-            <input
-              aria-label="Image zoom"
-              type="range"
-              min="0.25"
-              max="12"
-              step="0.01"
-              bind:value={scale}
-              on:input={transform}
+            <SpringSlider
+              label="Zoom"
+              value={`${scale.toFixed(2)}×`}
+              negative="−"
+              positive="+"
+              move={(amount) => {
+                scale = clampZoom(scale * Math.exp(amount));
+                transform();
+              }}
             />
-          </label>
+          </div>
         {/if}
         {#if !source && !live && !cameraPaused && !entries.length}<div class="welcome">
             <h1>{opening ? "Opening your camera…" : "A clearer view of every barcode."}</h1>
@@ -1209,9 +1258,16 @@
           aria-pressed={showAdjust}
           on:click={() => (showAdjust = !showAdjust)}>Adjust</button
         >{/if}
+      <button
+        on:click={() => void saveImage()}
+        disabled={saving ||
+          (!source && !live) ||
+          (live && (!lastScanImage || lastScanContent !== contentRevision))}
+        title="Save the scanner input as PNG, without overlays"
+        >{saving ? "Saving…" : "Save image"}</button
+      >
       {#if source}<span class="gesture-hint"
-          >Drag to rotate and zoom · Follow the circle to keep zoom · Double-tap / double-click to
-          center</span
+          >Drag to rotate and zoom · Double-tap / double-click to center</span
         >{/if}
       <label class="resolution-control"
         >Detect<select
@@ -1452,6 +1508,9 @@
     <footer>
       <span>Local processing. No image uploads.</span>
       <nav aria-label="Project and legal links">
+        <a href="https://www.npmjs.com/package/tapirscan">npm</a>
+        <a href="https://pypi.org/project/tapirscan/">PyPI</a>
+        <a href="https://crates.io/crates/tapirscan">crates.io</a>
         <a href="https://github.com/kleinicke/tapirscan">GitHub</a>
         <a href="https://f-kleinicke.de/">About</a>
         <a href="https://f-kleinicke.de/impressum">Impressum</a>
@@ -1798,12 +1857,20 @@
     user-select: none;
     -webkit-touch-callout: none;
   }
+  .stage video {
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: none;
+    object-fit: contain;
+  }
   .stage canvas {
     will-change: transform;
   }
   .stage .visible {
     visibility: visible;
   }
+  .stage .live-preview,
   .stage .detail-preview {
     left: 0;
     top: 0;
@@ -1828,62 +1895,13 @@
   }
   .edge-adjust {
     position: absolute;
-    z-index: 4;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px;
-    border-radius: 8px;
-    color: white;
-    background: #102724e6;
-    font-size: 11px;
-    touch-action: none;
-  }
-  .edge-adjust output {
-    font-variant-numeric: tabular-nums;
-  }
-  .edge-adjust input {
-    accent-color: #b4e7ca;
-    margin: 0;
-    cursor: pointer;
-  }
-  .rotation-adjust {
-    bottom: 10px;
-    left: 10px;
-    right: 80px;
-    flex-direction: column;
-  }
-  .rotation-adjust input {
-    width: 100%;
-    height: 24px;
-  }
-  .zoom-adjust {
     right: 10px;
     top: 50%;
     transform: translateY(-50%);
+    z-index: 4;
+    display: flex;
     flex-direction: column;
-  }
-  .zoom-adjust input {
-    writing-mode: vertical-lr;
-    direction: rtl;
-    width: 28px;
-    height: clamp(70px, 22vh, 180px);
-  }
-  .zoom-guide {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    border: 1px dashed #ffffffb3;
-    border-radius: 50%;
-    box-shadow: 0 0 0 1px #07151266;
-    pointer-events: none;
-    z-index: 2;
-    opacity: 0;
-    transition: opacity 180ms ease-out;
-  }
-  .zoom-guide.shown {
-    opacity: 1;
+    gap: 5px;
   }
   .center-marker {
     position: absolute;
@@ -1922,8 +1940,7 @@
     width: 26px;
   }
   @media (prefers-reduced-motion: reduce) {
-    .center-marker,
-    .zoom-guide {
+    .center-marker {
       transition: none;
     }
   }

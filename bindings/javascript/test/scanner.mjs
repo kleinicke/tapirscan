@@ -53,7 +53,7 @@ function fixture() {
 }
 for (const mode of ["low", "medium", "high", "very-high"]) {
   test(`${mode}: known EAN, native/WASM parity and lifetime`, async () => {
-    const scanner = await Scanner.create({ mode, loadWasm });
+    const scanner = await Scanner.create({ mode, loadWasm, formats: "EAN13" });
     const temp = await mkdtemp(join(tmpdir(), "barcode-parity-"));
     try {
       const { text, image } = fixture();
@@ -363,7 +363,7 @@ test("public results preserve semantic metadata independently of diagnostics", a
 });
 
 test("localization limits reach compact results without diagnostics", async () => {
-  const scanner = await Scanner.create({ mode: "low" });
+  const scanner = await Scanner.create({ mode: "low", formats: "EAN13" });
   try {
     for (const [workLimited, omitted] of [
       [true, 0],
@@ -437,6 +437,7 @@ test("supplement policy is opt-in, validated at creation and fixed for scans", a
     const scanner = await Scanner.create({
       mode: "low",
       eanAddOnPolicy: policy,
+      formats: "EAN13",
       loadWasm: async (url) => {
         loaded.push(url.pathname.split("/").pop());
         return loadWasm(url);
@@ -459,6 +460,7 @@ test("supplement policy is opt-in, validated at creation and fixed for scans", a
     await assert.rejects(
       Scanner.create({
         eanAddOnPolicy: policy,
+        formats: "EAN13",
         loadWasm: () => {
           throw Error("must validate before loading");
         },

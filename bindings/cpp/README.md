@@ -49,7 +49,7 @@ native ABI is now version 4; rebuild clients and libraries together.
 
 The example assumes decoded RGBA bytes in `pixels`; dimensions are in pixels and
 stride is bytes between row starts. It selects EAN13 and Code128 (`1u | 16u`).
-See [format bits](../../docs/FORMATS.md); omit options for EAN13 defaults.
+See [format bits](../../docs/FORMATS.md); omit options for retail defaults.
 
 | Call                                                                          | Purpose                                                               |
 | ----------------------------------------------------------------------------- | --------------------------------------------------------------------- |
@@ -67,7 +67,7 @@ coordinates; support is not a probability. Repeated `barcodes()`/`best()` calls
 copy reads again. Store the returned vector when reusing it. There are no image
 loading, values-only or rectangle helpers. Decode image files before scanning.
 
-The CMake install is version 1.2.0 and includes the matching ABI-4 library. Effort
+The CMake install is version 1.2.1 and includes the matching ABI-4 library. Effort
 is selected by linking one mode, unlike Python/Java's runtime selection. CMake
 installation works locally; Conan/vcpkg distribution is not yet provided.
 

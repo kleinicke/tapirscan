@@ -5,7 +5,7 @@
 A browser interface for trying Tapirscan on photos and camera frames. It uses
 the `tapirscan` package, four EAN13 effort modes, and separately loaded
 ZXing-WASM 3.1.1 and ZBar-WASM 0.11.0 comparisons. The Detect selector offers
-EAN-13 (default), Retail (EAN-13, UPC-A, EAN-8, UPC-E), Common (Retail plus
+EAN-13, Retail (default: EAN-13, UPC-A, EAN-8, UPC-E), Common (Retail plus
 Code 128, Code 39, ITF, QR Code, and Data Matrix), and All (all Tapirscan formats). Every selected scanner receives
 the same transformed pixels. ZBar stays selected in Common and All, scanning its
 supported subset. It skips Data Matrix, PDF417, Aztec and MaxiCode; the UI notes
@@ -54,6 +54,10 @@ site output is ignored too. License texts and source/build links are included in
   and does not claim higher quality than the video stream.
 - Take photo opens the device camera/file picker with `capture=environment`.
   The exact interface and still-photo resolution depend on the device and browser.
+- Save image downloads a lossless PNG of the scanner input at the selected resolution,
+  including crop, zoom and rotation, without overlays. Live capture saves the most
+  recent analyzed frame. The live preview uses a separate canvas to avoid mobile
+  video-layer sizing issues; its display size does not affect scanner/export pixels.
 - Pause / freeze retains the current photo or a video frame for comparison.
 - Changing Resolution immediately reanalyzes the loaded photo from its retained
   original pixels. Full HD/4K cap the long edge at 1920/3840 pixels, preserving
@@ -107,9 +111,8 @@ ignored root `MAINTAINER.local.md`; they are not needed to develop or host a for
 ## Image interaction and overlays
 
 The radial controls use distance from the view center for zoom and angle for
-rotation. A thin guide circle through the initial pointer position appears while
-dragging: following it keeps the starting zoom, moving inside zooms out, and moving
-outside zooms in. It fades on release and is hidden during pinch-and-twist.
+rotation. Camera frames fill the viewer without the photo manipulation surround,
+including frozen camera frames.
 
 Double-click or double-tap a point in a photo or frozen frame to make it the view center without
 changing zoom or rotation. Touch taps allow small finger movements; drags,
@@ -160,14 +163,13 @@ by default. Unchecking explicitly disables all three; other library defaults rem
 Changing it clears only ZXing’s result and restarts only its worker before reanalysis;
 other readers keep their results for the same image.
 
-Label placement retains any valid existing position, then prefers small nearby
-corrections. A move of more than 24 screen pixels requires a consistent alternative
-for 650 ms. If temporarily obstructed, the label is hidden instead of covering a
-barcode; its position is remembered for 1.2 seconds without displaying stale
-results. Source/view changes reset placement. Crowded views omit labels with a
+Label placement is recalculated next to the current barcode bounds on every update,
+without retaining old offsets or delaying movement. Crowded views omit labels with a
 count; all values remain in Results. Long payloads are shortened on the image,
 with the full value in the title and Results.
 
-Adjust toggles precision sliders at the bottom (rotation) and right (zoom) of the
-image, including fullscreen. They preserve the current image center. Label history
-survives rotation and zoom; distant relocations wait until adjustment has settled.
+Adjust toggles two narrow vertical movement sliders stacked on the right of the image, including
+fullscreen. Both rest at zero: hold up/down to rotate or zoom continuously,
+with faster movement farther from zero. Release or losing focus stops movement
+and returns the handle to center. Readouts show the current angle and zoom.
+Labels follow the current barcode geometry during rotation and zoom.

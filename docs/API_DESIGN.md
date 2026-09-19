@@ -57,7 +57,7 @@ recipes are unchanged. There is no retry-until-finished loop.
 
 ## Configuration and ownership
 
-Defaults remain Medium effort, EAN-13 and ignored supplements. Effort and
+Defaults are Medium effort, retail formats and ignored supplements. Effort and
 supplement policy are fixed at creation. Per-call format selection does not
 mutate configuration. JavaScript selections must be subsets of loaded formats;
 native bindings can use any supported format without asynchronous loading.

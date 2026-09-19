@@ -41,7 +41,7 @@ class Bindings(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="barcode-continuation-") as temp:
             path = Path(temp) / "pixels.raw"
             for mode in ("low", "medium", "high", "very-high"):
-                with Scanner(mode, library_dir=LIBS) as scanner:
+                with Scanner(mode, formats="EAN13", library_dir=LIBS) as scanner:
                     for name, pixels, w, h, channels, stride, _ in fixtures():
                         with self.subTest(mode=mode, fixture=name):
                             path.write_bytes(pixels)
@@ -81,7 +81,7 @@ class Bindings(unittest.TestCase):
         """Verify all languages and modes."""
         with tempfile.TemporaryDirectory(prefix="barcode-binding-test-") as temp:
             for mode in ("low", "medium", "high", "very-high"):
-                with Scanner(mode, library_dir=LIBS) as scanner:
+                with Scanner(mode, formats="EAN13", library_dir=LIBS) as scanner:
                     for name, pixels, w, h, c, stride, expected in fixtures():
                         with self.subTest(mode=mode, fixture=name):
                             path = Path(temp) / "pixels.raw"
@@ -116,6 +116,7 @@ class Bindings(unittest.TestCase):
                                 path,
                                 1,
                                 1,
+                                1,
                             )
                             classpath = os.pathsep.join(
                                 map(
@@ -141,6 +142,7 @@ class Bindings(unittest.TestCase):
                                 path,
                                 1,
                                 1,
+                                1,
                             )
                             js = run(
                                 "node",
@@ -153,6 +155,7 @@ class Bindings(unittest.TestCase):
                                 path,
                                 1,
                                 1,
+                                "EAN13",
                             )
                             typed = [
                                 {k: b[k] for k in ("text", "support", "polygon")}
@@ -220,7 +223,7 @@ class Bindings(unittest.TestCase):
             path = Path(temp) / "pixels.raw"
             path.write_bytes(pixels)
             for mode in ("low", "medium", "high", "very-high"):
-                with Scanner(mode, library_dir=LIBS) as scanner:
+                with Scanner(mode, formats="EAN13", library_dir=LIBS) as scanner:
                     default_result = scanner.scan(PixelImage(pixels, width=w, height=h))
                     self.assertIsNone(default_result.debug)
                     defaults = default_result.to_raw_dict()
@@ -279,7 +282,7 @@ class Bindings(unittest.TestCase):
                                     int(multiple),
                                     int(regions),
                                 ]
-                                cpp = run(ROOT / f"build/cpp-{mode}/scan_raw", *args)
+                                cpp = run(ROOT / f"build/cpp-{mode}/scan_raw", *args, 1)
                                 java = run(
                                     tool("java"),
                                     "--enable-native-access=ALL-UNNAMED",
@@ -289,12 +292,14 @@ class Bindings(unittest.TestCase):
                                     LIBS,
                                     mode,
                                     *args,
+                                    1,
                                 )
                                 js = run(
                                     "node",
                                     ROOT / "bindings/javascript/test/native_parity.mjs",
                                     mode,
                                     *args,
+                                    "EAN13",
                                 )
                                 rust = run(
                                     ROOT

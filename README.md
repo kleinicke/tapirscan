@@ -15,7 +15,7 @@ and samples across the bars, including diagonally. It is built for photos and ca
 clean horizontal or vertical scanline may be hard to find.
 
 **EAN-13, UPC-A, EAN-8 and UPC-E are supported** through the retail group.
-EAN-13 is enabled by default. Four effort modes let you choose how much work to
+Retail formats (EAN13, UPCA, EAN8 and UPCE) are enabled by default. Four effort modes let you choose how much work to
 spend on a frame. Formats outside the retail group, including QR Code, remain
 **experimental and opt-in**.
 
@@ -57,10 +57,6 @@ C ABI with a single prompt. See [the binding guide](docs/ADDING_BINDINGS.md) for
 starter prompt and the checks needed before using or publishing the result.
 
 ## Quick start
-
-The API below describes this checkout. For the unreleased changes, build/install
-locally using [the development guide](docs/DEVELOPMENT.md); an older registry
-package may expose the previous API.
 
 Install Tapirscan from [npm](https://www.npmjs.com/package/tapirscan) or
 [PyPI](https://pypi.org/project/tapirscan/). See the
@@ -182,7 +178,7 @@ See the [architecture guide](docs/ARCHITECTURE.md) for implementation details.
 
 The supported retail group includes EAN-13, UPC-A, EAN-8 and UPC-E. Select
 `formats="retail"` in Python or `formats: "retail"` in JavaScript to enable all
-four; Rust provides `Formats::RETAIL`. EAN-13 remains enabled by default, and
+four; Rust provides `Formats::RETAIL`. Retail formats are enabled by default, and
 UPC-A uses the same optical path. Opt-in experimental readers outside this group
 include Code 128, Code 39, Code 93, ITF, Codabar, DataBar,
 DataBar Expanded, QR Code, Data Matrix, PDF417, Aztec, and MaxiCode.
@@ -234,7 +230,6 @@ Licensed under the [MIT License](LICENSE), copyright © 2026 Florian Nick.
 Third-party components retain their own licenses and
 [notices](multiformat/THIRD_PARTY_NOTICES.md). Release preparation is described in the [release checklist](docs/RELEASING.md).
 
-This checkout prepares version **1.2.0**, a breaking API revision; see [migration](docs/API_MIGRATION.md).
 See the [compatibility policy](CONTRIBUTING.md#api-stability)
 for API stability and release changes.
 

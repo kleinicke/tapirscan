@@ -7,7 +7,7 @@ use std::{fmt, time::Duration};
 #[repr(u32)]
 pub enum Format {
     #[serde(rename = "EAN13")]
-    /// EAN-13 retail barcode (the default reader).
+    /// EAN-13 retail barcode.
     Ean13 = 1,
     #[serde(rename = "UPCA")]
     /// UPC-A retail barcode.
@@ -137,7 +137,7 @@ pub enum EanAddOnPolicy {
 pub struct ScannerOptions {
     /// Effort mode. Scanner configuration defaults to [`Mode::Medium`].
     pub mode: Mode,
-    /// Default readers, initially EAN-13 only.
+    /// Default readers, initially all retail formats.
     pub formats: Formats,
     /// Retail supplement policy, initially [`EanAddOnPolicy::Ignore`].
     pub ean_add_on_policy: EanAddOnPolicy,
@@ -146,7 +146,7 @@ impl Default for ScannerOptions {
     fn default() -> Self {
         Self {
             mode: Mode::Medium,
-            formats: Format::Ean13.into(),
+            formats: Formats::RETAIL,
             ean_add_on_policy: EanAddOnPolicy::Ignore,
         }
     }

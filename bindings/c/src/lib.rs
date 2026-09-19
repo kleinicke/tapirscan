@@ -137,7 +137,7 @@ pub unsafe extern "C" fn barcode_scan_with_options(
     out: *mut u64,
 ) -> i32 {
     barcode_scan_formats(
-        id, pixels, length, width, height, channels, stride, flags, 1, out,
+        id, pixels, length, width, height, channels, stride, flags, 15, out,
     )
 }
 /// Scan an explicit nonempty format bitmask; results own UTF-8 strings.

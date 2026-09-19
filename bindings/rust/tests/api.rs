@@ -21,6 +21,11 @@ fn fixture(pair: bool) -> (Vec<u8>, usize, usize) {
 }
 
 #[test]
+fn default_formats_are_retail() {
+    assert_eq!(ScannerOptions::default().formats, Formats::RETAIL);
+}
+
+#[test]
 fn all_modes_preserve_instances_and_direct_debug_parity() {
     assert_eq!(BITS.len(), 95);
     for mode in [Mode::Low, Mode::Medium, Mode::High, Mode::VeryHigh] {

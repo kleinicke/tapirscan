@@ -55,7 +55,6 @@ export class LabelLayout {
   private previous: GroupLabel[] = [];
   private context = "";
   private nextId = 0;
-  private relocations = new Map<number, { box: Box; since: number }>();
   private lastSeen = new Map<number, number>();
   update(
     regions: LabelRegion[],
@@ -65,11 +64,9 @@ export class LabelLayout {
     unit: number,
     context: string,
     now = performance.now(),
-    holdRelocations = false,
   ) {
     if (context !== this.context) {
       this.previous = [];
-      this.relocations.clear();
       this.lastSeen.clear();
       this.context = context;
     }
@@ -115,30 +112,10 @@ export class LabelLayout {
         b.x + b.width <= width - gap &&
         b.y + b.height <= height - gap &&
         !occupied.some((o) => overlaps(b, o));
-      let position: Box | undefined;
-      if (old && old.width === w && old.height === h && valid(old)) position = old;
       const anchor = group.anchor,
         cx = anchor.x + anchor.width / 2,
         cy = anchor.y + anchor.height / 2;
       const alternatives: Box[] = [];
-      // Try small corrections around the current position before considering another side.
-      if (old)
-        for (const radius of [4, 8, 16, 24]) {
-          for (const [dx, dy] of [
-            [0, -1],
-            [0, 1],
-            [-1, 0],
-            [1, 0],
-            [-1, -1],
-            [1, 1],
-          ])
-            alternatives.push({
-              x: old.x + dx * radius * unit,
-              y: old.y + dy * radius * unit,
-              width: w,
-              height: h,
-            });
-        }
       for (let ring = 0; ring < 6; ring++) {
         const offset = ring * (h + gap);
         for (const [x, y] of [
@@ -154,29 +131,7 @@ export class LabelLayout {
             height: h,
           });
       }
-      if (!position) {
-        const available = alternatives.filter(valid);
-        if (old)
-          available.sort(
-            (a, b) => Math.hypot(a.x - old.x, a.y - old.y) - Math.hypot(b.x - old.x, b.y - old.y),
-          );
-        position = available.at(0);
-        if (old && position && Math.hypot(position.x - old.x, position.y - old.y) > 24 * unit) {
-          const pending = this.relocations.get(old.id);
-          if (
-            !pending ||
-            Math.hypot(pending.box.x - position.x, pending.box.y - position.y) > 24 * unit
-          ) {
-            this.relocations.set(old.id, { box: position, since: now });
-            position = undefined;
-          } else if (holdRelocations || now - pending.since < 650) position = undefined;
-        }
-      } else if (old) this.relocations.delete(old.id);
-      if (old) {
-        this.lastSeen.set(old.id, now);
-        // Track the detection even when its label is temporarily hidden by a collision.
-        old.anchor = group.anchor;
-      }
+      const position = alternatives.find(valid);
       if (!position) continue;
       let nameOffset = 6;
       const label: GroupLabel = {
@@ -204,7 +159,6 @@ export class LabelLayout {
     for (const id of this.lastSeen.keys())
       if (!retained.has(id)) {
         this.lastSeen.delete(id);
-        this.relocations.delete(id);
       }
     return { placed, hidden: groups.length - placed.length };
   }

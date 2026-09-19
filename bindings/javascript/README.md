@@ -1,10 +1,5 @@
 # Tapirscan for JavaScript and TypeScript
 
-This guide describes the 1.2.0 API revision. See [migration](../../docs/API_MIGRATION.md).
-Build/install this checkout using [the development guide](../../docs/DEVELOPMENT.md)
-to use these changes before publication; older registry packages use their own
-versioned API.
-
 Scan image pixels in a browser or Node with the same Rust/WASM core.
 [Try the live demo](https://tapirscan.netlify.app) · [Quick start](#quick-start) · [WASM loading](#wasm-loading) · [Functions](#functions) · [All options](#all-options) · [Results](#results)
 
@@ -29,7 +24,7 @@ const result = await scan(image);
 console.log(result.values); // e.g. ["4006381333931"]
 ```
 
-Defaults are Medium effort, EAN13, multiple results, and debug disabled.
+Defaults are Medium effort, retail formats, multiple results, and debug disabled.
 `result.barcodes` also gives each read's text, format, polygon and rectangle.
 The helper creates and disposes a scanner automatically. Browser apps need to
 serve its [WASM assets](#wasm-loading); Node loads the packaged files automatically.
@@ -141,7 +136,7 @@ call and does not change the default formats. Previously returned results surviv
 | Option           | Where               | Default                | Meaning                                                                                                                                                           |
 | ---------------- | ------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mode`           | Creation            | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                                                     |
-| `formats`        | Creation / scan     | `["EAN13"]`            | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call selections must be subsets of creation formats. |
+| `formats`        | Creation / scan     | `"retail"`             | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call selections must be subsets of creation formats. |
 | `wasmBaseUrl`    | Creation            | Module-relative assets | Directory URL for packaged WASMs. Use this for normal browser hosting.                                                                                            |
 | `loadWasm`       | Creation            | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`. Uses HTTP fetch in browsers and filesystem reads for Node file URLs.                                                        |
 | `eanAddOnPolicy` | Creation / one-shot | `"Ignore"`             | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                            |

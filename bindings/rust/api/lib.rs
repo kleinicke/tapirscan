@@ -60,7 +60,7 @@ impl Scanner {
     /// Configure effort, formats and supplement policy once.
     ///
     /// `options` fixes the scanner's defaults; use [`ScannerOptions::default()`]
-    /// for Medium effort, EAN-13 and ignored supplements. Construction is local
+    /// for Medium effort, retail formats and ignored supplements. Construction is local
     /// and infallible. Input validation happens during scanning.
     #[must_use]
     pub fn new(options: ScannerOptions) -> Self {

@@ -20,7 +20,7 @@ public final class Tapirscan implements AutoCloseable {
     public enum Mode { LOW, MEDIUM, HIGH, VERY_HIGH }
     public record ScanOptions(boolean multiple, boolean includeRegions, int formats, boolean finishCandidates) {
         public ScanOptions(boolean multiple, boolean includeRegions, int formats) { this(multiple, includeRegions, formats, false); }
-        public ScanOptions(boolean multiple, boolean includeRegions) { this(multiple, includeRegions, 1); }
+        public ScanOptions(boolean multiple, boolean includeRegions) { this(multiple, includeRegions, 15); }
         public static ScanOptions defaults() { return new ScanOptions(true,false); }
     }
     public record Point(double x, double y) {}

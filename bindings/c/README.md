@@ -42,7 +42,7 @@ The supported native target is currently 64-bit. macOS arm64 has been tested; Li
 has CI coverage configured but not run remotely yet. Windows build naming is included
 but Windows/MSVC validation remains pending. See [the ABI contract](../../docs/NATIVE_BINDINGS.md) for schema.
 
-`barcode_scan` uses the defaults: multiple results, no exposed region evidence.
+`barcode_scan` uses the defaults: retail formats (mask 15), multiple results, no exposed region evidence.
 `barcode_scan_with_options` adds flags: `BARCODE_SINGLE` returns at most one
 highest-support decoded result after full scanning; `BARCODE_INCLUDE_REGIONS`
 adds localization/search/candidate evidence to JSON. Combine flags with bitwise OR;

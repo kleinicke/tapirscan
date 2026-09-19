@@ -73,7 +73,7 @@ matrix_formats: tuple[Format, ...] = (
 def resolve_formats(formats: FormatSelection | None) -> tuple[Format, ...]:
     """Expand public presets and validate a nonempty explicit format selection."""
     if formats is None:
-        return ("EAN13",)
+        return retail_formats
     if isinstance(formats, str):
         if formats in FORMAT_BITS:
             return (cast("Format", formats),)

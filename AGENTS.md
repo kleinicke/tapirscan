@@ -19,7 +19,7 @@ base crate do not include the selected patches. Follow
 
 ## Changes and verification
 
-This checkout prepares version 1.2.0, the breaking API revision described in
+This checkout prepares version 1.2.1, following the API revision described in
 `docs/API_MIGRATION.md`. Implement the current documented APIs and preserve the
 synchronized release versions. Follow the compatibility policy in
 [CONTRIBUTING.md](CONTRIBUTING.md#api-stability) and [API design](docs/API_DESIGN.md).

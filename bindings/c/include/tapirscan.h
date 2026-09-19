@@ -21,7 +21,8 @@ enum barcode_scan_flags { BARCODE_SINGLE=1, BARCODE_INCLUDE_REGIONS=2,
    REQUIRE_EAN_ADDON accepts retail reads only with a confirmed supplement.
    The two flags are mutually exclusive; neither affects non-retail formats.
    Supplement text is returned as eanAddOn in result JSON. Default: ignore. */
-/* Flags 0: multiple results, no region evidence. SINGLE ranks a completed scan;
+/* barcode_scan and barcode_scan_with_options select retail formats (mask 15).
+   Flags 0: multiple results, no region evidence. SINGLE ranks a completed scan;
    it does not stop scanning early. JSON schema 2 omits region fields by default. */
 typedef uint64_t tapirscan_handle;
 typedef uint64_t barcode_result;

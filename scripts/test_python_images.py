@@ -144,6 +144,8 @@ class Images(unittest.TestCase):
     def test_retail_and_common_presets(self) -> None:
         """Presets expose their exact selection and decode through the public API."""
         self.assertEqual(barcode.retail_formats, ("EAN13", "UPCA", "EAN8", "UPCE"))
+        with Scanner(library_dir=LIBS) as scanner:
+            self.assertEqual(scanner.formats, barcode.retail_formats)
         self.assertEqual(
             barcode.common_linear_formats,
             (*barcode.retail_formats, "Code128", "Code39", "ITF"),

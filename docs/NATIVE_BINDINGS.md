@@ -5,7 +5,7 @@ four independent libraries with `python3 scripts/build_native.py low medium high
 Python and Java select a mode at runtime; C/C++ link one selected library.
 Mode IDs are low=0, medium=1, high=2 and very-high=3. Medium is the default.
 
-EAN13 is the default format. `barcode_scan_formats` accepts an explicit nonempty
+Retail (EAN13, UPCA, EAN8 and UPCE; mask 15) is the default selection. `barcode_scan_formats` accepts an explicit nonempty
 format mask; see [format coverage](FORMATS.md). The typed C read contains a
 source-coordinate polygon, support, UTF-8 byte length and format name. Copy the
 complete payload using `barcode_result_copy_text`, allocating `text_length + 1`

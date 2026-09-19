@@ -50,12 +50,12 @@ test("identical payloads at separate locations remain separate instances", () =>
   assert.equal(hidden, 0);
   assert.ok(!overlaps(placed[0], placed[1]));
 });
-test("label positions tolerate small detection jitter and reset for a new source", () => {
+test("labels follow their barcode while retaining the same relative offset", () => {
   const layout = new LabelLayout();
   const first = layout.update([region], scanners, 800, 600, 1, "first").placed[0];
   const moved = { ...region, polygon: region.polygon.map(([x, y]) => [x + 1, y + 1]) };
   assert.deepEqual(
-    box(first),
+    box({ ...first, x: first.x + 1, y: first.y + 1 }),
     box(layout.update([moved], scanners, 800, 600, 1, "first").placed[0]),
   );
   assert.notEqual(first.id, layout.update([moved], scanners, 800, 600, 1, "second").placed[0].id);
@@ -78,33 +78,6 @@ test("crowded views omit groups rather than overlapping other labels or detectio
   }
 });
 
-test("one-run obstruction does not relocate a label; sustained obstruction eventually does", () => {
-  const layout = new LabelLayout();
-  const original = layout.update([region], scanners, 800, 600, 1, "photo", 0).placed[0];
-  const obstacle = {
-    ...region,
-    text: "other",
-    polygon: [
-      [original.x - 10, original.y - 10],
-      [original.x + original.width + 10, original.y - 10],
-      [original.x + original.width + 10, original.y + original.height + 10],
-      [original.x - 10, original.y + original.height + 10],
-    ],
-  };
-  const blocked = layout.update([region, obstacle], scanners, 800, 600, 1, "photo", 100);
-  assert.ok(!blocked.placed.some((label) => label.id === original.id));
-  const recovered = layout
-    .update([region], scanners, 800, 600, 1, "photo", 200)
-    .placed.find((label) => label.id === original.id);
-  assert.deepEqual(box(recovered), box(original));
-  layout.update([region, obstacle], scanners, 800, 600, 1, "photo", 300);
-  const persistent = layout
-    .update([region, obstacle], scanners, 800, 600, 1, "photo", 1000)
-    .placed.find((label) => label.id === original.id);
-  assert.ok(persistent);
-  assert.notDeepEqual(box(persistent), box(original));
-});
-
 test("brief missing detection retains placement memory without displaying stale results", () => {
   const layout = new LabelLayout();
   const original = layout.update([region], scanners, 800, 600, 1, "photo", 0).placed[0];
@@ -115,23 +88,37 @@ test("brief missing detection retains placement memory without displaying stale 
   );
 });
 
-test("rotation keeps distant relocations on hold even past the normal delay", () => {
+test("labels travel with a barcode through repeated motion without switching sides", () => {
   const layout = new LabelLayout();
-  const original = layout.update([region], scanners, 800, 600, 1, "photo", 0).placed[0];
-  const obstacle = {
-    ...region,
-    text: "other",
-    polygon: [
-      [original.x - 10, original.y - 10],
-      [original.x + original.width + 10, original.y - 10],
-      [original.x + original.width + 10, original.y + original.height + 10],
-      [original.x - 10, original.y + original.height + 10],
-    ],
-  };
-  for (const now of [100, 500, 900, 1400]) {
-    const result = layout.update([region, obstacle], scanners, 800, 600, 1, "photo", now, true);
-    assert.ok(!result.placed.some((label) => label.id === original.id));
+  const original = layout.update([region], scanners, 900, 700, 1, "photo", 0).placed[0];
+  for (let step = 1; step <= 12; step++) {
+    const dx = step * 8,
+      dy = step * 4;
+    const moved = { ...region, polygon: region.polygon.map(([x, y]) => [x + dx, y + dy]) };
+    const label = layout.update([moved], scanners, 900, 700, 1, "photo", step * 40).placed[0];
+    assert.equal(label.id, original.id);
+    assert.equal(label.x - original.x, dx);
+    assert.equal(label.y - original.y, dy);
   }
-  const recovered = layout.update([region], scanners, 800, 600, 1, "photo", 1500).placed;
-  assert.deepEqual(box(recovered.find((label) => label.id === original.id)), box(original));
+});
+
+test("resizing a barcode recomputes a nearby label instead of carrying its old offset", () => {
+  const layout = new LabelLayout();
+  layout.update([region], scanners, 900, 700, 1, "photo", 0);
+  for (const height of [140, 30, 190, 70]) {
+    const changed = {
+      ...region,
+      polygon: [
+        [230, 275 - height / 2],
+        [330, 275 - height / 2],
+        [330, 275 + height / 2],
+        [230, 275 + height / 2],
+      ],
+    };
+    const current = layout.update([changed], scanners, 900, 700, 1, "photo", 100).placed[0];
+    const fresh = new LabelLayout().update([changed], scanners, 900, 700, 1, "photo", 100)
+      .placed[0];
+    assert.deepEqual([current.x, current.y], [fresh.x, fresh.y]);
+    assert.equal(current.anchor.y - current.y - current.height, 6);
+  }
 });

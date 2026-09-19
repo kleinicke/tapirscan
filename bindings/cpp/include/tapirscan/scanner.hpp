@@ -17,7 +17,7 @@ public:
     explicit Error(int status) : std::runtime_error("Barcode scanner error " + std::to_string(status)), code(status) {}
 };
 inline void check(int status) { if (status != BARCODE_OK) throw Error(status); }
-struct ScanOptions { bool multiple = true; bool include_regions = false; std::uint32_t formats = 1; bool finish_candidates = false; };
+struct ScanOptions { bool multiple = true; bool include_regions = false; std::uint32_t formats = 15; bool finish_candidates = false; };
 struct Barcode { std::string text; std::array<double,8> polygon; std::uint32_t support; std::string format; };
 class Result {
     barcode_result handle_ = 0;

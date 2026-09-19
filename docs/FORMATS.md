@@ -1,7 +1,7 @@
 # Format coverage
 
 **The retail group—EAN13, UPCA, EAN8 and UPCE—is supported, not experimental.**
-Formats outside this group remain experimental. EAN13 is the default. Additional formats are explicitly selected at scanner
+Formats outside this group remain experimental. Retail is the default selection. Additional formats are explicitly selected at scanner
 creation in JavaScript and Python. Python also allows per-scan overrides;
 JavaScript accepts per-scan subsets of the creation selection.
 Rust and the native ABI select formats per scan. Python and JavaScript accept
@@ -19,7 +19,7 @@ or explicit lists.
 
 Retail covers the EAN/UPC family, not every format used in retail (for example,
 DataBar requires an explicit selection or `"1D"`). Common is a convenience selection,
-not a coverage or accuracy guarantee. EAN13 remains the default.
+not a coverage or accuracy guarantee. Retail is the default selection.
 
 EAN13 and UPCA share the primary scan; selecting UPCA adds output normalization,
 not another image scan. Retail additionally runs the extra engine for EAN8/UPCE,

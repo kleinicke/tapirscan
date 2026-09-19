@@ -65,3 +65,16 @@ test("Medium EAN8-only shares retail recovery and resets selection between scans
     retail.dispose();
   }
 });
+
+test("default selection is retail and explicit EAN13 remains available", async () => {
+  const scanner = await Scanner.create();
+  const ean13 = await Scanner.create({ formats: "EAN13" });
+  try {
+    assert.deepEqual(scanner.formats, ["EAN13", "UPCA", "EAN8", "UPCE"]);
+    assert.deepEqual(scanner.scan(ean8()).values, ["96385074"]);
+    assert.deepEqual(ean13.scan(ean8()).values, []);
+  } finally {
+    scanner.dispose();
+    ean13.dispose();
+  }
+});

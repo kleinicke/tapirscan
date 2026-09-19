@@ -4,10 +4,78 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
     <meta name="theme-color" content="#122c2a" />
-    <title>Tapirscan</title>
+    <title>Tapirscan — interactive barcode scanner comparison</title>
+    <meta
+      name="description"
+      content="Compare Tapirscan, ZXing and ZBar on rotated barcodes using demo images, your own photos or a live camera. All image processing runs locally in your browser."
+    />
+    <style>
+      .about-demo {
+        max-width: 1056px;
+        margin: 24px auto 48px;
+        padding: 24px;
+        color: #29443e;
+        line-height: 1.65;
+        border-top: 1px solid #cbd6cb;
+      }
+      .about-demo h1 {
+        font-size: 1.4rem;
+        line-height: 1.3;
+      }
+      .about-demo h2 {
+        font-size: 1.1rem;
+        margin-top: 24px;
+      }
+      .about-demo p {
+        max-width: 85ch;
+      }
+      .about-demo a {
+        color: inherit;
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>
+    <section class="about-demo" aria-labelledby="about-demo-title">
+      <h1 id="about-demo-title">Tapirscan: barcode scanning, including rotated barcodes</h1>
+      <p>
+        Tapirscan is a barcode scanner designed for reliable detection, including barcodes rotated
+        at different angles. This interactive demo compares its four scanning effort levels—TS-Low,
+        TS-Med, TS-High and TS-VHigh—with the independent ZXing and ZBar barcode readers.
+      </p>
+      <h2>What you see in the demo</h2>
+      <p>
+        Each selected scanner analyzes the same image pixels. Colored outlines mark detected barcode
+        locations; nearby labels show the decoded values and the scanners that found them. Scanner
+        buttons and result cards report decoded values and processing times. The four Tapirscan
+        levels offer different trade-offs between scanning effort and speed. This demo lets you
+        explore results on individual images; it is not a comprehensive benchmark.
+      </p>
+      <h2>Try images, rotation and your camera</h2>
+      <p>
+        Choose a demo image, load your own photo, or use a webcam or phone camera. Rotate and zoom
+        images, or double-click or double-tap to move the view center. Fullscreen provides a larger
+        view, and Adjust opens rotation and zoom controls for photos and frozen frames. Pause /
+        freeze turns a live camera frame into an image you can explore.
+      </p>
+      <p>
+        The Detect selector offers EAN-13, Retail, Common and All barcode formats. Readers scan the
+        formats they support. Read up to controls the input resolution. Save image downloads the
+        scanner input as a PNG with its crop, zoom and rotation applied, without the result
+        overlays; in live mode it saves the latest analyzed frame.
+      </p>
+      <p>
+        Images and camera frames are processed locally in your browser and are not uploaded. Learn
+        more or use Tapirscan in your own project on
+        <a href="https://github.com/kleinicke/tapirscan">GitHub</a>.
+      </p>
+      <p>
+        Packages:
+        <a href="https://www.npmjs.com/package/tapirscan">npm (JavaScript / TypeScript)</a> ·
+        <a href="https://pypi.org/project/tapirscan/">PyPI (Python)</a> ·
+        <a href="https://crates.io/crates/tapirscan">crates.io (Rust)</a>.
+      </p>
+    </section>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

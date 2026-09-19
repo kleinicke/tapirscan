@@ -262,7 +262,7 @@ export class Scanner {
   private constructor(
     private readonly host: IndependentScanner | ReleaseDetailScanner | MediumMultiformatScanner,
     readonly mode: Mode,
-    private readonly configuredFormats: readonly Format[] = ["EAN13"],
+    private readonly configuredFormats: readonly Format[] = resolveFormats(),
     private readonly addOnPolicy: EanAddOnPolicy = "Ignore",
   ) {
     Object.freeze(configuredFormats);

@@ -37,11 +37,12 @@ new format commitments, or distribution changes before building a large patch.
 ## API stability
 
 The binding guides and [API design](docs/API_DESIGN.md) describe the
-1.2.0 API revision prepared for release. See [migration](docs/API_MIGRATION.md).
+1.2.0 API revision, with retail defaults in 1.2.1. See [migration](docs/API_MIGRATION.md).
 The early-library 1.2.0 release explicitly makes a one-time exception by including
 breaking changes in a minor version. From 1.2.0 onward, documented functions, defaults, result fields, identifiers and
 ownership/error contracts stay compatible within a major version. Minor versions
-may add compatible capabilities; patch versions fix bugs.
+may add compatible capabilities; patch versions fix bugs. Version 1.2.1 explicitly broadens the default format
+selection to retail; callers needing EAN13-only behavior should select it explicitly.
 
 Decoder improvements can change reads, geometry, ordering and runtime on a given
 image. Those outputs are not bit-for-bit compatibility promises. Experimental

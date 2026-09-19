@@ -2,7 +2,7 @@
 
 Scan decoded pixels and receive every accepted barcode, source-image geometry,
 undecoded proposals and reported work limits. Defaults are Medium effort and
-EAN-13. This is the 1.2.0 API; see [migration](../../docs/API_MIGRATION.md).
+retail formats (EAN13, UPCA, EAN8 and UPCE).
 
 ```rust
 use tapirscan::Image;
