@@ -279,7 +279,8 @@ def resume_core(out: Path, recipe: str) -> None:
     )
     env["RUSTFLAGS"] = (
         wasm_flags()
-        + f" --remap-path-prefix={core_manifest.parent.as_posix()}/multiformat=/tapirscan/multiformat"
+        + f" --remap-path-prefix={core_manifest.parent.as_posix()}/multiformat="
+        "/tapirscan/multiformat"
     )
     subprocess.run(
         [

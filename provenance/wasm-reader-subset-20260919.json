@@ -2,7 +2,7 @@
   "date": "2026-09-19",
   "change": "Build only the unchanged linear, databar, expanded, numeric, retail_gray and retail_profile modules plus the unchanged recovery_gray entry point for shared-retail WASM. Copy required data structs without unused serde attributes. Avoid unused host-dependent serialization/proc-macro dependencies. Native and standalone Rust builds unchanged.",
   "adapter": "scripts/build.py:prepare_wasm_source",
-  "adapterSha256": "dbf6ea8cb764ec038e0401ca69ac7f0f5e255eed33b4042128404b12a97be253",
+  "adapterSha256": "76b631eabcb8a50a47c1308a5d99d0b12b41f31eb65f9dbfbfcded1d0d5fdb33",
   "previousModes": [
     {
       "mode": "low",
