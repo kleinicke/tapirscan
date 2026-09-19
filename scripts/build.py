@@ -26,7 +26,10 @@ def wasm_flags() -> str:
     return (
         "-C target-feature=+simd128 "
         f"--remap-path-prefix={sysroot}/lib/rustlib/src/rust/library="
-        f"/rustc/{commit}/library"
+        f"/rustc/{commit}/library "
+        # Preserve the source-location strings in the already pinned retail WASMs.
+        f"--remap-path-prefix={ROOT.as_posix()}/multiformat="
+        "/Users/florian/Projects/cursor/barcode/tapirscan/multiformat"
     )
 
 
