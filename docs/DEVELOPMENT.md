@@ -82,6 +82,13 @@ and a JDK in `JAVA_HOME`. You can save local tool paths in the ignored
 `.quality-tools/environment.json`. See [quality tools](QUALITY.md) and [validation](VALIDATION.md)
 for the focused tests, platform matrix, and reproduction commands.
 
+Shared-retail WASMs compile their path dependency inside a generated Cargo
+workspace under `build/<mode>/wasm-source`. This keeps dependency identities
+independent of the checkout path; source-location strings use
+`/tapirscan/multiformat`. The original recipe sources remain hash-verified before
+this build-only adapter is applied. Artifact names and before/after hashes are
+recorded in `provenance/wasm-workspace-20260919.json`.
+
 Algorithm changes are promoted from exact experiments. Follow
 [PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); do not edit frozen inputs or rewrite
 hashes simply to make verification pass.

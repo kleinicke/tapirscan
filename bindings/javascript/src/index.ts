@@ -252,10 +252,10 @@ function publicResult(raw: RawDiagnostics, image: HostImage, debug: boolean): Sc
   });
 }
 const modes = {
-  low: "low-shared-retail-release-20260918.wasm",
-  medium: "medium-shared-retail-release-20260918.wasm",
-  high: "high-shared-retail-release-20260918.wasm",
-  "very-high": "very-high-shared-retail-release-20260918.wasm",
+  low: "low-shared-retail-release-20260919.wasm",
+  medium: "medium-shared-retail-release-20260919.wasm",
+  high: "high-shared-retail-release-20260919.wasm",
+  "very-high": "very-high-shared-retail-release-20260919.wasm",
 } as const;
 /** Mode selects a compiled implementation. Create another instance to switch. */
 export class Scanner {

@@ -26,11 +26,32 @@ def wasm_flags() -> str:
     return (
         "-C target-feature=+simd128 "
         f"--remap-path-prefix={sysroot}/lib/rustlib/src/rust/library="
-        f"/rustc/{commit}/library "
-        # Preserve the source-location strings in the already pinned retail WASMs.
-        f"--remap-path-prefix={ROOT.as_posix()}/multiformat="
-        "/Users/florian/Projects/cursor/barcode/tapirscan/multiformat"
+        f"/rustc/{commit}/library"
     )
+
+
+def prepare_wasm_source(out: Path) -> Path:
+    """Keep path dependency identities relative to a reproducible workspace."""
+    source = out / "temporarysource"
+    original = (source / "Cargo.toml").read_text()
+    dependency = (ROOT / "multiformat").as_posix()
+    if dependency not in original:
+        return source / "Cargo.toml"
+    dest = out / "wasm-source"
+    shutil.copytree(source, dest, dirs_exist_ok=True)
+    shutil.copytree(
+        ROOT / "multiformat",
+        dest / "multiformat",
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("target"),
+    )
+    manifest = dest / "Cargo.toml"
+    manifest.write_text(
+        original.replace(dependency, "multiformat")
+        + '\n[workspace]\nmembers = ["multiformat"]\nresolver = "2"\n',
+        newline="\n",
+    )
+    return manifest
 
 
 def distribution_hash(recipe: str) -> str:
@@ -211,7 +232,7 @@ def resume_core(out: Path, recipe: str) -> None:
         RUSTUP_TOOLCHAIN="1.91.1",
     )
     env.pop("RUSTFLAGS", None)
-    core_manifest = str(out / "temporarysource/Cargo.toml")
+    core_manifest = prepare_wasm_source(out)
     subprocess.run(
         [
             "cargo",
@@ -227,7 +248,10 @@ def resume_core(out: Path, recipe: str) -> None:
         env=env,
         check=True,
     )
-    env["RUSTFLAGS"] = wasm_flags()
+    env["RUSTFLAGS"] = (
+        wasm_flags()
+        + f" --remap-path-prefix={core_manifest.parent.as_posix()}/multiformat=/tapirscan/multiformat"
+    )
     subprocess.run(
         [
             "cargo",
@@ -238,7 +262,7 @@ def resume_core(out: Path, recipe: str) -> None:
             "--target",
             "wasm32-unknown-unknown",
             "--manifest-path",
-            core_manifest,
+            str(core_manifest),
             "--features",
             ",".join(manifest["expandedFeatures"]),
         ],

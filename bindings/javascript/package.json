@@ -14,10 +14,10 @@
     "examples",
     "wasm/multiformat.json",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-shared-retail-release-20260918.wasm",
-    "wasm/medium-shared-retail-release-20260918.wasm",
-    "wasm/high-shared-retail-release-20260918.wasm",
-    "wasm/very-high-shared-retail-release-20260918.wasm",
+    "wasm/low-shared-retail-release-20260919.wasm",
+    "wasm/medium-shared-retail-release-20260919.wasm",
+    "wasm/high-shared-retail-release-20260919.wasm",
+    "wasm/very-high-shared-retail-release-20260919.wasm",
     "wasm/multiformat.wasm"
   ],
   "scripts": {

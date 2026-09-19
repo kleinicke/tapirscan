@@ -252,8 +252,8 @@ test("WASM base directory composes with the advanced loader", async () => {
   });
   scanner.dispose();
   assert.deepEqual(loaded, [
-    "medium-shared-retail-release-20260918.wasm",
-    "low-shared-retail-release-20260918.wasm",
+    "medium-shared-retail-release-20260919.wasm",
+    "low-shared-retail-release-20260919.wasm",
     "multiformat.wasm",
   ]);
 });
@@ -529,7 +529,7 @@ test("continuation services later candidates while preserving effort and unfinis
   for (const mode of ["low", "medium", "high", "very-high"]) {
     const scanner = await IndependentScanner.create(
       await loadWasm(
-        new URL(`../wasm/${mode}-shared-retail-release-20260918.wasm`, import.meta.url),
+        new URL(`../wasm/${mode}-shared-retail-release-20260919.wasm`, import.meta.url),
       ),
     );
     try {
