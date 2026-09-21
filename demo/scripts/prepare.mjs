@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rm, cp } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -32,4 +32,13 @@ for (const [name, path] of [
   ["zbar.wasm", "@undecaf/zbar-wasm/dist/zbar.wasm"],
 ]) {
   await writeFile(new URL(name, dest), await readFile(new URL("demo/node_modules/" + path, root)));
+}
+
+// Serve PDF.js support files locally; never use an external font/CDN endpoint.
+const pdfDest = new URL("public/pdf/", new URL("../", import.meta.url));
+await rm(pdfDest, { recursive: true, force: true });
+for (const dir of ["cmaps", "standard_fonts", "wasm"]) {
+  await cp(new URL(`demo/node_modules/pdfjs-dist/${dir}/`, root), new URL(`${dir}/`, pdfDest), {
+    recursive: true,
+  });
 }

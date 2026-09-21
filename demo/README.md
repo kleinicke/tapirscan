@@ -220,3 +220,15 @@ restricts ingestion to those two production hostnames; adding another hostname
 requires updating both lists. The integration sends pageviews, not scanner images
 or decoded barcode values. Do not inject synthetic production analytics events
 as a deployment check.
+
+## PDF upload
+
+Load image / PDF accepts local PDFs and scans one complete page at a time.
+Previous/Next page switches pages and replaces the results. PDFs retain their
+stored page orientation; all image zoom, rotation and recenter controls are
+unavailable. Scanner format and input-resolution settings still apply.
+PDF.js loads only when opening a PDF. Pages rasterize at up to 300 dpi, limited
+to a 4096-pixel long edge and 16 MP before the scanner's resolution limit.
+Only the current page is retained as an image. Password-protected files must be
+unlocked before loading. Parsing uses PDF.js's worker, and its worker, fonts,
+character maps and WASM helpers are served from the demo's own origin.

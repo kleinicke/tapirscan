@@ -21,6 +21,79 @@
   import { LabelLayout } from "./lib/labels";
   import { version } from "../package.json";
 
+  let pdfDocument: import("pdfjs-dist").PDFDocumentProxy | null = null;
+  let pdfName = "";
+  let pdfPage = 1;
+  let pdfBusy = false;
+  let isPdf = false;
+  function clearPdf() {
+    const previous = pdfDocument;
+    pdfDocument = null;
+    isPdf = false;
+    pdfBusy = false;
+    if (previous) void previous.loadingTask.destroy().catch(() => {});
+  }
+  async function showPdfPage(number: number, token = ++loadId) {
+    const document = pdfDocument;
+    if (!document) return;
+    pdfBusy = true;
+    invalidate();
+    entries = [];
+    source?.close();
+    source = null;
+    status = `Rendering PDF page ${number}…`;
+    try {
+      const { renderPdfPage } = await import("./lib/pdf");
+      const blob = await renderPdfPage(document, number);
+      if (token !== loadId || disposed) return;
+      await loadImage(blob, token, 0, 1, true);
+      pdfPage = number;
+      captureInfo = `${pdfName} · Page ${number} of ${document.numPages} · ${mediaWidth} × ${mediaHeight}`;
+    } catch (reason) {
+      if (token === loadId) {
+        error = `Could not open PDF page: ${String(reason)}`;
+        status = "PDF page unavailable";
+      }
+    } finally {
+      if (token === loadId) pdfBusy = false;
+    }
+  }
+  async function loadPdf(file: File, token: number) {
+    clearPdf();
+    stopCamera();
+    isPdf = true;
+    pdfBusy = true;
+    showAdjust = false;
+    pointers.clear();
+    gestureBounds = null;
+    invalidate();
+    entries = [];
+    source?.close();
+    source = null;
+    error = "";
+    status = "Opening PDF…";
+    try {
+      const { openPdf } = await import("./lib/pdf");
+      if (token !== loadId || disposed) return;
+      const document = await openPdf(file);
+      if (token !== loadId || disposed) {
+        await document.loadingTask.destroy();
+        return;
+      }
+      pdfDocument = document;
+      pdfName = file.name;
+      await showPdfPage(1, token);
+    } catch (reason) {
+      if (token === loadId) {
+        clearPdf();
+        error = `This PDF could not be opened. Password-protected PDFs must be unlocked first. ${String(reason)}`;
+        status = "PDF unavailable";
+      }
+    } finally {
+      if (token === loadId) pdfBusy = false;
+    }
+  }
+
   let detection: "ean13" | "retail" | "common" | "all" = "retail";
   $: formats =
     detection === "all"
@@ -228,7 +301,7 @@
   $: W = frameWidth + margin * 2;
   $: H = frameHeight + margin * 2;
   $: fit = Math.min(frameWidth / mediaWidth, frameHeight / mediaHeight);
-  $: frameOnly = expanded || live || cameraFrame;
+  $: frameOnly = expanded || live || cameraFrame || isPdf;
   $: viewWidth = frameOnly ? frameWidth : W;
   $: viewHeight = frameOnly ? frameHeight : H;
   $: viewOffset = frameOnly ? margin : 0;
@@ -364,7 +437,7 @@
     centerHintTimer = setTimeout(() => (centerHint = false), duration);
   }
   function recenter(event: Pick<MouseEvent, "clientX" | "clientY">) {
-    if (!source || live) return;
+    if (!source || live || isPdf) return;
     const bounds = surface.getBoundingClientRect();
     const dx = ((event.clientX - bounds.left) / bounds.width - 0.5) * viewWidth;
     const dy = ((event.clientY - bounds.top) / bounds.height - 0.5) * viewHeight;
@@ -409,7 +482,7 @@
     };
   }
   function pointerDown(event: PointerEvent) {
-    if (!source || event.button !== 0) return;
+    if (isPdf || !source || event.button !== 0) return;
     if (event.pointerType === "touch") {
       lastTouchTime = performance.now();
       if (!pointers.size) doubleTap.down(event);
@@ -422,7 +495,7 @@
   }
   function pointerMove(event: PointerEvent) {
     const previous = pointers.get(event.pointerId);
-    if (!previous || !source) return;
+    if (isPdf || !previous || !source) return;
     if (event.pointerType === "touch" && pointers.size === 1 && doubleTap.move(event)) return;
     const next = point(event);
     const other = [...pointers.entries()].find(([id]) => id !== event.pointerId)?.[1];
@@ -472,7 +545,7 @@
     }
   }
   function wheel(event: WheelEvent) {
-    if (!source) return;
+    if (!source || isPdf) return;
     event.preventDefault();
     const delta =
       event.deltaY *
@@ -483,7 +556,12 @@
     transform();
   }
   function keyTransform(event: KeyboardEvent) {
-    if (!source || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    if (
+      isPdf ||
+      !source ||
+      !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+    )
+      return;
     event.preventDefault();
     if (event.key === "ArrowLeft") angle = wrapAngle(angle - 5);
     if (event.key === "ArrowRight") angle = wrapAngle(angle + 5);
@@ -804,6 +882,7 @@
     }
   }
   async function startCamera() {
+    clearPdf();
     stopCamera();
     const token = ++cameraId;
     ++loadId;
@@ -898,7 +977,13 @@
       error = `Could not change the light: ${String(reason)}`;
     }
   }
-  async function loadImage(blob: Blob, token: number, initialAngle = 0, initialScale = 1) {
+  async function loadImage(
+    blob: Blob,
+    token: number,
+    initialAngle = 0,
+    initialScale = 1,
+    preservePdf = false,
+  ) {
     if (token !== loadId || disposed) return;
     invalidate();
     status = "Opening image…";
@@ -913,6 +998,7 @@
       next.close();
       return;
     }
+    if (!preservePdf) clearPdf();
     stopCamera();
     source?.close();
     source = next;
@@ -928,6 +1014,7 @@
     transform();
   }
   async function demo() {
+    clearPdf();
     selectedDemo ||= "pesto.jpg";
     const token = ++loadId;
     invalidate();
@@ -956,7 +1043,12 @@
     const file = target.files?.[0];
     if (file) {
       selectedDemo = "";
-      void loadImage(file, ++loadId);
+      const token = ++loadId;
+      if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) void loadPdf(file, token);
+      else {
+        clearPdf();
+        void loadImage(file, token);
+      }
     }
     target.value = "";
   }
@@ -987,6 +1079,7 @@
       document.removeEventListener("visibilitychange", resumePreview);
       clearTimeout(centerHintTimer);
       disposed = true;
+      clearPdf();
       ++loadId;
       stopCamera();
       clearTimeout(timer);
@@ -1138,10 +1231,11 @@
           width="1"
           height="1"
           class="gesture-surface"
-          style:pointer-events={source && !live ? "auto" : "none"}
-          style:touch-action={source ? "none" : "pan-y"}
+          style:pointer-events={source && !live && !isPdf ? "auto" : "none"}
+          style:touch-action={source && !isPdf ? "none" : "pan-y"}
           bind:this={surface}
-          tabindex="0"
+          tabindex={isPdf ? -1 : 0}
+          aria-hidden={isPdf}
           aria-label="Image controls. Drag toward the center to zoom out, away to zoom in, or around it to rotate. Scroll to zoom. Shift-scroll to rotate. Double-click or double-tap a point to center it without changing zoom."
           on:pointerdown={pointerDown}
           on:pointermove={pointerMove}
@@ -1266,7 +1360,7 @@
             </g>
           {/each}
         </svg>
-        {#if showAdjust && source && !live}
+        {#if showAdjust && source && !live && !isPdf}
           <div
             class="edge-adjust"
             style:--adjust-track-height={`${Math.max(24, Math.min(65, ((stageWidth * viewHeight) / viewWidth - 148) / 2))}px`}
@@ -1308,7 +1402,7 @@
             on:click={() => void exitViewer()}
             aria-label="Exit fullscreen">← Back</button
           >
-          {#if source && !live}<button
+          {#if source && !live && !isPdf}<button
               class="adjust-button"
               aria-pressed={showAdjust}
               on:click={() => (showAdjust = !showAdjust)}>Adjust</button
@@ -1331,9 +1425,22 @@
           </div>
         </div>{/if}
     </div>
+    {#if pdfDocument}
+      <div class="viewer-actions" aria-label="PDF pages">
+        <button disabled={pdfBusy || pdfPage <= 1} on:click={() => void showPdfPage(pdfPage - 1)}
+          >Previous page</button
+        >
+        <span>Page {pdfPage} of {pdfDocument.numPages}{pdfBusy ? " · Loading…" : ""}</span>
+        <button
+          disabled={pdfBusy || pdfPage >= pdfDocument.numPages}
+          on:click={() => void showPdfPage(pdfPage + 1)}>Next page</button
+        >
+        <span class="hint">Whole-page scanning · no zoom or rotation</span>
+      </div>
+    {/if}
     <div class="viewer-actions">
       <button bind:this={fullscreenButton} on:click={() => void enterViewer()}>Fullscreen</button>
-      {#if source && !live}<button
+      {#if source && !live && !isPdf}<button
           aria-pressed={showAdjust}
           on:click={() => (showAdjust = !showAdjust)}>Adjust</button
         >{/if}
@@ -1345,7 +1452,7 @@
         title="Save the scanner input as PNG, without overlays"
         >{saving ? "Saving…" : "Save image"}</button
       >
-      {#if source}<span class="gesture-hint"
+      {#if source && !isPdf}<span class="gesture-hint"
           >Drag to rotate and zoom · Double-tap / double-click to center</span
         >{/if}
       <label class="resolution-control"
@@ -1395,7 +1502,11 @@
         <span class="control-heading" id="own-heading">Try your own</span>
         <div class="own-buttons">
           <label class="upload"
-            >Load image<input type="file" accept="image/*" on:change={upload} /></label
+            >Load image / PDF<input
+              type="file"
+              accept="image/*,application/pdf,.pdf"
+              on:change={upload}
+            /></label
           >
           <button on:click={live ? stopVideo : startCamera} disabled={opening}
             >{opening ? "Opening camera…" : live ? "Pause / freeze" : "Use camera"}</button
@@ -1528,7 +1639,7 @@
           Capture one video frame, compare all selected scanners, then capture the next. For a
           separate photo from your phone’s camera, use Take photo.
         </p>{/if}
-      {#if source && !live}
+      {#if source && !live && !isPdf}
         <div class="image-controls">
           <label
             >Zoom <output>{scale.toFixed(2)}×</output><input
@@ -1601,7 +1712,7 @@
       </p>
     </div>
     <footer>
-      <span>Local processing. No image uploads.</span>
+      <span>Local processing. No image or PDF uploads.</span>
       <nav aria-label="Project and legal links">
         <a href="https://www.npmjs.com/package/tapirscan">npm</a>
         <a href="https://pypi.org/project/tapirscan/">PyPI</a>

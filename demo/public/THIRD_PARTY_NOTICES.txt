@@ -17,3 +17,5 @@ Quagga2 1.12.1: MIT — https://github.com/ericblade/quagga2
 ZXing-JS (@zxing/library) 0.23.0: Apache-2.0 — https://github.com/zxing-js/library
 
 Quagga2 worker build: raw ImageWrapper start/update compatibility fixes are applied by demo/vite.config.ts.
+
+PDF.js (pdfjs-dist): Apache-2.0. See licenses/pdfjs.txt; bundled standard fonts retain their upstream license files in pdf/standard_fonts/.

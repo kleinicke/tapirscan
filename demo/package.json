@@ -16,6 +16,7 @@
     "@undecaf/zbar-wasm": "0.11.0",
     "@zxing/library": "0.23.0",
     "jsqr": "1.4.0",
+    "pdfjs-dist": "6.3.289",
     "svelte": "^5.38.0",
     "tapirscan": "file:../bindings/javascript",
     "zxing-wasm": "3.1.1"

@@ -30,3 +30,5 @@ __pycache__/
 
 # Local audit, measurement and development notes; excluded from publication.
 /docs/internal/
+
+/demo/public/pdf/
