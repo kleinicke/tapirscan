@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "description": "Select the native pipeline revision; browser host and decoder WASM identities are unchanged. Reverses directly to the imported mode selection.",
+  "patch": "provenance/native-pipeline-selection-20260921.patch",
+  "patchSha256": "88946e089e204be4769faef375955153ddaacb92a3dffadd323a6073911e8201",
+  "baseHashes": {
+    "provenance/modes.json": "6d78439bc9922eac5ca7bbf903f2b418145bb572cc2f72fe206af3909a899b7e"
+  },
+  "targetHashes": {
+    "provenance/modes.json": "d8145872cb16fd9decba767abd2f70b7407753376ca24398422132fe18ecc975"
+  }
+}

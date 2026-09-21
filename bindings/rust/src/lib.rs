@@ -3,13 +3,14 @@
 #[cfg(not(feature = "low"))]
 mod detail;
 mod linear_duplicates;
+mod pipeline;
+mod serialization;
 pub use barcode_research_core::region_scan::{Error, ImageView, RegionScanner, ScanResult};
 pub use barcode_research_core::{
     frame::{Barcode, Frame},
     oriented::Proposal,
     scan::Quad,
 };
-use barcode_research_core::{multi_scan::Policy, shear, stripes};
 
 #[derive(Clone, Copy)]
 pub struct Image<'a> {
@@ -82,8 +83,7 @@ impl Scanner {
     }
 
     // Keep primary decisions and crop recovery in the same ordered transaction.
-    #[allow(clippy::too_many_lines)]
-    fn scan_with_coverage(
+    pub(crate) fn scan_with_coverage(
         &mut self,
         image: Image<'_>,
         options: ScanOptions,
@@ -91,191 +91,7 @@ impl Scanner {
         consolidate: bool,
         shared_retail: bool,
     ) -> std::result::Result<Result, Error> {
-        #[cfg(feature = "low")]
-        let _ = coverage;
-        checked_image(image)?;
-        // The validated shared browser path samples packed RGBA. Preserve the
-        // same interpolation order for gray/RGB callers before short recovery.
-        let packed = shared_retail.then(|| retail_pixels(image)).flatten();
-        let image = packed.as_ref().map_or(image, |data| Image {
-            data,
-            width: image.width,
-            height: image.height,
-            channels: 4,
-            stride: image.width * 4,
-        });
-        let im = checked_image(image)?;
-        let found = stripes::detect(im)?;
-        let count = found.proposals.len();
-        let examined = count.min(FIT_LIMIT);
-        let mut proposals = found.proposals;
-        for i in 0..examined {
-            if let Some(p) = shear::refine(im, proposals[i].polygon) {
-                proposals.push(p);
-            }
-        }
-
-        // At most eight alternate base proposals plus four shear refinements. Keep
-        // the entire original prefix; no code value or GT selects this extra grid.
-        let mut secondary_omitted = 0usize;
-        let mut secondary_limited = false;
-        if cfg!(feature = "very-high") && image.width.max(image.height) > 640 {
-            if let Ok(second) = stripes::detect_secondary(im) {
-                let secondary_count = second.proposals.len();
-                secondary_limited = second.limited;
-                let selected = secondary_count.min(8);
-                secondary_omitted = second.omitted + secondary_count - selected;
-                let extra: Vec<_> = second.proposals.into_iter().take(selected).collect();
-                for p in &extra {
-                    proposals.push(Proposal {
-                        polygon: p.polygon,
-                        score: p.score,
-                    });
-                }
-                for p in extra.iter().take(4) {
-                    if let Some(p) = shear::refine(im, p.polygon) {
-                        proposals.push(p);
-                    }
-                }
-                secondary_omitted += selected.saturating_sub(4);
-            } else {
-                secondary_limited = true;
-            }
-        }
-        if proposals.len() > if cfg!(feature = "very-high") { 63 } else { 32 } {
-            return Err(Error::Parameters);
-        }
-        let right = f64::from(u32::try_from(image.width - 1).map_err(|_| Error::Parameters)?);
-        let bottom = f64::from(u32::try_from(image.height - 1).map_err(|_| Error::Parameters)?);
-        let search_window = [[0., 0.], [right, 0.], [right, bottom], [0., bottom]];
-        let mut candidates: Vec<_> = proposals.iter().map(|p| p.polygon).collect();
-        candidates.push(search_window);
-        let policy = Policy {
-            complete: options.finish_candidates,
-            #[cfg(not(feature = "low"))]
-            candidate_retry_mask: formats::uncovered_mask(
-                &proposals,
-                coverage,
-                detail::retry_mask(image, &proposals),
-            ),
-            transition_cleanup: true,
-            source_identity: true,
-            interior_normalization: true,
-            guard_bias: true,
-            ..Policy::default()
-        };
-        #[cfg(feature = "medium")]
-        self.regions
-            .retail_configure(if shared_retail { 15 } else { 1 })?;
-        #[cfg(not(feature = "medium"))]
-        let _ = shared_retail;
-        let mut scan = self.regions.scan(im, &candidates, policy)?;
-        let mut retail = Vec::new();
-        #[cfg(feature = "medium")]
-        if let Some(raw) = self.regions.retail_finish(im, &scan.frame) {
-            let value: serde_json::Value =
-                serde_json::from_str(&raw).map_err(|_| Error::OutputShape)?;
-            retail.extend(value["barcodes"].as_array().cloned().unwrap_or_default());
-            scan.frame.unfinished |= value["unfinished"].as_bool().unwrap_or(false);
-        }
-        #[cfg(not(feature = "low"))]
-        let recovery = {
-            let result = detail::recover(
-                image,
-                &mut scan.frame.barcodes,
-                &mut self.recovery,
-                if cfg!(feature = "medium") { 1 } else { 2 },
-                coverage,
-                options.finish_candidates,
-                shared_retail,
-            )?;
-            scan.frame.unfinished = true;
-            Some(result)
-        };
-        #[cfg(feature = "low")]
-        let recovery: Option<serde_json::Value> = None;
-        if shared_retail {
-            if let Some(recovery) = &recovery {
-                for attempt in recovery["attempts"].as_array().into_iter().flatten() {
-                    for b in attempt["frame"]["retail"]["barcodes"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                    {
-                        let mut read = b.clone();
-                        let polygon = formats::quad(b).map(|[x, y]| {
-                            [
-                                attempt["x"].as_f64().unwrap_or(0.) + x / 3.,
-                                attempt["y"].as_f64().unwrap_or(0.) + y / 3.,
-                            ]
-                        });
-                        read["polygon"] = serde_json::json!(polygon);
-                        retail.push(read);
-                    }
-                }
-            }
-        }
-        if consolidate {
-            linear_duplicates::merge_primary(&mut scan.frame.barcodes, image);
-        }
-        if !options.multiple {
-            select_one(&mut scan.frame.barcodes);
-        }
-        Ok(Result {
-            proposals,
-            localization_omitted: found.omitted + count - examined + secondary_omitted,
-            localization_work_limited: found.limited
-                || count > examined
-                || secondary_limited
-                || secondary_omitted > 0,
-            search_window,
-            scan,
-            options,
-            recovery,
-            retail,
-        })
-    }
-}
-fn retail_pixels(image: Image<'_>) -> Option<Vec<u8>> {
-    if image.channels == 4 && image.stride == image.width * 4 {
-        return None;
-    }
-    let mut pixels = vec![255; image.width * image.height * 4];
-    for y in 0..image.height {
-        for x in 0..image.width {
-            let source = y * image.stride + x * image.channels;
-            let target = (y * image.width + x) * 4;
-            pixels[target] = image.data[source];
-            pixels[target + 1] = image.data[source + usize::from(image.channels != 1)];
-            pixels[target + 2] = image.data[source + 2 * usize::from(image.channels != 1)];
-        }
-    }
-    Some(pixels)
-}
-fn checked_image(image: Image<'_>) -> std::result::Result<ImageView<'_>, Error> {
-    if image.width < 3 || image.height < 3 {
-        return Err(Error::Parameters);
-    }
-    ImageView::new(
-        image.data,
-        image.width,
-        image.height,
-        image.channels,
-        image.stride,
-    )
-}
-fn select_one(reads: &mut Vec<Barcode>) {
-    // A strict improvement preserves the first result on equal support.
-    let mut best = 0;
-    for i in 1..reads.len() {
-        if reads[i].detection.support > reads[best].detection.support {
-            best = i;
-        }
-    }
-    if !reads.is_empty() {
-        let selected = reads.remove(best);
-        reads.clear();
-        reads.push(selected);
+        pipeline::scan(self, image, options, coverage, consolidate, shared_retail)
     }
 }
 impl Result {
@@ -308,52 +124,10 @@ impl Result {
     /// Serialize JSON schema 2, omitting region evidence unless requested.
     ///
     /// # Panics
-    /// Panics if `mode` is neither `fast` nor `quality`, or elapsed time is negative/non-finite.
+    /// Panics if `mode` is not a supported effort mode, or elapsed time is negative/non-finite.
     #[must_use]
     pub fn to_json(&self, mode: &str, elapsed_ms: f64) -> String {
-        assert!(["low", "medium", "high", "very-high"].contains(&mode));
-        assert!(elapsed_ms.is_finite() && elapsed_ms >= 0.0);
-        let (details, frame) = if self.options.include_regions {
-            let proposals = self
-                .proposals
-                .iter()
-                .map(|p| {
-                    format!(
-                        "{{\"polygon\":{:?},\"score\":{},\"text\":\"\"}}",
-                        p.polygon, p.score
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            (format!(",\"localization\":{{\"proposals\":[{}],\"omitted\":{},\"workLimited\":{}}},\"searchWindows\":[{{\"kind\":\"full_frame_search\",\"polygon\":{:?},\"candidateIndex\":{}}}]",
-                proposals,self.localization_omitted,self.localization_work_limited,self.search_window,self.proposals.len()),
-             barcode_research_core::region_json::frame_json(&self.scan.frame))
-        } else {
-            let reads=self.barcodes().iter().map(|b| {
-                let d=&b.detection;
-                let text:String=d.digits.iter().map(|v|(b'0'+v)as char).collect();
-                format!("{{\"text\":\"{}\",\"polygon\":{:?},\"support\":{},\"axis\":{},\"candidate_indices\":{:?}}}",
-                    text,d.polygon,d.support,d.axis,b.candidate_indices)
-            }).collect::<Vec<_>>().join(",");
-            (
-                String::new(),
-                format!(
-                    "{{\"unfinished\":{},\"barcodes\":[{}]}}",
-                    self.unfinished(),
-                    reads
-                ),
-            )
-        };
-        let recovery = if self.options.include_regions {
-            self.recovery
-                .as_ref()
-                .map(|v| format!(",\"recovery\":{v}"))
-                .unwrap_or_default()
-        } else {
-            String::new()
-        };
-        format!("{{\"schemaVersion\":2,\"mode\":\"{}\",\"multiple\":{},\"elapsedMs\":{},\"localizationLimited\":{}{},\"scan\":{}}}",
-            mode,self.options.multiple,elapsed_ms,self.localization_work_limited,format_args!("{details}{recovery}"),frame)
+        serialization::to_json(self, mode, elapsed_ms)
     }
 }
 #[cfg(test)]
@@ -410,7 +184,7 @@ mod tests {
             candidate_indices: vec![],
         };
         let mut reads = vec![make(1, 1), make(4, 2), make(4, 3)];
-        select_one(&mut reads);
+        pipeline::select_one(&mut reads);
         assert_eq!(reads.len(), 1);
         assert_eq!(reads[0].detection.digits, [2; 13]);
     }

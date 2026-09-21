@@ -41,6 +41,21 @@ Positions refer to the pixels supplied by the caller, not an earlier image befor
 resizing. Crop-local candidate indices are never presented as primary indices.
 See [the native contract](NATIVE_BINDINGS.md) and [Python input rules](API_DESIGN.md).
 
+## Native pipeline boundaries
+
+`bindings/rust/src/lib.rs` defines the facade types and public entry points.
+`pipeline.rs` orders image preparation, localization, primary scanning, recovery
+and consolidation. Its stage helpers preserve proposal order, budgets and
+source-coordinate bookkeeping so experiments can change one stage at a time.
+`serialization.rs` assembles the optional diagnostic JSON after scanning.
+`detail.rs` owns source-detail recovery; `formats.rs` coordinates additional
+readers and supplement policies; `linear_duplicates.rs` reconciles physical reads.
+
+Keep scanner decisions in the pipeline and result formatting in serialization.
+A stage extraction still needs paired scans across all four modes, including
+padded gray/RGB/RGBA inputs and compact versus detailed results. The experiment
+workspace retains those cases and outcomes; the library retains API unit tests.
+
 ## Additional formats
 
 `multiformat/` contains the supported EAN8/UPCE readers and experimental readers

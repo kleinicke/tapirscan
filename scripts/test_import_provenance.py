@@ -45,9 +45,16 @@ class Provenance(unittest.TestCase):
                     }
                 )
             )
-            for mutation in ("none", "source", "patch", "base", "target"):
+            (root / "provenance/modes.json").write_text(
+                json.dumps({"runtimeRevision": "runtime.json"})
+            )
+            for mutation in ("none", "source", "patch", "base", "target", "runtime"):
                 with self.subTest(mutation=mutation):
                     current = json.loads(json.dumps(revision))
+                    (root / "runtime.txt").write_bytes(b"runtime\n")
+                    (root / "runtime.json").write_text(
+                        json.dumps({"files": {"runtime.txt": digest(b"runtime\n")}})
+                    )
                     (root / "source.txt").write_bytes(b"after\n")
                     (root / "change.patch").write_bytes(patch)
                     if mutation == "source":
@@ -56,6 +63,8 @@ class Provenance(unittest.TestCase):
                         (root / "change.patch").write_bytes(patch + b"drift\n")
                     elif mutation == "base":
                         current["baseHashes"]["source.txt"] = digest(b"wrong\n")
+                    elif mutation == "runtime":
+                        (root / "runtime.txt").write_bytes(b"drift\n")
                     elif mutation == "target":
                         current["targetHashes"]["source.txt"] = digest(b"wrong\n")
                     (root / "revision.json").write_text(json.dumps(current))
