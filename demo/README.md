@@ -164,7 +164,9 @@ Changing it clears only ZXing’s result and restarts only its worker before rea
 other readers keep their results for the same image.
 
 Label placement is recalculated next to the current barcode bounds on every update,
-without retaining old offsets or delaying movement. Crowded views omit labels with a
+with a bounded preference for nearby positions and small sideways corrections. The
+preference follows the barcode; candidate positions are always rebuilt from its current
+bounds, so offsets cannot accumulate. There is no movement delay. Crowded views omit labels with a
 count; all values remain in Results. Long payloads are shortened on the image,
 with the full value in the title and Results.
 
@@ -173,3 +175,48 @@ fullscreen. Both rest at zero: hold up/down to rotate or zoom continuously,
 with faster movement farther from zero. Release or losing focus stops movement
 and returns the handle to center. Readouts show the current angle and zoom.
 Labels follow the current barcode geometry during rotation and zoom.
+
+## Additional comparisons and progressive results
+
+TS-Med, ZXing and ZBar stay in the main scanner row. More scanners opens a
+checkbox dropdown for the other Tapirscan effort levels, jsQR 1.4.0 and Native.
+jsQR supports QR only and returns at most one code per scan; select Common or All.
+Native uses the browser's BarcodeDetector, scans the intersection of the selected
+and device-supported formats, and reports unavailability without substituting a
+fallback. These are optional demo comparisons, never Tapirscan fallbacks.
+
+Each scanner retains its previous result while the next result is pending for the
+same source. Cards mark previous view results as updating. Results from a different
+source or incompatible resolution are discarded. Overlay input order stays fixed
+as asynchronous results arrive; label placement still follows current geometry.
+
+Quagga2 1.12.1 (MIT) uses its raw ImageWrapper initialization path in a dedicated
+worker, with multiple linear codes, large locator patches and halfSample disabled.
+RGBA-to-grayscale conversion and decoding are timed; there is no PNG encoding or
+image loading. The UI remains free to update while Quagga2 scans. Its built-in
+worker pool remains disabled; the demo owns the worker and cancellation lifecycle.
+
+ZXing-JS has one enabled-by-default checkbox for TRY_HARDER and quarter-turn
+rotations, with at most four full-resolution passes. Disabling it uses one pass
+without TRY_HARDER. Half-resolution and inverted-color passes are not used.
+Changing the setting restarts only ZXing-JS; other completed results remain cached.
+Each pass finds at most one code, so this is not exhaustive multiple-code scanning.
+
+The Quagga2 worker build applies two guarded compatibility fixes to the pinned
+1.12.1 browser bundle: the start check only requires a framegrabber for UI input,
+and the raw update path decodes its supplied ImageWrapper without grabbing an image.
+Both substitutions fail the build if their upstream text changes. A worker-local
+`window` alias accommodates its UMD wrapper; no DOM shim or PNG conversion is used.
+Production-worker tests exercise repeated initialization and format switching.
+
+## Analytics
+
+The demo loads the self-hosted Plausible script at
+`https://analytics.re4vive.com/js/script.js` only on `tapirscan.netlify.app` and
+`tapirscan.f-kleinicke.de`. Both use the existing `tapirscan.netlify.app` dashboard
+identifier to preserve its history. No build environment variable is required.
+Localhost, deploy previews and forks do not load the tracker. The server also
+restricts ingestion to those two production hostnames; adding another hostname
+requires updating both lists. The integration sends pageviews, not scanner images
+or decoded barcode values. Do not inject synthetic production analytics events
+as a deployment check.

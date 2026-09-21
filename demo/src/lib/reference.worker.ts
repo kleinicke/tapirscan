@@ -1,3 +1,5 @@
+import { scanZXingJS, type ZXingJSSettings } from "./zxing-js";
+import jsQR from "jsqr";
 import * as zx from "zxing-wasm/reader";
 import * as zb from "@undecaf/zbar-wasm";
 import type { Format } from "tapirscan";
@@ -22,7 +24,8 @@ const zbarFormats: Partial<Record<Format, zb.ZBarSymbolType>> = {
 self.onmessage = async ({
   data,
 }: MessageEvent<{
-  engine: "zxing" | "zbar";
+  engine: "zxing" | "zbar" | "jsqr" | "native" | "zxingjs";
+  zxingJSSettings?: ZXingJSSettings;
   formats: Format[];
   zxingEnhanced?: boolean;
   engineBaseUrl: string;
@@ -31,6 +34,18 @@ self.onmessage = async ({
   buffer: ArrayBuffer;
 }>) => {
   try {
+    if (data.engine === "zxingjs") {
+      self.postMessage({
+        result: scanZXingJS(
+          new Uint8ClampedArray(data.buffer),
+          data.width,
+          data.height,
+          data.formats,
+          data.zxingJSSettings ?? { harder: true, rotate: true, downscale: true, invert: true },
+        ),
+      });
+      return;
+    }
     if (!ready) {
       self.postMessage({ type: "initializing" });
       if (data.engine === "zxing") {
@@ -40,7 +55,7 @@ self.onmessage = async ({
           overrides: { wasmBinary: new Uint8Array(await response.arrayBuffer()) },
           fireImmediately: true,
         });
-      } else {
+      } else if (data.engine === "zbar") {
         zb.setModuleArgs({
           locateFile: (name) =>
             new URL(name.endsWith(".wasm") ? "zbar.wasm" : name, data.engineBaseUrl).href,
@@ -85,6 +100,44 @@ self.onmessage = async ({
           ].map((p) => [p.x, p.y] as const),
         }));
       unfinished = reads.length === 255;
+    } else if (data.engine === "jsqr") {
+      if (!data.formats.includes("QRCode"))
+        throw Error("jsQR supports QR Code only. Select Common or All.");
+      const read = jsQR(new Uint8ClampedArray(data.buffer), data.width, data.height);
+      regions = read
+        ? [
+            {
+              text: read.data,
+              polygon: [
+                read.location.topLeftCorner,
+                read.location.topRightCorner,
+                read.location.bottomRightCorner,
+                read.location.bottomLeftCorner,
+              ].map((p) => [p.x, p.y] as const),
+            },
+          ]
+        : [];
+      // jsQR returns at most one symbol; do not imply exhaustive multi-code coverage.
+      unfinished = !!read;
+    } else if (data.engine === "native") {
+      const Detector = (self as unknown as { BarcodeDetector?: NativeDetectorConstructor })
+        .BarcodeDetector;
+      if (!Detector)
+        throw Error("Native BarcodeDetector is unavailable in this browser. No fallback is used.");
+      const supported = await Detector.getSupportedFormats();
+      const formats = data.formats
+        .map((format) => nativeFormats[format])
+        .filter((format): format is string => !!format && supported.includes(format));
+      if (!formats.length)
+        throw Error("Native BarcodeDetector supports none of the selected formats on this device.");
+      const detector = new Detector({ formats });
+      const reads = await detector.detect(
+        new ImageData(new Uint8ClampedArray(data.buffer), data.width, data.height),
+      );
+      regions = reads.map((read) => ({
+        text: read.rawValue,
+        polygon: read.cornerPoints.map((p) => [p.x, p.y] as const),
+      }));
     } else {
       const reads = await zb.scanRGBABuffer(data.buffer, data.width, data.height, zbar);
       regions = reads.map((read) => ({
@@ -129,3 +182,27 @@ function hull(input: readonly (readonly [number, number])[]): (readonly [number,
   };
   return [...half(points), ...half([...points].reverse())];
 }
+
+interface NativeDetectorConstructor {
+  new (options: { formats: string[] }): {
+    detect(
+      image: ImageData,
+    ): Promise<{ rawValue: string; cornerPoints: { x: number; y: number }[] }[]>;
+  };
+  getSupportedFormats(): Promise<string[]>;
+}
+const nativeFormats: Partial<Record<Format, string>> = {
+  EAN13: "ean_13",
+  EAN8: "ean_8",
+  UPCA: "upc_a",
+  UPCE: "upc_e",
+  Code128: "code_128",
+  Code39: "code_39",
+  Code93: "code_93",
+  Codabar: "codabar",
+  ITF: "itf",
+  QRCode: "qr_code",
+  DataMatrix: "data_matrix",
+  PDF417: "pdf417",
+  Aztec: "aztec",
+};

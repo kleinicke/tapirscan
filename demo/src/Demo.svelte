@@ -2,7 +2,12 @@
   import { capabilities, videoFrame, scanDimensions } from "./lib/camera";
   import { onMount, tick } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
-  import { comparisonOptions, type ComparisonSpec, type ComparisonEntry } from "./lib/comparison";
+  import {
+    comparisonOptions,
+    visibleResults,
+    type ComparisonSpec,
+    type ComparisonEntry,
+  } from "./lib/comparison";
   import type { Result } from "./lib/types";
   import {
     retailFormats,
@@ -26,6 +31,9 @@
           ? retailFormats
           : (["EAN13"] as const);
 
+  function qrOnlyUnavailable(id: string) {
+    return id === "jsqr" && !formats.includes("QRCode");
+  }
   function changeDetection() {
     invalidate();
     entries = [];
@@ -43,6 +51,22 @@
   let orientationLocked = false;
   let savedOverflow = "";
   let stageWidth = 800;
+  let zxingJSEnhanced = true;
+  $: zxingJSSettings = {
+    harder: zxingJSEnhanced,
+    rotate: zxingJSEnhanced,
+    downscale: false,
+    invert: false,
+  };
+  let zxingJSRevision = 0;
+  function changeZxingJS() {
+    zxingJSRevision++;
+    entries = entries.filter((entry) => entry.id !== "zxingjs");
+    pending.get("zxingjs")?.(new Error("ZXing-JS settings changed"));
+    workers.get("zxingjs")?.terminate();
+    workers.delete("zxingjs");
+    if ((source || live) && selected.includes("zxingjs")) requestScan(0);
+  }
   let zxingEnhanced = true;
   let zxingRevision = 0;
   function changeZxing() {
@@ -112,9 +136,18 @@
       controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
     }
   }
-  const options = ["veryhigh", "quality", "fast", "nano", "zxing", "zbar"].map((id) =>
-    comparisonOptions.find((spec) => spec.id === id)!,
-  );
+  const options = [
+    "fast",
+    "zxing",
+    "zbar",
+    "nano",
+    "quality",
+    "veryhigh",
+    "jsqr",
+    "native",
+    "quagga",
+    "zxingjs",
+  ].map((id) => comparisonOptions.find((spec) => spec.id === id)!);
   let selected = ["fast", "zxing", "zbar"];
   const demoImages = [
     { file: "synthetic-barcode.png", label: "Synthetic barcode" },
@@ -208,11 +241,11 @@
     [frameWidth, frameHeight] = scanDimensions(width, height, limit);
   }
   $: chosen = options.filter((s) => selected.includes(s.id));
-  $: overlayEntries = entries.filter(
-    (entry) =>
-      selected.includes(entry.id) &&
-      (entry.viewRevision === revision ||
-        (!!source && !live && entry.contentRevision === contentRevision)),
+  $: overlayEntries = visibleResults(
+    entries,
+    options.map((option) => option.id),
+    selected,
+    contentRevision,
   );
   $: overlaysUpdating = overlayEntries.some((entry) => entry.viewRevision !== revision);
   function overlayTransform(entry: ViewEntry, currentAngle: number, currentScale: number) {
@@ -468,7 +501,9 @@
       worker =
         spec.engine === "classical"
           ? new Worker(new URL("./lib/scan.worker.ts", import.meta.url), { type: "module" })
-          : new Worker(new URL("./lib/reference.worker.ts", import.meta.url), { type: "module" });
+          : spec.engine === "quagga"
+            ? new Worker(new URL("./lib/quagga.worker.ts", import.meta.url), { type: "module" })
+            : new Worker(new URL("./lib/reference.worker.ts", import.meta.url), { type: "module" });
       workers.set(spec.id, worker);
     }
     const current = worker;
@@ -510,6 +545,7 @@
           finishCandidates: false,
           formats: scanFormats,
           zxingEnhanced,
+          zxingJSSettings,
           engineBaseUrl: new URL(`${import.meta.env.BASE_URL}engines/`, document.baseURI).href,
           width: image.width,
           height: image.height,
@@ -606,10 +642,11 @@
         centerX = centerY = 0;
         scale = 1;
         angle = 0;
+        const sameSize = next.width === mediaWidth && next.height === mediaHeight;
         setFrame(next.width, next.height);
         captureInfo = `Video snapshot · ${next.width} × ${next.height}`;
         preparePreview(next, next.width, next.height);
-        invalidate();
+        invalidate(sameSize);
         token = revision;
         contentToken = contentRevision;
         await tick();
@@ -632,7 +669,7 @@
         if (!selected.includes(spec.id)) continue;
         if (!live && entries.some((entry) => entry.id === spec.id && entry.viewRevision === token))
           continue;
-        const settingsRevision = zxingRevision;
+        const settingsRevision = spec.id === "zxingjs" ? zxingJSRevision : zxingRevision;
         try {
           if (!workers.has(spec.id)) {
             status = `Warming up ${spec.label}…`;
@@ -645,7 +682,10 @@
         } catch (reason) {
           batch.push({ ...spec, ...view, error: String(reason) });
         }
-        if (spec.id === "zxing" && settingsRevision !== zxingRevision) {
+        if (
+          (spec.id === "zxing" && settingsRevision !== zxingRevision) ||
+          (spec.id === "zxingjs" && settingsRevision !== zxingJSRevision)
+        ) {
           batch.pop();
           continue;
         }
@@ -661,7 +701,13 @@
         }
         status = !selected.length
           ? "Select at least one scanner."
-          : entries.some((e) => e.viewRevision === token && selected.includes(e.id) && e.error)
+          : entries.some(
+                (e) =>
+                  e.viewRevision === token &&
+                  selected.includes(e.id) &&
+                  e.error &&
+                  !qrOnlyUnavailable(e.id),
+              )
             ? "Some scanners failed. See results below."
             : "Scan complete";
       }
@@ -975,7 +1021,7 @@
   <main>
     <p class="scanner-key">TS = Tapirscan · Low, Med, High and VHigh indicate scan effort.</p>
     <div class="scanner-buttons" aria-label="Scanners">
-      {#each options as option (option.id)}
+      {#each options.filter( (option) => ["fast", "zxing", "zbar"].includes(option.id) ) as option (option.id)}
         {@const active = selected.includes(option.id)}
         <!-- Keep the last completed outcome visible until this scanner finishes again. -->
         {@const entry = entries.find((value) => value.id === option.id)}
@@ -1011,6 +1057,39 @@
         </button>
       {/each}
     </div>
+    <details class="extra-scanners">
+      <summary
+        >More scanners ({selected.filter((id) => !["fast", "zxing", "zbar"].includes(id)).length} selected)</summary
+      >
+      <div class="scanner-menu">
+        {#each options.filter((option) => !["fast", "zxing", "zbar"].includes(option.id)) as option (option.id)}
+          {@const entry = overlayEntries.find((value) => value.id === option.id)}
+          <label
+            ><input
+              type="checkbox"
+              checked={selected.includes(option.id)}
+              on:change={() => toggle(option.id)}
+            />
+            <span style:color={option.color}>{option.label}</span>
+            <small
+              >{qrOnlyUnavailable(option.id)
+                ? "Not available for barcodes — QR only"
+                : entry?.result
+                  ? `${new Set(entry.result.regions.filter((r) => r.text).map((r) => r.text)).size} found · ${entry.result.scanMs.toFixed(1)} ms`
+                  : entry?.error
+                    ? "Unavailable / failed"
+                    : ""}</small
+            >
+          </label>
+        {/each}
+        <p>
+          Quagga2: linear barcodes only; multiple codes, large locator patches, no half-sampling.
+          Raw pixels are decoded in a background worker. jsQR: QR only, one code per scan; use
+          Common or All. Native: browser/device-dependent formats and availability, with no
+          fallback.
+        </p>
+      </div>
+    </details>
     <div class="viewer" class:expanded bind:this={viewer}>
       <div
         class="stage"
@@ -1237,7 +1316,7 @@
           <div class="runtime-strip" aria-label="Scanner runtimes">
             {#each chosen as spec (spec.id)}
               {@const entry = entries.find(
-                (item) => item.id === spec.id && item.viewRevision === revision,
+                (item) => item.id === spec.id && item.contentRevision === contentRevision,
               )}
               <span style:color={spec.color}
                 ><span>{spec.label}</span><strong
@@ -1346,7 +1425,7 @@
       </div>
       <div class="runtimes">
         {#each chosen as spec (spec.id)}
-          {@const entry = entries.find((e) => e.id === spec.id && e.viewRevision === revision)}
+          {@const entry = overlayEntries.find((e) => e.id === spec.id)}
           {@const reads = entry?.result?.regions.filter((r) => r.text) ?? []}
           <div
             class="runtime"
@@ -1361,16 +1440,21 @@
             </div>
             <div class="barcode-values">
               {#each reads as region, i (i)}<code>{region.text}</code>{:else}<span
-                  >{entry?.error
-                    ? "Scan failed"
-                    : entry?.result
-                      ? "No barcode found"
-                      : busy
-                        ? "Scanning…"
-                        : "Ready"}</span
+                  >{qrOnlyUnavailable(spec.id)
+                    ? "Not available for barcodes — QR only"
+                    : entry?.error
+                      ? "Scan failed"
+                      : entry?.result
+                        ? "No barcode found"
+                        : busy
+                          ? "Scanning…"
+                          : "Ready"}</span
                 >{/each}
             </div>
-            {#if entry?.error}<p class="error">{entry.error}</p>{/if}
+            {#if entry && entry.viewRevision !== revision}<p class="hint">
+                Previous result · updating…
+              </p>{/if}
+            {#if entry?.error && !qrOnlyUnavailable(spec.id)}<p class="error">{entry.error}</p>{/if}
           </div>
         {/each}
       </div>
@@ -1505,6 +1589,17 @@
         Uncheck to disable these three options; other ZXing settings stay at their library defaults.
       </p>
     </div>
+    <div class="zxing-settings">
+      <label
+        ><input type="checkbox" bind:checked={zxingJSEnhanced} on:change={changeZxingJS} /> ZXing-JS:
+        enable TRY_HARDER and quarter-turn rotations</label
+      >
+      <p class="hint">
+        Enabled by default. Up to four full-resolution passes, one code per pass. Half-resolution
+        and inverted-color passes are not used. All search work is included in the runtime. Changing
+        this setting reruns only ZXing-JS.
+      </p>
+    </div>
     <footer>
       <span>Local processing. No image uploads.</span>
       <nav aria-label="Project and legal links">
@@ -1522,6 +1617,32 @@
 </div>
 
 <style>
+  .extra-scanners {
+    position: relative;
+    margin: 10px 0;
+  }
+  .extra-scanners summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .scanner-menu {
+    padding: 14px;
+    background: #173633;
+    color: white;
+    border-radius: 12px;
+    margin-top: 8px;
+  }
+  .scanner-menu label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+  }
+  .scanner-menu p {
+    font-size: 12px;
+    max-width: 65ch;
+  }
+
   .demo {
     max-width: 1120px;
     margin: auto;
@@ -1668,7 +1789,7 @@
   }
   .scanner-buttons {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
   }
   .scanner-buttons button {

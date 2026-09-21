@@ -9,10 +9,13 @@
     "build": "node scripts/prepare.mjs && vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test scripts/camera.test.mjs scripts/labels.test.mjs scripts/taps.test.mjs && node scripts/test-worker.mjs"
+    "test": "node --test scripts/comparison.test.mjs scripts/camera.test.mjs scripts/labels.test.mjs scripts/taps.test.mjs && node scripts/test-worker.mjs"
   },
   "dependencies": {
+    "@ericblade/quagga2": "1.12.1",
     "@undecaf/zbar-wasm": "0.11.0",
+    "@zxing/library": "0.23.0",
+    "jsqr": "1.4.0",
     "svelte": "^5.38.0",
     "tapirscan": "file:../bindings/javascript",
     "zxing-wasm": "3.1.1"

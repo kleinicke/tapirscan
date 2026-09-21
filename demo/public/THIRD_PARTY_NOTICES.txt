@@ -9,3 +9,11 @@ ZBar source and build information: https://github.com/undecaf/zbar-wasm and http
 License texts are served in licenses/. Comparison WASM binaries are separate files
 in engines/ and can be replaced independently. The comparison libraries are demo
 only; they are not linked into Tapirscan or included in its npm/Python packages.
+
+jsQR 1.4.0: Apache-2.0 — https://github.com/cozmo/jsQR
+
+Quagga2 1.12.1: MIT — https://github.com/ericblade/quagga2
+
+ZXing-JS (@zxing/library) 0.23.0: Apache-2.0 — https://github.com/zxing-js/library
+
+Quagga2 worker build: raw ImageWrapper start/update compatibility fixes are applied by demo/vite.config.ts.

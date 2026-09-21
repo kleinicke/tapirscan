@@ -120,6 +120,7 @@ await prepareZXingModule({
   },
   fireImmediately: true,
 });
+let qrFixture;
 for (const [format, text, formats] of [
   ["EAN8", "96385074", retailFormats],
   ["QRCode", "Tapirscan QR camera test", commonFormats],
@@ -137,6 +138,7 @@ for (const [format, text, formats] of [
       const value = data[Math.floor(y / scale) * width + Math.floor(x / scale)];
       pixels.set([value, value, value, 255], ((y + padding) * w + x + padding) * 4);
     }
+  if (format === "QRCode") qrFixture = { width: w, height: h, pixels, text };
   for (const mode of modes) {
     messages.length = 0;
     await context.self.onmessage({
@@ -164,7 +166,7 @@ const reference = (await readdir(new URL("assets/", dist))).find((p) =>
 );
 assert.ok(reference);
 const referenceSource = await readFile(new URL(`assets/${reference}`, dist), "utf8");
-for (const engine of ["zxing", "zbar"]) {
+for (const engine of ["zxing", "zbar", "jsqr", "native", "zxingjs", "quagga"]) {
   messages.length = 0;
   const referenceContext = {
     ...context,
@@ -185,7 +187,46 @@ for (const engine of ["zxing", "zbar"]) {
     clearTimeout,
   };
   vm.createContext(referenceContext);
-  vm.runInContext(referenceSource, referenceContext);
+  let workerSource = referenceSource;
+  if (engine === "quagga") {
+    const file = (await readdir(new URL("assets/", dist))).find((p) =>
+      p.startsWith("quagga.worker-"),
+    );
+    assert.ok(file);
+    workerSource = await readFile(new URL(`assets/${file}`, dist), "utf8");
+  }
+  vm.runInContext(workerSource, referenceContext);
+  if (engine === "jsqr" || engine === "native") {
+    messages.length = 0;
+    await referenceContext.self.onmessage({
+      data: {
+        engine,
+        formats: commonFormats,
+        width: qrFixture.width,
+        height: qrFixture.height,
+        buffer: qrFixture.pixels.slice().buffer,
+      },
+    });
+    if (engine === "native") {
+      assert.match(messages.at(-1).error, /unavailable/);
+    } else {
+      assert.equal(messages.at(-1).result.regions[0].text, qrFixture.text);
+      assert.equal(messages.at(-1).result.unfinished, true);
+      messages.length = 0;
+      await referenceContext.self.onmessage({
+        data: {
+          engine,
+          formats: retailFormats,
+          width: qrFixture.width,
+          height: qrFixture.height,
+          buffer: qrFixture.pixels.slice().buffer,
+        },
+      });
+      assert.match(messages.at(-1).error, /QR Code only/);
+    }
+    console.log(`${engine}: optional reader decoding or explicit unsupported status verified`);
+    continue;
+  }
   for (const formats of selections) {
     messages.length = 0;
     await referenceContext.self.onmessage({
@@ -199,11 +240,56 @@ for (const engine of ["zxing", "zbar"]) {
       },
     });
     const message = messages.at(-1);
+    if (engine === "quagga" && !formats.includes("EAN13")) {
+      assert.match(message.error, /supports none/);
+      continue;
+    }
     assert.ok(message.result, JSON.stringify(message));
     assert.equal(
       message.result.regions.some((b) => b.text === "4006381333931"),
       formats.includes("EAN13"),
     );
+  }
+  if (engine === "zxingjs") {
+    const w = fixture.height,
+      h = fixture.width;
+    const rotated = new Uint8Array(w * h * 4);
+    for (let y = 0; y < fixture.height; y++)
+      for (let x = 0; x < fixture.width; x++) {
+        const src = (y * fixture.width + x) * 4,
+          dest = (x * w + fixture.height - 1 - y) * 4;
+        for (let c = 0; c < 3; c++) rotated[dest + c] = 255 - rgba[src + c];
+        rotated[dest + 3] = 255;
+      }
+    messages.length = 0;
+    await referenceContext.self.onmessage({
+      data: {
+        engine,
+        formats: retailFormats,
+        width: w,
+        height: h,
+        buffer: rotated.buffer,
+        zxingJSSettings: { harder: true, rotate: true, downscale: true, invert: true },
+      },
+    });
+    const result = messages.at(-1).result;
+    assert.ok(result, JSON.stringify(messages.at(-1)));
+    assert.ok(result.regions.some((region) => region.text === "4006381333931"));
+    for (const region of result.regions)
+      for (const [x, y] of region.polygon) assert.ok(x >= 0 && x < w && y >= 0 && y < h);
+    messages.length = 0;
+    await referenceContext.self.onmessage({
+      data: {
+        engine,
+        formats: commonFormats,
+        width: qrFixture.width,
+        height: qrFixture.height,
+        buffer: qrFixture.pixels.slice().buffer,
+        zxingJSSettings: { harder: false, rotate: false, downscale: false, invert: false },
+      },
+    });
+    assert.ok(messages.at(-1).result.regions.some((region) => region.text === qrFixture.text));
+    console.log("ZXing-JS: rotated inverted EAN and basic QR decoding verified");
   }
   console.log(`${engine}: production comparison worker switches formats and enforces coverage`);
 }

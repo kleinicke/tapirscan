@@ -35,6 +35,22 @@ function bounds(polygon: readonly (readonly number[])[]): Box {
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 function sameLocation(a: Box, b: Box) {
+  // Linear readers may report a scan line, not a region with positive area.
+  // Give only degenerate axes a small tolerance for location matching.
+  a = {
+    ...a,
+    x: a.x - (a.width < 1 ? 2 : 0),
+    y: a.y - (a.height < 1 ? 2 : 0),
+    width: Math.max(4, a.width),
+    height: Math.max(4, a.height),
+  };
+  b = {
+    ...b,
+    x: b.x - (b.width < 1 ? 2 : 0),
+    y: b.y - (b.height < 1 ? 2 : 0),
+    width: Math.max(4, b.width),
+    height: Math.max(4, b.height),
+  };
   const intersection =
     Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
     Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
@@ -76,7 +92,7 @@ export class LabelLayout {
       const group = groups.find(
         (g) =>
           g.text === region.text &&
-          !g.members.some((m) => m.scanner === region.scanner) &&
+          (!g.members.some((m) => m.scanner === region.scanner) || region.polygon.length <= 2) &&
           sameLocation(g.anchor, box),
       );
       if (group) group.members.push(region);
@@ -112,7 +128,9 @@ export class LabelLayout {
         b.x + b.width <= width - gap &&
         b.y + b.height <= height - gap &&
         !occupied.some((o) => overlaps(b, o));
-      const anchor = group.anchor,
+      // Place outside the entire group's reported bounds, rather than letting a
+      // later reader's larger outline invalidate slots around the first reader.
+      const anchor = bounds(group.members.flatMap((member) => member.polygon)),
         cx = anchor.x + anchor.width / 2,
         cy = anchor.y + anchor.height / 2;
       const alternatives: Box[] = [];
@@ -131,7 +149,41 @@ export class LabelLayout {
             height: h,
           });
       }
-      const position = alternatives.find(valid);
+      // Score only fresh positions tied to the current barcode, never reuse an
+      // accumulated offset. A bounded movement penalty gently favors nearby slots.
+      const reference = old
+        ? {
+            x:
+              old.x + group.anchor.x + group.anchor.width / 2 - old.anchor.x - old.anchor.width / 2,
+            y:
+              old.y +
+              group.anchor.y +
+              group.anchor.height / 2 -
+              old.anchor.y -
+              old.anchor.height / 2,
+          }
+        : undefined;
+      const scored = alternatives.flatMap((box, index) => {
+        const side = index % 4;
+        return [0, -8, 8, -16, 16, -24, 24].map((shift) => {
+          const candidate = {
+            ...box,
+            x: box.x + (side < 2 ? shift * unit : 0),
+            y: box.y + (side >= 2 ? shift * unit : 0),
+          };
+          const movement = reference
+            ? Math.min(80, Math.hypot(candidate.x - reference.x, candidate.y - reference.y) / unit)
+            : 0;
+          return {
+            box: candidate,
+            score: Math.floor(index / 4) * 41 + side * 2 + Math.abs(shift) * 0.25 + movement * 0.4,
+          };
+        });
+      });
+      const position = scored
+        .filter((candidate) => valid(candidate.box))
+        .sort((a, b) => a.score - b.score)
+        .at(0)?.box;
       if (!position) continue;
       let nameOffset = 6;
       const label: GroupLabel = {

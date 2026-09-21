@@ -122,3 +122,106 @@ test("resizing a barcode recomputes a nearby label instead of carrying its old o
     assert.equal(current.anchor.y - current.y - current.height, 6);
   }
 });
+
+test("a nearby correction beats flipping sides, without accumulating drift", () => {
+  const layout = new LabelLayout();
+  const original = layout.update([region], scanners, 800, 600, 1, "photo", 0).placed[0];
+  const obstacle = {
+    ...region,
+    text: "obstacle",
+    polygon: [
+      [original.x + original.width - 2, original.y - 2],
+      [original.x + original.width + 5, original.y - 2],
+      [original.x + original.width + 5, original.y + original.height + 2],
+      [original.x + original.width - 2, original.y + original.height + 2],
+    ],
+  };
+  const shifted = layout
+    .update([region, obstacle], scanners, 800, 600, 1, "photo", 100)
+    .placed.find((l) => l.text === region.text);
+  assert.ok(shifted);
+  assert.equal(shifted.y, original.y);
+  assert.ok(Math.abs(shifted.x - original.x) <= 24);
+  for (let i = 1; i <= 20; i++) {
+    const moved = { ...region, polygon: region.polygon.map(([x, y]) => [x + i * 2, y + i]) };
+    const label = layout.update([moved], scanners, 800, 600, 1, "photo", 100 + i * 30).placed[0];
+    assert.equal(label.anchor.y - label.y - label.height, 6);
+    assert.ok(Math.abs(label.x - (original.x + i * 2)) <= 24);
+  }
+});
+test("a label below a barcode does not flip back for a small top-slot advantage", () => {
+  const layout = new LabelLayout();
+  const obstacle = {
+    ...region,
+    text: "obstacle",
+    polygon: [
+      [150, 170],
+      [410, 170],
+      [410, 235],
+      [150, 235],
+    ],
+  };
+  const below = layout
+    .update([region, obstacle], scanners, 800, 600, 1, "photo", 0)
+    .placed.find((l) => l.text === region.text);
+  assert.ok(below.y > region.polygon[2][1]);
+  const next = layout.update([region], scanners, 800, 600, 1, "photo", 100).placed[0];
+  assert.equal(next.y, below.y);
+});
+
+test("a later larger scanner outline moves the label outward on the same side", () => {
+  const layout = new LabelLayout();
+  const first = layout.update([region], scanners, 800, 600, 1, "photo", 0).placed[0];
+  const larger = {
+    ...region,
+    scanner: "zxing",
+    polygon: [
+      [220, 220],
+      [340, 220],
+      [340, 330],
+      [220, 330],
+    ],
+  };
+  const later = layout.update([region, larger], scanners, 800, 600, 1, "photo", 100).placed;
+  assert.equal(later.length, 1);
+  assert.equal(later[0].id, first.id);
+  assert.equal(later[0].y, first.y - 20);
+  assert.equal(later[0].x, first.x);
+});
+test("linear result points share a physical barcode label with rectangular detections", () => {
+  const line = {
+    ...region,
+    scanner: "zxing",
+    polygon: [
+      [240, 275],
+      [320, 275],
+    ],
+  };
+  const separate = { ...region, polygon: region.polygon.map(([x, y]) => [x + 350, y]) };
+  const layout = new LabelLayout();
+  const { placed } = layout.update(
+    [
+      region,
+      line,
+      {
+        ...line,
+        polygon: [
+          [240, 280],
+          [320, 280],
+        ],
+      },
+      separate,
+    ],
+    scanners,
+    1000,
+    600,
+    1,
+    "photo",
+    0,
+  );
+  assert.equal(placed.length, 2);
+  assert.deepEqual(
+    placed[0].rows.map((row) => row.found),
+    [true, true, false],
+  );
+});
