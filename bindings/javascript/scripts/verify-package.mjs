@@ -3,7 +3,15 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 const root = new URL("../../../", import.meta.url);
 const pkg = new URL("../", import.meta.url);
-const { modes } = JSON.parse(await readFile(new URL("provenance/modes.json", root), "utf8"));
+const { modes, runtimeRevision } = JSON.parse(
+  await readFile(new URL("provenance/modes.json", root), "utf8"),
+);
+const runtime = JSON.parse(await readFile(new URL(runtimeRevision, root), "utf8"));
+for (const [file, hash] of Object.entries(runtime.files)) {
+  const contents = await readFile(new URL(file, root));
+  if (createHash("sha256").update(contents).digest("hex") !== hash)
+    throw Error(`Release runtime source drift: ${file}`);
+}
 const source = await readFile(new URL("src/index.ts", pkg), "utf8");
 const compiled = await readFile(new URL("dist/index.js", pkg), "utf8");
 for (const { tag, binarySha256 } of modes) {
@@ -36,7 +44,8 @@ for (const file of [
   "dist/index.d.ts",
   "dist/detail.js",
   "dist/detail-canvas.js",
-  "dist/detail-20260914/scanner.mjs",
+  "dist/runtime-host.mjs",
+  "dist/runtime-detail/scanner.mjs",
   "THIRD_PARTY_NOTICES.md",
 ])
   await readFile(new URL(file, pkg));

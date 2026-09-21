@@ -95,7 +95,7 @@ export function protectedFiles() {
   // Historical recipes, patches, benchmark payloads and generated assets are not normal source edits.
   for (const file of files())
     if (
-      /^(core\/|provenance\/|js\/camera-demo\/src\/vendor\/|rust\/barcode-core\/experiments\/|benchmark\/(results|reports)\/|.*\/experimental-built\/|.*\/public\/)/.test(
+      /^(adapters\/retail-reader\/src\/lib\.rs|core\/|provenance\/|js\/camera-demo\/src\/vendor\/|rust\/barcode-core\/experiments\/|benchmark\/(results|reports)\/|.*\/experimental-built\/|.*\/public\/)/.test(
         file,
       )
     )

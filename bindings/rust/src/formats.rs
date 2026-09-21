@@ -235,14 +235,16 @@ fn signed_area(points: &[[f64; 2]]) -> f64 {
 }
 // Same convex clipping and 0.65 thresholds as the research JS reconciliation.
 pub(crate) fn overlap(first: &Value, second: &Value) -> (f64, f64) {
-    let first_quad = quad(first);
-    let second_quad = quad(second);
-    let first_area = signed_area(&first_quad).abs();
-    let second_area = signed_area(&second_quad).abs();
+    overlap_quads(&quad(first), &quad(second))
+}
+
+pub(crate) fn overlap_quads(first_quad: &crate::Quad, second_quad: &crate::Quad) -> (f64, f64) {
+    let first_area = signed_area(first_quad).abs();
+    let second_area = signed_area(second_quad).abs();
     if first_area.min(second_area) < 1e-6 {
         return (0.0, 0.0);
     }
-    let winding = signed_area(&second_quad).signum();
+    let winding = signed_area(second_quad).signum();
     let mut points = first_quad.to_vec();
     for edge_index in 0..4 {
         if points.is_empty() {

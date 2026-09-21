@@ -1,7 +1,12 @@
 # Promoting workbench improvements
 
-Keep research in the original repository. This release repository evolves independently.
-For each promotion, identify the workbench revision and exact mode recipe. Import
+New experiments start from a committed Tapirscan baseline in an isolated Git
+worktree. Keep the experiment manifest, regression harness, dataset identities,
+commands and compact results in the experiment workspace; keep original images
+in the dataset workspace. The original workbench is a historical reference,
+not the destination for new scanner development.
+
+For each promotion, identify the candidate revision and exact mode recipe. Import
 only required project-owned source, tests and relevant aggregate evidence. Recompute
 `provenance/import.json` and mode manifests; retain the previous release's provenance
 in Git. Never import private datasets, labels, model weights or reference binaries.

@@ -1,5 +1,5 @@
-import { DetailScanner, type DetailResult } from "./detail-runtime/scanner.mjs";
-import { IndependentScanner, type Image, type Quad } from "./host.js";
+import { DetailScanner, type DetailResult } from "./runtime-detail/scanner.mjs";
+import { IndependentScanner, type Image, type Quad } from "./runtime-host.mjs";
 import type { Mode } from "./index.js";
 
 export const fitLimits = { low: 0, medium: 1, high: 4, "very-high": 1 } as const;

@@ -197,5 +197,6 @@
     "multiformat": "Research working tree, retail-twohour-20260916 sourceHashes; see promotion manifest.",
     "frozenHostsAndHistoricalRecipes": "Retained from release 48e1ef8; original origins and hashes remain in that commit.",
     "completionHosts": "Release-owned adaptations of frozen hosts: capability check and region flag 32."
-  }
+  },
+  "releaseRevision": "provenance/runtime-selection-20260921.json"
 }

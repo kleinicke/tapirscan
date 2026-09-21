@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "adapterFiles": {
+    "Cargo.toml": "aa5c3805cd7d2d25d57fb58c061e37dd3522c28cc79397006a33abede6d4c0d1",
+    "src/lib.rs": "43c67d74e460c481860cb5dc4bfabc7f66ba04a45b66562666b624b87152e0aa"
+  },
+  "upstreamFiles": {
+    "src/lib.rs": "f1bbdebed2b682dd474fd6e183d48d894b7f65b613d5316a009ece853983c39a"
+  },
+  "frozenModules": {
+    "src/linear.rs": "d7b347cc1a904f8aa7ce12cb35a056c8cfa4e814a2347818234b677c37df8712",
+    "src/databar.rs": "25fb50148ce23f20b3c7af3e48559244f38b06788e9e3a2818916041d9ba98d5",
+    "src/expanded.rs": "26c8278254e70679fbbb829fc0ede8d01ef48467139564dde85a009ff6fef90c",
+    "src/numeric.rs": "eae0ecb1290b9f08aa6aef9e147d85ffa2a69b79aa9d31269b4a9e9c3a82eec8",
+    "src/retail_gray.rs": "186c34273643914a2947b79220c6b63cf25cf8ac1446fa959a1346cb8dc65c9e",
+    "src/retail_profile.rs": "af85e22f4828802bab84f33256cc07ecba841f2a9435406de20225274082051c"
+  }
+}

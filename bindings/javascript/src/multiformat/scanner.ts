@@ -1,10 +1,15 @@
-import { mergeLinearDuplicates } from "./linear-duplicates.js";
+import { mergeLinearDuplicates } from "../runtime-multiformat/linear-duplicates.js";
 import { ReleaseDetailScanner, fitLimits } from "../detail.js";
-import { IndependentScanner, type Image, type Quad } from "../completion-host.mjs";
-import { IndependentScanner as WideScanner } from "../host64.js";
+import { IndependentScanner, runtimeHostOptions, type Image, type Quad } from "../runtime-host.mjs";
 import type { Mode } from "../index.js";
 import { policy } from "../policy.js";
-import { rectify, rectificationPlan, project, distinctReads, polygonOverlap } from "./geometry.js";
+import {
+  rectify,
+  rectificationPlan,
+  project,
+  distinctReads,
+  polygonOverlap,
+} from "../runtime-multiformat/geometry.js";
 import { toGray } from "./pixels.js";
 import {
   maskFor,
@@ -73,7 +78,7 @@ function scanGray(image: Image): Uint8Array {
 }
 /** Shared retail evidence over primary profiles, plus independent additional readers. */
 export class MediumMultiformatScanner {
-  private medium?: IndependentScanner | WideScanner | ReleaseDetailScanner;
+  private medium?: IndependentScanner | ReleaseDetailScanner;
   private mode: Mode = "medium";
   private extra?: ExtraExports;
   private handle = 0;
@@ -98,7 +103,7 @@ export class MediumMultiformatScanner {
         scanner.medium =
           mode !== "low" && recoveryBytes
             ? await ReleaseDetailScanner.create(mediumBytes, recoveryBytes, mode)
-            : await IndependentScanner.create(mediumBytes);
+            : await IndependentScanner.create(mediumBytes, runtimeHostOptions.completion);
       if (extraBytes) {
         const instance = await WebAssembly.instantiate(extraBytes, {});
         const e = instance.instance.exports as ExtraExports;
@@ -287,7 +292,7 @@ export class MediumMultiformatScanner {
           regions.push({ format: "Unknown", text: "", polygon: p.polygon, support: 0 });
       });
       if ("recovery" in found) {
-        const recovery = found.recovery as import("../detail-20260914/scanner.mjs").Recovery;
+        const recovery = found.recovery as import("../runtime-detail/scanner.mjs").Recovery;
         for (const attempt of recovery.attempts) {
           const accepted = new Set(attempt.reads.flatMap((b) => b.candidate_indices));
           attempt.proposals.forEach((p, i) => {

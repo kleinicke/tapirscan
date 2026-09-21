@@ -1,5 +1,5 @@
-import { mergeLinearDuplicates } from "./multiformat/linear-duplicates.js";
-import type { Recovery, DetailRegion } from "./detail-20260914/scanner.mjs";
+import { mergeLinearDuplicates } from "./runtime-multiformat/linear-duplicates.js";
+import type { Recovery, DetailRegion } from "./runtime-detail/scanner.mjs";
 import { ReleaseDetailScanner, fitLimits } from "./detail.js";
 import { policy } from "./policy.js";
 import { MediumMultiformatScanner, type Barcode as FormatBarcode } from "./multiformat/scanner.js";
@@ -15,10 +15,11 @@ export {
 export type { Format, FormatSelection } from "./multiformat/formats.js";
 import {
   IndependentScanner,
+  runtimeHostOptions,
   type Image as HostImage,
   type ScanFrame,
   type Quad as HostQuad,
-} from "./completion-host.mjs";
+} from "./runtime-host.mjs";
 /** Source-image corners, in pixels. */
 export type Quad = readonly [
   readonly [number, number],
@@ -34,7 +35,7 @@ export interface Image {
   readonly channels: 1 | 3 | 4;
   readonly stride?: number;
 }
-export { ScannerError } from "./completion-host.mjs";
+export { ScannerError } from "./runtime-host.mjs";
 type RawDiagnosticBarcode = FormatBarcode | (ScanFrame["barcodes"][number] & { format: "EAN13" });
 export type Mode = "low" | "medium" | "high" | "very-high";
 export interface ScanOptions {
@@ -252,10 +253,10 @@ function publicResult(raw: RawDiagnostics, image: HostImage, debug: boolean): Sc
   });
 }
 const modes = {
-  low: "low-shared-retail-portable-20260919.wasm",
-  medium: "medium-shared-retail-portable-20260919.wasm",
-  high: "high-shared-retail-portable-20260919.wasm",
-  "very-high": "very-high-shared-retail-portable-20260919.wasm",
+  low: "low-shared-retail-runtime-20260921.wasm",
+  medium: "medium-shared-retail-runtime-20260921.wasm",
+  high: "high-shared-retail-runtime-20260921.wasm",
+  "very-high": "very-high-shared-retail-runtime-20260921.wasm",
 } as const;
 /** Mode selects a compiled implementation. Create another instance to switch. */
 export class Scanner {
@@ -330,7 +331,7 @@ export class Scanner {
     if (!bytes) throw new Error("EAN13 engine was not loaded");
     const host = recovery
       ? await ReleaseDetailScanner.create(bytes, recovery, mode as Exclude<Mode, "low">)
-      : await IndependentScanner.create(bytes);
+      : await IndependentScanner.create(bytes, runtimeHostOptions.completion);
     return new Scanner(host, mode, formats);
   }
 

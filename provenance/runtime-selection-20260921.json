@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "description": "Select consolidated runtime hosts with unchanged decoder WASM hashes; reversible metadata-only change.",
+  "patch": "provenance/runtime-selection-20260921.patch",
+  "patchSha256": "f5f9761113743eb5f36928a9de5628b440bf87238491f7a5891a5b3339c40c36",
+  "baseHashes": {
+    "provenance/modes.json": "6d78439bc9922eac5ca7bbf903f2b418145bb572cc2f72fe206af3909a899b7e"
+  },
+  "targetHashes": {
+    "provenance/modes.json": "867d0f6cdb3af14d9937d442a93469b0d72334e990dbca79f3bcbc9cbb585d05"
+  }
+}

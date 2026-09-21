@@ -2,13 +2,13 @@
 """Build selected native modes from verified pinned sources."""
 
 import argparse
-import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+
+from build_support import verify_source_hashes
 
 from build import (
     MODES,
@@ -19,30 +19,12 @@ from build import (
 )
 
 
-def verify(root: Path, hashes: dict[str, str]) -> None:
-    """Check prepared source files against the pinned content hashes."""
-    for rel, expected in hashes.items():
-        if (
-            hashlib.sha256(
-                (root / rel)
-                .read_bytes()
-                .replace(b"\r\n", b"\n")
-                .replace((ROOT / "multiformat").as_posix().encode(), b"@MULTIFORMAT@")
-                if rel == "Cargo.toml"
-                else (root / rel).read_bytes()
-            ).hexdigest()
-            != expected
-        ):
-            msg = f"Source hash mismatch: {root / rel}"
-            raise RuntimeError(msg)
-
-
 def build(mode: str) -> None:
     """Build and validate one native scanner mode."""
     recipe, tag = MODES[mode]
     manifest = json.loads((ROOT / f"core/experiments/{recipe}.json").read_text())
-    verify(ROOT / "core", manifest["baseHashes"])
-    verify(ROOT, manifest.get("externalHashes", {}))
+    verify_source_hashes(ROOT / "core", manifest["baseHashes"])
+    verify_source_hashes(ROOT, manifest.get("externalHashes", {}))
     out = ROOT / "build" / mode
     if not out.exists():
         subprocess.run(
@@ -51,7 +33,7 @@ def build(mode: str) -> None:
         )
     prepared = out / "temporarysource"
     expected = dict(manifest["baseHashes"]) | manifest["targetHashes"]
-    verify(prepared, expected)
+    verify_source_hashes(prepared, expected)
     prepare_native_source(out)
     prepare_recovery_source(out)
     sdk = out / "rust"

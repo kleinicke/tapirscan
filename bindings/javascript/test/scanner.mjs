@@ -252,8 +252,8 @@ test("WASM base directory composes with the advanced loader", async () => {
   });
   scanner.dispose();
   assert.deepEqual(loaded, [
-    "medium-shared-retail-portable-20260919.wasm",
-    "low-shared-retail-portable-20260919.wasm",
+    "medium-shared-retail-runtime-20260921.wasm",
+    "low-shared-retail-runtime-20260921.wasm",
     "multiformat.wasm",
   ]);
 });
@@ -470,7 +470,8 @@ test("supplement policy is opt-in, validated at creation and fixed for scans", a
 });
 
 test("coverage defers only contained retries and preserves the full-frame bit", async () => {
-  const { containsPoint, uncoveredRetryMask } = await import("../dist/multiformat/coverage.js");
+  const { containsPoint, uncoveredRetryMask } =
+    await import("../dist/runtime-multiformat/coverage.js");
   const quad = [
     [0, 0],
     [10, 0],
@@ -512,7 +513,7 @@ test("one-shot forwards continuation", async () => {
   ]);
 });
 test("continuation services later candidates while preserving effort and unfinished status", async () => {
-  const { IndependentScanner } = await import("../dist/completion-host.mjs");
+  const { IndependentScanner, runtimeHostOptions } = await import("../dist/runtime-host.mjs");
   const image = {
     data: new Uint8Array(600 * 300).fill(255),
     width: 600,
@@ -529,8 +530,9 @@ test("continuation services later candidates while preserving effort and unfinis
   for (const mode of ["low", "medium", "high", "very-high"]) {
     const scanner = await IndependentScanner.create(
       await loadWasm(
-        new URL(`../wasm/${mode}-shared-retail-portable-20260919.wasm`, import.meta.url),
+        new URL(`../wasm/${mode}-shared-retail-runtime-20260921.wasm`, import.meta.url),
       ),
+      runtimeHostOptions.completion,
     );
     try {
       const bounded = scanner.scan(image, quads, { maxRetryPathsPerFrame: 10 });

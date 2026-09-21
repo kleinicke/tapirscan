@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mergeLinearDuplicates } from "../dist/multiformat/linear-duplicates.js";
+import { mergeLinearDuplicates } from "../dist/runtime-multiformat/linear-duplicates.js";
 
 function fixture(gap = false, rotated = false, channels = 1) {
   const width = 460,

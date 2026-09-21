@@ -10,5 +10,18 @@
     "skipLibCheck": true,
     "allowJs": true
   },
-  "include": ["src/**/*.ts", "src/**/*.mjs"]
+  "include": [
+    "src/index.ts",
+    "src/detail.ts",
+    "src/detail-canvas.ts",
+    "src/policy.ts",
+    "src/runtime-host.mjs",
+    "src/runtime-host.d.mts",
+    "src/runtime-detail/**/*.mjs",
+    "src/runtime-detail/**/*.d.mts",
+    "src/runtime-multiformat/**/*.ts",
+    "src/multiformat/formats.ts",
+    "src/multiformat/pixels.ts",
+    "src/multiformat/scanner.ts"
+  ]
 }

@@ -5,12 +5,13 @@ import argparse
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+from build_support import verify_source_hashes
 
 ROOT = Path(__file__).resolve().parents[1]
 MODE_CONFIG = json.loads((ROOT / "provenance/modes.json").read_text())["modes"]
@@ -40,40 +41,31 @@ def prepare_wasm_source(out: Path) -> Path:
         return source / "Cargo.toml"
     dest = out / "wasm-source"
     shutil.copytree(source, dest, dirs_exist_ok=True)
-    shutil.copytree(
+    adapter = ROOT / "adapters/retail-reader"
+    adapter_source = json.loads((adapter / "source.json").read_text())
+    verify_source_hashes(
+        adapter,
+        adapter_source["adapterFiles"],
+        error_prefix="Retail reader adapter hash mismatch",
+    )
+    verify_source_hashes(
         ROOT / "multiformat",
-        dest / "multiformat",
-        dirs_exist_ok=True,
-        ignore=shutil.ignore_patterns("target"),
+        adapter_source["frozenModules"],
+        error_prefix="Frozen reader source hash mismatch",
     )
-    # The shared WASM uses only these dependency-free reader modules. Keeping
-    # serialization/proc-macro dependencies out also keeps crate identities
-    # independent of the host compiler platform.
+    verify_source_hashes(
+        ROOT / "multiformat",
+        adapter_source["upstreamFiles"],
+        error_prefix="Retail reader upstream root hash mismatch",
+    )
     reader = dest / "multiformat"
-    (reader / "Cargo.toml").write_text(
-        '[package]\nname = "barcode-multiformat"\nversion = "0.1.0"\n'
-        'edition = "2021"\n[lib]\ncrate-type = ["rlib"]\n',
-        newline="\n",
-    )
-    original_lib = (ROOT / "multiformat/src/lib.rs").read_text()
-    marker = "/// Bounded access to the unchanged EAN8 blurred-intensity matcher."
-    if original_lib.count(marker) != 1:
-        msg = "Unexpected shared retail entry point"
-        raise RuntimeError(msg)
-    types = original_lib.split("/// One symbol in a structured-append sequence;")[1]
-    types = (
-        "/// One symbol in a structured-append sequence;"
-        + types.split("#[derive(Serialize)]\npub struct Scan")[0]
-    )
-    types = re.sub(r"#\[serde\([\s\S]*?\)\]\s*", "", types).replace(", Serialize", "")
-    (reader / "src/lib.rs").write_text(
-        "pub mod linear;\npub mod databar;\npub mod expanded;\npub mod numeric;\n"
-        "mod retail_gray;\nmod retail_profile;\n"
-        + types
-        + marker
-        + original_lib.split(marker)[1],
-        newline="\n",
-    )
+    if reader.exists():
+        shutil.rmtree(reader)
+    (reader / "src").mkdir(parents=True)
+    shutil.copy2(adapter / "Cargo.toml", reader / "Cargo.toml")
+    shutil.copy2(adapter / "src/lib.rs", reader / "src/lib.rs")
+    for relative in adapter_source["frozenModules"]:
+        shutil.copy2(ROOT / "multiformat" / relative, reader / relative)
     manifest = dest / "Cargo.toml"
     manifest.write_text(
         original.replace(dependency, "multiformat")
@@ -154,20 +146,11 @@ def prepare_recovery_source(out: Path) -> None:
     recipe = json.loads(
         (ROOT / "core/experiments/low-shared-retail-20260918.json").read_text()
     )
-    for rel, expected in (recipe["baseHashes"] | recipe["targetHashes"]).items():
-        if (
-            hashlib.sha256(
-                (source / rel)
-                .read_bytes()
-                .replace(b"\r\n", b"\n")
-                .replace((ROOT / "multiformat").as_posix().encode(), b"@MULTIFORMAT@")
-                if rel == "Cargo.toml"
-                else (source / rel).read_bytes()
-            ).hexdigest()
-            != expected
-        ):
-            msg = f"Recovery source hash mismatch: {rel}"
-            raise RuntimeError(msg)
+    verify_source_hashes(
+        source,
+        recipe["baseHashes"] | recipe["targetHashes"],
+        error_prefix="Recovery source hash mismatch",
+    )
     copied = out / "recovery-core"
     shutil.copytree(source, copied, dirs_exist_ok=True)
     manifest = copied / "Cargo.toml"
@@ -238,22 +221,7 @@ def resume_core(out: Path, recipe: str) -> None:
             dict(manifest["baseHashes"]) | manifest["targetHashes"],
         ),
     ]:
-        for rel, expected in hashes.items():
-            if (
-                hashlib.sha256(
-                    (base / rel)
-                    .read_bytes()
-                    .replace(b"\r\n", b"\n")
-                    .replace(
-                        (ROOT / "multiformat").as_posix().encode(), b"@MULTIFORMAT@"
-                    )
-                    if rel == "Cargo.toml"
-                    else (base / rel).read_bytes()
-                ).hexdigest()
-                != expected
-            ):
-                msg = f"Source hash mismatch: {base / rel}"
-                raise RuntimeError(msg)
+        verify_source_hashes(base, hashes)
     env = dict(
         os.environ,
         CARGO_TARGET_DIR=str(out / "cargo-target"),

@@ -1,4 +1,4 @@
-import type { Image } from "../multiformat-host.js";
+import type { Image } from "../runtime-host.mjs";
 const littleEndian = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 /** Input dimensions are validated by the scanner. Preserve its integer luma rule. */
 export function toGray({ data, width, height, channels, stride }: Image): Uint8Array {

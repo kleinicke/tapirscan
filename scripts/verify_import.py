@@ -53,4 +53,12 @@ for relative, expected in expected_files.items():
     if actual != expected:
         msg = f"Source hash mismatch: {relative}"
         raise SystemExit(msg)
-print(f"Verified {len(expected_files)} source hashes and release revision")
+runtime = json.loads((root / "provenance/runtime-refactor-20260921.json").read_text())
+for relative, expected in runtime["files"].items():
+    if hashlib.sha256((root / relative).read_bytes()).hexdigest() != expected:
+        msg = f"Release runtime hash mismatch: {relative}"
+        raise SystemExit(msg)
+print(
+    f"Verified {len(expected_files)} imported and {len(runtime['files'])} runtime "
+    "source hashes and release revision"
+)

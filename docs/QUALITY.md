@@ -114,9 +114,10 @@ research files named in experiment `baseHashes`. Formatting those inputs would
 invalidate reproducible patches and WASM hashes. VS Code's native rustfmt runs on
 an explicitly edited Rust document: do not casually edit/save frozen inputs.
 
-The research scanner is the classical EAN-13 code in `../barcode/rust/barcode-core/`.
-Exact variants are defined by `experiments/*.json` plus `.patch` files and rebuilt
-by `experiments/build_guarded.py`. In the research repo, consult `js/camera-demo/src/lib/versions.ts`
+The selected EAN-13 implementations are defined by `core/experiments/*.json`
+plus `.patch` files and rebuilt by `core/experiments/build_guarded.py`. New
+experiments use isolated Tapirscan worktrees and the experiment workspace's
+records. For an older result from the historical `../barcode` archive, consult `js/camera-demo/src/lib/versions.ts`
 and the matching manifest to identify the requested version; do not assume the
 base Cargo aliases are the latest or promote a different mode merely because
 its name sounds newer. The current four-mode release selection is recorded in `provenance/modes.json`;

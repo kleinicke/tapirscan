@@ -27,7 +27,11 @@ marked unfinished, even when it successfully decodes a symbol.
 ## One algorithm family, two execution environments
 
 JavaScript loads Rust/WASM and orchestrates the pipeline synchronously after
-initialization. Browser recovery uses Canvas interpolation; Node uses a software
+initialization. `bindings/javascript/src/runtime-host.mjs` owns the active region
+ABI adapter. Explicit host options preserve the base, completion, wider-candidate
+and detail-scheduling behaviors without copied host implementations. Active detail
+helpers live under `runtime-detail/`; dated and hash-pinned imports remain audit
+references and are excluded from the packaged runtime. Browser recovery uses Canvas interpolation; Node uses a software
 bilinear implementation. The native Rust facade ports the same orchestration
 and uses the same separately compiled recovery core. C, C++, Python and Java
 all call that native ABI.
@@ -73,3 +77,32 @@ integration evidence. Historical promotion records remain available for audit.
 
 The demo's ZXing and ZBar workers are comparison tools. They never supply fallback
 results to Tapirscan, and they are not dependencies of the distributed library.
+
+## Developing algorithms and experiments
+
+The frozen `core/` base and selected recipes remain the reproducibility boundary.
+Run `python3 scripts/build.py MODE --prepare-only` in a fresh experiment worktree
+to inspect the complete selected source under `build/MODE/temporarysource`.
+That directory is generated: promote changes through source, recipe and provenance
+review rather than relying on an edited build directory.
+
+Use these stage boundaries when changing a scanner:
+
+| Stage                           | Main implementation                                                           | Preserve when testing another stage                                |
+| ------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Candidate discovery             | `core/src/stripes.rs`, `localize.rs`, `shear.rs`                              | Source coordinates and omitted/work-limited signals                |
+| Profile sampling and decoding   | `core/src/sampling.rs`, `experiment.rs`, format readers                       | Sampling order, numerical precision and acceptance thresholds      |
+| Evidence and reconciliation     | `core/src/frame.rs`, `verified_coverage.rs`                                   | Independent support, separate equal labels and conflict handling   |
+| Recovery scheduling             | JavaScript detail runtime and `bindings/rust/src/detail.rs`                   | Effort policy, candidate namespaces and unfinished work            |
+| Release duplicate consolidation | JavaScript `multiformat/linear-duplicates.ts` and Rust `linear_duplicates.rs` | Geometry, supplement identity, ranking and the shared pixel budget |
+
+Rust release consolidation uses typed reads and geometry. Reader JSON is decoded
+at its boundary and retained as an opaque payload, preserving additional metadata;
+the primary EAN path does not serialize its results just to reconcile them.
+
+An experiment regression suite belongs with its frozen manifest in the experiment
+workspace. Reference shared images by path and hash, put decoded pixels and full
+outputs in disposable storage, and retain compact comparison results. Exact output
+parity establishes a behavior-preserving refactor on those cases; it does not
+establish accuracy or latency improvements. Production API and ownership tests
+remain alongside the library.

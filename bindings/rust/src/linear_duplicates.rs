@@ -141,49 +141,64 @@ impl Evidence<'_> {
         Some([top[0], top[1], bottom[2], bottom[3]])
     }
 }
-fn supported(read: &Value) -> bool {
-    !read["text"].as_str().unwrap_or_default().is_empty()
-        && matches!(
-            read["format"].as_str(),
-            Some("EAN13" | "UPCA" | "EAN8" | "UPCE" | "Code128" | "Code39" | "ITF")
-        )
+/// Algorithm inputs are typed; opaque payloads retain reader-specific evidence.
+struct Read<T> {
+    text: String,
+    format: String,
+    addon: Option<String>,
+    gs1: bool,
+    reader_initialization: bool,
+    support: u64,
+    polygon: Quad,
+    geometry_changed: bool,
+    payload: T,
 }
-pub(crate) fn merge(mut reads: Vec<Value>, image: Image<'_>) -> Vec<Value> {
+impl<T> Read<T> {
+    fn supported(&self) -> bool {
+        !self.text.is_empty()
+            && matches!(
+                self.format.as_str(),
+                "EAN13" | "UPCA" | "EAN8" | "UPCE" | "Code128" | "Code39" | "ITF"
+            )
+    }
+    fn same_symbol(&self, other: &Self) -> bool {
+        self.text == other.text
+            && self.format == other.format
+            && self.addon == other.addon
+            && self.gs1 == other.gs1
+            && self.reader_initialization == other.reader_initialization
+    }
+}
+
+fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
     if !reads.iter().enumerate().any(|(i, a)| {
-        supported(a)
+        a.supported()
             && reads[..i]
                 .iter()
-                .any(|b| a["text"] == b["text"] && a["format"] == b["format"])
+                .any(|b| a.text == b.text && a.format == b.format)
     }) {
         return reads;
     }
-    reads.sort_by_key(|b| std::cmp::Reverse(b["support"].as_u64().unwrap_or(0)));
+    reads.sort_by_key(|b| std::cmp::Reverse(b.support));
     let mut evidence = Evidence {
         image,
         remaining: 32768,
     };
-    let mut result: Vec<Value> = Vec::new();
+    let mut result: Vec<Read<T>> = Vec::new();
     for read in reads {
         let mut merged = false;
-        if supported(&read) && evidence.remaining >= 192 {
+        if read.supported() && evidence.remaining >= 192 {
             for other in &mut result {
-                if ["text", "format", "eanAddOn"]
-                    .iter()
-                    .any(|k| read[k] != other[k])
-                    || ["gs1", "readerInitialization"].iter().any(|k| {
-                        read[k].as_bool().unwrap_or(false) != other[k].as_bool().unwrap_or(false)
-                    })
-                {
+                if !read.same_symbol(other) {
                     continue;
                 }
-                if crate::formats::overlap(other, &read).0 >= 0.65 {
+                if crate::formats::overlap_quads(&other.polygon, &read.polygon).0 >= 0.65 {
                     merged = true;
                     break;
                 }
-                if let Some(polygon) =
-                    evidence.connected(crate::formats::quad(other), crate::formats::quad(&read))
-                {
-                    other["polygon"] = json!(polygon);
+                if let Some(polygon) = evidence.connected(other.polygon, read.polygon) {
+                    other.polygon = polygon;
+                    other.geometry_changed = true;
                     merged = true;
                     break;
                 }
@@ -196,24 +211,63 @@ pub(crate) fn merge(mut reads: Vec<Value>, image: Image<'_>) -> Vec<Value> {
     result
 }
 
+/// Decode the existing JSON boundary once; preserve all unrecognized metadata.
+pub(crate) fn merge(reads: Vec<Value>, image: Image<'_>) -> Vec<Value> {
+    let reads = reads
+        .into_iter()
+        .map(|value| Read {
+            text: value["text"].as_str().unwrap_or_default().to_owned(),
+            format: value["format"].as_str().unwrap_or_default().to_owned(),
+            addon: value["eanAddOn"].as_str().map(str::to_owned),
+            gs1: value["gs1"].as_bool().unwrap_or(false),
+            reader_initialization: value["readerInitialization"].as_bool().unwrap_or(false),
+            support: value["support"].as_u64().unwrap_or(0),
+            polygon: crate::formats::quad(&value),
+            geometry_changed: false,
+            payload: value,
+        })
+        .collect();
+    consolidate(reads, image)
+        .into_iter()
+        .map(|mut read| {
+            if read.geometry_changed {
+                read.payload["polygon"] = json!(read.polygon);
+            }
+            read.payload
+        })
+        .collect()
+}
+
 pub(crate) fn merge_primary(reads: &mut Vec<crate::Barcode>, image: Image<'_>) {
     if reads.len() < 2 {
         return;
     }
-    let values = reads.iter().enumerate().map(|(i,b)| json!({"index":i,"format":"EAN13","text":b.detection.digits.iter().map(|d|char::from(b'0'+d)).collect::<String>(),"polygon":b.detection.polygon,"support":b.detection.support})).collect();
-    let merged = merge(values, image);
-    let mut owned: Vec<_> = std::mem::take(reads).into_iter().map(Some).collect();
-    for value in merged {
-        if let Some(index) = value["index"]
-            .as_u64()
-            .and_then(|v| usize::try_from(v).ok())
-        {
-            if let Some(mut read) = owned[index].take() {
-                read.detection.polygon = crate::formats::quad(&value);
-                reads.push(read);
-            }
-        }
-    }
+    let typed = std::mem::take(reads)
+        .into_iter()
+        .map(|read| Read {
+            text: read
+                .detection
+                .digits
+                .iter()
+                .map(|d| char::from(b'0' + d))
+                .collect(),
+            format: "EAN13".to_owned(),
+            addon: None,
+            gs1: false,
+            reader_initialization: false,
+            support: u64::try_from(read.detection.support).unwrap_or(u64::MAX),
+            polygon: read.detection.polygon,
+            geometry_changed: false,
+            payload: read,
+        })
+        .collect();
+    *reads = consolidate(typed, image)
+        .into_iter()
+        .map(|mut read| {
+            read.payload.detection.polygon = read.polygon;
+            read.payload
+        })
+        .collect();
 }
 
 #[cfg(test)]
