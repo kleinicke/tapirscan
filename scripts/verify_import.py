@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -59,6 +60,11 @@ for relative, expected in runtime["files"].items():
     if hashlib.sha256((root / relative).read_bytes()).hexdigest() != expected:
         msg = f"Release runtime hash mismatch: {relative}"
         raise SystemExit(msg)
+if (root / "config/formats.json").exists():
+    subprocess.run(
+        [sys.executable, str(root / "scripts/generate_formats.py"), "--check"],
+        check=True,
+    )
 print(
     f"Verified {len(expected_files)} imported and {len(runtime['files'])} runtime "
     "source hashes and release revision"

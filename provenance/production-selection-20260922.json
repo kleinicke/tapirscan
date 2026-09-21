@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "description": "Select the production cleanup revision; browser host and decoder WASM identities are unchanged. Reverses directly to the imported mode selection.",
+  "patch": "provenance/production-selection-20260922.patch",
+  "patchSha256": "03882a0db2e61d47607170af2c59738054d5c63b69bb2f895a3a69b271b79b73",
+  "baseHashes": {
+    "provenance/modes.json": "6d78439bc9922eac5ca7bbf903f2b418145bb572cc2f72fe206af3909a899b7e"
+  },
+  "targetHashes": {
+    "provenance/modes.json": "2a49a15082464f8dd69e9559b303170c71637f4e6cc50859300904d07df05434"
+  }
+}

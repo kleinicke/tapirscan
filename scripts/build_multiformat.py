@@ -51,10 +51,19 @@ def main() -> None:
         ROOT / "multiformat/THIRD_PARTY_NOTICES.md",
         ROOT / "bindings/javascript/THIRD_PARTY_NOTICES.md",
     )
-    source_manifest = (ROOT / "provenance/import.json").read_bytes()
-    revision = json.loads(source_manifest).get("releaseRevision")
+    imported = json.loads((ROOT / "provenance/import.json").read_text())
+    files = imported["files"]
+    if revision := imported.get("releaseRevision"):
+        files.update(json.loads((ROOT / revision).read_text())["targetHashes"])
     source_digest = hashlib.sha256(
-        source_manifest + ((ROOT / revision).read_bytes() if revision else b"")
+        json.dumps(
+            sorted(
+                (name, digest)
+                for name, digest in files.items()
+                if name.startswith("multiformat/")
+            ),
+            separators=(",", ":"),
+        ).encode()
     ).hexdigest()
     (dest / "multiformat.json").write_text(
         json.dumps(
@@ -62,6 +71,7 @@ def main() -> None:
                 "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
                 "sourceManifest": "provenance/import.json",
                 "sourceDigest": source_digest,
+                "sourceDigestScope": "multiformat-files-v1",
                 "rustToolchain": "1.91.1",
                 "rustflags": env["RUSTFLAGS"],
             },

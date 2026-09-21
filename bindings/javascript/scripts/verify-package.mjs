@@ -23,19 +23,23 @@ for (const { tag, binarySha256 } of modes) {
 const extra = JSON.parse(await readFile(new URL("wasm/multiformat.json", pkg), "utf8"));
 const sourceManifest = await readFile(new URL("provenance/import.json", root));
 const { releaseRevision, files } = JSON.parse(sourceManifest);
-const sourceDigest = createHash("sha256").update(sourceManifest);
+
 if (releaseRevision) {
   const revision = await readFile(new URL(releaseRevision, root));
-  sourceDigest.update(revision);
   Object.assign(files, JSON.parse(revision).targetHashes);
 }
-for (const [file, hash] of Object.entries(files)) {
-  if (!file.startsWith("multiformat/")) continue;
+const readerFiles = Object.entries(files)
+  .filter(([file]) => file.startsWith("multiformat/"))
+  .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+for (const [file, hash] of readerFiles) {
   const contents = await readFile(new URL(file, root));
   if (createHash("sha256").update(contents).digest("hex") !== hash)
     throw Error(`Additional-reader source drift: ${file}`);
 }
-if (sourceDigest.digest("hex") !== extra.sourceDigest)
+if (
+  extra.sourceDigestScope !== "multiformat-files-v1" ||
+  createHash("sha256").update(JSON.stringify(readerFiles)).digest("hex") !== extra.sourceDigest
+)
   throw Error("Additional-reader WASM was built from a different source revision");
 const bytes = await readFile(new URL("wasm/multiformat.wasm", pkg));
 if (createHash("sha256").update(bytes).digest("hex") !== extra.sha256)

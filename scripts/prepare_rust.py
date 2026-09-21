@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from build import MODE_CONFIG, ROOT, prepare_native_source
+from build import MODE_CONFIG, ROOT, prepare_native_source, recipe_manifest
 
 
 def copy_module(
@@ -105,9 +105,7 @@ def prepare(destination: Path) -> None:
             check=True,
         )
         prepare_native_source(out)
-        recipe = json.loads(
-            (ROOT / "core/experiments" / (mode["recipe"] + ".json")).read_text()
-        )
+        recipe = recipe_manifest(mode["recipe"])
         features = set(recipe["expandedFeatures"])
         metadata = json.loads(
             subprocess.check_output(

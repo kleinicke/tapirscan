@@ -96,3 +96,22 @@ and before/after hashes are recorded in
 Algorithm changes are promoted from exact experiments. Follow
 [PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); do not edit frozen inputs or rewrite
 hashes simply to make verification pass.
+
+## Maintained runtime boundaries
+
+The public Rust package lives in `bindings/rust/api`; `bindings/rust/src` is the
+internal per-mode engine assembled by the build scripts. Keep public result types
+in the API layer. The engine's `pipeline.rs` orders scanner stages, `detail.rs`
+handles crop recovery, `geometry.rs` owns overlap calculations, and `result.rs`
+assembles the output schema without a whole-result JSON round trip.
+
+In JavaScript, `multiformat/scanner.ts` orders stages, `extra-session.ts` owns the
+additional-reader WASM session, and `result-reconciliation.ts` merges reads.
+Keep ordering and coverage decisions in the coordinator when experimenting.
+
+Format names, native bits, ordered presets and reserved add-on flags are declared
+in `config/formats.json`. Run `python3 scripts/generate_formats.py` after changing
+it, then `python3 scripts/generate_formats.py --check`. Generated Rust and
+TypeScript declarations are checked in; `verify_import.py` also checks for drift.
+Changing a format bit is an API/ABI change, not a routine registry edit. The pinned
+decoder implementation still needs its own promotion when adding a new format.

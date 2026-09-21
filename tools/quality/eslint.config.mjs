@@ -20,6 +20,10 @@ export default [
       "bindings/javascript/src/host.ts",
       "bindings/javascript/src/host64.ts",
       "bindings/javascript/src/multiformat-host.ts",
+      // Historical declaration adapters are frozen outside the active TypeScript project.
+      "bindings/javascript/src/completion-host.d.mts",
+      "bindings/javascript/src/detail-20260914/scanner.d.mts",
+      "bindings/javascript/src/detail-runtime/scanner.d.mts",
       "**/experimental-built/**",
       "**/public/**",
     ],

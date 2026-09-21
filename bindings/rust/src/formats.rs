@@ -1,26 +1,9 @@
 //! Opt-in format readers. EAN-13/UPC-A keep the selected pinned scanner path.
-use crate::{Error, Image, ScanOptions, Scanner, MODE};
+use crate::format_registry::{
+    ALL_FORMATS_MASK, EAN_ADDON_READ_FLAG, EAN_ADDON_REQUIRE_FLAG, LINEAR_MASK,
+};
+use crate::{geometry::overlap, Error, Image, ScanOptions, Scanner, MODE};
 use serde_json::{json, Value};
-
-/// Explicit format mask; an empty or unknown mask is rejected.
-pub const FORMATS: [(&str, u32); 16] = [
-    ("EAN13", 1),
-    ("UPCA", 2),
-    ("EAN8", 4),
-    ("UPCE", 8),
-    ("Code128", 16),
-    ("Code39", 32),
-    ("ITF", 64),
-    ("Codabar", 128),
-    ("Code93", 256),
-    ("QRCode", 512),
-    ("DataMatrix", 1024),
-    ("PDF417", 2048),
-    ("Aztec", 4096),
-    ("DataBar", 8192),
-    ("DataBarExpanded", 16384),
-    ("MaxiCode", 131_072),
-];
 
 /// Whether a retail barcode needs its adjacent two- or five-digit supplement.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -38,8 +21,8 @@ impl EanAddOnPolicy {
     fn engine_bits(self) -> u32 {
         match self {
             Self::Ignore => 0,
-            Self::Read => 32768,
-            Self::Require => 65536,
+            Self::Read => EAN_ADDON_READ_FLAG,
+            Self::Require => EAN_ADDON_REQUIRE_FLAG,
         }
     }
 }
@@ -72,8 +55,8 @@ impl Scanner {
 
         if mask == 1 && addons == EanAddOnPolicy::Ignore {
             let result = self.scan_with_options(image, options)?;
-            let mut value: Value =
-                serde_json::from_str(&result.to_json(MODE, 0.0)).map_err(|_| Error::Parameters)?;
+            let mut value =
+                crate::result::value(&result, MODE, 0.0).map_err(|_| Error::Parameters)?;
             if let Some(reads) = value["scan"]["barcodes"].as_array_mut() {
                 for read in reads {
                     read["format"] = json!("EAN13");
@@ -89,7 +72,7 @@ impl Scanner {
             include_regions: options.include_regions,
         };
         let shared_retail =
-            cfg!(feature = "medium") && addons == EanAddOnPolicy::Ignore && mask & 12 != 0;
+            crate::MODE_ID == 1 && addons == EanAddOnPolicy::Ignore && mask & 12 != 0;
         let (extras, coverage) =
             scan_additional(image, if shared_retail { mask & !12 } else { mask }, addons)?;
         let mut retail = Vec::new();
@@ -97,7 +80,7 @@ impl Scanner {
             let result =
                 self.scan_with_coverage(image, full_options, &coverage, false, shared_retail)?;
             retail.clone_from(&result.retail);
-            serde_json::from_str(&result.to_json(MODE, 0.0)).map_err(|_| Error::Parameters)?
+            crate::result::value(&result, MODE, 0.0).map_err(|_| Error::Parameters)?
         } else {
             json!({"schemaVersion":2,"mode":MODE,"multiple":true,"elapsedMs":0.0,"localizationLimited":false,"scan":{"barcodes":[],"unfinished":false}})
         };
@@ -216,72 +199,6 @@ fn attach_supplements(reads: &mut [Value]) {
     }
 }
 
-pub(crate) fn quad(value: &Value) -> [[f64; 2]; 4] {
-    std::array::from_fn(|i| std::array::from_fn(|j| value["polygon"][i][j].as_f64().unwrap_or(0.0)))
-}
-fn signed_area(points: &[[f64; 2]]) -> f64 {
-    if points.is_empty() {
-        return 0.0;
-    }
-    points
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let q = points[(i + 1) % points.len()];
-            p[0] * q[1] - q[0] * p[1]
-        })
-        .sum::<f64>()
-        / 2.0
-}
-// Same convex clipping and 0.65 thresholds as the research JS reconciliation.
-pub(crate) fn overlap(first: &Value, second: &Value) -> (f64, f64) {
-    overlap_quads(&quad(first), &quad(second))
-}
-
-pub(crate) fn overlap_quads(first_quad: &crate::Quad, second_quad: &crate::Quad) -> (f64, f64) {
-    let first_area = signed_area(first_quad).abs();
-    let second_area = signed_area(second_quad).abs();
-    if first_area.min(second_area) < 1e-6 {
-        return (0.0, 0.0);
-    }
-    let winding = signed_area(second_quad).signum();
-    let mut points = first_quad.to_vec();
-    for edge_index in 0..4 {
-        if points.is_empty() {
-            break;
-        }
-        let edge_start = second_quad[edge_index];
-        let edge_end = second_quad[(edge_index + 1) % 4];
-        let side = |point: [f64; 2]| {
-            winding
-                * ((edge_end[0] - edge_start[0]) * (point[1] - edge_start[1])
-                    - (edge_end[1] - edge_start[1]) * (point[0] - edge_start[0]))
-        };
-        let mut clipped = Vec::new();
-        for point_index in 0..points.len() {
-            let current = points[point_index];
-            let next = points[(point_index + 1) % points.len()];
-            let current_side = side(current);
-            let next_side = side(next);
-            if current_side >= 0.0 {
-                clipped.push(current);
-            }
-            if (current_side >= 0.0) != (next_side >= 0.0) {
-                let fraction = current_side / (current_side - next_side);
-                clipped.push([
-                    current[0] + fraction * (next[0] - current[0]),
-                    current[1] + fraction * (next[1] - current[1]),
-                ]);
-            }
-        }
-        points = clipped;
-    }
-    let intersection = first_area.min(second_area).min(signed_area(&points).abs());
-    (
-        intersection / first_area.min(second_area),
-        intersection / first_area,
-    )
-}
 fn distinct(mut reads: Vec<Value>) -> Vec<Value> {
     reads.sort_by_key(|b| std::cmp::Reverse(b["support"].as_u64().unwrap_or(0)));
     let mut result: Vec<Value> = Vec::new();
@@ -357,9 +274,8 @@ fn gray_image(image: Image<'_>) -> Result<Vec<u8>, Error> {
 }
 
 fn validate(image: Image<'_>, mask: u32) -> Result<(), Error> {
-    let allowed = FORMATS.iter().fold(0, |acc, (_, bit)| acc | bit);
     if mask == 0
-        || mask & !allowed != 0
+        || mask & !ALL_FORMATS_MASK != 0
         || image
             .width
             .checked_mul(image.height)
@@ -426,7 +342,6 @@ fn scan_additional(
     mask: u32,
     addons: EanAddOnPolicy,
 ) -> Result<(Vec<barcode_multiformat::Scan>, Vec<crate::Quad>), Error> {
-    const LINEAR: u32 = 511 | 8192 | 16384;
     let enabled = if addons == EanAddOnPolicy::Ignore {
         mask & !3
     } else {
@@ -435,20 +350,10 @@ fn scan_additional(
     if enabled == 0 {
         return Ok((Vec::new(), Vec::new()));
     }
-    let linear = enabled & LINEAR;
-    let matrix = enabled & !LINEAR;
-    let effort = if cfg!(feature = "low") {
-        0
-    } else if cfg!(feature = "medium") {
-        1
-    } else {
-        2
-    };
-    let qr_effort = if cfg!(feature = "very-high") {
-        3
-    } else {
-        effort
-    };
+    let linear = enabled & LINEAR_MASK;
+    let matrix = enabled & !LINEAR_MASK;
+    let effort = [0, 1, 2, 2][crate::MODE_ID as usize];
+    let qr_effort = [0, 1, 2, 3][crate::MODE_ID as usize];
     let gray = gray_image(image)?;
     let mut scans = Vec::new();
     let mut coverage = Vec::new();
@@ -467,7 +372,7 @@ fn scan_additional(
             level,
         );
         if selected == linear
-            && !cfg!(feature = "low")
+            && crate::MODE_ID != 0
             && mask & 3 != 0
             && addons == EanAddOnPolicy::Ignore
         {

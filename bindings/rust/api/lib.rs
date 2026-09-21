@@ -5,8 +5,10 @@
 #[allow(dead_code, unused_imports, missing_docs)]
 #[path = "../generated/mod.rs"]
 mod engine;
+mod format;
 mod pixels;
 mod types;
+pub use format::Format;
 pub use pixels::Image;
 use std::time::Instant;
 pub use types::*;

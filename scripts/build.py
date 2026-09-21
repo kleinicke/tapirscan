@@ -18,6 +18,11 @@ MODE_CONFIG = json.loads((ROOT / "provenance/modes.json").read_text())["modes"]
 MODES = {m["mode"]: (m["recipe"], m["tag"]) for m in MODE_CONFIG}
 
 
+def recipe_manifest(recipe: str) -> dict[str, Any]:
+    """Read the selected recipe without duplicating its filesystem layout."""
+    return json.loads((ROOT / "core/experiments" / f"{recipe}.json").read_text())
+
+
 def wasm_flags() -> str:
     """Canonicalize std source paths whether rust-src is installed or absent."""
     sysroot = subprocess.check_output(
@@ -89,13 +94,7 @@ def facade_manifest(mode: str, manifest: dict[str, Any]) -> str:
         .replace("@ROOT@", ROOT.as_posix())
         .replace(
             "@LOW_FEATURES@",
-            json.dumps(
-                json.loads(
-                    (
-                        ROOT / "core/experiments/low-shared-retail-20260918.json"
-                    ).read_text()
-                )["expandedFeatures"]
-            ),
+            json.dumps(recipe_manifest(MODES["low"][0])["expandedFeatures"]),
         )
     )
 
@@ -135,7 +134,7 @@ def prepare_recovery_source(out: Path) -> None:
                 sys.executable,
                 str(ROOT / "core/experiments/build_guarded.py"),
                 "--recipe",
-                "low-shared-retail-20260918",
+                MODES["low"][0],
                 "--out",
                 str(dest),
                 "--prepare-only",
@@ -143,9 +142,7 @@ def prepare_recovery_source(out: Path) -> None:
             check=True,
         )
     source = dest / "temporarysource"
-    recipe = json.loads(
-        (ROOT / "core/experiments/low-shared-retail-20260918.json").read_text()
-    )
+    recipe = recipe_manifest(MODES["low"][0])
     verify_source_hashes(
         source,
         recipe["baseHashes"] | recipe["targetHashes"],
@@ -169,7 +166,7 @@ def prepare_recovery_source(out: Path) -> None:
         json.dumps(
             {
                 "change": "Isolate recovery features and native symbols",
-                "recipe": "low-shared-retail-20260918",
+                "recipe": MODES["low"][0],
             },
             indent=2,
         )
@@ -212,7 +209,7 @@ def prepare_test_source(out: Path) -> Path:
 
 def resume_core(out: Path, recipe: str) -> None:
     """Verify and finish an existing core build without trusting stale artifacts."""
-    manifest = json.loads((ROOT / f"core/experiments/{recipe}.json").read_text())
+    manifest = recipe_manifest(recipe)
     for base, hashes in [
         (ROOT, manifest.get("externalHashes", {})),
         (ROOT / "core", manifest["baseHashes"]),
@@ -276,6 +273,19 @@ def resume_core(out: Path, recipe: str) -> None:
     shutil.copy2(wasm, out / f"{recipe}.wasm")
 
 
+def prepare_facade(out: Path, mode: str, manifest: dict[str, Any]) -> Path:
+    """Prepare the same native facade for standalone and WASM-mode builds."""
+    prepare_native_source(out)
+    prepare_recovery_source(out)
+    sdk = out / "rust"
+    for folder in ("src", "examples"):
+        shutil.copytree(
+            ROOT / "bindings/rust" / folder, sdk / folder, dirs_exist_ok=True
+        )
+    (sdk / "Cargo.toml").write_text(facade_manifest(mode, manifest))
+    return sdk
+
+
 def main() -> None:
     """Build the requested pinned scanner mode."""
     parser = argparse.ArgumentParser()
@@ -302,15 +312,8 @@ def main() -> None:
         subprocess.run(command, check=True)
     if not args.prepare_only:
         resume_core(out, recipe)
-    manifest = json.loads((ROOT / f"core/experiments/{recipe}.json").read_text())
-    prepare_native_source(out)
-    prepare_recovery_source(out)
-    sdk = out / "rust"
-    shutil.copytree(ROOT / "bindings/rust/src", sdk / "src", dirs_exist_ok=True)
-    shutil.copytree(
-        ROOT / "bindings/rust/examples", sdk / "examples", dirs_exist_ok=True
-    )
-    (sdk / "Cargo.toml").write_text(facade_manifest(args.mode, manifest))
+    manifest = recipe_manifest(recipe)
+    sdk = prepare_facade(out, args.mode, manifest)
     if args.prepare_only:
         print(f"Prepared {tag}; Rust facade: {sdk}")
         return

@@ -192,7 +192,7 @@ fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
                 if !read.same_symbol(other) {
                     continue;
                 }
-                if crate::formats::overlap_quads(&other.polygon, &read.polygon).0 >= 0.65 {
+                if crate::geometry::overlap_quads(&other.polygon, &read.polygon).0 >= 0.65 {
                     merged = true;
                     break;
                 }
@@ -222,7 +222,7 @@ pub(crate) fn merge(reads: Vec<Value>, image: Image<'_>) -> Vec<Value> {
             gs1: value["gs1"].as_bool().unwrap_or(false),
             reader_initialization: value["readerInitialization"].as_bool().unwrap_or(false),
             support: value["support"].as_u64().unwrap_or(0),
-            polygon: crate::formats::quad(&value),
+            polygon: crate::geometry::quad(&value),
             geometry_changed: false,
             payload: value,
         })

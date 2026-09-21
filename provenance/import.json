@@ -198,5 +198,5 @@
     "frozenHostsAndHistoricalRecipes": "Retained from release 48e1ef8; original origins and hashes remain in that commit.",
     "completionHosts": "Release-owned adaptations of frozen hosts: capability check and region flag 32."
   },
-  "releaseRevision": "provenance/native-pipeline-selection-20260921.json"
+  "releaseRevision": "provenance/production-selection-20260922.json"
 }

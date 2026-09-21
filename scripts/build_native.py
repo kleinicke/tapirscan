@@ -2,27 +2,24 @@
 """Build selected native modes from verified pinned sources."""
 
 import argparse
-import json
 import os
 import shutil
 import subprocess
 import sys
 
-from build_support import verify_source_hashes
-
 from build import (
     MODES,
     ROOT,
-    facade_manifest,
-    prepare_native_source,
-    prepare_recovery_source,
+    prepare_facade,
+    recipe_manifest,
 )
+from build_support import verify_source_hashes
 
 
 def build(mode: str) -> None:
     """Build and validate one native scanner mode."""
     recipe, tag = MODES[mode]
-    manifest = json.loads((ROOT / f"core/experiments/{recipe}.json").read_text())
+    manifest = recipe_manifest(recipe)
     verify_source_hashes(ROOT / "core", manifest["baseHashes"])
     verify_source_hashes(ROOT, manifest.get("externalHashes", {}))
     out = ROOT / "build" / mode
@@ -34,14 +31,7 @@ def build(mode: str) -> None:
     prepared = out / "temporarysource"
     expected = dict(manifest["baseHashes"]) | manifest["targetHashes"]
     verify_source_hashes(prepared, expected)
-    prepare_native_source(out)
-    prepare_recovery_source(out)
-    sdk = out / "rust"
-    shutil.copytree(ROOT / "bindings/rust/src", sdk / "src", dirs_exist_ok=True)
-    shutil.copytree(
-        ROOT / "bindings/rust/examples", sdk / "examples", dirs_exist_ok=True
-    )
-    (sdk / "Cargo.toml").write_text(facade_manifest(mode, manifest))
+    sdk = prepare_facade(out, mode, manifest)
     native = out / "native"
     shutil.copytree(ROOT / "bindings/c/src", native / "src", dirs_exist_ok=True)
     (native / "Cargo.toml").write_text(

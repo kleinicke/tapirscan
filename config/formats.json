@@ -1,0 +1,43 @@
+{
+  "formats": [
+    ["EAN13", "Ean13", 1, "EAN-13 retail barcode."],
+    ["UPCA", "Upca", 2, "UPC-A retail barcode."],
+    ["EAN8", "Ean8", 4, "EAN-8 retail barcode."],
+    ["UPCE", "Upce", 8, "UPC-E compressed retail barcode."],
+    ["Code128", "Code128", 16, "Code 128, including GS1-128."],
+    ["Code39", "Code39", 32, "Code 39."],
+    ["ITF", "Itf", 64, "Interleaved 2 of 5."],
+    ["Codabar", "Codabar", 128, "Codabar."],
+    ["Code93", "Code93", 256, "Code 93."],
+    ["QRCode", "QrCode", 512, "QR Code."],
+    ["DataMatrix", "DataMatrix", 1024, "Data Matrix."],
+    ["PDF417", "Pdf417", 2048, "PDF417 stacked barcode."],
+    ["Aztec", "Aztec", 4096, "Aztec Code, including supported Aztec Rune reads."],
+    ["DataBar", "DataBar", 8192, "GS1 `DataBar`."],
+    ["DataBarExpanded", "DataBarExpanded", 16384, "GS1 `DataBar` Expanded."],
+    ["MaxiCode", "MaxiCode", 131072, "`MaxiCode`."]
+  ],
+  "presets": {
+    "retail": ["EAN13", "UPCA", "EAN8", "UPCE"],
+    "common1D": ["EAN13", "UPCA", "EAN8", "UPCE", "Code128", "Code39", "ITF"],
+    "common": ["EAN13", "UPCA", "EAN8", "UPCE", "Code128", "Code39", "ITF", "QRCode", "DataMatrix"],
+    "1D": [
+      "EAN13",
+      "UPCA",
+      "EAN8",
+      "UPCE",
+      "Code128",
+      "Code39",
+      "ITF",
+      "Codabar",
+      "Code93",
+      "DataBar",
+      "DataBarExpanded"
+    ],
+    "2D": ["QRCode", "DataMatrix", "PDF417", "Aztec", "MaxiCode"]
+  },
+  "engineFlags": {
+    "eanAddOnRead": 32768,
+    "eanAddOnRequire": 65536
+  }
+}

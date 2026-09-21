@@ -1,4 +1,4 @@
-use tapirscan::{Format, Image, ScanOptions, Scanner};
+use tapirscan::{Image, ScanOptions, Scanner};
 fn main() {
     let args: Vec<_> = std::env::args().collect();
     assert!(
@@ -19,7 +19,7 @@ fn main() {
         width
     };
     let result = Scanner::default()
-        .scan_formats(
+        .scan_formats_json(
             Image {
                 data: &data,
                 width,
@@ -32,8 +32,8 @@ fn main() {
                 multiple: true,
                 include_regions: true,
             },
-            Format::Ean13,
+            1,
         )
         .unwrap();
-    println!("{}", result.json()["scan"]);
+    println!("{}", result["scan"]);
 }

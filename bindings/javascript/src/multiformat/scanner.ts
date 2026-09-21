@@ -1,22 +1,12 @@
-import { mergeLinearDuplicates } from "../runtime-multiformat/linear-duplicates.js";
 import { ReleaseDetailScanner, fitLimits } from "../detail.js";
 import { IndependentScanner, runtimeHostOptions, type Image, type Quad } from "../runtime-host.mjs";
 import type { Mode } from "../index.js";
 import { policy } from "../policy.js";
-import {
-  rectify,
-  rectificationPlan,
-  project,
-  distinctReads,
-  polygonOverlap,
-} from "../runtime-multiformat/geometry.js";
+import { rectify, rectificationPlan, project } from "../runtime-multiformat/geometry.js";
+import { ExtraReaderSession, type ExtraScanResult } from "./extra-session.js";
 import { toGray } from "./pixels.js";
-import {
-  maskFor,
-  resolveFormats,
-  linearFormats as supportedLinearFormats,
-  type Format,
-} from "./formats.js";
+import { resolveFormats, linearFormats as supportedLinearFormats, type Format } from "./formats.js";
+import { reconcileResults } from "./result-reconciliation.js";
 
 export interface Barcode {
   bytes?: number[];
@@ -54,23 +44,20 @@ interface Localization {
   workLimited?: boolean;
   omitted?: number;
 }
-interface ExtraExports extends WebAssembly.Exports {
-  memory: WebAssembly.Memory;
-  multi_capabilities: () => number;
-  multi_prepare_rgba: (handle: number, width: number, height: number) => number;
-  multi_input_rgba: (handle: number) => number;
-  multi_scan_rgba: (handle: number, mask: number, effort: number) => number;
-  multi_new: () => number;
-  multi_free: (handle: number) => void;
-  multi_prepare: (handle: number, width: number, height: number) => number;
-  multi_input: (handle: number) => number;
-  multi_scan: (handle: number, mask: number, effort: number) => number;
-  multi_capture_source: (handle: number) => number;
-  multi_crop_transform: (handle: number) => number;
-  multi_crop: (handle: number, width: number, height: number) => number;
-  multi_output: (handle: number) => number;
-  multi_output_len: (handle: number) => number;
+type CandidateRead = { candidate_indices: number[] };
+
+function unreadRegions(
+  proposals: readonly { polygon: Quad }[],
+  reads: readonly CandidateRead[],
+): Barcode[] {
+  const decoded = new Set(reads.flatMap((read) => read.candidate_indices));
+  return proposals.flatMap((proposal, index) =>
+    decoded.has(index)
+      ? []
+      : [{ format: "Unknown", text: "", polygon: proposal.polygon, support: 0 }],
+  );
 }
+
 function scanGray(image: Image): Uint8Array {
   return image.channels === 1 && image.stride === image.width
     ? image.data.subarray(0, image.width * image.height)
@@ -80,10 +67,7 @@ function scanGray(image: Image): Uint8Array {
 export class MediumMultiformatScanner {
   private medium?: IndependentScanner | ReleaseDetailScanner;
   private mode: Mode = "medium";
-  private extra?: ExtraExports;
-  private handle = 0;
-  private rgba = false;
-  private crop = false;
+  private extra?: ExtraReaderSession;
   private effort = 1;
   private qrEffort = 1;
   private disposed = false;
@@ -105,37 +89,7 @@ export class MediumMultiformatScanner {
             ? await ReleaseDetailScanner.create(mediumBytes, recoveryBytes, mode)
             : await IndependentScanner.create(mediumBytes, runtimeHostOptions.completion);
       if (extraBytes) {
-        const instance = await WebAssembly.instantiate(extraBytes, {});
-        const e = instance.instance.exports as ExtraExports;
-        for (const name of [
-          "multi_new",
-          "multi_free",
-          "multi_prepare",
-          "multi_input",
-          "multi_scan",
-          "multi_output",
-          "multi_output_len",
-        ] as const) {
-          if (typeof e[name] !== "function")
-            throw Error(`Invalid multiformat WASM export: ${name}`);
-        }
-        if (!(e.memory instanceof WebAssembly.Memory))
-          throw Error("Invalid multiformat WASM memory.");
-        scanner.rgba =
-          typeof e.multi_capabilities === "function" &&
-          (e.multi_capabilities() & 4) !== 0 &&
-          [e.multi_prepare_rgba, e.multi_input_rgba, e.multi_scan_rgba].every(
-            (f) => typeof f === "function",
-          );
-        scanner.crop =
-          typeof e.multi_capabilities === "function" &&
-          (e.multi_capabilities() & 16) !== 0 &&
-          [e.multi_capture_source, e.multi_crop_transform, e.multi_crop].every(
-            (f) => typeof f === "function",
-          );
-        scanner.extra = e;
-        scanner.handle = e.multi_new();
-        if (!scanner.handle) throw Error("Could not create additional reader session.");
+        scanner.extra = await ExtraReaderSession.create(extraBytes);
       }
       return scanner;
     } catch (error) {
@@ -209,14 +163,14 @@ export class MediumMultiformatScanner {
       formats.some((f) => f === "EAN13" || f === "UPCA") &&
       extraFormats.some((f) => supportedLinearFormats.includes(f));
     let preparedGray: Uint8Array | undefined;
-    let preLinear: ReturnType<MediumMultiformatScanner["scanExtra"]> | undefined;
+    let preLinear: ExtraScanResult | undefined;
     const coverage: Quad[] = [];
     if (conservative) {
       const prepareStart = performance.now();
       preparedGray = scanGray(image);
       preparationMs += performance.now() - prepareStart;
       const extraStart = performance.now();
-      preLinear = this.scanExtra(
+      preLinear = this.extraSession().scan(
         preparedGray,
         width,
         height,
@@ -286,20 +240,11 @@ export class MediumMultiformatScanner {
         }
         barcodes.push(...shared.filter((b) => formats.includes(b.format as Format)));
       }
-      const decoded = new Set(found.scan.barcodes.flatMap((b) => b.candidate_indices));
-      localization.proposals.forEach((p: { polygon: Quad }, i: number) => {
-        if (!decoded.has(i))
-          regions.push({ format: "Unknown", text: "", polygon: p.polygon, support: 0 });
-      });
+      regions.push(...unreadRegions(localization.proposals, found.scan.barcodes));
       if ("recovery" in found) {
         const recovery = found.recovery as import("../runtime-detail/scanner.mjs").Recovery;
-        for (const attempt of recovery.attempts) {
-          const accepted = new Set(attempt.reads.flatMap((b) => b.candidate_indices));
-          attempt.proposals.forEach((p, i) => {
-            if (!accepted.has(i))
-              regions.push({ format: "Unknown", text: "", polygon: p.polygon, support: 0 });
-          });
-        }
+        for (const attempt of recovery.attempts)
+          regions.push(...unreadRegions(attempt.proposals, attempt.reads));
       }
       unfinished ||=
         found.scan.unfinished ||
@@ -319,10 +264,10 @@ export class MediumMultiformatScanner {
     // UPC-A has the same optical structure as zero-prefixed EAN13, so the
     // frozen Medium reader handles it without a second optical search.
     if (extraFormats.length) {
-      if (!this.extra || !this.handle) throw Error("Additional readers have not been loaded.");
+      if (!this.extra) throw Error("Additional readers have not been loaded.");
       const begin = performance.now();
       const rgba =
-        this.rgba &&
+        this.extra.supportsRgba &&
         !localized &&
         formats.length === 1 &&
         formats[0] === "QRCode" &&
@@ -334,7 +279,15 @@ export class MediumMultiformatScanner {
       const linearFormats = extraFormats.filter((f) => supportedLinearFormats.includes(f));
       const run = (pixels: Uint8Array, w: number, h: number, enabled: Format[], effort: number) => {
         const start = performance.now();
-        const result = this.scanExtra(pixels, w, h, enabled, effort, eanAddOnSymbol, rgba);
+        const result = this.extraSession().scan(
+          pixels,
+          w,
+          h,
+          enabled,
+          effort,
+          eanAddOnSymbol,
+          rgba,
+        );
         additionalMs += performance.now() - start;
         unfinished ||= result.unfinished;
         return result;
@@ -365,30 +318,15 @@ export class MediumMultiformatScanner {
           barcodes.push(...result.barcodes);
           regions.push(...(result.regions ?? []));
         }
-        if (this.crop) {
-          this.extra.multi_prepare(this.handle, width, height);
-          new Uint8Array(
-            this.extra.memory.buffer,
-            this.extra.multi_input(this.handle),
-            width * height,
-          ).set(gray);
-          if (this.extra.multi_capture_source(this.handle) !== 0)
-            throw Error("Could not retain source image.");
-        }
+        if (this.extra.supportsCrop) this.extra.captureSource(gray, width, height);
         for (const proposal of proposals) {
           const start = performance.now();
           let crop;
           let pixels: Uint8Array | undefined;
           try {
-            if (this.crop) {
+            if (this.extra.supportsCrop) {
               crop = rectificationPlan(proposal.polygon);
-              new Float64Array(
-                this.extra.memory.buffer,
-                this.extra.multi_crop_transform(this.handle),
-                8,
-              ).set(crop.transform);
-              if (this.extra.multi_crop(this.handle, crop.width, crop.height) !== 0)
-                throw Error("Could not sample barcode crop.");
+              this.extra.sampleCrop(crop.transform, crop.width, crop.height);
             } else {
               const sampled = rectify(gray, width, height, proposal.polygon);
               crop = sampled;
@@ -403,7 +341,7 @@ export class MediumMultiformatScanner {
           const decodeStart = performance.now();
           const result = pixels
             ? run(pixels, crop.width, crop.height, linearFormats, 0)
-            : this.scanPrepared(linearFormats, 0, eanAddOnSymbol);
+            : this.extraSession().scanPrepared(linearFormats, 0, eanAddOnSymbol);
           if (!pixels) {
             additionalMs += performance.now() - decodeStart;
             unfinished ||= result.unfinished;
@@ -421,40 +359,7 @@ export class MediumMultiformatScanner {
         }
       }
     }
-    if (extraFormats.length) {
-      for (const read of barcodes.filter((b) => b.eanAddOn)) {
-        for (const base of barcodes) {
-          if (
-            base.format === read.format &&
-            base.text === read.text &&
-            !base.eanAddOn &&
-            polygonOverlap(base.polygon, read.polygon).smaller >= 0.65
-          )
-            base.eanAddOn = read.eanAddOn;
-        }
-      }
-      if (eanAddOnSymbol === "Require") {
-        for (let i = barcodes.length - 1; i >= 0; i--) {
-          const b = barcodes[i];
-          if (["EAN13", "UPCA", "EAN8", "UPCE"].includes(b.format) && !b.eanAddOn) {
-            regions.push({ ...b, text: "" });
-            barcodes.splice(i, 1);
-          }
-        }
-      }
-      const distinct = distinctReads(barcodes);
-      barcodes.splice(0, barcodes.length, ...distinct);
-      const remaining = regions.filter(
-        (region) => !barcodes.some((b) => polygonOverlap(region.polygon, b.polygon).a >= 0.65),
-      );
-      regions.splice(0, regions.length, ...distinctReads(remaining));
-    }
-    const mergedLinear = mergeLinearDuplicates(barcodes, image);
-    barcodes.splice(0, barcodes.length, ...mergedLinear);
-    barcodes.sort((a, b) => b.support - a.support);
-    barcodes.forEach((b, i) => {
-      b.rank = i + 1;
-    });
+    reconcileResults(barcodes, regions, image, extraFormats.length > 0, eanAddOnSymbol);
     return {
       primary,
       barcodes,
@@ -470,58 +375,14 @@ export class MediumMultiformatScanner {
       linearStrategy,
     };
   }
-  private scanExtra(
-    gray: Uint8Array,
-    width: number,
-    height: number,
-    formats: Format[],
-    effort: number,
-    eanAddOnSymbol: EanAddOnSymbol,
-    rgba = false,
-  ) {
-    const e = this.extra;
-    if (!e || !this.handle) throw Error("Additional readers have not been loaded.");
-    if ((rgba ? e.multi_prepare_rgba : e.multi_prepare)(this.handle, width, height) !== 0)
-      throw Error("Additional reader rejected image size.");
-    new Uint8Array(
-      e.memory.buffer,
-      (rgba ? e.multi_input_rgba : e.multi_input)(this.handle),
-      width * height * (rgba ? 4 : 1),
-    ).set(gray);
-    return this.scanPrepared(formats, effort, eanAddOnSymbol, rgba);
-  }
-  private scanPrepared(
-    formats: Format[],
-    effort: number,
-    eanAddOnSymbol: EanAddOnSymbol,
-    rgba = false,
-  ) {
-    const e = this.extra;
-    if (!e || !this.handle) throw Error("Additional readers have not been loaded.");
-    const mask =
-      maskFor(formats) |
-      (eanAddOnSymbol === "Read" ? 32768 : eanAddOnSymbol === "Require" ? 65536 : 0);
-    if ((rgba ? e.multi_scan_rgba : e.multi_scan)(this.handle, mask, effort) !== 0)
-      throw Error("Additional scanner failed.");
-    const bytes = new Uint8Array(
-      e.memory.buffer,
-      e.multi_output(this.handle),
-      e.multi_output_len(this.handle),
-    );
-    const found = JSON.parse(new TextDecoder().decode(bytes)) as {
-      barcodes: Barcode[];
-      regions?: Barcode[];
-      unfinished: boolean;
-    };
-    for (const b of [...found.barcodes, ...(found.regions ?? [])])
-      if (!formats.includes(b.format as Format)) throw Error("Scanner returned a disabled format.");
-    return found;
+  private extraSession(): ExtraReaderSession {
+    if (!this.extra) throw Error("Additional readers have not been loaded.");
+    return this.extra;
   }
   dispose() {
     if (this.disposed) return;
     this.medium?.dispose();
-    if (this.handle) this.extra?.multi_free(this.handle);
-    this.handle = 0;
+    this.extra?.dispose();
     this.disposed = true;
   }
 }

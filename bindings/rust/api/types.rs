@@ -1,51 +1,11 @@
-use crate::Image;
+use crate::{
+    format::{
+        ALL_FORMATS_MASK, COMMON_LINEAR_MASK, COMMON_MASK, LINEAR_MASK, MATRIX_MASK, RETAIL_MASK,
+    },
+    Format, Image,
+};
 use serde::Deserialize;
 use std::{fmt, time::Duration};
-
-/// A supported barcode symbology. Discriminants are native format-mask bits.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[repr(u32)]
-pub enum Format {
-    #[serde(rename = "EAN13")]
-    /// EAN-13 retail barcode.
-    Ean13 = 1,
-    #[serde(rename = "UPCA")]
-    /// UPC-A retail barcode.
-    Upca = 2,
-    #[serde(rename = "EAN8")]
-    /// EAN-8 retail barcode.
-    Ean8 = 4,
-    #[serde(rename = "UPCE")]
-    /// UPC-E compressed retail barcode.
-    Upce = 8,
-    /// Code 128, including GS1-128.
-    Code128 = 16,
-    /// Code 39.
-    Code39 = 32,
-    #[serde(rename = "ITF")]
-    /// Interleaved 2 of 5.
-    Itf = 64,
-    /// Codabar.
-    Codabar = 128,
-    /// Code 93.
-    Code93 = 256,
-    #[serde(rename = "QRCode")]
-    /// QR Code.
-    QrCode = 512,
-    /// Data Matrix.
-    DataMatrix = 1024,
-    #[serde(rename = "PDF417")]
-    /// PDF417 stacked barcode.
-    Pdf417 = 2048,
-    /// Aztec Code, including supported Aztec Rune reads.
-    Aztec = 4096,
-    /// GS1 `DataBar`.
-    DataBar = 8192,
-    /// GS1 `DataBar` Expanded.
-    DataBarExpanded = 16384,
-    /// `MaxiCode`.
-    MaxiCode = 131_072,
-}
 
 /// Nonempty format selection with presets and composable individual formats.
 ///
@@ -59,17 +19,17 @@ impl Formats {
         self.0
     }
     /// Retail formats plus Code 128, Code 39 and ITF.
-    pub const COMMON_1D: Self = Self(127);
+    pub const COMMON_1D: Self = Self(COMMON_LINEAR_MASK);
     /// Common linear formats plus QR Code and Data Matrix.
-    pub const COMMON: Self = Self(127 | 512 | 1024);
+    pub const COMMON: Self = Self(COMMON_MASK);
     /// EAN-13, UPC-A, EAN-8 and UPC-E.
-    pub const RETAIL: Self = Self(15);
+    pub const RETAIL: Self = Self(RETAIL_MASK);
     /// All supported linear formats, including `DataBar` variants.
-    pub const LINEAR: Self = Self(511 | 8192 | 16384);
+    pub const LINEAR: Self = Self(LINEAR_MASK);
     /// QR Code, Data Matrix, PDF417, Aztec and `MaxiCode`.
-    pub const MATRIX: Self = Self(512 | 1024 | 2048 | 4096 | 131_072);
+    pub const MATRIX: Self = Self(MATRIX_MASK);
     /// Every supported format. Additional formats remain experimental.
-    pub const ALL: Self = Self(Self::LINEAR.0 | Self::MATRIX.0);
+    pub const ALL: Self = Self(ALL_FORMATS_MASK);
 }
 impl TryFrom<u32> for Formats {
     type Error = Error;

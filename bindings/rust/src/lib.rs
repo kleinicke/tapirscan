@@ -2,9 +2,11 @@
 #![forbid(unsafe_code)]
 #[cfg(not(feature = "low"))]
 mod detail;
+mod format_registry;
+mod geometry;
 mod linear_duplicates;
 mod pipeline;
-mod serialization;
+mod result;
 pub use barcode_research_core::region_scan::{Error, ImageView, RegionScanner, ScanResult};
 pub use barcode_research_core::{
     frame::{Barcode, Frame},
@@ -127,7 +129,11 @@ impl Result {
     /// Panics if `mode` is not a supported effort mode, or elapsed time is negative/non-finite.
     #[must_use]
     pub fn to_json(&self, mode: &str, elapsed_ms: f64) -> String {
-        serialization::to_json(self, mode, elapsed_ms)
+        serde_json::to_string(
+            &result::value(self, mode, elapsed_ms)
+                .expect("mode and elapsed time must satisfy the documented contract"),
+        )
+        .expect("schema values are JSON serializable")
     }
 }
 #[cfg(test)]
@@ -191,15 +197,6 @@ mod tests {
 }
 
 /// Compiled effort identity, matching the pinned JavaScript host policy.
-pub const MODE: &str = if cfg!(feature = "low") {
-    "low"
-} else if cfg!(feature = "high") {
-    "high"
-} else if cfg!(feature = "very-high") {
-    "very-high"
-} else {
-    "medium"
-};
 pub const MODE_ID: u32 = if cfg!(feature = "low") {
     0
 } else if cfg!(feature = "high") {
@@ -209,15 +206,7 @@ pub const MODE_ID: u32 = if cfg!(feature = "low") {
 } else {
     1
 };
-const FIT_LIMIT: usize = if cfg!(feature = "low") {
-    0
-} else if cfg!(feature = "high") {
-    4
-} else {
-    1
-};
+pub const MODE: &str = ["low", "medium", "high", "very-high"][MODE_ID as usize];
+const FIT_LIMIT: usize = [0, 1, 4, 1][MODE_ID as usize];
 
 pub mod formats;
-
-mod decoded;
-pub use decoded::{DecodedBarcode, DecodedResult, Format, Formats};

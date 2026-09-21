@@ -212,7 +212,7 @@ fn append_recovery_retail(
             .flatten()
         {
             let mut read = barcode.clone();
-            let polygon = super::formats::quad(barcode).map(|[x, y]| {
+            let polygon = super::geometry::quad(barcode).map(|[x, y]| {
                 [
                     attempt["x"].as_f64().unwrap_or(0.) + x / 3.,
                     attempt["y"].as_f64().unwrap_or(0.) + y / 3.,
