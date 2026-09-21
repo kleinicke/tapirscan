@@ -53,7 +53,8 @@ for relative, expected in expected_files.items():
     if actual != expected:
         msg = f"Source hash mismatch: {relative}"
         raise SystemExit(msg)
-runtime = json.loads((root / "provenance/runtime-refactor-20260921.json").read_text())
+selection = json.loads((root / "provenance/modes.json").read_text())
+runtime = json.loads((root / selection["runtimeRevision"]).read_text())
 for relative, expected in runtime["files"].items():
     if hashlib.sha256((root / relative).read_bytes()).hexdigest() != expected:
         msg = f"Release runtime hash mismatch: {relative}"
