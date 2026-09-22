@@ -69,6 +69,8 @@ pub struct Regions<'a> {
 #[derive(Default)]
 pub struct Scanner {
     regions: RegionScanner,
+    localizer: barcode_research_core::stripes::Detector,
+    additional_gray: Vec<u8>,
     #[cfg(not(feature = "low"))]
     recovery: recovery_core::region_scan::RegionScanner,
 }

@@ -27,6 +27,8 @@ jobs:
         run: rustup toolchain install 1.91.1 --profile minimal --component clippy --target wasm32-unknown-unknown
       - run: cargo +1.91.1 fetch --locked --manifest-path multiformat/Cargo.toml
       - run: cargo +1.91.1 fetch --locked --manifest-path bindings/rust/Cargo.toml
+      - run: cargo +1.91.1 fetch --locked --manifest-path tools/package-source/Cargo.toml
+      - run: cargo +1.91.1 test --locked --offline --manifest-path tools/package-source/Cargo.toml
       - name: Fetch maintained core dependencies
         run: cargo +1.91.1 fetch --locked --manifest-path core/Cargo.toml
       - run: python3 scripts/verify_import.py
@@ -76,6 +78,7 @@ jobs:
           else
             python3 -m pip install torch
           fi
+      - run: python3 scripts/test_compare_scanners.py
       - name: Fetch pinned test-only supplement encoder
         uses: actions/checkout@v4
         with:

@@ -53,23 +53,19 @@ impl Scanner {
         };
         let shared_retail =
             crate::MODE_ID == 1 && addons == EanAddOnPolicy::Ignore && mask & 12 != 0;
-        let (extras, coverage) =
-            scan_additional(image, if shared_retail { mask & !12 } else { mask }, addons)?;
+        let (extras, coverage) = scan_additional(
+            image,
+            if shared_retail { mask & !12 } else { mask },
+            addons,
+            &mut self.additional_gray,
+        )?;
         let primary = if shared_retail || mask & 3 != 0 {
             Some(self.scan_with_coverage(image, full_options, &coverage, false, shared_retail)?)
         } else {
             None
         };
         let mut reads = primary.as_ref().map_or_else(Vec::new, primary_reads);
-        reads.retain_mut(|read| {
-            if mask & 2 != 0 && read.text.starts_with('0') {
-                read.text.remove(0);
-                read.format = "UPCA".into();
-                true
-            } else {
-                mask & 1 != 0
-            }
-        });
+        retain_requested_primary(&mut reads, mask);
         if let Some(primary) = &primary {
             reads.extend(
                 primary
@@ -342,8 +338,9 @@ fn unread_regions(result: &crate::Result, reads: &[Read]) -> Vec<Region> {
     unread
 }
 
-fn gray_image(image: Image<'_>) -> Result<Vec<u8>, Error> {
-    let mut gray = Vec::with_capacity(image.width * image.height);
+fn gray_image(image: Image<'_>, gray: &mut Vec<u8>) -> Result<(), Error> {
+    gray.clear();
+    gray.reserve(image.width * image.height);
     for y in 0..image.height {
         for x in 0..image.width {
             let i = y * image.stride + x * image.channels;
@@ -361,7 +358,7 @@ fn gray_image(image: Image<'_>) -> Result<Vec<u8>, Error> {
         }
     }
 
-    Ok(gray)
+    Ok(())
 }
 
 fn validate(image: Image<'_>, mask: u32) -> Result<(), Error> {
@@ -432,6 +429,7 @@ fn scan_additional(
     image: Image<'_>,
     mask: u32,
     addons: EanAddOnPolicy,
+    gray: &mut Vec<u8>,
 ) -> Result<(Vec<barcode_multiformat::Scan>, Vec<crate::Quad>), Error> {
     let enabled = if addons == EanAddOnPolicy::Ignore {
         mask & !3
@@ -445,7 +443,7 @@ fn scan_additional(
     let matrix = enabled & !LINEAR_MASK;
     let effort = [0, 1, 2, 2][crate::MODE_ID as usize];
     let qr_effort = [0, 1, 2, 3][crate::MODE_ID as usize];
-    let gray = gray_image(image)?;
+    gray_image(image, gray)?;
     let mut scans = Vec::new();
     let mut coverage = Vec::new();
     for (selected, level) in [
@@ -456,7 +454,7 @@ fn scan_additional(
             continue;
         }
         let scan = barcode_multiformat::scan(
-            &gray,
+            gray,
             image.width,
             image.height,
             selected | addons.engine_bits(),
@@ -530,4 +528,53 @@ mod result_tests {
         assert!(result.undecoded[0].format.is_none());
         assert!(result.diagnostics.is_none());
     }
+}
+
+#[cfg(test)]
+mod grayscale_reuse_tests {
+    use super::{gray_image, Image};
+    #[test]
+    fn color_then_padded_gray_reuses_storage_without_stale_pixels() {
+        let mut gray = Vec::with_capacity(64);
+        let pointer = gray.as_ptr();
+        let color = [0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 255, 0];
+        gray_image(
+            Image {
+                data: &color,
+                width: 2,
+                height: 2,
+                channels: 3,
+                stride: 6,
+            },
+            &mut gray,
+        )
+        .unwrap();
+        assert_eq!(gray, [0, 255, 77, 149]);
+        let padded = [5, 9, 99, 99, 4, 3, 88, 88];
+        gray_image(
+            Image {
+                data: &padded,
+                width: 2,
+                height: 2,
+                channels: 1,
+                stride: 4,
+            },
+            &mut gray,
+        )
+        .unwrap();
+        assert_eq!(gray, [5, 9, 4, 3]);
+        assert_eq!(gray.as_ptr(), pointer);
+    }
+}
+
+fn retain_requested_primary(reads: &mut Vec<Read>, mask: u32) {
+    reads.retain_mut(|read| {
+        if mask & 2 != 0 && read.text.starts_with('0') {
+            read.text.remove(0);
+            read.format = "UPCA".into();
+            true
+        } else {
+            mask & 1 != 0
+        }
+    });
 }

@@ -28,7 +28,7 @@ pub(super) fn scan(
         stride: image.width * 4,
     });
     let im = checked_image(image)?;
-    let localization = localize(im, image)?;
+    let localization = localize(&mut scanner.localizer, im, image)?;
     let mut candidates: Vec<_> = localization.proposals.iter().map(|p| p.polygon).collect();
     candidates.push(localization.search_window);
     let policy = scan_policy(image, &localization.proposals, coverage, options);
@@ -76,8 +76,12 @@ fn prepare_pixels(image: Image<'_>, shared_retail: bool) -> Option<Vec<u8>> {
     shared_retail.then(|| retail_pixels(image)).flatten()
 }
 
-fn localize(im: ImageView<'_>, image: Image<'_>) -> std::result::Result<Localization, Error> {
-    let found = stripes::detect(im)?;
+fn localize(
+    detector: &mut stripes::Detector,
+    im: ImageView<'_>,
+    image: Image<'_>,
+) -> std::result::Result<Localization, Error> {
+    let found = detector.detect(im)?;
     let count = found.proposals.len();
     let examined = count.min(FIT_LIMIT);
     let mut proposals = found.proposals;
@@ -87,7 +91,8 @@ fn localize(im: ImageView<'_>, image: Image<'_>) -> std::result::Result<Localiza
         }
     }
 
-    let (secondary_omitted, secondary_limited) = add_secondary_proposals(im, image, &mut proposals);
+    let (secondary_omitted, secondary_limited) =
+        add_secondary_proposals(detector, im, image, &mut proposals);
     if proposals.len() > if cfg!(feature = "very-high") { 63 } else { 32 } {
         return Err(Error::Parameters);
     }
@@ -105,6 +110,7 @@ fn localize(im: ImageView<'_>, image: Image<'_>) -> std::result::Result<Localiza
 }
 
 fn add_secondary_proposals(
+    detector: &mut stripes::Detector,
     im: ImageView<'_>,
     image: Image<'_>,
     proposals: &mut Vec<Proposal>,
@@ -114,7 +120,7 @@ fn add_secondary_proposals(
     }
     // At most eight alternate base proposals plus four shear refinements. Keep
     // the entire original prefix; no code value or GT selects this extra grid.
-    let Ok(second) = stripes::detect_secondary(im) else {
+    let Ok(second) = detector.detect_secondary(im) else {
         return (0, true);
     };
     let secondary_count = second.proposals.len();

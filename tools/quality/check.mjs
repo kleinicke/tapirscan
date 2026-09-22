@@ -13,6 +13,7 @@ if (mode === "rust") {
           `mode-${mode}`,
         ]),
         ["multiformat/Cargo.toml", null],
+        ["tools/package-source/Cargo.toml", null],
       ]
     : [
         ["rust/barcode-core/Cargo.toml", "fast"],
@@ -55,6 +56,7 @@ if (mode === "rust") {
             "bindings/javascript/src",
             "bindings/javascript/test",
             "bindings/javascript/examples",
+            "scripts/*.mjs",
             "tools/quality",
           ]
         : ["js", "nxing-js", "tools/quality"]),

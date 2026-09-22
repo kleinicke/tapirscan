@@ -64,3 +64,22 @@ production inputs in the generated package. `scripts/verify_import.py` without
 arguments also enforces the selected release source snapshot. After validating
 an intentional production change, record a new runtime provenance revision and
 new WASM identities; never rewrite an old historical hash to hide a change.
+
+## Localization and retry execution
+
+`stripes::Detector` owns reusable raster, gradient and tile storage. Its stages
+are `stripes/raster.rs` (sampling, contrast conditioning and gradients),
+`groups.rs` (components, merges and growth), `proposals.rs` (projection and dense
+bands), and `refinement.rs` (source-pixel refinement and bounded assembly).
+The binding keeps one detector per scanner and a separate reusable grayscale
+buffer for additional readers. Returned proposals own their data. The free
+localization functions remain useful for one-off calls; scanner sessions reuse
+storage across frames, including the secondary raster pass.
+
+`multi_scan/execution.rs` coordinates fixed scanning, round-robin discovery,
+effort selection, retries, confirmation and final assembly. Its `Execution`
+state owns the shared association/reuse budgets and consumed path count.
+`multi_scan/plan.rs` constructs paths; execution preserves candidate order and
+pending-work accounting. New retry strategies should change planning without
+changing acceptance or reconciliation. Mode-specific numerical evaluation remains
+explicit where replacing square roots with `hypot` would alter exact results.

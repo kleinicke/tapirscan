@@ -25,7 +25,12 @@ def source_files() -> dict[str, str]:
     if revision := imported.get("releaseRevision"):
         selected.update(json.loads((ROOT / revision).read_text())["targetHashes"])
     paths = {name for name in selected if name.startswith("multiformat/")}
-    for folder in ("core/src", "bindings/rust", "bindings/wasm"):
+    for folder in (
+        "core/src",
+        "bindings/rust",
+        "bindings/wasm",
+        "tools/package-source",
+    ):
         paths.update(
             p.relative_to(ROOT).as_posix()
             for p in (ROOT / folder).rglob("*")

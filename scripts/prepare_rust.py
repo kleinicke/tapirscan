@@ -4,57 +4,83 @@
 import argparse
 import hashlib
 import json
-import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from build import MODE_CONFIG, ROOT
+
+
+@dataclass
+class Module:
+    """Namespace and compile-time selection for one embedded crate."""
+
+    namespace: str
+    features: set[str]
+    aliases: dict[str, str]
 
 
 def copy_module(
     source: Path,
     destination: Path,
-    namespace: str,
-    features: set[str],
-    aliases: dict[str, str],
+    module: Module,
+    *,
+    rewriter: Path,
 ) -> dict[str, bool]:
     """Relocate crate paths and select mode features; keep target cfgs intact."""
-    flags: dict[str, bool] = {}
-
-    def flag(match: re.Match[str]) -> str:
-        name = f"tapirscan_{namespace}_{match[1].replace('-', '_')}"
-        flags[name] = match[1] in features
-        return name
-
+    files = {
+        str(path.relative_to(source)): path.read_text()
+        for path in sorted(source.rglob("*.rs"))
+        if "bin" not in path.relative_to(source).parts
+    }
+    result = json.loads(
+        subprocess.check_output(
+            [str(rewriter)],
+            input=json.dumps(
+                {
+                    "namespace": module.namespace,
+                    "features": sorted(module.features),
+                    "aliases": module.aliases,
+                    "files": files,
+                }
+            ),
+            text=True,
+        )
+    )
     destination.mkdir(parents=True)
-    for path in sorted(source.rglob("*.rs")):
-        if "bin" in path.relative_to(source).parts:
-            continue
-        text = path.read_text().replace("crate::", f"crate::engine::{namespace}::")
-        for name, target in aliases.items():
-            replacement = (
-                target if target.startswith("crate::") else f"crate::engine::{target}"
-            )
-            text = text.replace(f"{name}::", f"{replacement}::")
-        text = re.sub(
-            r'\bfeature\s*=\s*"([^"]+)"',
-            flag,
-            text,
-        )
-        # Rust-only modules must not export duplicate ABI symbols.
-        text = re.sub(r"(?m)^[ \t]*#\[no_mangle\]\n", "", text)
-        target = destination / (
-            "mod.rs" if path == source / "lib.rs" else path.relative_to(source)
-        )
+    for relative, text in result["files"].items():
+        target = destination / ("mod.rs" if relative == "lib.rs" else relative)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text)
     fixtures = source.parent / "fixtures"
     if fixtures.exists():
         shutil.copytree(fixtures, destination.parent / "fixtures", dirs_exist_ok=True)
 
-    return flags
+    return cast("dict[str, bool]", result["flags"])
+
+
+def source_rewriter() -> Path:
+    """Build the pinned token-aware module relocation tool once per preparation."""
+    target = ROOT / "build/source-tool"
+    subprocess.run(
+        [
+            "cargo",
+            "+1.91.1",
+            "build",
+            "--offline",
+            "--locked",
+            "--manifest-path",
+            str(ROOT / "tools/package-source/Cargo.toml"),
+            "--target-dir",
+            str(target),
+        ],
+        check=True,
+    )
+    suffix = ".exe" if sys.platform == "win32" else ""
+    return target / "debug" / f"tapirscan-package-source{suffix}"
 
 
 def prepare(destination: Path, *, refresh: bool = False) -> None:
@@ -70,6 +96,7 @@ def prepare(destination: Path, *, refresh: bool = False) -> None:
         existing = destination / name
         if existing.exists():
             shutil.rmtree(existing)
+    rewriter = source_rewriter()
     binding = ROOT / "bindings/rust"
     for name in ["Cargo.toml", "README.md"]:
         shutil.copy2(binding / name, destination / name)
@@ -90,24 +117,26 @@ def prepare(destination: Path, *, refresh: bool = False) -> None:
             copy_module(
                 ROOT / "core/src",
                 generated / core,
-                core,
-                features,
-                {"barcode_multiformat": "multiformat"},
+                Module(core, features, {"barcode_multiformat": "multiformat"}),
+                rewriter=rewriter,
             )
         )
         flags.update(
             copy_module(
                 binding / "src",
                 generated / name,
-                name,
-                {mode["mode"]},
-                {
-                    "barcode_research_core": core,
-                    "recovery_core": "core_low",
-                    "barcode_multiformat": "multiformat",
-                    "scanner_types": "crate::types",
-                    "scanner_timer": "crate::timer",
-                },
+                Module(
+                    name,
+                    {mode["mode"]},
+                    {
+                        "barcode_research_core": core,
+                        "recovery_core": "core_low",
+                        "barcode_multiformat": "multiformat",
+                        "scanner_types": "crate::types",
+                        "scanner_timer": "crate::timer",
+                    },
+                ),
+                rewriter=rewriter,
             )
         )
         gate = f"#[cfg(tapirscan_mode_{name})]"
@@ -123,9 +152,8 @@ def prepare(destination: Path, *, refresh: bool = False) -> None:
         copy_module(
             ROOT / "multiformat/src",
             generated / "multiformat",
-            "multiformat",
-            set(),
-            {},
+            Module("multiformat", set(), {}),
+            rewriter=rewriter,
         )
     )
     modules.append("pub(crate) mod multiformat;")
@@ -193,6 +221,9 @@ def prepare(destination: Path, *, refresh: bool = False) -> None:
                 binding / "Cargo.lock",
                 binding / "README.md",
                 ROOT / "LICENSE",
+                ROOT / "tools/package-source/Cargo.toml",
+                ROOT / "tools/package-source/Cargo.lock",
+                ROOT / "tools/package-source/src/main.rs",
             ]
         },
         "buildScriptSha256": hashlib.sha256(
