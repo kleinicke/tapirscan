@@ -14,7 +14,7 @@ nor another barcode library are required at runtime.
    Source evidence decides where the new modes permit additional retry work.
 4. **Recover small details.** Medium, High and Very high inspect up to two source
    texture seeds, enlarge selected 256-pixel crops threefold, and scan them with
-   a separately pinned Low decoder.
+   the Low instance of the maintained core.
 5. **Reconcile and return.** Decoded values have source-coordinate polygons and
    support scores. Optional evidence retains undecoded regions, work limits,
    primary candidates, and recovery frames with explicit crop transforms.
@@ -49,11 +49,16 @@ contains the private per-mode engine.
 `pipeline.rs` orders image preparation, localization, primary scanning, recovery
 and consolidation. Its stage helpers preserve proposal order, budgets and
 source-coordinate bookkeeping so experiments can change one stage at a time.
-`serialization.rs` assembles the optional diagnostic JSON after scanning.
+`result.rs` assembles optional diagnostic JSON after scanning.
 `detail.rs` owns source-detail recovery; `formats.rs` coordinates additional
 readers and supplement policies; `linear_duplicates.rs` reconciles physical reads.
 
-Keep scanner decisions in the pipeline and result formatting in serialization.
+`read.rs` carries typed detections and regions across all readers. Supplement
+attachment, deduplication and ranking operate on those types; public results are
+constructed directly. Reader-specific diagnostic fields live in `ReaderPayload`.
+JSON is used only for requested diagnostics and output boundaries.
+
+Keep scanner decisions in the pipeline and result formatting at the boundary.
 A stage extraction still needs paired scans across all four modes, including
 padded gray/RGB/RGBA inputs and compact versus detailed results. The experiment
 workspace retains those cases and outcomes; the library retains API unit tests.
@@ -75,48 +80,45 @@ from an EAN-13 result.
 
 ## Repository map
 
-| Directory                                 | Purpose                                              |
-| ----------------------------------------- | ---------------------------------------------------- |
-| `core/`                                   | Frozen base sources and exact experiment patches     |
-| `provenance/`                             | Selected mode recipes and source/binary hashes       |
-| `bindings/javascript/`                    | Browser/Node API and WASM session adapter            |
-| `bindings/rust/`                          | Public Scanner API and shared private pipeline       |
-| `bindings/wasm/`                          | Thin WebAssembly adapter over the Rust API           |
-| `bindings/c/`, `cpp/`, `python/`, `java/` | Native language interfaces                           |
-| `multiformat/`                            | Pinned EAN8/UPCE and experimental nonretail readers  |
-| `demo/`                                   | Camera/photo app with independent comparison workers |
-| `scripts/`                                | Reproduction, packaging and regression checks        |
+| Directory                                 | Purpose                                                    |
+| ----------------------------------------- | ---------------------------------------------------------- |
+| `core/`                                   | Maintained production algorithms and explicit effort modes |
+| `historical/`                             | Frozen original sources, recipes and reproduction scripts  |
+| `provenance/`                             | Selected mode recipes and source/binary hashes             |
+| `bindings/javascript/`                    | Browser/Node API and WASM session adapter                  |
+| `bindings/rust/`                          | Public Scanner API and shared private pipeline             |
+| `bindings/wasm/`                          | Thin WebAssembly adapter over the Rust API                 |
+| `bindings/c/`, `cpp/`, `python/`, `java/` | Native language interfaces                                 |
+| `multiformat/`                            | Pinned EAN8/UPCE and experimental nonretail readers        |
+| `demo/`                                   | Camera/photo app with independent comparison workers       |
+| `scripts/`                                | Reproduction, packaging and regression checks              |
 
-Builds apply recipes in generated directories. Two documented native adaptations
-expose an existing helper and rename the recovery package to prevent Cargo feature
-unification. Neither rewrites the frozen algorithm inputs.
-[The current promotion](PROMOTION_DETAIL_20260914.md) records exact selections and
-integration evidence. Historical promotion records remain available for audit.
+Production builds compile `core/src` directly. The public Rust package relocates
+this shared tree into private per-mode namespaces to support several modes in one
+process. Generated namespaces are build artifacts, not separate maintained copies.
+Historical promotion records and original recipe inputs remain available for audit.
 
 The demo's ZXing and ZBar workers are comparison tools. They never supply fallback
 results to Tapirscan, and they are not dependencies of the distributed library.
 
 ## Developing algorithms and experiments
 
-The frozen `core/` base and selected recipes remain the reproducibility boundary.
-Run `python3 scripts/build.py MODE --prepare-only` in a fresh experiment worktree
-to inspect the complete selected source under `build/MODE/temporarysource`.
-That directory is generated: promote changes through source, recipe and provenance
-review rather than relying on an edited build directory.
+Edit `core/src` in an isolated experiment worktree. Plain Cargo selects Medium;
+`python3 scripts/build.py MODE` runs a selected production core's tests. Historical
+recipe reconstruction is explicit: `python3 scripts/build.py MODE --historical`.
+See [the core guide](../core/README.md) for mode features and scratch ownership.
 
-Use these stage boundaries when changing a scanner:
-
-| Stage                           | Main implementation                                     | Preserve when testing another stage                                |
-| ------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------ |
-| Candidate discovery             | `core/src/stripes.rs`, `localize.rs`, `shear.rs`        | Source coordinates and omitted/work-limited signals                |
-| Profile sampling and decoding   | `core/src/sampling.rs`, `experiment.rs`, format readers | Sampling order, numerical precision and acceptance thresholds      |
-| Evidence and reconciliation     | `core/src/frame.rs`, `verified_coverage.rs`             | Independent support, separate equal labels and conflict handling   |
-| Recovery scheduling             | `bindings/rust/src/detail.rs`                           | Effort policy, candidate namespaces and unfinished work            |
-| Release duplicate consolidation | `bindings/rust/src/linear_duplicates.rs`                | Geometry, supplement identity, ranking and the shared pixel budget |
-
-Rust release consolidation uses typed reads and geometry. Reader JSON is decoded
-at its boundary and retained as an opaque payload, preserving additional metadata;
-the primary EAN path does not serialize its results just to reconcile them.
+| Stage                           | Main implementation                               | Preserve when testing another stage                  |
+| ------------------------------- | ------------------------------------------------- | ---------------------------------------------------- |
+| Candidate discovery             | `core/src/stripes.rs`, `localize.rs`, `shear.rs`  | Source coordinates and omitted/work-limited signals  |
+| Profile sampling                | `core/src/experiment/sampling.rs`                 | Sampling order and numerical precision               |
+| Decoding and acceptance         | `core/src/experiment/decoding.rs`                 | Acceptance thresholds and observation evidence       |
+| Observation association         | `core/src/experiment/association.rs`              | Independent support and source continuity            |
+| Retry planning and execution    | `core/src/multi_scan/plan.rs`, `multi_scan.rs`    | Defined path order, coverage proofs and budgets      |
+| Physical identity and conflicts | `core/src/frame/identity.rs`, `frame/conflict.rs` | Separate equal labels and conflicting values         |
+| Frame assembly                  | `core/src/frame.rs`                               | Stable geometry and unfinished work                  |
+| Source-detail recovery          | `bindings/rust/src/detail.rs`                     | Effort policy and candidate namespaces               |
+| Release duplicate consolidation | `bindings/rust/src/linear_duplicates.rs`          | Supplement identity, ranking and shared pixel budget |
 
 An experiment regression suite belongs with its frozen manifest in the experiment
 workspace. Reference shared images by path and hash, put decoded pixels and full

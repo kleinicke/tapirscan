@@ -8,9 +8,42 @@ fn text(d: [u8; 13]) -> String {
     d.iter().map(|v| (b'0' + v) as char).collect()
 }
 // Writing formatted primitives to String is infallible; append without temporary allocations.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Serialize one complete work-counter record with mode-specific fields."
+)]
 fn work(w: &Work) -> String {
     let s = format!("{{\"paths\":{},\"samples\":{},\"low_contrast\":{},\"run_windows\":{},\"quiet_pass\":{},\"guard_pass\":{},\"run_decoder_calls\":{},\"accepted_paths\":{},\"conflicts\":{},\"continuity_samples\":{},\"continuity_rejects\":{},\"capped_paths\":{},\"profile_boundary_pairs\":{},\"profile_digit_hypotheses\":{},\"truncated_paths\":{},\"retry_paths\":{},\"retry_paths_pending\":{},\"sampling_plan_capped\":{},\"discovery_paths\":{},\"scale_hint_used\":{},\"unresolved_probe_paths\":{},\"sparse_normalizations\":{},\"association_checks\":{},\"association_truncated\":{},\"continuity_capped_links\":{},\"retained_initial_detections\":{},\"cleanup_paths\":{},\"cleanup_examined\":{},\"cleanup_removed_runs\":{},\"cleanup_pixels\":{},\"interior_paths\":{},\"interior_values\":{},\"bias_paths\":{},\"bias_model_pass\":{},\"bias_guard_pass\":{}}}",w.paths,w.samples,w.low_contrast,w.windows,w.quiet_pass,w.guard_pass,w.decoder_calls,w.accepted_paths,w.conflicts,w.continuity_samples,w.continuity_rejects,w.capped_paths,w.profile_boundary_pairs,w.profile_digit_hypotheses,w.truncated_paths,w.retry_paths,w.retry_paths_pending,w.sampling_plan_capped,w.discovery_paths,w.scale_hint_used,w.unresolved_probe_paths,w.sparse_normalizations,w.association_checks,w.association_truncated,w.continuity_capped_links,w.retained_initial_detections,w.cleanup_paths,w.cleanup_examined,w.cleanup_removed_runs,w.cleanup_pixels,w.interior_paths,w.interior_values,w.bias_paths,w.bias_model_pass,w.bias_guard_pass);
-    #[cfg(feature = "experimental-invalid-visual-veto")]
+    #[cfg(feature = "mode-very-high")]
+    let s = {
+        use std::fmt::Write as _;
+        let mut s = s;
+        s.pop();
+        let _ = write!(s, ",\"discovery_requests\":{}}}", w.discovery_requests);
+        s
+    };
+    #[cfg(feature = "mode-very-high")]
+    let s = {
+        use std::fmt::Write as _;
+        let mut s = s;
+        s.pop();
+        let _ = write!(s, ",\"phase_rescue_paths\":{}}}", w.phase_rescue_paths);
+        s
+    };
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+    let s = {
+        use std::fmt::Write as _;
+        let mut s = s;
+        s.pop();
+        let _ = write!(
+            s,
+            ",\"invalid_consensus_observations\":{},\"invalid_consensus_blocks\":{}}}",
+            w.invalid_consensus_observations, w.invalid_consensus_blocks
+        );
+        s
+    };
+
     let s = {
         use std::fmt::Write as _;
         let mut s = s;
@@ -18,7 +51,7 @@ fn work(w: &Work) -> String {
         let _ = write!(s, ",\"invalid_visual_seen\":{},\"invalid_veto_intervals\":{},\"invalid_veto_reads\":{},\"invalid_soft_conflicts\":{},\"invalid_veto_capped\":{}}}",w.invalid_visual_seen,w.invalid_veto_intervals,w.invalid_veto_reads,w.invalid_soft_conflicts,w.invalid_veto_capped);
         s
     };
-    #[cfg(feature = "experimental-gap-density")]
+
     let s = {
         use std::fmt::Write as _;
         let mut s = s;
@@ -30,7 +63,7 @@ fn work(w: &Work) -> String {
         );
         s
     };
-    #[cfg(feature = "experimental-verified-coverage-reuse")]
+
     let s = {
         use std::fmt::Write as _;
         let mut s = s;
@@ -38,7 +71,7 @@ fn work(w: &Work) -> String {
         let _ = write!(s, ",\"extension_cache_hits\":{},\"extension_samples\":{},\"extension_claims\":{},\"extension_capped\":{},\"reuse_claims\":{},\"reuse_claims_rejected\":{},\"reuse_checks\":{},\"reuse_checks_capped\":{},\"reuse_paths_changed\":{},\"reuse_paths_removed\":{},\"reuse_paths_split\":{},\"reuse_short_pieces\":{}}}",w.extension_cache_hits,w.extension_samples,w.extension_claims,w.extension_capped,w.reuse_claims,w.reuse_claims_rejected,w.reuse_checks,w.reuse_checks_capped,w.reuse_paths_changed,w.reuse_paths_removed,w.reuse_paths_split,w.reuse_short_pieces);
         s
     };
-    #[cfg(feature = "experimental-forward-blur")]
+
     let s = {
         use std::fmt::Write as _;
         let mut s = s;
@@ -46,7 +79,7 @@ fn work(w: &Work) -> String {
         let _ = write!(s, ",\"forward_blur_calls\":{},\"forward_blur_windows\":{},\"forward_blur_model_attempts\":{},\"forward_blur_accepted_windows\":{},\"forward_blur_conflicts\":{}}}",w.forward_blur_calls,w.forward_blur_windows,w.forward_blur_model_attempts,w.forward_blur_accepted_windows,w.forward_blur_conflicts);
         s
     };
-    #[cfg(feature = "experimental-structural-retry")]
+    #[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
     let s = {
         use std::fmt::Write as _;
         let mut s = s;
@@ -58,7 +91,7 @@ fn work(w: &Work) -> String {
         );
         s
     };
-    #[cfg(feature = "experimental-redundant-decode")]
+
     let s = {
         use std::fmt::Write as _;
         let mut s = s;
@@ -70,12 +103,20 @@ fn work(w: &Work) -> String {
         );
         s
     };
-    #[cfg(feature = "experimental-extrema-runs")]
+
     let s = {
         use std::fmt::Write as _;
         let mut s = s;
         s.pop();
         let _ = write!(s, ",\"extrema_calls\":{},\"extrema_examined\":{},\"extrema_capped\":{},\"extrema_ambiguous\":{},\"extrema_decoder_calls\":{}}}",w.extrema_calls,w.extrema_examined,w.extrema_capped,w.extrema_ambiguous,w.extrema_decoder_calls);
+        s
+    };
+    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+    let s = {
+        use std::fmt::Write as _;
+        let mut s = s;
+        s.pop();
+        let _ = write!(s, ",\"selected_retry_limit\":{}}}", w.selected_retry_limit);
         s
     };
     s
@@ -98,12 +139,12 @@ fn finite_json(v: f64) -> String {
 }
 #[must_use]
 pub fn candidate_json(candidates: &[Candidate]) -> String {
-    let cs:Vec<String>=candidates.iter().map(|c|{let ds:Vec<String>=c.detections.iter().map(|d|format!("{{\"text\":\"{}\",\"polygon\":{:?},\"support\":{},\"axis\":{}}}",text(d.digits),d.polygon,d.support,d.axis)).collect();let obs:Vec<String>=c.observations.iter().filter(|_|!cfg!(feature="experimental-compact-output")).map(|d|format!("{{\"text\":\"{}\",\"axis\":{},\"fraction\":{},\"left\":{},\"right\":{},\"cost\":{},\"gap\":{}}}",if d.ambiguous{String::new()}else{text(d.digits)},d.axis,d.fraction,d.left,d.right,d.cost,d.gap)).collect();format!("{{\"candidate_index\":{},\"coverage\":{},\"error\":{},\"error_detail\":{},\"unfinished\":{},\"ms\":{},\"work\":{},\"detections\":[{}],\"observations\":[{}]}}",c.index,coverage_json(c.coverage),c.error,if scan::transform(c.coverage).is_err(){"\"invalid_geometry\""}else if c.error{"\"sampling_error\""}else{"null"},c.error||c.work.invalid_veto_intervals>0||c.work.retry_paths_pending>0||c.work.sampling_plan_capped>0||c.work.truncated_paths>0||c.work.capped_paths>0||c.work.association_truncated>0,c.ms,work(&c.work),ds.join(","),obs.join(","))}).collect();
+    let cs:Vec<String>=candidates.iter().map(|c|{let ds:Vec<String>=c.detections.iter().map(|d|format!("{{\"text\":\"{}\",\"polygon\":{:?},\"support\":{},\"axis\":{}}}",text(d.digits),d.polygon,d.support,d.axis)).collect();let obs:Vec<String>=c.observations.iter().filter(|_|false).map(|d|format!("{{\"text\":\"{}\",\"axis\":{},\"fraction\":{},\"left\":{},\"right\":{},\"cost\":{},\"gap\":{}}}",if d.ambiguous{String::new()}else{text(d.digits)},d.axis,d.fraction,d.left,d.right,d.cost,d.gap)).collect();format!("{{\"candidate_index\":{},\"coverage\":{},\"error\":{},\"error_detail\":{},\"unfinished\":{},\"ms\":{},\"work\":{},\"detections\":[{}],\"observations\":[{}]}}",c.index,coverage_json(c.coverage),c.error,if scan::transform(c.coverage).is_err(){"\"invalid_geometry\""}else if c.error{"\"sampling_error\""}else{"null"},c.error||c.work.invalid_veto_intervals>0||c.work.retry_paths_pending>0||c.work.sampling_plan_capped>0||c.work.truncated_paths>0||c.work.capped_paths>0||c.work.association_truncated>0,c.ms,work(&c.work),ds.join(","),obs.join(","))}).collect();
     cs.join(",")
 }
 #[must_use]
 pub fn frame_json(frame: &frame::Frame) -> String {
-    let trace = if cfg!(feature = "experimental-compact-output") {
+    let trace = {
         format!(
             ",\"diagnostics\":{{\"observationsIncluded\":false,\"observationCount\":{}}}",
             frame
@@ -112,17 +153,16 @@ pub fn frame_json(frame: &frame::Frame) -> String {
                 .map(|c| c.observations.len())
                 .sum::<usize>()
         )
-    } else {
-        String::new()
     };
     let barcodes:Vec<_>=frame.barcodes.iter().map(|b|format!("{{\"text\":\"{}\",\"polygon\":{:?},\"support\":{},\"axis\":{},\"candidate_indices\":{:?}}}",text(b.detection.digits),b.detection.polygon,b.detection.support,b.detection.axis,b.candidate_indices)).collect();
     let w = &frame.reconciliation;
-    #[cfg(feature = "experimental-identity-optional")]
+
     let optional = format!(
         ",\"optional_identity_deferred\":{}",
         w.optional_identity_deferred
     );
-    #[cfg(not(feature = "experimental-identity-optional"))]
-    let optional = String::new();
+
+    #[cfg(feature = "mode-very-high")]
+    let optional = format!("{optional},\"source_cache_hits\":{}", w.source_cache_hits);
     format!("{{\"unfinished\":{}{},\"reconciliation\":{{\"comparisons\":{},\"merged\":{},\"ambiguous\":{},\"conflicting\":{},\"pending_observations\":{},\"truncated\":{},\"source_pairs\":{},\"source_matches\":{},\"source_pixels\":{},\"source_capped\":{},\"pending_coverage_checks\":{},\"pending_quarantined\":{}{}}},\"barcodes\":[{}],\"candidates\":[{}]}}",frame.unfinished,trace,w.comparisons,w.merged,w.ambiguous,w.conflicting,w.pending_observations,w.truncated,w.source_pairs,w.source_matches,w.source_pixels,w.source_capped,w.pending_coverage_checks,w.pending_quarantined,optional,barcodes.join(","),candidate_json(&frame.candidates))
 }

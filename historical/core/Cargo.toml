@@ -1,0 +1,143 @@
+[package]
+name = "barcode-research-core"
+version = "0.0.0"
+edition = "2021"
+publish = false
+[lib]
+crate-type = ["cdylib", "rlib"]
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[features]
+# Stable entry points; experimental feature details stay pinned in build-recipes.json.
+fast = ["experimental-identity-phase", "experimental-stripe-bands", "experimental-profile-aperture", "experimental-dense-unsupported-scale", "experimental-native-wide-tiles", "experimental-interior-bounds", "experimental-shared-coverage-identity", "experimental-complete-tile-prefix", "experimental-profile-guard-precheck", "experimental-verified-coverage-reuse", "experimental-nearest-lowres", "experimental-forward-blur", "experimental-coverage-extension", "experimental-gap-density", "experimental-strong-single-row", "experimental-redundant-decode", "experimental-compact-output", "experimental-flat-envelope", "experimental-source-angle", "experimental-angle-replace", "experimental-flexible-identity", "experimental-identity-budgeted-link", "experimental-identity-optional", "experimental-extrema-runs", "experimental-asymmetric-quiet", "experimental-unresolved-256", "experimental-local-extrema-gaps", "experimental-invalid-visual-veto"]
+quality = ["fast", "experimental-native-soft"]
+
+experimental-secondary-grid = ["experimental-stripe-bands"]
+experimental-invalid-visual-veto = []
+experimental-native-soft = ["experimental-forward-blur"]
+experimental-local-extrema-gaps = ["experimental-extrema-runs"]
+experimental-flat-envelope = []
+experimental-compact-output = []
+experimental-structural-retry = []
+experimental-strong-single-row = []
+experimental-gap-density = []
+experimental-coverage-extension = ["experimental-verified-coverage-reuse"]
+default = []
+native-timing = []
+# Explicit research build; not part of default scanner behavior.
+experimental-local-contrast = []
+experimental-fractional-guard = ["experimental-local-contrast"]
+experimental-relative-edges = ["experimental-fractional-guard"]
+experimental-weak-excursions = ["experimental-fractional-guard"]
+experimental-classical-bands = []
+experimental-classical-span2 = ["experimental-classical-bands"]
+experimental-classical-trim = ["experimental-classical-span2"]
+experimental-classical-rank-direction = ["experimental-classical-trim"]
+experimental-classical-rank-core = ["experimental-classical-rank-direction"]
+
+experimental-short-quiet = ["experimental-weak-excursions"]
+experimental-asymmetric-quiet = ["experimental-short-quiet"]
+experimental-unresolved-256 = []
+
+experimental-classical-wide-gaps = ["experimental-classical-rank-core"]
+experimental-classical-stable-components = ["experimental-classical-wide-gaps"]
+experimental-classical-complete-components = ["experimental-classical-stable-components"]
+
+experimental-classical-accepted-band = ["experimental-classical-complete-components"]
+
+experimental-classical-orientation = ["experimental-classical-accepted-band"]
+
+experimental-classical-edge-groups = ["experimental-classical-orientation"]
+
+experimental-classical-global-groups = ["experimental-classical-edge-groups"]
+
+# Distributed direction agreement for otherwise unsupported oblique regions.
+experimental-classical-consistent-angle = ["experimental-classical-global-groups"]
+
+experimental-classical-crossband = ["experimental-classical-consistent-angle"]
+
+experimental-guard-ranking = ["experimental-short-quiet"]
+
+experimental-single-row-search = ["experimental-guard-ranking"]
+
+experimental-identity-phase = ["experimental-single-row-search"]
+
+experimental-lowres-profile-refine = ["experimental-identity-phase"]
+experimental-native-sharpen = ["experimental-lowres-profile-refine"]
+experimental-lowres-relative = ["experimental-native-sharpen"]
+
+experimental-orientation-stripes = []
+experimental-stripe-bands = ["experimental-orientation-stripes"]
+
+# Reuse only the already-enabled short relative-edge arm; no new hypotheses.
+experimental-relative-reuse = ["experimental-lowres-relative"]
+
+experimental-stripe-hysteresis = ["experimental-stripe-bands"]
+experimental-stripe-extent = ["experimental-stripe-hysteresis"]
+
+# Inspect dense bands before rejecting a tall connected parent.
+experimental-stripe-tall-bands = ["experimental-stripe-extent"]
+
+# Charge the bounded source-extent search only for dimension-eligible regions.
+experimental-extent-eligible-budget = ["experimental-stripe-tall-bands"]
+
+# Refine dense-band direction independently of its connected parent.
+experimental-band-local-angle = ["experimental-extent-eligible-budget"]
+
+experimental-profile-aperture = []
+
+experimental-green-luminance = []
+
+# Allow long identity links only when full-density sampling fits the shared pixel budget.
+experimental-identity-budgeted-link = []
+experimental-flexible-identity = ["experimental-identity-budgeted-link"]
+experimental-identity-optional = []
+experimental-extrema-runs = []
+
+# Native-only passive diagnostic logging; no scanner decision changes.
+diagnostic-retry-trace = []
+
+# Keep independent-row search density when only an unsupported wide scale is known.
+experimental-dense-unsupported-scale = ["experimental-single-row-search"]
+
+experimental-native-wide-tiles = []
+
+experimental-interior-bounds = []
+
+experimental-band-endpoint-tensor = ["experimental-band-local-angle"]
+
+experimental-shared-coverage-identity = []
+
+experimental-post-band-fragments = ["experimental-band-endpoint-tensor"]
+
+experimental-fragment-coverage = ["experimental-post-band-fragments"]
+experimental-source-angle = ["experimental-fragment-coverage"]
+
+experimental-complete-tile-prefix = []
+
+diagnostic-tile-events = []
+
+experimental-profile-guard-precheck = []
+
+experimental-source-rescue = []
+
+experimental-verified-coverage-reuse = []
+
+experimental-nearest-lowres = []
+
+experimental-forward-blur = []
+
+# Exact duplicate integer/fractional run-hypothesis reuse.
+experimental-redundant-decode = []
+
+experimental-angle-replace = []
+
+# This diagnostic imports the feature-gated stripe localizer. Keep the default
+# feature set buildable and make the diagnostic available in balanced recipes.
+[[bin]]
+name = "stripe_diagnostic"
+path = "src/bin/stripe_diagnostic.rs"
+required-features = ["experimental-orientation-stripes"]

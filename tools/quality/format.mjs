@@ -83,7 +83,7 @@ export function protectedFiles() {
   const provenance = path.join(root, "provenance/import.json");
   if (fs.existsSync(provenance))
     for (const file of Object.keys(JSON.parse(fs.readFileSync(provenance, "utf8")).files))
-      pinned.add(file);
+      pinned.add(file.startsWith("core/") ? `historical/${file}` : file);
   const experiments = path.join(root, "rust/barcode-core/experiments");
   if (fs.existsSync(experiments))
     for (const file of fs.readdirSync(experiments).filter((f) => f.endsWith(".json"))) {
@@ -95,7 +95,7 @@ export function protectedFiles() {
   // Historical recipes, patches, benchmark payloads and generated assets are not normal source edits.
   for (const file of files())
     if (
-      /^(adapters\/retail-reader\/src\/lib\.rs|core\/|provenance\/|js\/camera-demo\/src\/vendor\/|rust\/barcode-core\/experiments\/|benchmark\/(results|reports)\/|.*\/experimental-built\/|.*\/public\/)/.test(
+      /^(adapters\/retail-reader\/src\/lib\.rs|historical\/|provenance\/|js\/camera-demo\/src\/vendor\/|rust\/barcode-core\/experiments\/|benchmark\/(results|reports)\/|.*\/experimental-built\/|.*\/public\/)/.test(
         file,
       )
     )

@@ -2,12 +2,21 @@
 //! visual parity; it never selects a weaker valid alternative. No heap allocation.
 #![forbid(unsafe_code)]
 use crate::ean;
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+#[derive(Clone, Copy)]
+pub(crate) struct Digit {
+    pub(crate) value: u8,
+    pub(crate) cost: f32,
+    pub(crate) gap: f32,
+}
+#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
 #[derive(Clone, Copy)]
 struct Digit {
     value: u8,
     cost: f32,
     gap: f32,
 }
+
 const fn pattern_table(side: u8) -> [[u8; 4]; 10] {
     let mut table = [[0; 4]; 10];
     let mut d = 0;
@@ -59,9 +68,15 @@ fn digit_errors(widths: &[f32]) -> [[f32; 4]; 4] {
         std::array::from_fn(|w| (normalized[i] - crate::numeric::usize_f32(w + 1)).powi(2))
     })
 }
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+pub(crate) fn digit(widths: &[f32], side: u8) -> Digit {
+    digit_from_errors(&digit_errors(widths), side)
+}
+#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
 fn digit(widths: &[f32], side: u8) -> Digit {
     digit_from_errors(&digit_errors(widths), side)
 }
+
 fn digit_from_errors(errors: &[[f32; 4]; 4], side: u8) -> Digit {
     let mut best = (f32::INFINITY, 0);
     let mut second = f32::INFINITY;
@@ -91,6 +106,15 @@ fn digit_from_errors(errors: &[[f32; 4]; 4], side: u8) -> Digit {
     }
 }
 
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+pub(crate) fn digit_pair(widths: &[f32]) -> [Digit; 2] {
+    let errors = digit_errors(widths);
+    [
+        digit_from_errors(&errors, b'L'),
+        digit_from_errors(&errors, b'G'),
+    ]
+}
+#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
 fn digit_pair(widths: &[f32]) -> [Digit; 2] {
     let errors = digit_errors(widths);
     [
@@ -98,6 +122,7 @@ fn digit_pair(widths: &[f32]) -> [Digit; 2] {
         digit_from_errors(&errors, b'G'),
     ]
 }
+
 /// 59 alternating widths from the first black start-guard run to the final black
 /// end-guard run. Quiet zones are verified by the caller. Fixed research gates.
 #[derive(Clone, Copy, Debug)]
@@ -111,92 +136,11 @@ pub fn decode(widths: &[f32]) -> Option<[u8; 13]> {
     decode_evidence(widths).map(|e| e.digits)
 }
 #[must_use]
-#[cfg_attr(
-    not(feature = "experimental-invalid-visual-veto"),
-    expect(
-        clippy::float_cmp,
-        reason = "Equal decoder costs are exact ambiguity ties; approximate equality would change accepted identities."
-    )
-)]
 pub fn decode_evidence(widths: &[f32]) -> Option<Evidence> {
-    #[cfg(feature = "experimental-invalid-visual-veto")]
-    {
-        let e = decode_visual_evidence(widths)?;
-        ean::checksum(&e.digits).then_some(e)
-    }
-    #[cfg(not(feature = "experimental-invalid-visual-veto"))]
-    {
-        if widths.len() != 59 || widths.iter().any(|x| !x.is_finite() || *x <= 0.) {
-            return None;
-        }
-        let module = widths.iter().sum::<f32>() / 95.;
-        if !module.is_finite() || module < 0.8 {
-            return None;
-        }
-        for i in [0, 1, 2, 27, 28, 29, 30, 31, 56, 57, 58] {
-            if (widths[i] / module - 1.).abs() > 0.65 {
-                return None;
-            }
-        }
-        let empty = Digit {
-            value: 0,
-            cost: 0.,
-            gap: 0.,
-        };
-        let mut left = [[empty; 2]; 6];
-        let mut right = [empty; 6];
-        for j in 0..12 {
-            let start = if j < 6 { 3 + j * 4 } else { 32 + (j - 6) * 4 };
-            let w = &widths[start..start + 4];
-            let scale = w.iter().sum::<f32>() / 7.;
-            if !(0.55 * module..=1.8 * module).contains(&scale)
-                || w.iter().any(|v| !(0.4..=4.6).contains(&(v / scale)))
-            {
-                return None;
-            }
-            if j < 6 {
-                left[j] = digit_pair(w);
-            } else {
-                right[j - 6] = digit(w, b'R');
-            }
-        }
-        let mut best = None;
-        let mut best_cost = f32::INFINITY;
-        let mut tied = false;
-        for first in 0u8..10 {
-            let mut value = [0u8; 13];
-            value[0] = first;
-            let (mut cost, mut max, mut gap) = (0f32, 0f32, f32::INFINITY);
-            for j in 0..12 {
-                let d = if j < 6 {
-                    left[j][usize::from(ean::parity_side(usize::from(first), j) == b'G')]
-                } else {
-                    right[j - 6]
-                };
-                value[j + 1] = d.value;
-                cost += d.cost;
-                max = max.max(d.cost);
-                gap = gap.min(d.gap);
-            }
-            cost /= 12.;
-            if cost < best_cost {
-                best_cost = cost;
-                best = Some((value, max, gap));
-                tied = false;
-            } else if cost == best_cost {
-                tied = true;
-            }
-        }
-        let (value, max, gap) = best?;
-        (!tied && best_cost <= 0.12 && max <= 0.35 && gap >= 0.05 && ean::checksum(&value))
-            .then_some(Evidence {
-                digits: value,
-                cost: best_cost,
-                gap,
-            })
-    }
+    let e = decode_visual_evidence(widths)?;
+    ean::checksum(&e.digits).then_some(e)
 }
-#[cfg(feature = "experimental-invalid-visual-veto")]
+
 #[expect(
     clippy::float_cmp,
     reason = "Encoded samples are binary and equal decoder costs are exact ambiguity ties; epsilon matching would change accepted identities."

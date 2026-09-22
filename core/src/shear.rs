@@ -23,8 +23,6 @@ fn luminance(im: ImageView<'_>, x: usize, y: usize) -> f64 {
     let i = y * im.stride + x * im.channels;
     if im.channels == 1 {
         f64::from(im.data[i])
-    } else if cfg!(feature = "experimental-green-luminance") {
-        f64::from(im.data[i + 1])
     } else {
         0.299 * f64::from(im.data[i])
             + 0.587 * f64::from(im.data[i + 1])
@@ -101,6 +99,9 @@ fn line(x: &[f64], y: &[f64], weights: &[f64]) -> Option<[f64; 2]> {
     }
     Some(result)
 }
+// Sobel components come from byte luminance and are bounded by 1020.
+// Their squared norm cannot overflow/underflow: use hardware sqrt rather
+// than general-purpose scaled hypot. No coordinate norms are changed.
 #[must_use]
 #[expect(
     clippy::too_many_lines,
@@ -125,7 +126,15 @@ pub fn refine(im: ImageView<'_>, quad: Quad) -> Option<Proposal> {
                 quad[0][0] + u * horizontal_edge[0] + v * vertical_edge[0],
                 quad[0][1] + u * horizontal_edge[1] + v * vertical_edge[1],
             ) {
+                #[cfg(any(
+                    feature = "mode-low",
+                    feature = "mode-medium",
+                    feature = "mode-very-high"
+                ))]
+                let m = (d[0] * d[0] + d[1] * d[1]).sqrt();
+                #[cfg(feature = "mode-high")]
                 let m = d[0].hypot(d[1]);
+
                 derivatives.push((d, m));
                 magnitudes.push(m);
             }
@@ -177,9 +186,25 @@ pub fn refine(im: ImageView<'_>, quad: Quad) -> Option<Proposal> {
                 center[1] + alpha * normal[1] + beta * tangent[1],
             ) {
                 let response = (d[0] * normal[0] + d[1] * normal[1]).abs();
-                if response / d[0].hypot(d[1]).max(1.) >= 0.86 {
-                    samples.push((i / 4, beta, response));
-                    values.push(response);
+                {
+                    #[cfg(any(
+                        feature = "mode-low",
+                        feature = "mode-medium",
+                        feature = "mode-very-high"
+                    ))]
+                    {
+                        if response / (d[0] * d[0] + d[1] * d[1]).sqrt().max(1.) >= 0.86 {
+                            samples.push((i / 4, beta, response));
+                            values.push(response);
+                        }
+                    }
+                    #[cfg(feature = "mode-high")]
+                    {
+                        if response / d[0].hypot(d[1]).max(1.) >= 0.86 {
+                            samples.push((i / 4, beta, response));
+                            values.push(response);
+                        }
+                    }
                 }
             }
         }

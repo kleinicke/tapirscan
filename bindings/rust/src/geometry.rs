@@ -1,9 +1,3 @@
-use serde_json::Value;
-
-pub(crate) fn quad(value: &Value) -> crate::Quad {
-    std::array::from_fn(|i| std::array::from_fn(|j| value["polygon"][i][j].as_f64().unwrap_or(0.0)))
-}
-
 fn signed_area(points: &[[f64; 2]]) -> f64 {
     if points.is_empty() {
         return 0.0;
@@ -17,10 +11,6 @@ fn signed_area(points: &[[f64; 2]]) -> f64 {
         })
         .sum::<f64>()
         / 2.0
-}
-
-pub(crate) fn overlap(first: &Value, second: &Value) -> (f64, f64) {
-    overlap_quads(&quad(first), &quad(second))
 }
 
 /// Same convex clipping and 0.65 reconciliation basis as the research host.

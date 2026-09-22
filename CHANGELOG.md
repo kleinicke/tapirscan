@@ -2,6 +2,13 @@
 
 ## 1.2.1 — 2026-09-19
 
+- Maintain production algorithms directly in `core/src` with explicit effort-mode
+  features; preserve original recipes and sources under `historical/`.
+- Separate profile sampling, decoding, observation association, retry planning and
+  physical identity/conflict resolution into concrete stages.
+- Assemble native results on typed data, including supplements, ordering and unread
+  regions. JSON serialization is limited to outputs and optional diagnostics.
+
 - Enable retail formats (EAN13, UPCA, EAN8 and UPCE) by default across all public
   bindings. Explicit EAN13 selection retains its existing reader path.
 - Keep Medium effort and ignored supplements as defaults; native ABI 4 is unchanged.

@@ -124,17 +124,69 @@ pub(crate) fn apply(
         work.conflicts += 1;
         // A soft/intensity contradiction is explicitly unresolved; its different
         // cost units never decide a winner. Existing spatial ambiguity rules apply.
-        observations.push(Observation {
-            short_quiet: false,
-            ambiguous: true,
-            digits: [0; 13],
-            axis,
-            fraction,
-            left,
-            right,
-            cost: v.cost,
-            gap: v.gap,
-        });
+        {
+            #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+            {
+                observations.push(Observation {
+                    short_quiet: false,
+                    ambiguous: true,
+                    digits: [0; 13],
+                    axis,
+                    fraction,
+                    left,
+                    right,
+                    cost: v.cost,
+                    gap: v.gap,
+                });
+            }
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            {
+                observations.push(Observation {
+                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                    invalid_checksum: false,
+                    short_quiet: false,
+                    ambiguous: true,
+                    digits: [0; 13],
+                    axis,
+                    fraction,
+                    left,
+                    right,
+                    cost: v.cost,
+                    gap: v.gap,
+                });
+            }
+        }
+    }
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+    {
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        for v in e
+            .iter()
+            .filter(|v| !v.checksum_valid && v.read.cost <= 0.06 && v.read.gap >= 0.1)
+        {
+            // Require the invalid visual interpretation to beat every valid run fit in
+            // the same interval. Its checksum is evidence to reject, never to repair.
+            if e.iter().any(|a| {
+                a.checksum_valid
+                    && same(a.read.left, a.read.right, v.read.left, v.read.right)
+                    && a.read.cost <= v.read.cost
+            }) {
+                continue;
+            }
+            observations.push(Observation {
+                invalid_checksum: true,
+                short_quiet: false,
+                ambiguous: true,
+                digits: v.read.digits,
+                axis,
+                fraction,
+                left: lo + (hi - lo) * (v.read.left + 0.5) / crate::numeric::usize_f64(n),
+                right: lo + (hi - lo) * (v.read.right + 0.5) / crate::numeric::usize_f64(n),
+                cost: v.read.cost,
+                gap: v.read.gap,
+            });
+            work.invalid_consensus_observations += 1;
+        }
     }
 }
 #[cfg(test)]
@@ -215,6 +267,7 @@ mod tests {
             evidence(true, 0., 95., 0.08),
             evidence(true, 120., 215., 0.09),
         ];
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let obs = |left, right| Observation {
             digits: [1; 13],
             axis: 0,
@@ -226,6 +279,21 @@ mod tests {
             ambiguous: false,
             short_quiet: false,
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let obs = |left, right| Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            digits: [1; 13],
+            axis: 0,
+            fraction: 0.5,
+            left,
+            right,
+            cost: 0.08,
+            gap: 0.2,
+            ambiguous: false,
+            short_quiet: false,
+        };
+
         let mut rows = vec![obs(0.0005, 0.0955), obs(0.1205, 0.2155)];
         let mut w = Work::default();
         apply(

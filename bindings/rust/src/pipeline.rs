@@ -41,14 +41,16 @@ pub(super) fn scan(
     let _ = shared_retail;
     let mut scan = scanner.regions.scan(im, &candidates, policy)?;
     #[cfg(feature = "medium")]
-    let mut retail = finish_retail(&mut scan, &mut scanner.regions, im)?;
+    let mut retail = finish_retail(&mut scan, &mut scanner.regions, im);
     #[cfg(not(feature = "medium"))]
     let mut retail = Vec::new();
     #[cfg(not(feature = "low"))]
     let recovery = recover(scanner, image, &mut scan, coverage, options, shared_retail)?;
     #[cfg(feature = "low")]
-    let recovery: Option<serde_json::Value> = None;
-    append_recovery_retail(&mut retail, recovery.as_ref(), shared_retail);
+    let recovery: Option<super::read::Recovery> = None;
+    if let Some(recovery) = &recovery {
+        retail.extend(recovery.retail.iter().cloned());
+    }
 
     if consolidate {
         super::linear_duplicates::merge_primary(&mut scan.frame.barcodes, image);
@@ -163,15 +165,16 @@ fn finish_retail(
     scan: &mut super::ScanResult,
     regions: &mut super::RegionScanner,
     im: ImageView<'_>,
-) -> std::result::Result<Vec<serde_json::Value>, Error> {
-    let mut retail = Vec::new();
-    if let Some(raw) = regions.retail_finish(im, &scan.frame) {
-        let value: serde_json::Value =
-            serde_json::from_str(&raw).map_err(|_| Error::OutputShape)?;
-        retail.extend(value["barcodes"].as_array().cloned().unwrap_or_default());
-        scan.frame.unfinished |= value["unfinished"].as_bool().unwrap_or(false);
-    }
-    Ok(retail)
+) -> Vec<super::read::Read> {
+    let Some(retail) = regions.retail_finish_typed(im, &scan.frame, false) else {
+        return Vec::new();
+    };
+    scan.frame.unfinished |= retail.unfinished;
+    retail
+        .detections
+        .into_iter()
+        .map(|d| super::read::Read::retail(d.digits, d.polygon, d.support))
+        .collect()
 }
 
 #[cfg(not(feature = "low"))]
@@ -182,46 +185,21 @@ fn recover(
     coverage: &[Quad],
     options: ScanOptions,
     shared_retail: bool,
-) -> std::result::Result<Option<serde_json::Value>, Error> {
+) -> std::result::Result<Option<super::read::Recovery>, Error> {
     let result = super::detail::recover(
         image,
         &mut scan.frame.barcodes,
         &mut scanner.recovery,
-        if cfg!(feature = "medium") { 1 } else { 2 },
         coverage,
-        options.finish_candidates,
-        shared_retail,
+        super::detail::RecoveryOptions {
+            directions: if cfg!(feature = "medium") { 1 } else { 2 },
+            complete: options.finish_candidates,
+            shared_retail,
+            diagnostics: options.retain_diagnostics,
+        },
     )?;
     scan.frame.unfinished = true;
     Ok(Some(result))
-}
-
-fn append_recovery_retail(
-    retail: &mut Vec<serde_json::Value>,
-    recovery: Option<&serde_json::Value>,
-    shared_retail: bool,
-) {
-    if !shared_retail {
-        return;
-    }
-    let Some(recovery) = recovery else { return };
-    for attempt in recovery["attempts"].as_array().into_iter().flatten() {
-        for barcode in attempt["frame"]["retail"]["barcodes"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
-            let mut read = barcode.clone();
-            let polygon = super::geometry::quad(barcode).map(|[x, y]| {
-                [
-                    attempt["x"].as_f64().unwrap_or(0.) + x / 3.,
-                    attempt["y"].as_f64().unwrap_or(0.) + y / 3.,
-                ]
-            });
-            read["polygon"] = serde_json::json!(polygon);
-            retail.push(read);
-        }
-    }
 }
 
 fn retail_pixels(image: Image<'_>) -> Option<Vec<u8>> {

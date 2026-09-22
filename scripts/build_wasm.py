@@ -13,7 +13,7 @@ from prepare_rust import prepare
 
 from build import MODES, ROOT, wasm_flags
 
-MANIFEST = ROOT / "provenance/wasm-api-20260922.json"
+MANIFEST = ROOT / json.loads((ROOT / "provenance/modes.json").read_text())["apiWasm"]
 PACKAGE = ROOT / "build/crates/tapirscan"
 
 
@@ -23,8 +23,8 @@ def source_files() -> dict[str, str]:
     selected = dict(imported["files"])
     if revision := imported.get("releaseRevision"):
         selected.update(json.loads((ROOT / revision).read_text())["targetHashes"])
-    paths = {name for name in selected if name.startswith(("core/", "multiformat/"))}
-    for folder in ("bindings/rust", "bindings/wasm"):
+    paths = {name for name in selected if name.startswith("multiformat/")}
+    for folder in ("core/src", "bindings/rust", "bindings/wasm"):
         paths.update(
             p.relative_to(ROOT).as_posix()
             for p in (ROOT / folder).rglob("*")
@@ -32,6 +32,8 @@ def source_files() -> dict[str, str]:
         )
     paths.update(
         [
+            "core/Cargo.toml",
+            "core/Cargo.lock",
             "scripts/build.py",
             "scripts/build_support.py",
             "scripts/prepare_rust.py",
@@ -58,7 +60,10 @@ def main() -> None:
     args.modes = args.modes or list(MODES)
     if set(args.modes) - set(MODES):
         parser.error("modes must be low, medium, high or very-high")
-    subprocess.run(["python3", str(ROOT / "scripts/verify_import.py")], check=True)
+    subprocess.run(
+        ["python3", str(ROOT / "scripts/verify_import.py"), "--historical-only"],
+        check=True,
+    )
     prepare(PACKAGE, refresh=PACKAGE.exists())
     inputs = source_files()
     digest = hashlib.sha256(
@@ -102,7 +107,7 @@ def main() -> None:
             Path(env["CARGO_TARGET_DIR"])
             / "wasm32-unknown-unknown/release/tapirscan_wasm.wasm"
         )
-        filename = f"{mode}-rust-api-20260922.wasm"
+        filename = f"{mode}-maintained-core-20260922.wasm"
         actual = hashlib.sha256(binary.read_bytes()).hexdigest()
         if not args.record and records.get(mode, {}).get("sha256") != actual:
             msg = f"WASM reproducibility mismatch: {mode}"

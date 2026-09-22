@@ -46,7 +46,11 @@ pub(crate) fn value(
             "polygon": result.search_window,
             "candidateIndex": result.proposals.len(),
         }]);
-        if let Some(recovery) = &result.recovery {
+        if let Some(recovery) = result
+            .recovery
+            .as_ref()
+            .and_then(|r| r.diagnostics.as_ref())
+        {
             output["recovery"] = recovery.clone();
         }
     }

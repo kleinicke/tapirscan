@@ -15,15 +15,15 @@ Installed-package checks also exercise browser workers and relocated assets.
 
 ## Checks to run
 
-| Change                   | Checks                                                            |
-| ------------------------ | ----------------------------------------------------------------- |
-| Imported algorithm       | `verify_import.py`, selected `build.py` recipes, `test_detail.py` |
-| JavaScript binding       | Package build and `npm test`; production demo-worker tests        |
-| Native ABI or facade     | `build_native.py`, C/C++ tests, Java build, `test_bindings.py`    |
-| Format integration       | `test_multiformat.py` with test-only `zxing-cpp` encoder          |
-| Python images or loading | `test_python_images.py`, installed-wheel smoke test               |
-| Native installation      | `test_cmake_install.py`; clean installed-wheel test               |
-| Maintained source        | `node tools/quality/release.mjs all`                              |
+| Change                   | Checks                                                          |
+| ------------------------ | --------------------------------------------------------------- |
+| Core algorithm           | `verify_import.py`, selected `build.py` modes, `test_detail.py` |
+| JavaScript binding       | Package build and `npm test`; production demo-worker tests      |
+| Native ABI or facade     | `build_native.py`, C/C++ tests, Java build, `test_bindings.py`  |
+| Format integration       | `test_multiformat.py` with test-only `zxing-cpp` encoder        |
+| Python images or loading | `test_python_images.py`, installed-wheel smoke test             |
+| Native installation      | `test_cmake_install.py`; clean installed-wheel test             |
+| Maintained source        | `node tools/quality/release.mjs all`                            |
 
 The binding checks need built C++ examples and Java classes:
 

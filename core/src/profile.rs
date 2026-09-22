@@ -45,26 +45,20 @@ fn sample(p: &[f32], x: f32, reverse: bool) -> f32 {
 fn module_sample(p: &[f32], left: f32, right: f32, i: usize, reverse: bool) -> f32 {
     let pitch = (right - left) / 95.;
     let center = left + (crate::numeric::usize_f32(i) + 0.5) * pitch;
-    if cfg!(feature = "experimental-profile-aperture") {
+    {
         (sample(p, center - pitch / 6., reverse)
             + sample(p, center, reverse)
             + sample(p, center + pitch / 6., reverse))
             / 3.
-    } else {
-        sample(
-            p,
-            left + (crate::numeric::usize_f32(i) + 0.5) * (right - left) / 95.,
-            reverse,
-        )
     }
 }
 /// EAN guard/digit max cost 0.1 and per-digit ambiguity gap 0.02 stay unchanged.
 /// # Errors
 /// Returns `Length` unless the profile has 512 samples, or `Value` for non-finite samples or values outside [0, 1].
 pub fn decode(p: &[f32]) -> Result<Option<Read>, Error> {
-    decode_checked(p, cfg!(feature = "experimental-profile-guard-precheck"))
+    decode_checked(p, true)
 }
-#[cfg(feature = "experimental-forward-blur")]
+
 #[derive(Default, Debug)]
 pub struct BlurTrace {
     pub boundary_pairs: usize,
@@ -75,58 +69,34 @@ pub struct BlurTrace {
     pub conflicts: usize,
     pub rejected_intervals: Vec<(f32, f32)>,
 }
-#[cfg(feature = "experimental-forward-blur")]
+
 pub fn decode_with_blur_trace(p: &[f32]) -> (Result<Option<Read>, Error>, BlurTrace) {
     let mut trace = BlurTrace::default();
-    let result = decode_impl(
-        p,
-        cfg!(feature = "experimental-profile-guard-precheck"),
-        cfg!(feature = "experimental-guard-ranking"),
-        &mut trace,
-    );
+    let result = decode_impl(p, true, true, &mut trace);
     (result, trace)
 }
 fn decode_checked(p: &[f32], precheck: bool) -> Result<Option<Read>, Error> {
-    decode_checked_with_prune(p, precheck, cfg!(feature = "experimental-guard-ranking"))
+    decode_checked_with_prune(p, precheck, true)
 }
 fn decode_checked_with_prune(
     p: &[f32],
     precheck: bool,
     prune: bool,
 ) -> Result<Option<Read>, Error> {
-    decode_impl(
-        p,
-        precheck,
-        prune,
-        #[cfg(feature = "experimental-forward-blur")]
-        &mut BlurTrace::default(),
-    )
+    decode_impl(p, precheck, prune, &mut BlurTrace::default())
 }
 fn decode_impl(
     p: &[f32],
     precheck: bool,
     prune: bool,
-    #[cfg(feature = "experimental-forward-blur")] trace: &mut BlurTrace,
+    trace: &mut BlurTrace,
 ) -> Result<Option<Read>, Error> {
-    decode_impl_length(
-        p,
-        precheck,
-        prune,
-        false,
-        #[cfg(feature = "experimental-forward-blur")]
-        trace,
-    )
+    decode_impl_length(p, precheck, prune, false, trace)
 }
-#[cfg(feature = "experimental-native-soft")]
+#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
 pub(crate) fn decode_native_with_blur_trace(p: &[f32]) -> (Result<Option<Read>, Error>, BlurTrace) {
     let mut trace = BlurTrace::default();
-    let result = decode_impl_length(
-        p,
-        true,
-        cfg!(feature = "experimental-guard-ranking"),
-        true,
-        &mut trace,
-    );
+    let result = decode_impl_length(p, true, true, true, &mut trace);
     (result, trace)
 }
 #[expect(
@@ -138,10 +108,19 @@ fn decode_impl_length(
     precheck: bool,
     prune: bool,
     native: bool,
-    #[cfg(feature = "experimental-forward-blur")] trace: &mut BlurTrace,
+    trace: &mut BlurTrace,
 ) -> Result<Option<Read>, Error> {
     if if native {
-        !(76..=384).contains(&p.len())
+        {
+            #[cfg(any(feature = "mode-low", feature = "mode-medium", feature = "mode-high"))]
+            {
+                !(76..=384).contains(&p.len())
+            }
+            #[cfg(feature = "mode-very-high")]
+            {
+                !(76..=1536).contains(&p.len())
+            }
+        }
     } else {
         p.len() != LEN
     } {
@@ -177,7 +156,7 @@ fn decode_impl_length(
                 }
             }
         }
-        #[cfg(feature = "experimental-forward-blur")]
+
         {
             trace.boundary_pairs += ns * ne;
             trace.digit_hypotheses += (ns * ne).min(4);
@@ -190,10 +169,7 @@ fn decode_impl_length(
                     right,
                     ..EMPTY
                 };
-                #[cfg(not(feature = "experimental-guard-ranking"))]
-                for (i, v) in h.modules.iter_mut().enumerate() {
-                    *v = module_sample(p, left, right, i, reverse);
-                }
+
                 h.guard = 0.;
                 for (i, b) in [
                     (0, 1.),
@@ -208,10 +184,8 @@ fn decode_impl_length(
                     (93, 0.),
                     (94, 1.),
                 ] {
-                    #[cfg(feature = "experimental-guard-ranking")]
                     let value = module_sample(p, left, right, i, reverse);
-                    #[cfg(not(feature = "experimental-guard-ranking"))]
-                    let value = h.modules[i];
+
                     h.guard += (value - b).powi(2) / 11.;
                     // Guard terms are nonnegative and insertion uses a
                     // strict `<` comparison. Once this hypothesis reaches the
@@ -236,31 +210,7 @@ fn decode_impl_length(
             }
             // Reproduce ean::decode's operation order exactly, independently of
             // the ranking score (which divides each term before summation).
-            #[cfg(not(feature = "experimental-forward-blur"))]
-            if precheck {
-                let mut guard = 0.;
-                for (i, b) in [
-                    (0, 1.),
-                    (1, 0.),
-                    (2, 1.),
-                    (45, 0.),
-                    (46, 1.),
-                    (47, 0.),
-                    (48, 1.),
-                    (49, 0.),
-                    (92, 1.),
-                    (93, 0.),
-                    (94, 1.),
-                ] {
-                    let v = module_sample(p, h.left, h.right, i, reverse);
-                    guard += (v - b) * (v - b);
-                }
-                guard /= 11.;
-                if guard > 0.1 {
-                    continue;
-                }
-            }
-            #[cfg(feature = "experimental-forward-blur")]
+
             let (legacy_allowed, blur_allowed) = {
                 let mut guard = 0.;
                 for (i, b) in [
@@ -292,19 +242,17 @@ fn decode_impl_length(
                     ean::blurred_guard_possible(&observed),
                 )
             };
-            #[cfg(feature = "experimental-forward-blur")]
+
             if !legacy_allowed && !blur_allowed {
                 continue;
             }
             // Ranking depends only on the eleven observed guards. Materialize
             // all modules only after the exact same four windows are selected.
-            #[cfg(feature = "experimental-guard-ranking")]
+
             for (i, v) in h.modules.iter_mut().enumerate() {
                 *v = module_sample(p, h.left, h.right, i, reverse);
             }
-            #[cfg(not(feature = "experimental-forward-blur"))]
-            let result = ean::decode(&h.modules, 0.1, 0.02);
-            #[cfg(feature = "experimental-forward-blur")]
+
             let result = {
                 let legacy = if legacy_allowed {
                     ean::decode(&h.modules, 0.1, 0.02)
@@ -362,7 +310,7 @@ fn decode_impl_length(
     }
     Ok(accepted)
 }
-#[cfg(feature = "experimental-forward-blur")]
+
 #[expect(
     clippy::option_option,
     reason = "Outer None vetoes conflicting decoded identities; Some(None) is an ordinary undecoded window and must continue the search."
@@ -503,7 +451,7 @@ mod precheck_tests {
     }
 }
 
-#[cfg(all(test, feature = "experimental-forward-blur"))]
+#[cfg(test)]
 mod forward_blur_tests {
     use super::*;
     fn physical_profile(d: &[u8; 13], sigma: f64) -> [f32; LEN] {
@@ -581,7 +529,7 @@ mod forward_blur_tests {
     }
 }
 
-#[cfg(all(test, feature = "experimental-native-soft"))]
+#[cfg(all(test, any(feature = "mode-high", feature = "mode-very-high")))]
 mod native_soft_tests {
     use super::*;
     #[test]

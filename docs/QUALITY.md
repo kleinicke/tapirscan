@@ -41,10 +41,10 @@ Missing dependencies or a missing JDK fail checks; they are never silently skipp
 
 ### Imported scanner checks
 
-The ordinary quality gate includes strict Clippy checks for the frozen base core's
-fast/quality features, all four selected mode recipes, and the multiformat crate.
-Imported snapshots remain excluded from automatic formatting. Changes still
-require synchronized provenance and [promotion validation](PROMOTING_CHANGES.md).
+The ordinary quality gate includes strict Clippy checks for the maintained core in all four
+production modes, and the multiformat crate.
+Historical snapshots remain excluded from automatic formatting. Production
+source changes use ordinary formatting and require recorded provenance and [promotion validation](PROMOTING_CHANGES.md).
 
 ## Tools and focused checks
 
@@ -102,37 +102,28 @@ formatting differences in the regular index afterward. Prefer committing the
 staged selection normally. Immutable camera-demo vendor hosts are excluded.
 
 Fix lint findings with focused behavioral tests. Do not disable strict rules wholesale.
-The release Rust audit checks all targets for base-crate fast/quality features,
-the multiformat crate, and all four selected recipes. Research-only recipes are
+The release Rust audit checks all targets for all four production core modes and the multiformat crate. Research-only recipes are
 outside that gate. Runtime parity is verified separately.
 
 ## Protected scanner history and promotion
 
 The automatic formatter excludes upstream `sources/`, datasets, generated outputs,
-benchmark reports/results, release `core/` and provenance, frozen JS hosts, and
+benchmark reports/results, `historical/` and provenance, frozen JS hosts, and
 research files named in experiment `baseHashes`. Formatting those inputs would
 invalidate reproducible patches and WASM hashes. VS Code's native rustfmt runs on
 an explicitly edited Rust document: do not casually edit/save frozen inputs.
 
-The selected EAN-13 implementations are defined by `core/experiments/*.json`
-plus `.patch` files and rebuilt by `core/experiments/build_guarded.py`. New
-experiments use isolated Tapirscan worktrees and the experiment workspace's
-records. For an older result from the historical `../barcode` archive, consult `js/camera-demo/src/lib/versions.ts`
-and the matching manifest to identify the requested version; do not assume the
-base Cargo aliases are the latest or promote a different mode merely because
-its name sounds newer. The current four-mode release selection is recorded in `provenance/modes.json`;
-see `docs/PROMOTION_DETAIL_20260914.md` for the latest promotion evidence.
+Production algorithms are maintained directly in `core/src`, with four explicit
+`mode-*` features. The formatter includes them. `historical/core` preserves the
+old base, feature graph and recipe patches; `scripts/build.py MODE --historical`
+reproduces that frozen selection. See [core architecture](../core/README.md).
 
-When promoting:
-
-1. Select and reproduce the exact experiment in an isolated output directory.
-2. Port only required source into this release repository; consult
-   `docs/PROMOTING_CHANGES.md`. Preserve public bindings and API improvements.
-3. If formatting scanner inputs, format base and patched sources together,
-   regenerate patches/manifests/provenance, and create new immutable version tags
-   for changed bytes. Never automatically rewrite recorded checksums to hide drift.
-4. Run selected native/WASM builds, hash/behavior verification, and cross-language
-   parity tests. Keep private images, neural models and unrelated research out.
+For a production change, format the coherent edit batch, validate all affected
+modes and bindings, then record a new source/WASM identity before integration.
+The development build verifies frozen history without requiring the working
+source to equal the previous release snapshot. The full quality gate still runs
+strict `verify_import.py` against the selected release revision. Follow
+[PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); never rewrite frozen history.
 
 Sources: [Claude Code hooks](https://code.claude.com/docs/en/hooks),
 [Codex hooks](https://learn.chatgpt.com/docs/hooks),
@@ -143,12 +134,12 @@ Sources: [Claude Code hooks](https://code.claude.com/docs/en/hooks),
 Run `node tools/quality/release.mjs all` (or `rust`, `js`, `python`, `native`).
 Set `QUALITY_PYTHON` to the Python environment containing Pillow, NumPy and torch;
 set `JAVA_HOME` to a JDK 22+ installation. Install clang/clang++ for C/C++ checks.
-The gate checks all four reproduced modes of the Rust facade and C ABI with Clippy
+The gate checks all four compiled modes of the Rust facade and C ABI with Clippy
 all/pedantic and warnings as errors; TypeScript with strict ESLint and tsc; Python
 with Ruff ALL, ty and strict mypy; C/C++ with compiler conversion/sign warnings
 as errors; and Java with javac all warnings as errors. Java's restricted native
 FFM calls have documented, method-local exceptions; other warnings stay errors.
 
 Frozen JS hosts remain excluded from maintained-source lint and automatic formatting.
-Imported Rust source is checked by the regular gate, including selected recipes;
+Maintained core and imported multiformat Rust are checked by the regular gate;
 scanner parity and package installation checks remain separate runtime checks.

@@ -136,6 +136,7 @@ impl Scanner {
                 let settings = selected::ScanOptions {
                     multiple: true,
                     include_regions: true,
+                    retain_diagnostics: options.debug,
                     finish_candidates: options.extended_budget && formats.bits() & 3 != 0,
                 };
                 let policy = match addons {
@@ -144,13 +145,7 @@ impl Scanner {
                     EanAddOnPolicy::Require => selected::formats::EanAddOnPolicy::Require,
                 };
                 let output = $scanner
-                    .scan_formats_typed_with_addons(
-                        input,
-                        settings,
-                        formats.bits(),
-                        policy,
-                        options.debug,
-                    )
+                    .scan_formats_typed_with_addons(input, settings, formats.bits(), policy)
                     .map_err(|error| Error::Engine(error.to_string()))?;
                 ScanResult::from_engine(output, image, self.options.mode, start.elapsed())
             }};

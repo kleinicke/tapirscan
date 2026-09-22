@@ -1,9 +1,25 @@
-//! Research-only scalar equivalent of the workbench's Gaussian threshold kernel.
-//! The safe core uses explicit slices. Raw handles below are trusted-host ABI
-//! scaffolding, not a validated public API. JS owns each handle until destroy.
+//! Production scanner kernels. Select one effort mode at compile time.
+//! Algorithm edits belong in this tree; historical recipes are never applied here.
+#[cfg(not(any(
+    feature = "mode-low",
+    feature = "mode-medium",
+    feature = "mode-high",
+    feature = "mode-very-high"
+)))]
+compile_error!("Select one core mode; use mode-medium for the default policy.");
+#[cfg(any(
+    all(feature = "mode-low", feature = "mode-medium"),
+    all(feature = "mode-low", feature = "mode-high"),
+    all(feature = "mode-low", feature = "mode-very-high"),
+    all(feature = "mode-medium", feature = "mode-high"),
+    all(feature = "mode-medium", feature = "mode-very-high"),
+    all(feature = "mode-high", feature = "mode-very-high")
+))]
+compile_error!(
+    "Core modes are mutually exclusive; pass --no-default-features when selecting a mode."
+);
 #[doc(hidden)]
 pub mod numeric;
-
 pub struct Kernel {
     width: usize,
     height: usize,
@@ -73,7 +89,6 @@ impl Kernel {
         true
     }
 }
-
 #[no_mangle]
 pub extern "C" fn kernel_new(width: usize, height: usize) -> *mut Kernel {
     Kernel::new(width, height).map_or(std::ptr::null_mut(), |k| Box::into_raw(Box::new(k)))
@@ -118,7 +133,6 @@ pub unsafe extern "C" fn kernel_destroy(k: *mut Kernel) {
         drop(Box::from_raw(k));
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,7 +154,6 @@ mod tests {
         }
     }
 }
-
 pub mod ean;
 impl Kernel {
     /// Linear-time local mean alternative; algorithmically different from Gaussian.
@@ -201,7 +214,6 @@ impl Kernel {
 pub unsafe extern "C" fn kernel_box(k: *mut Kernel, block: usize, offset: f64) -> bool {
     (*k).box_threshold(block, offset)
 }
-
 pub struct EanSession {
     pub probabilities: [f32; 95],
     pub digits: [u8; 13],
@@ -264,7 +276,6 @@ pub unsafe extern "C" fn ean_destroy(k: *mut EanSession) {
         drop(Box::from_raw(k));
     }
 }
-
 #[cfg(test)]
 mod box_tests {
     use super::*;
@@ -307,52 +318,35 @@ mod box_tests {
         }
     }
 }
-
+pub mod association;
+pub mod band_association;
+pub mod bands;
+pub mod continuity;
+pub mod contrast;
+pub mod enhance;
+pub mod localize;
+pub mod neural_input;
+pub mod oriented;
+pub mod preprocess;
+pub mod profile;
+pub mod pyramid;
+pub mod rgba;
+pub mod row_group;
+pub mod row_scan;
+pub mod run_continuity;
+pub mod run_ean;
+pub mod run_profile;
 pub mod sampling;
 mod sampling_abi;
-pub mod warp;
-
-pub mod preprocess;
-
-pub mod association;
-
-pub mod enhance;
-
-pub mod localize;
-
-pub mod profile;
-
 pub mod scan;
-
-pub mod continuity;
-
-pub mod bands;
-
-pub mod oriented;
-
-pub mod band_association;
-pub mod pyramid;
-
-pub mod neural_input;
-
-pub mod contrast;
-
-pub mod row_scan;
-
-pub mod row_group;
-
-pub mod run_ean;
-
-pub mod run_profile;
-
-pub mod run_continuity;
-
-pub mod rgba;
+pub mod warp;
 
 // Independent find-all scanner. Existing research ABI remains separate.
 pub mod experiment;
 pub mod frame;
 pub mod identity;
+
+pub(crate) mod invalid_visual;
 pub mod local_signal;
 pub mod multi_profile;
 pub mod multi_scan;
@@ -360,16 +354,10 @@ pub mod orientation;
 pub mod region_abi;
 pub mod region_json;
 pub mod region_scan;
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+pub(crate) mod retail_pipeline;
 mod scanner_clock;
-pub mod transition;
-
-#[cfg(feature = "experimental-orientation-stripes")]
-pub mod stripes;
-
-#[cfg(feature = "experimental-source-rescue")]
-pub mod source_rescue;
-
 pub mod shear;
 
-#[cfg(feature = "experimental-invalid-visual-veto")]
-pub(crate) mod invalid_visual;
+pub mod stripes;
+pub mod transition;

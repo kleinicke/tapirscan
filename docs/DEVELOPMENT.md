@@ -1,7 +1,7 @@
 # Build and develop Tapirscan
 
 Run commands from the repository root unless a section says otherwise. The first
-build needs network access for dependencies; recipe compilation then runs offline.
+build needs network access for dependencies; compilation then runs offline.
 Allow at least 10 GiB of free disk space for the build tools' safety reserve,
 plus space for compiled modes.
 
@@ -30,14 +30,24 @@ npm test --prefix bindings/javascript
 ```
 
 Both adapters build the prepared public Rust package. `build_wasm.py` verifies
-source and binary identities in `provenance/wasm-api-20260922.json`; `--record`
+source and binary identities in the `apiWasm` manifest selected by `provenance/modes.json`; `--record`
 records an intentionally changed build after review and validation.
 
-Use `scripts/build.py MODE`, not a base Cargo feature alias, to reproduce an
-individual historical decoder recipe independently. Its artifacts go to
-`build/recipe-wasm`, outside the distribution. `--prepare-only` prepares a fresh mode directory without compiling;
-`--resume` verifies and finishes an existing build. The builder refuses to overwrite
-an existing prepared output. Keep previous build directories when changing recipes.
+`core/src` is directly editable production source. `python3 scripts/build.py MODE`
+runs its selected core tests without applying patches. Plain Cargo defaults to
+Medium; use `--no-default-features --features mode-low` for a different mode.
+See [core architecture and mode differences](../core/README.md).
+
+Development builds verify frozen imports with `verify_import.py --historical-only`.
+The ordinary `verify_import.py` command additionally checks the recorded release
+source snapshot. This separates working-source experimentation from release
+identity verification without weakening historical hash checks.
+
+To reconstruct an original selected recipe, use
+`python3 scripts/build.py medium --historical --prepare-only`. Historical outputs
+go to `build/history/medium`. Omit `--prepare-only` to test and build its legacy
+WASM; use `--resume` for an already prepared directory. The original builder
+refuses to overwrite existing prepared sources.
 
 ## Install local packages
 
@@ -86,22 +96,23 @@ and a JDK in `JAVA_HOME`. You can save local tool paths in the ignored
 for the focused tests, platform matrix, and reproduction commands.
 
 The public package is assembled under `build/crates/tapirscan` by
-`scripts/prepare_rust.py`. `--refresh` revalidates recipes and updates generated
+`scripts/prepare_rust.py`. `--refresh` verifies frozen history and updates generated
 sources while preserving compilation caches. The C and WASM adapters select one
 mode through Cargo features; ordinary Rust packages include all modes by default.
 Generated sources are build outputs, not a second implementation to edit.
 
-Algorithm changes are promoted from exact experiments. Follow
-[PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); do not edit frozen inputs or rewrite
-hashes simply to make verification pass.
+Algorithm changes use ordinary diffs in `core/src` and exact experiment records.
+Follow [PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); historical inputs and their
+checksums remain immutable.
 
 ## Maintained runtime boundaries
 
 The public Rust package lives in `bindings/rust/api`; `bindings/rust/src` is the
 internal per-mode engine assembled by the build scripts. Keep public result types
 in the API layer. The engine's `pipeline.rs` orders scanner stages, `detail.rs`
-handles crop recovery, `geometry.rs` owns overlap calculations, and `result.rs`
-assembles engine evidence. Public results cross the API boundary as Rust types.
+handles crop recovery, `geometry.rs` owns overlap calculations, and `read.rs` holds typed reader evidence and `formats.rs` reconciles it. `result.rs`
+serializes optional diagnostics. Public results cross the API boundary as Rust
+types; scanning does not construct or parse JSON when diagnostics are disabled.
 
 In JavaScript, `index.ts` exposes the API and `rust-session.ts` owns the WASM
 session. Keep scanner decisions in Rust so experiments apply to every binding.

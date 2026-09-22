@@ -40,9 +40,49 @@ impl ScanResult {
 }
 #[derive(Default)]
 pub struct RegionScanner {
+    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+    pub(crate) engine: crate::experiment::Experiment,
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
     engine: crate::experiment::Experiment,
 }
 impl RegionScanner {
+    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+    /// Configure shared retail evidence; bit 1 keeps the primary reader enabled.
+    /// # Errors
+    /// Rejects unsupported family bits.
+    pub fn retail_configure(&mut self, mask: u32) -> Result<(), Error> {
+        if mask & 1 == 0 || mask & !15 != 0 {
+            return Err(Error::Parameters);
+        }
+        self.engine.retail.mask = mask;
+        self.engine.retail.use_raw = mask & 12 != 0;
+        self.engine.retail.use_peaks = mask & 12 != 0;
+        self.engine.retail.peak_retry = mask & 12 != 0;
+        self.engine.retail.reset();
+        Ok(())
+    }
+    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+    /// Complete bounded retail recovery against the original primary frame.
+    pub fn retail_finish(&mut self, image: ImageView<'_>, frame: &Frame) -> Option<String> {
+        if self.engine.retail.mask & 12 == 0 {
+            return None;
+        }
+        self.engine.retail.set_primary(frame);
+        Some(self.engine.retail.finish(image))
+    }
+    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+    pub fn retail_finish_typed(
+        &mut self,
+        image: ImageView<'_>,
+        frame: &Frame,
+        diagnostics: bool,
+    ) -> Option<crate::retail_pipeline::RetailResult> {
+        if self.engine.retail.mask & 12 == 0 {
+            return None;
+        }
+        self.engine.retail.set_primary(frame);
+        Some(self.engine.retail.finish_typed(image, diagnostics))
+    }
     /// Always attempts every supplied candidate's cheap pass before retries.
     /// Input is borrowed for this call; output owns its polygons/observations.
     /// More than64candidates or invalid policies fail explicitly, never truncate

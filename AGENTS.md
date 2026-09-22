@@ -11,11 +11,17 @@ explicit work limits and support-based ranking. Do not silently introduce a
 neural model or reference-decoder fallback. Performance claims need reproducible
 paired evidence.
 
-`core/` and `bindings/javascript/src/host.ts` are hash-pinned imported snapshots.
-Changes require synchronized provenance, mode recipes and parity evidence.
-Use `scripts/build.py` for selected modes; plain Cargo aliases in the imported
-base crate do not include the selected patches. Follow
-[the promotion procedure](docs/PROMOTING_CHANGES.md) when importing research changes.
+`core/src` is the maintained production algorithm. Edit it directly in isolated
+experiment worktrees; select one `mode-*` feature or use `scripts/build.py MODE`.
+Read [the core guide](core/README.md) for stage boundaries and mode differences.
+`historical/`, `multiformat/` and imported JavaScript hosts remain hash-pinned.
+Never edit or format those historical inputs to make a build pass.
+
+Development builds verify frozen history and compile current production source.
+After parity and performance validation, record a new runtime source snapshot and
+new immutable WASM identities. `scripts/verify_import.py` checks the release
+snapshot as well as history. Follow [promotion](docs/PROMOTING_CHANGES.md) when
+integrating experimental algorithm changes.
 
 ## Changes and verification
 

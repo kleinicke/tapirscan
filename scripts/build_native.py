@@ -95,7 +95,10 @@ if __name__ == "__main__":
     selected = parser.parse_args().modes or list(MODES)
     if unknown := [mode for mode in selected if mode not in MODES]:
         parser.error(f"unknown mode: {', '.join(unknown)}")
-    subprocess.run([sys.executable, str(ROOT / "scripts/verify_import.py")], check=True)
+    subprocess.run(
+        [sys.executable, str(ROOT / "scripts/verify_import.py"), "--historical-only"],
+        check=True,
+    )
     public = ROOT / "build/crates/tapirscan"
     prepare(public, refresh=public.exists())
     for mode in selected:

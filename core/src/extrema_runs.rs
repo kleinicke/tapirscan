@@ -5,6 +5,9 @@ const MAX_EXAMINED: usize = 8192;
 #[derive(Default)]
 pub(crate) struct ExtremaScratch {
     extrema: Vec<(usize, bool)>,
+    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+    pub(crate) runs: Vec<(f64, f64, bool)>,
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
     runs: Vec<(f64, f64, bool)>,
     pub attempted: bool,
     pub examined: usize,
@@ -137,9 +140,9 @@ pub(crate) fn decode_extrema_validated(
         return scratch.empty(max);
     }
     let mut start = 0.;
-    #[cfg(feature = "experimental-local-extrema-gaps")]
+
     let mut pending_start = false;
-    #[cfg(feature = "experimental-local-extrema-gaps")]
+
     let mut chunks = Vec::<Reads>::new();
     for k in 1..scratch.extrema.len() {
         let (a, color) = scratch.extrema[k - 1];
@@ -155,9 +158,7 @@ pub(crate) fn decode_extrema_validated(
                 // More than one observed crossing is ambiguous, never choose by digits.
                 if crossing.is_some() {
                     scratch.ambiguous = true;
-                    #[cfg(not(feature = "experimental-local-extrema-gaps"))]
-                    return scratch.empty(max);
-                    #[cfg(feature = "experimental-local-extrema-gaps")]
+
                     {
                         crossing = None;
                         break;
@@ -168,9 +169,7 @@ pub(crate) fn decode_extrema_validated(
         }
         let Some(end) = crossing else {
             scratch.ambiguous = true;
-            #[cfg(not(feature = "experimental-local-extrema-gaps"))]
-            return scratch.empty(max);
-            #[cfg(feature = "experimental-local-extrema-gaps")]
+
             {
                 let a = decode_positions(&scratch.runs, max, false);
                 let r = if guard {
@@ -188,7 +187,7 @@ pub(crate) fn decode_extrema_validated(
                 continue;
             }
         };
-        #[cfg(feature = "experimental-local-extrema-gaps")]
+
         if pending_start {
             start = end;
             pending_start = false;
@@ -201,11 +200,7 @@ pub(crate) fn decode_extrema_validated(
         scratch.runs.push((start, end, color));
         start = end;
     }
-    #[cfg(not(feature = "experimental-local-extrema-gaps"))]
-    scratch
-        .runs
-        .push((start, p.len() as f64, scratch.extrema.last().unwrap().1));
-    #[cfg(feature = "experimental-local-extrema-gaps")]
+
     if !pending_start {
         scratch.runs.push((
             start,
@@ -219,7 +214,7 @@ pub(crate) fn decode_extrema_validated(
     } else {
         a
     };
-    #[cfg(feature = "experimental-local-extrema-gaps")]
+
     let reads = if scratch.ambiguous {
         let strict = |mut r: Reads| {
             r.symbols.retain(|v| v.cost <= 0.06 && v.gap >= 0.1);
@@ -337,7 +332,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "experimental-local-extrema-gaps"))]
+#[cfg(test)]
 mod local_gap_tests {
     use super::*;
     fn symbol(d: [u8; 13]) -> Vec<f32> {

@@ -1,26 +1,17 @@
 #!/usr/bin/env python3
-"""Prepare/test a pinned scanner mode without mutating the source snapshot."""
+"""Build a selected mode directly from the maintained production core."""
 
 import argparse
-import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
-
-from build_support import verify_source_hashes
 
 ROOT = Path(__file__).resolve().parents[1]
 MODE_CONFIG = json.loads((ROOT / "provenance/modes.json").read_text())["modes"]
 MODES = {m["mode"]: (m["recipe"], m["tag"]) for m in MODE_CONFIG}
-
-
-def recipe_manifest(recipe: str) -> dict[str, Any]:
-    """Read the selected recipe without duplicating its filesystem layout."""
-    return json.loads((ROOT / "core/experiments" / f"{recipe}.json").read_text())
 
 
 def wasm_flags() -> str:
@@ -37,217 +28,63 @@ def wasm_flags() -> str:
     )
 
 
-def prepare_wasm_source(out: Path) -> Path:
-    """Keep path dependency identities relative to a reproducible workspace."""
-    source = out / "temporarysource"
-    original = (source / "Cargo.toml").read_text()
-    dependency = (ROOT / "multiformat").as_posix()
-    if dependency not in original:
-        return source / "Cargo.toml"
-    dest = out / "wasm-source"
-    shutil.copytree(source, dest, dirs_exist_ok=True)
-    adapter = ROOT / "adapters/retail-reader"
-    adapter_source = json.loads((adapter / "source.json").read_text())
-    verify_source_hashes(
-        adapter,
-        adapter_source["adapterFiles"],
-        error_prefix="Retail reader adapter hash mismatch",
+def main() -> None:
+    """Test maintained source, or explicitly reproduce a frozen historical recipe."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", choices=MODES)
+    parser.add_argument("--historical", action="store_true")
+    parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--resume", action="store_true")
+    args = parser.parse_args()
+    if args.resume and not args.historical:
+        parser.error("--resume applies only to --historical builds")
+    if shutil.disk_usage(ROOT).free < 10 * 1024**3:
+        msg = "need a 10 GiB free-space reserve before building"
+        raise SystemExit(msg)
+    subprocess.run(
+        [sys.executable, str(ROOT / "scripts/verify_import.py"), "--historical-only"],
+        check=True,
     )
-    verify_source_hashes(
-        ROOT / "multiformat",
-        adapter_source["frozenModules"],
-        error_prefix="Frozen reader source hash mismatch",
-    )
-    verify_source_hashes(
-        ROOT / "multiformat",
-        adapter_source["upstreamFiles"],
-        error_prefix="Retail reader upstream root hash mismatch",
-    )
-    reader = dest / "multiformat"
-    if reader.exists():
-        shutil.rmtree(reader)
-    (reader / "src").mkdir(parents=True)
-    shutil.copy2(adapter / "Cargo.toml", reader / "Cargo.toml")
-    shutil.copy2(adapter / "src/lib.rs", reader / "src/lib.rs")
-    for relative in adapter_source["frozenModules"]:
-        shutil.copy2(ROOT / "multiformat" / relative, reader / relative)
-    manifest = dest / "Cargo.toml"
-    manifest.write_text(
-        original.replace(dependency, "multiformat")
-        + '\n[workspace]\nmembers = ["multiformat"]\nresolver = "2"\n',
-        newline="\n",
-    )
-    return manifest
-
-
-def distribution_hash(recipe: str) -> str:
-    """Read the canonical release hash separately from original import recipes."""
-    return str(next(m["binarySha256"] for m in MODE_CONFIG if m["recipe"] == recipe))
-
-
-def prepare_native_source(out: Path) -> None:
-    """Expose one existing safe helper in a separate native-only source copy."""
-    dest = out / "native-core"
-    shutil.copytree(out / "temporarysource", dest, dirs_exist_ok=True)
-    path = dest / "src/stripes.rs"
-    text = path.read_text()
-    old = "pub(crate) fn detect_secondary("
-    if text.count(old) != 1:
-        msg = "Unexpected secondary localizer visibility"
-        raise RuntimeError(msg)
-    path.write_text(text.replace(old, "pub fn detect_secondary("))
-    (out / "native-adapter.json").write_text(
-        json.dumps(
-            {
-                "change": "Expose detect_secondary; visibility-only adapter",
-                "upstreamSha256": hashlib.sha256(
-                    (out / "temporarysource/src/stripes.rs").read_bytes()
-                ).hexdigest(),
-                "nativeSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            },
-            indent=2,
+    if args.historical:
+        output = ROOT / "build/history"
+        output.mkdir(parents=True, exist_ok=True)
+        link = ROOT / "historical/build"
+        if not link.exists():
+            link.symlink_to(output, target_is_directory=True)
+        command = [sys.executable, str(ROOT / "historical/scripts/build.py"), args.mode]
+        if args.prepare_only:
+            command.append("--prepare-only")
+        if args.resume:
+            command.append("--resume")
+        subprocess.run(command, check=True)
+        return
+    if args.prepare_only:
+        print(
+            f"Production {args.mode}: {ROOT / 'core/src'} "
+            "(no patches or preparation needed)"
         )
-        + "\n"
-    )
-
-
-def prepare_test_source(out: Path) -> Path:
-    """Keep exact decisions but allow two rounding ULPs in a libm weight test."""
-    if out.name == "low":
-        return out / "temporarysource/Cargo.toml"
-    copied = out / "test-core"
-    shutil.copytree(out / "temporarysource", copied, dirs_exist_ok=True)
-    path = copied / "src/stripes.rs"
-    text = path.read_text()
-    old = "assert_eq!(edge_weight(dx, dy, ax, ay), original);"
-    replacement = """let actual = edge_weight(dx, dy, ax, ay);
-                    assert_eq!(actual.is_some(), original.is_some());
-                    if let (Some(actual), Some(expected)) = (actual, original) {
-                        assert!((actual - expected).abs()
-                            <= 2. * f64::EPSILON * expected.abs().max(1.));
-                    }"""
-    if text.count(old) != 1:
-        msg = "Unexpected imported edge-weight test"
-        raise RuntimeError(msg)
-    path.write_text(text.replace(old, replacement))
-    (out / "test-adapter.json").write_text(
-        json.dumps(
-            {
-                "change": "Test-only libm tolerance; decisions remain exact",
-                "upstreamSha256": hashlib.sha256(text.encode()).hexdigest(),
-                "testSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            },
-            indent=2,
-        )
-        + "\n"
-    )
-    return copied / "Cargo.toml"
-
-
-def resume_core(out: Path, recipe: str) -> None:
-    """Verify and finish an existing core build without trusting stale artifacts."""
-    manifest = recipe_manifest(recipe)
-    for base, hashes in [
-        (ROOT, manifest.get("externalHashes", {})),
-        (ROOT / "core", manifest["baseHashes"]),
-        (
-            out / "temporarysource",
-            dict(manifest["baseHashes"]) | manifest["targetHashes"],
-        ),
-    ]:
-        verify_source_hashes(base, hashes)
+        return
     env = dict(
         os.environ,
-        CARGO_TARGET_DIR=str(out / "cargo-target"),
-        CARGO_INCREMENTAL="0",
+        CARGO_TARGET_DIR=str(ROOT / "build/core-target"),
         RUSTUP_TOOLCHAIN="1.91.1",
     )
     env.pop("RUSTFLAGS", None)
-    core_manifest = prepare_wasm_source(out)
     subprocess.run(
         [
             "cargo",
             "test",
             "--offline",
             "--manifest-path",
-            str(prepare_test_source(out)),
+            str(ROOT / "core/Cargo.toml"),
             "--all-targets",
+            "--no-default-features",
             "--features",
-            manifest.get("testFeature", "guarded-quality"),
-            "--quiet",
+            f"mode-{args.mode}",
         ],
         env=env,
         check=True,
     )
-    env["RUSTFLAGS"] = (
-        wasm_flags()
-        + f" --remap-path-prefix={core_manifest.parent.as_posix()}/multiformat="
-        "/tapirscan/multiformat"
-    )
-    subprocess.run(
-        [
-            "cargo",
-            "build",
-            "--offline",
-            "--release",
-            "--lib",
-            "--target",
-            "wasm32-unknown-unknown",
-            "--manifest-path",
-            str(core_manifest),
-            "--features",
-            ",".join(manifest["expandedFeatures"]),
-        ],
-        env=env,
-        check=True,
-    )
-    wasm = (
-        out / "cargo-target/wasm32-unknown-unknown/release/barcode_research_core.wasm"
-    )
-    if hashlib.sha256(wasm.read_bytes()).hexdigest() != distribution_hash(recipe):
-        msg = "Resumed WASM hash mismatch"
-        raise RuntimeError(msg)
-    shutil.copy2(wasm, out / f"{recipe}.wasm")
-
-
-def main() -> None:
-    """Build the requested pinned scanner mode."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=MODES)
-    parser.add_argument("--prepare-only", action="store_true")
-    parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Verify and finish an existing prepared build",
-    )
-    args = parser.parse_args()
-    recipe, tag = MODES[args.mode]
-    out = ROOT / "build" / args.mode
-    command = [
-        sys.executable,
-        str(ROOT / "core/experiments/build_guarded.py"),
-        "--recipe",
-        recipe,
-        "--out",
-        str(out),
-    ]
-    command.append("--prepare-only")
-    if not args.resume:
-        subprocess.run(command, check=True)
-    if not args.prepare_only:
-        resume_core(out, recipe)
-    if args.prepare_only:
-        print(f"Prepared pinned decoder recipe {tag}: {out}")
-        return
-    assets = ROOT / "build/recipe-wasm"
-    assets.mkdir(parents=True, exist_ok=True)
-    source = out / f"{recipe}.wasm"
-    actual = hashlib.sha256(source.read_bytes()).hexdigest()
-    if actual != distribution_hash(recipe):
-        msg = "Unexpected WASM hash"
-        raise RuntimeError(msg)
-    shutil.copy2(source, assets / f"{tag}.wasm")
-    print(f"Built and verified {tag}: {actual}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 /build/
 **/target/
-**/node_modules/
+**/node_modules
 /bindings/javascript/dist/
 /bindings/javascript/wasm/
 __pycache__/
@@ -32,3 +32,6 @@ __pycache__/
 /docs/internal/
 
 /demo/public/pdf/
+
+# Frozen recipe reproduction writes through this generated link.
+/historical/build

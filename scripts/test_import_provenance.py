@@ -19,6 +19,52 @@ def digest(data: bytes) -> str:
 class Provenance(unittest.TestCase):
     """Exercise verification on isolated, small imported snapshots."""
 
+    def test_editable_production_and_frozen_history(self) -> None:
+        """Permit development edits; keep history and release checks strict."""
+        with tempfile.TemporaryDirectory(prefix="tapirscan-history-test-") as tmp:
+            root = Path(tmp)
+            for directory in (
+                "scripts",
+                "core/src",
+                "historical/core/src",
+                "provenance",
+            ):
+                (root / directory).mkdir(parents=True, exist_ok=True)
+            (root / "scripts/verify_import.py").write_bytes(
+                (ROOT / "scripts/verify_import.py").read_bytes()
+            )
+            archived = root / "historical/core/src/lib.rs"
+            current = root / "core/src/lib.rs"
+            archived.write_bytes(b"history")
+            current.write_bytes(b"production")
+            (root / "provenance/import.json").write_text(
+                json.dumps({"files": {"core/src/lib.rs": digest(b"history")}})
+            )
+            (root / "provenance/modes.json").write_text(
+                json.dumps({"runtimeRevision": "runtime.json"})
+            )
+            (root / "runtime.json").write_text(
+                json.dumps({"files": {"core/src/lib.rs": digest(b"production")}})
+            )
+            command = [sys.executable, str(root / "scripts/verify_import.py")]
+            for changed, historical_only, expected in (
+                (False, False, True),
+                (True, False, False),
+                (True, True, True),
+            ):
+                current.write_bytes(b"experiment" if changed else b"production")
+                result = subprocess.run(
+                    command + (["--historical-only"] if historical_only else []),
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode == 0, expected, result.stderr)
+            archived.write_bytes(b"tampered")
+            result = subprocess.run(
+                [*command, "--historical-only"], capture_output=True, check=False
+            )
+            self.assertNotEqual(result.returncode, 0)
+
     def test_reversible_revision_and_tampering(self) -> None:
         """Accept exact revisions and reject drift in every recorded boundary."""
         with tempfile.TemporaryDirectory(prefix="tapirscan-import-test-") as tmp:

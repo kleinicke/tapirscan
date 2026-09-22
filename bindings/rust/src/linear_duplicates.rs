@@ -1,6 +1,5 @@
 //! Bounded source-pixel evidence for consolidating bands of one linear symbol.
 use crate::{Image, Quad};
-use serde_json::{json, Value};
 
 fn midpoint(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
     [a[0].midpoint(b[0]), a[1].midpoint(b[1])]
@@ -211,18 +210,18 @@ fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
     result
 }
 
-/// Decode the existing JSON boundary once; preserve all unrecognized metadata.
-pub(crate) fn merge(reads: Vec<Value>, image: Image<'_>) -> Vec<Value> {
+/// Reconcile typed evidence while preserving reader metadata and stable ties.
+pub(crate) fn merge(reads: Vec<crate::read::Read>, image: Image<'_>) -> Vec<crate::read::Read> {
     let reads = reads
         .into_iter()
         .map(|value| Read {
-            text: value["text"].as_str().unwrap_or_default().to_owned(),
-            format: value["format"].as_str().unwrap_or_default().to_owned(),
-            addon: value["eanAddOn"].as_str().map(str::to_owned),
-            gs1: value["gs1"].as_bool().unwrap_or(false),
-            reader_initialization: value["readerInitialization"].as_bool().unwrap_or(false),
-            support: value["support"].as_u64().unwrap_or(0),
-            polygon: crate::geometry::quad(&value),
+            text: value.text.clone(),
+            format: value.format.clone(),
+            addon: value.addon.clone(),
+            gs1: value.gs1.unwrap_or(false),
+            reader_initialization: value.reader_initialization.unwrap_or(false),
+            support: value.support,
+            polygon: value.polygon,
             geometry_changed: false,
             payload: value,
         })
@@ -230,9 +229,7 @@ pub(crate) fn merge(reads: Vec<Value>, image: Image<'_>) -> Vec<Value> {
     consolidate(reads, image)
         .into_iter()
         .map(|mut read| {
-            if read.geometry_changed {
-                read.payload["polygon"] = json!(read.polygon);
-            }
+            read.payload.polygon = read.polygon;
             read.payload
         })
         .collect()
@@ -282,8 +279,16 @@ mod tests {
                 pixels[y * 460 + x] = if (x - 60) / 3 % 3 == 0 { 20 } else { 220 };
             }
         }
-        let read = |lo, hi| json!({"text":"4006381333931","format":"EAN13","support":7,"polygon":[[60,lo],[252,lo],[252,hi],[60,hi]]});
-        let reads = vec![read(30, 120), read(280, 400)];
+        let read = |lo, hi| {
+            crate::read::Read::primary(
+                [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+                [[60., lo], [252., lo], [252., hi], [60., hi]],
+                7,
+                0,
+                vec![],
+            )
+        };
+        let reads = vec![read(30., 120.), read(280., 400.)];
         let scan = |pixels: &[u8], reads| {
             merge(
                 reads,
@@ -298,8 +303,8 @@ mod tests {
         };
         assert_eq!(scan(&pixels, reads.clone()).len(), 1);
         let mut supplements = reads.clone();
-        supplements[0]["eanAddOn"] = json!("12");
-        supplements[1]["eanAddOn"] = json!("34");
+        supplements[0].addon = Some("12".into());
+        supplements[1].addon = Some("34".into());
         assert_eq!(scan(&pixels, supplements).len(), 2);
         pixels[200 * 460..202 * 460].fill(255);
         assert_eq!(scan(&pixels, reads).len(), 2);

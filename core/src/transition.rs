@@ -205,7 +205,6 @@ fn decode_clustered_runs(
 /// Equal reads from one source row contribute only one observation.
 #[must_use]
 pub fn merge_reads(mut raw: Reads, clean: Reads, max_symbols: usize) -> Reads {
-    #[cfg(feature = "experimental-invalid-visual-veto")]
     {
         raw.run_visual_capped |= clean.run_visual_capped;
         for v in &clean.run_visual {
@@ -417,9 +416,8 @@ mod tests {
             rejected_intervals: Vec<(f64, f64)>,
         ) -> Reads {
             Reads {
-                #[cfg(feature = "experimental-invalid-visual-veto")]
                 run_visual: Vec::new(),
-                #[cfg(feature = "experimental-invalid-visual-veto")]
+
                 run_visual_capped: false,
                 symbols,
                 rejected_intervals,

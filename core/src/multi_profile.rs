@@ -4,9 +4,8 @@
 use crate::{profile::Error, run_profile::Read};
 #[derive(Clone, Debug)]
 pub struct Reads {
-    #[cfg(feature = "experimental-invalid-visual-veto")]
     pub(crate) run_visual: Vec<crate::invalid_visual::RunVisual>,
-    #[cfg(feature = "experimental-invalid-visual-veto")]
+
     pub(crate) run_visual_capped: bool,
     pub symbols: Vec<Read>,
     pub windows_examined: usize,
@@ -196,83 +195,12 @@ pub fn decode_relative_edges(
     })
 }
 
-#[cfg(feature = "experimental-relative-reuse")]
-fn relative_from_runs(
-    p: &[f32],
-    integer: &[(usize, usize, bool)],
-    max_symbols: usize,
-    guard_bias: bool,
-) -> Reads {
-    let mut starts: Vec<_> = integer.iter().map(|r| r.0).collect();
-    starts.push(p.len());
-    let extrema: Vec<_> = integer
-        .iter()
-        .map(|&(a, b, dark)| {
-            let (mut first, mut last) = (a, a);
-            for i in a + 1..b {
-                let order = p[i].total_cmp(&p[first]);
-                let order = if dark { order } else { order.reverse() };
-                if order.is_gt() {
-                    first = i;
-                    last = i;
-                } else if order.is_eq() {
-                    last = i;
-                }
-            }
-            (first, last)
-        })
-        .collect();
-    let mut edges = vec![0.];
-    for k in 1..starts.len() - 1 {
-        let b = starts[k];
-        let dark = p[b] >= 0.5;
-        let left = extrema[k - 1].1;
-        let right = extrema[k].0;
-        let threshold = (p[left] as f64 + p[right] as f64) * 0.5;
-        let original = b as f64 - 0.5 + (0.5 - p[b - 1] as f64) / (p[b] as f64 - p[b - 1] as f64);
-        let mut edge = original;
-        let mut distance = f64::INFINITY;
-        if (p[left] - p[right]).abs() >= 0.25 {
-            for i in left + 1..=right {
-                let (v, w) = (p[i - 1] as f64, p[i] as f64);
-                if (dark && v < threshold && w >= threshold)
-                    || (!dark && v >= threshold && w < threshold)
-                {
-                    let crossing = i as f64 - 0.5 + (threshold - v) / (w - v);
-                    let d = (crossing - original).abs();
-                    if d < distance {
-                        distance = d;
-                        edge = crossing;
-                    }
-                }
-            }
-        }
-        edges.push(edge);
-    }
-    edges.push(p.len() as f64);
-    let runs: Vec<_> = (0..starts.len() - 1)
-        .map(|i| (edges[i], edges[i + 1], p[starts[i]] >= 0.5))
-        .collect();
-    // A non-monotone model has no physical interpretation. Retain the original
-    // decoder's evidence in the caller instead of accepting crossed boundaries.
-    if runs.iter().any(|r| r.1 <= r.0) {
-        return decode_positions::<f64>(&[], max_symbols, false);
-    }
-    let raw = decode_positions(&runs, max_symbols, false);
-    if guard_bias {
-        crate::transition::merge_reads(raw, decode_positions(&runs, max_symbols, true), max_symbols)
-    } else {
-        raw
-    }
-}
-
 /// Scratch storage for the three local-signal hypotheses. Threshold decisions
 /// are identical across these arms; only edge coordinates/guard correction vary.
 #[derive(Default)]
 pub(crate) struct LocalRuns {
-    #[cfg(feature = "experimental-redundant-decode")]
     identical_models: bool,
-    #[cfg(feature = "experimental-redundant-decode")]
+
     pub(crate) reused_calls: std::cell::Cell<usize>,
     integer: Vec<(usize, usize, bool)>,
     fractional: Vec<(f64, f64, bool)>,
@@ -292,22 +220,9 @@ pub(crate) fn decode_local_variants(
     decode_local_variants_validated(p, max_symbols, guard_bias, scratch)
 }
 /// Private caller has already validated profile length and values.
-#[cfg_attr(
-    not(any(
-        feature = "experimental-relative-edges",
-        all(
-            feature = "experimental-lowres-relative",
-            not(feature = "experimental-relative-reuse")
-        )
-    )),
-    expect(
-        clippy::unnecessary_wraps,
-        reason = "The relative-edge feature branches propagate validation errors through this shared decoder interface."
-    )
-)]
 #[expect(
-    clippy::too_many_lines,
-    reason = "Ordered decoding alternatives share ambiguity vetoes, symbol limits and duplicate accounting within one profile."
+    clippy::unnecessary_wraps,
+    reason = "The validated decoder shares the fallible interface used by profile decoding callers."
 )]
 pub(crate) fn decode_local_variants_validated(
     p: &[f32],
@@ -334,33 +249,26 @@ pub(crate) fn decode_local_variants_validated(
             black = next;
         }
     }
-    #[cfg(feature = "experimental-redundant-decode")]
+
     {
         scratch.reused_calls.set(0);
         scratch.identical_models = exact_same_runs(&scratch.integer, &scratch.fractional);
     }
     let fractional = decode_positions(&scratch.fractional, max_symbols, false);
-    #[cfg(feature = "experimental-redundant-decode")]
+
     let integer = if scratch.identical_models {
         scratch.reused_calls.set(scratch.reused_calls.get() + 1);
         fractional.clone()
     } else {
         decode_positions(&scratch.integer, max_symbols, false)
     };
-    #[cfg(not(feature = "experimental-redundant-decode"))]
-    let integer = decode_positions(&scratch.integer, max_symbols, false);
+
     let reads = crate::transition::merge_reads(fractional, integer, max_symbols);
-    #[cfg(all(
-        feature = "experimental-redundant-decode",
-        feature = "experimental-fractional-guard"
-    ))]
+
     let mut duplicate_guard = None;
     let reads = if guard_bias {
         let bias = decode_positions(&scratch.integer, max_symbols, true);
-        #[cfg(all(
-            feature = "experimental-redundant-decode",
-            feature = "experimental-fractional-guard"
-        ))]
+
         if scratch.identical_models {
             duplicate_guard = Some(bias.clone());
         }
@@ -368,45 +276,23 @@ pub(crate) fn decode_local_variants_validated(
     } else {
         reads
     };
-    #[cfg(feature = "experimental-fractional-guard")]
+
     let reads = if guard_bias {
-        #[cfg(feature = "experimental-redundant-decode")]
         let bias = if let Some(reads) = duplicate_guard {
             scratch.reused_calls.set(scratch.reused_calls.get() + 1);
             reads
         } else {
             decode_positions(&scratch.fractional, max_symbols, true)
         };
-        #[cfg(not(feature = "experimental-redundant-decode"))]
-        let bias = decode_positions(&scratch.fractional, max_symbols, true);
+
         crate::transition::merge_reads(reads, bias, max_symbols)
     } else {
         reads
     };
-    #[cfg(feature = "experimental-relative-edges")]
-    let reads = crate::transition::merge_reads(
-        reads,
-        decode_relative_edges(p, max_symbols, guard_bias)?,
-        max_symbols,
-    );
+
     // Short native-scale profiles only. Keep the historical full relative arm
     // distinct, and never evaluate the same model twice when both are enabled.
-    #[cfg(all(
-        feature = "experimental-lowres-relative",
-        not(feature = "experimental-relative-edges")
-    ))]
-    let reads = if (76..=384).contains(&p.len()) {
-        {
-            #[cfg(feature = "experimental-relative-reuse")]
-            let extra = relative_from_runs(p, &scratch.integer, max_symbols, guard_bias);
-            #[cfg(not(feature = "experimental-relative-reuse"))]
-            let extra = decode_relative_edges(p, max_symbols, guard_bias)?;
-            crate::transition::merge_reads(reads, extra, max_symbols)
-        }
-    } else {
-        reads
-    };
-    #[cfg(feature = "experimental-weak-excursions")]
+
     let reads = {
         if let Some(cleaned) = weak_excursions(p, &scratch.integer) {
             let extra = decode_positions(&cleaned, max_symbols, false);
@@ -429,7 +315,6 @@ pub(crate) fn decode_local_variants_validated(
 /// Remove only weak, sub-half-module threshold excursions between strong
 /// equal-polarity flanks. Original hypotheses still veto conflicting reads.
 /// No digit information is used and no missing transition is inserted.
-#[cfg(feature = "experimental-weak-excursions")]
 fn weak_excursions(
     profile: &[f32],
     runs: &[(usize, usize, bool)],
@@ -481,7 +366,7 @@ fn weak_excursions(
     }
     out
 }
-#[cfg(all(test, feature = "experimental-weak-excursions"))]
+#[cfg(test)]
 mod weak_tests {
     use super::*;
     const A: [u8; 13] = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
@@ -610,6 +495,11 @@ mod weak_tests {
 pub(crate) fn decode_runs(runs: &[(usize, usize, bool)], max_symbols: usize) -> Reads {
     decode_positions(runs, max_symbols, false)
 }
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+pub(crate) trait Position: Copy {
+    fn value(self) -> f64;
+}
+#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
 trait Position: Copy {
     fn value(self) -> f64;
 }
@@ -630,7 +520,7 @@ fn decode_positions<T: Position>(
 ) -> Reads {
     decode_positions_mode(runs, max_symbols, guard_bias, false)
 }
-#[cfg(feature = "experimental-short-quiet")]
+
 pub(crate) fn decode_short_quiet(
     runs: &[(usize, usize, bool)],
     max_symbols: usize,
@@ -662,7 +552,7 @@ fn decode_positions_mode<T: Position>(
     short_quiet: bool,
 ) -> Reads {
     let mut hypotheses: Vec<Read> = Vec::new();
-    #[cfg(feature = "experimental-invalid-visual-veto")]
+
     let (mut run_visual, mut run_visual_capped) = (Vec::new(), false);
     let mut windows_examined = 0;
     let (mut quiet_pass, mut guard_pass, mut decoder_calls) = (0, 0, 0);
@@ -690,8 +580,7 @@ fn decode_positions_mode<T: Position>(
         // confirmation path; never synthesize a guard, run, or missing payload.
         // The narrow side must end at an observed exterior dark transition,
         // not at a truncated sampling-window edge.
-        let asymmetric_short = cfg!(feature = "experimental-asymmetric-quiet")
-            && !ordinary_short
+        let asymmetric_short = !ordinary_short
             && ((local_left >= 9.
                 && local_right >= 1.
                 && r[60].1.value() < runs.last().unwrap().1.value())
@@ -750,7 +639,7 @@ fn decode_positions_mode<T: Position>(
                     continue;
                 }
             }
-            #[cfg(feature = "experimental-invalid-visual-veto")]
+
             let evidence = crate::run_ean::decode_visual_evidence(&widths).and_then(|e| {
                 let valid = crate::ean::checksum(&e.digits);
                 if !(short_quiet && (e.cost > 0.06 || e.gap < 0.1))
@@ -775,8 +664,7 @@ fn decode_positions_mode<T: Position>(
                 }
                 valid.then_some(e)
             });
-            #[cfg(not(feature = "experimental-invalid-visual-veto"))]
-            let evidence = crate::run_ean::decode_evidence(&widths);
+
             if let Some(e) = evidence {
                 if short_quiet && (e.cost > 0.06 || e.gap < 0.1) {
                     continue;
@@ -836,9 +724,8 @@ fn decode_positions_mode<T: Position>(
     let truncated = symbols.len() > max_symbols;
     symbols.truncate(max_symbols);
     Reads {
-        #[cfg(feature = "experimental-invalid-visual-veto")]
         run_visual,
-        #[cfg(feature = "experimental-invalid-visual-veto")]
+
         run_visual_capped,
         symbols,
         windows_examined,
@@ -855,61 +742,7 @@ fn decode_positions_mode<T: Position>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "experimental-lowres-relative")]
-    #[test]
-    fn short_relative_profiles_keep_visual_and_checksum_negatives() {
-        let good = digits([5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5]);
-        let mut scratch = LocalRuns::default();
-        for invalid in [false, true] {
-            let mut d = good;
-            if invalid {
-                d[12] = (d[12] + 1) % 10;
-            }
-            let mut p = vec![0.; 24];
-            for bit in crate::ean::encode(&d) {
-                p.extend([bit; 2]);
-            }
-            p.extend([0.; 24]);
-            for reverse in [false, true] {
-                let mut q = p.clone();
-                if reverse {
-                    q.reverse();
-                }
-                for blur in [false, true] {
-                    let q = if blur {
-                        (0..q.len())
-                            .map(|i| {
-                                0.15 * q[i.saturating_sub(1)]
-                                    + 0.7 * q[i]
-                                    + 0.15 * q[(i + 1).min(q.len() - 1)]
-                            })
-                            .collect()
-                    } else {
-                        q.clone()
-                    };
-                    let reads = decode_local_variants(&q, 64, true, &mut scratch).unwrap();
-                    if invalid {
-                        assert!(reads.symbols.is_empty());
-                    } else {
-                        assert_eq!(reads.symbols.len(), 1);
-                        assert_eq!(reads.symbols[0].digits, good);
-                    }
-                }
-            }
-        }
-        for n in [76, 238, 384] {
-            for p in [
-                vec![0.; n],
-                vec![1.; n],
-                (0..n).map(|i| (i % 2) as f32).collect(),
-            ] {
-                assert!(decode_local_variants(&p, 64, true, &mut scratch)
-                    .unwrap()
-                    .symbols
-                    .is_empty());
-            }
-        }
-    }
+
     #[test]
     fn fused_local_runs_preserve_all_evidence_and_scratch_ownership() {
         let a = digits([5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5]);
@@ -946,7 +779,7 @@ mod tests {
                     } else {
                         expected
                     };
-                    #[cfg(feature = "experimental-fractional-guard")]
+
                     let expected = if guard {
                         crate::transition::merge_reads(
                             expected,
@@ -956,25 +789,7 @@ mod tests {
                     } else {
                         expected
                     };
-                    #[cfg(feature = "experimental-relative-edges")]
-                    let expected = crate::transition::merge_reads(
-                        expected,
-                        decode_relative_edges(&p, max, guard).unwrap(),
-                        max,
-                    );
-                    #[cfg(all(
-                        feature = "experimental-lowres-relative",
-                        not(feature = "experimental-relative-edges")
-                    ))]
-                    let expected = if (76..=384).contains(&p.len()) {
-                        crate::transition::merge_reads(
-                            expected,
-                            decode_relative_edges(&p, max, guard).unwrap(),
-                            max,
-                        )
-                    } else {
-                        expected
-                    };
+
                     let actual = decode_local_variants(&p, max, guard, &mut scratch).unwrap();
                     assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
                 }
@@ -1081,7 +896,7 @@ mod tests {
         }
         assert!(decode_relative_edges(&[f32::NAN; 512], 64, true).is_err());
     }
-    #[cfg(feature = "experimental-short-quiet")]
+
     #[test]
     fn short_quiet_is_observed_and_does_not_repair_symbols() {
         for (first, reversed) in (0..10).flat_map(|n| [false, true].map(move |r| (n, r))) {
@@ -1281,77 +1096,33 @@ mod tests {
         }
     }
 }
-#[cfg(all(test, feature = "experimental-relative-reuse"))]
-mod reuse_tests {
-    use super::*;
-    #[test]
-    fn reused_extrema_equal_legacy_on_ties_noise_and_symbols() {
-        let mut seed = 117u32;
-        for n in [64, 240, 512, 1024] {
-            for kind in 0..8 {
-                let mut p = vec![0.; n];
-                for (i, v) in p.iter_mut().enumerate() {
-                    seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
-                    *v = match kind {
-                        0 => 0.,
-                        1 => 1.,
-                        2 => (i % 2) as f32,
-                        3 => ((i / 3) % 2) as f32,
-                        4 => ((seed >> 28) as f32) / 15.,
-                        _ => ((seed >> 8) as f32) / 16777215.,
-                    };
-                }
-                if kind >= 5 {
-                    let bits = crate::ean::encode(&[5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7]);
-                    if n >= 240 {
-                        p.fill(0.);
-                        for i in 0..190 {
-                            p[25 + i] = bits[i / 2];
-                        }
-                    }
-                }
-                let mut runs = vec![];
-                sample_runs(&p, 64, &mut runs).unwrap();
-                for guard in [false, true] {
-                    assert_eq!(
-                        format!("{:?}", relative_from_runs(&p, &runs, 64, guard)),
-                        format!("{:?}", decode_relative_edges(&p, 64, guard).unwrap())
-                    );
-                }
-            }
-        }
-    }
-}
 
 /// Reuse observed locally normalized runs, preserving stricter short-quiet gates.
-#[cfg(feature = "experimental-short-quiet")]
 pub(crate) fn decode_prepared_short(
     runs: &LocalRuns,
     max_symbols: usize,
     guard_bias: bool,
 ) -> Reads {
     let a = decode_positions_mode(&runs.integer, max_symbols, false, true);
-    #[cfg(feature = "experimental-redundant-decode")]
+
     let b = if runs.identical_models {
         runs.reused_calls.set(runs.reused_calls.get() + 1);
         a.clone()
     } else {
         decode_positions_mode(&runs.fractional, max_symbols, false, true)
     };
-    #[cfg(not(feature = "experimental-redundant-decode"))]
-    let b = decode_positions_mode(&runs.fractional, max_symbols, false, true);
+
     let reads = crate::transition::merge_reads(a, b, max_symbols);
     if guard_bias {
         let a = decode_positions_mode(&runs.integer, max_symbols, true, true);
-        #[cfg(feature = "experimental-redundant-decode")]
+
         let b = if runs.identical_models {
             runs.reused_calls.set(runs.reused_calls.get() + 1);
             a.clone()
         } else {
             decode_positions_mode(&runs.fractional, max_symbols, true, true)
         };
-        #[cfg(not(feature = "experimental-redundant-decode"))]
-        let b = decode_positions_mode(&runs.fractional, max_symbols, true, true);
+
         crate::transition::merge_reads(
             reads,
             crate::transition::merge_reads(a, b, max_symbols),
@@ -1361,8 +1132,7 @@ pub(crate) fn decode_prepared_short(
         reads
     }
 }
-
-#[cfg(all(test, feature = "experimental-short-quiet"))]
+#[cfg(test)]
 mod asymmetric_quiet_tests {
     use super::*;
     fn runs(d: [u8; 13], left: usize, right: usize, reverse: bool) -> Vec<(usize, usize, bool)> {
@@ -1403,7 +1173,7 @@ mod asymmetric_quiet_tests {
 
 // Position::value feeds exactly these f64 coordinates to the pure decoder.
 // No tolerance, text identity or checksum participates in cache eligibility.
-#[cfg(feature = "experimental-redundant-decode")]
+
 fn exact_same_runs(integer: &[(usize, usize, bool)], fractional: &[(f64, f64, bool)]) -> bool {
     integer.len() == fractional.len()
         && integer
@@ -1415,12 +1185,7 @@ fn exact_same_runs(integer: &[(usize, usize, bool)], fractional: &[(f64, f64, bo
                     && d == e
             })
 }
-
-#[cfg(all(
-    test,
-    feature = "experimental-redundant-decode",
-    feature = "experimental-short-quiet"
-))]
+#[cfg(test)]
 mod redundant_exact_tests {
     use super::*;
     fn reference_local_variants(
@@ -1466,7 +1231,7 @@ mod redundant_exact_tests {
         } else {
             reads
         };
-        #[cfg(feature = "experimental-fractional-guard")]
+
         let reads = if guard_bias {
             crate::transition::merge_reads(
                 reads,
@@ -1476,30 +1241,10 @@ mod redundant_exact_tests {
         } else {
             reads
         };
-        #[cfg(feature = "experimental-relative-edges")]
-        let reads = crate::transition::merge_reads(
-            reads,
-            decode_relative_edges(p, max_symbols, guard_bias)?,
-            max_symbols,
-        );
+
         // Short native-scale profiles only. Keep the historical full relative arm
         // distinct, and never evaluate the same model twice when both are enabled.
-        #[cfg(all(
-            feature = "experimental-lowres-relative",
-            not(feature = "experimental-relative-edges")
-        ))]
-        let reads = if (76..=384).contains(&p.len()) {
-            {
-                #[cfg(feature = "experimental-relative-reuse")]
-                let extra = relative_from_runs(p, &scratch.integer, max_symbols, guard_bias);
-                #[cfg(not(feature = "experimental-relative-reuse"))]
-                let extra = decode_relative_edges(p, max_symbols, guard_bias)?;
-                crate::transition::merge_reads(reads, extra, max_symbols)
-            }
-        } else {
-            reads
-        };
-        #[cfg(feature = "experimental-weak-excursions")]
+
         let reads = {
             if let Some(cleaned) = weak_excursions(p, &scratch.integer) {
                 let extra = decode_positions(&cleaned, max_symbols, false);
@@ -1690,13 +1435,11 @@ mod redundant_exact_tests {
     }
 }
 
-#[cfg(feature = "experimental-extrema-runs")]
 #[path = "extrema_runs.rs"]
 mod extrema_runs;
-#[cfg(feature = "experimental-extrema-runs")]
-pub(crate) use extrema_runs::{decode_extrema, decode_extrema_validated, ExtremaScratch};
 
-#[cfg(all(test, feature = "experimental-short-quiet"))]
+pub(crate) use extrema_runs::{decode_extrema, decode_extrema_validated, ExtremaScratch};
+#[cfg(test)]
 mod folded_boundary_tests {
     use super::*;
     const A: [u8; 13] = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
@@ -1728,10 +1471,7 @@ mod folded_boundary_tests {
                     p.reverse();
                 }
                 let r = read(&p);
-                assert_eq!(
-                    r.symbols.len(),
-                    usize::from(cfg!(feature = "experimental-asymmetric-quiet") && !invalid)
-                );
+                assert_eq!(r.symbols.len(), usize::from(!invalid));
                 if !r.symbols.is_empty() {
                     assert_eq!(r.symbols[0].digits, d);
                 }
@@ -1795,10 +1535,123 @@ mod folded_boundary_tests {
                 assert_eq!(s.digits, [8, 0, 0, 2, 3, 3, 0, 1, 1, 2, 7, 5, 2]);
             }
         }
-        if cfg!(feature = "experimental-asymmetric-quiet") {
+        {
             assert!(successes >= 1, "native saved profiles must recover");
-        } else {
-            assert_eq!(successes, 0);
         }
     }
 }
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+/// Research adapter: original EAN13 decisions and evidence remain intact.
+/// Short layouts consume the same extracted runs, with a separate output cap.
+#[derive(Default)]
+pub struct RetailScratch {
+    primary: LocalRuns,
+    starts: Vec<usize>,
+}
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+pub struct RetailReads {
+    pub ean13: Reads,
+    pub short: retail_short::ShortReads,
+}
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+/// # Errors
+/// Rejects invalid profile geometry or unsupported family masks.
+pub fn decode_retail_profile(
+    p: &[f32],
+    max_symbols: usize,
+    mask: u32,
+    guard_bias: bool,
+    scratch: &mut RetailScratch,
+) -> Result<RetailReads, Error> {
+    // This first adapter always keeps EAN13 enabled. UPC-A is an output alias.
+    if mask & 1 == 0 || mask & !15 != 0 {
+        return Err(Error::Value);
+    }
+    let ean13 = decode_local_variants(p, max_symbols, guard_bias, &mut scratch.primary)?;
+    let short = short_from_existing(
+        &scratch.primary,
+        mask,
+        max_symbols,
+        &ean13,
+        &mut scratch.starts,
+    );
+    Ok(RetailReads { ean13, short })
+}
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+/// Baseline access to the original local-profile stage and its scratch reuse.
+/// # Errors
+/// Rejects invalid profile geometry or unsupported family masks.
+pub fn decode_legacy_local(
+    p: &[f32],
+    max_symbols: usize,
+    guard_bias: bool,
+    scratch: &mut RetailScratch,
+) -> Result<Reads, Error> {
+    decode_local_variants(p, max_symbols, guard_bias, &mut scratch.primary)
+}
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+pub(crate) fn short_from_existing(
+    runs: &LocalRuns,
+    mask: u32,
+    max_symbols: usize,
+    ean13: &Reads,
+    starts: &mut Vec<usize>,
+) -> retail_short::ShortReads {
+    let mut out = retail_short::ShortReads::default();
+    if mask & 12 != 0 {
+        let fractional_covered = retail_short::fully_covered(&runs.fractional, ean13);
+        let integer_covered = retail_short::fully_covered(&runs.integer, ean13);
+        if fractional_covered && integer_covered {
+            return out;
+        }
+        // Both edge models have exactly the same topology. Fractional edges
+        // lie within adjacent samples, so a >=5.5-sample quiet run must have
+        // an integer width >=4. Collect admissible starts once, without pruning
+        // any window that the existing acceptance gates could admit.
+        starts.clear();
+        starts.extend(
+            (1..runs.integer.len()).filter(|&i| {
+                runs.integer[i].2 && runs.integer[i - 1].1 - runs.integer[i - 1].0 >= 1
+            }),
+        );
+        if !fractional_covered {
+            retail_short::decode_selected_runs(
+                &runs.fractional,
+                starts,
+                mask,
+                max_symbols,
+                ean13,
+                &mut out,
+            );
+        }
+
+        let same = runs.identical_models;
+
+        if !same && !integer_covered {
+            retail_short::decode_selected_runs(
+                &runs.integer,
+                starts,
+                mask,
+                max_symbols,
+                ean13,
+                &mut out,
+            );
+        }
+    }
+    out
+}
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+pub(crate) fn short_from_extrema(
+    scratch: &ExtremaScratch,
+    mask: u32,
+    max_symbols: usize,
+    primary: &Reads,
+    out: &mut retail_short::ShortReads,
+) {
+    if mask & 12 != 0 && !scratch.capped && !scratch.ambiguous {
+        retail_short::decode_runs(&scratch.runs, mask, max_symbols, primary, out);
+    }
+}
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+#[path = "retail_short.rs"]
+pub mod retail_short;

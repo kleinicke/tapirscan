@@ -85,6 +85,103 @@ impl<'a> ImageView<'a> {
             stride,
         })
     }
+    #[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
+    /// Share the clamped integer coordinates and row offsets of a bilinear
+    /// footprint, retaining the legacy grayscale and interpolation order.
+    #[expect(
+        clippy::inline_always,
+        reason = "The pinned sampling experiment forces these inner pixel operations inline; retain its code-generation policy and validate with paired end-to-end measurements."
+    )]
+    #[inline(always)]
+    pub(crate) fn bilinear(self, x: f64, y: f64) -> f32 {
+        let x0 = x.floor();
+        let y0 = y.floor();
+        let fx = x - x0;
+        let fy = y - y0;
+        let (left_offset, right_offset, top_offset, bottom_offset) = if x0 >= 0.
+            && y0 >= 0.
+            && x0 < crate::numeric::usize_f64(self.width - 1)
+            && y0 < crate::numeric::usize_f64(self.height - 1)
+        {
+            let left_offset = crate::numeric::f64_usize(x0) * self.channels;
+            let top_offset = crate::numeric::f64_usize(y0) * self.stride;
+            (
+                left_offset,
+                left_offset + self.channels,
+                top_offset,
+                top_offset + self.stride,
+            )
+        } else {
+            let left_offset =
+                crate::numeric::f64_usize(x0.clamp(0., crate::numeric::usize_f64(self.width - 1)))
+                    * self.channels;
+            let right_offset = crate::numeric::f64_usize(
+                (x0 + 1.).clamp(0., crate::numeric::usize_f64(self.width - 1)),
+            ) * self.channels;
+            let top_offset =
+                crate::numeric::f64_usize(y0.clamp(0., crate::numeric::usize_f64(self.height - 1)))
+                    * self.stride;
+            let bottom_offset = crate::numeric::f64_usize(
+                (y0 + 1.).clamp(0., crate::numeric::usize_f64(self.height - 1)),
+            ) * self.stride;
+            (left_offset, right_offset, top_offset, bottom_offset)
+        };
+        let gray = |i: usize| {
+            if self.channels == 1 {
+                f64::from(self.data[i])
+            } else {
+                rgb_luminance(self.data[i], self.data[i + 1], self.data[i + 2])
+            }
+        };
+        crate::numeric::f64_f32(
+            (gray(top_offset + left_offset) * (1. - fx) + gray(top_offset + right_offset) * fx)
+                * (1. - fy)
+                + (gray(bottom_offset + left_offset) * (1. - fx)
+                    + gray(bottom_offset + right_offset) * fx)
+                    * fy,
+        )
+    }
+    #[cfg(feature = "mode-medium")]
+    /// Share the clamped integer coordinates and row offsets of a bilinear
+    /// footprint, retaining the legacy grayscale and interpolation order.
+    #[expect(
+        clippy::inline_always,
+        reason = "The pinned sampling experiment forces these inner pixel operations inline; retain its code-generation policy and validate with paired end-to-end measurements."
+    )]
+    #[inline(always)]
+    pub(crate) fn bilinear(self, x: f64, y: f64) -> f32 {
+        let x0 = x.floor();
+        let y0 = y.floor();
+        let fx = x - x0;
+        let fy = y - y0;
+        let left_offset =
+            crate::numeric::f64_usize(x0.clamp(0., crate::numeric::usize_f64(self.width - 1)))
+                * self.channels;
+        let right_offset = crate::numeric::f64_usize(
+            (x0 + 1.).clamp(0., crate::numeric::usize_f64(self.width - 1)),
+        ) * self.channels;
+        let top_offset =
+            crate::numeric::f64_usize(y0.clamp(0., crate::numeric::usize_f64(self.height - 1)))
+                * self.stride;
+        let bottom_offset = crate::numeric::f64_usize(
+            (y0 + 1.).clamp(0., crate::numeric::usize_f64(self.height - 1)),
+        ) * self.stride;
+        let gray = |i: usize| {
+            if self.channels == 1 {
+                f64::from(self.data[i])
+            } else {
+                rgb_luminance(self.data[i], self.data[i + 1], self.data[i + 2])
+            }
+        };
+        crate::numeric::f64_f32(
+            (gray(top_offset + left_offset) * (1. - fx) + gray(top_offset + right_offset) * fx)
+                * (1. - fy)
+                + (gray(bottom_offset + left_offset) * (1. - fx)
+                    + gray(bottom_offset + right_offset) * fx)
+                    * fy,
+        )
+    }
+    #[cfg(feature = "mode-high")]
     /// Share the clamped integer coordinates and row offsets of a bilinear
     /// footprint, retaining the legacy grayscale and interpolation order.
     pub(crate) fn bilinear(self, x: f64, y: f64) -> f32 {
@@ -107,8 +204,6 @@ impl<'a> ImageView<'a> {
         let gray = |i: usize| {
             if self.channels == 1 {
                 f64::from(self.data[i])
-            } else if cfg!(feature = "experimental-green-luminance") {
-                f64::from(self.data[i + 1])
             } else {
                 rgb_luminance(self.data[i], self.data[i + 1], self.data[i + 2])
             }
@@ -121,14 +216,34 @@ impl<'a> ImageView<'a> {
                     * fy,
         )
     }
+
+    #[cfg(any(
+        feature = "mode-low",
+        feature = "mode-medium",
+        feature = "mode-very-high"
+    ))]
+    #[expect(
+        clippy::inline_always,
+        reason = "The pinned sampling experiment forces these inner pixel operations inline; retain its code-generation policy and validate with paired end-to-end measurements."
+    )]
+    #[inline(always)]
     pub(crate) fn gray(self, x: f64, y: f64) -> f64 {
         let x = crate::numeric::f64_usize(x.clamp(0., crate::numeric::usize_f64(self.width - 1)));
         let y = crate::numeric::f64_usize(y.clamp(0., crate::numeric::usize_f64(self.height - 1)));
         let i = y * self.stride + x * self.channels;
         if self.channels == 1 {
             f64::from(self.data[i])
-        } else if cfg!(feature = "experimental-green-luminance") {
-            f64::from(self.data[i + 1])
+        } else {
+            rgb_luminance(self.data[i], self.data[i + 1], self.data[i + 2])
+        }
+    }
+    #[cfg(feature = "mode-high")]
+    pub(crate) fn gray(self, x: f64, y: f64) -> f64 {
+        let x = crate::numeric::f64_usize(x.clamp(0., crate::numeric::usize_f64(self.width - 1)));
+        let y = crate::numeric::f64_usize(y.clamp(0., crate::numeric::usize_f64(self.height - 1)));
+        let i = y * self.stride + x * self.channels;
+        if self.channels == 1 {
+            f64::from(self.data[i])
         } else {
             rgb_luminance(self.data[i], self.data[i + 1], self.data[i + 2])
         }
@@ -438,27 +553,6 @@ mod tests {
             )
             .unwrap()
             .is_none());
-    }
-}
-
-#[cfg(all(test, feature = "experimental-green-luminance"))]
-mod green_tests {
-    use super::*;
-    #[test]
-    fn green_photometry_equals_explicit_channel_with_stride_alpha_and_borders() {
-        let rgba = [
-            250, 10, 90, 1, 20, 210, 40, 99, 0, 0, 0, 0, 90, 45, 250, 0, 255, 150, 10, 255, 0, 0,
-            0, 0,
-        ];
-        let channel = [10, 210, 0, 45, 150, 0];
-        let a = ImageView::new(&rgba, 2, 2, 4, 12).unwrap();
-        let b = ImageView::new(&channel, 2, 2, 1, 3).unwrap();
-        for x in [-1., 0., 0.2, 0.5, 1., 2.] {
-            for y in [-1., 0., 0.3, 0.5, 1., 2.] {
-                assert_eq!(a.gray(x, y), b.gray(x, y));
-                assert_eq!(a.bilinear(x, y), b.bilinear(x, y));
-            }
-        }
     }
 }
 

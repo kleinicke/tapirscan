@@ -8,8 +8,10 @@ const commands = [];
 if (mode === "rust") {
   const matrix = release
     ? [
-        ["core/Cargo.toml", "fast"],
-        ["core/Cargo.toml", "quality"],
+        ...["low", "medium", "high", "very-high"].map((mode) => [
+          "core/Cargo.toml",
+          `mode-${mode}`,
+        ]),
         ["multiformat/Cargo.toml", null],
       ]
     : [
@@ -29,7 +31,7 @@ if (mode === "rust") {
         "--manifest-path",
         manifest,
         "--all-targets",
-        ...(feature ? ["--features", feature] : []),
+        ...(feature ? ["--no-default-features", "--features", feature] : []),
         "--",
         "-D",
         "warnings",

@@ -9,7 +9,7 @@
 sources/**
 datasets/**
 papers/**
-core/**
+historical/**
 provenance/**
 rust/barcode-core/experiments/**
 bindings/javascript/src/host.ts

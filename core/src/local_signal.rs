@@ -10,15 +10,14 @@ use crate::{
 /// Low local contrast retains the global signal instead of amplifying noise.
 #[derive(Default)]
 pub(crate) struct Scratch {
-    #[cfg(feature = "experimental-extrema-runs")]
     pub(crate) extrema: multi_profile::ExtremaScratch,
     normalized: Vec<f32>,
-    #[cfg(feature = "experimental-flat-envelope")]
+
     envelope: Vec<[f32; 4]>,
-    #[cfg(not(feature = "experimental-flat-envelope"))]
-    minima: std::collections::VecDeque<usize>,
-    #[cfg(not(feature = "experimental-flat-envelope"))]
-    maxima: std::collections::VecDeque<usize>,
+
+    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+    pub(crate) runs: multi_profile::LocalRuns,
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
     runs: multi_profile::LocalRuns,
 }
 fn quartile_radius(histogram: &[usize; 44], run_count: usize) -> usize {
@@ -50,10 +49,6 @@ impl Scratch {
         self.prepare_validated(p);
         Ok(())
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "Feature-selected envelope algorithms share the same normalization pass and scratch-storage contract."
-    )]
     fn prepare_validated(&mut self, p: &[f32]) {
         let mut histogram = [0usize; 44];
         let (mut run_count, mut start) = (0usize, 0usize);
@@ -78,7 +73,7 @@ impl Scratch {
         // Monotone queues visit every source sample once. This is exactly the same
         // symmetric min/max window as the diagnostic prototype, without rescanning
         // up to 513 values for each output sample on broad/high-resolution paths.
-        #[cfg(feature = "experimental-flat-envelope")]
+
         {
             // Block prefix/suffix extrema produce the identical centered min/max
             // window with predictable contiguous passes. Equal extrema retain the latest
@@ -141,42 +136,6 @@ impl Scratch {
                 });
             }
         }
-        #[cfg(not(feature = "experimental-flat-envelope"))]
-        {
-            self.minima.clear();
-            let minima = &mut self.minima;
-            self.maxima.clear();
-            let maxima = &mut self.maxima;
-            let mut added = 0;
-            for i in 0..p.len() {
-                let end = (i + radius + 1).min(p.len());
-                while added < end {
-                    while minima.back().is_some_and(|&j| p[j] >= p[added]) {
-                        minima.pop_back();
-                    }
-                    while maxima.back().is_some_and(|&j| p[j] <= p[added]) {
-                        maxima.pop_back();
-                    }
-                    minima.push_back(added);
-                    maxima.push_back(added);
-                    added += 1;
-                }
-                let begin = i.saturating_sub(radius);
-                while minima.front().is_some_and(|&j| j < begin) {
-                    minima.pop_front();
-                }
-                while maxima.front().is_some_and(|&j| j < begin) {
-                    maxima.pop_front();
-                }
-                let lo = p[*minima.front().unwrap()];
-                let hi = p[*maxima.front().unwrap()];
-                out.push(if hi - lo >= 0.25 {
-                    ((p[i] - lo) / (hi - lo)).clamp(0., 1.)
-                } else {
-                    p[i]
-                });
-            }
-        }
     }
 }
 /// # Errors
@@ -207,7 +166,7 @@ pub(crate) fn decode_reusing(
         guard_bias,
         &mut scratch.runs,
     )?;
-    #[cfg(feature = "experimental-extrema-runs")]
+
     let reads = crate::transition::merge_reads(
         reads,
         multi_profile::decode_extrema(p, max_symbols, guard_bias, &mut scratch.extrema)?,
@@ -217,7 +176,6 @@ pub(crate) fn decode_reusing(
 }
 /// Private caller has just validated the unchanged original signal with
 /// `sample_runs`; normalized output is generated internally and remains valid.
-#[cfg(feature = "experimental-local-contrast")]
 pub(crate) fn decode_reusing_validated(
     p: &[f32],
     max_symbols: usize,
@@ -231,7 +189,7 @@ pub(crate) fn decode_reusing_validated(
         guard_bias,
         &mut scratch.runs,
     )?;
-    #[cfg(feature = "experimental-extrema-runs")]
+
     let reads = crate::transition::merge_reads(
         reads,
         multi_profile::decode_extrema_validated(p, max_symbols, guard_bias, &mut scratch.extrema),
@@ -241,12 +199,10 @@ pub(crate) fn decode_reusing_validated(
 }
 
 /// Only call immediately after `decode_reusing` on the same scratch/profile.
-#[cfg(feature = "experimental-short-quiet")]
 pub(crate) fn prepared_short(scratch: &Scratch, max_symbols: usize, guard_bias: bool) -> Reads {
     multi_profile::decode_prepared_short(&scratch.runs, max_symbols, guard_bias)
 }
 
-#[cfg(feature = "experimental-redundant-decode")]
 pub(crate) fn reused_calls(scratch: &Scratch) -> usize {
     scratch.runs.reused_calls.get()
 }

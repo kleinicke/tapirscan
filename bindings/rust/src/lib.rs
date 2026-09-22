@@ -6,6 +6,7 @@ mod format_registry;
 mod geometry;
 mod linear_duplicates;
 mod pipeline;
+mod read;
 mod result;
 mod timer;
 pub use barcode_research_core::region_scan::{Error, ImageView, RegionScanner, ScanResult};
@@ -24,6 +25,10 @@ pub struct Image<'a> {
     pub stride: usize,
 }
 #[derive(Clone, Copy, Debug)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Independent effort and output controls are not mutually exclusive states."
+)]
 pub struct ScanOptions {
     /// Finish selected EAN/UPC candidate work beyond shared frame budgets.
     pub finish_candidates: bool,
@@ -31,6 +36,7 @@ pub struct ScanOptions {
     pub multiple: bool,
     /// Include localization proposals, search windows and per-candidate evidence.
     pub include_regions: bool,
+    pub retain_diagnostics: bool,
 }
 impl Default for ScanOptions {
     fn default() -> Self {
@@ -38,6 +44,7 @@ impl Default for ScanOptions {
             finish_candidates: false,
             multiple: true,
             include_regions: false,
+            retain_diagnostics: false,
         }
     }
 }
@@ -48,8 +55,8 @@ pub struct Result {
     search_window: Quad,
     scan: ScanResult,
     options: ScanOptions,
-    recovery: Option<serde_json::Value>,
-    retail: Vec<serde_json::Value>,
+    recovery: Option<read::Recovery>,
+    retail: Vec<read::Read>,
 }
 /// Detailed region evidence is exposed only when requested before scanning.
 pub struct Regions<'a> {
@@ -162,6 +169,7 @@ mod tests {
                     finish_candidates: false,
                     multiple: false,
                     include_regions: true,
+                    retain_diagnostics: true,
                 },
             )
             .unwrap();

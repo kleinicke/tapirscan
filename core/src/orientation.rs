@@ -287,7 +287,16 @@ mod tests {
         assert!(f.orientation.pixels <= 64 * 48 * 48 * 8);
         for c in f.frame.candidates {
             assert_eq!(c.coverage, q);
-            assert_eq!(c.work.paths, 10);
+            {
+                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                {
+                    assert_eq!(c.work.paths, 6);
+                }
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                {
+                    assert_eq!(c.work.paths, 10);
+                }
+            }
         }
         assert!(Experiment::default()
             .scan_oriented_frame(im, &[q; 65], Policy::default())

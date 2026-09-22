@@ -1,13 +1,22 @@
 //! Isolated supplied-region experiment. No reference decoders or label inputs.
 //! One controlled signal path feeds either unchanged profile or run likelihood.
+mod sampling;
+#[cfg(test)]
+use sampling::interior_bounds;
+mod association;
+mod decoding;
 use crate::scanner_clock::Timer;
 use crate::{
     ean, profile, run_ean,
     sampling::{Error, ImageView, Path, Sampler},
     scan::{self, Quad},
 };
+pub(crate) use association::*;
 #[derive(Clone, Copy, Debug)]
 pub struct Observation {
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+    pub invalid_checksum: bool,
     pub short_quiet: bool,
     pub ambiguous: bool,
     pub digits: [u8; 13],
@@ -20,56 +29,64 @@ pub struct Observation {
 }
 #[derive(Default, Debug, Clone)]
 pub struct Work {
+    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+    pub selected_retry_limit: usize,
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+    pub invalid_consensus_observations: usize,
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+    pub invalid_consensus_blocks: usize,
     pub invalid_visual_seen: usize,
     pub invalid_veto_intervals: usize,
     pub invalid_veto_reads: usize,
     pub invalid_soft_conflicts: usize,
     pub invalid_veto_capped: usize,
-    #[cfg(feature = "experimental-extrema-runs")]
+
     pub extrema_calls: usize,
     pub extrema_examined: usize,
     pub extrema_capped: usize,
     pub extrema_ambiguous: usize,
     pub extrema_decoder_calls: usize,
-    #[cfg(feature = "experimental-redundant-decode")]
+
     pub redundant_decode_calls_avoided: usize,
-    #[cfg(feature = "experimental-structural-retry")]
+    #[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
     pub max_run_count: usize,
-    #[cfg(feature = "experimental-structural-retry")]
+    #[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
     pub structural_retry_skipped: usize,
-    #[cfg(feature = "experimental-structural-retry")]
+    #[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
     pub(crate) structural_discovery_complete: bool,
-    #[cfg(feature = "experimental-gap-density")]
+
     pub continuity_cache_hits: usize,
-    #[cfg(feature = "experimental-forward-blur")]
+
     pub forward_blur_calls: usize,
-    #[cfg(feature = "experimental-forward-blur")]
+
     pub forward_blur_windows: usize,
-    #[cfg(feature = "experimental-forward-blur")]
+
     pub forward_blur_model_attempts: usize,
-    #[cfg(feature = "experimental-forward-blur")]
+
     pub forward_blur_accepted_windows: usize,
-    #[cfg(feature = "experimental-forward-blur")]
+
     pub forward_blur_conflicts: usize,
-    #[cfg(feature = "experimental-verified-coverage-reuse")]
+
     pub extension_cache_hits: usize,
     pub extension_samples: usize,
     pub extension_claims: usize,
     pub extension_capped: usize,
     pub reuse_claims: usize,
-    #[cfg(feature = "experimental-verified-coverage-reuse")]
+
     pub reuse_claims_rejected: usize,
-    #[cfg(feature = "experimental-verified-coverage-reuse")]
+
     pub reuse_checks: usize,
-    #[cfg(feature = "experimental-verified-coverage-reuse")]
+
     pub reuse_checks_capped: usize,
-    #[cfg(feature = "experimental-verified-coverage-reuse")]
+
     pub reuse_paths_changed: usize,
-    #[cfg(feature = "experimental-verified-coverage-reuse")]
+
     pub reuse_paths_removed: usize,
-    #[cfg(feature = "experimental-verified-coverage-reuse")]
+
     pub reuse_paths_split: usize,
-    #[cfg(feature = "experimental-verified-coverage-reuse")]
+
     pub reuse_short_pieces: usize,
     #[cfg(all(feature = "native-timing", not(target_arch = "wasm32")))]
     pub sampling_ms: f64,
@@ -77,6 +94,8 @@ pub struct Work {
     pub interpretation_ms: f64,
     #[cfg(all(feature = "native-timing", not(target_arch = "wasm32")))]
     pub support_ms: f64,
+    #[cfg(feature = "mode-very-high")]
+    pub phase_rescue_paths: usize,
     pub paths: usize,
     pub samples: usize,
     pub low_contrast: usize,
@@ -95,6 +114,8 @@ pub struct Work {
     pub retry_paths: usize,
     pub retry_paths_pending: usize,
     pub sampling_plan_capped: usize,
+    #[cfg(feature = "mode-very-high")]
+    pub discovery_requests: usize,
     pub discovery_paths: usize,
     pub scale_hint_used: usize,
     pub unresolved_probe_paths: usize,
@@ -170,6 +191,7 @@ pub struct Config {
     native: bool,
     dense: bool,
     decoder: DecoderMode,
+    fixed3: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DecoderMode {
@@ -179,8 +201,14 @@ pub enum DecoderMode {
     Many,
 }
 impl Config {
+    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+    pub(crate) fn with_three_rows(mut self) -> Self {
+        self.fixed3 = true;
+        self.name = "multi_fixed3";
+        self
+    }
     /// # Errors
-    /// Returns `Parameters` when native-length sampling is combined with a fixed-length profile decoder.
+    /// Rejects native-length sampling with a fixed-length profile decoder.
     pub fn new(
         name: &'static str,
         native: bool,
@@ -195,6 +223,7 @@ impl Config {
             native,
             dense,
             decoder,
+            fixed3: false,
         })
     }
 }
@@ -203,6 +232,7 @@ pub const MULTI_FIXED: Config = Config {
     native: false,
     dense: false,
     decoder: DecoderMode::Many,
+    fixed3: false,
 };
 pub const CONFIGS: [Config; 5] = [
     Config {
@@ -210,52 +240,39 @@ pub const CONFIGS: [Config; 5] = [
         native: false,
         dense: false,
         decoder: DecoderMode::Profile,
+        fixed3: false,
     },
     Config {
         name: "runs_fixed5",
         native: false,
         dense: false,
         decoder: DecoderMode::Runs,
+        fixed3: false,
     },
     Config {
         name: "runs_native5",
         native: true,
         dense: false,
         decoder: DecoderMode::Runs,
+        fixed3: false,
     },
     Config {
         name: "runs_native21",
         native: true,
         dense: true,
         decoder: DecoderMode::Runs,
+        fixed3: false,
     },
     Config {
         name: "combined_fixed5",
         native: false,
         dense: false,
         decoder: DecoderMode::Combined,
+        fixed3: false,
     },
 ];
 // Exact contiguous selection using the same coordinate expression as the legacy scan.
-#[cfg(any(feature = "experimental-interior-bounds", test))]
-fn interior_bounds(n: usize, lo: f64, hi: f64) -> (usize, usize) {
-    let lower = |upper: bool| {
-        let (mut a, mut b) = (0, n);
-        while a < b {
-            let mid = a + (b - a) / 2;
-            let u = lo
-                + (hi - lo) * (crate::numeric::usize_f64(mid) + 0.5) / crate::numeric::usize_f64(n);
-            let before = if upper { u <= 1. } else { u < 0. };
-            if before {
-                a = mid + 1;
-            } else {
-                b = mid;
-            }
-        }
-        a
-    };
-    (lower(false), lower(true))
-}
+
 pub(crate) fn point(
     matrix: [f64; 9],
     axis: usize,
@@ -283,920 +300,22 @@ pub(crate) fn point(
 pub(crate) fn distance(a: [f64; 2], b: [f64; 2]) -> f64 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
-#[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
-fn trace_reads(stage: &str, r: &crate::multi_profile::Reads) {
-    eprintln!(
-        "{{\"stage\":\"{}\",\"ambiguous\":{},\"truncated\":{}}}",
-        stage, r.ambiguous_intervals, r.truncated
-    );
-    for s in &r.symbols {
-        eprintln!(
-            "{{\"stage\":\"{}\",\"digits\":{:?},\"left\":{},\"right\":{},\"cost\":{},\"gap\":{}}}",
-            stage, s.digits, s.left, s.right, s.cost, s.gap
-        );
-    }
-    for (left, right) in &r.rejected_intervals {
-        eprintln!(
-            "{{\"stage\":\"{}\",\"rejectedLeft\":{},\"rejectedRight\":{}}}",
-            stage, left, right
-        );
-    }
-}
+
 #[derive(Default)]
 pub struct Experiment {
-    #[cfg(feature = "experimental-forward-blur")]
+    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+    pub(crate) retail: crate::retail_pipeline::Collector,
+
     blur_rejected_intervals: Vec<(f64, f64)>,
     fixed: Sampler,
     signal: Vec<f32>,
     raw_signal: Vec<f32>,
     sorted: Vec<f32>,
     runs: Vec<(usize, usize, bool)>,
-    #[cfg(feature = "experimental-local-contrast")]
+
     local_scratch: crate::local_signal::Scratch,
 }
 impl Experiment {
-    /// Diagnostic export uses exactly the scanner's original sampling/normalization.
-    /// # Errors
-    /// Returns `Path` for an invalid axis or sampling interval and `Geometry` for invalid quadrilaterals or projections; propagates sampling errors.
-    pub fn diagnostic_profile(
-        &mut self,
-        im: ImageView<'_>,
-        q: Quad,
-        axis: usize,
-        fraction: f64,
-        native: bool,
-    ) -> Result<Option<Vec<f32>>, Error> {
-        if axis > 1 || !fraction.is_finite() || !(0.0..=1.0).contains(&fraction) {
-            return Err(Error::Path);
-        }
-        let m = scan::transform(q)?;
-        if native {
-            if self.native_sample(im, m.0, axis, fraction, &mut Work::default())? {
-                Ok(Some(self.signal.clone()))
-            } else {
-                Ok(None)
-            }
-        } else {
-            Ok(self
-                .fixed
-                .sample(
-                    im,
-                    m,
-                    Path {
-                        axis,
-                        fraction,
-                        curve: 0.,
-                        margin: 0.15,
-                    },
-                )?
-                .map(|p| p.to_vec()))
-        }
-    }
-    /// Reproduce an explicit straight retry window without changing scanner policy.
-    /// Bounds, sample count and normalization are supplied by the diagnostic caller.
-    /// # Errors
-    /// Returns `Path` for an invalid axis or sampling interval and `Geometry` for invalid quadrilaterals or projections; propagates sampling errors.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "The diagnostic API exposes independent sampling coordinates and switches used by existing experiment callers."
-    )]
-    pub fn diagnostic_segment(
-        &mut self,
-        im: ImageView<'_>,
-        q: Quad,
-        axis: usize,
-        fraction: f64,
-        lo: f64,
-        hi: f64,
-        n: usize,
-        interior: bool,
-    ) -> Result<Option<Vec<f32>>, Error> {
-        let m = scan::transform(q)?;
-        let mut w = Work::default();
-        let normal = self.sample_segment(im, m.0, axis, fraction, lo, hi, n, interior, &mut w)?;
-        let accepted = if interior {
-            self.normalize_interior(lo, hi, &mut w)
-        } else {
-            normal
-        };
-        Ok(accepted.then(|| self.signal.clone()))
-    }
-    /// Diagnostic-only independent interpretation of one supplied segment/normalization.
-    /// # Errors
-    /// Returns `Path` for an invalid axis or sampling interval and `Geometry` for invalid quadrilaterals or projections; propagates sampling errors.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "The diagnostic API mirrors diagnostic_segment and adds interpretation without changing its positional contract."
-    )]
-    pub fn diagnostic_segment_reads(
-        &mut self,
-        im: ImageView<'_>,
-        q: Quad,
-        axis: usize,
-        fraction: f64,
-        lo: f64,
-        hi: f64,
-        n: usize,
-        interior: bool,
-    ) -> Result<Vec<Observation>, Error> {
-        let mut observations = vec![];
-        if self
-            .diagnostic_segment(im, q, axis, fraction, lo, hi, n, interior)?
-            .is_some()
-        {
-            self.collect_policy(
-                axis,
-                fraction,
-                lo,
-                hi,
-                &mut Work::default(),
-                &mut observations,
-                true,
-                true,
-            );
-        }
-        Ok(observations)
-    }
-    /// Diagnostic provider on the same fixed/native source coordinates.
-    /// # Errors
-    /// Returns `Path` for an invalid axis or sampling interval and `Geometry` for invalid quadrilaterals or projections; propagates sampling errors.
-    pub fn diagnostic_interior_profile(
-        &mut self,
-        im: ImageView<'_>,
-        q: Quad,
-        axis: usize,
-        fraction: f64,
-        native: bool,
-    ) -> Result<Option<Vec<f32>>, Error> {
-        if axis > 1 || !fraction.is_finite() || !(0.0..=1.0).contains(&fraction) {
-            return Err(Error::Path);
-        }
-        let m = scan::transform(q)?;
-        let n = if native {
-            crate::numeric::f64_usize(
-                distance(
-                    point(m.0, axis, -0.15, fraction)?,
-                    point(m.0, axis, 1.15, fraction)?,
-                )
-                .ceil()
-                .clamp(64., 4096.),
-            )
-        } else {
-            512
-        };
-        let mut w = Work::default();
-        self.sample_segment(im, m.0, axis, fraction, -0.15, 1.15, n, true, &mut w)?;
-        Ok(self
-            .normalize_interior(-0.15, 1.15, &mut w)
-            .then(|| self.signal.clone()))
-    }
-    fn native_sample(
-        &mut self,
-        im: ImageView<'_>,
-        matrix: [f64; 9],
-        axis: usize,
-        fraction: f64,
-        work: &mut Work,
-    ) -> Result<bool, Error> {
-        let a = point(matrix, axis, -0.15, fraction)?;
-        let b = point(matrix, axis, 1.15, fraction)?;
-        let denominator = |u: f64| {
-            if axis == 0 {
-                matrix[6] * u + matrix[7] * fraction + matrix[8]
-            } else {
-                matrix[6] * fraction + matrix[7] * u + matrix[8]
-            }
-        };
-        if denominator(-0.15) * denominator(1.15) <= 0. {
-            return Err(Error::Geometry);
-        }
-        let requested = crate::numeric::f64_usize(distance(a, b).ceil());
-        let count = requested.clamp(64, 4096);
-        work.capped_paths += usize::from(requested > 4096);
-        work.samples += count;
-        self.signal.resize(count, 0.);
-        for (i, v) in self.signal.iter_mut().enumerate() {
-            let [x, y] = point(
-                matrix,
-                axis,
-                -0.15
-                    + 1.3 * (crate::numeric::usize_f64(i) + 0.5) / crate::numeric::usize_f64(count),
-                fraction,
-            )?;
-            *v = im.bilinear(x, y);
-        }
-        self.sorted.clear();
-        self.sorted.extend_from_slice(&self.signal);
-        let (lo, hi) = crate::sampling::contrast_bounds(&mut self.sorted);
-        let (lo, hi) = (f64::from(lo), f64::from(hi));
-        if hi - lo < 8. {
-            return Ok(false);
-        }
-        for v in &mut self.signal {
-            *v = crate::numeric::f64_f32(((hi - f64::from(*v)) / (hi - lo)).clamp(0., 1.));
-        }
-        Ok(true)
-    }
-    fn run_decode(&mut self, work: &mut Work) -> Option<(crate::run_profile::Read, bool)> {
-        let p = &self.signal;
-        let n = p.len();
-        self.runs.clear();
-        let (mut start, mut black) = (0, p[0] >= 0.5);
-        #[expect(
-            clippy::needless_range_loop,
-            reason = "The inclusive final index is a synthetic run terminator beyond the samples; a slice iterator would omit the final run."
-        )]
-        for i in 1..=n {
-            let next = i < n && p[i] >= 0.5;
-            if i == n || next != black {
-                self.runs.push((start, i, black));
-                start = i;
-                black = next;
-            }
-        }
-        let mut accepted: Option<(crate::run_profile::Read, bool)> = None;
-        for i in 0..self.runs.len().saturating_sub(60) {
-            let r = &self.runs[i..i + 61];
-            if !r[1].2 {
-                continue;
-            }
-            work.windows += 1;
-            let (left, right) = (r[1].0, r[59].1);
-            let module = crate::numeric::usize_f64(right - left) / 95.;
-            if module < 0.8
-                || crate::numeric::usize_f64(r[0].1 - r[0].0) < 7. * module
-                || crate::numeric::usize_f64(r[60].1 - r[60].0) < 7. * module
-            {
-                continue;
-            }
-            work.quiet_pass += 1;
-            let mut widths = [0.; 59];
-            for j in 0..59 {
-                widths[j] = crate::numeric::usize_f32(r[j + 1].1 - r[j + 1].0);
-            }
-            if [0, 1, 2, 27, 28, 29, 30, 31, 56, 57, 58]
-                .iter()
-                .all(|&j| (widths[j] / crate::numeric::f64_f32(module) - 1.).abs() <= 0.65)
-            {
-                work.guard_pass += 1;
-            }
-            for reversed in [false, true] {
-                if reversed {
-                    widths.reverse();
-                }
-                work.decoder_calls += 1;
-                let Some(e) = run_ean::decode_evidence(&widths) else {
-                    continue;
-                };
-                let r = crate::run_profile::Read {
-                    digits: e.digits,
-                    left: crate::numeric::usize_f64(left) - 0.5,
-                    right: crate::numeric::usize_f64(right) - 0.5,
-                    cost: e.cost,
-                    gap: e.gap,
-                };
-                if accepted.is_some_and(|(a, _)| a.digits != r.digits) {
-                    work.conflicts += 1;
-                    return None;
-                }
-                if accepted.is_none_or(|(a, _)| r.cost < a.cost) {
-                    accepted = Some((r, reversed));
-                }
-            }
-        }
-        accepted
-    }
-    fn profile_decode(&mut self, work: &mut Work) -> Option<crate::run_profile::Read> {
-        #[cfg(feature = "experimental-forward-blur")]
-        self.blur_rejected_intervals.clear();
-        if self.signal.len() != 512
-            && !(cfg!(feature = "experimental-native-soft")
-                && (76..=384).contains(&self.signal.len()))
-        {
-            return None;
-        }
-        // Count actual boundary pairs and digit hypotheses used by unchanged profile.
-        // Forward-blur records the pairs in profile::BlurTrace, including the native
-        // variable-length path; do not retain the previous fixed-512 duplicate scan.
-        #[cfg(not(feature = "experimental-forward-blur"))]
-        for rev in [false, true] {
-            let p = &self.signal;
-            let n = p.len();
-            let v = |i: usize| p[if rev { n - 1 - i } else { i }];
-            let (mut ns, mut ne) = (0usize, 0usize);
-            for i in 1..n {
-                if v(i - 1) < 0.5
-                    && v(i) >= 0.5
-                    && crate::numeric::usize_f32(i) < crate::numeric::usize_f32(n) * 0.35
-                {
-                    ns = (ns + 1).min(10);
-                }
-                if v(i - 1) >= 0.5
-                    && v(i) < 0.5
-                    && crate::numeric::usize_f32(i) > crate::numeric::usize_f32(n) * 0.65
-                {
-                    ne = (ne + 1).min(10);
-                }
-            }
-            work.profile_boundary_pairs += ns * ne;
-            work.profile_digit_hypotheses += (ns * ne).min(4);
-        }
-        #[cfg(not(feature = "experimental-forward-blur"))]
-        let result = profile::decode(&self.signal);
-        #[cfg(feature = "experimental-forward-blur")]
-        let result = {
-            let (result, trace) = {
-                #[cfg(feature = "experimental-native-soft")]
-                if self.signal.len() == 512 {
-                    profile::decode_with_blur_trace(&self.signal)
-                } else {
-                    profile::decode_native_with_blur_trace(&self.signal)
-                }
-                #[cfg(not(feature = "experimental-native-soft"))]
-                profile::decode_with_blur_trace(&self.signal)
-            };
-            work.profile_boundary_pairs += trace.boundary_pairs;
-            work.profile_digit_hypotheses += trace.digit_hypotheses;
-            work.forward_blur_calls += 1;
-            work.forward_blur_windows += trace.gated_windows;
-            work.forward_blur_model_attempts += trace.model_attempts;
-            work.forward_blur_accepted_windows += trace.accepted_windows;
-            work.forward_blur_conflicts += trace.conflicts;
-            work.conflicts += trace.conflicts;
-            self.blur_rejected_intervals.extend(
-                trace
-                    .rejected_intervals
-                    .iter()
-                    .map(|&(a, b)| (f64::from(a), f64::from(b))),
-            );
-            result
-        };
-        result.ok().flatten().map(|r| {
-            let (left, right) = if r.reversed {
-                (
-                    crate::numeric::usize_f64(self.signal.len() - 1) - f64::from(r.right),
-                    crate::numeric::usize_f64(self.signal.len() - 1) - f64::from(r.left),
-                )
-            } else {
-                (f64::from(r.left), f64::from(r.right))
-            };
-            crate::run_profile::Read {
-                digits: r.digits,
-                left,
-                right,
-                cost: r.cost,
-                gap: r.gap,
-            }
-        })
-    }
-    /// Fine discovery may contain a small symbol occupying <5% dark pixels.
-    /// Only after percentile contrast fails, retain the full observed intensity
-    /// range. Structural guards, visual digit evidence and consensus still apply.
-    pub(crate) fn normalize_sparse_signal(&mut self) -> bool {
-        let lo = self.signal.iter().copied().fold(f32::INFINITY, f32::min);
-        let hi = self
-            .signal
-            .iter()
-            .copied()
-            .fold(f32::NEG_INFINITY, f32::max);
-        if !lo.is_finite() || !hi.is_finite() || hi - lo < 8. {
-            return false;
-        }
-        for v in &mut self.signal {
-            *v = ((hi - *v) / (hi - lo)).clamp(0., 1.);
-        }
-        true
-    }
-    /// Additional observed-intensity hypothesis. Exclude extension beyond the
-    /// supplied candidate from percentile estimation, but normalize the entire
-    /// sampled path so quiet zones still face the same structural checks.
-    pub(crate) fn normalize_interior(&mut self, lo: f64, hi: f64, work: &mut Work) -> bool {
-        if lo >= 0. && hi <= 1. {
-            return false;
-        }
-        let n = self.raw_signal.len();
-        self.sorted.clear();
-        #[cfg(feature = "experimental-interior-bounds")]
-        {
-            let (a, b) = interior_bounds(n, lo, hi);
-            self.sorted.extend_from_slice(&self.raw_signal[a..b]);
-        }
-        #[cfg(not(feature = "experimental-interior-bounds"))]
-        for (i, &v) in self.raw_signal.iter().enumerate() {
-            let u = lo
-                + (hi - lo) * (crate::numeric::usize_f64(i) + 0.5) / crate::numeric::usize_f64(n);
-            if (0.0..=1.0).contains(&u) {
-                self.sorted.push(v);
-            }
-        }
-        work.interior_values += self.sorted.len();
-        if self.sorted.len() < 64 {
-            return false;
-        }
-        let (lo, hi) = crate::sampling::contrast_bounds(&mut self.sorted);
-        if !lo.is_finite() || !hi.is_finite() || hi - lo < 8. {
-            return false;
-        }
-        self.signal.clear();
-        self.signal.extend(
-            self.raw_signal
-                .iter()
-                .map(|v| ((hi - v) / (hi - lo)).clamp(0., 1.)),
-        );
-        work.interior_paths += 1;
-        true
-    }
-    #[cfg(feature = "experimental-native-sharpen")]
-    pub(crate) fn sharpen_native_profile(&mut self, normalized: bool) -> bool {
-        let n = self.signal.len();
-        if !normalized
-            || !(76..=384).contains(&n)
-            || self
-                .signal
-                .iter()
-                .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
-        {
-            return false;
-        }
-        self.sorted.clone_from(&self.signal);
-        for i in 1..n - 1 {
-            self.signal[i] = (1.5 * self.sorted[i]
-                - 0.25 * (self.sorted[i - 1] + self.sorted[i + 1]))
-                .clamp(0., 1.);
-        }
-        true
-    }
-    pub(crate) fn collect_many(
-        &mut self,
-        axis: usize,
-        fraction: f64,
-        lo: f64,
-        hi: f64,
-        work: &mut Work,
-        observations: &mut Vec<Observation>,
-    ) {
-        self.collect_policy(axis, fraction, lo, hi, work, observations, false, false);
-    }
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Coordinates, reversal and decoder switches are independent dimensions forwarded to the evidence collector."
-    )]
-    pub(crate) fn collect_policy(
-        &mut self,
-        axis: usize,
-        fraction: f64,
-        lo: f64,
-        hi: f64,
-        work: &mut Work,
-        observations: &mut Vec<Observation>,
-        cleanup: bool,
-        guard_bias: bool,
-    ) {
-        let timer = Timer::now();
-        self.collect_policy_inner(
-            axis,
-            fraction,
-            lo,
-            hi,
-            work,
-            observations,
-            cleanup,
-            guard_bias,
-        );
-        #[cfg(all(feature = "native-timing", not(target_arch = "wasm32")))]
-        {
-            work.interpretation_ms += timer.ms();
-        }
-        let _ = timer;
-    }
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "The collector receives independent path geometry and decoder switches with shared work state."
-    )]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "This evidence pass keeps ordered hypotheses, contradiction vetoes and work accounting together within one scan transaction."
-    )]
-    fn collect_policy_inner(
-        &mut self,
-        axis: usize,
-        fraction: f64,
-        lo: f64,
-        hi: f64,
-        work: &mut Work,
-        observations: &mut Vec<Observation>,
-        cleanup: bool,
-        guard_bias: bool,
-    ) {
-        #[cfg(feature = "experimental-invalid-visual-veto")]
-        let (start, mut run_visual, mut visual_capped, mut soft_reads) =
-            (observations.len(), Vec::new(), false, Vec::new());
-        #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
-        eprintln!("{{\"collect\":true,\"axis\":{},\"fraction\":{},\"lo\":{},\"hi\":{},\"samples\":{},\"signal\":{:?}}}",axis,fraction,lo,hi,self.signal.len(),self.signal);
-        crate::multi_profile::sample_runs(&self.signal, 64, &mut self.runs)
-            .expect("validated sampled profile");
-        #[cfg(feature = "experimental-structural-retry")]
-        if !work.structural_discovery_complete {
-            work.max_run_count = work.max_run_count.max(self.runs.len());
-        }
-        #[cfg(not(feature = "experimental-short-quiet"))]
-        let short_accepted = false;
-        #[cfg(feature = "experimental-short-quiet")]
-        let mut short_accepted;
-        #[cfg(feature = "experimental-short-quiet")]
-        {
-            // Raw observed runs only: no cleanup or synthesized transitions. Keep
-            // weaker quiet-zone evidence marked until independent row assembly.
-            let short = crate::multi_profile::decode_short_quiet(&self.runs, 64, guard_bias);
-            #[cfg(feature = "experimental-invalid-visual-veto")]
-            crate::invalid_visual::collect(&mut run_visual, &mut visual_capped, &short);
-            #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
-            trace_reads("short", &short);
-            short_accepted = !short.symbols.is_empty();
-            work.bias_model_pass += short.bias_model_pass;
-            work.bias_guard_pass += short.bias_guard_pass;
-            work.windows += short.windows_examined;
-            work.quiet_pass += short.quiet_pass;
-            work.guard_pass += short.guard_pass;
-            work.decoder_calls += short.decoder_calls;
-            work.conflicts += short.ambiguous_intervals;
-            work.truncated_paths += usize::from(short.truncated);
-            let n = crate::numeric::usize_f64(self.signal.len());
-            for (left, right) in short.rejected_intervals {
-                observations.push(Observation {
-                    short_quiet: true,
-                    ambiguous: true,
-                    digits: [0; 13],
-                    axis,
-                    fraction,
-                    left: lo + (hi - lo) * (left + 0.5) / n,
-                    right: lo + (hi - lo) * (right + 0.5) / n,
-                    cost: 0.,
-                    gap: 0.,
-                });
-            }
-            for r in short.symbols {
-                observations.push(Observation {
-                    short_quiet: true,
-                    ambiguous: false,
-                    digits: r.digits,
-                    axis,
-                    fraction,
-                    left: lo + (hi - lo) * (r.left + 0.5) / n,
-                    right: lo + (hi - lo) * (r.right + 0.5) / n,
-                    cost: r.cost,
-                    gap: r.gap,
-                });
-            }
-        }
-        let raw = crate::multi_profile::decode_runs(&self.runs, 64);
-        #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
-        trace_reads("raw", &raw);
-        let mut reads = if cleanup {
-            let (clean, cw) =
-                crate::transition::decode_clustered_reusing(&self.signal, 64, &raw, &self.runs);
-            #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
-            trace_reads("cleanup", &clean);
-            work.cleanup_paths += 1;
-            work.cleanup_examined += cw.examined;
-            work.cleanup_removed_runs += cw.removed_runs;
-            work.cleanup_pixels += cw.removed_pixels;
-            crate::transition::merge_reads(raw, clean, 64)
-        } else {
-            raw
-        };
-        if guard_bias {
-            work.bias_paths += 1;
-            let bias = crate::multi_profile::decode_guard_runs(&self.runs, 64);
-            #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
-            trace_reads("guard", &bias);
-            reads = crate::transition::merge_reads(reads, bias, 64);
-        }
-        #[cfg(feature = "experimental-local-contrast")]
-        if cleanup {
-            let local = crate::local_signal::decode_reusing_validated(
-                &self.signal,
-                64,
-                guard_bias,
-                &mut self.local_scratch,
-            )
-            .expect("validated sampled profile");
-            #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
-            trace_reads("local", &local);
-            #[cfg(feature = "experimental-short-quiet")]
-            {
-                let short =
-                    crate::local_signal::prepared_short(&self.local_scratch, 64, guard_bias);
-                #[cfg(feature = "experimental-invalid-visual-veto")]
-                crate::invalid_visual::collect(&mut run_visual, &mut visual_capped, &short);
-                short_accepted |= !short.symbols.is_empty();
-                work.bias_model_pass += short.bias_model_pass;
-                work.bias_guard_pass += short.bias_guard_pass;
-                work.windows += short.windows_examined;
-                work.quiet_pass += short.quiet_pass;
-                work.guard_pass += short.guard_pass;
-                work.decoder_calls += short.decoder_calls;
-                work.conflicts += short.ambiguous_intervals;
-                work.truncated_paths += usize::from(short.truncated);
-                let n = crate::numeric::usize_f64(self.signal.len());
-                for (left, right) in short.rejected_intervals {
-                    observations.push(Observation {
-                        short_quiet: true,
-                        ambiguous: true,
-                        digits: [0; 13],
-                        axis,
-                        fraction,
-                        left: lo + (hi - lo) * (left + 0.5) / n,
-                        right: lo + (hi - lo) * (right + 0.5) / n,
-                        cost: 0.,
-                        gap: 0.,
-                    });
-                }
-                for r in short.symbols {
-                    observations.push(Observation {
-                        short_quiet: true,
-                        ambiguous: false,
-                        digits: r.digits,
-                        axis,
-                        fraction,
-                        left: lo + (hi - lo) * (r.left + 0.5) / n,
-                        right: lo + (hi - lo) * (r.right + 0.5) / n,
-                        cost: r.cost,
-                        gap: r.gap,
-                    });
-                }
-            }
-            #[cfg(feature = "experimental-redundant-decode")]
-            {
-                work.redundant_decode_calls_avoided +=
-                    crate::local_signal::reused_calls(&self.local_scratch);
-            }
-            #[cfg(feature = "experimental-extrema-runs")]
-            {
-                let e = &self.local_scratch.extrema;
-                work.extrema_calls += usize::from(e.attempted);
-                work.extrema_examined += e.examined;
-                work.extrema_capped += usize::from(e.capped);
-                work.extrema_ambiguous += usize::from(e.ambiguous);
-                work.extrema_decoder_calls += e.decoder_calls;
-            }
-            reads = crate::transition::merge_reads(reads, local, 64);
-        }
-        // Under-resolved source profiles can lose narrow dark/bright elements
-        // at the middle threshold. Two fixed photometric hypotheses use observed
-        // pixels only; their competing values still veto overlapping evidence.
-        if cleanup && (76..=384).contains(&self.signal.len()) && (45..61).contains(&self.runs.len())
-        {
-            for threshold in [0.35f32, 0.65] {
-                let shifted: Vec<_> = self
-                    .signal
-                    .iter()
-                    .map(|v| (v + 0.5 - threshold).clamp(0., 1.))
-                    .collect();
-                let raw =
-                    crate::multi_profile::decode_many(&shifted, 64).expect("valid shifted profile");
-                let extra = if guard_bias {
-                    crate::transition::merge_reads(
-                        raw,
-                        crate::multi_profile::decode_guard_bias(&shifted, 64)
-                            .expect("valid shifted profile"),
-                        64,
-                    )
-                } else {
-                    raw
-                };
-                reads = crate::transition::merge_reads(reads, extra, 64);
-            }
-        }
-        #[cfg(feature = "experimental-invalid-visual-veto")]
-        crate::invalid_visual::collect(&mut run_visual, &mut visual_capped, &reads);
-        work.bias_model_pass += reads.bias_model_pass;
-        work.bias_guard_pass += reads.bias_guard_pass;
-        work.windows += reads.windows_examined;
-        work.quiet_pass += reads.quiet_pass;
-        work.guard_pass += reads.guard_pass;
-        work.decoder_calls += reads.decoder_calls;
-        work.conflicts += reads.ambiguous_intervals;
-        work.truncated_paths += usize::from(reads.truncated);
-        // Complementary global evidence is valid only on fixed512 signals. A run
-        // ambiguity must not be resurrected through the single-result fallback.
-        if (self.signal.len() == 512
-            || (cfg!(feature = "experimental-native-soft")
-                && (76..=384).contains(&self.signal.len())))
-            && reads.ambiguous_intervals == 0
-        {
-            if let Some(p) = self.profile_decode(work) {
-                #[cfg(feature = "experimental-invalid-visual-veto")]
-                soft_reads.push(p);
-                let overlaps = |r: &crate::run_profile::Read| r.left < p.right && p.left < r.right;
-                if reads
-                    .symbols
-                    .iter()
-                    .any(|r| overlaps(r) && r.digits != p.digits)
-                {
-                    work.conflicts += 1;
-                    reads.rejected_intervals.push((p.left, p.right));
-                    reads.symbols.retain(|r| !overlaps(r));
-                } else if !reads
-                    .symbols
-                    .iter()
-                    .any(|r| overlaps(r) && r.digits == p.digits)
-                {
-                    reads.symbols.push(p);
-                }
-            }
-        }
-        #[cfg(feature = "experimental-forward-blur")]
-        if (self.signal.len() == 512
-            || (cfg!(feature = "experimental-native-soft")
-                && (76..=384).contains(&self.signal.len())))
-            && reads.ambiguous_intervals == 0
-        {
-            // A same-window legacy/blur contradiction must not be resurrected by
-            // Many's retained run reads. Preserve disjoint source intervals.
-            for &(left, right) in &self.blur_rejected_intervals {
-                reads.rejected_intervals.push((left, right));
-                reads.symbols.retain(|r| r.right <= left || r.left >= right);
-            }
-        }
-        #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
-        trace_reads("merged", &reads);
-        #[cfg(not(feature = "experimental-invalid-visual-veto"))]
-        {
-            work.accepted_paths += usize::from(short_accepted || !reads.symbols.is_empty());
-        }
-        for (left, right) in reads.rejected_intervals {
-            let n = crate::numeric::usize_f64(self.signal.len());
-            observations.push(Observation {
-                short_quiet: false,
-                ambiguous: true,
-                digits: [0; 13],
-                axis,
-                fraction,
-                left: lo + (hi - lo) * (left + 0.5) / n,
-                right: lo + (hi - lo) * (right + 0.5) / n,
-                cost: 0.,
-                gap: 0.,
-            });
-        }
-        for r in reads.symbols {
-            let n = crate::numeric::usize_f64(self.signal.len());
-            observations.push(Observation {
-                short_quiet: false,
-                ambiguous: false,
-                digits: r.digits,
-                axis,
-                fraction,
-                left: lo + (hi - lo) * (r.left + 0.5) / n,
-                right: lo + (hi - lo) * (r.right + 0.5) / n,
-                cost: r.cost,
-                gap: r.gap,
-            });
-        }
-        #[cfg(feature = "experimental-invalid-visual-veto")]
-        {
-            let _ = short_accepted;
-            crate::invalid_visual::apply(
-                &run_visual,
-                visual_capped,
-                &soft_reads,
-                observations,
-                start,
-                axis,
-                fraction,
-                lo,
-                hi,
-                self.signal.len(),
-                work,
-            );
-            work.accepted_paths += usize::from(observations[start..].iter().any(|o| !o.ambiguous));
-        }
-    }
-    /// Bounded original-image straight segment sampling. Uses the same bilinear
-    /// grayscale and percentile normalization as the frozen fixed sampler.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "The sampling entry point forwards explicit geometry, output size and shared accounting to the timed implementation."
-    )]
-    pub(crate) fn sample_segment(
-        &mut self,
-        im: ImageView<'_>,
-        m: [f64; 9],
-        axis: usize,
-        f: f64,
-        lo: f64,
-        hi: f64,
-        n: usize,
-        retain_raw: bool,
-        work: &mut Work,
-    ) -> Result<bool, Error> {
-        let timer = Timer::now();
-        let result = self.sample_segment_inner(im, m, axis, f, lo, hi, n, retain_raw, work);
-        #[cfg(all(feature = "native-timing", not(target_arch = "wasm32")))]
-        {
-            work.sampling_ms += timer.ms();
-        }
-        let _ = timer;
-        result
-    }
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "The sampler needs image, projective geometry, path bounds, normalization policy and mutable work accounting together."
-    )]
-    fn sample_segment_inner(
-        &mut self,
-        im: ImageView<'_>,
-        matrix: [f64; 9],
-        axis: usize,
-        fraction: f64,
-        lo: f64,
-        hi: f64,
-        count: usize,
-        retain_raw: bool,
-        work: &mut Work,
-    ) -> Result<bool, Error> {
-        if !(64..=4096).contains(&count)
-            || axis > 1
-            || !lo.is_finite()
-            || !hi.is_finite()
-            || lo >= hi
-            || !fraction.is_finite()
-            || !(0.0..=1.0).contains(&fraction)
-        {
-            return Err(Error::Path);
-        }
-        let z = |u: f64| {
-            if axis == 0 {
-                matrix[6] * u + matrix[7] * fraction + matrix[8]
-            } else {
-                matrix[6] * fraction + matrix[7] * u + matrix[8]
-            }
-        };
-        if !z(lo).is_finite()
-            || !z(hi).is_finite()
-            || z(lo) * z(hi) <= 0.
-            || z(lo).abs() < 1e-9
-            || z(hi).abs() < 1e-9
-        {
-            return Err(Error::Geometry);
-        }
-        work.samples += count;
-        self.signal.resize(count, 0.);
-        // `axis` and the cross-path fraction do not vary within one segment. Keep
-        // the legacy arithmetic order, but select the coordinate layout once rather
-        // than branching through `point` for each source pixel. The finite check is
-        // intentionally retained at the exact point where the old helper made it.
-        let nearest = cfg!(feature = "experimental-nearest-lowres") && (76..=384).contains(&count);
-        if axis == 0 {
-            for (i, v) in self.signal.iter_mut().enumerate() {
-                let u = lo
-                    + (hi - lo) * (crate::numeric::usize_f64(i) + 0.5)
-                        / crate::numeric::usize_f64(count);
-                let z = matrix[6] * u + matrix[7] * fraction + matrix[8];
-                let x = (matrix[0] * u + matrix[1] * fraction + matrix[2]) / z - 0.5;
-                let y = (matrix[3] * u + matrix[4] * fraction + matrix[5]) / z - 0.5;
-                if !x.is_finite() || !y.is_finite() {
-                    return Err(Error::Geometry);
-                }
-                *v = if nearest {
-                    crate::numeric::f64_f32(im.gray(x.round(), y.round()))
-                } else {
-                    im.bilinear(x, y)
-                };
-            }
-        } else {
-            for (i, v) in self.signal.iter_mut().enumerate() {
-                let u = lo
-                    + (hi - lo) * (crate::numeric::usize_f64(i) + 0.5)
-                        / crate::numeric::usize_f64(count);
-                let z = matrix[6] * fraction + matrix[7] * u + matrix[8];
-                let x = (matrix[0] * fraction + matrix[1] * u + matrix[2]) / z - 0.5;
-                let y = (matrix[3] * fraction + matrix[4] * u + matrix[5]) / z - 0.5;
-                if !x.is_finite() || !y.is_finite() {
-                    return Err(Error::Geometry);
-                }
-                *v = if nearest {
-                    crate::numeric::f64_f32(im.gray(x.round(), y.round()))
-                } else {
-                    im.bilinear(x, y)
-                };
-            }
-        }
-        if retain_raw {
-            self.raw_signal.clone_from(&self.signal);
-        }
-        self.sorted.clear();
-        self.sorted.extend_from_slice(&self.signal);
-        let (lo, hi) = crate::sampling::contrast_bounds(&mut self.sorted);
-        let (lo, hi) = (f64::from(lo), f64::from(hi));
-        if hi - lo < 8. {
-            return Ok(false);
-        }
-        for v in &mut self.signal {
-            *v = crate::numeric::f64_f32(((hi - f64::from(*v)) / (hi - lo)).clamp(0., 1.));
-        }
-        Ok(true)
-    }
     pub fn scan(
         &mut self,
         im: ImageView<'_>,
@@ -1205,10 +324,6 @@ impl Experiment {
     ) -> Vec<Candidate> {
         self.scan_with_budget(im, candidates, config, &mut AssociationBudget::default())
     }
-    #[expect(
-        clippy::too_many_lines,
-        reason = "This evidence pass keeps ordered hypotheses, contradiction vetoes and work accounting together within one scan transaction."
-    )]
     pub(crate) fn scan_with_budget(
         &mut self,
         im: ImageView<'_>,
@@ -1216,10 +331,26 @@ impl Experiment {
         config: Config,
         budget: &mut AssociationBudget,
     ) -> Vec<Candidate> {
+        self.scan_with_budget_axes(im, candidates, config, budget, false)
+    }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "This evidence pass keeps ordered hypotheses, contradiction vetoes and work accounting together within one scan transaction."
+    )]
+    pub(crate) fn scan_with_budget_axes(
+        &mut self,
+        im: ImageView<'_>,
+        candidates: &[Quad],
+        config: Config,
+        budget: &mut AssociationBudget,
+        module_axis: bool,
+    ) -> Vec<Candidate> {
         candidates
             .iter()
             .enumerate()
             .map(|(index, &coverage)| {
+                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                self.retail.coverage(coverage);
                 let start = Timer::now();
                 let mut out = Candidate {
                     index,
@@ -1234,9 +365,27 @@ impl Experiment {
                     out.error = true;
                     return out;
                 };
+                let full = !module_axis
+                    || coverage
+                        .iter()
+                        .zip([
+                            [0., 0.],
+                            [crate::numeric::usize_f64(im.width - 1), 0.],
+                            [
+                                crate::numeric::usize_f64(im.width - 1),
+                                crate::numeric::usize_f64(im.height - 1),
+                            ],
+                            [0., crate::numeric::usize_f64(im.height - 1)],
+                        ])
+                        .all(|(a, b)| (a[0] - b[0]).abs() <= 1. && (a[1] - b[1]).abs() <= 1.);
                 for axis in 0..2 {
+                    if module_axis && axis == 1 && !full {
+                        continue;
+                    }
                     let fractions: Vec<f64> = if config.dense {
                         (0..21).map(|i| 0.2 + 0.03 * f64::from(i)).collect()
+                    } else if config.fixed3 {
+                        vec![0.2, 0.5, 0.8]
                     } else {
                         vec![0.2, 0.35, 0.5, 0.65, 0.8]
                     };
@@ -1316,6 +465,8 @@ impl Experiment {
                             out.work.accepted_paths += 1;
                             let n = crate::numeric::usize_f64(self.signal.len());
                             out.observations.push(Observation {
+                                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                                invalid_checksum: false,
                                 short_quiet: false,
                                 ambiguous: false,
                                 digits: r.digits,
@@ -1340,599 +491,17 @@ impl Experiment {
             .collect()
     }
 }
+
 // Conservative blank-gap veto, common to all controlled configurations. Every
 // <=0.5 source-pixel cross-band step probes32 nearest-neighbor module positions.
 // This catches blank separation; it is not a general instance-association proof.
-fn connected(
-    im: ImageView<'_>,
-    m: [f64; 9],
-    a: Observation,
-    b: Observation,
-    work: &mut Work,
-) -> bool {
-    connected_budget(
-        im,
-        m,
-        a,
-        b,
-        work,
-        None,
-        #[cfg(feature = "experimental-gap-density")]
-        &mut std::collections::HashMap::new(),
-    )
-}
-fn connected_budget(
-    im: ImageView<'_>,
-    matrix: [f64; 9],
-    a: Observation,
-    b: Observation,
-    work: &mut Work,
-    budget: Option<&mut AssociationBudget>,
-    #[cfg(feature = "experimental-gap-density")] cache: &mut std::collections::HashMap<
-        [u64; 5],
-        Option<(usize, usize)>,
-    >,
-) -> bool {
-    #[cfg(feature = "experimental-gap-density")]
-    {
-        connected_density(im, matrix, a, b, work, budget, cache)
-    }
 
-    #[cfg(not(feature = "experimental-gap-density"))]
-    {
-        let mut budget = budget;
-        let u = (a.left + a.right + b.left + b.right) / 4.;
-        let pa = point(matrix, a.axis, u, a.fraction).unwrap();
-        let pb = point(matrix, a.axis, u, b.fraction).unwrap();
-        let steps = crate::numeric::f64_usize((distance(pa, pb) * 2.).ceil());
-        if steps > 4096 {
-            work.continuity_capped_links += 1;
-            work.association_truncated = 1;
-            return false;
-        }
-        for i in 0..=steps {
-            if let Some(budget) = budget.as_deref_mut() {
-                if !budget.pixels(32, work) {
-                    return false;
-                }
-            }
-            let fraction = crate::numeric::usize_f64(i) / crate::numeric::usize_f64(steps.max(1));
-            let row_fraction = a.fraction + (b.fraction - a.fraction) * fraction;
-            let left = a.left + (b.left - a.left) * fraction;
-            let right = a.right + (b.right - a.right) * fraction;
-            let (mut lo, mut hi) = (255f64, 0f64);
-            for j in 0..32 {
-                let sample_point = point(
-                    matrix,
-                    a.axis,
-                    left + (right - left) * (f64::from(j) + 0.5) / 32.,
-                    row_fraction,
-                )
-                .unwrap();
-                let gray = im.gray(sample_point[0].round(), sample_point[1].round());
-                work.continuity_samples += 1;
-                lo = lo.min(gray);
-                hi = hi.max(gray);
-            }
-            if hi - lo < 8. {
-                work.continuity_rejects += 1;
-                return false;
-            }
-        }
-        true
-    }
-}
-#[cfg(feature = "experimental-gap-density")]
-#[expect(
-    clippy::too_many_lines,
-    reason = "This continuity proof shares cached row evidence, pixel budgets and rejection decisions across its path."
-)]
-fn connected_density(
-    im: ImageView<'_>,
-    matrix: [f64; 9],
-    a: Observation,
-    b: Observation,
-    work: &mut Work,
-    mut budget: Option<&mut AssociationBudget>,
-    cache: &mut std::collections::HashMap<[u64; 5], Option<(usize, usize)>>,
-) -> bool {
-    let u = (a.left + a.right + b.left + b.right) / 4.;
-    let pa = point(matrix, a.axis, u, a.fraction).unwrap();
-    let pb = point(matrix, a.axis, u, b.fraction).unwrap();
-    let steps = crate::numeric::f64_usize((distance(pa, pb) * 2.).ceil());
-    if steps > 4096 {
-        work.continuity_capped_links += 1;
-        work.association_truncated = 1;
-        return false;
-    }
-    let mut sample = |t: f64, n: usize| -> Option<(usize, usize)> {
-        let f = a.fraction + (b.fraction - a.fraction) * t;
-        let left = a.left + (b.left - a.left) * t;
-        let right = a.right + (b.right - a.right) * t;
-        let key = [
-            a.axis as u64,
-            f.to_bits(),
-            left.to_bits(),
-            right.to_bits(),
-            n as u64,
-        ];
-        if let Some(value) = cache.get(&key) {
-            work.continuity_cache_hits += 1;
-            return *value;
-        }
-        if let Some(budget) = budget.as_deref_mut() {
-            if !budget.pixels(n, work) {
-                return None;
-            }
-        }
-        let mut values = [0.; 192];
-        let (mut lo, mut hi) = (255f64, 0f64);
-        for (j, v) in values[..n].iter_mut().enumerate() {
-            let point_sample = point(
-                matrix,
-                a.axis,
-                left + (right - left) * (crate::numeric::usize_f64(j) + 0.5)
-                    / crate::numeric::usize_f64(n),
-                f,
-            )
-            .unwrap();
-            *v = im.gray(point_sample[0].round(), point_sample[1].round());
-            work.continuity_samples += 1;
-            lo = lo.min(*v);
-            hi = hi.max(*v);
-        }
-        if hi - lo < 8. {
-            work.continuity_rejects += 1;
-            if cache.len() < 4096 {
-                cache.insert(key, None);
-            }
-            return None;
-        }
-        let result = Some((
-            values[..n]
-                .iter()
-                .filter(|&&v| v < lo + 0.35 * (hi - lo))
-                .count(),
-            values[..n]
-                .iter()
-                .filter(|&&v| v > lo + 0.65 * (hi - lo))
-                .count(),
-        ));
-        if cache.len() < 4096 {
-            cache.insert(key, result);
-        }
-        result
-    };
-    let Some(first) = sample(0., 32) else {
-        return false;
-    };
-    if steps == 0 {
-        return true;
-    }
-    let Some(last) = sample(1., 32) else {
-        return false;
-    };
-    let minimum = (first.0.min(last.0), first.1.min(last.1));
-    for i in 1..steps {
-        let Some((dark, _light)) = sample(
-            crate::numeric::usize_f64(i) / crate::numeric::usize_f64(steps),
-            32,
-        ) else {
-            return false;
-        };
-        // For ordinary dark bars on a light substrate, require lost DARK occupancy.
-        // A bright specular maximum can reduce normalized light occupancy while
-        // preserving every black bar; that alone is not a separating gap.
-        // Only a large dark-density collapse relative to BOTH endpoints proves
-        // a separator. Weak endpoints cannot establish a stronger density promise.
-        if minimum.0 >= 6 && minimum.1 >= 6 && dark * 2 < minimum.0 {
-            // Sparse samples can alias an ordinary EAN row. Confirm a suspected
-            // separator against densely sampled endpoint and intervening profiles.
-            let (Some(da), Some(db), Some(dc)) = (
-                sample(0., 192),
-                sample(1., 192),
-                sample(
-                    crate::numeric::usize_f64(i) / crate::numeric::usize_f64(steps),
-                    192,
-                ),
-            ) else {
-                return false;
-            };
-            let dm = (da.0.min(db.0), da.1.min(db.1));
-            if dm.0 >= 36 && dm.1 >= 36 && dc.0 * 2 < dm.0 {
-                work.continuity_rejects += 1;
-                return false;
-            }
-        }
-    }
-    true
-}
-
-fn assemble(
-    im: ImageView<'_>,
-    m: [f64; 9],
-    observations: &[Observation],
-    work: &mut Work,
-) -> Vec<Detection> {
-    let mut results = vec![];
-    for axis in 0..2 {
-        let mut group: Vec<Observation> = vec![];
-        let emit = |g: &[Observation], out: &mut Vec<Detection>| {
-            if g.len() < 2 {
-                return;
-            }
-            let a = g[0];
-            let b = *g.last().unwrap();
-            if b.fraction - a.fraction < 0.149_999 {
-                return;
-            }
-            let polygon = [
-                point(m, axis, a.left, a.fraction).unwrap(),
-                point(m, axis, a.right, a.fraction).unwrap(),
-                point(m, axis, b.right, b.fraction).unwrap(),
-                point(m, axis, b.left, b.fraction).unwrap(),
-            ];
-            if scan::transform(polygon).is_ok() {
-                out.push(Detection {
-                    digits: a.digits,
-                    polygon,
-                    support: g.len(),
-                    axis,
-                });
-            }
-        };
-        for &b in observations.iter().filter(|r| r.axis == axis) {
-            if let Some(&a) = group.last() {
-                let overlap = a.right.min(b.right) - a.left.max(b.left);
-                if a.digits != b.digits
-                    || overlap <= 0.8 * (a.right - a.left).max(b.right - b.left)
-                    || !connected(im, m, a, b, work)
-                {
-                    emit(&group, &mut results);
-                    group.clear();
-                }
-            }
-            group.push(b);
-        }
-        emit(&group, &mut results);
-    }
-    results
-}
-/// Associate multiple intervals on each scanline with distinct spatial tracks.
-/// A track receives at most one observation per fraction. Non-unique links are
-/// left unassociated, rather than joining neighboring equal-value instances.
-#[cfg(test)]
-pub(crate) fn assemble_many(
-    im: ImageView<'_>,
-    m: [f64; 9],
-    observations: &[Observation],
-    work: &mut Work,
-    source_support: bool,
-) -> Vec<Detection> {
-    assemble_many_budget(
-        im,
-        m,
-        observations,
-        work,
-        source_support,
-        &mut AssociationBudget::default(),
-    )
-}
 // Quantize only numeric row identity (1e-12 of proposal extent). Raw evidence
 // stays unchanged; nearby physically distinct rows retain separate identities.
-fn canonical_row(f: f64) -> f64 {
-    (f * 1e12).round() / 1e12
-}
-pub(crate) fn assemble_many_budget(
-    im: ImageView<'_>,
-    m: [f64; 9],
-    observations: &[Observation],
-    work: &mut Work,
-    source_support: bool,
-    budget: &mut AssociationBudget,
-) -> Vec<Detection> {
-    assemble_many_budget_options(im, m, observations, work, source_support, budget, false)
-}
-pub(crate) fn assemble_many_budget_options(
-    im: ImageView<'_>,
-    m: [f64; 9],
-    observations: &[Observation],
-    work: &mut Work,
-    source_support: bool,
-    budget: &mut AssociationBudget,
-    allow_single_row: bool,
-) -> Vec<Detection> {
-    let timer = Timer::now();
-    let result = assemble_many_budget_inner(
-        im,
-        m,
-        observations,
-        work,
-        source_support,
-        budget,
-        allow_single_row,
-    );
-    #[cfg(all(feature = "native-timing", not(target_arch = "wasm32")))]
-    {
-        work.support_ms += timer.ms();
-    }
-    let _ = timer;
-    result
-}
-#[expect(
-    clippy::float_cmp,
-    reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
-)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "This evidence pass keeps ordered hypotheses, contradiction vetoes and work accounting together within one scan transaction."
-)]
-fn assemble_many_budget_inner(
-    im: ImageView<'_>,
-    m: [f64; 9],
-    observations: &[Observation],
-    work: &mut Work,
-    source_support: bool,
-    budget: &mut AssociationBudget,
-    allow_single_row: bool,
-) -> Vec<Detection> {
-    #[cfg(feature = "experimental-gap-density")]
-    let mut density_cache = std::collections::HashMap::new();
-    let mut results = vec![];
-    for axis in 0..2 {
-        let mut obs: Vec<_> = observations
-            .iter()
-            .copied()
-            .filter(|o| o.axis == axis)
-            .map(|mut o| {
-                o.fraction = canonical_row(o.fraction);
-                o
-            })
-            .collect();
-        obs.sort_by(|a, b| {
-            a.fraction
-                .total_cmp(&b.fraction)
-                .then(a.left.total_cmp(&b.left))
-        });
-        // Different sampling windows can observe the same physical interval on one
-        // row. Consolidate only heavily overlapping equal evidence; veto conflicts.
-        let mut keep: Vec<_> = obs.iter().map(|o| !o.ambiguous).collect();
-        for i in 0..obs.len() {
-            for j in i + 1..obs.len() {
-                if obs[j].fraction != obs[i].fraction {
-                    break;
-                }
-                if !budget.check(work) {
-                    return results;
-                }
-                let overlap = obs[i].right.min(obs[j].right) - obs[i].left.max(obs[j].left);
-                if overlap > 0.
-                    && (obs[i].ambiguous || obs[j].ambiguous || obs[i].digits != obs[j].digits)
-                {
-                    keep[i] = false;
-                    keep[j] = false;
-                    work.conflicts += 1;
-                }
-            }
-        }
-        let barriers: Vec<_> = obs
-            .iter()
-            .zip(&keep)
-            .filter_map(|(o, &keep)| (!keep).then_some(*o))
-            .collect();
-        let mut unique: Vec<Observation> = vec![];
-        for (i, o) in obs.into_iter().enumerate() {
-            if !keep[i] {
-                continue;
-            }
-            let mut found = false;
-            for a in unique
-                .iter_mut()
-                .rev()
-                .take_while(|a| a.fraction == o.fraction)
-            {
-                if !budget.check(work) {
-                    return results;
-                }
-                if a.digits == o.digits
-                    && a.right.min(o.right) - a.left.max(o.left)
-                        > 0.8 * (a.right - a.left).max(o.right - o.left)
-                {
-                    if (!o.short_quiet && a.short_quiet)
-                        || (o.short_quiet == a.short_quiet && o.cost < a.cost)
-                    {
-                        *a = o;
-                    }
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
-                unique.push(o);
-            }
-        }
-        let obs = unique;
-        let mut tracks: Vec<Vec<Observation>> = vec![];
-        let mut active: Vec<bool> = vec![];
-        let mut offset = 0;
-        'rows: while offset < obs.len() {
-            let end = offset
-                + obs[offset..]
-                    .iter()
-                    .take_while(|o| o.fraction == obs[offset].fraction)
-                    .count();
-            let row = &obs[offset..end];
-            // Decoded contradictory evidence between matching rows ends the earlier
-            // track. Without this, alternating values in touching stacked symbols can
-            // reconnect across a different symbol because contrast alone stays high.
-            for (i, t) in tracks.iter().enumerate() {
-                if !budget.check(work) {
-                    break 'rows;
-                }
-                if !active[i] {
-                    continue;
-                }
-                let a = *t.last().unwrap();
-                for b in &barriers {
-                    if !budget.check(work) {
-                        break 'rows;
-                    }
-                    if b.fraction <= a.fraction || b.fraction > row[0].fraction {
-                        continue;
-                    }
-                    if a.right.min(b.right) > a.left.max(b.left) {
-                        active[i] = false;
-                        break;
-                    }
-                }
-                for b in row {
-                    if !budget.check(work) {
-                        break 'rows;
-                    }
-                    if a.digits != b.digits
-                        && a.right.min(b.right) - a.left.max(b.left)
-                            > 0.8 * (a.right - a.left).max(b.right - b.left)
-                    {
-                        active[i] = false;
-                        break;
-                    }
-                }
-            }
-            let mut links = vec![vec![]; row.len()];
-            let mut degree = vec![0; tracks.len()];
-            for (j, &b) in row.iter().enumerate() {
-                for (i, t) in tracks.iter().enumerate() {
-                    if !budget.check(work) {
-                        break 'rows;
-                    }
-                    let a = *t.last().unwrap();
-                    let overlap = a.right.min(b.right) - a.left.max(b.left);
-                    if active[i]
-                        && a.digits == b.digits
-                        && overlap > 0.8 * (a.right - a.left).max(b.right - b.left)
-                        && connected_budget(
-                            im,
-                            m,
-                            a,
-                            b,
-                            work,
-                            Some(budget),
-                            #[cfg(feature = "experimental-gap-density")]
-                            &mut density_cache,
-                        )
-                    {
-                        links[j].push(i);
-                        degree[i] += 1;
-                    }
-                    if work.association_truncated > 0 {
-                        break 'rows;
-                    }
-                }
-            }
-            for (j, &b) in row.iter().enumerate() {
-                if links[j].len() == 1 && degree[links[j][0]] == 1 {
-                    tracks[links[j][0]].push(b);
-                } else {
-                    tracks.push(vec![b]);
-                    active.push(true);
-                }
-            }
-            offset = end;
-        }
-        'tracks: for t in tracks {
-            let a = t[0];
-            let b = *t.last().unwrap();
-            let supported =
-                t.len() >= 2 && (t.iter().filter(|o| !o.short_quiet).count() >= 2 || t.len() >= 4);
-            let separation = if source_support {
-                let cross = distance(
-                    point(m, axis, 0.5, 0.).unwrap(),
-                    point(m, axis, 0.5, 1.).unwrap(),
-                );
-                // Weak visual evidence requires a wider physical baseline. Adjacent
-                // interpolated rows can repeat the same edge defect or parity alias.
-                let strong = t.iter().any(|o| o.cost <= 0.08 && o.gap >= 0.08);
-                let left = point(m, axis, a.left, a.fraction).unwrap();
-                let right = point(m, axis, a.right, a.fraction).unwrap();
-                let pixels = if strong {
-                    1.
-                } else {
-                    (distance(left, right) / 95.).clamp(2., 12.)
-                };
-                pixels / cross.max(1.)
-            } else {
-                0.15
-            };
-            if !supported || b.fraction - a.fraction < separation - 1e-6 {
-                if allow_single_row {
-                    // Retain the row-level ambiguity veto and full quiet-zone requirement.
-                    // A permissive read claims a one-source-pixel band, not the entire region.
-                    if let Some(o) = t
-                        .iter()
-                        .filter(|o| {
-                            !o.short_quiet
-                                && (!cfg!(feature = "experimental-strong-single-row")
-                                    || (o.cost <= 0.06 && o.gap >= 0.1))
-                        })
-                        .min_by(|a, b| a.cost.total_cmp(&b.cost))
-                    {
-                        let cross = distance(
-                            point(m, axis, 0.5, 0.).unwrap(),
-                            point(m, axis, 0.5, 1.).unwrap(),
-                        );
-                        if observations.iter().any(|other| {
-                            other.axis == axis
-                                && (other.ambiguous || other.digits != o.digits)
-                                && (other.fraction - o.fraction).abs() * cross <= 2.
-                                && other.right.min(o.right) - other.left.max(o.left)
-                                    > 0.8 * (other.right - other.left).max(o.right - o.left)
-                        }) {
-                            work.conflicts += 1;
-                            continue 'tracks;
-                        }
-                        let half = 0.5 / cross.max(1.);
-                        let ps = [
-                            point(m, axis, o.left, o.fraction - half),
-                            point(m, axis, o.right, o.fraction - half),
-                            point(m, axis, o.right, o.fraction + half),
-                            point(m, axis, o.left, o.fraction + half),
-                        ];
-                        if let [Ok(p0), Ok(p1), Ok(p2), Ok(p3)] = ps {
-                            let polygon = [p0, p1, p2, p3];
-                            if scan::transform(polygon).is_ok() {
-                                results.push(Detection {
-                                    digits: o.digits,
-                                    polygon,
-                                    support: 1,
-                                    axis,
-                                });
-                            }
-                        }
-                    }
-                }
-                continue;
-            }
-            let points = [
-                point(m, axis, a.left, a.fraction),
-                point(m, axis, a.right, a.fraction),
-                point(m, axis, b.right, b.fraction),
-                point(m, axis, b.left, b.fraction),
-            ];
-            if let [Ok(p0), Ok(p1), Ok(p2), Ok(p3)] = points {
-                let polygon = [p0, p1, p2, p3];
-                if scan::transform(polygon).is_ok() {
-                    results.push(Detection {
-                        digits: a.digits,
-                        polygon,
-                        support: t.len(),
-                        axis,
-                    });
-                }
-            }
-        }
-    }
-    results
-}
+
+// Invalid vetoes require three physically separated paths, and full interval
+// containment so a broad unsupported row cannot borrow a narrow track's support.
+
 /// Diagnose whether old global module evidence can decode an accepted run's
 /// boundaries. Never used in acceptance or search; no expected digits supplied.
 #[must_use]
@@ -1987,7 +556,7 @@ mod tests {
             ],
         )
     }
-    #[cfg(feature = "experimental-short-quiet")]
+
     #[test]
     fn short_quiet_requires_four_distinct_source_supported_rows_and_keeps_vetoes() {
         let (width, h) = (512, 160);
@@ -2022,13 +591,28 @@ mod tests {
         let repeated = vec![obs[0]; 4];
         assert!(assemble_many(im, m.0, &repeated, &mut Work::default(), true).is_empty());
         let mut conflict = obs[..4].to_vec();
-        conflict.push(Observation {
-            ambiguous: true,
-            ..obs[2]
-        });
+        {
+            #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+            {
+                conflict.push(Observation {
+                    ambiguous: true,
+                    ..obs[2]
+                });
+            }
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            {
+                conflict.push(Observation {
+                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                    invalid_checksum: false,
+                    ambiguous: true,
+                    ..obs[2]
+                });
+            }
+        }
+
         assert!(assemble_many(im, m.0, &conflict, &mut Work::default(), true).is_empty());
     }
-    #[cfg(feature = "experimental-short-quiet")]
+
     #[test]
     fn short_quiet_keeps_separate_equal_and_different_symbols() {
         let a = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
@@ -2089,6 +673,7 @@ mod tests {
         let (pixels, qs) = fixture(0);
         let im = ImageView::new(&pixels, 1000, 240, 1, 1000).unwrap();
         let m = scan::transform(qs[0]).unwrap();
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let a = Observation {
             short_quiet: false,
             ambiguous: false,
@@ -2100,18 +685,60 @@ mod tests {
             cost: 0.,
             gap: 1.,
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let a = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            short_quiet: false,
+            ambiguous: false,
+            digits: [0; 13],
+            axis: 0,
+            fraction: 0.3,
+            left: 0.,
+            right: 1.,
+            cost: 0.,
+            gap: 1.,
+        };
+
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let b = Observation {
             fraction: 0.1 + 0.2,
             ..a
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let b = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            fraction: 0.1 + 0.2,
+            ..a
+        };
+
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let c = Observation { fraction: 0.7, ..a };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let c = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            fraction: 0.7,
+            ..a
+        };
+
         let ds = assemble_many(im, m.0, &[a, b, c], &mut Work::default(), false);
         assert_eq!(ds.len(), 1);
         assert_eq!(ds[0].support, 2);
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let conflict = Observation {
             digits: [1; 13],
             ..b
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let conflict = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            digits: [1; 13],
+            ..b
+        };
+
         assert!(assemble_many(im, m.0, &[a, conflict, c], &mut Work::default(), false).is_empty());
         assert_ne!(canonical_row(0.3), canonical_row(0.3 + 1e-8));
     }
@@ -2136,6 +763,7 @@ mod tests {
         let (p, qs) = fixture(0);
         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
         let m = scan::transform(qs[0]).unwrap();
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let a = Observation {
             short_quiet: false,
             ambiguous: false,
@@ -2147,6 +775,21 @@ mod tests {
             cost: 0.,
             gap: 1.,
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let a = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            short_quiet: false,
+            ambiguous: false,
+            digits: [0; 13],
+            axis: 0,
+            fraction: 0.5,
+            left: 0.,
+            right: 1.,
+            cost: 0.,
+            gap: 1.,
+        };
+
         assert!(assemble_many(im, m.0, &[a, a], &mut Work::default(), false).is_empty());
     }
     #[test]
@@ -2156,27 +799,53 @@ mod tests {
         let m = scan::transform(qs[0]).unwrap();
         let mut obs = vec![];
         for (fraction, value) in [(0.1, 0), (0.2, 0), (0.3, 1), (0.4, 1), (0.5, 0), (0.6, 0)] {
-            obs.push(Observation {
-                short_quiet: false,
-                ambiguous: false,
-                digits: [value; 13],
-                axis: 0,
-                fraction,
-                left: 0.,
-                right: 1.,
-                cost: 0.,
-                gap: 1.,
-            });
+            {
+                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                {
+                    obs.push(Observation {
+                        short_quiet: false,
+                        ambiguous: false,
+                        digits: [value; 13],
+                        axis: 0,
+                        fraction,
+                        left: 0.,
+                        right: 1.,
+                        cost: 0.,
+                        gap: 1.,
+                    });
+                }
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                {
+                    obs.push(Observation {
+                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                        invalid_checksum: false,
+                        short_quiet: false,
+                        ambiguous: false,
+                        digits: [value; 13],
+                        axis: 0,
+                        fraction,
+                        left: 0.,
+                        right: 1.,
+                        cost: 0.,
+                        gap: 1.,
+                    });
+                }
+            }
         }
         let out = assemble_many(im, m.0, &obs, &mut Work::default(), true);
         assert_eq!(out.len(), 3);
         assert!(out.iter().all(|d| d.support == 2));
     }
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Mode-specific acceptance controls share the same adversarial observation fixture."
+    )]
     fn permissive_single_row_is_opt_in_and_keeps_ambiguity_veto() {
         let (p, qs) = fixture(0);
         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
         let m = scan::transform(qs[0]).unwrap().0;
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let o = Observation {
             short_quiet: false,
             ambiguous: false,
@@ -2188,6 +857,21 @@ mod tests {
             cost: 0.,
             gap: 1.,
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let o = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            short_quiet: false,
+            ambiguous: false,
+            digits: [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7],
+            axis: 0,
+            fraction: 0.5,
+            left: 0.,
+            right: 1.,
+            cost: 0.,
+            gap: 1.,
+        };
+
         let run = |obs: &[Observation], allow| {
             assemble_many_budget_options(
                 im,
@@ -2204,59 +888,164 @@ mod tests {
         assert_eq!(ds.len(), 1);
         assert_eq!(ds[0].support, 1);
         assert!((distance(ds[0].polygon[0], ds[0].polygon[3]) - 1.).abs() < 1e-8);
-        assert!(run(
-            &[Observation {
-                ambiguous: true,
-                ..o
-            }],
-            true
-        )
-        .is_empty());
-        assert!(run(
-            &[Observation {
-                short_quiet: true,
-                ..o
-            }],
-            true
-        )
-        .is_empty());
-        for fraction in [0.5005, 0.505] {
-            assert!(run(
-                &[
-                    o,
-                    Observation {
-                        fraction,
+        {
+            #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+            {
+                assert!(run(
+                    &[Observation {
                         ambiguous: true,
                         ..o
-                    }
-                ],
-                true
-            )
-            .is_empty());
-            assert!(run(
-                &[
-                    o,
-                    Observation {
-                        fraction,
-                        digits: [4; 13],
+                    }],
+                    true
+                )
+                .is_empty());
+            }
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            {
+                assert!(run(
+                    &[Observation {
+                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                        invalid_checksum: false,
+                        ambiguous: true,
                         ..o
-                    }
-                ],
-                true
-            )
-            .is_empty());
+                    }],
+                    true
+                )
+                .is_empty());
+            }
         }
-        assert!(run(
-            &[
-                o,
-                Observation {
-                    digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
-                    ..o
+
+        {
+            #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+            {
+                assert!(run(
+                    &[Observation {
+                        short_quiet: true,
+                        ..o
+                    }],
+                    true
+                )
+                .is_empty());
+            }
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            {
+                assert!(run(
+                    &[Observation {
+                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                        invalid_checksum: false,
+                        short_quiet: true,
+                        ..o
+                    }],
+                    true
+                )
+                .is_empty());
+            }
+        }
+
+        for fraction in [0.5005, 0.505] {
+            {
+                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                {
+                    assert!(run(
+                        &[
+                            o,
+                            Observation {
+                                fraction,
+                                ambiguous: true,
+                                ..o
+                            }
+                        ],
+                        true
+                    )
+                    .is_empty());
                 }
-            ],
-            true
-        )
-        .is_empty());
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                {
+                    assert!(run(
+                        &[
+                            o,
+                            Observation {
+                                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                                invalid_checksum: false,
+                                fraction,
+                                ambiguous: true,
+                                ..o
+                            }
+                        ],
+                        true
+                    )
+                    .is_empty());
+                }
+            }
+
+            {
+                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                {
+                    assert!(run(
+                        &[
+                            o,
+                            Observation {
+                                fraction,
+                                digits: [4; 13],
+                                ..o
+                            }
+                        ],
+                        true
+                    )
+                    .is_empty());
+                }
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                {
+                    assert!(run(
+                        &[
+                            o,
+                            Observation {
+                                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                                invalid_checksum: false,
+                                fraction,
+                                digits: [4; 13],
+                                ..o
+                            }
+                        ],
+                        true
+                    )
+                    .is_empty());
+                }
+            }
+        }
+        {
+            #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+            {
+                assert!(run(
+                    &[
+                        o,
+                        Observation {
+                            digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+                            ..o
+                        }
+                    ],
+                    true
+                )
+                .is_empty());
+            }
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            {
+                assert!(run(
+                    &[
+                        o,
+                        Observation {
+                            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                            invalid_checksum: false,
+                            digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+                            ..o
+                        }
+                    ],
+                    true
+                )
+                .is_empty());
+            }
+        }
+
         assert_eq!(run(&[o, o, o], true)[0].support, 1);
     }
     #[test]
@@ -2264,6 +1053,7 @@ mod tests {
         let (p, qs) = fixture(0);
         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
         let m = scan::transform(qs[0]).unwrap();
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let o = |fraction, digits| Observation {
             short_quiet: false,
             ambiguous: false,
@@ -2275,6 +1065,21 @@ mod tests {
             cost: 0.,
             gap: 1.,
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let o = |fraction, digits| Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            short_quiet: false,
+            ambiguous: false,
+            digits,
+            axis: 0,
+            fraction,
+            left: 0.,
+            right: 1.,
+            cost: 0.,
+            gap: 1.,
+        };
+
         let obs = [
             o(0.1, [0; 13]),
             o(0.2, [0; 13]),
@@ -2298,6 +1103,7 @@ mod tests {
         let (p, qs) = fixture(0);
         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
         let m = scan::transform(qs[0]).unwrap();
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let a = Observation {
             short_quiet: false,
             ambiguous: false,
@@ -2309,7 +1115,31 @@ mod tests {
             cost: 0.,
             gap: 1.,
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let a = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            short_quiet: false,
+            ambiguous: false,
+            digits: [0; 13],
+            axis: 0,
+            fraction: 0.2,
+            left: 0.,
+            right: 1.,
+            cost: 0.,
+            gap: 1.,
+        };
+
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let b = Observation { fraction: 0.8, ..a };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let b = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            fraction: 0.8,
+            ..a
+        };
+
         for (checks, pixels) in [(0, 100_000), (100, 31)] {
             let mut work = Work::default();
             let mut budget = AssociationBudget {
@@ -2332,7 +1162,6 @@ mod tests {
             b,
             &mut work,
             Some(&mut AssociationBudget::default()),
-            #[cfg(feature = "experimental-gap-density")]
             &mut std::collections::HashMap::new()
         ));
         assert_eq!(work.continuity_capped_links, 1);
@@ -2377,104 +1206,7 @@ mod tests {
             assert!(!out.is_empty());
         }
     }
-    #[cfg(feature = "experimental-native-sharpen")]
-    #[test]
-    fn sharpening_requires_successful_normalization() {
-        let mut ex = Experiment::default();
-        for value in [0., 0.5, 1., 24., 255.] {
-            ex.signal = vec![value; 200];
-            ex.raw_signal = ex.signal.clone();
-            assert!(!ex.normalize_interior(-0.15, 1.15, &mut Work::default()));
-            let before = ex.signal.clone();
-            assert!(!ex.sharpen_native_profile(false));
-            assert_eq!(ex.signal, before);
-        }
-        for n in [75, 385, 512] {
-            ex.signal = vec![0.; n];
-            assert!(!ex.sharpen_native_profile(true));
-        }
-        for value in [f32::NAN, f32::INFINITY, -0.1, 1.1] {
-            ex.signal = vec![0.; 200];
-            ex.signal[100] = value;
-            assert!(!ex.sharpen_native_profile(true));
-        }
-    }
-    #[cfg(feature = "experimental-native-sharpen")]
-    #[test]
-    fn sharpening_keeps_quiet_endpoints_and_cannot_multiply_row_support() {
-        let mut ex = Experiment::default();
-        ex.signal = vec![0.; 240];
-        for i in 0..190 {
-            ex.signal[25 + i] = (BITS.as_bytes()[i / 2] - b'0') as f32;
-        }
-        let mut observations = vec![];
-        let mut work = Work::default();
-        ex.collect_policy(0, 0.5, 0., 1., &mut work, &mut observations, true, true);
-        assert!(!observations.is_empty());
-        assert!(ex.sharpen_native_profile(true));
-        assert_eq!(ex.signal[0], 0.);
-        assert_eq!(ex.signal[239], 0.);
-        ex.collect_policy(0, 0.5, 0., 1., &mut work, &mut observations, true, true);
-        let (p, qs) = fixture(0);
-        let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
-        let m = scan::transform(qs[0]).unwrap();
-        assert!(assemble_many(im, m.0, &observations, &mut Work::default(), true).is_empty());
-    }
-    #[cfg(feature = "experimental-native-sharpen")]
-    #[test]
-    fn filtered_unfiltered_conflict_vetoes_a_physical_row() {
-        let (p, qs) = fixture(0);
-        let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
-        let m = scan::transform(qs[0]).unwrap();
-        let raw = Observation {
-            short_quiet: false,
-            ambiguous: false,
-            digits: [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7],
-            axis: 0,
-            fraction: 0.3,
-            left: 0.,
-            right: 1.,
-            cost: 0.,
-            gap: 1.,
-        };
-        let filtered = Observation {
-            digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
-            ..raw
-        };
-        let second = Observation {
-            fraction: 0.7,
-            ..raw
-        };
-        assert_eq!(
-            assemble_many(im, m.0, &[raw, second], &mut Work::default(), false).len(),
-            1
-        );
-        let mut work = Work::default();
-        assert!(assemble_many(im, m.0, &[raw, filtered, second], &mut work, false).is_empty());
-        assert!(work.conflicts > 0);
-    }
-    #[cfg(feature = "experimental-native-sharpen")]
-    #[test]
-    fn sharpening_damaged_guards_and_low_amplitude_noise_do_not_read() {
-        let mut ex = Experiment::default();
-        for damaged in [false, true] {
-            ex.signal = (0..240)
-                .map(|i| if i % 2 == 0 { 0.49 } else { 0.51 })
-                .collect();
-            if damaged {
-                ex.signal.fill(0.);
-                for i in 0..190 {
-                    ex.signal[25 + i] = (BITS.as_bytes()[i / 2] - b'0') as f32;
-                }
-                ex.signal[25..31].fill(0.);
-                ex.signal[209..215].fill(0.);
-            }
-            assert!(ex.sharpen_native_profile(true));
-            let mut obs = vec![];
-            ex.collect_policy(0, 0.5, 0., 1., &mut Work::default(), &mut obs, true, true);
-            assert!(obs.iter().all(|o| o.ambiguous));
-        }
-    }
+
     #[test]
     #[expect(
         clippy::float_cmp,
@@ -2627,6 +1359,7 @@ mod tests {
         let pixels = vec![255; 600 * 200];
         let im = ImageView::new(&pixels, 600, 200, 1, 600).unwrap();
         let m = scan::transform([[0., 0.], [600., 0.], [600., 200.], [0., 200.]]).unwrap();
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let a = Observation {
             short_quiet: false,
             ambiguous: false,
@@ -2638,6 +1371,22 @@ mod tests {
             cost: 0.,
             gap: 1.,
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let a = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            short_quiet: false,
+            ambiguous: false,
+            digits: [1; 13],
+            axis: 0,
+            fraction: 0.2,
+            left: 0.1,
+            right: 0.4,
+            cost: 0.,
+            gap: 1.,
+        };
+
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let b = Observation {
             digits: [2; 13],
             fraction: 0.5,
@@ -2645,6 +1394,17 @@ mod tests {
             right: 0.9,
             ..a
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let b = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            digits: [2; 13],
+            fraction: 0.5,
+            left: 0.6,
+            right: 0.9,
+            ..a
+        };
+
         for pixels_left in [0, 31] {
             let mut width = Work::default();
             let mut budget = AssociationBudget {
@@ -2659,7 +1419,6 @@ mod tests {
         }
     }
 }
-
 #[cfg(test)]
 mod diagnostic_validation_tests {
     use super::*;
@@ -2679,7 +1438,6 @@ mod diagnostic_validation_tests {
         }
     }
 }
-
 #[cfg(test)]
 mod segment_diagnostic_tests {
     use super::*;
@@ -2690,31 +1448,7 @@ mod segment_diagnostic_tests {
             .collect();
         let im = ImageView::new(&pixels, 128, 96, 1, 128).unwrap();
         let q = [[15., 12.], [110., 17.], [105., 80.], [20., 85.]];
-        let m = scan::transform(q).unwrap();
         let mut e = Experiment::default();
-        for axis in 0..2 {
-            let n = crate::numeric::f64_usize(
-                distance(
-                    point(m.0, axis, -0.15, 0.5).unwrap(),
-                    point(m.0, axis, 1.15, 0.5).unwrap(),
-                )
-                .ceil()
-                .clamp(64., 4096.),
-            );
-            if !cfg!(feature = "experimental-nearest-lowres") {
-                assert_eq!(
-                    e.diagnostic_profile(im, q, axis, 0.5, true).unwrap(),
-                    e.diagnostic_segment(im, q, axis, 0.5, -0.15, 1.15, n, false)
-                        .unwrap()
-                );
-                assert_eq!(
-                    e.diagnostic_interior_profile(im, q, axis, 0.5, true)
-                        .unwrap(),
-                    e.diagnostic_segment(im, q, axis, 0.5, -0.15, 1.15, n, true)
-                        .unwrap()
-                );
-            }
-        }
         for (axis, f, lo, hi, n) in [
             (2, 0.5, 0., 1., 64),
             (0, f64::NAN, 0., 1., 64),
@@ -2729,7 +1463,6 @@ mod segment_diagnostic_tests {
         }
     }
 }
-
 #[cfg(test)]
 mod interior_bounds_tests {
     use super::*;
@@ -2760,7 +1493,6 @@ mod interior_bounds_tests {
         }
     }
 }
-
 #[cfg(test)]
 mod low_contrast_signal_tests {
     use super::*;
@@ -2832,7 +1564,6 @@ mod low_contrast_signal_tests {
         }
     }
 }
-
 #[cfg(test)]
 mod evidence_span_tests {
     use super::*;
@@ -2852,6 +1583,7 @@ mod evidence_span_tests {
         let im = ImageView::new(&pixels, width, h, 1, width).unwrap();
         let quad = [[0., 0.], [360., 0.], [360., 100.], [0., 100.]];
         let m = scan::transform(quad).unwrap().0;
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let obs = |f, cost, gap| Observation {
             short_quiet: false,
             ambiguous: false,
@@ -2863,6 +1595,21 @@ mod evidence_span_tests {
             cost,
             gap,
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let obs = |f, cost, gap| Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            short_quiet: false,
+            ambiguous: false,
+            digits: d,
+            axis: 0,
+            fraction: f,
+            left: 30. / 360.,
+            right: 315. / 360.,
+            cost,
+            gap,
+        };
+
         for strong in [false, true] {
             let cost = if strong { 0.04 } else { 0.11 };
             let pair = [obs(0.5, cost, 0.11), obs(0.52, cost, 0.11)];
@@ -2931,7 +1678,7 @@ mod lowres_threshold_tests {
         }
     }
 }
-#[cfg(all(test, feature = "experimental-nearest-lowres"))]
+#[cfg(test)]
 mod nearest_lowres_tests {
     use super::*;
     #[test]
@@ -2948,7 +1695,7 @@ mod nearest_lowres_tests {
         assert!(nearest < bilinear);
     }
 }
-#[cfg(all(test, feature = "experimental-forward-blur"))]
+#[cfg(test)]
 mod forward_blur_region_tests {
     use super::*;
     fn physical_row(d: &[u8; 13]) -> [u8; 512] {
@@ -2987,7 +1734,25 @@ mod forward_blur_region_tests {
         assert_eq!(result.len(), 1);
         let c = &result[0];
         assert_eq!(c.coverage, q);
-        assert_eq!(c.work.discovery_paths, 10);
+        #[cfg(feature = "mode-low")]
+        {
+            assert!(
+                (5..=10).contains(&c.work.discovery_paths),
+                "both normalized axes and at least five native module-axis rows"
+            );
+        }
+        #[cfg(any(feature = "mode-medium", feature = "mode-high"))]
+        {
+            assert_eq!(c.work.discovery_paths, 10);
+        }
+        #[cfg(feature = "mode-very-high")]
+        {
+            assert_eq!(c.work.discovery_requests, 10);
+        }
+        #[cfg(feature = "mode-very-high")]
+        {
+            assert!(c.work.discovery_paths >= 4);
+        }
         assert!(c.work.forward_blur_calls > 0);
         assert!(c.work.forward_blur_windows > 0);
         assert!(c.work.forward_blur_accepted_windows > 0);
@@ -2999,8 +1764,7 @@ mod forward_blur_region_tests {
         assert!(c.work.forward_blur_model_attempts <= c.work.forward_blur_calls * 24);
     }
 }
-
-#[cfg(all(test, feature = "experimental-gap-density"))]
+#[cfg(test)]
 mod dark_gap_replay_tests {
     use super::*;
     // Fixed grayscale samples from an ordinary continuous barcode under glare.
@@ -3098,6 +1862,7 @@ mod dark_gap_replay_tests {
         }
         let quad = [[0., 0.], [384., 0.], [384., 4.], [0., 4.]];
         let m = scan::transform(quad).unwrap().0;
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let a = Observation {
             short_quiet: false,
             ambiguous: false,
@@ -3109,10 +1874,34 @@ mod dark_gap_replay_tests {
             cost: 0.,
             gap: 1.,
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let a = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            short_quiet: false,
+            ambiguous: false,
+            digits: [0; 13],
+            axis: 0,
+            fraction: 0.125,
+            left: 0.,
+            right: 1.,
+            cost: 0.,
+            gap: 1.,
+        };
+
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         let b = Observation {
             fraction: 0.625,
             ..a
         };
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let b = Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            fraction: 0.625,
+            ..a
+        };
+
         let mut width = Work::default();
         let mut budget = AssociationBudget::default();
         assert!(connected_density(
@@ -3140,8 +1929,7 @@ mod dark_gap_replay_tests {
         assert!(width.continuity_rejects > 0);
     }
 }
-
-#[cfg(all(test, feature = "experimental-structural-retry"))]
+#[cfg(all(test, any(feature = "mode-low", feature = "mode-very-high")))]
 mod structural_run_count_tests {
     use super::*;
     #[test]
@@ -3166,12 +1954,7 @@ mod structural_run_count_tests {
         assert_eq!(work.max_run_count, frozen);
     }
 }
-
-#[cfg(all(
-    test,
-    feature = "experimental-redundant-decode",
-    feature = "experimental-local-contrast"
-))]
+#[cfg(test)]
 mod redundant_collection_test {
     use super::*;
     #[test]
@@ -3211,8 +1994,7 @@ mod redundant_collection_test {
             .all(|o| o.axis == 0 && o.fraction == 0.35));
     }
 }
-
-#[cfg(all(test, feature = "experimental-asymmetric-quiet"))]
+#[cfg(test)]
 mod folded_boundary_confirmation_tests {
     use super::*;
     const A: [u8; 13] = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
@@ -3281,12 +2063,185 @@ mod folded_boundary_confirmation_tests {
                     1
                 );
                 let mut conflict = obs[..4].to_vec();
-                conflict.push(Observation {
-                    ambiguous: true,
-                    ..obs[1]
-                });
+                {
+                    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                    {
+                        conflict.push(Observation {
+                            ambiguous: true,
+                            ..obs[1]
+                        });
+                    }
+                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                    {
+                        conflict.push(Observation {
+                            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                            invalid_checksum: false,
+                            ambiguous: true,
+                            ..obs[1]
+                        });
+                    }
+                }
+
                 assert!(assemble_many(im, m.0, &conflict, &mut Work::default(), true).is_empty());
             }
         }
+    }
+}
+#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+#[cfg(all(test, any(feature = "mode-high", feature = "mode-very-high")))]
+mod invalid_consensus_tests {
+    use super::*;
+    #[test]
+    fn invalid_values_never_escape_and_only_three_distinct_rows_block() {
+        let pixels: Vec<u8> = (0..600 * 100)
+            .map(|i| if i % 600 % 4 < 2 { 0 } else { 255 })
+            .collect();
+        let im = ImageView::new(&pixels, 600, 100, 1, 600).unwrap();
+        let q = [[0., 0.], [599., 0.], [599., 99.], [0., 99.]];
+        let m = scan::transform(q).unwrap().0;
+        let good = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
+        let mut bad = good;
+        bad[12] = 8;
+        let o = |fraction, invalid, left, right| Observation {
+            invalid_checksum: invalid,
+            short_quiet: false,
+            ambiguous: invalid,
+            digits: if invalid { bad } else { good },
+            axis: 0,
+            fraction,
+            left,
+            right,
+            cost: 0.01,
+            gap: 0.2,
+        };
+        let run = |rows: &[Observation]| {
+            let mut w = Work::default();
+            let out = assemble_many_budget_inner(
+                im,
+                m,
+                rows,
+                &mut w,
+                true,
+                &mut AssociationBudget::default(),
+                false,
+            );
+            (out, w)
+        };
+        let invalid: Vec<_> = [0.2, 0.5, 0.8]
+            .into_iter()
+            .map(|f| o(f, true, 0.05, 0.45))
+            .collect();
+        let (out, w) = run(&invalid);
+        assert!(out.is_empty());
+        assert!(w.invalid_consensus_blocks >= 3);
+        let valid: Vec<_> = [0.2, 0.5, 0.8]
+            .into_iter()
+            .map(|f| o(f, false, 0.05, 0.45))
+            .collect();
+        let mut all = valid.clone();
+        all.extend(&invalid);
+        assert!(run(&all).0.is_empty());
+        let mut only_two = valid.clone();
+        only_two.extend(&invalid[..2]);
+        assert!(run(&only_two).0.iter().any(|d| d.digits == good));
+        let mut duplicate = valid.clone();
+        duplicate.extend([invalid[0]; 8]);
+        assert!(run(&duplicate).0.iter().any(|d| d.digits == good));
+        let mut separated = invalid;
+        separated.extend([0.2, 0.5, 0.8].into_iter().map(|f| o(f, false, 0.55, 0.95)));
+        let result = run(&separated).0;
+        assert!(result.iter().any(|d| d.digits == good));
+        assert!(result.iter().all(|d| d.digits != bad));
+    }
+}
+#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+#[cfg(all(test, any(feature = "mode-high", feature = "mode-very-high")))]
+mod invalid_spacing_tests {
+    use super::*;
+    #[test]
+    fn fractional_repeats_do_not_count_as_distinct_source_rows() {
+        let q = [[0., 0.], [199., 0.], [199., 99.], [0., 99.]];
+        let m = scan::transform(q).unwrap().0;
+        let d = Detection {
+            digits: [1; 13],
+            polygon: q,
+            support: 3,
+            axis: 0,
+        };
+        let obs = |fraction| Observation {
+            invalid_checksum: true,
+            short_quiet: false,
+            ambiguous: true,
+            digits: [1; 13],
+            axis: 0,
+            fraction,
+            left: 0.1,
+            right: 0.9,
+            cost: 0.01,
+            gap: 0.2,
+        };
+        let spaced = |v: &[Observation]| {
+            invalid_track_spaced(
+                m,
+                &d,
+                v,
+                &mut AssociationBudget::default(),
+                &mut Work::default(),
+            )
+        };
+        assert!(!spaced(&[obs(0.3), obs(0.3001), obs(0.3002)]));
+        assert!(!spaced(&[obs(0.3), obs(0.3001), obs(0.4)]));
+        assert!(spaced(&[obs(0.3), obs(0.32), obs(0.4)]));
+        assert!(!spaced(&[obs(0.3), obs(0.3), obs(0.4)]));
+    }
+}
+#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+#[cfg(all(test, any(feature = "mode-high", feature = "mode-very-high")))]
+mod invalid_bounded_tests {
+    use super::*;
+    #[test]
+    fn wide_unsupported_interval_cannot_borrow_narrow_track_support() {
+        let matrix = scan::transform([[0., 0.], [100., 0.], [100., 100.], [0., 100.]])
+            .unwrap()
+            .0;
+        let d = Detection {
+            digits: [1; 13],
+            polygon: [
+                point(matrix, 0, 0.3, 0.2).unwrap(),
+                point(matrix, 0, 0.5, 0.2).unwrap(),
+                point(matrix, 0, 0.5, 0.8).unwrap(),
+                point(matrix, 0, 0.3, 0.8).unwrap(),
+            ],
+            support: 3,
+            axis: 0,
+        };
+        let o = Observation {
+            invalid_checksum: true,
+            short_quiet: false,
+            ambiguous: true,
+            digits: [1; 13],
+            axis: 0,
+            fraction: 0.5,
+            left: 0.,
+            right: 0.8,
+            cost: 0.01,
+            gap: 0.2,
+        };
+        assert!(invalid_contains(&d, [40., 50.]));
+        assert!(invalid_interval(matrix, &d, &o).is_none());
+        let o = Observation {
+            left: 0.3,
+            right: 0.5,
+            ..o
+        };
+        assert!(invalid_interval(matrix, &d, &o).is_some());
+        let mut work = Work::default();
+        let mut b = AssociationBudget {
+            checks_left: 0,
+            pixels_left: 1000,
+        };
+        assert!(!invalid_track_spaced(matrix, &d, &[o], &mut b, &mut work));
+        assert_eq!(work.association_truncated, 1);
+        assert_eq!(work.association_checks, 0);
     }
 }

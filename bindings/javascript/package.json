@@ -13,10 +13,10 @@
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-rust-api-20260922.wasm",
-    "wasm/medium-rust-api-20260922.wasm",
-    "wasm/high-rust-api-20260922.wasm",
-    "wasm/very-high-rust-api-20260922.wasm"
+    "wasm/low-maintained-core-20260922.wasm",
+    "wasm/medium-maintained-core-20260922.wasm",
+    "wasm/high-maintained-core-20260922.wasm",
+    "wasm/very-high-maintained-core-20260922.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

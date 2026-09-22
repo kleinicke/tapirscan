@@ -22,7 +22,7 @@ pub struct Session {
     adaptive: crate::preprocess::AdaptiveThreshold,
     enhance: crate::enhance::UpscaleSharpen,
     localizer: crate::localize::Localizer,
-    #[cfg(not(feature = "experimental-classical-orientation"))]
+
     oriented: crate::oriented::Localizer,
     proposals: [f64; 60],
     profile_digits: [u8; 13],
@@ -57,7 +57,7 @@ pub extern "C" fn sampler_new() -> *mut Session {
         adaptive: crate::preprocess::AdaptiveThreshold::default(),
         enhance: crate::enhance::UpscaleSharpen::default(),
         localizer: crate::localize::Localizer::default(),
-        #[cfg(not(feature = "experimental-classical-orientation"))]
+
         oriented: crate::oriented::Localizer::default(),
         proposals: [0.; 60],
         profile_digits: [0; 13],
@@ -462,11 +462,7 @@ pub unsafe extern "C" fn sampler_oriented(s: *mut Session) -> i32 {
     let Ok(image) = ImageView::new(&s.image, w, h, c, stride) else {
         return -1;
     };
-    #[cfg(feature = "experimental-classical-orientation")]
-    let Ok(found) = s.localizer.oriented_bands(image) else {
-        return -1;
-    };
-    #[cfg(not(feature = "experimental-classical-orientation"))]
+
     let Ok(found) = s.oriented.detect(image) else {
         return -1;
     };
@@ -717,7 +713,6 @@ pub unsafe extern "C" fn sampler_rgba_height(s: *mut Session) -> usize {
     (*s).rgba.dimensions().1
 }
 
-#[cfg(feature = "experimental-orientation-stripes")]
 #[no_mangle]
 pub unsafe extern "C" fn sampler_stripes(s: *mut Session) -> i32 {
     let s = &mut *s;

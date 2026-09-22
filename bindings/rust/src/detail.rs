@@ -5,6 +5,7 @@
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
+use crate::read::{Read, Recovery, Region};
 use crate::{Barcode, Error, Image, Proposal, Quad};
 use serde_json::{json, Value};
 
@@ -315,6 +316,14 @@ fn upscale(im: Image<'_>, x: usize, y: usize, w: usize, h: usize) -> Vec<u8> {
     }
     data
 }
+#[derive(Clone, Copy)]
+pub(super) struct RecoveryOptions {
+    pub directions: usize,
+    pub complete: bool,
+    pub shared_retail: bool,
+    pub diagnostics: bool,
+}
+
 /// Runtime evidence is returned separately to preserve each crop's candidate namespace.
 // Keep the pinned JavaScript equations and operation order directly comparable.
 #[allow(clippy::many_single_char_names, clippy::too_many_lines)]
@@ -322,16 +331,22 @@ pub fn recover(
     im: Image<'_>,
     primary: &mut Vec<Barcode>,
     scanner: &mut recovery_core::region_scan::RegionScanner,
-    directions: usize,
     coverage: &[Quad],
-    complete: bool,
-    shared_retail: bool,
-) -> Result<Value, Error> {
+    options: RecoveryOptions,
+) -> Result<Recovery, Error> {
+    let RecoveryOptions {
+        directions,
+        complete,
+        shared_retail,
+        diagnostics,
+    } = options;
     let start = crate::timer::Timer::start();
     let seeds = seeds(im);
     let mut attempts = Vec::new();
     let mut proposals = Vec::new();
     let mut additions = Vec::new();
+    let mut unread = Vec::new();
+    let mut retail_reads = Vec::new();
     for seed in &seeds {
         if coverage
             .iter()
@@ -389,27 +404,38 @@ pub fn recover(
             let result = scanner
                 .scan(view, &[q], policy)
                 .map_err(|_| Error::Parameters)?;
-            let mut raw: Value =
-                serde_json::from_str(&recovery_core::region_json::frame_json(&result.frame))
+            let mut raw: Option<Value> = if diagnostics {
+                Some(
+                    serde_json::from_str(&recovery_core::region_json::frame_json(&result.frame))
+                        .map_err(|_| Error::OutputShape)?,
+                )
+            } else {
+                None
+            };
+            if let Some(retail) = scanner.retail_finish_typed(view, &result.frame, diagnostics) {
+                if let Some(raw) = &mut raw {
+                    raw["retail"] = serde_json::from_str(
+                        retail.diagnostics.as_deref().ok_or(Error::OutputShape)?,
+                    )
                     .map_err(|_| Error::OutputShape)?;
-            if let Some(retail) = scanner.retail_finish(view, &result.frame) {
-                raw["retail"] = serde_json::from_str(&retail).map_err(|_| Error::OutputShape)?;
+                }
+                for d in retail.detections {
+                    let polygon = d
+                        .polygon
+                        .map(|[a, b]| [x as f64 + a / 3., y as f64 + b / 3.]);
+                    retail_reads.push(Read::retail(d.digits, polygon, d.support));
+                }
             }
             let mut reads = Vec::new();
             let mut deferred = Vec::new();
             let mut seed_covered = false;
-            for (b, raw_read) in result
-                .frame
-                .barcodes
-                .iter()
-                .zip(raw["barcodes"].as_array().ok_or(Error::OutputShape)?)
-            {
+            for b in &result.frame.barcodes {
                 let d = &b.detection;
                 let p = d
                     .polygon
                     .map(|[a, b]| [x as f64 + a / 3., y as f64 + b / 3.]);
-                let mut read = raw_read.clone();
-                read["polygon"] = json!(p);
+                let read =
+                    Read::primary(d.digits, p, d.support, d.axis, b.candidate_indices.clone());
                 if span(p) < 1. {
                     deferred.push(read);
                     continue;
@@ -421,7 +447,9 @@ pub fn recover(
                 if !primary.iter().any(|old| {
                     old.detection.digits == d.digits && covered(im, center, old.detection.polygon)
                 }) {
-                    additions.push(read.clone());
+                    if diagnostics {
+                        additions.push(read.clone());
+                    }
                     primary.push(Barcode {
                         detection: barcode_research_core::experiment::Detection {
                             digits: d.digits,
@@ -434,15 +462,34 @@ pub fn recover(
                 }
                 reads.push(read);
             }
-            let proposal = json!({"polygon":polygon,"score":seed.score,"text":""});
-            proposals.push(proposal.clone());
-            attempts.push(json!({"x":x,"y":y,"w":w,"h":h,"factor":3,"frame":raw,"reads":reads,"deferredReads":deferred,"proposals":[proposal],"unfinished":result.frame.unfinished||!deferred.is_empty()}));
+            if !reads.iter().any(|read| {
+                read.candidate_indices
+                    .as_ref()
+                    .is_some_and(|indices| indices.contains(&0))
+            }) {
+                unread.push(Region::unknown(polygon));
+            }
+            if diagnostics {
+                // Recovery reads historically omit format; keep the raw diagnostic schema.
+                let raw_reads = |reads: &[Read]| {
+                    reads.iter().map(|read| json!({"text":read.text,"polygon":read.polygon,"support":read.support,"axis":read.axis,"candidate_indices":read.candidate_indices})).collect::<Vec<_>>()
+                };
+                let proposal = json!({"polygon":polygon,"score":seed.score,"text":""});
+                proposals.push(proposal.clone());
+                attempts.push(json!({"x":x,"y":y,"w":w,"h":h,"factor":3,"frame":raw,"reads":raw_reads(&reads),"deferredReads":raw_reads(&deferred),"proposals":[proposal],"unfinished":result.frame.unfinished||!deferred.is_empty()}));
+            }
             if seed_covered {
                 break;
             }
         }
     }
-    Ok(
-        json!({"additions":additions,"attempts":attempts,"proposals":proposals,"extraMs":start.elapsed().as_secs_f64()*1000.,"searchLimited":true}),
-    )
+    let diagnostics = diagnostics.then(|| {
+        let additions: Vec<_> = additions.iter().map(|read| json!({"text":read.text,"polygon":read.polygon,"support":read.support,"axis":read.axis,"candidate_indices":read.candidate_indices})).collect();
+        json!({"additions":additions,"attempts":attempts,"proposals":proposals,"extraMs":start.elapsed().as_secs_f64()*1000.,"searchLimited":true})
+    });
+    Ok(Recovery {
+        unread,
+        retail: retail_reads,
+        diagnostics,
+    })
 }

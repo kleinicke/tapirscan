@@ -2,19 +2,35 @@
 //! expected symbol counts. All original candidates receive the fixed pass before
 //! round-robin retries, including candidates that already produced a read.
 #![forbid(unsafe_code)]
+mod plan;
 use crate::scanner_clock::Timer;
 use crate::{
     experiment::{self, Candidate, Experiment, Work},
     sampling::{Error, ImageView},
     scan::{self, Quad},
 };
-
+#[cfg(test)]
+use plan::{claimed_interval, plan, scaled_plan_allowance};
+use plan::{
+    project_claim, projected_interval, scaled_plan, scaled_plan_density, supported_scale_width,
+    supported_scale_width_checked, unresolved_plan,
+};
 #[expect(
     clippy::struct_excessive_bools,
     reason = "These independent research switches form a combinatorial experiment policy, not mutually exclusive states."
 )]
 #[derive(Clone, Copy, Debug)]
 pub struct Policy {
+    #[cfg(any(
+        feature = "mode-medium",
+        feature = "mode-high",
+        feature = "mode-very-high"
+    ))]
+    /// Deep-retry selection; initial discovery remains enabled for every candidate.
+    pub candidate_retry_mask: u64,
+    /// Remove shared frame execution/association budgets. Per-candidate effort,
+    /// weak-candidate deferral, sampling geometry and safety caps still apply.
+    pub complete: bool,
     pub max_retry_paths_per_candidate: usize,
     pub max_retry_paths_per_frame: usize,
     pub max_association_checks: usize,
@@ -28,17 +44,44 @@ pub struct Policy {
 }
 impl Default for Policy {
     fn default() -> Self {
-        Self {
-            max_retry_paths_per_candidate: 512,
-            max_retry_paths_per_frame: 8192,
-            max_association_checks: 200_000,
-            max_association_pixels: 2_000_000,
-            max_results: 1024,
-            transition_cleanup: false,
-            source_identity: false,
-            interior_normalization: false,
-            guard_bias: false,
-            allow_single_row: false,
+        {
+            #[cfg(feature = "mode-low")]
+            {
+                Self {
+                    complete: false,
+                    max_retry_paths_per_candidate: 512,
+                    max_retry_paths_per_frame: 8192,
+                    max_association_checks: 200_000,
+                    max_association_pixels: 2_000_000,
+                    max_results: 1024,
+                    transition_cleanup: false,
+                    source_identity: false,
+                    interior_normalization: false,
+                    guard_bias: false,
+                    allow_single_row: false,
+                }
+            }
+            #[cfg(any(
+                feature = "mode-medium",
+                feature = "mode-high",
+                feature = "mode-very-high"
+            ))]
+            {
+                Self {
+                    candidate_retry_mask: u64::MAX,
+                    complete: false,
+                    max_retry_paths_per_candidate: 512,
+                    max_retry_paths_per_frame: 8192,
+                    max_association_checks: 200_000,
+                    max_association_pixels: 2_000_000,
+                    max_results: 1024,
+                    transition_cleanup: false,
+                    source_identity: false,
+                    interior_normalization: false,
+                    guard_bias: false,
+                    allow_single_row: false,
+                }
+            }
         }
     }
 }
@@ -53,445 +96,50 @@ struct Segment {
     unresolved: bool,
 }
 
-#[cfg(feature = "experimental-verified-coverage-reuse")]
 #[path = "verified_coverage.rs"]
 mod verified_coverage;
-#[cfg(feature = "experimental-verified-coverage-reuse")]
+
 use verified_coverage::{reuse_plan, verified_claims, ReuseBudget};
 
-/// Breadth-first interval centers spread every short prefix across the extent.
-fn spread_order(n: usize) -> Vec<usize> {
-    let mut queue = std::collections::VecDeque::from([(0, n)]);
-    let mut out = Vec::with_capacity(n);
-    while let Some((lo, hi)) = queue.pop_front() {
-        if lo >= hi {
-            continue;
+// Equal text can denote separate physical barcodes. Only overlapping,
+// agreeing initial detections may share the easier-frame effort allocation.
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+fn multiple_initial<'a>(items: impl Iterator<Item = &'a experiment::Detection>) -> bool {
+    let bounds = |q: Quad| {
+        [
+            q.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min),
+            q.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min),
+            q.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max),
+            q.iter().map(|p| p[1]).fold(f64::NEG_INFINITY, f64::max),
+        ]
+    };
+    let mut seen: Vec<([u8; 13], [f64; 4])> = Vec::new();
+    for d in items {
+        let b = bounds(d.polygon);
+        for (a, q) in &seen {
+            if *a != d.digits
+                || q[2] + 2. < b[0]
+                || b[2] + 2. < q[0]
+                || q[3] + 2. < b[1]
+                || b[3] + 2. < q[1]
+            {
+                return true;
+            }
         }
-        let mid = usize::midpoint(lo, hi);
-        out.push(mid);
-        queue.push_back((lo, mid));
-        queue.push_back((mid + 1, hi));
+        if seen.len() >= 64 {
+            return true;
+        }
+        seen.push((d.digits, b));
     }
-    out
-}
-#[cfg(test)]
-fn plan(m: [f64; 9], policy: Policy, work: &mut Work) -> Result<Vec<Segment>, Error> {
-    scaled_plan(m, policy, work, None, false)
+    false
 }
 
-fn scaled_plan(
-    m: [f64; 9],
-    policy: Policy,
-    work: &mut Work,
-    symbol_width: Option<f64>,
-    scaled: bool,
-) -> Result<Vec<Segment>, Error> {
-    scaled_plan_density(m, policy, work, symbol_width, scaled, false)
-}
-#[cfg_attr(
-    feature = "experimental-unresolved-256",
-    expect(
-        clippy::float_cmp,
-        reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
-    )
-)]
-fn scaled_plan_density(
-    m: [f64; 9],
-    policy: Policy,
-    work: &mut Work,
-    symbol_width: Option<f64>,
-    scaled: bool,
-    dense: bool,
-) -> Result<Vec<Segment>, Error> {
-    let original = scaled_plan_allowance(m, policy, work, symbol_width, scaled, dense, 128)?;
-    #[cfg(feature = "experimental-unresolved-256")]
-    if scaled && symbol_width.is_none() && policy.max_retry_paths_per_candidate > 128 {
-        // Preserve the complete original exploratory prefix, including its
-        // original row/tile order. Append only previously unscheduled work.
-        // Both plans count the same full set as pending; never count it twice.
-        let supplemental = scaled_plan_allowance(
-            m,
-            policy,
-            &mut Work::default(),
-            symbol_width,
-            scaled,
-            dense,
-            256,
-        )?;
-        let mut paths = original;
-        for s in supplemental {
-            if paths.len() >= policy.max_retry_paths_per_candidate.min(256) {
-                break;
-            }
-            if !paths.iter().any(|a| {
-                a.axis == s.axis && a.fraction == s.fraction && a.lo == s.lo && a.hi == s.hi
-            }) {
-                paths.push(s);
-            }
-        }
-        return Ok(paths);
-    }
-    Ok(original)
-}
-#[cfg_attr(
-    feature = "experimental-complete-tile-prefix",
-    expect(
-        clippy::float_cmp,
-        reason = "These values identify the same sampled path or decoded interval; approximate equality would merge distinct evidence and change work ordering."
-    )
-)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "The retry scheduler keeps deterministic stage order, shared budgets and unfinished-work reporting in one transaction."
-)]
-fn scaled_plan_allowance(
-    m: [f64; 9],
-    policy: Policy,
-    work: &mut Work,
-    symbol_width: Option<f64>,
-    scaled: bool,
-    dense: bool,
-    allowance: usize,
-) -> Result<Vec<Segment>, Error> {
-    // Scale affects effort allocation, never digit acceptance. A successful
-    // symbol supplies a visual width, not evidence that its region is exhausted.
-    let cross_step = symbol_width.map_or(24., |w| (w / 12.).max(24.));
-    let window_pixels = symbol_width.map_or(512., |w| (w * 1.3).max(512.));
-    // Unresolved regions have a declared bounded exploratory allowance; expose
-    // the remainder rather than silently treating them as complete coverage.
-    let limit = if scaled && symbol_width.is_none() {
-        policy.max_retry_paths_per_candidate.min(allowance)
-    } else {
-        policy.max_retry_paths_per_candidate
-    };
-    let mut dimensions = [(0., 0., 0usize, 0usize); 2];
-    for (axis, dimensions_entry) in dimensions.iter_mut().enumerate() {
-        let length = experiment::distance(
-            experiment::point(m, axis, 0., 0.5)?,
-            experiment::point(m, axis, 1., 0.5)?,
-        );
-        let cross = experiment::distance(
-            experiment::point(m, axis, 0.5, 0.)?,
-            experiment::point(m, axis, 0.5, 1.)?,
-        );
-        // Unread proposals need sub-row coverage even when their source height is small.
-        // Preserve all existing candidate-first work and global/per-candidate caps.
-        let minimum_rows = if dense || (scaled && symbol_width.is_none()) {
-            21.
-        } else {
-            5.
-        };
-        let requested_rows =
-            crate::numeric::f64_usize((cross / cross_step).ceil().max(minimum_rows));
-        let rows = requested_rows.min(128);
-        // Overlapping 512-source-pixel windows complement the full source path.
-        // Native path length is bounded; fixed512 remains the initial control.
-        let width = (window_pixels / length.max(1.)).min(1.3);
-        let requested_tiles = if width >= 1.3 {
-            0
-        } else {
-            crate::numeric::f64_usize(((1.3 - width) / (width * 0.5)).ceil()).saturating_add(1)
-        };
-        let tiles = requested_tiles.min(64);
-        work.sampling_plan_capped +=
-            usize::from(requested_rows > rows) + usize::from(requested_tiles > tiles);
-        work.retry_paths_pending = work
-            .retry_paths_pending
-            .saturating_add(rows.saturating_mul(1 + tiles));
-        (*dimensions_entry) = (length, width, rows, tiles);
-    }
-    let orders: [Vec<usize>; 2] = std::array::from_fn(|axis| {
-        if scaled {
-            spread_order(dimensions[axis].2)
-        } else {
-            (0..dimensions[axis].2).collect()
-        }
-    });
-    let mut paths = Vec::new();
-    // Unknown-scale prefixes alternate whole rows and spatially spread tiles.
-    // Known-scale control keeps the previous complete-row ordering.
-    let tile_orders: [Vec<usize>; 2] = std::array::from_fn(|axis| spread_order(dimensions[axis].3));
-    let unknown = scaled && symbol_width.is_none();
-    let schedule: Box<dyn Iterator<Item = (usize, usize, usize)>> =
-        if unknown {
-            Box::new((0..128).flat_map(|row| {
-                (0..2).flat_map(move |kind| (0..2).map(move |axis| (kind, row, axis)))
-            }))
-        } else {
-            Box::new((0..=64).flat_map(|tile| {
-                (0..128).flat_map(move |row| (0..2).map(move |axis| (tile, row, axis)))
-            }))
-        };
-    let mut scheduled = [0usize; 2];
-    for (mut tile, row, axis) in schedule {
-        if unknown && tile == 1 {
-            let order = &tile_orders[axis];
-            if order.is_empty() {
-                continue;
-            }
-            tile = 1 + order[row % order.len()];
-        }
-        let (length, width, rows, tiles) = dimensions[axis];
-        if row >= rows || tile > tiles {
-            continue;
-        }
-        if paths.len() >= limit {
-            return Ok(paths);
-        }
-        if unknown {
-            let kind = usize::from(tile > 0);
-            if scheduled[kind] >= allowance / 2 {
-                continue;
-            }
-            scheduled[kind] += 1;
-        }
-        let fraction =
-            (crate::numeric::usize_f64(orders[axis][row]) + 0.5) / crate::numeric::usize_f64(rows);
-        let (lo, hi, samples) = if tile == 0 {
-            (
-                -0.15,
-                1.15,
-                crate::numeric::f64_usize((length * 1.3).ceil().clamp(64., 4096.)),
-            )
-        } else {
-            let lo = -0.15
-                + (1.3 - width) * crate::numeric::usize_f64(tile - 1)
-                    / crate::numeric::usize_f64((tiles - 1).max(1));
-            (
-                lo,
-                lo + width,
-                if cfg!(feature = "experimental-native-wide-tiles") {
-                    crate::numeric::f64_usize((length * width).ceil().clamp(512., 4096.))
-                } else {
-                    512
-                },
-            )
-        };
-        paths.push(Segment {
-            axis,
-            fraction,
-            lo,
-            hi,
-            samples,
-            sample_cap: if tile == 0 {
-                length * 1.3 > 4096.
-            } else {
-                cfg!(feature = "experimental-native-wide-tiles") && length * width > 4096.
-            },
-            unresolved: false,
-        });
-    }
-    // Preserve the exploratory prefix, then visit its unselected row/tile pairs.
-    // These paths were already counted as pending; the same allowance still applies.
-    #[cfg(feature = "experimental-complete-tile-prefix")]
-    if unknown {
-        #[expect(
-            clippy::needless_range_loop,
-            reason = "Rows and tiles are ranks across BOTH axes with unequal list lengths; iterating either axis alone omits pending work on the other."
-        )]
-        for tile_rank in 0..64 {
-            for row in 0..128 {
-                for axis in 0..2 {
-                    let (length, width, rows, tiles) = dimensions[axis];
-                    if row >= rows || tile_rank >= tiles {
-                        continue;
-                    }
-                    if paths.len() >= limit {
-                        return Ok(paths);
-                    }
-                    let tile = tile_orders[axis][tile_rank];
-                    let fraction = (crate::numeric::usize_f64(orders[axis][row]) + 0.5)
-                        / crate::numeric::usize_f64(rows);
-                    let lo = -0.15
-                        + (1.3 - width) * crate::numeric::usize_f64(tile)
-                            / crate::numeric::usize_f64((tiles - 1).max(1));
-                    let hi = lo + width;
-                    if paths.iter().any(|s| {
-                        s.axis == axis && s.fraction == fraction && s.lo == lo && s.hi == hi
-                    }) {
-                        continue;
-                    }
-                    paths.push(Segment {
-                        axis,
-                        fraction,
-                        lo,
-                        hi,
-                        samples: if cfg!(feature = "experimental-native-wide-tiles") {
-                            crate::numeric::f64_usize((length * width).ceil().clamp(512., 4096.))
-                        } else {
-                            512
-                        },
-                        sample_cap: cfg!(feature = "experimental-native-wide-tiles")
-                            && length * width > 4096.,
-                        unresolved: false,
-                    });
-                }
-            }
-        }
-    }
-    Ok(paths)
-}
 // A decoded polygon claims only its actual supported band. Invert source
 // coordinates to find its intersection with a prospective fine probe row.
-#[expect(
-    clippy::many_single_char_names,
-    reason = "The 2x2 projective inverse uses conventional a,b,c,d,e,g coefficients and paired x,y and u,v coordinates."
-)]
-fn claimed_interval(
-    matrix: [f64; 9],
-    axis: usize,
-    fraction: f64,
-    quad: Quad,
-) -> Option<(f64, f64)> {
-    let mut points = [[0.; 2]; 4];
-    for (i, p) in quad.iter().enumerate() {
-        let (x, y) = (p[0] + 0.5, p[1] + 0.5);
-        let (a, b, c, d, e, g) = (
-            matrix[0] - x * matrix[6],
-            matrix[1] - x * matrix[7],
-            x * matrix[8] - matrix[2],
-            matrix[3] - y * matrix[6],
-            matrix[4] - y * matrix[7],
-            y * matrix[8] - matrix[5],
-        );
-        let det = a * e - b * d;
-        if !det.is_finite() || det.abs() < 1e-12 {
-            return None;
-        }
-        let (u, v) = ((c * e - b * g) / det, (a * g - c * d) / det);
-        if !u.is_finite() || !v.is_finite() {
-            return None;
-        }
-        points[i] = if axis == 0 { [u, v] } else { [v, u] };
-    }
-    let mut xs = Vec::with_capacity(4);
-    for i in 0..4 {
-        let (a, b) = (points[i], points[(i + 1) % 4]);
-        if (a[1] <= fraction && fraction < b[1]) || (b[1] <= fraction && fraction < a[1]) {
-            xs.push(a[0] + (b[0] - a[0]) * (fraction - a[1]) / (b[1] - a[1]));
-        }
-    }
-    if xs.len() != 2 {
-        return None;
-    }
-    xs.sort_by(f64::total_cmp);
-    Some((xs[0], xs[1]))
-}
-fn unresolved_plan(
-    m: [f64; 9],
-    detections: &[experiment::Detection],
-    limit: usize,
-    work: &mut Work,
-) -> Result<Vec<Segment>, Error> {
-    let mut paths = Vec::new();
-    let mut orders: [Vec<usize>; 2] = [vec![], vec![]];
-    for (axis, orders_entry) in orders.iter_mut().enumerate() {
-        let cross = experiment::distance(
-            experiment::point(m, axis, 0.5, 0.)?,
-            experiment::point(m, axis, 0.5, 1.)?,
-        );
-        let requested = crate::numeric::f64_usize((cross / 24.).ceil().max(5.));
-        let rows = requested.min(128);
-        work.sampling_plan_capped += usize::from(requested > rows);
-        (*orders_entry) = spread_order(rows);
-    }
-    for rank in 0..128 {
-        for (axis, orders_entry) in orders.iter().enumerate() {
-            let Some(&row) = (*orders_entry).get(rank) else {
-                continue;
-            };
-            let rows = (*orders_entry).len();
-            let fraction = (crate::numeric::usize_f64(row) + 0.5) / crate::numeric::usize_f64(rows);
-            let mut claimed: Vec<_> = detections
-                .iter()
-                .take(64)
-                .filter_map(|d| claimed_interval(m, axis, fraction, d.polygon))
-                .collect();
-            claimed.sort_by(|a, b| a.0.total_cmp(&b.0));
-            let mut intervals = Vec::new();
-            let mut lo = -0.15f64;
-            for (a, b) in claimed {
-                let a = a.clamp(-0.15, 1.15);
-                let b = b.clamp(-0.15, 1.15);
-                if a > lo {
-                    intervals.push((lo, a));
-                }
-                lo = lo.max(b);
-            }
-            if lo < 1.15 {
-                intervals.push((lo, 1.15));
-            }
-            for (lo, hi) in intervals {
-                let length = experiment::distance(
-                    experiment::point(m, axis, lo, fraction)?,
-                    experiment::point(m, axis, hi, fraction)?,
-                );
-                // Below the existing 0.8sample/module gate no EAN can fit at
-                // source resolution. This is a sampling limit, not an instance cap.
-                if length < 76. {
-                    continue;
-                }
-                work.retry_paths_pending += 1;
-                if paths.len() < limit {
-                    paths.push(Segment {
-                        axis,
-                        fraction,
-                        lo,
-                        hi,
-                        samples: crate::numeric::f64_usize(length.ceil().clamp(64., 4096.)),
-                        sample_cap: length > 4096.,
-                        unresolved: true,
-                    });
-                }
-            }
-        }
-    }
-    Ok(paths)
-}
+
 // A low-resolution hint must belong to an already supported spatial symbol.
 // Two unrelated single-row reads are not corroboration of either width.
-fn supported_scale_width(m: [f64; 9], c: &Candidate) -> Option<f64> {
-    supported_scale_width_checked(m, c, false)
-}
-fn supported_scale_width_checked(matrix: [f64; 9], c: &Candidate, all_widths: bool) -> Option<f64> {
-    let (o, a, b, width) = c
-        .observations
-        .iter()
-        .filter(|o| !o.ambiguous)
-        .filter_map(|o| {
-            let a = experiment::point(matrix, o.axis, o.left, o.fraction).ok()?;
-            let b = experiment::point(matrix, o.axis, o.right, o.fraction).ok()?;
-            let width = experiment::distance(a, b);
-            (width.is_finite() && width > 0.).then_some((o, a, b, width))
-        })
-        .min_by(|a, b| a.3.total_cmp(&b.3))?;
-    #[cfg(feature = "experimental-single-row-search")]
-    if width <= 285. || all_widths {
-        let contains = |quad: &Quad, p: [f64; 2]| {
-            let (mut positive, mut negative) = (false, false);
-            for i in 0..4 {
-                let a = quad[i];
-                let b = quad[(i + 1) % 4];
-                let cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
-                let tol = 2. * experiment::distance(a, b);
-                positive |= cross > tol;
-                negative |= cross < -tol;
-            }
-            !(positive && negative)
-        };
-        if !c.detections.iter().any(|d| {
-            d.axis == o.axis
-                && d.digits == o.digits
-                && contains(&d.polygon, a)
-                && contains(&d.polygon, b)
-        }) {
-            return None;
-        }
-    }
-    #[cfg(not(feature = "experimental-single-row-search"))]
-    let _ = (o, a, b, all_widths);
-    Some(width)
-}
+
 impl Experiment {
     /// Diagnostic only: explicit bounded source rows through real retry/assembly rules.
     /// The caller's rows are not a deployable scheduler or a coverage claim.
@@ -563,6 +211,10 @@ impl Experiment {
         #[cfg(all(feature = "diagnostic-tile-events", not(target_arch = "wasm32")))]
         let observation_start = c.observations.len();
         let start = Timer::now();
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+        {
+            self.retail.coverage(c.coverage);
+        }
         c.work.paths += 1;
         c.work.retry_paths += 1;
         c.work.capped_paths += usize::from(s.sample_cap);
@@ -629,25 +281,7 @@ impl Experiment {
                 guard_bias,
             );
         }
-        #[cfg(feature = "experimental-native-sharpen")]
-        if interior
-            && !c.error
-            && s.lo == -0.15
-            && s.hi == 1.15
-            && self.sharpen_native_profile(normalized)
-        {
-            self.collect_policy(
-                s.axis,
-                s.fraction,
-                s.lo,
-                s.hi,
-                &mut c.work,
-                &mut c.observations,
-                cleanup,
-                guard_bias,
-            );
-        }
-        #[cfg(not(feature = "experimental-native-sharpen"))]
+
         let _ = normalized;
         #[cfg(all(feature = "diagnostic-tile-events", not(target_arch = "wasm32")))]
         eprintln!("{{\"candidate\":{},\"retry\":{},\"axis\":{},\"fraction\":{},\"lo\":{},\"hi\":{},\"samples\":{},\"observations\":{:?},\"ambiguous\":{}}}",c.index,c.work.retry_paths,s.axis,s.fraction,s.lo,s.hi,s.samples,c.observations[observation_start..].iter().filter(|o|!o.ambiguous).map(|o|o.digits).collect::<Vec<_>>(),c.observations[observation_start..].iter().filter(|o|o.ambiguous).count());
@@ -693,14 +327,68 @@ impl Experiment {
         {
             return Err(Error::Parameters);
         }
+
         // The first pass is completed across every initial candidate before any
         // retry. Coverage is retained independently of observations/detections.
         let mut budget = experiment::AssociationBudget {
-            checks_left: policy.max_association_checks,
-            pixels_left: policy.max_association_pixels,
+            checks_left: if policy.complete {
+                usize::MAX
+            } else {
+                policy.max_association_checks
+            },
+            pixels_left: if policy.complete {
+                usize::MAX
+            } else {
+                policy.max_association_pixels
+            },
         };
+        #[cfg(feature = "mode-low")]
+        let mut outputs = self.scan_with_budget_axes(
+            im,
+            candidates,
+            experiment::MULTI_FIXED.with_three_rows(),
+            &mut budget,
+            true,
+        );
+        #[cfg(feature = "mode-medium")]
+        let mut outputs = self.scan_with_budget(
+            im,
+            candidates,
+            experiment::MULTI_FIXED.with_three_rows(),
+            &mut budget,
+        );
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
         let mut outputs =
             self.scan_with_budget(im, candidates, experiment::MULTI_FIXED, &mut budget);
+
+        // Reuse only strictly verified spatial coverage from the completed
+        // fixed pass. Uncovered pieces, including between equal-value symbols,
+        // remain scheduled. Both phases spend the same reuse budget.
+        #[cfg(feature = "mode-very-high")]
+        let mut reuse_budget = ReuseBudget {
+            remaining: policy.max_association_checks,
+            pixels_remaining: 262_144,
+            ..Default::default()
+        };
+        #[cfg(feature = "mode-very-high")]
+        let early_claims =
+            if policy.max_association_checks < 10_000 || policy.max_association_pixels < 10_000 {
+                Vec::new()
+            } else {
+                let mut w = Work::default();
+                let q = verified_claims(&outputs, &mut reuse_budget, &mut w, im);
+                if let Some(c) = outputs.first_mut() {
+                    c.work.extension_cache_hits += w.extension_cache_hits;
+                    c.work.extension_samples += w.extension_samples;
+                    c.work.extension_claims += w.extension_claims;
+                    c.work.extension_capped += w.extension_capped;
+                    c.work.reuse_claims += w.reuse_claims;
+                    c.work.reuse_claims_rejected += w.reuse_claims_rejected;
+                    c.work.reuse_checks += w.reuse_checks;
+                    c.work.reuse_checks_capped += w.reuse_checks_capped;
+                }
+                q
+            };
         let mut used = 0;
         if scaled {
             // Independent broad discovery after every candidate's fixed pass.
@@ -708,7 +396,37 @@ impl Experiment {
             // or repeated symbols before selecting subdivision scale.
             for i in 0..10 {
                 for c in &mut outputs {
-                    if used >= policy.max_retry_paths_per_frame
+                    #[cfg(feature = "mode-low")]
+                    let full = c
+                        .coverage
+                        .iter()
+                        .zip([
+                            [0., 0.],
+                            [crate::numeric::usize_f64(im.width - 1), 0.],
+                            [
+                                crate::numeric::usize_f64(im.width - 1),
+                                crate::numeric::usize_f64(im.height - 1),
+                            ],
+                            [0., crate::numeric::usize_f64(im.height - 1)],
+                        ])
+                        .all(|(a, b)| (a[0] - b[0]).abs() <= 1. && (a[1] - b[1]).abs() <= 1.);
+
+                    // Localizer quads identify the module axis. Fixed discovery still covers
+                    // both axes; retain both native axes for full frames or contrary evidence.
+                    #[cfg(feature = "mode-low")]
+                    {
+                        if i % 2 == 1
+                            && !full
+                            && !c.observations.iter().any(|o| o.axis == 1 && !o.ambiguous)
+                        {
+                            continue;
+                        }
+                    }
+                    #[cfg(feature = "mode-very-high")]
+                    {
+                        c.work.discovery_requests += 1;
+                    }
+                    if (!policy.complete && used >= policy.max_retry_paths_per_frame)
                         || c.work.retry_paths >= policy.max_retry_paths_per_candidate
                     {
                         c.work.retry_paths_pending += 1;
@@ -736,31 +454,100 @@ impl Experiment {
                         sample_cap: length > 4096.,
                         unresolved: false,
                     };
-                    self.retry_segment(
-                        im,
-                        m.0,
-                        segment,
-                        c,
-                        policy.transition_cleanup,
-                        policy.interior_normalization,
-                        policy.guard_bias,
-                    );
-                    used += 1;
-                    c.work.discovery_paths += 1;
+                    #[cfg(feature = "mode-low")]
+                    {
+                        self.retry_segment(
+                            im,
+                            m.0,
+                            segment,
+                            c,
+                            policy.transition_cleanup && !full,
+                            policy.interior_normalization && !full,
+                            policy.guard_bias,
+                        );
+                    }
+                    #[cfg(any(feature = "mode-medium", feature = "mode-high"))]
+                    {
+                        self.retry_segment(
+                            im,
+                            m.0,
+                            segment,
+                            c,
+                            policy.transition_cleanup,
+                            policy.interior_normalization,
+                            policy.guard_bias,
+                        );
+                    }
+                    #[cfg(any(
+                        feature = "mode-low",
+                        feature = "mode-medium",
+                        feature = "mode-high"
+                    ))]
+                    {
+                        used += 1;
+                    }
+                    #[cfg(any(
+                        feature = "mode-low",
+                        feature = "mode-medium",
+                        feature = "mode-high"
+                    ))]
+                    {
+                        c.work.discovery_paths += 1;
+                    }
+                    #[cfg(feature = "mode-very-high")]
+                    {
+                        c.work.retry_paths_pending += 1;
+                    }
+                    #[cfg(feature = "mode-very-high")]
+                    let segments = if i == 2 || i == 3 || i == 6 || i == 7 {
+                        vec![segment]
+                    } else {
+                        reuse_plan(
+                            m.0,
+                            vec![segment],
+                            &early_claims,
+                            &mut reuse_budget,
+                            &mut c.work,
+                        )
+                    };
+
+                    #[cfg(feature = "mode-very-high")]
+                    {
+                        for segment in segments {
+                            if (!policy.complete && used >= policy.max_retry_paths_per_frame)
+                                || c.work.retry_paths >= policy.max_retry_paths_per_candidate
+                            {
+                                continue;
+                            }
+                            c.work.retry_paths_pending =
+                                c.work.retry_paths_pending.saturating_sub(1);
+                            self.retry_segment(
+                                im,
+                                m.0,
+                                segment,
+                                c,
+                                policy.transition_cleanup,
+                                policy.interior_normalization,
+                                policy.guard_bias,
+                            );
+                            used += 1;
+                            c.work.discovery_paths += 1;
+                        }
+                    }
                 }
             }
         }
-        #[cfg(feature = "experimental-structural-retry")]
+        #[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
         for c in &mut outputs {
             c.work.structural_discovery_complete = true;
         }
-        #[cfg(feature = "experimental-verified-coverage-reuse")]
+        #[cfg(any(feature = "mode-low", feature = "mode-medium", feature = "mode-high"))]
         let mut reuse_budget = ReuseBudget {
             remaining: policy.max_association_checks,
             pixels_remaining: 262_144,
             ..Default::default()
         };
-        #[cfg(feature = "experimental-verified-coverage-reuse")]
+
         let claims = {
             let mut w = Work::default();
             let q = verified_claims(&outputs, &mut reuse_budget, &mut w, im);
@@ -776,8 +563,150 @@ impl Experiment {
             }
             q
         };
+
+        // Decide effort only after every candidate has received fixed and
+        // native discovery. Never return early on a successful read. Retain
+        // all candidates and explicit pending work on lower-effort frames.
+        // Native discovery adds observations after the fixed-pass detections
+        // were assembled. Use bounded, strict assembly only to choose effort;
+        // final returned detections still go through the ordinary final assembly.
+        // These probes spend the same frame association budget, not a hidden one.
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+        let mut discovery_reads = Vec::new();
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+        let mut probe_checks = budget.checks_left.min(policy.max_association_checks / 10);
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+        let mut probe_pixels = budget.pixels_left.min(policy.max_association_pixels / 10);
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+        {
+            if scaled && budget.checks_left >= 10_000 && budget.pixels_left >= 10_000 {
+                for c in &mut outputs {
+                    if c.observations.len() < 2 || probe_checks == 0 || probe_pixels == 0 {
+                        continue;
+                    }
+                    let Ok(m) = scan::transform(c.coverage) else {
+                        continue;
+                    };
+                    #[cfg(feature = "mode-low")]
+                    let checks = probe_checks.min(2000);
+                    #[cfg(feature = "mode-medium")]
+                    let checks = probe_checks.min(2_000);
+
+                    let pixels = probe_pixels.min(32768);
+                    let mut small = experiment::AssociationBudget {
+                        checks_left: checks,
+                        pixels_left: pixels,
+                    };
+                    let mut work = Work::default();
+                    let reads = experiment::assemble_many_budget_options(
+                        im,
+                        m.0,
+                        &c.observations,
+                        &mut work,
+                        true,
+                        &mut small,
+                        false,
+                    );
+                    let used_checks = checks - small.checks_left;
+                    let used_pixels = pixels - small.pixels_left;
+                    probe_checks -= used_checks;
+                    probe_pixels -= used_pixels;
+                    budget.checks_left -= used_checks;
+                    budget.pixels_left -= used_pixels;
+                    c.work.association_checks += used_checks;
+                    c.work.continuity_samples += work.continuity_samples;
+                    if work.association_truncated == 0 {
+                        discovery_reads.extend(reads);
+                    }
+                }
+            }
+        }
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+        let strong = outputs
+            .iter()
+            .any(|c| c.detections.iter().any(|d| d.support >= 2))
+            || discovery_reads.iter().any(|d| d.support >= 2);
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+        let multiple = multiple_initial(
+            outputs
+                .iter()
+                .flat_map(|c| c.detections.iter())
+                .chain(discovery_reads.iter()),
+        );
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+        let confident = outputs
+            .iter()
+            .any(|c| c.detections.iter().any(|d| d.support >= 4))
+            || discovery_reads.iter().any(|d| d.support >= 4);
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+        let cap = if multiple {
+            192
+        } else if confident {
+            10
+        } else if strong {
+            16
+        } else {
+            {
+                #[cfg(feature = "mode-low")]
+                {
+                    64
+                }
+                #[cfg(feature = "mode-medium")]
+                {
+                    512
+                }
+            }
+        };
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+        let policy = Policy {
+            max_retry_paths_per_candidate: policy.max_retry_paths_per_candidate.min(cap),
+            ..policy
+        };
+        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+        {
+            for c in &mut outputs {
+                #[cfg(feature = "mode-low")]
+                {
+                    c.work.selected_retry_limit = if confident && !multiple {
+                        c.work
+                            .discovery_paths
+                            .min(policy.max_retry_paths_per_candidate)
+                    } else {
+                        policy.max_retry_paths_per_candidate
+                    };
+                }
+                #[cfg(feature = "mode-medium")]
+                let dimensions = u32::try_from(im.width.saturating_sub(1))
+                    .ok()
+                    .zip(u32::try_from(im.height.saturating_sub(1)).ok());
+                #[cfg(feature = "mode-medium")]
+                let broad = dimensions.is_some_and(|(width, height)| {
+                    let (right, bottom) = (f64::from(width), f64::from(height));
+                    let full = [[0., 0.], [right, 0.], [right, bottom], [0., bottom]];
+                    c.coverage
+                        .iter()
+                        .flatten()
+                        .zip(full.iter().flatten())
+                        .all(|(a, b)| (a - b).abs() <= f64::EPSILON)
+                });
+                #[cfg(feature = "mode-medium")]
+                {
+                    c.work.selected_retry_limit = if !multiple && !strong && !broad {
+                        let evidence_cap = if c.work.guard_pass > 0 { 512 } else { 64 };
+                        policy.max_retry_paths_per_candidate.min(evidence_cap)
+                    } else {
+                        policy.max_retry_paths_per_candidate
+                    };
+                }
+            }
+        }
         let mut plans = Vec::with_capacity(candidates.len());
         for c in &mut outputs {
+            #[cfg(feature = "mode-medium")]
+            let policy = Policy {
+                max_retry_paths_per_candidate: c.work.selected_retry_limit,
+                ..policy
+            };
             let start = Timer::now();
             let p = match scan::transform(c.coverage) {
                 Ok(m) => {
@@ -788,16 +717,45 @@ impl Experiment {
                             None
                         };
                         c.work.scale_hint_used = usize::from(width.is_some());
+                        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                        let reserve = if (129..=256).contains(&policy.max_retry_paths_per_candidate)
+                        {
+                            16
+                        } else if (24..=128).contains(&policy.max_retry_paths_per_candidate) {
+                            8
+                        } else if (16..24).contains(&policy.max_retry_paths_per_candidate) {
+                            4
+                        } else {
+                            0
+                        };
+                        #[cfg(feature = "mode-low")]
+                        let remaining = Policy {
+                            max_retry_paths_per_candidate: c
+                                .work
+                                .selected_retry_limit
+                                .saturating_sub(c.work.retry_paths)
+                                .saturating_sub(reserve),
+                            ..policy
+                        };
+                        #[cfg(feature = "mode-medium")]
+                        let remaining = Policy {
+                            max_retry_paths_per_candidate: policy
+                                .max_retry_paths_per_candidate
+                                .saturating_sub(c.work.retry_paths)
+                                .saturating_sub(reserve),
+                            ..policy
+                        };
+                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
                         let remaining = Policy {
                             max_retry_paths_per_candidate: policy
                                 .max_retry_paths_per_candidate
                                 .saturating_sub(c.work.retry_paths),
                             ..policy
                         };
+
                         // A visual width may guide tile size and retain its existing work allowance,
                         // but one physical row must not reduce independent-row coverage.
-                        let dense = cfg!(feature = "experimental-dense-unsupported-scale")
-                            && scaled
+                        let dense = scaled
                             && width.is_some()
                             && supported_scale_width_checked(m.0, c, true).is_none();
                         let mut p =
@@ -818,10 +776,22 @@ impl Experiment {
                             );
                             p = fine;
                         }
-                        #[cfg(feature = "experimental-verified-coverage-reuse")]
+
                         let p = reuse_plan(m.0, p, &claims, &mut reuse_budget, &mut c.work);
-                        #[cfg(feature = "experimental-structural-retry")]
+                        #[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
                         let p = defer_structurally_weak_retries(c, scaled, p);
+                        #[cfg(any(
+                            feature = "mode-medium",
+                            feature = "mode-high",
+                            feature = "mode-very-high"
+                        ))]
+                        let p = if policy.candidate_retry_mask & (1_u64 << c.index) == 0
+                            && c.work.accepted_paths == 0
+                        {
+                            Vec::new()
+                        } else {
+                            p
+                        };
                         Ok(p)
                     })() {
                         Some((m.0, p))
@@ -836,19 +806,30 @@ impl Experiment {
             c.ms += start.ms();
         }
         for step in 0..policy.max_retry_paths_per_candidate {
-            if used >= policy.max_retry_paths_per_frame {
+            if !policy.complete && used >= policy.max_retry_paths_per_frame {
                 break;
             }
             for (c, p) in outputs.iter_mut().zip(&plans) {
-                if used >= policy.max_retry_paths_per_frame {
+                if !policy.complete && used >= policy.max_retry_paths_per_frame {
                     break;
                 }
                 let Some((m, paths)) = p else { continue };
                 let Some(s) = paths.get(step) else { continue };
-                #[cfg(feature = "experimental-verified-coverage-reuse")]
-                if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
-                    continue;
+                {
+                    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                    {
+                        if c.work.retry_paths >= c.work.selected_retry_limit {
+                            continue;
+                        }
+                    }
+                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                    {
+                        if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
+                            continue;
+                        }
+                    }
                 }
+
                 used += 1;
                 c.work.retry_paths_pending -= 1;
                 self.retry_segment(
@@ -861,93 +842,60 @@ impl Experiment {
                     policy.guard_bias,
                 );
             }
-        }
-        // Low-resolution interpolation is complementary to native evidence.
-        // Finish all original planned work first; never replace a native row.
-        #[cfg(feature = "experimental-lowres-profile-refine")]
-        if scaled {
-            #[cfg(feature = "experimental-verified-coverage-reuse")]
-            let claims = {
-                let mut w = Work::default();
-                let q = verified_claims(&outputs, &mut reuse_budget, &mut w, im);
-                if let Some(c) = outputs.first_mut() {
-                    c.work.extension_cache_hits += w.extension_cache_hits;
-                    c.work.extension_samples += w.extension_samples;
-                    c.work.extension_claims += w.extension_claims;
-                    c.work.extension_capped += w.extension_capped;
-                    c.work.reuse_claims += w.reuse_claims;
-                    c.work.reuse_claims_rejected += w.reuse_claims_rejected;
-                    c.work.reuse_checks += w.reuse_checks;
-                    c.work.reuse_checks_capped += w.reuse_checks_capped;
-                }
-                q
-            };
-            let mut refinements = Vec::with_capacity(outputs.len());
-            for (c, p) in outputs.iter_mut().zip(&plans) {
-                let mut extra = Vec::new();
-                if c.work.scale_hint_used == 0 {
-                    if let Some((m, paths)) = p {
-                        for s in paths {
-                            if s.lo != -0.15 || s.hi != 1.15 || s.samples == 512 {
-                                continue;
-                            }
-                            let (Ok(a), Ok(b)) = (
-                                experiment::point(*m, s.axis, 0., s.fraction),
-                                experiment::point(*m, s.axis, 1., s.fraction),
-                            ) else {
-                                continue;
-                            };
-                            if (76.0..=285.0).contains(&experiment::distance(a, b)) {
-                                extra.push(Segment { samples: 512, ..*s });
-                            }
+
+            // Refresh effort only after every candidate has received the same
+            // retry prefix. Strict assembly selects effort; final assembly still
+            // determines returned reads. Association work shares the frame budget.
+            #[cfg(feature = "mode-medium")]
+            {
+                if !multiple && !strong && matches!(step, 31 | 95) {
+                    for (candidate, plan) in outputs.iter_mut().zip(&plans) {
+                        if candidate.work.selected_retry_limit <= 128
+                            || candidate.observations.len() < 4
+                            || budget.checks_left < 2_000
+                            || budget.pixels_left < 131_072
+                        {
+                            continue;
+                        }
+                        let Some((transform, _)) = plan else { continue };
+                        let mut probe = experiment::AssociationBudget {
+                            checks_left: 2_000,
+                            pixels_left: 131_072,
+                        };
+                        let mut work = Work::default();
+                        let reads = experiment::assemble_many_budget_options(
+                            im,
+                            *transform,
+                            &candidate.observations,
+                            &mut work,
+                            true,
+                            &mut probe,
+                            false,
+                        );
+                        let checks_used = 2_000 - probe.checks_left;
+                        let pixels_used = 131_072 - probe.pixels_left;
+                        budget.checks_left -= checks_used;
+                        budget.pixels_left -= pixels_used;
+                        candidate.work.association_checks += checks_used;
+                        candidate.work.continuity_samples += work.continuity_samples;
+                        if work.association_truncated == 0
+                            && reads.iter().any(|read| read.support >= 4)
+                            && !multiple_initial(reads.iter())
+                        {
+                            candidate.work.selected_retry_limit = 128;
                         }
                     }
                 }
-                c.work.retry_paths_pending += extra.len();
-                #[cfg(feature = "experimental-verified-coverage-reuse")]
-                let extra = if let Some((m, _)) = p {
-                    reuse_plan(*m, extra, &claims, &mut reuse_budget, &mut c.work)
-                } else {
-                    extra
-                };
-                refinements.push(extra);
-            }
-            for step in 0..if cfg!(feature = "experimental-verified-coverage-reuse") {
-                policy.max_retry_paths_per_candidate
-            } else {
-                42
-            } {
-                if used >= policy.max_retry_paths_per_frame {
-                    break;
-                }
-                for ((c, p), extra) in outputs.iter_mut().zip(&plans).zip(&refinements) {
-                    if used >= policy.max_retry_paths_per_frame {
-                        break;
-                    }
-                    if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
-                        continue;
-                    }
-                    let (Some((m, _)), Some(s)) = (p, extra.get(step)) else {
-                        continue;
-                    };
-                    used += 1;
-                    c.work.retry_paths_pending -= 1;
-                    self.retry_segment(
-                        im,
-                        *m,
-                        *s,
-                        c,
-                        policy.transition_cleanup,
-                        policy.interior_normalization,
-                        policy.guard_bias,
-                    );
-                }
             }
         }
+
+        // Low-resolution interpolation is complementary to native evidence.
+        // Finish all original planned work first; never replace a native row.
+
         // Follow actual unambiguous reads with adjacent source rows. This adds
         // evidence rather than inventing checksum-selected alternate values.
         // Existing discovery runs first; finite extra probes share its budgets.
-        #[cfg(feature = "experimental-verified-coverage-reuse")]
+
         let claims = {
             let mut w = Work::default();
             let q = verified_claims(&outputs, &mut reuse_budget, &mut w, im);
@@ -1036,7 +984,7 @@ impl Experiment {
                 }
             }
             c.work.retry_paths_pending += extra.len();
-            #[cfg(feature = "experimental-verified-coverage-reuse")]
+
             let extra = if let Some((m, _)) = p {
                 reuse_plan(*m, extra, &claims, &mut reuse_budget, &mut c.work)
             } else {
@@ -1044,21 +992,33 @@ impl Experiment {
             };
             confirmation.push(extra);
         }
-        for step in 0..if cfg!(feature = "experimental-verified-coverage-reuse") {
-            policy.max_retry_paths_per_candidate
-        } else {
-            64
-        } {
-            if used >= policy.max_retry_paths_per_frame {
+        for step in 0..policy.max_retry_paths_per_candidate {
+            if !policy.complete && used >= policy.max_retry_paths_per_frame {
                 break;
             }
             for ((c, p), extra) in outputs.iter_mut().zip(&plans).zip(&confirmation) {
-                if used >= policy.max_retry_paths_per_frame {
+                if !policy.complete && used >= policy.max_retry_paths_per_frame {
                     break;
                 }
-                if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
-                    continue;
+                {
+                    #[cfg(any(
+                        feature = "mode-low",
+                        feature = "mode-high",
+                        feature = "mode-very-high"
+                    ))]
+                    {
+                        if c.work.retry_paths >= policy.max_retry_paths_per_candidate {
+                            continue;
+                        }
+                    }
+                    #[cfg(feature = "mode-medium")]
+                    {
+                        if c.work.retry_paths >= c.work.selected_retry_limit {
+                            continue;
+                        }
+                    }
                 }
+
                 let (Some((m, _)), Some(s)) = (p, extra.get(step)) else {
                     continue;
                 };
@@ -1096,6 +1056,88 @@ impl Experiment {
                     // Frame reconciliation withholds every exhausted candidate,
                     // including these raw partial detections when initial was empty.
                     c.ms += start.ms();
+                }
+            }
+        }
+
+        // Different sampling phases of a source row are not independent
+        // row votes. Existing canonical-row grouping and source checks apply.
+        #[cfg(feature = "mode-very-high")]
+        {
+            for (c, p) in outputs.iter_mut().zip(&plans) {
+                if c.error
+                    || c.work.association_truncated > 0
+                    || !c.detections.is_empty()
+                    || c.work.max_run_count < 30
+                {
+                    continue;
+                }
+                let Some((m, _)) = p else { continue };
+                let before = c.work.phase_rescue_paths;
+                for axis in 0..2 {
+                    let (Ok(a), Ok(b)) = (
+                        experiment::point(*m, axis, 0., 0.5),
+                        experiment::point(*m, axis, 1., 0.5),
+                    ) else {
+                        continue;
+                    };
+                    let width = experiment::distance(a, b);
+                    if !(76. ..=384.).contains(&width) {
+                        continue;
+                    }
+                    c.work.retry_paths_pending += 10;
+                    for fraction in [0.1, 0.3, 0.5, 0.7, 0.9] {
+                        for phase in [-0.5, 0.5] {
+                            if (!policy.complete && used >= policy.max_retry_paths_per_frame)
+                                || c.work.retry_paths >= policy.max_retry_paths_per_candidate
+                            {
+                                continue;
+                            }
+                            let delta = phase / width;
+                            let lo = -0.15 + delta;
+                            let hi = 1.15 + delta;
+                            let (Ok(a), Ok(b)) = (
+                                experiment::point(*m, axis, lo, fraction),
+                                experiment::point(*m, axis, hi, fraction),
+                            ) else {
+                                c.error = true;
+                                continue;
+                            };
+                            let length = experiment::distance(a, b);
+                            let seg = Segment {
+                                axis,
+                                fraction,
+                                lo,
+                                hi,
+                                samples: crate::numeric::f64_usize(length.ceil().clamp(64., 4096.)),
+                                sample_cap: length > 4096.,
+                                unresolved: false,
+                            };
+                            used += 1;
+                            c.work.retry_paths_pending -= 1;
+                            c.work.phase_rescue_paths += 1;
+                            self.retry_segment(
+                                im,
+                                *m,
+                                seg,
+                                c,
+                                policy.transition_cleanup,
+                                policy.interior_normalization,
+                                policy.guard_bias,
+                            );
+                        }
+                    }
+                }
+                if c.work.phase_rescue_paths > before {
+                    c.detections = experiment::assemble_many_budget_options(
+                        im,
+                        *m,
+                        &c.observations,
+                        &mut c.work,
+                        true,
+                        &mut budget,
+                        policy.allow_single_row,
+                    );
                 }
             }
         }
@@ -1179,8 +1221,28 @@ mod tests {
                     .unwrap();
                 assert_eq!(out.len(), 3);
                 assert!(out[1].error);
-                assert_eq!(out[0].work.paths, 10 + out[0].work.retry_paths);
-                assert_eq!(out[2].work.paths, 10 + out[2].work.retry_paths);
+                {
+                    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                    {
+                        assert_eq!(out[0].work.paths, 6 + out[0].work.retry_paths);
+                    }
+                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                    {
+                        assert_eq!(out[0].work.paths, 10 + out[0].work.retry_paths);
+                    }
+                }
+
+                {
+                    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                    {
+                        assert_eq!(out[2].work.paths, 6 + out[2].work.retry_paths);
+                    }
+                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                    {
+                        assert_eq!(out[2].work.paths, 10 + out[2].work.retry_paths);
+                    }
+                }
+
                 assert!(out[0].work.retry_paths_pending > 0);
                 assert!(out[2].work.retry_paths_pending > 0);
                 assert_eq!(
@@ -1212,7 +1274,15 @@ mod tests {
         let mut dense = Work::default();
         let a = plan(m.0, Policy::default(), &mut dense).unwrap();
         let mut scaled = Work::default();
+        #[cfg(any(
+            feature = "mode-low",
+            feature = "mode-high",
+            feature = "mode-very-high"
+        ))]
         let b = scaled_plan(m.0, Policy::default(), &mut scaled, Some(2000.), true).unwrap();
+        #[cfg(feature = "mode-medium")]
+        let b = scaled_plan(m.0, Policy::default(), &mut scaled, Some(2_000.), true).unwrap();
+
         assert!(b.len() > 10);
         assert!(b.len() < a.len() / 4);
         assert!(b.iter().any(|p| p.axis == 0));
@@ -1221,14 +1291,7 @@ mod tests {
         assert!(b.iter().any(|p| p.fraction > 0.85));
         let mut unknown = Work::default();
         let p = scaled_plan(m.0, Policy::default(), &mut unknown, None, true).unwrap();
-        assert_eq!(
-            p.len(),
-            if cfg!(feature = "experimental-unresolved-256") {
-                256
-            } else {
-                128
-            }
-        );
+        assert_eq!(p.len(), if true { 256 } else { 128 });
         assert!(unknown.retry_paths_pending > p.len());
     }
     #[test]
@@ -1272,14 +1335,7 @@ mod tests {
     fn capped_schedule_covers_the_whole_extent_and_both_axes() {
         let m = scan::transform([[0., 0.], [4000., 0.], [4000., 4000.], [0., 4000.]]).unwrap();
         let p = scaled_plan(m.0, Policy::default(), &mut Work::default(), None, true).unwrap();
-        assert_eq!(
-            p.len(),
-            if cfg!(feature = "experimental-unresolved-256") {
-                256
-            } else {
-                128
-            }
-        );
+        assert_eq!(p.len(), if true { 256 } else { 128 });
         for axis in 0..2 {
             assert!(p.iter().any(|s| s.axis == axis && s.fraction < 0.1));
             assert!(p.iter().any(|s| s.axis == axis && s.fraction > 0.9));
@@ -1295,14 +1351,7 @@ mod tests {
     fn unknown_large_region_executes_tiles_on_both_axes() {
         let m = scan::transform([[0., 0.], [8440., 0.], [8440., 3200.], [0., 3200.]]).unwrap();
         let p = scaled_plan(m.0, Policy::default(), &mut Work::default(), None, true).unwrap();
-        assert_eq!(
-            p.len(),
-            if cfg!(feature = "experimental-unresolved-256") {
-                256
-            } else {
-                128
-            }
-        );
+        assert_eq!(p.len(), if true { 256 } else { 128 });
         for axis in 0..2 {
             let tiles: Vec<_> = p
                 .iter()
@@ -1401,53 +1450,6 @@ mod tests {
         assert!(work.retry_paths_pending > p.len());
     }
 
-    #[cfg(feature = "experimental-lowres-profile-refine")]
-    #[test]
-    fn lowres_refinement_obeys_frame_budget_and_retains_all_candidates() {
-        let pixels = vec![255; 600 * 240];
-        let im = ImageView::new(&pixels, 600, 240, 1, 600).unwrap();
-        let quads = [
-            [[10., 20.], [210., 20.], [210., 120.], [10., 120.]],
-            [[300., 40.], [500., 40.], [500., 140.], [300., 140.]],
-        ];
-        for frame_limit in [0, 3, 120, 512] {
-            let mut ex = Experiment::default();
-            let p = Policy {
-                max_retry_paths_per_frame: frame_limit,
-                max_retry_paths_per_candidate: 100,
-                transition_cleanup: true,
-                interior_normalization: true,
-                guard_bias: true,
-                ..Policy::default()
-            };
-            let f = ex.scan_frame(im, &quads, p).unwrap();
-            assert!(f.barcodes.is_empty());
-            assert_eq!(f.candidates.len(), 2);
-            assert!(f
-                .candidates
-                .iter()
-                .all(|c| c.work.paths >= 10 && c.work.retry_paths <= 100));
-            assert!(
-                f.candidates
-                    .iter()
-                    .map(|c| c.work.retry_paths)
-                    .sum::<usize>()
-                    <= frame_limit
-            );
-            if frame_limit < 188 {
-                assert!(f.unfinished);
-                assert!(f.candidates.iter().any(|c| c.work.retry_paths_pending > 0));
-            } else {
-                assert!(f
-                    .candidates
-                    .iter()
-                    .all(|c| c.work.retry_paths == 94 && c.work.retry_paths_pending == 0));
-            }
-        }
-    }
-
-    #[cfg(feature = "experimental-single-row-search")]
-    #[cfg(feature = "experimental-native-wide-tiles")]
     #[test]
     #[expect(
         clippy::float_cmp,
@@ -1523,7 +1525,7 @@ mod tests {
             21
         );
     }
-    #[cfg(feature = "experimental-single-row-search")]
+    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     #[test]
     #[expect(
         clippy::float_cmp,
@@ -1595,13 +1597,159 @@ mod tests {
         });
         assert!((supported_scale_width(matrix, &candidate).unwrap() - 150.).abs() < 1e-6);
     }
+    #[cfg(feature = "mode-high")]
+    #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
+    fn unrelated_single_row_symbols_cannot_corroborate_scale() {
+        let quad = [[0., 0.], [600., 0.], [600., 200.], [0., 200.]];
+        let matrix = scan::transform(quad).unwrap().0;
+        let obs = |digits, left, right, fraction| experiment::Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            short_quiet: false,
+            ambiguous: false,
+            digits,
+            axis: 0,
+            fraction,
+            left,
+            right,
+            cost: 0.01,
+            gap: 0.3,
+        };
+        let a = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
+        let b = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
+        let mut candidate = Candidate {
+            index: 0,
+            coverage: quad,
+            observations: vec![obs(a, 0.05, 0.30, 0.3), obs(b, 0.65, 0.95, 0.7)],
+            detections: vec![],
+            work: Work::default(),
+            ms: 0.,
+            error: false,
+        };
+        assert_eq!(supported_scale_width(matrix, &candidate), None);
+        candidate.observations[1].digits = a;
+        assert_eq!(supported_scale_width(matrix, &candidate), None);
+        let p = scaled_plan(
+            matrix,
+            Policy::default(),
+            &mut Work::default(),
+            supported_scale_width(matrix, &candidate),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            p.iter()
+                .filter(|s| s.axis == 0 && s.lo == -0.15 && s.hi == 1.15)
+                .count(),
+            21
+        );
+        candidate.detections.push(experiment::Detection {
+            digits: a,
+            polygon: [
+                [389.5, 129.5],
+                [569.5, 129.5],
+                [569.5, 149.5],
+                [389.5, 149.5],
+            ],
+            support: 3,
+            axis: 0,
+        });
+        assert_eq!(
+            supported_scale_width(matrix, &candidate),
+            None,
+            "separate equal-value track cannot support smallest width"
+        );
+        candidate.detections.push(experiment::Detection {
+            digits: a,
+            polygon: [[29.5, 49.5], [179.5, 49.5], [179.5, 69.5], [29.5, 69.5]],
+            support: 3,
+            axis: 0,
+        });
+        assert!((supported_scale_width(matrix, &candidate).unwrap() - 150.).abs() < 1e-6);
+    }
+    #[cfg(feature = "mode-very-high")]
+    #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
+    )]
+    fn unrelated_single_row_symbols_cannot_corroborate_scale() {
+        let quad = [[0., 0.], [600., 0.], [600., 200.], [0., 200.]];
+        let matrix = scan::transform(quad).unwrap().0;
+        let obs = |digits, left, right, fraction| experiment::Observation {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            invalid_checksum: false,
+            short_quiet: false,
+            ambiguous: false,
+            digits,
+            axis: 0,
+            fraction,
+            left,
+            right,
+            cost: 0.01,
+            gap: 0.3,
+        };
+        let a = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
+        let b = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
+        let mut candidate = Candidate {
+            index: 0,
+            coverage: quad,
+            observations: vec![obs(a, 0.05, 0.30, 0.3), obs(b, 0.65, 0.95, 0.7)],
+            detections: vec![],
+            work: Work::default(),
+            ms: 0.,
+            error: false,
+        };
+        assert_eq!(supported_scale_width(matrix, &candidate), None);
+        candidate.observations[1].digits = a;
+        assert_eq!(supported_scale_width(matrix, &candidate), None);
+        let p = scaled_plan(
+            matrix,
+            Policy::default(),
+            &mut Work::default(),
+            supported_scale_width(matrix, &candidate),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            p.iter()
+                .filter(|s| s.axis == 0 && s.lo == -0.15 && s.hi == 1.15)
+                .count(),
+            21
+        );
+        candidate.detections.push(experiment::Detection {
+            digits: a,
+            polygon: [
+                [389.5, 129.5],
+                [569.5, 129.5],
+                [569.5, 149.5],
+                [389.5, 149.5],
+            ],
+            support: 3,
+            axis: 0,
+        });
+        assert_eq!(
+            supported_scale_width(matrix, &candidate),
+            None,
+            "separate equal-value track cannot support smallest width"
+        );
+        candidate.detections.push(experiment::Detection {
+            digits: a,
+            polygon: [[29.5, 49.5], [179.5, 49.5], [179.5, 69.5], [29.5, 69.5]],
+            support: 3,
+            axis: 0,
+        });
+        assert!((supported_scale_width(matrix, &candidate).unwrap() - 150.).abs() < 1e-6);
+    }
 }
-
 /// Diagnostic unresolved retry plan before execution; excludes fixed/discovery passes.
 /// This is not a claim that a budget-limited frame executed every returned path.
 /// One scheduled path: axis, row fraction, start, end, and sample count.
 pub type ScheduledPath = (usize, f64, f64, f64, usize);
-
 /// # Errors
 /// Returns `Parameters` for invalid scan limits or schedule inputs; propagates invalid quadrilateral and sampling errors.
 pub fn diagnostic_unresolved_schedule(
@@ -1641,7 +1789,6 @@ mod schedule_diagnostic_tests {
         assert!(diagnostic_unresolved_schedule(q, 4097).is_err());
     }
 }
-
 #[cfg(test)]
 mod policy_diagnostic_tests {
     use super::*;
@@ -1675,8 +1822,7 @@ mod policy_diagnostic_tests {
         }
     }
 }
-
-#[cfg(all(test, feature = "experimental-complete-tile-prefix"))]
+#[cfg(test)]
 mod tile_completion_tests {
     use super::*;
     #[test]
@@ -1747,25 +1893,46 @@ mod tile_completion_tests {
 // Every candidate's fixed pass and mandatory native discovery precede this.
 // The planner has already added these rows to retry_paths_pending. Removing
 // materialized retry paths must NOT decrement that unresolved-work counter.
-#[cfg(feature = "experimental-structural-retry")]
+#[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
 fn defer_structurally_weak_retries(
     c: &mut Candidate,
     scaled: bool,
     paths: Vec<Segment>,
 ) -> Vec<Segment> {
-    if scaled
-        && c.work.discovery_paths == 10
-        && c.work.accepted_paths == 0
-        && c.work.max_run_count < 30
     {
-        c.work.structural_retry_skipped += paths.len();
-        Vec::new()
-    } else {
-        paths
+        #[cfg(feature = "mode-low")]
+        {
+            if scaled
+                && matches!(c.work.discovery_paths, 5 | 10)
+                && c.work.accepted_paths == 0
+                && c.work.max_run_count < 30
+            {
+                c.work.structural_retry_skipped += paths.len();
+                Vec::new()
+            } else {
+                paths
+            }
+        }
+        #[cfg(any(
+            feature = "mode-medium",
+            feature = "mode-high",
+            feature = "mode-very-high"
+        ))]
+        {
+            if scaled
+                && c.work.discovery_paths == 10
+                && c.work.accepted_paths == 0
+                && c.work.max_run_count < 30
+            {
+                c.work.structural_retry_skipped += paths.len();
+                Vec::new()
+            } else {
+                paths
+            }
+        }
     }
 }
-
-#[cfg(all(test, feature = "experimental-structural-retry"))]
+#[cfg(all(test, any(feature = "mode-low", feature = "mode-very-high")))]
 mod structural_retry_tests {
     use super::*;
     fn quad(x: f64, y: f64, w: f64, h: f64) -> Quad {
@@ -1808,9 +1975,46 @@ mod structural_retry_tests {
         assert_eq!(result.len(), qs.len());
         for (c, q) in result.iter().zip(qs) {
             assert_eq!(c.coverage, q);
-            assert_eq!(c.work.discovery_paths, 10);
-            assert_eq!(c.work.paths, 20);
-            assert_eq!(c.work.retry_paths, 10);
+            #[cfg(feature = "mode-low")]
+            {
+                assert!(matches!(c.work.discovery_paths, 5 | 10));
+            }
+            #[cfg(feature = "mode-low")]
+            {
+                assert!(matches!(c.work.paths, 8 | 16));
+            }
+            #[cfg(feature = "mode-low")]
+            {
+                assert_eq!(c.work.retry_paths, c.work.discovery_paths);
+            }
+            #[cfg(any(feature = "mode-medium", feature = "mode-high"))]
+            {
+                assert_eq!(c.work.discovery_paths, 10);
+            }
+            #[cfg(feature = "mode-very-high")]
+            {
+                assert_eq!(c.work.discovery_requests, 10);
+            }
+            #[cfg(feature = "mode-very-high")]
+            {
+                assert!(c.work.discovery_paths >= 4);
+            }
+            #[cfg(any(
+                feature = "mode-medium",
+                feature = "mode-high",
+                feature = "mode-very-high"
+            ))]
+            {
+                assert_eq!(c.work.paths, 20);
+            }
+            #[cfg(any(
+                feature = "mode-medium",
+                feature = "mode-high",
+                feature = "mode-very-high"
+            ))]
+            {
+                assert_eq!(c.work.retry_paths, 10);
+            }
             assert_eq!(c.work.accepted_paths, 0);
             assert_eq!(c.work.max_run_count, 0);
             assert!(c.work.structural_retry_skipped > 0);
@@ -1873,7 +2077,22 @@ mod structural_retry_tests {
                 )
                 .unwrap();
             for c in result {
-                assert_eq!(c.work.discovery_paths, 10);
+                #[cfg(feature = "mode-low")]
+                {
+                    assert!(matches!(c.work.discovery_paths, 5 | 10));
+                }
+                #[cfg(any(feature = "mode-medium", feature = "mode-high"))]
+                {
+                    assert_eq!(c.work.discovery_paths, 10);
+                }
+                #[cfg(feature = "mode-very-high")]
+                {
+                    assert_eq!(c.work.discovery_requests, 10);
+                }
+                #[cfg(feature = "mode-very-high")]
+                {
+                    assert!(c.work.discovery_paths >= 4);
+                }
                 assert!(c.work.accepted_paths > 0);
                 assert_eq!(c.work.structural_retry_skipped, 0);
                 assert!(c
@@ -1888,8 +2107,7 @@ mod structural_retry_tests {
         }
     }
 }
-
-#[cfg(all(test, feature = "experimental-unresolved-256"))]
+#[cfg(test)]
 mod unresolved_256_tests {
     use super::*;
     #[test]
@@ -1938,5 +2156,139 @@ mod unresolved_256_tests {
                 assert_eq!(p.len(), cap);
             }
         }
+    }
+}
+#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+#[cfg(test)]
+mod adaptive_multi_tests {
+    use super::*;
+    #[test]
+    fn distinct_equal_text_regions_keep_full_effort() {
+        let a = experiment::Detection {
+            digits: [1; 13],
+            polygon: [[0., 0.], [200., 0.], [200., 50.], [0., 50.]],
+            support: 4,
+            axis: 0,
+        };
+        let same = a.clone();
+        assert!(!multiple_initial([&a, &same].into_iter()));
+        let mut b = a.clone();
+        b.polygon = b.polygon.map(|[x, y]| [x, y + 62.]);
+        assert!(multiple_initial([&a, &b].into_iter()));
+        let mut c = a.clone();
+        c.digits[0] = 2;
+        assert!(multiple_initial([&a, &c].into_iter()));
+    }
+}
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    #[test]
+    fn completion_ignores_frame_budget_but_preserves_candidate_effort() {
+        let pixels = vec![255; 600 * 300];
+        let im = ImageView::new(&pixels, 600, 300, 1, 600).unwrap();
+        let q = [[0., 0.], [599., 0.], [599., 299.], [0., 299.]];
+        let policy = Policy {
+            max_retry_paths_per_frame: 0,
+            ..Policy::default()
+        };
+        let mut engine = Experiment::default();
+        let bounded = engine.scan_scaled(im, &[q; 3], policy).unwrap();
+        let complete = engine
+            .scan_scaled(
+                im,
+                &[q; 3],
+                Policy {
+                    complete: true,
+                    ..policy
+                },
+            )
+            .unwrap();
+        let reference = engine
+            .scan_scaled(
+                im,
+                &[q; 3],
+                Policy {
+                    max_retry_paths_per_frame: 65536,
+                    ..policy
+                },
+            )
+            .unwrap();
+        assert!(bounded.iter().all(|c| c.work.retry_paths == 0));
+        for (c, r) in complete.iter().zip(&reference) {
+            assert!(c.work.retry_paths > 0);
+            assert_eq!(c.work.retry_paths, r.work.retry_paths);
+            assert_eq!(c.work.retry_paths_pending, r.work.retry_paths_pending);
+            #[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
+            assert_eq!(
+                c.work.structural_retry_skipped,
+                r.work.structural_retry_skipped
+            );
+            assert!(c.work.retry_paths <= policy.max_retry_paths_per_candidate);
+        }
+    }
+}
+#[cfg(any(
+    feature = "mode-medium",
+    feature = "mode-high",
+    feature = "mode-very-high"
+))]
+#[cfg(test)]
+mod candidate_retry_mask_tests {
+    use super::*;
+
+    #[test]
+    fn weak_candidates_keep_initial_discovery_and_pending_work() {
+        let pixels = vec![255; 512 * 512];
+        let image = ImageView::new(&pixels, 512, 512, 1, 512).unwrap();
+        let quad = [[0., 0.], [511., 0.], [511., 511.], [0., 511.]];
+        let mut engine = Experiment::default();
+        let candidates = engine
+            .scan_scaled(
+                image,
+                &[quad, quad],
+                Policy {
+                    candidate_retry_mask: 0,
+                    ..Policy::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(candidates.len(), 2);
+        for candidate in candidates {
+            assert_eq!(candidate.coverage, quad);
+            assert!(candidate.work.paths > 0);
+            assert_eq!(candidate.work.discovery_paths, 10);
+            assert_eq!(candidate.work.retry_paths, 10);
+            assert!(candidate.work.retry_paths_pending > 0);
+        }
+    }
+
+    #[test]
+    fn mask_keeps_the_sixty_fourth_candidates_existing_retry_policy() {
+        let pixels = vec![255; 128 * 128];
+        let image = ImageView::new(&pixels, 128, 128, 1, 128).unwrap();
+        let quad = [[0., 0.], [127., 0.], [127., 127.], [0., 127.]];
+        let mut engine = Experiment::default();
+        let candidates = engine
+            .scan_scaled(
+                image,
+                &[quad; 64],
+                Policy {
+                    candidate_retry_mask: 1_u64 << 63,
+                    ..Policy::default()
+                },
+            )
+            .unwrap();
+        assert!(candidates[..63]
+            .iter()
+            .all(|c| c.work.discovery_paths == 10 && c.work.retry_paths == 10));
+        let control = engine
+            .scan_scaled(image, &[quad], Policy::default())
+            .unwrap();
+        // Very High already defers blank regions through its structural gate.
+        // Enabling bit 63 must preserve that mode's existing behavior too.
+        assert_eq!(candidates[63].work.retry_paths, control[0].work.retry_paths);
+        #[cfg(not(any(feature = "mode-low", feature = "mode-very-high")))]
+        assert!(candidates[63].work.retry_paths > 10);
     }
 }

@@ -1,6 +1,9 @@
 //! Optional conservative subtraction of already verified source-pixel bands.
 //! Claims never come from text-only identity or unsupported observations.
-use super::{claimed_interval, experiment, scan, Candidate, Error, ImageView, Quad, Segment, Work};
+use super::{
+    experiment, project_claim, projected_interval, scan, Candidate, Error, ImageView, Quad,
+    Segment, Work,
+};
 #[cfg(test)]
 use super::{Experiment, Policy};
 
@@ -52,8 +55,6 @@ pub(super) fn verified_claims(
     work: &mut Work,
     im: ImageView<'_>,
 ) -> Vec<Quad> {
-    #[cfg(not(feature = "experimental-coverage-extension"))]
-    let _ = im;
     let mut detections = Vec::new();
     let mut detection_boxes = Vec::new();
     let mut observations = Vec::new();
@@ -76,6 +77,13 @@ pub(super) fn verified_claims(
             continue;
         };
         for o in &c.observations {
+            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+            {
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                if o.invalid_checksum {
+                    continue;
+                }
+            }
             let (Ok(a), Ok(b)) = (
                 experiment::point(m.0, o.axis, o.left, o.fraction),
                 experiment::point(m.0, o.axis, o.right, o.fraction),
@@ -88,10 +96,8 @@ pub(super) fn verified_claims(
     }
     let mut claims = Vec::new();
     'claim: for (d, original_box) in detections.iter().zip(&detection_boxes) {
-        #[cfg(feature = "experimental-coverage-extension")]
         let q = extend_claim(im, d.polygon, work, budget);
-        #[cfg(not(feature = "experimental-coverage-extension"))]
-        let q = d.polygon;
+
         let db = if q == d.polygon {
             *original_box
         } else {
@@ -136,7 +142,7 @@ pub(super) fn verified_claims(
 }
 
 // Coverage evidence only; never changes a reported detection or supplies digits.
-#[cfg(feature = "experimental-coverage-extension")]
+
 fn extension_row(
     im: ImageView<'_>,
     edge: [[f64; 2]; 2],
@@ -164,10 +170,16 @@ fn extension_row(
     let (mut lo, mut hi) = (255f64, 0f64);
     for (i, v) in r.iter_mut().enumerate() {
         let t = (crate::numeric::usize_f64(i) + 0.5) / 192.;
-        *v = im.gray(
-            (edge[0][0] + t * (edge[1][0] - edge[0][0])).round(),
-            (edge[0][1] + t * (edge[1][1] - edge[0][1])).round(),
-        );
+        let x = (edge[0][0] + t * (edge[1][0] - edge[0][0])).round();
+        let y = (edge[0][1] + t * (edge[1][1] - edge[0][1])).round();
+        // Endpoints were checked above; convex interpolation remains in bounds.
+        *v = if im.channels == 1 {
+            f64::from(
+                im.data[crate::numeric::f64_usize(y) * im.stride + crate::numeric::f64_usize(x)],
+            )
+        } else {
+            im.gray(x, y)
+        };
         lo = lo.min(*v);
         hi = hi.max(*v);
     }
@@ -189,7 +201,75 @@ fn extension_row(
     }
     Some(r)
 }
-#[cfg(feature = "experimental-coverage-extension")]
+
+fn extension_correlation(
+    im: ImageView<'_>,
+    reference: &[f64; 192],
+    edge: [[f64; 2]; 2],
+    work: &mut Work,
+    budget: &mut ReuseBudget,
+) -> Option<f64> {
+    for p in edge {
+        if !p[0].is_finite()
+            || !p[1].is_finite()
+            || p[0] < 0.
+            || p[1] < 0.
+            || p[0] > crate::numeric::usize_f64(im.width) - 1.
+            || p[1] > crate::numeric::usize_f64(im.height) - 1.
+        {
+            return None;
+        }
+    }
+    if budget.pixels_remaining < 192 {
+        work.extension_capped += 1;
+        return None;
+    }
+    budget.pixels_remaining -= 192;
+    work.extension_samples += 192;
+    let mut r = [0.; 192];
+    let (mut lo, mut hi) = (255f64, 0f64);
+    for (i, v) in r.iter_mut().enumerate() {
+        let t = (crate::numeric::usize_f64(i) + 0.5) / 192.;
+        let x = (edge[0][0] + t * (edge[1][0] - edge[0][0])).round();
+        let y = (edge[0][1] + t * (edge[1][1] - edge[0][1])).round();
+        // Endpoints were checked above; convex interpolation remains in bounds.
+        *v = if im.channels == 1 {
+            f64::from(
+                im.data[crate::numeric::f64_usize(y) * im.stride + crate::numeric::f64_usize(x)],
+            )
+        } else {
+            im.gray(x, y)
+        };
+        lo = lo.min(*v);
+        hi = hi.max(*v);
+    }
+    if hi - lo < 8. {
+        return None;
+    }
+    let mean = r.iter().sum::<f64>() / 192.;
+    let mut norm = 0.;
+    let mut dot = 0.;
+    for (v, a) in r.iter_mut().zip(reference) {
+        *v -= mean;
+        norm += *v * *v;
+        dot += a * *v;
+    }
+    if norm < 1. {
+        return None;
+    }
+    let norm = norm.sqrt();
+    let corr = dot / norm;
+    // Preserve the original decision if floating-point reassociation is close
+    // enough to the threshold to matter. No sampling or budget changes.
+    if (corr - 0.98).abs() < 1e-12 {
+        for v in &mut r {
+            *v /= norm;
+        }
+        return Some(reference.iter().zip(r).map(|(a, b)| a * b).sum());
+    }
+    Some(corr)
+}
+
 fn extend_claim(im: ImageView<'_>, quad: Quad, work: &mut Work, budget: &mut ReuseBudget) -> Quad {
     if let Some((_, out)) = budget.cache.iter().find(|(key, _)| *key == quad) {
         work.extension_cache_hits += 1;
@@ -218,10 +298,9 @@ fn extend_claim(im: ImageView<'_>, quad: Quad, work: &mut Work, budget: &mut Reu
         for step in 1..=steps {
             let d = crate::numeric::usize_f64(step) * 0.5;
             let e = edge.map(|p| [p[0] + sign * d * v[0], p[1] + sign * d * v[1]]);
-            let Some(row) = extension_row(im, e, work, budget) else {
+            let Some(corr) = extension_correlation(im, &reference, e, work, budget) else {
                 break;
             };
-            let corr = reference.iter().zip(row).map(|(a, b)| a * b).sum::<f64>();
             if corr < 0.98 {
                 break;
             }
@@ -247,10 +326,10 @@ fn extend_claim(im: ImageView<'_>, quad: Quad, work: &mut Work, budget: &mut Reu
     out
 }
 
-fn reuse_segment(
+fn reuse_projected_segment(
     m: [f64; 9],
     s: Segment,
-    claims: &[Quad],
+    claims: &[Option<Quad>],
     budget: &mut ReuseBudget,
     work: &mut Work,
 ) -> Result<Vec<Segment>, Error> {
@@ -259,7 +338,7 @@ fn reuse_segment(
         if !budget.check(work) {
             return Ok(vec![s]);
         }
-        if let Some((a, b)) = claimed_interval(m, s.axis, s.fraction, *q) {
+        if let Some((a, b)) = q.and_then(|q| projected_interval(q, s.axis, s.fraction)) {
             let (a, b) = (a.max(s.lo), b.min(s.hi));
             if b > a {
                 intervals.push((a, b));
@@ -317,9 +396,11 @@ pub(super) fn reuse_plan(
     if claims.is_empty() {
         return paths;
     }
+    let projected: Vec<_> = claims.iter().map(|q| project_claim(m, *q)).collect();
     let mut out = Vec::new();
     for s in paths {
-        let pieces = reuse_segment(m, s, claims, budget, work).unwrap_or_else(|_| vec![s]);
+        let pieces =
+            reuse_projected_segment(m, s, &projected, budget, work).unwrap_or_else(|_| vec![s]);
         // The planner already counted this original segment. Unmaterialized
         // paths stay pending; only these concrete replaced paths are adjusted.
         work.retry_paths_pending = work.retry_paths_pending.saturating_sub(1) + pieces.len();
@@ -328,6 +409,17 @@ pub(super) fn reuse_plan(
     out
 }
 
+#[cfg(test)]
+fn reuse_segment(
+    m: [f64; 9],
+    s: Segment,
+    claims: &[Quad],
+    budget: &mut ReuseBudget,
+    work: &mut Work,
+) -> Result<Vec<Segment>, Error> {
+    let projected: Vec<_> = claims.iter().map(|q| project_claim(m, *q)).collect();
+    reuse_projected_segment(m, s, &projected, budget, work)
+}
 #[cfg(test)]
 mod reuse_tests {
     use super::*;
@@ -445,17 +537,39 @@ mod reuse_tests {
         .is_empty());
         for ambiguous in [false, true] {
             let mut c = candidate(q, vec![detection(band, 1)]);
-            c.observations.push(experiment::Observation {
-                short_quiet: false,
-                ambiguous,
-                digits: if ambiguous { [1; 13] } else { [2; 13] },
-                axis: 0,
-                fraction: 0.4,
-                left: 0.1,
-                right: 0.6,
-                cost: 0.,
-                gap: 1.,
-            });
+            {
+                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                {
+                    c.observations.push(experiment::Observation {
+                        short_quiet: false,
+                        ambiguous,
+                        digits: if ambiguous { [1; 13] } else { [2; 13] },
+                        axis: 0,
+                        fraction: 0.4,
+                        left: 0.1,
+                        right: 0.6,
+                        cost: 0.,
+                        gap: 1.,
+                    });
+                }
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                {
+                    c.observations.push(experiment::Observation {
+                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                        invalid_checksum: false,
+                        short_quiet: false,
+                        ambiguous,
+                        digits: if ambiguous { [1; 13] } else { [2; 13] },
+                        axis: 0,
+                        fraction: 0.4,
+                        left: 0.1,
+                        right: 0.6,
+                        cost: 0.,
+                        gap: 1.,
+                    });
+                }
+            }
+
             assert!(verified_claims(
                 &[c],
                 &mut budget(),
@@ -530,8 +644,37 @@ mod reuse_tests {
             assert_eq!(result.len(), 2);
             for (c, q) in result.iter().zip(qs) {
                 assert_eq!(c.coverage, q);
-                assert_eq!(c.work.discovery_paths, 10);
-                assert_eq!(c.work.paths, c.work.retry_paths + 10);
+                #[cfg(feature = "mode-low")]
+                {
+                    assert!(
+                        (5..=10).contains(&c.work.discovery_paths),
+                        "both normalized axes and at least five native module-axis rows"
+                    );
+                }
+                #[cfg(feature = "mode-low")]
+                {
+                    assert!(matches!(c.work.paths - c.work.retry_paths, 3 | 6));
+                }
+                #[cfg(any(feature = "mode-medium", feature = "mode-high"))]
+                {
+                    assert_eq!(c.work.discovery_paths, 10);
+                }
+                #[cfg(feature = "mode-medium")]
+                {
+                    assert_eq!(c.work.paths, c.work.retry_paths + 6);
+                }
+                #[cfg(feature = "mode-very-high")]
+                {
+                    assert_eq!(c.work.discovery_requests, 10);
+                }
+                #[cfg(feature = "mode-very-high")]
+                {
+                    assert!(c.work.discovery_paths >= 4);
+                }
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                {
+                    assert_eq!(c.work.paths, c.work.retry_paths + 10);
+                }
                 assert!(c
                     .detections
                     .iter()
@@ -552,7 +695,7 @@ mod reuse_tests {
     }
 }
 
-#[cfg(all(test, feature = "experimental-coverage-extension"))]
+#[cfg(test)]
 mod extension_tests {
     use super::*;
     fn q() -> Quad {
@@ -680,17 +823,39 @@ mod extension_tests {
         assert!(claims[0][2][1] > 100.);
         for ambiguous in [false, true] {
             let mut c = make();
-            c.observations.push(experiment::Observation {
-                short_quiet: false,
-                ambiguous,
-                digits: if ambiguous { [1; 13] } else { [2; 13] },
-                axis: 0,
-                fraction: 75. / 140.,
-                left: 20. / 420.,
-                right: 400. / 420.,
-                cost: 0.,
-                gap: 1.,
-            });
+            {
+                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
+                {
+                    c.observations.push(experiment::Observation {
+                        short_quiet: false,
+                        ambiguous,
+                        digits: if ambiguous { [1; 13] } else { [2; 13] },
+                        axis: 0,
+                        fraction: 75. / 140.,
+                        left: 20. / 420.,
+                        right: 400. / 420.,
+                        cost: 0.,
+                        gap: 1.,
+                    });
+                }
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                {
+                    c.observations.push(experiment::Observation {
+                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                        invalid_checksum: false,
+                        short_quiet: false,
+                        ambiguous,
+                        digits: if ambiguous { [1; 13] } else { [2; 13] },
+                        axis: 0,
+                        fraction: 75. / 140.,
+                        left: 20. / 420.,
+                        right: 400. / 420.,
+                        cost: 0.,
+                        gap: 1.,
+                    });
+                }
+            }
+
             assert!(
                 verified_claims(&[c], &mut budget(), &mut Work::default(), image(&p)).is_empty()
             );
@@ -708,7 +873,7 @@ mod extension_tests {
 
 // Independent regression fixtures: real EAN modules, source-rasterized gap,
 // and transformed stacked physical symbols (including repeated payloads).
-#[cfg(all(test, feature = "experimental-verified-coverage-reuse"))]
+#[cfg(test)]
 mod stacked_extension_regressions {
     use super::*;
     const SIZE: usize = 640;
@@ -800,7 +965,6 @@ mod stacked_extension_regressions {
         }
     }
     #[test]
-    #[cfg(feature = "experimental-coverage-extension")]
     fn stacked_real_symbols_do_not_extend_across_source_pixel_gap() {
         for g in geometries() {
             for second in [A, B] {
@@ -849,7 +1013,25 @@ mod stacked_extension_regressions {
                 };
                 let result = Experiment::default().scan_scaled(im, &qs, policy).unwrap();
                 for c in result {
-                    assert_eq!(c.work.discovery_paths, 10);
+                    #[cfg(feature = "mode-low")]
+                    {
+                        assert!(
+                            (5..=10).contains(&c.work.discovery_paths),
+                            "both normalized axes and at least five native module-axis rows"
+                        );
+                    }
+                    #[cfg(any(feature = "mode-medium", feature = "mode-high"))]
+                    {
+                        assert_eq!(c.work.discovery_paths, 10);
+                    }
+                    #[cfg(feature = "mode-very-high")]
+                    {
+                        assert_eq!(c.work.discovery_requests, 10);
+                    }
+                    #[cfg(feature = "mode-very-high")]
+                    {
+                        assert!(c.work.discovery_paths >= 4);
+                    }
                     for (digits, sign) in [(A, -1.), (second, 1.)] {
                         if !c.detections.iter().any(|d| {
                             d.digits == digits
@@ -864,7 +1046,6 @@ mod stacked_extension_regressions {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
     #[test]
-    #[cfg(feature = "experimental-coverage-extension")]
     fn cached_extension_spends_no_additional_pixels() {
         let g = geometries()[0];
         let pixels = raster(g, A);
@@ -882,3 +1063,7 @@ mod stacked_extension_regressions {
         assert_eq!(w.extension_cache_hits, 1);
     }
 }
+
+#[cfg(test)]
+#[path = "coverage_arithmetic_tests.rs"]
+mod coverage_arithmetic_tests;

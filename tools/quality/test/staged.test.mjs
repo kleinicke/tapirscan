@@ -96,15 +96,19 @@ test("alternate index formatting leaves the regular index untouched", (t) => {
 
 test("pinned files and an existing Git lock are preserved", (t) => {
   const f = fixture(t);
-  fs.mkdirSync(path.join(f.directory, "core"));
-  f.write("core/frozen.js", "const pinned={x:1}\n");
-  f.git("add", "core/frozen.js");
+  fs.mkdirSync(path.join(f.directory, "historical"));
+  f.write("historical/frozen.js", "const pinned={x:1}\n");
+  f.git("add", "historical/frozen.js");
   fs.mkdirSync(path.join(f.directory, "js/camera-demo/src/vendor"), { recursive: true });
   f.write("js/camera-demo/src/vendor/frozen.ts", "const pinned={x:1}\n");
   f.git("add", "js/camera-demo/src/vendor/frozen.ts");
+  fs.mkdirSync(path.join(f.directory, "core"));
+  f.write("core/production.js", "const value={x:1}\n");
+  f.git("add", "core/production.js");
   f.hook();
+  assert.equal(f.git("show", ":core/production.js"), "const value = { x: 1 };\n");
   assert.equal(f.git("show", ":js/camera-demo/src/vendor/frozen.ts"), "const pinned={x:1}\n");
-  assert.equal(f.git("show", ":core/frozen.js"), "const pinned={x:1}\n");
+  assert.equal(f.git("show", ":historical/frozen.js"), "const pinned={x:1}\n");
   f.write(".git/index.lock", "another Git operation");
   assert.notEqual(f.hook({ ok: false }).status, 0);
   assert.equal(f.read(".git/index.lock"), "another Git operation");

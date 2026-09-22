@@ -2,7 +2,8 @@
 use crate::format_registry::{
     ALL_FORMATS_MASK, EAN_ADDON_READ_FLAG, EAN_ADDON_REQUIRE_FLAG, LINEAR_MASK,
 };
-use crate::{geometry::overlap, Error, Image, ScanOptions, Scanner, MODE};
+use crate::read::{Read, Region};
+use crate::{geometry::overlap_quads, Error, Image, ScanOptions, Scanner, MODE};
 use scanner_types::EngineScan;
 use serde_json::{json, Value};
 
@@ -38,220 +39,266 @@ impl Scanner {
         options: ScanOptions,
         mask: u32,
         addons: EanAddOnPolicy,
-        retain_diagnostics: bool,
     ) -> Result<EngineScan, Error> {
         validate(image, mask)?;
 
         if mask == 1 && addons == EanAddOnPolicy::Ignore {
-            let result = self.scan_with_options(image, options)?;
-            let mut value =
-                crate::result::value(&result, MODE, 0.0).map_err(|_| Error::Parameters)?;
-            if let Some(reads) = value["scan"]["barcodes"].as_array_mut() {
-                for read in reads {
-                    read["format"] = json!("EAN13");
-                }
-            }
-            return typed_result(value, retain_diagnostics);
+            return primary_result(&self.scan_with_options(image, options)?);
         }
         let start = crate::timer::Timer::start();
         // Rank only after all selected readers have finished.
         let full_options = ScanOptions {
-            finish_candidates: options.finish_candidates,
             multiple: true,
-            include_regions: options.include_regions,
+            ..options
         };
         let shared_retail =
             crate::MODE_ID == 1 && addons == EanAddOnPolicy::Ignore && mask & 12 != 0;
         let (extras, coverage) =
             scan_additional(image, if shared_retail { mask & !12 } else { mask }, addons)?;
-        let mut retail = Vec::new();
-        let mut value = if shared_retail || mask & 3 != 0 {
-            let result =
-                self.scan_with_coverage(image, full_options, &coverage, false, shared_retail)?;
-            retail.clone_from(&result.retail);
-            crate::result::value(&result, MODE, 0.0).map_err(|_| Error::Parameters)?
+        let primary = if shared_retail || mask & 3 != 0 {
+            Some(self.scan_with_coverage(image, full_options, &coverage, false, shared_retail)?)
         } else {
-            json!({"schemaVersion":2,"mode":MODE,"multiple":true,"elapsedMs":0.0,"localizationLimited":false,"scan":{"barcodes":[],"unfinished":false}})
+            None
         };
-        let mut reads = value["scan"]["barcodes"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        reads.retain_mut(|b| {
-            let text = b["text"].as_str().unwrap_or_default().to_owned();
-            if mask & 2 != 0 && text.starts_with('0') {
-                b["text"] = json!(&text[1..]);
-                b["format"] = json!("UPCA");
+        let mut reads = primary.as_ref().map_or_else(Vec::new, primary_reads);
+        reads.retain_mut(|read| {
+            if mask & 2 != 0 && read.text.starts_with('0') {
+                read.text.remove(0);
+                read.format = "UPCA".into();
                 true
             } else {
-                b["format"] = json!("EAN13");
                 mask & 1 != 0
             }
         });
-        reads.extend(retail.into_iter().filter(|b| match b["format"].as_str() {
-            Some("EAN8") => mask & 4 != 0,
-            Some("UPCE") => mask & 8 != 0,
-            _ => false,
-        }));
-        let mut unread = if options.include_regions {
-            unread_regions(&value, &reads)
-        } else {
-            Vec::new()
-        };
-        for extra in &extras {
-            for b in &extra.barcodes {
-                let mut b = serde_json::to_value(b).map_err(|_| Error::Parameters)?;
-                b["axis"] = json!(0);
-                b["candidate_indices"] = json!([]);
-                reads.push(b);
-            }
-            if options.include_regions {
-                for region in &extra.regions {
-                    unread.push(serde_json::to_value(region).map_err(|_| Error::Parameters)?);
-                }
-            }
-            value["scan"]["unfinished"] =
-                json!(value["scan"]["unfinished"].as_bool().unwrap_or(false) || extra.unfinished);
+        if let Some(primary) = &primary {
+            reads.extend(
+                primary
+                    .retail
+                    .iter()
+                    .filter(|read| match read.format.as_str() {
+                        "EAN8" => mask & 4 != 0,
+                        "UPCE" => mask & 8 != 0,
+                        _ => false,
+                    })
+                    .cloned(),
+            );
         }
-        if !extras.is_empty() {
+        let mut unread = primary
+            .as_ref()
+            .map_or_else(Vec::new, |primary| unread_regions(primary, &reads));
+        let localization_limited = primary
+            .as_ref()
+            .is_some_and(|p| p.localization_work_limited);
+        let mut unfinished = primary.as_ref().is_some_and(crate::Result::unfinished);
+        let had_extras = !extras.is_empty();
+        for extra in extras {
+            reads.extend(extra.barcodes.into_iter().map(Read::additional));
+            if options.include_regions {
+                unread.extend(extra.regions.into_iter().map(|region| Region {
+                    format: region.format,
+                    text: region.text,
+                    polygon: region.polygon.map(|point| point.map(f64::from)),
+                    support: region.support as u64,
+                    localization_score: Some(f64::from(region.localization_score)),
+                }));
+            }
+            unfinished |= extra.unfinished;
+        }
+        if had_extras {
             apply_supplement_policy(&mut reads, &mut unread, addons, options.include_regions);
             reads = distinct(reads);
-            unread.retain(|region| !reads.iter().any(|b| overlap(region, b).1 >= 0.65));
-            unread = distinct(unread);
+            unread.retain(|region| {
+                !reads
+                    .iter()
+                    .any(|read| overlap_quads(&region.polygon, &read.polygon).1 >= 0.65)
+            });
+            unread = distinct_regions(unread);
         }
         reads = crate::linear_duplicates::merge(reads, image);
-        reads.sort_by_key(|b| std::cmp::Reverse(b["support"].as_u64().unwrap_or(0)));
-        for (i, b) in reads.iter_mut().enumerate() {
-            b["rank"] = json!(i + 1);
+        reads.sort_by_key(|read| std::cmp::Reverse(read.support));
+        for (i, read) in reads.iter_mut().enumerate() {
+            read.rank = Some(i + 1);
         }
-        if options.include_regions {
-            value["scan"]["regions"] =
-                json!(reads.iter().cloned().chain(unread).collect::<Vec<_>>());
+        unfinished |= localization_limited;
+        let raw = format_diagnostics(
+            primary.as_ref(),
+            &reads,
+            &unread,
+            options,
+            start.elapsed().as_secs_f64() * 1000.0,
+        )?;
+        if !options.multiple && reads.len() > 1 {
+            let remaining = reads.split_off(1);
+            if options.include_regions {
+                unread.extend(remaining.into_iter().map(|read| Region {
+                    format: read.format,
+                    text: read.text,
+                    polygon: read.polygon,
+                    support: read.support,
+                    localization_score: None,
+                }));
+            }
         }
-        if !options.multiple {
-            reads.truncate(1);
-        }
-        value["scan"]["barcodes"] = json!(reads);
-        value["scan"]["unfinished"] = json!(
-            value["scan"]["unfinished"].as_bool().unwrap_or(false)
-                || value["localizationLimited"].as_bool().unwrap_or(false)
-        );
-        value["multiple"] = json!(options.multiple);
-        value["elapsedMs"] = json!(start.elapsed().as_secs_f64() * 1000.0);
-        typed_result(value, retain_diagnostics)
+        typed_result(reads, unread, unfinished, localization_limited, raw)
     }
 }
 
-fn typed_result(mut raw: Value, retain_diagnostics: bool) -> Result<EngineScan, Error> {
-    let mut regions = if let Some(regions) = raw["scan"]["regions"].as_array() {
-        let reads = raw["scan"]["barcodes"]
-            .as_array()
-            .ok_or(Error::OutputShape)?;
-        regions
-            .iter()
-            .filter(|region| !reads.contains(region))
-            .cloned()
-            .collect()
-    } else {
-        let reads = raw["scan"]["barcodes"]
-            .as_array()
-            .ok_or(Error::OutputShape)?;
-        unread_regions(&raw, reads)
-    };
-    for region in &mut regions {
-        if region["format"] == "Unknown" {
-            region["format"] = Value::Null;
-        }
+fn primary_result(result: &crate::Result) -> Result<EngineScan, Error> {
+    let reads = primary_reads(result);
+    let unread = unread_regions(result, &reads);
+    let raw = result
+        .options
+        .retain_diagnostics
+        .then(|| crate::result::value(result, MODE, 0.0))
+        .transpose()?;
+    typed_result(
+        reads,
+        unread,
+        result.unfinished(),
+        result.localization_work_limited,
+        raw,
+    )
+}
+
+fn format_diagnostics(
+    primary: Option<&crate::Result>,
+    reads: &[Read],
+    unread: &[Region],
+    options: ScanOptions,
+    elapsed_ms: f64,
+) -> Result<Option<Value>, Error> {
+    if !options.retain_diagnostics {
+        return Ok(None);
     }
-    let undecoded = regions
-        .into_iter()
-        .map(|value| serde_json::from_value(value).map_err(|_| Error::OutputShape))
-        .collect::<Result<_, _>>()?;
-    let unfinished = raw["scan"]["unfinished"]
-        .as_bool()
-        .ok_or(Error::OutputShape)?;
-    let localization_limited = raw["localizationLimited"].as_bool().unwrap_or(false);
-    let values = if retain_diagnostics {
-        raw["scan"]["barcodes"]
-            .as_array()
-            .cloned()
-            .ok_or(Error::OutputShape)?
+    let mut raw = if let Some(primary) = primary {
+        crate::result::value(primary, MODE, 0.0)?
     } else {
-        raw["scan"]["barcodes"]
-            .as_array_mut()
-            .map(std::mem::take)
-            .ok_or(Error::OutputShape)?
+        json!({"schemaVersion":2,"mode":MODE,"multiple":true,"elapsedMs":0.0,"localizationLimited":false,"scan":{"barcodes":[],"unfinished":false}})
     };
-    let barcodes = values
-        .into_iter()
-        .map(|value| serde_json::from_value(value).map_err(|_| Error::OutputShape))
-        .collect::<Result<_, _>>()?;
+    if options.include_regions {
+        let mut regions: Vec<_> = reads
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<_, _>>()
+            .map_err(|_| Error::OutputShape)?;
+        regions.extend(
+            unread
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| Error::OutputShape)?,
+        );
+        raw["scan"]["regions"] = json!(regions);
+    }
+    raw["multiple"] = json!(options.multiple);
+    raw["elapsedMs"] = json!(elapsed_ms);
+    Ok(Some(raw))
+}
+
+fn primary_reads(result: &crate::Result) -> Vec<Read> {
+    result
+        .barcodes()
+        .iter()
+        .map(|barcode| {
+            let d = &barcode.detection;
+            Read::primary(
+                d.digits,
+                d.polygon,
+                d.support,
+                d.axis,
+                barcode.candidate_indices.clone(),
+            )
+        })
+        .collect()
+}
+
+fn typed_result(
+    reads: Vec<Read>,
+    unread: Vec<Region>,
+    unfinished: bool,
+    localization_limited: bool,
+    mut diagnostics: Option<Value>,
+) -> Result<EngineScan, Error> {
+    if let Some(raw) = &mut diagnostics {
+        raw["scan"]["barcodes"] = serde_json::to_value(&reads).map_err(|_| Error::OutputShape)?;
+        raw["scan"]["unfinished"] = json!(unfinished);
+    }
     Ok(EngineScan {
-        barcodes,
-        undecoded,
+        barcodes: reads
+            .into_iter()
+            .map(Read::into_public)
+            .collect::<Result<_, _>>()?,
+        undecoded: unread
+            .into_iter()
+            .map(Region::into_public)
+            .collect::<Result<_, _>>()?,
         unfinished,
         localization_limited,
-        diagnostics: retain_diagnostics.then_some(raw),
+        diagnostics,
     })
 }
 
 fn apply_supplement_policy(
-    reads: &mut Vec<Value>,
-    unread: &mut Vec<Value>,
+    reads: &mut Vec<Read>,
+    unread: &mut Vec<Region>,
     policy: EanAddOnPolicy,
     include_regions: bool,
 ) {
     attach_supplements(reads);
     if policy == EanAddOnPolicy::Require {
         reads.retain(|read| {
-            let accepted = !is_retail(read) || read["eanAddOn"].is_string();
+            let accepted = !matches!(read.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE")
+                || read.addon.is_some();
             if !accepted && include_regions {
-                unread.push(json!({"format":read["format"],"text":"",
-                                  "polygon":read["polygon"],"support":0}));
+                unread.push(Region {
+                    format: read.format.clone(),
+                    ..Region::unknown(read.polygon)
+                });
             }
             accepted
         });
     }
 }
 
-fn is_retail(read: &Value) -> bool {
-    matches!(
-        read["format"].as_str(),
-        Some("EAN13" | "UPCA" | "EAN8" | "UPCE")
-    )
-}
-
 // Match confirmed supplements to the same physical base symbol, never text alone.
-fn attach_supplements(reads: &mut [Value]) {
-    let supplemental: Vec<Value> = reads
+fn attach_supplements(reads: &mut [Read]) {
+    let supplemental: Vec<_> = reads
         .iter()
-        .filter(|read| read["eanAddOn"].is_string())
-        .cloned()
+        .filter(|read| read.addon.is_some())
+        .map(|read| {
+            (
+                read.format.clone(),
+                read.text.clone(),
+                read.polygon,
+                read.addon.clone(),
+            )
+        })
         .collect();
-    for read in &supplemental {
+    for (format, text, polygon, addon) in supplemental {
         for base in &mut *reads {
-            if base["format"] == read["format"]
-                && base["text"] == read["text"]
-                && !base["eanAddOn"].is_string()
-                && overlap(base, read).0 >= 0.65
+            if base.format == format
+                && base.text == text
+                && base.addon.is_none()
+                && overlap_quads(&base.polygon, &polygon).0 >= 0.65
             {
-                base["eanAddOn"] = read["eanAddOn"].clone();
+                base.addon.clone_from(&addon);
             }
         }
     }
 }
 
-fn distinct(mut reads: Vec<Value>) -> Vec<Value> {
-    reads.sort_by_key(|b| std::cmp::Reverse(b["support"].as_u64().unwrap_or(0)));
-    let mut result: Vec<Value> = Vec::new();
+fn distinct(mut reads: Vec<Read>) -> Vec<Read> {
+    reads.sort_by_key(|read| std::cmp::Reverse(read.support));
+    let mut result: Vec<Read> = Vec::new();
     for read in reads {
-        if !result.iter().any(|b| {
-            ["text", "format", "eanAddOn", "structuredAppend"]
-                .iter()
-                .all(|key| b[key] == read[key])
-                && b["readerInitialization"].as_bool().unwrap_or(false)
-                    == read["readerInitialization"].as_bool().unwrap_or(false)
-                && overlap(b, &read).0 >= 0.65
+        if !result.iter().any(|other| {
+            other.text == read.text
+                && other.format == read.format
+                && other.addon == read.addon
+                && other.structured_append == read.structured_append
+                && other.reader_initialization.unwrap_or(false)
+                    == read.reader_initialization.unwrap_or(false)
+                && overlap_quads(&other.polygon, &read.polygon).0 >= 0.65
         }) {
             result.push(read);
         }
@@ -259,36 +306,38 @@ fn distinct(mut reads: Vec<Value>) -> Vec<Value> {
     result
 }
 
-fn unread_regions(value: &Value, reads: &[Value]) -> Vec<Value> {
-    let mut unread = Vec::new();
-    let decoded: std::collections::HashSet<_> = reads
-        .iter()
-        .flat_map(|b| {
-            b["candidate_indices"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_u64)
-        })
-        .collect();
-    if let Some(proposals) = value["localization"]["proposals"].as_array() {
-        for (i, p) in proposals.iter().enumerate() {
-            if !decoded.contains(&(i as u64)) {
-                unread
-                    .push(json!({"format":"Unknown","text":"","polygon":p["polygon"],"support":0}));
-            }
+fn distinct_regions(mut regions: Vec<Region>) -> Vec<Region> {
+    regions.sort_by_key(|region| std::cmp::Reverse(region.support));
+    let mut result: Vec<Region> = Vec::new();
+    for region in regions {
+        if !result.iter().any(|other| {
+            other.text == region.text
+                && other.format == region.format
+                && overlap_quads(&other.polygon, &region.polygon).0 >= 0.65
+        }) {
+            result.push(region);
         }
     }
+    result
+}
 
-    if let Some(attempts) = value["recovery"]["attempts"].as_array() {
-        for attempt in attempts {
-            if let Some(accepted) = attempt["reads"].as_array() {
-                unread.extend(unread_regions(
-                    &json!({"localization":{"proposals":attempt["proposals"]}}),
-                    accepted,
-                ));
-            }
-        }
+fn unread_regions(result: &crate::Result, reads: &[Read]) -> Vec<Region> {
+    if !result.options.include_regions {
+        return Vec::new();
+    }
+    let decoded: std::collections::HashSet<_> = reads
+        .iter()
+        .flat_map(|read| read.candidate_indices.iter().flatten().copied())
+        .collect();
+    let mut unread: Vec<_> = result
+        .proposals
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !decoded.contains(i))
+        .map(|(_, proposal)| Region::unknown(proposal.polygon))
+        .collect();
+    if let Some(recovery) = &result.recovery {
+        unread.extend(recovery.unread.iter().cloned());
     }
     unread
 }
@@ -468,30 +517,17 @@ mod coverage_tests {
 
 #[cfg(test)]
 mod result_tests {
-    use super::typed_result;
-    use serde_json::json;
-
+    use super::*;
     #[test]
-    fn reported_regions_take_precedence_over_localization_fallback() {
-        let read = json!({
-            "text":"5901234123457", "format":"EAN13", "polygon":[[0.,0.],[2.,0.],[2.,1.],[0.,1.]], "support":4
-        });
-        let unread = json!({
-            "text":"", "format":"Unknown", "polygon":[[3.,0.],[5.,0.],[5.,1.],[3.,1.]], "support":0
-        });
-        let raw = json!({
-            "localizationLimited":false,
-            "localization":{"proposals":[
-                {"polygon":[[0.,0.],[2.,0.],[2.,1.],[0.,1.]]},
-                {"polygon":[[3.,0.],[5.,0.],[5.,1.],[3.,1.]]},
-                {"polygon":[[6.,0.],[8.,0.],[8.,1.],[6.,1.]]}
-            ]},
-            "scan":{"unfinished":false,"barcodes":[read.clone()],"regions":[read,unread]}
-        });
-        let result = typed_result(raw, false).unwrap();
+    fn explicit_unread_regions_survive_without_diagnostics() {
+        let q = [[0., 0.], [2., 0.], [2., 1.], [0., 1.]];
+        let read = Read::primary([0; 13], q, 4, 0, vec![0]);
+        let unread = Region::unknown(q.map(|[x, y]| [x + 3., y]));
+        let result = typed_result(vec![read], vec![unread], false, false, None).unwrap();
         assert_eq!(result.barcodes.len(), 1);
         assert_eq!(result.undecoded.len(), 1);
         assert!((result.undecoded[0].polygon[0][0] - 3.).abs() < f64::EPSILON);
-        assert!(result.undecoded[0].polygon[0][1].abs() < f64::EPSILON);
+        assert!(result.undecoded[0].format.is_none());
+        assert!(result.diagnostics.is_none());
     }
 }

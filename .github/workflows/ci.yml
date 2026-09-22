@@ -27,22 +27,18 @@ jobs:
         run: rustup toolchain install 1.91.1 --profile minimal --component clippy --target wasm32-unknown-unknown
       - run: cargo +1.91.1 fetch --locked --manifest-path multiformat/Cargo.toml
       - run: cargo +1.91.1 fetch --locked --manifest-path bindings/rust/Cargo.toml
-      - name: Prepare pinned modes and fetch their locked dependencies
-        run: |
-          for mode in low medium high very-high; do
-            python scripts/build.py "$mode" --prepare-only
-            cargo +1.91.1 fetch --locked --manifest-path "build/$mode/temporarysource/Cargo.toml"
-          done
+      - name: Fetch maintained core dependencies
+        run: cargo +1.91.1 fetch --locked --manifest-path core/Cargo.toml
       - run: python3 scripts/verify_import.py
-      - run: for mode in low medium high very-high; do python3 scripts/build.py "$mode" --resume; done
+      - run: for mode in low medium high very-high; do python3 scripts/build.py "$mode"; done
       - name: Preserve failed WASM build for reproducibility diagnosis
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: wasm-diagnostics-${{ matrix.os }}
           path: |
-            build/*/cargo-target/wasm32-unknown-unknown/release/*.wasm
-            build/*/temporarysource/Cargo.toml
+            build/wasm-target/wasm32-unknown-unknown/release/*.wasm
+            build/wasm/*/Cargo.toml
       - run: python3 scripts/build_native.py low medium high very-high
       - run: python3 scripts/build_wasm.py
       - run: npm ci --prefix bindings/javascript
