@@ -251,11 +251,7 @@ test("WASM base directory composes with the advanced loader", async () => {
     },
   });
   scanner.dispose();
-  assert.deepEqual(loaded, [
-    "medium-shared-retail-runtime-20260921.wasm",
-    "low-shared-retail-runtime-20260921.wasm",
-    "multiformat.wasm",
-  ]);
+  assert.deepEqual(loaded, ["medium-rust-api-20260922.wasm"]);
 });
 
 test("UPC-A selection owns only one primary engine", async () => {
@@ -295,7 +291,7 @@ test("per-call format subsets reuse engines and preserve defaults", async () => 
   assert.deepEqual((await scan(fixture().image, { formats: "EAN13" })).values, [fixture().text]);
 });
 
-test("QR-only creation loads only the additional engine", async () => {
+test("QR-only creation loads one complete engine", async () => {
   const loaded = [];
   const scanner = await Scanner.create({
     formats: "QRCode",
@@ -305,7 +301,7 @@ test("QR-only creation loads only the additional engine", async () => {
     },
   });
   try {
-    assert.deepEqual(loaded, ["multiformat.wasm"]);
+    assert.deepEqual(loaded, ["medium-rust-api-20260922.wasm"]);
     assert.deepEqual(scanner.scan(fixture().image).values, []);
     assert.throws(() => scanner.scan(fixture().image, { formats: "EAN13" }), /subset/);
   } finally {
@@ -317,7 +313,7 @@ test("public results preserve semantic metadata independently of diagnostics", a
   const scanner = await Scanner.create({ formats: "QRCode" });
   try {
     // Exercise the public adapter with metadata combinations the engine may return.
-    scanner.host.scan = () => ({
+    scanner.host.scan = (_image, flags) => ({
       barcodes: [
         {
           text: "part",
@@ -333,11 +329,16 @@ test("public results preserve semantic metadata independently of diagnostics", a
           readerInitialization: false,
           structuredAppend: { index: 1, count: 2, id: "group", parity: 7 },
           eanAddOn: "12",
+          rect: { left: 0, top: 0, width: 10, height: 10 },
         },
       ],
-      scanMs: 1,
+      bestIndex: 0,
+      undecoded: [],
+      image: { width: 480, height: 180 },
+      mode: "medium",
+      elapsedMs: 0,
       unfinished: true,
-      regions: [],
+      ...(flags & 2 ? { debug: { scan: { barcodes: [], unfinished: true } } } : {}),
     });
     for (const debug of [false, true]) {
       const result = scanner.scan(fixture().image, { debug });
@@ -370,10 +371,22 @@ test("localization limits reach compact results without diagnostics", async () =
       [false, 1],
       [false, 0],
     ]) {
-      scanner.host.scanLocalized = () => ({
-        scan: { barcodes: [], unfinished: false },
-        scanMs: 1,
-        localization: { proposals: [], omitted, workLimited },
+      scanner.host.scan = (_image, flags) => ({
+        barcodes: [],
+        bestIndex: null,
+        undecoded: [],
+        image: { width: 480, height: 180 },
+        mode: "low",
+        elapsedMs: 0,
+        unfinished: workLimited || omitted > 0,
+        ...(flags & 2
+          ? {
+              debug: {
+                scan: { barcodes: [], unfinished: workLimited || omitted > 0 },
+                localization: { proposals: [], omitted, workLimited },
+              },
+            }
+          : {}),
       });
       for (const debug of [false, true]) {
         const result = scanner.scan(fixture().image, { debug });
@@ -445,7 +458,7 @@ test("supplement policy is opt-in, validated at creation and fixed for scans", a
     });
     try {
       assert.equal(scanner.eanAddOnPolicy, policy);
-      assert.equal(loaded.includes("multiformat.wasm"), policy !== "Ignore");
+      assert.deepEqual(loaded, ["low-rust-api-20260922.wasm"]);
       assert.deepEqual(scanner.scan(image).values, policy === "Require" ? [] : [text]);
       assert.throws(() => {
         scanner.eanAddOnPolicy = "Read";
@@ -469,36 +482,6 @@ test("supplement policy is opt-in, validated at creation and fixed for scans", a
     );
 });
 
-test("coverage defers only contained retries and preserves the full-frame bit", async () => {
-  const { containsPoint, uncoveredRetryMask } =
-    await import("../dist/runtime-multiformat/coverage.js");
-  const quad = [
-    [0, 0],
-    [10, 0],
-    [10, 10],
-    [0, 10],
-  ];
-  const adjacent = [
-    [9, 0],
-    [19, 0],
-    [19, 10],
-    [9, 10],
-  ];
-  const proposals = Array.from({ length: 63 }, () => ({ polygon: adjacent }));
-  proposals[0] = proposals[62] = { polygon: quad };
-  assert.deepEqual(uncoveredRetryMask(proposals, [quad]), [0xfffffffe, 0xbfffffff]);
-  assert.deepEqual(uncoveredRetryMask(proposals, [quad], [0, 0x80000000]), [0, 0x80000000]);
-  assert.equal(containsPoint([0, 5], quad), true);
-  assert.equal(containsPoint([NaN, 0], quad), false);
-  assert.equal(
-    containsPoint(
-      [0, 0],
-      Array.from({ length: 4 }, () => [0, 0]),
-    ),
-    false,
-  );
-});
-
 test("extended budget accepts formats without the primary reader", async () => {
   const scanner = await Scanner.create({ formats: "QRCode", loadWasm });
   try {
@@ -511,46 +494,4 @@ test("one-shot forwards continuation", async () => {
   assert.deepEqual((await scan(fixture().image, { extendedBudget: true, loadWasm })).values, [
     fixture().text,
   ]);
-});
-test("continuation services later candidates while preserving effort and unfinished status", async () => {
-  const { IndependentScanner, runtimeHostOptions } = await import("../dist/runtime-host.mjs");
-  const image = {
-    data: new Uint8Array(600 * 300).fill(255),
-    width: 600,
-    height: 300,
-    stride: 600,
-    channels: 1,
-  };
-  const quads = Array.from({ length: 64 }, () => [
-    [0, 0],
-    [599, 0],
-    [599, 299],
-    [0, 299],
-  ]);
-  for (const mode of ["low", "medium", "high", "very-high"]) {
-    const scanner = await IndependentScanner.create(
-      await loadWasm(
-        new URL(`../wasm/${mode}-shared-retail-runtime-20260921.wasm`, import.meta.url),
-      ),
-      runtimeHostOptions.completion,
-    );
-    try {
-      const bounded = scanner.scan(image, quads, { maxRetryPathsPerFrame: 10 });
-      const completed = scanner.scan(image, quads, {
-        maxRetryPathsPerFrame: 10,
-        finishCandidates: true,
-      });
-      const reference = scanner.scan(image, quads, { maxRetryPathsPerFrame: 65536 });
-      const work = (result) => result.candidates.map((c) => c.work.retry_paths);
-      assert.equal(
-        work(bounded).reduce((a, b) => a + b, 0),
-        10,
-      );
-      assert.deepEqual(work(completed), work(reference));
-      assert.ok(work(completed).every((n) => n > 0 && n <= 512));
-      assert.equal(completed.unfinished, reference.unfinished);
-    } finally {
-      scanner.dispose();
-    }
-  }
 });

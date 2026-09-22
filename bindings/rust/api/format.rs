@@ -45,6 +45,31 @@ pub enum Format {
     MaxiCode = 131_072,
 }
 
+impl Format {
+    /// Stable schema name used by language adapters.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ean13 => "EAN13",
+            Self::Upca => "UPCA",
+            Self::Ean8 => "EAN8",
+            Self::Upce => "UPCE",
+            Self::Code128 => "Code128",
+            Self::Code39 => "Code39",
+            Self::Itf => "ITF",
+            Self::Codabar => "Codabar",
+            Self::Code93 => "Code93",
+            Self::QrCode => "QRCode",
+            Self::DataMatrix => "DataMatrix",
+            Self::Pdf417 => "PDF417",
+            Self::Aztec => "Aztec",
+            Self::DataBar => "DataBar",
+            Self::DataBarExpanded => "DataBarExpanded",
+            Self::MaxiCode => "MaxiCode",
+        }
+    }
+}
+
 pub(crate) const RETAIL_MASK: u32 = 15;
 pub(crate) const COMMON_LINEAR_MASK: u32 = 127;
 pub(crate) const COMMON_MASK: u32 = 1_663;

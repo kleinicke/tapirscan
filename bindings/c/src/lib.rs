@@ -7,7 +7,7 @@ use std::{
     panic::{catch_unwind, AssertUnwindSafe},
     sync::{Arc, Mutex, OnceLock},
 };
-use tapirscan::{formats::EanAddOnPolicy, Image, ScanOptions, Scanner};
+use tapirscan::{EanAddOnPolicy, Formats, Image, Mode, ScanOptions, Scanner, ScannerOptions};
 const ARG: i32 = 1;
 const HANDLE: i32 = 2;
 const BUFFER: i32 = 3;
@@ -66,6 +66,90 @@ fn boundary(f: impl FnOnce() -> Result<(), i32>) -> i32 {
 fn output(id: u64) -> Result<Arc<Output>, i32> {
     registry()?.results.get(&id).cloned().ok_or(HANDLE)
 }
+fn scan_output(
+    scanner: &Mutex<Scanner>,
+    image: Image<'_>,
+    flags: u32,
+    formats: Formats,
+) -> Result<Output, i32> {
+    let add_on_policy = match flags & 12 {
+        4 => EanAddOnPolicy::Read,
+        8 => EanAddOnPolicy::Require,
+        _ => EanAddOnPolicy::Ignore,
+    };
+    let mut scanner = scanner.lock().map_err(|_| PANIC)?;
+    let configured = scanner.options();
+    if configured.ean_add_on_policy != add_on_policy {
+        *scanner = Scanner::new(ScannerOptions {
+            ean_add_on_policy: add_on_policy,
+            ..configured
+        });
+    }
+    let result = scanner
+        .scan_with_options(
+            image,
+            ScanOptions {
+                formats: Some(formats),
+                debug: true,
+                extended_budget: flags & 16 != 0,
+            },
+        )
+        .map_err(|_| ARG)?;
+    let mut raw = result.debug.as_ref().ok_or(PANIC)?.raw.clone();
+    raw["elapsedMs"] = serde_json::json!(result.elapsed.as_secs_f64() * 1000.0);
+    raw["multiple"] = serde_json::json!(flags & 1 == 0);
+    if flags & 1 != 0 {
+        let best = result.best();
+        let index =
+            best.and_then(|best| result.barcodes.iter().position(|b| std::ptr::eq(b, best)));
+        let selected = index
+            .and_then(|index| raw["scan"]["barcodes"].get(index).cloned())
+            .into_iter()
+            .collect::<Vec<_>>();
+        raw["scan"]["barcodes"] = serde_json::json!(selected);
+    }
+    if flags & 2 == 0 {
+        let scan = serde_json::json!({
+            "unfinished": raw["scan"]["unfinished"],
+            "barcodes": raw["scan"]["barcodes"],
+        });
+        raw = serde_json::json!({
+            "schemaVersion": raw["schemaVersion"],
+            "mode": raw["mode"],
+            "multiple": raw["multiple"],
+            "elapsedMs": raw["elapsedMs"],
+            "localizationLimited": raw["localizationLimited"],
+            "scan": scan,
+        });
+    }
+    let barcodes = raw["scan"]["barcodes"].as_array().ok_or(PANIC)?;
+    let mut reads = Vec::with_capacity(barcodes.len());
+    let mut texts = Vec::with_capacity(barcodes.len());
+    for b in barcodes {
+        let mut read = BarcodeRead::default();
+        for i in 0..4 {
+            read.polygon[2 * i] = b["polygon"][i][0].as_f64().ok_or(PANIC)?;
+            read.polygon[2 * i + 1] = b["polygon"][i][1].as_f64().ok_or(PANIC)?;
+        }
+        read.support = u32::try_from(b["support"].as_u64().ok_or(PANIC)?).map_err(|_| CAPACITY)?;
+        let text = b["text"].as_str().ok_or(PANIC)?.as_bytes().to_vec();
+        read.text_length = text.len() as u64;
+        let format = b["format"].as_str().unwrap_or("EAN13").as_bytes();
+        if format.len() >= read.format.len() {
+            return Err(CAPACITY);
+        }
+        read.format[..format.len()].copy_from_slice(format);
+        reads.push(read);
+        texts.push(text);
+    }
+    Ok(Output {
+        unfinished: raw["scan"]["unfinished"].as_bool().ok_or(PANIC)?,
+        limited: raw["localizationLimited"].as_bool().ok_or(PANIC)?,
+        json: serde_json::to_vec(&raw).map_err(|_| PANIC)?,
+        reads,
+        texts,
+    })
+}
 /// Bit 0: finishing effort-selected EAN/UPC candidates is supported.
 #[no_mangle]
 pub extern "C" fn barcode_capabilities() -> u32 {
@@ -77,8 +161,26 @@ pub extern "C" fn barcode_abi_version() -> u32 {
 }
 #[no_mangle]
 pub extern "C" fn barcode_mode() -> u32 {
-    tapirscan::MODE_ID
+    MODE_ID
 }
+const MODE_ID: u32 = if cfg!(feature = "mode-low") {
+    0
+} else if cfg!(feature = "mode-medium") {
+    1
+} else if cfg!(feature = "mode-high") {
+    2
+} else {
+    3
+};
+const MODE: Mode = if cfg!(feature = "mode-low") {
+    Mode::Low
+} else if cfg!(feature = "mode-medium") {
+    Mode::Medium
+} else if cfg!(feature = "mode-high") {
+    Mode::High
+} else {
+    Mode::VeryHigh
+};
 /// # Safety
 /// `out` must be null or point to writable, aligned storage for one `u64`.
 #[no_mangle]
@@ -93,8 +195,13 @@ pub unsafe extern "C" fn tapirscan_create(out: *mut u64) -> i32 {
             return Err(CAPACITY);
         }
         let id = r.id()?;
-        r.scanners
-            .insert(id, Arc::new(Mutex::new(Scanner::default())));
+        r.scanners.insert(
+            id,
+            Arc::new(Mutex::new(Scanner::new(ScannerOptions {
+                mode: MODE,
+                ..ScannerOptions::default()
+            }))),
+        );
         *out = id;
         Ok(())
     })
@@ -179,63 +286,19 @@ pub unsafe extern "C" fn barcode_scan_formats(
         if stride < row || required > length || required > MAX_BYTES {
             return Err(ARG);
         }
+        let formats = Formats::try_from(formats).map_err(|_| ARG)?;
         let scanner = registry()?.scanners.get(&id).cloned().ok_or(HANDLE)?;
         let data = std::slice::from_raw_parts(pixels, usize::try_from(required).map_err(|_| ARG)?);
-        let start = std::time::Instant::now();
-        let result = scanner
-            .lock()
-            .map_err(|_| PANIC)?
-            .scan_formats_json_with_addons(
-                Image {
-                    data,
-                    width: usize::try_from(width).map_err(|_| ARG)?,
-                    height: usize::try_from(height).map_err(|_| ARG)?,
-                    channels: channels as usize,
-                    stride: usize::try_from(stride).map_err(|_| ARG)?,
-                },
-                ScanOptions {
-                    finish_candidates: flags & 16 != 0,
-                    multiple: flags & 1 == 0,
-                    include_regions: flags & 2 != 0,
-                },
-                formats,
-                match flags & 12 {
-                    4 => EanAddOnPolicy::Read,
-                    8 => EanAddOnPolicy::Require,
-                    _ => EanAddOnPolicy::Ignore,
-                },
-            )
-            .map_err(|_| ARG)?;
-        let barcodes = result["scan"]["barcodes"].as_array().ok_or(PANIC)?;
-        let mut reads = Vec::with_capacity(barcodes.len());
-        let mut texts = Vec::with_capacity(barcodes.len());
-        for b in barcodes {
-            let mut read = BarcodeRead::default();
-            for i in 0..4 {
-                read.polygon[2 * i] = b["polygon"][i][0].as_f64().ok_or(PANIC)?;
-                read.polygon[2 * i + 1] = b["polygon"][i][1].as_f64().ok_or(PANIC)?;
-            }
-            read.support =
-                u32::try_from(b["support"].as_u64().ok_or(PANIC)?).map_err(|_| CAPACITY)?;
-            let text = b["text"].as_str().ok_or(PANIC)?.as_bytes().to_vec();
-            read.text_length = text.len() as u64;
-            let format = b["format"].as_str().unwrap_or("EAN13").as_bytes();
-            if format.len() >= read.format.len() {
-                return Err(CAPACITY);
-            }
-            read.format[..format.len()].copy_from_slice(format);
-            reads.push(read);
-            texts.push(text);
+        let width = usize::try_from(width).map_err(|_| ARG)?;
+        let height = usize::try_from(height).map_err(|_| ARG)?;
+        let image = match channels {
+            1 => Image::gray(data, width, height),
+            3 => Image::rgb(data, width, height),
+            4 => Image::rgba(data, width, height),
+            _ => return Err(ARG),
         }
-        let mut result = result;
-        result["elapsedMs"] = serde_json::json!(start.elapsed().as_secs_f64() * 1000.0);
-        let output = Arc::new(Output {
-            unfinished: result["scan"]["unfinished"].as_bool().ok_or(PANIC)?,
-            limited: result["localizationLimited"].as_bool().ok_or(PANIC)?,
-            json: serde_json::to_vec(&result).map_err(|_| PANIC)?,
-            reads,
-            texts,
-        });
+        .with_stride(usize::try_from(stride).map_err(|_| ARG)?);
+        let output = Arc::new(scan_output(&scanner, image, flags, formats)?);
         let mut r = registry()?;
         if r.results.len() >= 1024 {
             return Err(CAPACITY);

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Assemble a self-contained Cargo package from verified scanner recipes."""
 
+import argparse
 import hashlib
 import json
 import re
@@ -8,6 +9,8 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from build_support import verify_source_hashes
 
 from build import MODE_CONFIG, ROOT, prepare_native_source, recipe_manifest
 
@@ -33,7 +36,10 @@ def copy_module(
             continue
         text = path.read_text().replace("crate::", f"crate::engine::{namespace}::")
         for name, target in aliases.items():
-            text = text.replace(f"{name}::", f"crate::engine::{target}::")
+            replacement = (
+                target if target.startswith("crate::") else f"crate::engine::{target}"
+            )
+            text = text.replace(f"{name}::", f"{replacement}::")
         text = re.sub(
             r'\bfeature\s*=\s*"([^"]+)"',
             flag,
@@ -73,18 +79,25 @@ def copy_module(
     return flags
 
 
-def prepare(destination: Path) -> None:
+def prepare(destination: Path, *, refresh: bool = False) -> None:
     """Reproduce sources afresh rather than trusting an existing build directory."""
-    if destination.exists():
+    if destination.exists() and not refresh:
         raise FileExistsError(destination)
     subprocess.run([sys.executable, str(ROOT / "scripts/verify_import.py")], check=True)
-    destination.mkdir(parents=True)
+    destination.mkdir(parents=True, exist_ok=True)
+    for name in ("api", "tests", "examples", "generated"):
+        existing = destination / name
+        if existing.exists():
+            shutil.rmtree(existing)
     binding = ROOT / "bindings/rust"
     for name in ["Cargo.toml", "README.md"]:
         shutil.copy2(binding / name, destination / name)
+    if (binding / "Cargo.lock").exists():
+        shutil.copy2(binding / "Cargo.lock", destination / "Cargo.lock")
     shutil.copy2(ROOT / "LICENSE", destination / "LICENSE")
     shutil.copytree(binding / "api", destination / "api")
     shutil.copytree(binding / "tests", destination / "tests")
+    shutil.copytree(binding / "examples", destination / "examples")
     generated = destination / "generated"
     recipes = destination.parent / (destination.name + "-recipes")
     modules = []
@@ -92,20 +105,26 @@ def prepare(destination: Path) -> None:
     for mode in MODE_CONFIG:
         name = mode["mode"].replace("-", "_")
         out = recipes / name
-        subprocess.run(
-            [
-                sys.executable,
-                str(ROOT / "core/experiments/build_guarded.py"),
-                "--recipe",
-                mode["recipe"],
-                "--out",
-                str(out),
-                "--prepare-only",
-            ],
-            check=True,
+        recipe = recipe_manifest(mode["recipe"])
+        verify_source_hashes(ROOT / "core", recipe["baseHashes"])
+        verify_source_hashes(ROOT, recipe.get("externalHashes", {}))
+        if not out.exists():
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "core/experiments/build_guarded.py"),
+                    "--recipe",
+                    mode["recipe"],
+                    "--out",
+                    str(out),
+                    "--prepare-only",
+                ],
+                check=True,
+            )
+        verify_source_hashes(
+            out / "temporarysource", recipe["baseHashes"] | recipe["targetHashes"]
         )
         prepare_native_source(out)
-        recipe = recipe_manifest(mode["recipe"])
         features = set(recipe["expandedFeatures"])
         metadata = json.loads(
             subprocess.check_output(
@@ -150,10 +169,20 @@ def prepare(destination: Path) -> None:
                     "barcode_research_core": core,
                     "recovery_core": "core_low",
                     "barcode_multiformat": "multiformat",
+                    "scanner_types": "crate::types",
+                    "scanner_timer": "crate::timer",
                 },
             )
         )
-        modules.extend([f"pub(crate) mod {core};", f"pub(crate) mod {name};"])
+        gate = f"#[cfg(tapirscan_mode_{name})]"
+        modules.extend(
+            [
+                f"pub(crate) mod {core};"
+                if name == "low"
+                else f"{gate}\npub(crate) mod {core};",
+                f"{gate}\npub(crate) mod {name};",
+            ]
+        )
     flags.update(
         copy_module(
             ROOT / "multiformat/src",
@@ -169,11 +198,27 @@ def prepare(destination: Path) -> None:
         f'    ("{name}", {str(enabled).lower()}),'
         for name, enabled in sorted(flags.items())
     ]
+    mode_entries = [
+        f'    ("tapirscan_mode_{m["mode"].replace("-", "_")}", '
+        f'"CARGO_FEATURE_MODE_{m["mode"].replace("-", "_").upper()}"),'
+        for m in MODE_CONFIG
+    ]
     (destination / "build.rs").write_text(
         "const FLAGS: &[(&str, bool)] = &[\n"
         + "\n".join(entries)
         + "\n];\n"
+        + "const MODES: &[(&str, &str)] = &[\n"
+        + "\n".join(mode_entries)
+        + "\n];\n"
         + "fn main() {\n"
+        + "    let explicit = MODES.iter()\n"
+        + "        .any(|(_, feature)| std::env::var_os(feature).is_some());\n"
+        + "    for (name, feature) in MODES {\n"
+        + '        println!("cargo::rustc-check-cfg=cfg({name})");\n'
+        + '        println!("cargo::rerun-if-env-changed={feature}");\n'
+        + "        if !explicit || std::env::var_os(feature).is_some() {\n"
+        + '            println!("cargo::rustc-cfg={name}");\n'
+        + "        }\n    }\n"
         + '    println!("cargo::rerun-if-changed=build.rs");\n'
         + "    for (name, enabled) in FLAGS {\n"
         + '        println!("cargo::rustc-check-cfg=cfg({name})");\n'
@@ -198,6 +243,7 @@ def prepare(destination: Path) -> None:
                 binding / "src",
                 binding / "api",
                 binding / "tests",
+                binding / "examples",
                 ROOT / "multiformat/src",
             ]
             for p in sorted(folder.rglob("*.rs"))
@@ -207,6 +253,7 @@ def prepare(destination: Path) -> None:
             for p in [
                 Path(__file__),
                 binding / "Cargo.toml",
+                binding / "Cargo.lock",
                 binding / "README.md",
                 ROOT / "LICENSE",
             ]
@@ -227,8 +274,14 @@ def prepare(destination: Path) -> None:
 
 
 if __name__ == "__main__":
-    prepare(
-        Path(sys.argv[1]).resolve()
-        if len(sys.argv) > 1
-        else ROOT / "build/crates/tapirscan"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "destination", type=Path, nargs="?", default=ROOT / "build/crates/tapirscan"
     )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Reverify recipes and refresh sources, keeping Cargo build caches",
+    )
+    args = parser.parse_args()
+    prepare(args.destination.resolve(), refresh=args.refresh)

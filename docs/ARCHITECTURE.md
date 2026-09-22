@@ -24,26 +24,28 @@ not merely aliases for one function with different timeouts. Higher effort does
 not guarantee a strict superset of a lower mode's reads. Bounded recovery remains
 marked unfinished, even when it successfully decodes a symbol.
 
-## One algorithm family, two execution environments
+## One scanner, native and WebAssembly
 
-JavaScript loads Rust/WASM and orchestrates the pipeline synchronously after
-initialization. `bindings/javascript/src/runtime-host.mjs` owns the active region
-ABI adapter. Explicit host options preserve the base, completion, wider-candidate
-and detail-scheduling behaviors without copied host implementations. Active detail
-helpers live under `runtime-detail/`; dated and hash-pinned imports remain audit
-references and are excluded from the packaged runtime. Browser recovery uses Canvas interpolation; Node uses a software
-bilinear implementation. The native Rust facade ports the same orchestration
-and uses the same separately compiled recovery core. C, C++, Python and Java
-all call that native ABI.
+The public Rust `Scanner` in `bindings/rust/api` owns the complete pipeline.
+Native Rust callers use it directly. C, C++, Python and Java reach it through
+the C adapter. JavaScript loads one mode-specific WebAssembly module and calls
+it through `bindings/wasm`; `rust-session.ts` manages its memory and lifetime.
+Scanning is synchronous after JavaScript initialization.
+
+Recovery, interpolation, reader ordering, budgets and duplicate reconciliation
+are implemented once in Rust. The JavaScript layer validates inputs, transfers
+pixels and exposes immutable results. Historical imported JavaScript remains
+available for provenance but is not shipped as an active scanner.
 
 Grayscale, RGB and RGBA inputs support explicit strides; alpha is ignored.
 Positions refer to the pixels supplied by the caller, not an earlier image before
 resizing. Crop-local candidate indices are never presented as primary indices.
 See [the native contract](NATIVE_BINDINGS.md) and [Python input rules](API_DESIGN.md).
 
-## Native pipeline boundaries
+## Scanner pipeline boundaries
 
-`bindings/rust/src/lib.rs` defines the facade types and public entry points.
+`bindings/rust/api` defines public types and entry points; `bindings/rust/src`
+contains the private per-mode engine.
 `pipeline.rs` orders image preparation, localization, primary scanning, recovery
 and consolidation. Its stage helpers preserve proposal order, budgets and
 source-coordinate bookkeeping so experiments can change one stage at a time.
@@ -59,8 +61,8 @@ workspace retains those cases and outcomes; the library retains API unit tests.
 ## Additional formats
 
 `multiformat/` contains the supported EAN8/UPCE readers and experimental readers
-for formats outside the retail group. All are opt-in. JavaScript loads
-that WASM only when requested formats need it. EAN-13 and UPC-A retain the selected
+for formats outside the retail group. Readers run only when selected; each
+mode-specific WASM includes all readers. EAN-13 and UPC-A retain the selected
 primary effort mode. Common1D uses effort 0/1/2/2 and QR Code uses 0/1/2/3
 for Low/Medium/High/Very High; other matrix readers use effort 1.
 When mixed with EAN13/UPCA, confirmed Common1D coverage can defer deep EAN
@@ -77,8 +79,9 @@ from an EAN-13 result.
 | ----------------------------------------- | ---------------------------------------------------- |
 | `core/`                                   | Frozen base sources and exact experiment patches     |
 | `provenance/`                             | Selected mode recipes and source/binary hashes       |
-| `bindings/javascript/`                    | Browser/Node API and WASM orchestration              |
-| `bindings/rust/`                          | Safe native facade and source-detail recovery port   |
+| `bindings/javascript/`                    | Browser/Node API and WASM session adapter            |
+| `bindings/rust/`                          | Public Scanner API and shared private pipeline       |
+| `bindings/wasm/`                          | Thin WebAssembly adapter over the Rust API           |
 | `bindings/c/`, `cpp/`, `python/`, `java/` | Native language interfaces                           |
 | `multiformat/`                            | Pinned EAN8/UPCE and experimental nonretail readers  |
 | `demo/`                                   | Camera/photo app with independent comparison workers |
@@ -103,13 +106,13 @@ review rather than relying on an edited build directory.
 
 Use these stage boundaries when changing a scanner:
 
-| Stage                           | Main implementation                                                           | Preserve when testing another stage                                |
-| ------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Candidate discovery             | `core/src/stripes.rs`, `localize.rs`, `shear.rs`                              | Source coordinates and omitted/work-limited signals                |
-| Profile sampling and decoding   | `core/src/sampling.rs`, `experiment.rs`, format readers                       | Sampling order, numerical precision and acceptance thresholds      |
-| Evidence and reconciliation     | `core/src/frame.rs`, `verified_coverage.rs`                                   | Independent support, separate equal labels and conflict handling   |
-| Recovery scheduling             | JavaScript detail runtime and `bindings/rust/src/detail.rs`                   | Effort policy, candidate namespaces and unfinished work            |
-| Release duplicate consolidation | JavaScript `multiformat/linear-duplicates.ts` and Rust `linear_duplicates.rs` | Geometry, supplement identity, ranking and the shared pixel budget |
+| Stage                           | Main implementation                                     | Preserve when testing another stage                                |
+| ------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------ |
+| Candidate discovery             | `core/src/stripes.rs`, `localize.rs`, `shear.rs`        | Source coordinates and omitted/work-limited signals                |
+| Profile sampling and decoding   | `core/src/sampling.rs`, `experiment.rs`, format readers | Sampling order, numerical precision and acceptance thresholds      |
+| Evidence and reconciliation     | `core/src/frame.rs`, `verified_coverage.rs`             | Independent support, separate equal labels and conflict handling   |
+| Recovery scheduling             | `bindings/rust/src/detail.rs`                           | Effort policy, candidate namespaces and unfinished work            |
+| Release duplicate consolidation | `bindings/rust/src/linear_duplicates.rs`                | Geometry, supplement identity, ranking and the shared pixel budget |
 
 Rust release consolidation uses typed reads and geometry. Reader JSON is decoded
 at its boundary and retained as an opaque payload, preserving additional metadata;

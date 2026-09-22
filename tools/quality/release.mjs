@@ -76,119 +76,75 @@ if (selected("native")) {
 }
 if (selected("rust")) {
   const modes = JSON.parse(fs.readFileSync(path.join(root, "provenance/modes.json"), "utf8")).modes;
-  for (const { mode: name, recipe } of modes) {
-    const parent = fs.mkdtempSync(path.join(root, ".quality-cache/lint-"));
-    const out = path.join(parent, name);
-    try {
-      if (
-        !run(python, [
-          "core/experiments/build_guarded.py",
-          "--recipe",
-          recipe,
-          "--out",
-          out,
-          "--prepare-only",
-        ])
-      )
-        continue;
-      if (
-        !run(
-          python,
-          [
-            "-c",
-            "from build import prepare_native_source, prepare_recovery_source; from pathlib import Path; import sys; prepare_native_source(Path(sys.argv[1])); prepare_recovery_source(Path(sys.argv[1]))",
-            out,
-          ],
-          { PYTHONPATH: path.join(root, "scripts") },
-        )
-      )
-        continue;
-      const manifest = JSON.parse(
-        fs.readFileSync(path.join(root, `core/experiments/${recipe}.json`), "utf8"),
-      );
-      run(
-        "rustup",
-        [
-          "run",
-          "1.91.1",
-          "cargo",
-          "clippy",
-          "--offline",
-          "--manifest-path",
-          path.join(out, "temporarysource/Cargo.toml"),
-          "--all-targets",
-          "--features",
-          manifest.expandedFeatures.join(","),
-          "--",
-          "-D",
-          "warnings",
-          "-W",
-          "clippy::pedantic",
-        ],
-        { CARGO_TARGET_DIR: path.join(root, ".quality-cache/cargo-bindings") },
-      );
-      for (const [binding, crate] of [
-        ["rust", "rust"],
-        ["c", "native"],
-      ]) {
-        const dest = path.join(out, crate);
-        fs.mkdirSync(dest);
-        fs.cpSync(path.join(root, `bindings/${binding}/src`), path.join(dest, "src"), {
-          recursive: true,
-        });
-        const examples = path.join(root, `bindings/${binding}/examples`);
-        if (fs.existsSync(examples))
-          fs.cpSync(examples, path.join(dest, "examples"), { recursive: true });
-        const template = fs.readFileSync(
-          path.join(root, `bindings/${binding}/Cargo.toml.in`),
-          "utf8",
-        );
-        fs.writeFileSync(
-          path.join(dest, "Cargo.toml"),
-          template
-            .replace("@FEATURES@", JSON.stringify(manifest.expandedFeatures))
-            .replace(
-              "@LOW_FEATURES@",
-              JSON.stringify(
-                JSON.parse(
-                  fs.readFileSync(
-                    path.join(root, "core/experiments/low-complete-detail-20260916.json"),
-                    "utf8",
-                  ),
-                ).expandedFeatures,
-              ),
-            )
-            .replaceAll("@MODE@", name)
-            .replaceAll("@LIB_MODE@", name.replaceAll("-", "_"))
-            .replaceAll("@ROOT@", root),
-        );
-        run(
-          "rustup",
-          [
+  const parent = fs.mkdtempSync(path.join(root, ".quality-cache/lint-"));
+  const publicCrate = path.join(root, "build/crates/tapirscan");
+  const cargoTarget = path.join(root, "build/native-target");
+  const clippy = (manifest, extra = []) =>
+    run(
+      "rustup",
+      [
+        "run",
+        "1.91.1",
+        "cargo",
+        "clippy",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        manifest,
+        "--all-targets",
+        ...extra,
+        "--",
+        "-D",
+        "warnings",
+        "-W",
+        "clippy::pedantic",
+        "-W",
+        "clippy::dbg_macro",
+        "-W",
+        "clippy::todo",
+      ],
+      { CARGO_TARGET_DIR: cargoTarget },
+    );
+  try {
+    if (!run(python, ["scripts/prepare_rust.py", publicCrate, "--refresh"])) {
+      process.exitCode = 1;
+    } else {
+      clippy(path.join(publicCrate, "Cargo.toml"));
+      for (const { mode: name } of modes) {
+        for (const binding of ["c", "wasm"]) {
+          const dest = path.join(parent, `${binding}-${name}`);
+          fs.mkdirSync(dest);
+          fs.cpSync(path.join(root, `bindings/${binding}/src`), path.join(dest, "src"), {
+            recursive: true,
+          });
+          fs.copyFileSync(path.join(publicCrate, "Cargo.lock"), path.join(dest, "Cargo.lock"));
+          const template = fs.readFileSync(
+            path.join(root, `bindings/${binding}/Cargo.toml.in`),
+            "utf8",
+          );
+          fs.writeFileSync(
+            path.join(dest, "Cargo.toml"),
+            template
+              .replaceAll("@MODE@", name)
+              .replaceAll("@MODE_ID@", String(modes.findIndex((mode) => mode.mode === name)))
+              .replaceAll("@LIB_MODE@", name.replaceAll("-", "_"))
+              .replaceAll("@PUBLIC_CRATE@", publicCrate),
+          );
+          run("rustup", [
             "run",
             "1.91.1",
             "cargo",
-            "clippy",
+            "generate-lockfile",
             "--offline",
             "--manifest-path",
             path.join(dest, "Cargo.toml"),
-            "--all-targets",
-            "--",
-            "-D",
-            "warnings",
-            "-W",
-            "clippy::pedantic",
-            "-W",
-            "clippy::dbg_macro",
-            "-W",
-            "clippy::todo",
-          ],
-          { CARGO_TARGET_DIR: path.join(root, ".quality-cache/cargo-bindings") },
-        );
+          ]);
+          clippy(path.join(dest, "Cargo.toml"));
+        }
       }
-    } finally {
-      fs.rmSync(parent, { recursive: true, force: true });
     }
+  } finally {
+    fs.rmSync(parent, { recursive: true, force: true });
   }
 }
 process.exitCode = failed ? 1 : 0;

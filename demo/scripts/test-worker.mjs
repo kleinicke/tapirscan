@@ -107,8 +107,8 @@ for (const mode of modes) {
 }
 assert.equal(
   loaded.size,
-  modes.length + 1,
-  "Selected EAN engines and the additional reader must load",
+  modes.length,
+  "Each selected mode must load exactly one complete scanner",
 );
 
 // Independent test-only encoder: ensure non-EAN13 results survive the demo adapter.

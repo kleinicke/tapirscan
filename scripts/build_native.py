@@ -1,49 +1,41 @@
 #!/usr/bin/env python3
-"""Build selected native modes from verified pinned sources."""
+"""Build native ABI libraries over the prepared public Rust package."""
 
 import argparse
 import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
-from build import (
-    MODES,
-    ROOT,
-    prepare_facade,
-    recipe_manifest,
-)
-from build_support import verify_source_hashes
+from prepare_rust import prepare
+
+from build import MODES, ROOT
 
 
-def build(mode: str) -> None:
-    """Build and validate one native scanner mode."""
-    recipe, tag = MODES[mode]
-    manifest = recipe_manifest(recipe)
-    verify_source_hashes(ROOT / "core", manifest["baseHashes"])
-    verify_source_hashes(ROOT, manifest.get("externalHashes", {}))
+def build(mode: str, public_crate: Path) -> None:
+    """Build and validate one native adapter mode."""
+    _, tag = MODES[mode]
     out = ROOT / "build" / mode
-    if not out.exists():
-        subprocess.run(
-            [sys.executable, str(ROOT / "scripts/build.py"), mode, "--prepare-only"],
-            check=True,
-        )
-    prepared = out / "temporarysource"
-    expected = dict(manifest["baseHashes"]) | manifest["targetHashes"]
-    verify_source_hashes(prepared, expected)
-    sdk = prepare_facade(out, mode, manifest)
+    out.mkdir(parents=True, exist_ok=True)
     native = out / "native"
+    if native.exists():
+        shutil.rmtree(native)
     shutil.copytree(ROOT / "bindings/c/src", native / "src", dirs_exist_ok=True)
     (native / "Cargo.toml").write_text(
         (ROOT / "bindings/c/Cargo.toml.in")
         .read_text()
         .replace("@MODE@", mode)
         .replace("@LIB_MODE@", mode.replace("-", "_"))
-        .replace("@MODE_ID@", str(list(MODES).index(mode)))
+        .replace("@PUBLIC_CRATE@", public_crate.as_posix())
     )
+    public_lock = public_crate / "Cargo.lock"
+    if public_lock.exists():
+        shutil.copy2(public_lock, native / "Cargo.lock")
     env = os.environ.copy()
     env.pop("RUSTFLAGS", None)
-    env["CARGO_TARGET_DIR"] = str(out / "cargo-target")
+    target = ROOT / "build/native-target"
+    env["CARGO_TARGET_DIR"] = str(target)
     env["CARGO_INCREMENTAL"] = "0"
     common = ["--offline", "--manifest-path", str(native / "Cargo.toml")]
 
@@ -64,18 +56,16 @@ def build(mode: str) -> None:
         command += ["--", "-C", f"link-arg=-Wl,-soname,{name}"]
     subprocess.run(command, env=env, check=True)
     subprocess.run(
-        ["cargo", "test", "--offline", "--manifest-path", str(sdk / "Cargo.toml")],
-        env=env,
-        check=True,
-    )
-    subprocess.run(
         [
             "cargo",
             "build",
             "--offline",
             "--release",
             "--manifest-path",
-            str(sdk / "Cargo.toml"),
+            str(public_crate / "Cargo.toml"),
+            "--no-default-features",
+            "--features",
+            f"mode-{mode}",
             "--examples",
         ],
         env=env,
@@ -83,21 +73,30 @@ def build(mode: str) -> None:
     )
     dest = ROOT / "build/native"
     dest.mkdir(exist_ok=True)
-    shutil.copy2(out / "cargo-target/release" / name, dest / name)
+    shutil.copy2(target / "release" / name, dest / name)
     if sys.platform == "win32":
         shutil.copy2(
-            out
-            / "cargo-target/release"
-            / f"tapirscan_{mode.replace(chr(45), chr(95))}.dll.lib",
+            target / "release" / f"tapirscan_{mode.replace(chr(45), chr(95))}.dll.lib",
             dest / f"tapirscan_{mode.replace(chr(45), chr(95))}.dll.lib",
+        )
+    legacy_examples = out / "cargo-target/release/examples"
+    legacy_examples.mkdir(parents=True, exist_ok=True)
+    for example in ("scan_raw", "scan_options"):
+        executable = example + (".exe" if sys.platform == "win32" else "")
+        shutil.copy2(
+            target / "release/examples" / executable, legacy_examples / executable
         )
     print(f"Built {tag}: {dest / name}", flush=True)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("modes", nargs="*", choices=list(MODES), default=list(MODES))
-    selected = parser.parse_args().modes
+    parser.add_argument("modes", nargs="*", metavar="MODE")
+    selected = parser.parse_args().modes or list(MODES)
+    if unknown := [mode for mode in selected if mode not in MODES]:
+        parser.error(f"unknown mode: {', '.join(unknown)}")
     subprocess.run([sys.executable, str(ROOT / "scripts/verify_import.py")], check=True)
+    public = ROOT / "build/crates/tapirscan"
+    prepare(public, refresh=public.exists())
     for mode in selected:
-        build(mode)
+        build(mode, public)

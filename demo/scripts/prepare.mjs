@@ -3,14 +3,11 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 const root = new URL("../../", import.meta.url);
-const modes = JSON.parse(await readFile(new URL("provenance/modes.json", root), "utf8")).modes;
-const extra = JSON.parse(
-  await readFile(new URL("bindings/javascript/wasm/multiformat.json", root), "utf8"),
-);
-const assets = [
-  ...modes.map((m) => [m.tag + ".wasm", m.binarySha256]),
-  ["multiformat.wasm", extra.sha256],
-];
+const selection = JSON.parse(await readFile(new URL("provenance/modes.json", root), "utf8"));
+const apiWasm = JSON.parse(await readFile(new URL(selection.apiWasm, root), "utf8"));
+if (apiWasm.schema !== 1 || apiWasm.apiVersion !== 1)
+  throw Error("Unsupported Tapirscan WASM manifest");
+const assets = apiWasm.modes.map(({ file, sha256 }) => [file, sha256]);
 const loaded = await Promise.all(
   assets.map(async ([file, hash]) => {
     const bytes = await readFile(new URL("bindings/javascript/wasm/" + file, root));

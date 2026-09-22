@@ -1,22 +1,28 @@
 [package]
-license = "MIT"
-authors = ["Florian Nick"]
-name = "tapirscan-native-@MODE@"
+name = "tapirscan-wasm-@MODE@"
 version = "1.2.1"
 edition = "2021"
 publish = false
+
 [lib]
-name = "tapirscan_@LIB_MODE@"
+name = "tapirscan_wasm"
 crate-type = ["cdylib", "rlib"]
+
 [dependencies]
-serde_json = "=1.0.150"
+serde = "=1.0.228"
+serde_json = { version = "=1.0.150", features = ["float_roundtrip"] }
 tapirscan = { path = "@PUBLIC_CRATE@", default-features = false, features = ["mode-@MODE@"] }
+
 [features]
 default = ["mode-@MODE@"]
 mode-low = []
 mode-medium = []
 mode-high = []
 mode-very-high = []
+
 [profile.release]
-# Unwinding is caught at the C boundary; the pinned WASM builds remain unchanged.
-panic = "unwind"
+panic = "abort"
+strip = "symbols"
+lto = true
+codegen-units = 1
+opt-level = 3

@@ -104,3 +104,17 @@ Dimensions are at least 3×3 and at most 32 megapixels. Stride is at least
 channels` bytes, at most 128 MiB; final-row padding is optional. Extra bytes are
 ignored. `Error` implements `std::error::Error` with `InvalidImage`,
 `InvalidOptions` and `Engine` variants.
+
+## Build features and WebAssembly
+
+This API also powers the C and JavaScript bindings. The WASM adapter performs
+memory transfer and serialization; scanning and reconciliation stay in Rust.
+
+Without an explicit mode feature, all four efforts are available. To build a
+smaller adapter, select `mode-low`, `mode-medium`, `mode-high` or `mode-very-high`;
+multiple selections are supported. Scanning with an excluded mode returns
+`Error::InvalidOptions`. `default-features = false` alone still includes every
+mode and only disables the optional image integration.
+
+On `wasm32-unknown-unknown`, Rust `elapsed` is zero because no platform clock is
+imported. The JavaScript adapter measures the complete synchronous scan call.

@@ -85,20 +85,6 @@ def distribution_hash(recipe: str) -> str:
     return str(next(m["binarySha256"] for m in MODE_CONFIG if m["recipe"] == recipe))
 
 
-def facade_manifest(mode: str, manifest: dict[str, Any]) -> str:
-    """Select host policy alongside the exact compiled implementation."""
-    text = (ROOT / "bindings/rust/Cargo.toml.in").read_text()
-    return (
-        text.replace("@FEATURES@", json.dumps(manifest["expandedFeatures"]))
-        .replace("@MODE@", mode)
-        .replace("@ROOT@", ROOT.as_posix())
-        .replace(
-            "@LOW_FEATURES@",
-            json.dumps(recipe_manifest(MODES["low"][0])["expandedFeatures"]),
-        )
-    )
-
-
 def prepare_native_source(out: Path) -> None:
     """Expose one existing safe helper in a separate native-only source copy."""
     dest = out / "native-core"
@@ -118,55 +104,6 @@ def prepare_native_source(out: Path) -> None:
                     (out / "temporarysource/src/stripes.rs").read_bytes()
                 ).hexdigest(),
                 "nativeSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            },
-            indent=2,
-        )
-        + "\n"
-    )
-
-
-def prepare_recovery_source(out: Path) -> None:
-    """Keep the pinned Low feature set separate from the primary crate."""
-    dest = out / "recovery"
-    if not dest.exists():
-        subprocess.run(
-            [
-                sys.executable,
-                str(ROOT / "core/experiments/build_guarded.py"),
-                "--recipe",
-                MODES["low"][0],
-                "--out",
-                str(dest),
-                "--prepare-only",
-            ],
-            check=True,
-        )
-    source = dest / "temporarysource"
-    recipe = recipe_manifest(MODES["low"][0])
-    verify_source_hashes(
-        source,
-        recipe["baseHashes"] | recipe["targetHashes"],
-        error_prefix="Recovery source hash mismatch",
-    )
-    copied = out / "recovery-core"
-    shutil.copytree(source, copied, dirs_exist_ok=True)
-    manifest = copied / "Cargo.toml"
-    manifest.write_text(
-        manifest.read_text().replace(
-            'name = "barcode-research-core"', 'name = "tapirscan-recovery-core"', 1
-        )
-    )
-    # Both crates expose the same WASM C symbols. Recovery is only called through
-    # Rust here, so keep its symbols mangled to avoid duplicate native exports.
-    for path in (copied / "src").rglob("*.rs"):
-        text = path.read_text()
-        if "#[no_mangle]" in text:
-            path.write_text(text.replace("#[no_mangle]", ""))
-    (out / "recovery-adapter.json").write_text(
-        json.dumps(
-            {
-                "change": "Isolate recovery features and native symbols",
-                "recipe": MODES["low"][0],
             },
             indent=2,
         )
@@ -273,19 +210,6 @@ def resume_core(out: Path, recipe: str) -> None:
     shutil.copy2(wasm, out / f"{recipe}.wasm")
 
 
-def prepare_facade(out: Path, mode: str, manifest: dict[str, Any]) -> Path:
-    """Prepare the same native facade for standalone and WASM-mode builds."""
-    prepare_native_source(out)
-    prepare_recovery_source(out)
-    sdk = out / "rust"
-    for folder in ("src", "examples"):
-        shutil.copytree(
-            ROOT / "bindings/rust" / folder, sdk / folder, dirs_exist_ok=True
-        )
-    (sdk / "Cargo.toml").write_text(facade_manifest(mode, manifest))
-    return sdk
-
-
 def main() -> None:
     """Build the requested pinned scanner mode."""
     parser = argparse.ArgumentParser()
@@ -312,36 +236,11 @@ def main() -> None:
         subprocess.run(command, check=True)
     if not args.prepare_only:
         resume_core(out, recipe)
-    manifest = recipe_manifest(recipe)
-    sdk = prepare_facade(out, args.mode, manifest)
     if args.prepare_only:
-        print(f"Prepared {tag}; Rust facade: {sdk}")
+        print(f"Prepared pinned decoder recipe {tag}: {out}")
         return
-    env = os.environ.copy()
-    env.pop("RUSTFLAGS", None)
-    env["CARGO_TARGET_DIR"] = str(out / "cargo-target")
-    env["CARGO_INCREMENTAL"] = "0"
-    subprocess.run(
-        ["cargo", "test", "--offline", "--manifest-path", str(sdk / "Cargo.toml")],
-        env=env,
-        check=True,
-    )
-    subprocess.run(
-        [
-            "cargo",
-            "build",
-            "--offline",
-            "--release",
-            "--manifest-path",
-            str(sdk / "Cargo.toml"),
-            "--example",
-            "scan_raw",
-        ],
-        env=env,
-        check=True,
-    )
-    assets = ROOT / "bindings/javascript/wasm"
-    assets.mkdir(exist_ok=True)
+    assets = ROOT / "build/recipe-wasm"
+    assets.mkdir(parents=True, exist_ok=True)
     source = out / f"{recipe}.wasm"
     actual = hashlib.sha256(source.read_bytes()).hexdigest()
     if actual != distribution_hash(recipe):

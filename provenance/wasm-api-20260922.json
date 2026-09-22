@@ -1,26 +1,32 @@
 {
-  "sourceCommit": "55c7343177fcb81ea226ce5be0e0dd4ba07504dd",
-  "sourceRepository": "tapirscan research workbench",
-  "importedAt": "2026-09-16",
-  "files": {
-    "bindings/javascript/src/completion-host.d.mts": "1bb68c4dbd5ad19a1fa41c3aeeac564c496ba8a10e58948da7e74d6035423d91",
-    "bindings/javascript/src/completion-host.mjs": "6bc31557998f9cb80d765ac035b4d372a147ed00780f00c48029caea52616775",
-    "bindings/javascript/src/detail-20260914/continuity.mjs": "14718d45eb37c9f5223380e8ee192629a1686e15d2a3cdb5b63e06fcdd3948cf",
-    "bindings/javascript/src/detail-20260914/detail-proposals-rich.mjs": "f7400af5f756ee60475b6279f439864a93de4d40a202b7576f484945e9db5532",
-    "bindings/javascript/src/detail-20260914/direct-recovery.mjs": "dc5a0a68ba4ceb0752653279c8c5e7f71e43b49ba4dd1cc4e23058b4bbbc2feb",
-    "bindings/javascript/src/detail-20260914/host.mjs": "860d7eef78cd331cd11dcac23686570502e1af1530f4743f57018ea0ec6dcb12",
-    "bindings/javascript/src/detail-20260914/scanner.mjs": "89c9ef454be51e6f8ff2fac63f298e6ffc8e5f882769d39d2d64946f496278e9",
-    "bindings/javascript/src/detail-20260914/source-evidence.mjs": "e684f303eb3dfaba6557cfe9d204fffc5e023efaa444076c38a398cf58872a44",
-    "bindings/javascript/src/detail-runtime/direct-recovery.mjs": "6a9ea82e8ad473814782de4fd50960cc0240437fbd131a28bd463a0fd2781de9",
-    "bindings/javascript/src/detail-runtime/host.mjs": "a90e12d453239138527b09c92fc24dd4a72641187d71b13c1065b4e9651cf96c",
-    "bindings/javascript/src/detail-runtime/scanner.d.mts": "6d93e08ca6123cfa9100451790896133ec1d6edd5fd394c209f8474f473ae7ea",
-    "bindings/javascript/src/detail-runtime/scanner.mjs": "6ce2759394b0840aba3659845062d879a2dddcbc6f9177fda06a25e4ab635ffc",
-    "bindings/javascript/src/host.ts": "7a973b75791a2038a2113bddb969bebc11b9693eb4c85907a2c9a6bd602984be",
-    "bindings/javascript/src/host64.ts": "853a378abef557064d5e6cf3cf2ba021f77394b1c62f092c419ef1cd419f2282",
-    "bindings/javascript/src/multiformat-host.ts": "487f8da52e6e21763d40b4a13029dacbebce3ec597cd09e8b902b5e82aa5d120",
-    "bindings/javascript/src/multiformat/coverage.ts": "af9649c3f9bea583a71e00ada2ce9f1c067ca59006177fedff8e94619306158c",
-    "bindings/javascript/src/multiformat/geometry.ts": "60cccdc1cece79d0bb37acb7a2086c3e63266ca911dfbcff370bfdbef40a169d",
-    "bindings/javascript/src/multiformat/linear-duplicates.ts": "2122a0a9a7f115a3eb4622d37473d2754cfa5bfcea01a5758b72bb502bc5f672",
+  "schema": 1,
+  "apiVersion": 1,
+  "sourceDigest": "8a213c5f8f2be59a4111cc5af5995e3333b6dc6659efd2b8eba00a7a70190f6d",
+  "sourceFiles": {
+    "bindings/rust/Cargo.lock": "3b05de1d67ec0bfa85ea76afb869aa0811ba87355092bce02896f0803a25447a",
+    "bindings/rust/Cargo.toml": "f9e269e77ecc84e032f1f5a3fd52ad4e3790e55f2cc4297761659daf6e2983d9",
+    "bindings/rust/api/format.rs": "2299a2076c7aaf35d660a8014d520be80f5ce74ea91590cd9bfe5ef94ef1beb2",
+    "bindings/rust/api/lib.rs": "253a1a9047efd8914361627d3130114775bc156409f689ea0e46fde7f97146f7",
+    "bindings/rust/api/pixels.rs": "8c7938acec68c80355b752294f89bb1eeb85d8f2493d1fe16bb8b545b96ccac9",
+    "bindings/rust/api/timer.rs": "b27954265e72d1749468e3cbf66b71ca88fdf5b409da23767ac254e4317d9127",
+    "bindings/rust/api/types.rs": "12cd364f1ca75d04861387bf0ac2036f81aadc373a80b6fd013dc7fdd3562d5e",
+    "bindings/rust/examples/scan_options.rs": "d01bd23397e368d465c7a46f438dece58dd2226b8d23463faba470b6c452378d",
+    "bindings/rust/examples/scan_raw.rs": "d53d4feca81e6f406ea71c6ebfee38132636d077e0f6dfcaf7d17117673717bb",
+    "bindings/rust/examples/support/mod.rs": "3218bf3a33ab729c88a6cc2cf35ec37c4a3e8e6072aa591ea642220c60be55ec",
+    "bindings/rust/src/detail.rs": "11b56a2e2b5c18f9d27abe09794e3cc72703f27d3b3a48a2c714b77395cfc705",
+    "bindings/rust/src/format_registry.rs": "e956596a5094917d650b26ab989a913872f44722be3f0998b79047ba401b0a25",
+    "bindings/rust/src/formats.rs": "828ab5e2c3db75a5dfa25822623d21cfcc6615540ddf2658d384aef34224f717",
+    "bindings/rust/src/geometry.rs": "76898b87d64fa7027ae2183f2cf3b09c227c43d4a3cf01b55eda5ca3e2d2648d",
+    "bindings/rust/src/lib.rs": "730def34b8962207b31e9ec80248893459c73aa88a285824e789ad66911999aa",
+    "bindings/rust/src/linear_duplicates.rs": "a0a55443737881fe7efa62353a6e0cd0717b4defb892ccaa48ed72654fefc551",
+    "bindings/rust/src/pipeline.rs": "db847767f02639bc22a93ee700865e173b22bb932069a5a6a7105a0f6175a1c1",
+    "bindings/rust/src/result.rs": "962d5ff5f1bc513c64604afb0a39a1beaeebd82e3504366c62c3f8e474a80d4a",
+    "bindings/rust/src/timer.rs": "3c1fff0a0c7e4e5595b22721e857632213ecefd240e50332f6e6a9cec6f973ac",
+    "bindings/rust/tests/api.rs": "93f28e0989c4a464dd4b4a8c11d8f5ce56bcc67f3b979b7f02314c7cc31d8661",
+    "bindings/rust/tests/parity.rs": "1d7a2fd94c205f8f275a19497e46504e63929016e256b62069e2c438d7edd141",
+    "bindings/wasm/Cargo.toml.in": "e2b0b09b5771d0d692b0527a0fd7529fe06857dd27e536dc7bd409fac61f00ac",
+    "bindings/wasm/src/lib.rs": "26a7d5ea4bc69ee19ba508adcbc2e5faeed38b3b0d5aa6527cb2ccbf69263be5",
+    "config/formats.json": "28331396b0ca925ad5e95d42a51dcaebec173a31cefa17e8514788f741897ee1",
     "core/Cargo.lock": "08e6fe49071d660cae506c2d355dd66e0b75b9b4c2812f187dbf7e495b958b88",
     "core/Cargo.toml": "ae601482a459897e80df6c81861f0fdda8688de370633dd4274ae2df5b0388b1",
     "core/build-recipes.json": "4c9707309afd480cdc3ee345be9cfe2f43861b994d5c4d826332413effc7b1fe",
@@ -39,6 +45,8 @@
     "core/experiments/high-effort-transfer-lint-20260913.patch": "7dc6f6514630173b9923354fbefd3ce856157d51bbe9238b8c43b957320b9390",
     "core/experiments/low-complete-detail-20260916.json": "4b3bcd50111238b8cdb582a12a650cdb9826e5f8bc9458d605bc9f1d1f56f969",
     "core/experiments/low-complete-detail-20260916.patch": "b1d02b057edf97b71edf0e67e754757f6964b44749ad6e297dad113d4a6d9301",
+    "core/experiments/low-shared-retail-20260918.json": "fea814b59f6807965c2c62732781178aaecde6f28f3932d319bd12dd83ac7e01",
+    "core/experiments/low-shared-retail-20260918.patch": "4c86c9a50a924f2c65fa6c981dc30aadbbae5855f83cde03f2fff104f8c84566",
     "core/experiments/medium-complete-detail-20260916.json": "e1b59257427f2e08f8d77c23f19733338e87856eaabed1480994c565e44ac08e",
     "core/experiments/medium-complete-detail-20260916.patch": "b1d308537d6390bd21f51d167c7af531fb89c1f2939c1202747a99b893e25f69",
     "core/experiments/medium-detail-20260914.json": "1253bcfada14507116139a649dfeeaa6674874db16a68f273d9ce88afcbccc98",
@@ -49,6 +57,8 @@
     "core/experiments/medium-evidence64-20260914.patch": "1aa62621f10fb64aee92faf41c4660e428755b3fe975ce3678b281b25e03efb8",
     "core/experiments/medium-evidence64-pinned-20260914.json": "75b7ac87a84da580678e7d902b6180c59a231056c293b7047893dd4756eeeae0",
     "core/experiments/medium-evidence64-pinned-20260914.patch": "1aa62621f10fb64aee92faf41c4660e428755b3fe975ce3678b281b25e03efb8",
+    "core/experiments/medium-shared-retail-20260918.json": "58b05b3b096e8ec5df319f097cf0706ee9224c015b2687d4d9e56b9520910a18",
+    "core/experiments/medium-shared-retail-20260918.patch": "437073fb4b97a013b6920ab1eaacfc148c3a4f9eba7bd39c74c676ecedcfcaaf",
     "core/experiments/nano-clippy-20260916.json": "ebc824266f1764936ef385b73b52f62aa7d667f44bd44c11ea87735472d730ab",
     "core/experiments/nano-clippy-20260916.patch": "bd738941676920088c6bb30d1c78291c10637de27ab3793cece840448c8edf74",
     "core/experiments/nano-lint-20260913.json": "71aea9952fac3240c110e1e35d3685a8f4d2aa269a73f6977ee8297d255412cb",
@@ -162,41 +172,35 @@
     "multiformat/src/regions.rs": "e00a40a616b4ab813e4cacbe9f5f8c9c79a20ff45fd3833215a5061d5a6dfe22",
     "multiformat/src/retail_gray.rs": "186c34273643914a2947b79220c6b63cf25cf8ac1446fa959a1346cb8dc65c9e",
     "multiformat/src/retail_profile.rs": "af85e22f4828802bab84f33256cc07ecba841f2a9435406de20225274082051c",
-    "provenance/demo-versions.ts": "f3ff10336c681ab63b6334fb6d932a03f88a8633a5a2ba578c1bce165d76d89f",
-    "provenance/detail-20260914.json": "94b47985cfadae5b063fd55a50279b57f82f51d4ffa06800736a240d83f0332f",
-    "provenance/direct-recovery-upstream.mjs": "8cf6c2338bcfe032d987aa00aa8b4c620ad1591d21de9994dc286a8e8eb6f3b7",
-    "provenance/modes.json": "6d78439bc9922eac5ca7bbf903f2b418145bb572cc2f72fe206af3909a899b7e",
-    "provenance/promotion-complete-20260916.json": "74df8664746f875d4a9981576c2299155a4a028086a383df6b39c20d19fa6d63",
-    "provenance/promotion-shared-retail-20260918.json": "4977bee4efb2018f0ede5fed1500b9388dad801faec4e518034f9cebab17254c",
-    "core/experiments/medium-shared-retail-20260918.json": "58b05b3b096e8ec5df319f097cf0706ee9224c015b2687d4d9e56b9520910a18",
-    "core/experiments/medium-shared-retail-20260918.patch": "437073fb4b97a013b6920ab1eaacfc148c3a4f9eba7bd39c74c676ecedcfcaaf",
-    "core/experiments/low-shared-retail-20260918.json": "fea814b59f6807965c2c62732781178aaecde6f28f3932d319bd12dd83ac7e01",
-    "core/experiments/low-shared-retail-20260918.patch": "4c86c9a50a924f2c65fa6c981dc30aadbbae5855f83cde03f2fff104f8c84566"
+    "scripts/build.py": "e6dfbcdc52cfd59da318c8a4b7cff0c81afc5d3f0181fd2f1e1554867119eb6d",
+    "scripts/build_support.py": "fd38c4e82e4b616cdc1114971fde2c4d18117caee09cd93c9f9f8e4c0183145b",
+    "scripts/build_wasm.py": "24a08ad5451fe66d9a9ca32eef3ab72eb28e9a1eddff1d7e5e13d767f2db5e13",
+    "scripts/prepare_rust.py": "c036a00ce6244b602185cc933cd291707f00c6c4261ceb22a26ad878ded4c90f"
   },
-  "note": "Shared retail faithful promotion; frozen base and previous recipes retained. See promotion manifest for scope and adapters.",
-  "mediumPromotion": {
-    "tag": "medium-evidence64-pinned-20260914",
-    "date": "2026-09-14",
-    "source": "benchmark/scripts/medium_tail_20260914/evidence64.json",
-    "note": "User accepted eight known barcode regressions for lower tail latency; no release publication.",
-    "toolchainAliasOnly": true
-  },
-  "detailPromotion": {
-    "sourceCommit": "a819749edb79d6e91bb28bc803025dd13023054f",
-    "date": "2026-09-14",
-    "config": "provenance/detail-20260914.json",
-    "note": "Exact primary recipes and JS recovery composition; native recovery port tracked separately. Low and additional-format readers unchanged.",
-    "platformAdapter": "direct-recovery.mjs uses makeCanvas and a plain pixel descriptor; browsers retain native Canvas interpolation, Node uses a bilinear software canvas."
-  },
-  "releaseAdaptations": {
-    "core/experiments/build_guarded.py": "Register release detail and continuation recipes; build algorithm unchanged."
-  },
-  "promotion": "provenance/promotion-shared-retail-20260918.json",
-  "sourceOrigins": {
-    "core": "Frozen research base retained from release 48e1ef8; selected patches are from the exact working-tree hashes in the promotion manifest.",
-    "multiformat": "Research working tree, retail-twohour-20260916 sourceHashes; see promotion manifest.",
-    "frozenHostsAndHistoricalRecipes": "Retained from release 48e1ef8; original origins and hashes remain in that commit.",
-    "completionHosts": "Release-owned adaptations of frozen hosts: capability check and region flag 32."
-  },
-  "releaseRevision": "provenance/unified-rust-api-selection-20260922.json"
+  "modes": [
+    {
+      "mode": "low",
+      "file": "low-rust-api-20260922.wasm",
+      "sha256": "ec9e146e849f54f7ed499dd82173f83eb815553175789cfaac812eb45a8a4493",
+      "bytes": 1415643
+    },
+    {
+      "mode": "medium",
+      "file": "medium-rust-api-20260922.wasm",
+      "sha256": "a2e1bafd822baa56d1963fb1a893cffbe695cd0906be79769ac0615d14088b18",
+      "bytes": 1741496
+    },
+    {
+      "mode": "high",
+      "file": "high-rust-api-20260922.wasm",
+      "sha256": "9c3212d62bed40822e0c1a8588809583f5c2fe01ea209b133ea5593a1b8939f3",
+      "bytes": 1683198
+    },
+    {
+      "mode": "very-high",
+      "file": "very-high-rust-api-20260922.wasm",
+      "sha256": "8fbe76a341a688cf1c53378384f0ef13babe4405885ebee3f94a52c187b8c54e",
+      "bytes": 1733536
+    }
+  ]
 }

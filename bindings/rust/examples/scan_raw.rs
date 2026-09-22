@@ -1,4 +1,5 @@
-use tapirscan::{Image, ScanOptions, Scanner};
+mod support;
+use tapirscan::Image;
 fn main() {
     let args: Vec<_> = std::env::args().collect();
     assert!(
@@ -18,22 +19,14 @@ fn main() {
     } else {
         width
     };
-    let result = Scanner::default()
-        .scan_formats_json(
-            Image {
-                data: &data,
-                width,
-                height,
-                channels,
-                stride,
-            },
-            ScanOptions {
-                finish_candidates: false,
-                multiple: true,
-                include_regions: true,
-            },
-            1,
-        )
-        .unwrap();
+    let mut scanner = support::scanner(support::compiled_mode());
+    let image = match channels {
+        1 => Image::gray(&data, width, height),
+        3 => Image::rgb(&data, width, height),
+        4 => Image::rgba(&data, width, height),
+        _ => panic!("unsupported channel count"),
+    }
+    .with_stride(stride);
+    let result = support::scan_legacy(&mut scanner, image, 1, true, true);
     println!("{}", result["scan"]);
 }

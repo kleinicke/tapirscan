@@ -11,7 +11,6 @@ const lock = JSON.parse(read("bindings/javascript/package-lock.json"));
 const versions = [
   ["Python", field(project, "version")],
   ["Rust", field(read("bindings/rust/Cargo.toml"), "version")],
-  ["Rust facade", field(read("bindings/rust/Cargo.toml.in"), "version")],
   ["C facade", field(read("bindings/c/Cargo.toml.in"), "version")],
   ["C++", read("bindings/cpp/CMakeLists.txt").match(/project\(Tapirscan VERSION (\S+)/)?.[1]],
   [

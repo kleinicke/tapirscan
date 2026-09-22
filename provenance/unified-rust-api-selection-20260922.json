@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "description": "Select the shared public Rust API and its new WASM distribution; pinned decoder recipes retain their original identities.",
+  "patch": "provenance/unified-rust-api-selection-20260922.patch",
+  "patchSha256": "6795036aaa9141cbadee20d3f4e24eeb5c31774cc78ce1055eea3ee4772710b3",
+  "baseHashes": {
+    "provenance/modes.json": "6d78439bc9922eac5ca7bbf903f2b418145bb572cc2f72fe206af3909a899b7e"
+  },
+  "targetHashes": {
+    "provenance/modes.json": "367a03e21af7e28cae48b3adf116d684451af0b8a422a9d0e09818f35b1456ed"
+  }
+}

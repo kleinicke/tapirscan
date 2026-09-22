@@ -26,6 +26,7 @@ jobs:
       - name: Install pinned Rust compiler and WASM target
         run: rustup toolchain install 1.91.1 --profile minimal --component clippy --target wasm32-unknown-unknown
       - run: cargo +1.91.1 fetch --locked --manifest-path multiformat/Cargo.toml
+      - run: cargo +1.91.1 fetch --locked --manifest-path bindings/rust/Cargo.toml
       - name: Prepare pinned modes and fetch their locked dependencies
         run: |
           for mode in low medium high very-high; do
@@ -42,11 +43,11 @@ jobs:
           path: |
             build/*/cargo-target/wasm32-unknown-unknown/release/*.wasm
             build/*/temporarysource/Cargo.toml
-      - run: python3 scripts/build_multiformat.py
+      - run: python3 scripts/build_native.py low medium high very-high
+      - run: python3 scripts/build_wasm.py
       - run: npm ci --prefix bindings/javascript
       - run: npm run build --prefix bindings/javascript
       - run: npm test --prefix bindings/javascript
-      - run: python3 scripts/build_native.py low medium high very-high
       - name: Build and test C/C++
         shell: bash
         run: |
@@ -89,7 +90,7 @@ jobs:
           build/zint-encoder/frontend/zint --version
       - name: Validate the standalone Rust package
         run: |
-          python3 scripts/prepare_rust.py build/crates/tapirscan
+          python3 scripts/prepare_rust.py build/crates/tapirscan --refresh
           cargo +1.91.1 fetch --manifest-path build/crates/tapirscan/Cargo.toml
           cargo +1.91.1 test --offline --release --manifest-path build/crates/tapirscan/Cargo.toml
           cargo +1.91.1 test --offline --release --no-default-features --manifest-path build/crates/tapirscan/Cargo.toml

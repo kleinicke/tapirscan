@@ -7,10 +7,10 @@
 mod engine;
 mod format;
 mod pixels;
+mod timer;
 mod types;
 pub use format::Format;
 pub use pixels::Image;
-use std::time::Instant;
 pub use types::*;
 
 /// Scan with default configuration and return decoded instances and work status.
@@ -46,10 +46,15 @@ pub struct Scanner {
 // Keep construction inline rather than adding heap indirection for that small difference.
 #[allow(clippy::large_enum_variant)]
 enum Engine {
+    #[cfg(tapirscan_mode_low)]
     Low(engine::low::Scanner),
+    #[cfg(tapirscan_mode_medium)]
     Medium(engine::medium::Scanner),
+    #[cfg(tapirscan_mode_high)]
     High(engine::high::Scanner),
+    #[cfg(tapirscan_mode_very_high)]
     VeryHigh(engine::very_high::Scanner),
+    Unavailable,
 }
 
 impl Default for Scanner {
@@ -67,10 +72,16 @@ impl Scanner {
     #[must_use]
     pub fn new(options: ScannerOptions) -> Self {
         let engine = match options.mode {
+            #[cfg(tapirscan_mode_low)]
             Mode::Low => Engine::Low(engine::low::Scanner::default()),
+            #[cfg(tapirscan_mode_medium)]
             Mode::Medium => Engine::Medium(engine::medium::Scanner::default()),
+            #[cfg(tapirscan_mode_high)]
             Mode::High => Engine::High(engine::high::Scanner::default()),
+            #[cfg(tapirscan_mode_very_high)]
             Mode::VeryHigh => Engine::VeryHigh(engine::very_high::Scanner::default()),
+            #[allow(unreachable_patterns)]
+            _ => Engine::Unavailable,
         };
         Self { options, engine }
     }
@@ -107,7 +118,7 @@ impl Scanner {
     }
 
     fn run(&mut self, image: Image<'_>, options: ScanOptions) -> Result<ScanResult, Error> {
-        let start = Instant::now();
+        let start = timer::Timer::start();
         image.validate()?;
         let formats = options.formats.unwrap_or(self.options.formats);
         let addons = self.options.ean_add_on_policy;
@@ -132,23 +143,32 @@ impl Scanner {
                     EanAddOnPolicy::Read => selected::formats::EanAddOnPolicy::Read,
                     EanAddOnPolicy::Require => selected::formats::EanAddOnPolicy::Require,
                 };
-                let raw = $scanner
-                    .scan_formats_json_with_addons(input, settings, formats.bits(), policy)
+                let output = $scanner
+                    .scan_formats_typed_with_addons(
+                        input,
+                        settings,
+                        formats.bits(),
+                        policy,
+                        options.debug,
+                    )
                     .map_err(|error| Error::Engine(error.to_string()))?;
-                ScanResult::from_raw(
-                    raw,
-                    image,
-                    self.options.mode,
-                    start.elapsed(),
-                    options.debug,
-                )?
+                ScanResult::from_engine(output, image, self.options.mode, start.elapsed())
             }};
         }
         let mut result = match &mut self.engine {
+            #[cfg(tapirscan_mode_low)]
             Engine::Low(scanner) => run!(scanner, low),
+            #[cfg(tapirscan_mode_medium)]
             Engine::Medium(scanner) => run!(scanner, medium),
+            #[cfg(tapirscan_mode_high)]
             Engine::High(scanner) => run!(scanner, high),
+            #[cfg(tapirscan_mode_very_high)]
             Engine::VeryHigh(scanner) => run!(scanner, very_high),
+            Engine::Unavailable => {
+                return Err(Error::InvalidOptions(
+                    "selected scanner mode is not enabled in this build",
+                ));
+            }
         };
         result.elapsed = start.elapsed();
         Ok(result)

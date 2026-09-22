@@ -15,24 +15,27 @@ plus space for compiled modes.
 ```sh
 rustup toolchain install 1.91.1 --profile minimal --target wasm32-unknown-unknown
 cargo +1.91.1 fetch --locked --manifest-path multiformat/Cargo.toml
+cargo +1.91.1 fetch --locked --manifest-path bindings/rust/Cargo.toml
 python3 scripts/verify_import.py
 ```
 
 ## Build the library
 
 ```sh
-for mode in low medium high very-high; do
-  python3 scripts/build.py "$mode"
-done
-python3 scripts/build_multiformat.py
 python3 scripts/build_native.py low medium high very-high
+python3 scripts/build_wasm.py
 npm ci --prefix bindings/javascript
 npm run build --prefix bindings/javascript
 npm test --prefix bindings/javascript
 ```
 
-Use `scripts/build.py`, not a base Cargo feature alias, to reproduce the selected
-algorithms. `--prepare-only` prepares a fresh mode directory without compiling;
+Both adapters build the prepared public Rust package. `build_wasm.py` verifies
+source and binary identities in `provenance/wasm-api-20260922.json`; `--record`
+records an intentionally changed build after review and validation.
+
+Use `scripts/build.py MODE`, not a base Cargo feature alias, to reproduce an
+individual historical decoder recipe independently. Its artifacts go to
+`build/recipe-wasm`, outside the distribution. `--prepare-only` prepares a fresh mode directory without compiling;
 `--resume` verifies and finishes an existing build. The builder refuses to overwrite
 an existing prepared output. Keep previous build directories when changing recipes.
 
@@ -82,16 +85,11 @@ and a JDK in `JAVA_HOME`. You can save local tool paths in the ignored
 `.quality-tools/environment.json`. See [quality tools](QUALITY.md) and [validation](VALIDATION.md)
 for the focused tests, platform matrix, and reproduction commands.
 
-Shared-retail WASMs compile their path dependency inside a generated Cargo
-workspace under `build/<mode>/wasm-source`. This keeps dependency identities
-independent of the checkout path. Shared WASMs compile only the reader modules
-they use, excluding serialization and host-dependent procedural macros; the
-reader functions are copied unchanged. The explicit crate root and its source
-manifest live in `adapters/retail-reader`; the build verifies that root and each
-copied frozen module before preparing the workspace. The original recipe sources
-remain hash-verified before this build-only adapter is applied. Artifact names
-and before/after hashes are recorded in
-`provenance/wasm-reader-subset-20260919.json`.
+The public package is assembled under `build/crates/tapirscan` by
+`scripts/prepare_rust.py`. `--refresh` revalidates recipes and updates generated
+sources while preserving compilation caches. The C and WASM adapters select one
+mode through Cargo features; ordinary Rust packages include all modes by default.
+Generated sources are build outputs, not a second implementation to edit.
 
 Algorithm changes are promoted from exact experiments. Follow
 [PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); do not edit frozen inputs or rewrite
@@ -103,11 +101,10 @@ The public Rust package lives in `bindings/rust/api`; `bindings/rust/src` is the
 internal per-mode engine assembled by the build scripts. Keep public result types
 in the API layer. The engine's `pipeline.rs` orders scanner stages, `detail.rs`
 handles crop recovery, `geometry.rs` owns overlap calculations, and `result.rs`
-assembles the output schema without a whole-result JSON round trip.
+assembles engine evidence. Public results cross the API boundary as Rust types.
 
-In JavaScript, `multiformat/scanner.ts` orders stages, `extra-session.ts` owns the
-additional-reader WASM session, and `result-reconciliation.ts` merges reads.
-Keep ordering and coverage decisions in the coordinator when experimenting.
+In JavaScript, `index.ts` exposes the API and `rust-session.ts` owns the WASM
+session. Keep scanner decisions in Rust so experiments apply to every binding.
 
 Format names, native bits, ordered presets and reserved add-on flags are declared
 in `config/formats.json`. Run `python3 scripts/generate_formats.py` after changing

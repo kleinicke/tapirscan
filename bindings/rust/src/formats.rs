@@ -3,6 +3,7 @@ use crate::format_registry::{
     ALL_FORMATS_MASK, EAN_ADDON_READ_FLAG, EAN_ADDON_REQUIRE_FLAG, LINEAR_MASK,
 };
 use crate::{geometry::overlap, Error, Image, ScanOptions, Scanner, MODE};
+use scanner_types::EngineScan;
 use serde_json::{json, Value};
 
 /// Whether a retail barcode needs its adjacent two- or five-digit supplement.
@@ -28,29 +29,17 @@ impl EanAddOnPolicy {
 }
 
 impl Scanner {
-    /// Scan selected formats and return the shared JSON result contract.
-    /// QR and `Common1D` effort follow the selected mode; other matrix readers use effort 1.
+    /// Scan selected formats into the shared typed result and optional raw diagnostics.
     /// # Errors
-    /// Rejects invalid masks, image layouts, and inputs above 32 megapixels.
-    pub fn scan_formats_json(
-        &mut self,
-        image: Image<'_>,
-        options: ScanOptions,
-        mask: u32,
-    ) -> Result<Value, Error> {
-        self.scan_formats_json_with_addons(image, options, mask, EanAddOnPolicy::Ignore)
-    }
-
-    /// Scan with an explicit EAN/UPC supplement policy. Non-retail formats are unaffected.
-    /// # Errors
-    /// Rejects invalid masks, image layouts, and inputs above 32 megapixels.
-    pub fn scan_formats_json_with_addons(
+    /// Rejects invalid masks, image layouts, malformed reader output, and oversized inputs.
+    pub fn scan_formats_typed_with_addons(
         &mut self,
         image: Image<'_>,
         options: ScanOptions,
         mask: u32,
         addons: EanAddOnPolicy,
-    ) -> Result<Value, Error> {
+        retain_diagnostics: bool,
+    ) -> Result<EngineScan, Error> {
         validate(image, mask)?;
 
         if mask == 1 && addons == EanAddOnPolicy::Ignore {
@@ -62,9 +51,9 @@ impl Scanner {
                     read["format"] = json!("EAN13");
                 }
             }
-            return Ok(value);
+            return typed_result(value, retain_diagnostics);
         }
-        let start = std::time::Instant::now();
+        let start = crate::timer::Timer::start();
         // Rank only after all selected readers have finished.
         let full_options = ScanOptions {
             finish_candidates: options.finish_candidates,
@@ -149,8 +138,61 @@ impl Scanner {
         );
         value["multiple"] = json!(options.multiple);
         value["elapsedMs"] = json!(start.elapsed().as_secs_f64() * 1000.0);
-        Ok(value)
+        typed_result(value, retain_diagnostics)
     }
+}
+
+fn typed_result(mut raw: Value, retain_diagnostics: bool) -> Result<EngineScan, Error> {
+    let mut regions = if let Some(regions) = raw["scan"]["regions"].as_array() {
+        let reads = raw["scan"]["barcodes"]
+            .as_array()
+            .ok_or(Error::OutputShape)?;
+        regions
+            .iter()
+            .filter(|region| !reads.contains(region))
+            .cloned()
+            .collect()
+    } else {
+        let reads = raw["scan"]["barcodes"]
+            .as_array()
+            .ok_or(Error::OutputShape)?;
+        unread_regions(&raw, reads)
+    };
+    for region in &mut regions {
+        if region["format"] == "Unknown" {
+            region["format"] = Value::Null;
+        }
+    }
+    let undecoded = regions
+        .into_iter()
+        .map(|value| serde_json::from_value(value).map_err(|_| Error::OutputShape))
+        .collect::<Result<_, _>>()?;
+    let unfinished = raw["scan"]["unfinished"]
+        .as_bool()
+        .ok_or(Error::OutputShape)?;
+    let localization_limited = raw["localizationLimited"].as_bool().unwrap_or(false);
+    let values = if retain_diagnostics {
+        raw["scan"]["barcodes"]
+            .as_array()
+            .cloned()
+            .ok_or(Error::OutputShape)?
+    } else {
+        raw["scan"]["barcodes"]
+            .as_array_mut()
+            .map(std::mem::take)
+            .ok_or(Error::OutputShape)?
+    };
+    let barcodes = values
+        .into_iter()
+        .map(|value| serde_json::from_value(value).map_err(|_| Error::OutputShape))
+        .collect::<Result<_, _>>()?;
+    Ok(EngineScan {
+        barcodes,
+        undecoded,
+        unfinished,
+        localization_limited,
+        diagnostics: retain_diagnostics.then_some(raw),
+    })
 }
 
 fn apply_supplement_policy(
@@ -421,5 +463,35 @@ mod coverage_tests {
         assert!(contains_point([0., 5.], &quad));
         assert!(!contains_point([0., 0.], &[[0., 0.]; 4]));
         assert!(!contains_point([f64::NAN, 0.], &quad));
+    }
+}
+
+#[cfg(test)]
+mod result_tests {
+    use super::typed_result;
+    use serde_json::json;
+
+    #[test]
+    fn reported_regions_take_precedence_over_localization_fallback() {
+        let read = json!({
+            "text":"5901234123457", "format":"EAN13", "polygon":[[0.,0.],[2.,0.],[2.,1.],[0.,1.]], "support":4
+        });
+        let unread = json!({
+            "text":"", "format":"Unknown", "polygon":[[3.,0.],[5.,0.],[5.,1.],[3.,1.]], "support":0
+        });
+        let raw = json!({
+            "localizationLimited":false,
+            "localization":{"proposals":[
+                {"polygon":[[0.,0.],[2.,0.],[2.,1.],[0.,1.]]},
+                {"polygon":[[3.,0.],[5.,0.],[5.,1.],[3.,1.]]},
+                {"polygon":[[6.,0.],[8.,0.],[8.,1.],[6.,1.]]}
+            ]},
+            "scan":{"unfinished":false,"barcodes":[read.clone()],"regions":[read,unread]}
+        });
+        let result = typed_result(raw, false).unwrap();
+        assert_eq!(result.barcodes.len(), 1);
+        assert_eq!(result.undecoded.len(), 1);
+        assert!((result.undecoded[0].polygon[0][0] - 3.).abs() < f64::EPSILON);
+        assert!(result.undecoded[0].polygon[0][1].abs() < f64::EPSILON);
     }
 }

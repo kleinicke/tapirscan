@@ -66,6 +66,15 @@ impl std::ops::BitOr for Formats {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct EngineScan {
+    pub(crate) barcodes: Vec<Barcode>,
+    pub(crate) undecoded: Vec<UndecodedRegion>,
+    pub(crate) unfinished: bool,
+    pub(crate) localization_limited: bool,
+    pub(crate) diagnostics: Option<serde_json::Value>,
+}
+
 /// Work effort. Medium is the default, matching Python and JavaScript.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Mode {
@@ -78,6 +87,18 @@ pub enum Mode {
     High,
     /// Highest available effort, including an additional localization grid.
     VeryHigh,
+}
+impl Mode {
+    /// Stable schema name used by language adapters.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::VeryHigh => "very-high",
+        }
+    }
 }
 
 /// Whether to read the adjacent two/five-digit EAN/UPC supplement.
@@ -245,24 +266,17 @@ impl ScanResult {
     pub fn values(&self) -> impl ExactSizeIterator<Item = &str> {
         self.barcodes.iter().map(|barcode| barcode.text.as_str())
     }
-    pub(crate) fn from_raw(
-        raw: serde_json::Value,
+    pub(crate) fn from_engine(
+        engine: EngineScan,
         image: Image<'_>,
         mode: Mode,
         elapsed: Duration,
-        debug: bool,
-    ) -> Result<Self, Error> {
-        let parse_error = |error: serde_json::Error| Error::Engine(error.to_string());
-        let barcodes =
-            serde_json::from_value(raw["scan"]["barcodes"].clone()).map_err(parse_error)?;
-        let unfinished = raw["scan"]["unfinished"]
-            .as_bool()
-            .ok_or_else(|| Error::Engine("missing work status".into()))?
-            || raw["localizationLimited"].as_bool().unwrap_or(false);
-        let undecoded = serde_json::from_value(serde_json::Value::Array(engine_unread(&raw)))
-            .map_err(parse_error)?;
-        let debug = debug.then_some(Diagnostics { raw });
-        Ok(Self {
+    ) -> Self {
+        let barcodes = engine.barcodes;
+        let undecoded = engine.undecoded;
+        let unfinished = engine.unfinished || engine.localization_limited;
+        let debug = engine.diagnostics.map(|raw| Diagnostics { raw });
+        Self {
             barcodes,
             undecoded,
             image_size: [image.width, image.height],
@@ -270,50 +284,10 @@ impl ScanResult {
             elapsed,
             unfinished,
             debug,
-        })
+        }
     }
 }
-fn proposals(value: &serde_json::Value, reads: &serde_json::Value) -> Vec<serde_json::Value> {
-    let decoded: std::collections::HashSet<_> = reads
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|read| read["candidate_indices"].as_array().into_iter().flatten())
-        .filter_map(serde_json::Value::as_u64)
-        .collect();
-    value
-        .as_array()
-        .into_iter()
-        .flatten()
-        .enumerate()
-        .filter(|(i, _)| !decoded.contains(&(*i as u64)))
-        .map(|(_, region)| serde_json::json!({"polygon": region["polygon"], "format": null}))
-        .collect()
-}
-fn engine_unread(raw: &serde_json::Value) -> Vec<serde_json::Value> {
-    if let Some(regions) = raw["scan"]["regions"].as_array() {
-        let reads = raw["scan"]["barcodes"]
-            .as_array()
-            .map_or(&[][..], Vec::as_slice);
-        return regions
-            .iter()
-            .filter(|region| !reads.contains(region))
-            .cloned()
-            .map(unknown_format)
-            .collect();
-    }
-    let mut unread = proposals(&raw["localization"]["proposals"], &raw["scan"]["barcodes"]);
-    for attempt in raw["recovery"]["attempts"].as_array().into_iter().flatten() {
-        unread.extend(proposals(&attempt["proposals"], &attempt["reads"]));
-    }
-    unread
-}
-fn unknown_format(mut region: serde_json::Value) -> serde_json::Value {
-    if region["format"] == "Unknown" {
-        region["format"] = serde_json::Value::Null;
-    }
-    region
-}
+
 impl<'a> IntoIterator for &'a ScanResult {
     type Item = &'a Barcode;
     type IntoIter = std::slice::Iter<'a, Barcode>;

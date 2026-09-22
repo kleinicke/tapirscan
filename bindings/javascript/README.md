@@ -91,11 +91,12 @@ The one-shot helper accepts the same option:
 URLs resolve against the page/worker URL in browsers and the package module in
 Node; use an absolute URL for an unambiguous location. For authenticated requests
 or custom storage, use `loadWasm: async (url) => arrayBuffer`. The callback receives
-URLs resolved against `wasmBaseUrl` when both options are supplied. Only engines needed by the selected formats are loaded.
+URLs resolved against `wasmBaseUrl` when both options are supplied. Creation loads
+one complete Rust scanner for the selected effort mode.
 
 Use the deployed base path if your app is hosted below a subpath. Copy all current
-WASMs: EAN13/UPCA scanning in Medium/High/Very high also loads the Low recovery decoder. The demo and its
-comparison engines are not needed in your app.
+WASMs so every effort mode remains available. The demo and its comparison engines
+are not needed in your app.
 
 ## Camera and worker use
 
@@ -200,6 +201,9 @@ including separate copies of the same value. Coordinates start at the
 top left, x rightward and y downward. Geometry is returned, not a cropped bitmap.
 Map coordinates back yourself if you resize/rotate before scanning. Support is a
 ranking heuristic, not a probability.
+Polygon coordinates are Rust `f32` values exposed as JavaScript numbers. Their
+decimal string form may show the exact binary value instead of the shorter
+decimal spelling used by older package builds.
 
 The package exports `EanAddOnPolicy`, `ScannerOptions`, `ScanOptions`, `ScanResult`, `Barcode`,
 `PixelImage`, `Image`, `Quad`, `Mode`, `Format`, `FormatSelection`, `Diagnostics`,

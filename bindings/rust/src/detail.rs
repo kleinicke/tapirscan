@@ -327,7 +327,7 @@ pub fn recover(
     complete: bool,
     shared_retail: bool,
 ) -> Result<Value, Error> {
-    let start = std::time::Instant::now();
+    let start = crate::timer::Timer::start();
     let seeds = seeds(im);
     let mut attempts = Vec::new();
     let mut proposals = Vec::new();

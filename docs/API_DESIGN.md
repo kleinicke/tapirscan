@@ -2,6 +2,8 @@
 
 This is the 1.2.0 API revision. See [migration](API_MIGRATION.md).
 Python, JavaScript and Rust expose one scan operation returning `ScanResult`.
+The public Rust `Scanner` owns the pipeline in every binding. JavaScript uses a
+thin WASM adapter; the C ABI connects Python, C++, and Java to the same API.
 One-shot calls clean up automatically; reusable scanners amortize initialization.
 Rust uses `scan(image)` for defaults and `scan_with_options(image, options)` for
 overrides; Python uses keyword arguments and JavaScript an options object. All return independent results, including empty results.

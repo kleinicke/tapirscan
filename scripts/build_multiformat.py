@@ -1,4 +1,4 @@
-"""Build the pinned opt-in readers with verified source provenance."""
+"""Reproduce the standalone research reader; distribution uses build_wasm.py."""
 
 import hashlib
 import json
@@ -44,13 +44,9 @@ def main() -> None:
         / "build/multiformat-target/wasm32-unknown-unknown/release"
         / "barcode_multiformat.wasm"
     )
-    dest = ROOT / "bindings/javascript/wasm"
+    dest = ROOT / "build/recipe-wasm"
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, dest / "multiformat.wasm")
-    shutil.copy2(
-        ROOT / "multiformat/THIRD_PARTY_NOTICES.md",
-        ROOT / "bindings/javascript/THIRD_PARTY_NOTICES.md",
-    )
     imported = json.loads((ROOT / "provenance/import.json").read_text())
     files = imported["files"]
     if revision := imported.get("releaseRevision"):

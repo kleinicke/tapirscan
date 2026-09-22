@@ -11,18 +11,25 @@ homepage = "https://tapirscan.netlify.app"
 readme = "README.md"
 keywords = ["barcode", "scanner", "ean", "qrcode", "image"]
 categories = ["multimedia::images", "computer-vision"]
-include = ["api/**", "generated/**", "tests/**", "LICENSE", "README.md", "provenance.json", "build.rs"]
-autoexamples = false
+include = ["api/**", "generated/**", "tests/**", "examples/**", "LICENSE", "README.md", "provenance.json", "build.rs"]
+autoexamples = true
 
 [lib]
 path = "api/lib.rs"
 
 [dependencies]
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = { version = "1.0.150", features = ["float_roundtrip"] }
-encoding_rs = "0.8.35"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = { version = "=1.0.150", features = ["float_roundtrip"] }
+encoding_rs = "=0.8.35"
 image = { version = "0.25.10", default-features = false, optional = true }
 
 [features]
 default = ["image"]
 image = ["dep:image"]
+
+# With no mode feature selected, every mode remains available. Selecting one or
+# more mode features enables smaller platform adapters without the image crate.
+mode-low = []
+mode-medium = []
+mode-high = []
+mode-very-high = []
