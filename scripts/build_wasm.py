@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from prepare_rust import prepare
@@ -18,7 +19,7 @@ PACKAGE = ROOT / "build/crates/tapirscan"
 
 
 def source_files() -> dict[str, str]:
-    """Hash actual shared API, recipe and adapter inputs, independent of JS hosts."""
+    """Hash shared API, core and adapter inputs, independent of JS hosts."""
     imported = json.loads((ROOT / "provenance/import.json").read_text())
     selected = dict(imported["files"])
     if revision := imported.get("releaseRevision"):
@@ -38,6 +39,7 @@ def source_files() -> dict[str, str]:
             "scripts/build_support.py",
             "scripts/prepare_rust.py",
             "scripts/build_wasm.py",
+            "scripts/wasm_rustc.py",
             "config/formats.json",
         ]
     )
@@ -45,6 +47,33 @@ def source_files() -> dict[str, str]:
         name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
         for name in sorted(paths)
     }
+
+
+def build_environment(root: Path = ROOT) -> dict[str, str]:
+    """Use stable crate identities and paths, with cache keys tied to the wrapper."""
+    env = dict(os.environ, RUSTUP_TOOLCHAIN="1.91.1", CARGO_INCREMENTAL="0")
+    cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))
+    env.pop("RUSTFLAGS", None)
+    env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(
+        [
+            *wasm_flags(),
+            f"--remap-path-prefix={root}=/tapirscan",
+            f"--remap-path-prefix={cargo_home}=/cargo",
+        ]
+    )
+    source = Path(__file__).with_name("wasm_rustc.py")
+    wrapper_hash = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
+    wrapper = root / f"build/wasm-rustc/{wrapper_hash}.py"
+    wrapper.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, wrapper)
+    wrapper.chmod(0o755)
+    if os.name == "nt":
+        launcher = wrapper.with_suffix(".cmd")
+        launcher.write_text(f'@"{sys.executable}" "{wrapper}" %*\n')
+        wrapper = launcher
+    env["RUSTC_WRAPPER"] = str(wrapper)
+    env["CARGO_TARGET_DIR"] = str(root / "build/wasm-target")
+    return env
 
 
 def main() -> None:
@@ -74,9 +103,7 @@ def main() -> None:
         msg = "WASM source identity changed; validate then use --record"
         raise SystemExit(msg)
     records = {entry["mode"]: entry for entry in previous.get("modes", [])}
-    env = dict(os.environ, RUSTUP_TOOLCHAIN="1.91.1", CARGO_INCREMENTAL="0")
-    env["RUSTFLAGS"] = wasm_flags() + f" --remap-path-prefix={ROOT}=/tapirscan"
-    env["CARGO_TARGET_DIR"] = str(ROOT / "build/wasm-target")
+    env = build_environment()
     assets = ROOT / "bindings/javascript/wasm"
     assets.mkdir(parents=True, exist_ok=True)
     for mode in args.modes:
@@ -107,7 +134,7 @@ def main() -> None:
             Path(env["CARGO_TARGET_DIR"])
             / "wasm32-unknown-unknown/release/tapirscan_wasm.wasm"
         )
-        filename = f"{mode}-maintained-core-20260922.wasm"
+        filename = f"{MODES[mode][1]}.wasm"
         actual = hashlib.sha256(binary.read_bytes()).hexdigest()
         if not args.record and records.get(mode, {}).get("sha256") != actual:
             msg = f"WASM reproducibility mismatch: {mode}"

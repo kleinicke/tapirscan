@@ -22,7 +22,8 @@ def main() -> None:
         env=env,
         check=True,
     )
-    env["RUSTFLAGS"] = wasm_flags()
+    env.pop("RUSTFLAGS", None)
+    env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(wasm_flags())
     subprocess.run(
         [
             "cargo",

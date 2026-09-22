@@ -123,3 +123,15 @@ it, then `python3 scripts/generate_formats.py --check`. Generated Rust and
 TypeScript declarations are checked in; `verify_import.py` also checks for drift.
 Changing a format bit is an API/ABI change, not a routine registry edit. The pinned
 decoder implementation still needs its own promotion when adding a new format.
+
+## Reproducible WASM builds
+
+The WASM builder normalizes checkout, registry and Rust standard-library paths.
+`scripts/wasm_rustc.py` replaces Cargo's path-dependent symbol metadata with an
+identity derived from package name/version, crate name/type, target and active
+configuration. Different versions and feature sets stay distinct. The generated
+wrapper filename includes its source hash so Cargo invalidates its cache when the
+wrapper changes. Ordinary native builds retain Cargo's standard compiler invocation.
+
+The wrapper uses Cargo's documented [compiler wrapper interface](https://doc.rust-lang.org/cargo/reference/config.html#buildrustc-wrapper).
+WASM artifact hashes must agree between independent checkout paths before promotion.

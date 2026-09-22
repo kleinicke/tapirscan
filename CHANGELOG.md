@@ -2,6 +2,7 @@
 
 ## 1.2.1 — 2026-09-19
 
+- Make release WASM identities independent of checkout paths.
 - Maintain production algorithms directly in `core/src` with explicit effort-mode
   features; preserve original recipes and sources under `historical/`.
 - Separate profile sampling, decoding, observation association, retry planning and

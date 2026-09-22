@@ -30,6 +30,10 @@ jobs:
       - name: Fetch maintained core dependencies
         run: cargo +1.91.1 fetch --locked --manifest-path core/Cargo.toml
       - run: python3 scripts/verify_import.py
+      - name: Check provenance and reproducible compiler identities
+        run: |
+          python3 scripts/test_import_provenance.py
+          python3 scripts/test_wasm_rustc.py
       - run: for mode in low medium high very-high; do python3 scripts/build.py "$mode"; done
       - name: Preserve failed WASM build for reproducibility diagnosis
         if: failure()

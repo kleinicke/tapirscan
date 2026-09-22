@@ -3,7 +3,7 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-maintained-core-20260922",
+      "tag": "low-maintained-core-repro-20260922",
       "recipe": "low-shared-retail-20260918",
       "fitLimit": 0,
       "maxLocalizedProposals": 32,
@@ -12,40 +12,40 @@
     },
     {
       "mode": "medium",
-      "tag": "medium-maintained-core-20260922",
+      "tag": "medium-maintained-core-repro-20260922",
       "recipe": "medium-shared-retail-20260918",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
       "directions": 1,
-      "recoveryTag": "low-maintained-core-20260922",
+      "recoveryTag": "low-maintained-core-repro-20260922",
       "historicalTag": "medium-shared-retail-runtime-20260921",
       "historicalBinarySha256": "6285ed2478e475787370c5c7623fa7985bb99dadd2f0d530ae2715266d06ded6"
     },
     {
       "mode": "high",
-      "tag": "high-maintained-core-20260922",
+      "tag": "high-maintained-core-repro-20260922",
       "recipe": "high-complete-detail-20260916",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
       "directions": 2,
-      "recoveryTag": "low-maintained-core-20260922",
+      "recoveryTag": "low-maintained-core-repro-20260922",
       "historicalTag": "high-shared-retail-runtime-20260921",
       "historicalBinarySha256": "438070742aa89110c159046907b5e99a32bce3f30bcc711e8150f37fe54996da"
     },
     {
       "mode": "very-high",
-      "tag": "very-high-maintained-core-20260922",
+      "tag": "very-high-maintained-core-repro-20260922",
       "recipe": "very-high-complete-detail-20260916",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
       "directions": 2,
-      "recoveryTag": "low-maintained-core-20260922",
+      "recoveryTag": "low-maintained-core-repro-20260922",
       "historicalTag": "very-high-shared-retail-runtime-20260921",
       "historicalBinarySha256": "c1f2eb06c503fab081d705fab7100d2be879c3e4d7e00f4cef3c7d09817941c8"
     }
   ],
-  "runtimeRevision": "provenance/maintained-core-20260922.json",
-  "apiWasm": "provenance/wasm-maintained-core-20260922.json",
+  "runtimeRevision": "provenance/maintained-core-repro-20260922.json",
+  "apiWasm": "provenance/wasm-maintained-core-repro-20260922.json",
   "sourceRoot": "core/src",
   "historicalSourceRoot": "historical/core",
   "historicalRevision": "provenance/historical-core-20260922.json"

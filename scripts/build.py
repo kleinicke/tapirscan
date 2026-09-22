@@ -14,18 +14,21 @@ MODE_CONFIG = json.loads((ROOT / "provenance/modes.json").read_text())["modes"]
 MODES = {m["mode"]: (m["recipe"], m["tag"]) for m in MODE_CONFIG}
 
 
-def wasm_flags() -> str:
+def wasm_flags() -> list[str]:
     """Canonicalize std source paths whether rust-src is installed or absent."""
     sysroot = subprocess.check_output(
         ["rustc", "+1.91.1", "--print", "sysroot"],
         text=True,
     ).strip()
     commit = "ed61e7d7e242494fb7057f2657300d9e77bb4fcb"
-    return (
-        "-C target-feature=+simd128 "
-        f"--remap-path-prefix={sysroot}/lib/rustlib/src/rust/library="
-        f"/rustc/{commit}/library"
-    )
+    return [
+        "-C",
+        "target-feature=+simd128",
+        (
+            f"--remap-path-prefix={sysroot}/lib/rustlib/src/rust/library="
+            f"/rustc/{commit}/library"
+        ),
+    ]
 
 
 def main() -> None:
