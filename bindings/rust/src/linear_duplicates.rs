@@ -422,6 +422,163 @@ impl Evidence<'_> {
         };
         Some(if area(a) >= area(b) { a } else { b })
     }
+    // Prove ownership by following a source bar to the other decoding line.
+    // Equal fractions in two warped boxes need not identify the same bar.
+    fn trace_to_line(
+        &mut self,
+        from: [f64; 2],
+        target: [[f64; 2]; 2],
+        normal: [f64; 2],
+        width: f64,
+        cut: f64,
+    ) -> bool {
+        let v = [target[1][0] - target[0][0], target[1][1] - target[0][1]];
+        let length = v[0].hypot(v[1]);
+        if length < 24. {
+            return false;
+        }
+        let signed =
+            |p: [f64; 2]| ((p[0] - target[0][0]) * v[1] - (p[1] - target[0][1]) * v[0]) / length;
+        let start = signed(from);
+        let tangent = [-normal[1], normal[0]];
+        let rate = (tangent[0] * v[1] - tangent[1] * v[0]) / length;
+        if rate.abs() < 0.8 || (start / rate).abs() > 384. {
+            return false;
+        }
+        let direction = -(start / rate).signum();
+        let mut point = from;
+        for _ in 0..768 {
+            let d = signed(point);
+            if d.abs() <= 0.5 || d * start < 0. {
+                let f = ((point[0] - target[0][0]) * v[0] + (point[1] - target[0][1]) * v[1])
+                    / (length * length);
+                return (0.0..=1.0).contains(&f);
+            }
+            let predicted = [
+                point[0] + 0.5 * direction * tangent[0],
+                point[1] + 0.5 * direction * tangent[1],
+            ];
+            let Some(mut value) = self.smooth(predicted) else {
+                return false;
+            };
+            point = predicted;
+            for shift in [-0.5, 0.5] {
+                let q = [
+                    predicted[0] + shift * normal[0],
+                    predicted[1] + shift * normal[1],
+                ];
+                let Some(v) = self.smooth(q) else {
+                    return false;
+                };
+                if v < value {
+                    value = v;
+                    point = q;
+                }
+            }
+            if value >= cut {
+                return false;
+            }
+            for sign in [-1., 1.] {
+                let mut bracketed = false;
+                for factor in [0.5, 0.8, 1.1] {
+                    let radius = sign * (width * factor + 0.7);
+                    let Some(paper) =
+                        self.smooth([point[0] + radius * normal[0], point[1] + radius * normal[1]])
+                    else {
+                        return false;
+                    };
+                    if paper - value >= 24. {
+                        bracketed = true;
+                        break;
+                    }
+                }
+                if !bracketed {
+                    return false;
+                }
+            }
+        }
+        false
+    }
+
+    fn owned_bars(&mut self, a: Quad, mut b: Quad, partial: bool) -> Option<Quad> {
+        let al = line(a);
+        let mut bl = line(b);
+        let av = [al[1][0] - al[0][0], al[1][1] - al[0][1]];
+        let mut bv = [bl[1][0] - bl[0][0], bl[1][1] - bl[0][1]];
+        let aw = av[0].hypot(av[1]);
+        let bw = bv[0].hypot(bv[1]);
+        if aw < 48. || !(if partial { 0.4..=2.5 } else { 0.7..=1.3 }).contains(&(bw / aw)) {
+            return None;
+        }
+        if av[0] * bv[0] + av[1] * bv[1] < 0. {
+            b = [b[2], b[3], b[0], b[1]];
+            bl = line(b);
+            bv = [-bv[0], -bv[1]];
+        }
+        if (av[0] * bv[0] + av[1] * bv[1]) / (aw * bw) < 0.8 {
+            return None;
+        }
+        let normal = [av[0] / aw, av[1] / aw];
+        let ac = midpoint(al[0], al[1]);
+        let bc = midpoint(bl[0], bl[1]);
+        if !partial && ((bc[0] - ac[0]) * normal[0] + (bc[1] - ac[1]) * normal[1]).abs() > aw * 0.12
+        {
+            return None;
+        }
+        let mut values = [0.; 256];
+        let (mut low, mut high) = (255_f64, 0_f64);
+        for (i, v) in values.iter_mut().enumerate() {
+            let f = (f64::from(u32::try_from(i).ok()?) + 0.5) / 256.;
+            *v = self.smooth([al[0][0] + f * av[0], al[0][1] + f * av[1]])?;
+            low = low.min(*v);
+            high = high.max(*v);
+        }
+        if high - low < 48. {
+            return None;
+        }
+        let threshold = low.midpoint(high);
+        let cut = low.midpoint(high);
+        let mut bars = Vec::new();
+        let mut i = 1usize;
+        while i < 255 {
+            if values[i] >= threshold || values[i - 1] < threshold {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < 255 && values[i] < threshold {
+                i += 1;
+            }
+            let width = f64::from(u32::try_from(i - start).ok()?) * aw / 256.;
+            if i < 255 && (0.8..=aw * 0.07).contains(&width) {
+                bars.push((
+                    (f64::from(u32::try_from(start + i).ok()?) * 0.5) / 256.,
+                    width,
+                ));
+            }
+        }
+        if bars.len() < 8 {
+            return None;
+        }
+        let mut matched = Vec::new();
+        for index in 0..8 {
+            let (f, width) = bars[index * (bars.len() - 1) / 7];
+            let from = [al[0][0] + f * av[0], al[0][1] + f * av[1]];
+            if self.trace_to_line(from, bl, normal, width, cut) {
+                matched.push(f);
+            }
+        }
+        if matched.len() < 6 || matched.last()? - matched.first()? < 0.6 {
+            return None;
+        }
+        let area = |q: Quad| {
+            (0..4)
+                .map(|i| q[i][0] * q[(i + 1) % 4][1] - q[(i + 1) % 4][0] * q[i][1])
+                .sum::<f64>()
+                .abs()
+        };
+        Some(if area(a) >= area(b) { a } else { b })
+    }
 }
 /// Algorithm inputs are typed; opaque payloads retain reader-specific evidence.
 struct Read<T> {
@@ -452,12 +609,22 @@ impl<T> Read<T> {
     }
 }
 
+// An unchecked weak ITF interpretation may occupy bars already established as
+// a supported checksum-valid retail symbol. Geometry only admits the proof;
+// distributed source-bar continuity must establish the shared physical region.
+fn conflicts<T>(weak: &Read<T>, strong: &Read<T>) -> bool {
+    weak.format == "ITF"
+        && weak.support <= 2
+        && strong.support >= 3
+        && matches!(strong.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE")
+}
+
 fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
     if !reads.iter().enumerate().any(|(i, a)| {
         a.supported()
-            && reads[..i]
-                .iter()
-                .any(|b| a.text == b.text && a.format == b.format)
+            && reads[..i].iter().any(|b| {
+                (a.text == b.text && a.format == b.format) || conflicts(a, b) || conflicts(b, a)
+            })
     }) {
         return reads;
     }
@@ -513,7 +680,57 @@ fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
             extended.push(read);
         }
     }
-    extended
+    consolidate_owned(extended, image)
+}
+
+fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
+    // Preserve the original proofs and their budget. Only unresolved results
+    // enter this separately bounded ownership pass.
+    let mut evidence = Evidence {
+        image,
+        remaining: 32768,
+    };
+    let mut owned: Vec<Read<T>> = Vec::new();
+    for read in extended {
+        let mut merged = false;
+        if read.supported() {
+            for other in &mut owned {
+                if read.same_symbol(other) {
+                    if let Some(polygon) = evidence.owned_bars(other.polygon, read.polygon, false) {
+                        other.polygon = polygon;
+                        other.geometry_changed = true;
+                        merged = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !merged {
+            owned.push(read);
+        }
+    }
+    let mut keep = vec![true; owned.len()];
+    for (i, weak) in owned.iter().enumerate() {
+        if weak.format != "ITF" || weak.support > 2 {
+            continue;
+        }
+        for strong in &owned {
+            if conflicts(weak, strong)
+                && crate::geometry::overlap_quads(&weak.polygon, &strong.polygon).0 >= 0.65
+                && evidence
+                    .owned_bars(weak.polygon, strong.polygon, true)
+                    .is_some()
+            {
+                keep[i] = false;
+                break;
+            }
+        }
+    }
+    owned
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(read, keep)| keep.then_some(read))
+        .collect()
 }
 
 /// Reconcile typed evidence while preserving reader metadata and stable ties.
@@ -697,5 +914,46 @@ mod tests {
         assert!(proof(&pixels).is_some());
         pixels[100 * 320..101 * 320].fill(255);
         assert!(proof(&pixels).is_none());
+    }
+    #[test]
+    fn weak_itf_requires_shared_bars_not_just_overlapping_retail_boxes() {
+        let mut pixels = vec![220; 320 * 260];
+        for y in 20..240 {
+            for x in 60..252 {
+                if (x - 60) / 3 % 3 == 0 {
+                    pixels[y * 320 + x] = 20;
+                }
+            }
+        }
+        let primary = crate::read::Read::primary(
+            [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+            [[60., 50.], [252., 50.], [252., 160.], [60., 160.]],
+            7,
+            0,
+            vec![],
+        );
+        let mut weak = primary.clone();
+        weak.format = "ITF".into();
+        weak.text = "123456".into();
+        weak.support = 2;
+        weak.polygon = [[60., 70.], [252., 70.], [252., 180.], [60., 180.]];
+        let scan = |pixels: &[u8], weak: crate::read::Read| {
+            merge(
+                vec![primary.clone(), weak],
+                Image {
+                    data: pixels,
+                    width: 320,
+                    height: 260,
+                    channels: 1,
+                    stride: 320,
+                },
+            )
+        };
+        assert_eq!(scan(&pixels, weak.clone()).len(), 1);
+        let mut supported = weak.clone();
+        supported.support = 3;
+        assert_eq!(scan(&pixels, supported).len(), 2);
+        pixels[115 * 320..116 * 320].fill(255);
+        assert_eq!(scan(&pixels, weak).len(), 2);
     }
 }

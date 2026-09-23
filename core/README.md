@@ -101,7 +101,7 @@ extra source sampling.
 
 The binding completes the existing duplicate proof first. Remaining matching
 linear interpretations can use distributed strong ink/paper continuity or bounded
-bar tracing with light borders. All proofs share the existing 32,768-pixel budget.
+bar tracing with light borders. These original proofs share a 32,768-pixel budget.
 Tracing tolerates approximate box endpoints on folded labels only after checking
 the continuous path; it does not treat overlapping boxes or matching text alone
 as evidence of one physical barcode. Curved-band consolidation keeps a supported
@@ -114,3 +114,23 @@ symbol with at least three source pixels per module can cover a seed through its
 observed polygon or the existing continuous-profile proof. Small and weak reads
 retain the enlarged rescan to refine their geometry. This skips a recovery seed,
 not every candidate intersecting the enclosing crop.
+
+Crossing decoded bands can prove shared ownership by following distributed source
+bars to the other decoding line. This avoids assuming equal fractional positions
+in two warped polygons refer to the same physical bar. At least six of eight
+sampled bars spanning 60% of the reading width must connect, with light borders
+along their paths. The earlier endpoint-directed trace remains a fallback for
+strong projective shear. The original consolidation pass retains its 32,768-pixel
+evidence limit and execution order. A separate ownership pass gets at most 32,768
+additional samples, only for remaining ambiguous decoded results.
+
+A weak ITF interpretation (support at most two) can be discarded when a
+checksum-validated retail read has support at least three, the decoded polygons
+substantially overlap, and distributed source bars establish shared ownership.
+Overlap of search proposals alone never triggers this rule. Separate labels and
+stronger ITF reads retain their existing handling. With no competing retail read,
+ITF-only output is unchanged.
+
+This reconciliation keeps a supported decoded polygon. It does not claim a
+complete curved-symbol envelope and does not skip pending search candidates;
+those require separately verified coverage in the search scheduler.
