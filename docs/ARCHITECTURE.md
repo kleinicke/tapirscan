@@ -126,3 +126,10 @@ outputs in disposable storage, and retain compact comparison results. Exact outp
 parity establishes a behavior-preserving refactor on those cases; it does not
 establish accuracy or latency improvements. Production API and ownership tests
 remain alongside the library.
+
+### Frozen reader documentation
+
+`multiformat/README.md` describes its historical research wrapper, paths and
+separate WASM build. Those instructions are retained as part of the pinned import;
+they are not current package instructions. Use this guide and `DEVELOPMENT.md`
+for the shared Rust pipeline, single mode-specific WASM and current build commands.

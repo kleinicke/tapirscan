@@ -1,5 +1,5 @@
 //! Interpret sampled profiles and collect accepted observations.
-use super::{profile, run_ean, Experiment, Observation, Timer, Work};
+use super::{profile, run_ean, CandidateScanner, Observation, Timer, Work};
 
 #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
 fn trace_reads(stage: &str, r: &crate::multi_profile::Reads) {
@@ -20,7 +20,7 @@ fn trace_reads(stage: &str, r: &crate::multi_profile::Reads) {
         );
     }
 }
-impl Experiment {
+impl CandidateScanner {
     pub(super) fn run_decode(
         &mut self,
         work: &mut Work,

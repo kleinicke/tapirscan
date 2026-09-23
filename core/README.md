@@ -83,3 +83,10 @@ state owns the shared association/reuse budgets and consumed path count.
 pending-work accounting. New retry strategies should change planning without
 changing acceptance or reconciliation. Mode-specific numerical evaluation remains
 explicit where replacing square roots with `hypot` would alter exact results.
+
+The candidate-scanning state is named `CandidateScanner`; the `experiment`
+module path remains an internal historical name. Shared `Policy` defaults have
+one initializer, with mode-only fields selected at compile time. Host refinement
+limits and recovery directions are listed in `bindings/rust/src/effort.rs`.
+Frame reconciliation names its remaining-budget, observation-ordering and
+source-alias decisions explicitly while retaining shared budget ownership.

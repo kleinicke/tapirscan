@@ -2,7 +2,7 @@
 //! never text, and preserves the identity of every supplied candidate.
 #![forbid(unsafe_code)]
 use crate::{
-    experiment::{self, Experiment},
+    experiment::{self, CandidateScanner},
     frame::Frame,
     multi_scan::Policy,
     sampling::{Error, ImageView},
@@ -144,7 +144,7 @@ fn directions(im: ImageView<'_>, quad: Quad, work: &mut OrientationWork) -> Vec<
         .map(|(x, y, _)| 0.5 * y.atan2(x))
         .collect()
 }
-impl Experiment {
+impl CandidateScanner {
     /// Keeps originals first, then round-robin orientation retries. All supplied
     /// and derived candidates receive a cheap pass before decoder retry allocation.
     /// # Errors
@@ -269,7 +269,7 @@ mod tests {
         }
         let im = ImageView::new(&pixels, 256, 256, 1, 256).unwrap();
         let q = [[0., 0.], [256., 0.], [256., 256.], [0., 256.]];
-        let f = Experiment::default()
+        let f = CandidateScanner::default()
             .scan_oriented_frame(
                 im,
                 &[q; 64],
@@ -298,7 +298,7 @@ mod tests {
                 }
             }
         }
-        assert!(Experiment::default()
+        assert!(CandidateScanner::default()
             .scan_oriented_frame(im, &[q; 65], Policy::default())
             .is_err());
     }

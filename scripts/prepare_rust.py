@@ -4,9 +4,13 @@
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -83,19 +87,9 @@ def source_rewriter() -> Path:
     return target / "debug" / f"tapirscan-package-source{suffix}"
 
 
-def prepare(destination: Path, *, refresh: bool = False) -> None:
-    """Reproduce sources afresh rather than trusting an existing build directory."""
-    if destination.exists() and not refresh:
-        raise FileExistsError(destination)
-    subprocess.run(
-        [sys.executable, str(ROOT / "scripts/verify_import.py"), "--historical-only"],
-        check=True,
-    )
+def assemble(destination: Path) -> None:
+    """Generate a complete package before updating the live Cargo inputs."""
     destination.mkdir(parents=True, exist_ok=True)
-    for name in ("api", "tests", "examples", "generated"):
-        existing = destination / name
-        if existing.exists():
-            shutil.rmtree(existing)
     rewriter = source_rewriter()
     binding = ROOT / "bindings/rust"
     for name in ["Cargo.toml", "README.md"]:
@@ -238,7 +232,78 @@ def prepare(destination: Path, *, refresh: bool = False) -> None:
     (destination / "provenance.json").write_text(
         json.dumps(provenance, indent=2) + "\n"
     )
-    print(destination)
+
+
+def write_changed(path: Path, data: bytes) -> None:
+    """Preserve Cargo input timestamps when generated content is unchanged."""
+    if not path.exists() or path.read_bytes() != data:
+        path.write_bytes(data)
+
+
+def sync_tree(source: Path, destination: Path) -> None:
+    """Update changed bytes only, removing obsolete generated files."""
+    destination.mkdir(parents=True, exist_ok=True)
+    for old in destination.iterdir():
+        if not (source / old.name).exists():
+            if old.is_dir():
+                shutil.rmtree(old)
+            else:
+                old.unlink()
+    for item in source.iterdir():
+        target = destination / item.name
+        if item.is_dir():
+            sync_tree(item, target)
+        elif not target.exists() or item.read_bytes() != target.read_bytes():
+            shutil.copy2(item, target)
+
+
+@contextmanager
+def prepared_package(destination: Path, *, refresh: bool = False) -> Iterator[Path]:
+    """Hold an exclusive package lock through preparation and its consuming build."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    lock = destination.with_name(destination.name + ".lock")
+    try:
+        lock.mkdir()
+    except FileExistsError as error:
+        msg = (
+            f"Package is in use: {lock}. After interruption, "
+            "verify its owner stopped before removing the lock."
+        )
+        raise RuntimeError(msg) from error
+    try:
+        (lock / "owner").write_text(f"{os.getpid()}\n")
+        if destination.exists() and not refresh:
+            raise FileExistsError(destination)
+        subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/verify_import.py"),
+                "--historical-only",
+            ],
+            check=True,
+        )
+        with tempfile.TemporaryDirectory(
+            prefix="prepare-", dir=destination.parent
+        ) as temporary:
+            staged = Path(temporary)
+            assemble(staged)
+            destination.mkdir(parents=True, exist_ok=True)
+            for item in staged.iterdir():
+                target = destination / item.name
+                if item.is_dir():
+                    sync_tree(item, target)
+                elif not target.exists() or item.read_bytes() != target.read_bytes():
+                    shutil.copy2(item, target)
+        print(destination)
+        yield destination
+    finally:
+        shutil.rmtree(lock)
+
+
+def prepare(destination: Path, *, refresh: bool = False) -> None:
+    """Refresh generated inputs without touching unchanged files or Cargo caches."""
+    with prepared_package(destination, refresh=refresh):
+        pass
 
 
 if __name__ == "__main__":

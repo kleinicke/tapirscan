@@ -61,7 +61,7 @@ impl Collector {
                 break;
             }
         }
-        let mut sampler = crate::experiment::Experiment::default();
+        let mut sampler = crate::experiment::CandidateScanner::default();
         let mut found = Vec::new();
         let mut raw = Vec::new();
         for (q, source) in boxes {

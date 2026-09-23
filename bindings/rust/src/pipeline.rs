@@ -1,4 +1,5 @@
-use super::{Error, Image, ImageView, Proposal, Quad, Result, ScanOptions, Scanner, FIT_LIMIT};
+use super::effort::SELECTED;
+use super::{Error, Image, ImageView, Proposal, Quad, Result, ScanOptions, Scanner};
 use barcode_research_core::{frame::Barcode, multi_scan::Policy, shear, stripes};
 
 struct Localization {
@@ -19,14 +20,44 @@ pub(super) fn scan(
     #[cfg(feature = "low")]
     let _ = coverage;
     checked_image(image)?;
-    let packed = prepare_pixels(image, shared_retail);
-    let image = packed.as_ref().map_or(image, |data| Image {
-        data,
-        width: image.width,
-        height: image.height,
-        channels: 4,
-        stride: image.width * 4,
-    });
+    if shared_retail && (image.channels != 4 || image.stride != image.width * 4) {
+        let mut packed = std::mem::take(&mut scanner.retail_rgba);
+        retail_pixels(image, &mut packed);
+        let result = scan_prepared(
+            scanner,
+            Image {
+                data: &packed,
+                width: image.width,
+                height: image.height,
+                channels: 4,
+                stride: image.width * 4,
+            },
+            options,
+            coverage,
+            consolidate,
+            shared_retail,
+        );
+        scanner.retail_rgba = packed;
+        return result;
+    }
+    scan_prepared(
+        scanner,
+        image,
+        options,
+        coverage,
+        consolidate,
+        shared_retail,
+    )
+}
+
+fn scan_prepared(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    options: ScanOptions,
+    coverage: &[Quad],
+    consolidate: bool,
+    shared_retail: bool,
+) -> std::result::Result<Result, Error> {
     let im = checked_image(image)?;
     let localization = localize(&mut scanner.localizer, im, image)?;
     let mut candidates: Vec<_> = localization.proposals.iter().map(|p| p.polygon).collect();
@@ -70,12 +101,6 @@ pub(super) fn scan(
     })
 }
 
-fn prepare_pixels(image: Image<'_>, shared_retail: bool) -> Option<Vec<u8>> {
-    // The validated shared browser path samples packed RGBA. Preserve the
-    // same interpolation order for gray/RGB callers before short recovery.
-    shared_retail.then(|| retail_pixels(image)).flatten()
-}
-
 fn localize(
     detector: &mut stripes::Detector,
     im: ImageView<'_>,
@@ -83,7 +108,7 @@ fn localize(
 ) -> std::result::Result<Localization, Error> {
     let found = detector.detect(im)?;
     let count = found.proposals.len();
-    let examined = count.min(FIT_LIMIT);
+    let examined = count.min(SELECTED.fit_limit);
     let mut proposals = found.proposals;
     for i in 0..examined {
         if let Some(p) = shear::refine(im, proposals[i].polygon) {
@@ -93,7 +118,7 @@ fn localize(
 
     let (secondary_omitted, secondary_limited) =
         add_secondary_proposals(detector, im, image, &mut proposals);
-    if proposals.len() > if cfg!(feature = "very-high") { 63 } else { 32 } {
+    if proposals.len() > SELECTED.proposal_limit {
         return Err(Error::Parameters);
     }
     let right = f64::from(u32::try_from(image.width - 1).map_err(|_| Error::Parameters)?);
@@ -198,7 +223,7 @@ fn recover(
         &mut scanner.recovery,
         coverage,
         super::detail::RecoveryOptions {
-            directions: if cfg!(feature = "medium") { 1 } else { 2 },
+            directions: SELECTED.recovery_directions,
             complete: options.finish_candidates,
             shared_retail,
             diagnostics: options.retain_diagnostics,
@@ -208,11 +233,9 @@ fn recover(
     Ok(Some(result))
 }
 
-fn retail_pixels(image: Image<'_>) -> Option<Vec<u8>> {
-    if image.channels == 4 && image.stride == image.width * 4 {
-        return None;
-    }
-    let mut pixels = vec![255; image.width * image.height * 4];
+fn retail_pixels(image: Image<'_>, pixels: &mut Vec<u8>) {
+    // Preserve packed RGBA interpolation while retaining storage across frames.
+    pixels.resize(image.width * image.height * 4, 255);
     for y in 0..image.height {
         for x in 0..image.width {
             let source = y * image.stride + x * image.channels;
@@ -220,9 +243,9 @@ fn retail_pixels(image: Image<'_>) -> Option<Vec<u8>> {
             pixels[target] = image.data[source];
             pixels[target + 1] = image.data[source + usize::from(image.channels != 1)];
             pixels[target + 2] = image.data[source + 2 * usize::from(image.channels != 1)];
+            pixels[target + 3] = 255;
         }
     }
-    Some(pixels)
 }
 
 fn checked_image(image: Image<'_>) -> std::result::Result<ImageView<'_>, Error> {
@@ -250,5 +273,51 @@ pub(super) fn select_one(reads: &mut Vec<Barcode>) {
         let selected = reads.remove(best);
         reads.clear();
         reads.push(selected);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retail_storage_reuse_preserves_stride_channels_and_alpha() {
+        let mut storage = Vec::new();
+        for (width, height) in [(12, 8), (3, 4), (12, 8)] {
+            for channels in [1, 3, 4] {
+                let stride = width * channels + 7;
+                let mut data = vec![37; stride * height];
+                let mut expected = Vec::new();
+                for y in 0..height {
+                    for x in 0..width {
+                        let source = y * stride + x * channels;
+                        let value = u8::try_from(x + y).unwrap();
+                        data[source] = value;
+                        if channels != 1 {
+                            data[source + 1] = value + 1;
+                            data[source + 2] = value + 2;
+                        }
+                        expected.extend_from_slice(&[
+                            value,
+                            value + u8::from(channels != 1),
+                            value + 2 * u8::from(channels != 1),
+                            255,
+                        ]);
+                    }
+                }
+                data.truncate((height - 1) * stride + width * channels);
+                retail_pixels(
+                    Image {
+                        data: &data,
+                        width,
+                        height,
+                        channels,
+                        stride,
+                    },
+                    &mut storage,
+                );
+                assert_eq!(storage, expected);
+            }
+        }
     }
 }

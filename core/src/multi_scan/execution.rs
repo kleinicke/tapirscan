@@ -7,7 +7,8 @@ use super::plan::{
     scaled_plan_density, supported_scale_width, supported_scale_width_checked, unresolved_plan,
 };
 use super::{
-    experiment, scan, Candidate, Error, Experiment, ImageView, Policy, Quad, Segment, Timer, Work,
+    experiment, scan, Candidate, CandidateScanner, Error, ImageView, Policy, Quad, Segment, Timer,
+    Work,
 };
 use super::{reuse_plan, verified_claims, ReuseBudget};
 
@@ -62,7 +63,7 @@ fn claims(
     }
     claims
 }
-impl Experiment {
+impl CandidateScanner {
     pub(super) fn execute_policy(
         &mut self,
         im: ImageView<'_>,
@@ -960,7 +961,7 @@ mod tests {
                 max_association_checks: checks,
                 ..Policy::default()
             });
-            Experiment::default().discover(image, &mut candidates, &mut run, false);
+            CandidateScanner::default().discover(image, &mut candidates, &mut run, false);
             assert_eq!(candidates[0].work.discovery_paths, 0);
             assert_eq!(candidates[0].work.reuse_claims, expected_claims);
         }

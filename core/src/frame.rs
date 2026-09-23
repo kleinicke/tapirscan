@@ -4,7 +4,7 @@ mod identity;
 pub(crate) use identity::*;
 mod conflict;
 use crate::{
-    experiment::{AssociationBudget, Candidate, Detection, Experiment, Work},
+    experiment::{AssociationBudget, Candidate, CandidateScanner, Detection, Work},
     multi_scan::Policy,
     sampling::{Error, ImageView},
     scan::Quad,
@@ -55,7 +55,7 @@ struct Group {
     members: Vec<(usize, usize)>,
     conflicted: bool,
 }
-impl Experiment {
+impl CandidateScanner {
     /// Primary frame surface reconciles physical reads while retaining all raw
     /// candidate results. Resource exhaustion returns a flagged partial frame.
     /// # Errors
@@ -87,13 +87,9 @@ fn reconcile(candidates: Vec<Candidate>, policy: Policy) -> Frame {
 // Every fresh row in both decoded bands must prefer the same hypothesis.
 // No new text is emitted; inconclusive/budget-limited comparisons retain evidence.
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "Frame reconciliation retains raw candidates while applying identity checks and ranking in their established order."
-)]
-fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy: Policy) -> Frame {
+fn remaining_budget(candidates: &[Candidate], policy: Policy) -> AssociationBudget {
     let used_checks: usize = candidates.iter().map(|c| c.work.association_checks).sum();
-    let mut budget = AssociationBudget {
+    AssociationBudget {
         checks_left: if policy.complete {
             usize::MAX
         } else {
@@ -106,27 +102,10 @@ fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy
                 .max_association_pixels
                 .saturating_sub(candidates.iter().map(|c| c.work.continuity_samples).sum())
         },
-    };
-    let mut counter = Work::default();
-    let mut work = ReconciliationWork::default();
-    #[cfg(feature = "mode-very-high")]
-    let mut identity_cache = crate::identity::IdentityCache::default();
-    work.pending_observations = candidates
-        .iter()
-        .map(|c| {
-            if c.work.association_truncated > 0 {
-                c.detections.len().max(c.work.retained_initial_detections)
-            } else {
-                c.work.retained_initial_detections
-            }
-        })
-        .sum();
-    let candidate_pending = work.pending_observations;
-    let pending_envelopes: Vec<_> = candidates
-        .iter()
-        .filter(|c| c.work.association_truncated > 0 || c.work.retained_initial_detections > 0)
-        .map(|c| envelope(c.coverage))
-        .collect();
+    }
+}
+
+fn ordered_entries(candidates: &[Candidate]) -> Vec<(usize, usize)> {
     let mut entries: Vec<_> = candidates
         .iter()
         .enumerate()
@@ -150,57 +129,95 @@ fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy
             .then(b.cmp(&d))
     });
 
-    // Finite, source-validated rejection of thin alias tracks. Keep raw candidate evidence.
-    #[cfg(feature = "mode-very-high")]
-    {
-        if let Some(im) = im.filter(|_| {
-            entries.first().is_some_and(|&(a, b)| {
-                entries.iter().any(|&(c, d)| {
-                    candidates[c].detections[d].digits != candidates[a].detections[b].digits
-                })
+    entries
+}
+
+#[cfg(feature = "mode-very-high")]
+fn reject_source_aliases(
+    im: Option<ImageView<'_>>,
+    candidates: &[Candidate],
+    mut entries: Vec<(usize, usize)>,
+    budget: &mut AssociationBudget,
+    counter: &mut Work,
+) -> Vec<(usize, usize)> {
+    // Finite source-validated rejection; preserve all raw candidate evidence.
+    if let Some(im) = im.filter(|_| {
+        entries.first().is_some_and(|&(a, b)| {
+            entries.iter().any(|&(c, d)| {
+                candidates[c].detections[d].digits != candidates[a].detections[b].digits
             })
-        }) {
-            let mut rejected = vec![false; entries.len()];
-            let mut probes = 0;
-            'outer: for i in 0..entries.len() {
-                for j in 0..entries.len() {
-                    if i == j || rejected[i] || rejected[j] {
-                        continue;
-                    }
-                    if budget.checks_left == 0 || probes >= 32 {
-                        break 'outer;
-                    }
-                    budget.checks_left -= 1;
-                    counter.association_checks += 1;
-                    let (a, b) = entries[i];
-                    let (c, d) = entries[j];
-                    let thin = &candidates[a].detections[b];
-                    let broad = &candidates[c].detections[d];
-                    if thin.digits == broad.digits {
-                        continue;
-                    }
-                    let overlap = same_space(thin.polygon, broad.polygon);
-                    if !overlap && crate::identity::gap_edges(thin.polygon, broad.polygon).is_none()
-                    {
-                        continue;
-                    }
-                    probes += 1;
-                    if (overlap
-                        && source_conflict_winner(im, broad, thin, &mut budget, &mut counter))
-                        || (probes <= 4
-                            && source_pair_winner(im, broad, thin, &mut budget, &mut counter))
-                    {
-                        rejected[i] = true;
-                    }
+        })
+    }) {
+        let mut rejected = vec![false; entries.len()];
+        let mut probes = 0;
+        'outer: for i in 0..entries.len() {
+            for j in 0..entries.len() {
+                if i == j || rejected[i] || rejected[j] {
+                    continue;
+                }
+                if budget.checks_left == 0 || probes >= 32 {
+                    break 'outer;
+                }
+                budget.checks_left -= 1;
+                counter.association_checks += 1;
+                let (a, b) = entries[i];
+                let (c, d) = entries[j];
+                let thin = &candidates[a].detections[b];
+                let broad = &candidates[c].detections[d];
+                if thin.digits == broad.digits {
+                    continue;
+                }
+                let overlap = same_space(thin.polygon, broad.polygon);
+                if !overlap && crate::identity::gap_edges(thin.polygon, broad.polygon).is_none() {
+                    continue;
+                }
+                probes += 1;
+                if (overlap && source_conflict_winner(im, broad, thin, budget, counter))
+                    || (probes <= 4 && source_pair_winner(im, broad, thin, budget, counter))
+                {
+                    rejected[i] = true;
                 }
             }
-            entries = entries
-                .into_iter()
-                .enumerate()
-                .filter_map(|(i, e)| (!rejected[i]).then_some(e))
-                .collect();
         }
+        entries = entries
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, e)| (!rejected[i]).then_some(e))
+            .collect();
     }
+    entries
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "Frame reconciliation retains raw candidates while applying identity checks and ranking in their established order."
+)]
+fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy: Policy) -> Frame {
+    let mut budget = remaining_budget(&candidates, policy);
+    let mut counter = Work::default();
+    let mut work = ReconciliationWork::default();
+    #[cfg(feature = "mode-very-high")]
+    let mut identity_cache = crate::identity::IdentityCache::default();
+    work.pending_observations = candidates
+        .iter()
+        .map(|c| {
+            if c.work.association_truncated > 0 {
+                c.detections.len().max(c.work.retained_initial_detections)
+            } else {
+                c.work.retained_initial_detections
+            }
+        })
+        .sum();
+    let candidate_pending = work.pending_observations;
+    let pending_envelopes: Vec<_> = candidates
+        .iter()
+        .filter(|c| c.work.association_truncated > 0 || c.work.retained_initial_detections > 0)
+        .map(|c| envelope(c.coverage))
+        .collect();
+    let entries = ordered_entries(&candidates);
+
+    #[cfg(feature = "mode-very-high")]
+    let entries = reject_source_aliases(im, &candidates, entries, &mut budget, &mut counter);
     let mut groups: Vec<Group> = vec![];
     'observations: for (position, &(ci, di)) in entries.iter().enumerate() {
         let d = &candidates[ci].detections[di];
@@ -1144,7 +1161,7 @@ mod tests {
             max_association_pixels: 4096,
             ..Policy::default()
         };
-        let frame = Experiment::default()
+        let frame = CandidateScanner::default()
             .scan_frame(
                 im,
                 &[q(30., 10., 380., 220.), q(530., 10., 380., 220.)],

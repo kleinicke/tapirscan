@@ -1,4 +1,4 @@
-//! Isolated supplied-region experiment. No reference decoders or label inputs.
+//! Candidate scanning, reusable scratch and evidence collection.
 //! One controlled signal path feeds either unchanged profile or run likelihood.
 mod sampling;
 #[cfg(test)]
@@ -14,7 +14,6 @@ use crate::{
 pub(crate) use association::*;
 #[derive(Clone, Copy, Debug)]
 pub struct Observation {
-    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
     pub invalid_checksum: bool,
     pub short_quiet: bool,
@@ -32,9 +31,7 @@ pub struct Work {
     #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     pub selected_retry_limit: usize,
     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
     pub invalid_consensus_observations: usize,
-    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
     pub invalid_consensus_blocks: usize,
     pub invalid_visual_seen: usize,
@@ -302,7 +299,7 @@ pub(crate) fn distance(a: [f64; 2], b: [f64; 2]) -> f64 {
 }
 
 #[derive(Default)]
-pub struct Experiment {
+pub struct CandidateScanner {
     #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     pub(crate) retail: crate::retail_pipeline::Collector,
 
@@ -315,7 +312,7 @@ pub struct Experiment {
 
     local_scratch: crate::local_signal::Scratch,
 }
-impl Experiment {
+impl CandidateScanner {
     pub fn scan(
         &mut self,
         im: ImageView<'_>,
@@ -382,14 +379,17 @@ impl Experiment {
                     if module_axis && axis == 1 && !full {
                         continue;
                     }
-                    let fractions: Vec<f64> = if config.dense {
-                        (0..21).map(|i| 0.2 + 0.03 * f64::from(i)).collect()
+                    let dense = std::array::from_fn::<_, 21, _>(|i| {
+                        0.2 + 0.03 * f64::from(u32::try_from(i).unwrap())
+                    });
+                    let fractions: &[f64] = if config.dense {
+                        &dense
                     } else if config.fixed3 {
-                        vec![0.2, 0.5, 0.8]
+                        &[0.2, 0.5, 0.8]
                     } else {
-                        vec![0.2, 0.35, 0.5, 0.65, 0.8]
+                        &[0.2, 0.35, 0.5, 0.65, 0.8]
                     };
-                    for fraction in fractions {
+                    for &fraction in fractions {
                         out.work.paths += 1;
                         let sample_timer = Timer::now();
                         let sampled = if config.native {
@@ -574,7 +574,7 @@ mod tests {
         let im = ImageView::new(&pixels, width, h, 1, width).unwrap();
         let quad = [[60., 20.], [440., 20.], [440., 140.], [60., 140.]];
         let m = scan::transform(quad).unwrap();
-        let c = Experiment::default().scan(im, &[quad], MULTI_FIXED);
+        let c = CandidateScanner::default().scan(im, &[quad], MULTI_FIXED);
         let mut obs: Vec<_> = c[0]
             .observations
             .iter()
@@ -635,7 +635,7 @@ mod tests {
             }
             let im = ImageView::new(&pixels, w, height, 1, w).unwrap();
             let quad = [[60., 10.], [440., 10.], [440., 310.], [60., 310.]];
-            let c = Experiment::default().scan(
+            let c = CandidateScanner::default().scan(
                 im,
                 &[quad],
                 Config::new("short_dense", false, true, DecoderMode::Many).unwrap(),
@@ -658,7 +658,7 @@ mod tests {
         let (p, _) = fixture(0);
         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
         let q = [[[0., 10.], [1000., 10.], [1000., 230.], [0., 230.]]];
-        let out = Experiment::default().scan(im, &q, MULTI_FIXED);
+        let out = CandidateScanner::default().scan(im, &q, MULTI_FIXED);
         assert_eq!(out[0].observations.len(), 10);
         assert_eq!(out[0].detections.len(), 2);
         assert!(out[0].detections.iter().all(|d| d.support == 5));
@@ -1170,7 +1170,7 @@ mod tests {
     }
     #[test]
     fn integer_run_decoder_matches_original_at512() {
-        let mut ex = Experiment::default();
+        let mut ex = CandidateScanner::default();
         for reverse in [false, true] {
             for shift in 40..44 {
                 let mut p = vec![0f32; 512];
@@ -1202,7 +1202,7 @@ mod tests {
         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
         for mode in [DecoderMode::Runs, DecoderMode::Many] {
             let c = Config::new("valid", true, false, mode).unwrap();
-            let out = Experiment::default().scan(im, &qs, c);
+            let out = CandidateScanner::default().scan(im, &qs, c);
             assert!(!out.is_empty());
         }
     }
@@ -1213,7 +1213,7 @@ mod tests {
         reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
     )]
     fn interior_normalization_ignores_padding_and_preserves_quiet_values() {
-        let mut ex = Experiment::default();
+        let mut ex = CandidateScanner::default();
         let n = 512;
         ex.raw_signal = (0..n)
             .map(|i| {
@@ -1253,7 +1253,7 @@ mod tests {
         let m = scan::transform(qs[0]).unwrap();
         let mut a = Sampler::default();
         let old = a.sample(im, m, Path::default()).unwrap().unwrap().to_vec();
-        let mut ex = Experiment::default();
+        let mut ex = CandidateScanner::default();
         let mut work = Work::default();
         assert!(ex.native_sample(im, m.0, 0, 0.5, &mut work).unwrap());
         assert_eq!(ex.signal.len(), 494);
@@ -1262,7 +1262,7 @@ mod tests {
     }
     #[test]
     fn blank_noise_invalid_and_checksum_are_not_reads() {
-        let mut ex = Experiment::default();
+        let mut ex = CandidateScanner::default();
         let q = [[[20., 10.], [400., 10.], [400., 230.], [20., 230.]]];
         let mut state = 1u32;
         for mode in 0..8 {
@@ -1297,7 +1297,7 @@ mod tests {
     }
     #[test]
     fn equal_text_instances_and_known_white_gaps_survive() {
-        let mut ex = Experiment::default();
+        let mut ex = CandidateScanner::default();
         for gap in [0, 1, 2, 3, 10] {
             let (p, qs) = fixture(gap);
             let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
@@ -1340,7 +1340,7 @@ mod tests {
     fn both_predicted_axes_and_directions() {
         let (p, qs) = fixture(0);
         let im = ImageView::new(&p, 1000, 240, 1, 1000).unwrap();
-        let mut ex = Experiment::default();
+        let mut ex = CandidateScanner::default();
         for turn in 0..4 {
             let mut q = qs[0];
             q.rotate_left(turn);
@@ -1427,7 +1427,7 @@ mod diagnostic_validation_tests {
         let pixels = vec![255; 64 * 64];
         let im = ImageView::new(&pixels, 64, 64, 1, 64).unwrap();
         let q = [[0., 0.], [64., 0.], [64., 64.], [0., 64.]];
-        let mut e = Experiment::default();
+        let mut e = CandidateScanner::default();
         for native in [false, true] {
             for (axis, f) in [(2, 0.5), (0, f64::NAN), (0, -0.01), (1, 1.01)] {
                 assert!(e.diagnostic_profile(im, q, axis, f, native).is_err());
@@ -1448,7 +1448,7 @@ mod segment_diagnostic_tests {
             .collect();
         let im = ImageView::new(&pixels, 128, 96, 1, 128).unwrap();
         let q = [[15., 12.], [110., 17.], [105., 80.], [20., 85.]];
-        let mut e = Experiment::default();
+        let mut e = CandidateScanner::default();
         for (axis, f, lo, hi, n) in [
             (2, 0.5, 0., 1., 64),
             (0, f64::NAN, 0., 1., 64),
@@ -1512,7 +1512,7 @@ mod low_contrast_signal_tests {
                 }
             }
             let im = ImageView::new(&data, w, h, 1, w).unwrap();
-            let f = Experiment::default()
+            let f = CandidateScanner::default()
                 .scan_frame(
                     im,
                     &[q],
@@ -1547,7 +1547,7 @@ mod low_contrast_signal_tests {
                 }
             }
             let im = ImageView::new(&data, w, h, 1, w).unwrap();
-            let f = Experiment::default()
+            let f = CandidateScanner::default()
                 .scan_frame(
                     im,
                     &[q],
@@ -1666,9 +1666,9 @@ mod lowres_threshold_tests {
                     p.reverse();
                 }
                 let original = p.clone();
-                let mut ex = Experiment {
+                let mut ex = CandidateScanner {
                     signal: p,
-                    ..Experiment::default()
+                    ..CandidateScanner::default()
                 };
                 let mut obs = vec![];
                 ex.collect_policy(0, 0.5, 0., 1., &mut Work::default(), &mut obs, true, true);
@@ -1728,7 +1728,7 @@ mod forward_blur_region_tests {
         let left = 512. * 0.15 / 1.3;
         let right = 512. * 1.15 / 1.3;
         let q = [[left, 0.], [right, 0.], [right, 160.], [left, 160.]];
-        let result = Experiment::default()
+        let result = CandidateScanner::default()
             .scan_scaled(im, &[q], crate::multi_scan::Policy::default())
             .unwrap();
         assert_eq!(result.len(), 1);
@@ -1934,7 +1934,7 @@ mod structural_run_count_tests {
     use super::*;
     #[test]
     fn structural_max_uses_raw_runs_and_freezes_after_discovery() {
-        let mut ex = Experiment::default();
+        let mut ex = CandidateScanner::default();
         let mut work = Work::default();
         let mut observations = vec![];
         for period in [16, 8, 32] {
@@ -1963,7 +1963,7 @@ mod redundant_collection_test {
         reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
     )]
     fn collect_exercises_reuse_without_altering_input_or_observation_shape() {
-        let mut ex = Experiment::default();
+        let mut ex = CandidateScanner::default();
         let digits = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
         let mut signal = vec![0.; 40];
         for bit in crate::ean::encode(&digits) {
@@ -2033,7 +2033,7 @@ mod folded_boundary_confirmation_tests {
                         *p = [319. - p[1], p[0]];
                     }
                 }
-                let c = Experiment::default().scan(
+                let c = CandidateScanner::default().scan(
                     im,
                     &[quad],
                     Config::new("folded_boundary", false, true, DecoderMode::Many).unwrap(),

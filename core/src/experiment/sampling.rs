@@ -1,6 +1,6 @@
-//! Profile sampling and normalization. Scratch storage belongs to Experiment.
+//! Profile sampling and normalization. Scratch storage belongs to `CandidateScanner`.
 use super::{
-    distance, point, scan, Error, Experiment, ImageView, Observation, Path, Quad, Timer, Work,
+    distance, point, scan, CandidateScanner, Error, ImageView, Observation, Path, Quad, Timer, Work,
 };
 
 pub(super) fn interior_bounds(n: usize, lo: f64, hi: f64) -> (usize, usize) {
@@ -21,7 +21,7 @@ pub(super) fn interior_bounds(n: usize, lo: f64, hi: f64) -> (usize, usize) {
     };
     (lower(false), lower(true))
 }
-impl Experiment {
+impl CandidateScanner {
     /// Diagnostic export uses exactly the scanner's original sampling/normalization.
     /// # Errors
     /// Returns `Path` for an invalid axis or sampling interval and `Geometry` for invalid quadrilaterals or projections; propagates sampling errors.

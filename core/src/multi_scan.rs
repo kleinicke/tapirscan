@@ -6,7 +6,7 @@ mod execution;
 mod plan;
 use crate::scanner_clock::Timer;
 use crate::{
-    experiment::{self, Candidate, Experiment, Work},
+    experiment::{self, Candidate, CandidateScanner, Work},
     sampling::{Error, ImageView},
     scan::{self, Quad},
 };
@@ -45,47 +45,24 @@ pub struct Policy {
 }
 impl Default for Policy {
     fn default() -> Self {
-        {
-            #[cfg(feature = "mode-low")]
-            {
-                Self {
-                    complete: false,
-                    max_retry_paths_per_candidate: 512,
-                    max_retry_paths_per_frame: 8192,
-                    max_association_checks: 200_000,
-                    max_association_pixels: 2_000_000,
-                    max_results: 1024,
-                    transition_cleanup: false,
-                    source_identity: false,
-                    interior_normalization: false,
-                    guard_bias: false,
-                    allow_single_row: false,
-                }
-            }
-            #[cfg(any(
-                feature = "mode-medium",
-                feature = "mode-high",
-                feature = "mode-very-high"
-            ))]
-            {
-                Self {
-                    candidate_retry_mask: u64::MAX,
-                    complete: false,
-                    max_retry_paths_per_candidate: 512,
-                    max_retry_paths_per_frame: 8192,
-                    max_association_checks: 200_000,
-                    max_association_pixels: 2_000_000,
-                    max_results: 1024,
-                    transition_cleanup: false,
-                    source_identity: false,
-                    interior_normalization: false,
-                    guard_bias: false,
-                    allow_single_row: false,
-                }
-            }
+        Self {
+            #[cfg(not(feature = "mode-low"))]
+            candidate_retry_mask: u64::MAX,
+            complete: false,
+            max_retry_paths_per_candidate: 512,
+            max_retry_paths_per_frame: 8192,
+            max_association_checks: 200_000,
+            max_association_pixels: 2_000_000,
+            max_results: 1024,
+            transition_cleanup: false,
+            source_identity: false,
+            interior_normalization: false,
+            guard_bias: false,
+            allow_single_row: false,
         }
     }
 }
+
 #[derive(Clone, Copy, Debug)]
 struct Segment {
     axis: usize,
@@ -141,7 +118,7 @@ fn multiple_initial<'a>(items: impl Iterator<Item = &'a experiment::Detection>) 
 // A low-resolution hint must belong to an already supported spatial symbol.
 // Two unrelated single-row reads are not corroboration of either width.
 
-impl Experiment {
+impl CandidateScanner {
     /// Diagnostic only: explicit bounded source rows through real retry/assembly rules.
     /// The caller's rows are not a deployable scheduler or a coverage claim.
     /// # Errors
@@ -345,7 +322,7 @@ mod tests {
                         [crate::numeric::usize_f64(w), crate::numeric::usize_f64(h)],
                         [0., crate::numeric::usize_f64(h)],
                     ];
-                    let f = Experiment::default()
+                    let f = CandidateScanner::default()
                         .scan_frame(
                             im,
                             &[q],
@@ -379,7 +356,7 @@ mod tests {
         let pixels = vec![255; 600 * 200];
         let im = ImageView::new(&pixels, 600, 200, 1, 600).unwrap();
         let q = [[0., 0.], [600., 0.], [600., 200.], [0., 200.]];
-        let mut ex = Experiment::default();
+        let mut ex = CandidateScanner::default();
         for scaled in [false, true] {
             for budget in [0, 1, 3] {
                 let out = ex
@@ -563,7 +540,7 @@ mod tests {
         }
         let im = ImageView::new(&pixels, 500, 200, 1, 500).unwrap();
         let q = [[0., 0.], [500., 0.], [500., 200.], [0., 200.]];
-        let mut ex = Experiment::default();
+        let mut ex = CandidateScanner::default();
         let first = ex.scan(im, &[q], experiment::MULTI_FIXED);
         assert_eq!(first[0].detections.len(), 1);
         let p = Policy {
@@ -972,7 +949,7 @@ mod policy_diagnostic_tests {
         let data = vec![255; 100 * 100];
         let im = ImageView::new(&data, 100, 100, 1, 100).unwrap();
         let q = [[10., 10.], [90., 10.], [90., 90.], [10., 90.]];
-        let mut e = Experiment::default();
+        let mut e = CandidateScanner::default();
         for f in [f64::NAN, f64::INFINITY, -0.01, 1.01] {
             assert!(matches!(
                 e.diagnostic_retry_rows(im, q, &[f]),
@@ -987,7 +964,7 @@ mod policy_diagnostic_tests {
         let data = vec![255; 100 * 100];
         let im = ImageView::new(&data, 100, 100, 1, 100).unwrap();
         let q = [[10., 10.], [90., 10.], [90., 90.], [10., 90.]];
-        let mut e = Experiment::default();
+        let mut e = CandidateScanner::default();
         for f in [vec![], vec![0.5], vec![0.5; 64], vec![0., 1.]] {
             let c = e.diagnostic_retry_rows(im, q, &f).unwrap();
             assert!(c.observations.is_empty() && c.detections.is_empty());
@@ -1144,7 +1121,7 @@ mod structural_retry_tests {
             quad(20., 20., 960., 200.),
             quad(40., 40., 920., 160.),
         ];
-        let result = Experiment::default()
+        let result = CandidateScanner::default()
             .scan_scaled(im, &qs, Policy::default())
             .unwrap();
         assert_eq!(result.len(), qs.len());
@@ -1239,7 +1216,7 @@ mod structural_retry_tests {
             }
             let im = ImageView::new(&pixels, 1000, 240, 1, 1000).unwrap();
             let qs = [quad(0., 0., 1000., 240.), quad(0., 20., 1000., 200.)];
-            let result = Experiment::default()
+            let result = CandidateScanner::default()
                 .scan_scaled(
                     im,
                     &qs,
@@ -1367,7 +1344,7 @@ mod completion_tests {
             max_retry_paths_per_frame: 0,
             ..Policy::default()
         };
-        let mut engine = Experiment::default();
+        let mut engine = CandidateScanner::default();
         let bounded = engine.scan_scaled(im, &[q; 3], policy).unwrap();
         let complete = engine
             .scan_scaled(
@@ -1417,7 +1394,7 @@ mod candidate_retry_mask_tests {
         let pixels = vec![255; 512 * 512];
         let image = ImageView::new(&pixels, 512, 512, 1, 512).unwrap();
         let quad = [[0., 0.], [511., 0.], [511., 511.], [0., 511.]];
-        let mut engine = Experiment::default();
+        let mut engine = CandidateScanner::default();
         let candidates = engine
             .scan_scaled(
                 image,
@@ -1443,7 +1420,7 @@ mod candidate_retry_mask_tests {
         let pixels = vec![255; 128 * 128];
         let image = ImageView::new(&pixels, 128, 128, 1, 128).unwrap();
         let quad = [[0., 0.], [127., 0.], [127., 127.], [0., 127.]];
-        let mut engine = Experiment::default();
+        let mut engine = CandidateScanner::default();
         let candidates = engine
             .scan_scaled(
                 image,

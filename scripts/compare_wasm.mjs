@@ -38,10 +38,19 @@ function variants(image) {
     })),
   );
 }
+const browser =
+  config.backend === "browser"
+    ? await (await import("./compare_browser.mjs")).browserComparison(config)
+    : null;
 const scanners = new Map();
 async function pair(mode, addon) {
   const key = `${mode}/${addon}`;
   if (!scanners.has(key)) {
+    if (browser) {
+      const instances = await browser.pair(mode, addon);
+      scanners.set(key, instances);
+      return instances;
+    }
     const instances = [];
     for (const label of ["baseline", "candidate"]) {
       const manifest = JSON.parse(readFileSync(config[`${label}Wasm`], "utf8"));
@@ -63,7 +72,15 @@ async function pair(mode, addon) {
   }
   return scanners.get(key);
 }
-function scan(scanner, image, variant, debug) {
+async function scan(scanner, image, variant, debug) {
+  if (scanner.scanTimed) {
+    const [elapsed, result] = await scanner.scanTimed(image.image, {
+      formats: variant.formats,
+      extendedBudget: variant.extendedBudget,
+      debug,
+    });
+    return [elapsed, clean(result)];
+  }
   const start = performance.now();
   const result = scanner.scan(image.image, {
     formats: variant.formats,
@@ -106,17 +123,28 @@ try {
     for (const mode of config.modes) {
       const [before, after] = await pair(mode, image.addon);
       for (const variant of variants(image)) {
-        compare(
-          scan(before, image, variant, config.diagnostics)[1],
-          scan(after, image, variant, config.diagnostics)[1],
-          {
-            case: image.name,
-            mode,
-            selection: variant.label,
-            extendedBudget: variant.extendedBudget,
-            phase: "parity",
-          },
-        );
+        const a = (await scan(before, image, variant, config.diagnostics))[1];
+        const b = (await scan(after, image, variant, config.diagnostics))[1];
+        if (config.saveResults)
+          appendFileSync(
+            path.join(config.output, "results.jsonl"),
+            JSON.stringify({
+              index: image.index,
+              case: image.name,
+              mode,
+              selection: variant.label,
+              extendedBudget: variant.extendedBudget,
+              baseline: a,
+              candidate: b,
+            }) + "\n",
+          );
+        compare(a, b, {
+          case: image.name,
+          mode,
+          selection: variant.label,
+          extendedBudget: variant.extendedBudget,
+          phase: "parity",
+        });
         comparisons++;
       }
     }
@@ -125,9 +153,13 @@ try {
   }
   // The complete pixel stream is consumed before measurements, avoiding feeder contention.
   for (const mode of config.modes) {
+    console.error(
+      `Starting ${mode} timing (${retained.length} images, ${config.repeats} repetitions)`,
+    );
     for (const image of retained.slice(0, config.warmup))
       for (const variant of variants(image))
-        for (const scanner of await pair(mode, image.addon)) scan(scanner, image, variant, false);
+        for (const scanner of await pair(mode, image.addon))
+          await scan(scanner, image, variant, false);
     for (let repetition = 0; repetition < config.repeats; repetition++) {
       for (const [index, image] of retained.entries()) {
         const [before, after] = await pair(mode, image.addon);
@@ -137,9 +169,9 @@ try {
             ["candidate", after],
           ];
           if ((index + repetition) % 2) order.reverse();
-          const measured = Object.fromEntries(
-            order.map(([label, scanner]) => [label, scan(scanner, image, variant, false)]),
-          );
+          const measured = {};
+          for (const [label, scanner] of order)
+            measured[label] = await scan(scanner, image, variant, false);
           const group = `${mode}/${variant.label}/${variant.extendedBudget ? "extended" : "default"}/${image.addon}`;
           compare(measured.baseline[1], measured.candidate[1], {
             case: image.name,
@@ -157,10 +189,12 @@ try {
           });
         }
       }
+      console.error(`Finished ${mode} timing repetition ${repetition + 1}/${config.repeats}`);
     }
   }
 } finally {
   for (const instances of scanners.values()) for (const scanner of instances) scanner.dispose();
+  await browser?.close();
 }
 writeFileSync(
   path.join(config.output, "timings.jsonl"),
@@ -172,6 +206,6 @@ writeFileSync(
     comparisons,
     timedComparisons,
     differences: differing,
-    runtime: { node: process.version, v8: process.versions.v8 },
+    runtime: browser?.runtime ?? { node: process.version, v8: process.versions.v8 },
   }),
 );

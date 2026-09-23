@@ -36,7 +36,7 @@ impl Collector {
                 seeds.push((i, *q, row.axis, row.fraction));
             }
         }
-        let mut sampler = crate::experiment::Experiment::default();
+        let mut sampler = crate::experiment::CandidateScanner::default();
         let mut raw = Vec::new();
         let mut found = Vec::new();
         let mut spent = 0usize;

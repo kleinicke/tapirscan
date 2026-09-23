@@ -207,6 +207,11 @@ class NativeComparison:
         self.retained: list[dict[str, Any]] = []
         self.identities: list[dict[str, Any]] = []
         self.comparisons = self.differing = self.timed_comparisons = 0
+        self.results = (
+            stack.enter_context((output / "results.jsonl").open("w"))
+            if config.get("saveResults")
+            else None
+        )
         self.differences = stack.enter_context((output / "differences.jsonl").open("w"))
 
     def pair(self, mode: str, addon: str) -> tuple[Scanner, Scanner]:
@@ -257,6 +262,21 @@ class NativeComparison:
                     extended=extended,
                     debug=self.config["diagnostics"],
                 )[1]
+                if self.results is not None:
+                    self.results.write(
+                        json.dumps(
+                            {
+                                "index": case["index"],
+                                "case": case["name"],
+                                "mode": mode,
+                                "selection": label,
+                                "extendedBudget": extended,
+                                "baseline": cast("dict[str, object]", a)["public"],
+                                "candidate": cast("dict[str, object]", b)["public"],
+                            }
+                        )
+                        + "\n"
+                    )
                 self.comparisons += 1
                 self.compare(
                     a,
@@ -483,7 +503,9 @@ def arguments() -> argparse.Namespace:
         type=Path,
         help="New directory; existing evidence is never overwritten",
     )
-    parser.add_argument("--backend", choices=("native", "wasm"), default="native")
+    parser.add_argument(
+        "--backend", choices=("native", "wasm", "browser"), default="native"
+    )
     parser.add_argument("--modes", nargs="+", choices=MODES, default=list(MODES))
     parser.add_argument("--formats", nargs="+", default=["EAN13", "retail"])
     parser.add_argument(
@@ -498,6 +520,22 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--max-differences", type=int, default=10)
     parser.add_argument("--node", default="node")
+    parser.add_argument(
+        "--browser-channel", choices=("chrome", "chromium"), default="chromium"
+    )
+    parser.add_argument(
+        "--playwright-module", help="Absolute path to a Playwright module"
+    )
+    parser.add_argument(
+        "--allow-differences",
+        action="store_true",
+        help="Record algorithm changes without requiring exact parity",
+    )
+    parser.add_argument(
+        "--save-results",
+        action="store_true",
+        help="Retain public outputs for labeled evaluation",
+    )
     for label in ("baseline", "candidate"):
         parser.add_argument(f"--{label}-native", type=Path)
         parser.add_argument(
@@ -531,6 +569,10 @@ def main() -> None:
         "warmup": args.warmup,
         "maxDifferences": args.max_differences,
         "node": args.node,
+        "playwrightModule": args.playwright_module,
+        "browserChannel": args.browser_channel,
+        "saveResults": args.save_results,
+        "allowDifferences": args.allow_differences,
     }
     sources = {}
     for label in ("baseline", "candidate"):
@@ -578,6 +620,7 @@ def main() -> None:
             "checkout": checkout(ROOT),
             "scriptSha256": digest(Path(__file__)),
             "wasmWorkerSha256": digest(ROOT / "scripts/compare_wasm.mjs"),
+            "browserWorkerSha256": digest(ROOT / "scripts/compare_browser.mjs"),
             "pillowVersion": pillow_version,
             "nativeFacade": (
                 "Current harness Python facade; both libraries must support its ABI"
@@ -588,7 +631,7 @@ def main() -> None:
             "Timing uses preloaded images after parity, alternating paired order, "
             "warm scans, debug false. Includes public binding conversion, excludes "
             "load/compile and image decoding. Runtime-specific measurements, "
-            "not browser or general speed claims."
+            "not cross-runtime or general speed claims."
         ),
     }
     result = (native if args.backend == "native" else wasm)(config, cases, output)
@@ -604,7 +647,7 @@ def main() -> None:
             }
         )
     )
-    if result["differences"]:
+    if result["differences"] and not args.allow_differences:
         raise SystemExit(1)
 
 

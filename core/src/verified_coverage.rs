@@ -5,7 +5,7 @@ use super::{
     Segment, Work,
 };
 #[cfg(test)]
-use super::{Experiment, Policy};
+use super::{CandidateScanner, Policy};
 
 #[derive(Default)]
 pub(super) struct ReuseBudget {
@@ -639,7 +639,7 @@ mod reuse_tests {
                 guard_bias: true,
                 ..Policy::default()
             };
-            let mut ex = Experiment::default();
+            let mut ex = CandidateScanner::default();
             let result = ex.scan_scaled(im, &qs, policy).unwrap();
             assert_eq!(result.len(), 2);
             for (c, q) in result.iter().zip(qs) {
@@ -1011,7 +1011,9 @@ mod stacked_extension_regressions {
                     guard_bias: true,
                     ..Policy::default()
                 };
-                let result = Experiment::default().scan_scaled(im, &qs, policy).unwrap();
+                let result = CandidateScanner::default()
+                    .scan_scaled(im, &qs, policy)
+                    .unwrap();
                 for c in result {
                     #[cfg(feature = "mode-low")]
                     {

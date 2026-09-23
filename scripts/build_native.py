@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from prepare_rust import prepare
+from prepare_rust import prepared_package, sync_tree, write_changed
 
 from build import MODES, ROOT
 
@@ -19,22 +19,23 @@ def build(mode: str, public_crate: Path) -> None:
     out = ROOT / "build" / mode
     out.mkdir(parents=True, exist_ok=True)
     native = out / "native"
-    if native.exists():
-        shutil.rmtree(native)
-    shutil.copytree(ROOT / "bindings/c/src", native / "src", dirs_exist_ok=True)
-    (native / "Cargo.toml").write_text(
-        (ROOT / "bindings/c/Cargo.toml.in")
-        .read_text()
-        .replace("@MODE@", mode)
-        .replace("@LIB_MODE@", mode.replace("-", "_"))
-        .replace("@PUBLIC_CRATE@", public_crate.as_posix())
+    sync_tree(ROOT / "bindings/c/src", native / "src")
+    write_changed(
+        native / "Cargo.toml",
+        (
+            (ROOT / "bindings/c/Cargo.toml.in")
+            .read_text()
+            .replace("@MODE@", mode)
+            .replace("@LIB_MODE@", mode.replace("-", "_"))
+            .replace("@PUBLIC_CRATE@", public_crate.as_posix())
+        ).encode(),
     )
     public_lock = public_crate / "Cargo.lock"
     if public_lock.exists():
-        shutil.copy2(public_lock, native / "Cargo.lock")
+        write_changed(native / "Cargo.lock", public_lock.read_bytes())
     env = os.environ.copy()
     env.pop("RUSTFLAGS", None)
-    target = ROOT / "build/native-target"
+    target = ROOT / "build/native-target" / mode
     env["CARGO_TARGET_DIR"] = str(target)
     env["CARGO_INCREMENTAL"] = "0"
     common = ["--offline", "--manifest-path", str(native / "Cargo.toml")]
@@ -95,11 +96,7 @@ if __name__ == "__main__":
     selected = parser.parse_args().modes or list(MODES)
     if unknown := [mode for mode in selected if mode not in MODES]:
         parser.error(f"unknown mode: {', '.join(unknown)}")
-    subprocess.run(
-        [sys.executable, str(ROOT / "scripts/verify_import.py"), "--historical-only"],
-        check=True,
-    )
     public = ROOT / "build/crates/tapirscan"
-    prepare(public, refresh=public.exists())
-    for mode in selected:
-        build(mode, public)
+    with prepared_package(public, refresh=public.exists()):
+        for mode in selected:
+            build(mode, public)

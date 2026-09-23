@@ -2,6 +2,12 @@
 
 ## 1.2.1 — 2026-09-19
 
+- Preserve unchanged generated package and adapter inputs during refresh; serialize
+  supported package builds and provide experimental WASM assets outside release identities.
+- Clarify candidate scanning, mode budgets and frame reconciliation; reuse retail
+  conversion storage and remove fixed sampling-list heap allocations.
+- Support Chromium comparisons and retained public outputs for labeled experiments.
+
 - Make release WASM identities independent of checkout paths.
 - Maintain production algorithms directly in `core/src` with explicit effort-mode
   features; preserve original recipes and sources under `historical/`.

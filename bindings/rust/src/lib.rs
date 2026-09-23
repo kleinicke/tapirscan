@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 #[cfg(not(feature = "low"))]
 mod detail;
+mod effort;
 mod format_registry;
 mod geometry;
 mod linear_duplicates;
@@ -71,6 +72,7 @@ pub struct Scanner {
     regions: RegionScanner,
     localizer: barcode_research_core::stripes::Detector,
     additional_gray: Vec<u8>,
+    retail_rgba: Vec<u8>,
     #[cfg(not(feature = "low"))]
     recovery: recovery_core::region_scan::RegionScanner,
 }
@@ -218,6 +220,5 @@ pub const MODE_ID: u32 = if cfg!(feature = "low") {
     1
 };
 pub const MODE: &str = ["low", "medium", "high", "very-high"][MODE_ID as usize];
-const FIT_LIMIT: usize = [0, 1, 4, 1][MODE_ID as usize];
 
 pub mod formats;

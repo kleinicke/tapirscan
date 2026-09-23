@@ -137,3 +137,36 @@ The wrapper uses Cargo's documented [compiler wrapper interface](https://doc.rus
 WASM artifact hashes must agree between independent checkout paths before promotion.
 
 Use the [scanner comparison command](COMPARING_SCANNERS.md) to record native or WASM parity and paired timings between built checkouts.
+
+## Fast iteration and experimental WASM
+
+For a complete single-mode native build and its ABI tests:
+
+```sh
+python3 scripts/build_native.py medium
+```
+
+Package preparation updates changed generated files and removes obsolete modules,
+preserving timestamps for unchanged Cargo inputs. Source generation finishes in a
+temporary directory before updating the package, so a failed transformation leaves
+the previous package usable. Each mode has its own Cargo output directory so cached builds cannot pick up
+another mode’s same-named WASM or example executable. Native and WASM commands hold an exclusive package
+lock through their build. A competing command fails with the lock path; after an
+interruption, inspect its `owner` PID and remove the lock only after that process
+has stopped. Direct Cargo consumers must not overlap a package refresh.
+
+For scanner experiments before release promotion:
+
+```sh
+python3 scripts/build_wasm.py --development
+npm run build --prefix bindings/javascript
+```
+
+Development assets and their manifest live under `build/wasm-development/`.
+Add a mode argument, such as `medium`, to build only that mode. When source
+changes, the development manifest drops records for modes not rebuilt; release
+recording still requires all four modes for a changed source identity.
+Pass that manifest and its `assets/` directory to the comparison command's
+`--candidate-wasm` and `--candidate-assets` options. Release assets, tags and
+recorded manifests stay unchanged; normal promotion still requires new immutable
+identities and the release checks.

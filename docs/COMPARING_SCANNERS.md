@@ -51,3 +51,16 @@ image decoding and result comparison. `timings.jsonl` retains every paired sampl
 summary groups separate modes, formats, budgets and supplement policy. Avoid
 concurrent builds or other heavy work while measuring. Treat these measurements as
 evidence for the selected cohort and runtime, not a general speed guarantee.
+
+`--backend browser --playwright-module /absolute/path/to/playwright/index.mjs`
+runs the same comparisons inside headless Chromium. Add `--browser-channel chrome`
+to use an installed Google Chrome instead of Playwright’s downloaded Chromium. A loopback server exposes
+only the two built JavaScript packages and selected WASM files. Pixel transport,
+compilation, image decoding and result serialization are outside the browser's
+scan timer. The report records Chromium version and user agent. Native, Node and
+browser groups are separate evidence; desktop Chromium is not a mobile benchmark.
+
+`--save-results` retains public outputs in `results.jsonl` for independent scoring.
+`--allow-differences` records algorithm changes without treating unequal outputs
+as a failed parity check; it does not ignore load or scan errors. Keep the strict
+default for structural refactors. Dataset labels are never passed to the scanner.
