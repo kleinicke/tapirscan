@@ -1,5 +1,6 @@
 //! Bounded source-pixel evidence for consolidating bands of one linear symbol.
 use crate::{Image, Quad};
+mod footprint;
 
 fn midpoint(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
     [a[0].midpoint(b[0]), a[1].midpoint(b[1])]
@@ -733,6 +734,48 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
         .collect()
 }
 
+fn complete_footprints<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
+    let mut evidence = Evidence {
+        image,
+        remaining: 262_144,
+    };
+    let mut owners: Vec<(usize, footprint::Footprint)> = Vec::new();
+    let mut keep = vec![true; reads.len()];
+    let mut order: Vec<usize> = (0..reads.len()).collect();
+    order.sort_by_key(|&i| std::cmp::Reverse(reads[i].support));
+    for i in order {
+        if !reads[i].supported() {
+            continue;
+        }
+        for (j, owner) in &owners {
+            let a = &reads[*j];
+            let b = &reads[i];
+            let same_metadata = a.addon == b.addon
+                && a.gs1 == b.gs1
+                && a.reader_initialization == b.reader_initialization;
+            if same_metadata
+                && (a.same_symbol(b) || (a.support >= 3 && a.support >= b.support))
+                && owner.owns(b.polygon)
+            {
+                keep[i] = false;
+                break;
+            }
+        }
+        if keep[i] {
+            if let Some(owner) = footprint::measure(&mut evidence, reads[i].polygon) {
+                reads[i].polygon = owner.polygon;
+                reads[i].geometry_changed = true;
+                owners.push((i, owner));
+            }
+        }
+    }
+    reads
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(r, k)| k.then_some(r))
+        .collect()
+}
+
 /// Reconcile typed evidence while preserving reader metadata and stable ties.
 pub(crate) fn merge(reads: Vec<crate::read::Read>, image: Image<'_>) -> Vec<crate::read::Read> {
     let reads = reads
@@ -749,7 +792,7 @@ pub(crate) fn merge(reads: Vec<crate::read::Read>, image: Image<'_>) -> Vec<crat
             payload: value,
         })
         .collect();
-    consolidate(reads, image)
+    complete_footprints(consolidate(reads, image), image)
         .into_iter()
         .map(|mut read| {
             read.payload.polygon = read.polygon;
@@ -759,7 +802,7 @@ pub(crate) fn merge(reads: Vec<crate::read::Read>, image: Image<'_>) -> Vec<crat
 }
 
 pub(crate) fn merge_primary(reads: &mut Vec<crate::Barcode>, image: Image<'_>) {
-    if reads.len() < 2 {
+    if reads.is_empty() {
         return;
     }
     let typed = std::mem::take(reads)
@@ -781,7 +824,7 @@ pub(crate) fn merge_primary(reads: &mut Vec<crate::Barcode>, image: Image<'_>) {
             payload: read,
         })
         .collect();
-    *reads = consolidate(typed, image)
+    *reads = complete_footprints(consolidate(typed, image), image)
         .into_iter()
         .map(|mut read| {
             read.payload.detection.polygon = read.polygon;
@@ -952,8 +995,46 @@ mod tests {
         assert_eq!(scan(&pixels, weak.clone()).len(), 1);
         let mut supported = weak.clone();
         supported.support = 3;
-        assert_eq!(scan(&pixels, supported).len(), 2);
+        // The full measured footprint now proves this stronger alias uses the same bars.
+        assert_eq!(scan(&pixels, supported).len(), 1);
         pixels[115 * 320..116 * 320].fill(255);
         assert_eq!(scan(&pixels, weak).len(), 2);
+    }
+    #[test]
+    fn footprints_arbitrate_different_payloads_only_on_connected_source_bars() {
+        let mut pixels = vec![240; 320 * 260];
+        for y in 20..240 {
+            for x in 60..252 {
+                if (x - 60) / 3 % 3 == 0 {
+                    pixels[y * 320 + x] = 20;
+                }
+            }
+        }
+        let make = |text: &str, y, support| Read {
+            text: text.to_owned(),
+            format: "EAN8".to_owned(),
+            addon: None,
+            gs1: false,
+            reader_initialization: false,
+            support,
+            polygon: [[60., y - 2.], [252., y - 2.], [252., y + 2.], [60., y + 2.]],
+            geometry_changed: false,
+            payload: (),
+        };
+        let scan = |p: &[u8]| {
+            complete_footprints(
+                vec![make("42267638", 70., 7), make("12345670", 180., 3)],
+                Image {
+                    data: p,
+                    width: 320,
+                    height: 260,
+                    channels: 1,
+                    stride: 320,
+                },
+            )
+        };
+        assert_eq!(scan(&pixels).len(), 1);
+        pixels[120 * 320..121 * 320].fill(240);
+        assert_eq!(scan(&pixels).len(), 2);
     }
 }

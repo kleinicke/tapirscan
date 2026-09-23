@@ -131,6 +131,24 @@ Overlap of search proposals alone never triggers this rule. Separate labels and
 stronger ITF reads retain their existing handling. With no competing retail read,
 ITF-only output is unchanged.
 
-This reconciliation keeps a supported decoded polygon. It does not claim a
-complete curved-symbol envelope and does not skip pending search candidates;
-those require separately verified coverage in the search scheduler.
+After this original reconciliation, a bounded physical-footprint pass samples
+12 distributed bars and follows them in both directions to visible endpoints.
+Local ink/paper contrast adapts slowly to illumination; interpolated half-step
+checks stop at light gaps. At least nine reliable tracks must span 80% of the
+reading width; uncertain individual tracks are omitted. Persistent sharp
+lighting changes cannot certify physical endpoints. Neighboring tracks must have coherent extents, so a
+seed band crossing two adjacent labels cannot silently enclose both as one.
+Unstable fits and exhausted work budgets retain the existing polygon.
+
+A successful footprint supplies a four-corner approximation of the observed
+full bar area. Its tracked ink paths, never overlap of the enclosing quad, prove
+physical ownership. Lower-ranked or tied supported linear interpretations using
+the same distributed source bars are suppressed, including different payloads
+and formats; distinct supplement/reader metadata remains separate. Stable
+support order breaks ties. The whole additional pass is capped at 262,144 source
+samples, and trace length is capped at 768 pixels per direction. Returned quads
+approximate curved boundaries; they are not pixel-exact masks or certificates
+that unseen/occluded bars were recovered.
+
+This pass runs after decoding. It does not skip pending search candidates;
+that requires separately verified coverage in the search scheduler.
