@@ -128,6 +128,12 @@ pub struct Detector {
     raster: raster::Raster,
 }
 impl Detector {
+    /// Whether the latest working raster contains a coherent stripe tile.
+    /// This reuses localization evidence without another source-image pass.
+    #[must_use]
+    pub fn has_stripe_evidence(&self) -> bool {
+        self.raster.tiles.iter().any(|tile| tile.active)
+    }
     /// Detect the primary grid while retaining scratch storage for the next frame.
     /// # Errors
     /// Rejects unsupported image dimensions.
@@ -244,5 +250,26 @@ mod reuse_tests {
                 detector.raster.tiles.as_ptr()
             )
         );
+    }
+    #[test]
+    fn stripe_evidence_resets_between_structured_and_empty_frames() {
+        let mut detector = Detector::default();
+        let mut pixels = vec![255; 128 * 128];
+        for y in 20..108 {
+            for x in 20..108 {
+                if x / 3 % 2 == 0 {
+                    pixels[y * 128 + x] = 0;
+                }
+            }
+        }
+        detector
+            .detect(ImageView::new(&pixels, 128, 128, 1, 128).unwrap())
+            .unwrap();
+        assert!(detector.has_stripe_evidence());
+        pixels.fill(255);
+        detector
+            .detect(ImageView::new(&pixels, 128, 128, 1, 128).unwrap())
+            .unwrap();
+        assert!(!detector.has_stripe_evidence());
     }
 }

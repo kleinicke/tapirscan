@@ -90,3 +90,19 @@ one initializer, with mode-only fields selected at compile time. Host refinement
 limits and recovery directions are listed in `bindings/rust/src/effort.rs`.
 Frame reconciliation names its remaining-budget, observation-ordering and
 source-alias decisions explicitly while retaining shared budget ownership.
+
+## Warped linear observations
+
+Sparse envelope fits require strongly sloped, consistent boundaries. The regular
+per-mode fit limits stay unchanged. Medium and above can also try two full-frame
+fits on a small image with no accepted proposal, provided the localizer's latest
+raster already contains coherent stripe evidence. Blank backgrounds avoid this
+extra source sampling.
+
+The binding completes the existing duplicate proof first. Remaining matching
+linear interpretations can use distributed strong ink/paper continuity or bounded
+bar tracing with light borders. All proofs share the existing 32,768-pixel budget.
+Tracing tolerates approximate box endpoints on folded labels only after checking
+the continuous path; it does not treat overlapping boxes or matching text alone
+as evidence of one physical barcode. Curved-band consolidation keeps a supported
+observed polygon instead of extrapolating an unverified full-symbol envelope.

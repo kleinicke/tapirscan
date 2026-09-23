@@ -116,6 +116,21 @@ fn localize(
         }
     }
 
+    // Small strongly sheared labels can have no accepted orthogonal stripe box.
+    // Reuse the bounded pixel-only envelope fit before abandoning localization.
+    #[cfg(not(feature = "low"))]
+    if count == 0 && image.width * image.height <= 262_144 && detector.has_stripe_evidence() {
+        let w = f64::from(u32::try_from(image.width - 1).map_err(|_| Error::Parameters)?);
+        let h = f64::from(u32::try_from(image.height - 1).map_err(|_| Error::Parameters)?);
+        for q in [
+            [[0., 0.], [w, 0.], [w, h], [0., h]],
+            [[0., h], [0., 0.], [w, 0.], [w, h]],
+        ] {
+            if let Some(p) = shear::refine_sparse(im, q) {
+                proposals.push(p);
+            }
+        }
+    }
     let (secondary_omitted, secondary_limited) =
         add_secondary_proposals(detector, im, image, &mut proposals);
     if proposals.len() > SELECTED.proposal_limit {

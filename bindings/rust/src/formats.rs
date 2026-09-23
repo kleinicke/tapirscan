@@ -338,26 +338,47 @@ fn unread_regions(result: &crate::Result, reads: &[Read]) -> Vec<Region> {
     unread
 }
 
-fn gray_image(image: Image<'_>, gray: &mut Vec<u8>) -> Result<(), Error> {
-    gray.clear();
-    gray.reserve(image.width * image.height);
-    for y in 0..image.height {
-        for x in 0..image.width {
-            let i = y * image.stride + x * image.channels;
-            let pixel = if image.channels == 1 {
-                image.data[i]
-            } else {
-                let luma = (u32::from(image.data[i]) * 77
-                    + u32::from(image.data[i + 1]) * 150
-                    + u32::from(image.data[i + 2]) * 29
-                    + 128)
-                    >> 8;
-                u8::try_from(luma).map_err(|_| Error::Parameters)?
-            };
-            gray.push(pixel);
+// Source rows are validated before conversion. Specializing the channel count
+// lets the compiler vectorize the exact integer luminance calculation.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Weighted bytes plus 128 are at most 65408; shifting eight bits is at most 255."
+)]
+fn gray_rows<const CHANNELS: usize>(image: Image<'_>, gray: &mut [u8]) {
+    for (source, target) in image
+        .data
+        .chunks(image.stride)
+        .zip(gray.chunks_mut(image.width))
+    {
+        for (pixel, value) in source[..image.width * CHANNELS]
+            .chunks_exact(CHANNELS)
+            .zip(target)
+        {
+            *value = ((u32::from(pixel[0]) * 77
+                + u32::from(pixel[1]) * 150
+                + u32::from(pixel[2]) * 29
+                + 128)
+                >> 8) as u8;
         }
     }
+}
 
+fn gray_image(image: Image<'_>, gray: &mut Vec<u8>) -> Result<(), Error> {
+    gray.resize(image.width * image.height, 0);
+    match image.channels {
+        1 => {
+            for (source, target) in image
+                .data
+                .chunks(image.stride)
+                .zip(gray.chunks_mut(image.width))
+            {
+                target.copy_from_slice(&source[..image.width]);
+            }
+        }
+        3 => gray_rows::<3>(image, gray),
+        4 => gray_rows::<4>(image, gray),
+        _ => return Err(Error::Parameters),
+    }
     Ok(())
 }
 
@@ -443,7 +464,12 @@ fn scan_additional(
     let matrix = enabled & !LINEAR_MASK;
     let effort = [0, 1, 2, 2][crate::MODE_ID as usize];
     let qr_effort = [0, 1, 2, 3][crate::MODE_ID as usize];
-    gray_image(image, gray)?;
+    let pixels = if image.channels == 1 && image.stride == image.width {
+        &image.data[..image.width * image.height]
+    } else {
+        gray_image(image, gray)?;
+        gray.as_slice()
+    };
     let mut scans = Vec::new();
     let mut coverage = Vec::new();
     for (selected, level) in [
@@ -454,7 +480,7 @@ fn scan_additional(
             continue;
         }
         let scan = barcode_multiformat::scan(
-            gray,
+            pixels,
             image.width,
             image.height,
             selected | addons.engine_bits(),
@@ -533,6 +559,47 @@ mod result_tests {
 #[cfg(test)]
 mod grayscale_reuse_tests {
     use super::{gray_image, Image};
+    #[test]
+    fn specialized_luminance_matches_scalar_pixels_and_short_final_rows() {
+        for channels in [1, 3, 4] {
+            for padding in [0, 1, 7] {
+                let (width, height) = (17, 9);
+                let stride = width * channels + padding;
+                let data: Vec<u8> = (0..((height - 1) * stride + width * channels))
+                    .map(|i| u8::try_from((i * 73 + 19) % 256).unwrap())
+                    .collect();
+                let image = Image {
+                    data: &data,
+                    width,
+                    height,
+                    channels,
+                    stride,
+                };
+                let mut gray = vec![123; 300];
+                gray_image(image, &mut gray).unwrap();
+                for y in 0..height {
+                    for x in 0..width {
+                        let offset = y * stride + x * channels;
+                        let expected = if channels == 1 {
+                            data[offset]
+                        } else {
+                            u8::try_from(
+                                (u32::from(data[offset]) * 77
+                                    + u32::from(data[offset + 1]) * 150
+                                    + u32::from(data[offset + 2]) * 29
+                                    + 128)
+                                    >> 8,
+                            )
+                            .unwrap()
+                        };
+                        assert_eq!(gray[y * width + x], expected);
+                    }
+                }
+                assert_eq!(gray.len(), width * height);
+            }
+        }
+    }
+
     #[test]
     fn color_then_padded_gray_reuses_storage_without_stale_pixels() {
         let mut gray = Vec::with_capacity(64);

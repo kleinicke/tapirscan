@@ -103,11 +103,21 @@ fn line(x: &[f64], y: &[f64], weights: &[f64]) -> Option<[f64; 2]> {
 // Their squared norm cannot overflow/underflow: use hardware sqrt rather
 // than general-purpose scaled hypot. No coordinate norms are changed.
 #[must_use]
+pub fn refine(im: ImageView<'_>, quad: Quad) -> Option<Proposal> {
+    refine_envelope(im, quad, false)
+}
+
+/// Sparse full-frame rescue when no stripe proposal was accepted.
+#[must_use]
+pub fn refine_sparse(im: ImageView<'_>, quad: Quad) -> Option<Proposal> {
+    refine_envelope(im, quad, true)
+}
+
 #[expect(
     clippy::too_many_lines,
-    reason = "The shear fit shares weighted edge observations and validity gates before committing a refined proposal."
+    reason = "Shared bounded envelope fit and validity gates."
 )]
-pub fn refine(im: ImageView<'_>, quad: Quad) -> Option<Proposal> {
+fn refine_envelope(im: ImageView<'_>, quad: Quad, full_frame: bool) -> Option<Proposal> {
     crate::scan::transform(quad).ok()?;
     let horizontal_edge = [quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]];
     let vertical_edge = [quad[3][0] - quad[0][0], quad[3][1] - quad[0][1]];
@@ -229,11 +239,17 @@ pub fn refine(im: ImageView<'_>, quad: Quad) -> Option<Proposal> {
         high.push(quantile(b, 0.92));
         weights.push(crate::numeric::usize_f64(b.len()));
     }
-    if x.len() < 31 {
+    if x.len() < 16 {
         return None;
     }
     let lo = line(&x, &low, &weights)?;
     let hi = line(&x, &high, &weights)?;
+    // Sparse evidence is accepted only for a strongly slanted envelope.
+    // Near-orthogonal tall codes already have independent row search; a loose
+    // full-frame fit there can split its established observation geometry.
+    if (full_frame || x.len() < 31) && (lo[0] * hi[0] <= 0. || lo[0].abs().min(hi[0].abs()) < 0.5) {
+        return None;
+    }
     let mut widths: Vec<_> = x
         .iter()
         .map(|&a| (hi[0] - lo[0]) * a + hi[1] - lo[1])
@@ -327,5 +343,28 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn sparse_rescue_requires_a_strongly_slanted_envelope() {
+        let mut pixels = vec![255; 320 * 320];
+        for x in 45..250 {
+            let top = 275 - x * 4 / 5;
+            for y in top..top + 40 {
+                if x / 3 % 2 == 0 {
+                    pixels[y * 320 + x] = 20;
+                }
+            }
+        }
+        let q = [[0., 0.], [319., 0.], [319., 319.], [0., 319.]];
+        assert!(refine_sparse(ImageView::new(&pixels, 320, 320, 1, 320).unwrap(), q).is_some());
+        pixels.fill(255);
+        for x in 80..230 {
+            for y in 20..300 {
+                if x / 3 % 2 == 0 {
+                    pixels[y * 320 + x] = 20;
+                }
+            }
+        }
+        assert!(refine_sparse(ImageView::new(&pixels, 320, 320, 1, 320).unwrap(), q).is_none());
     }
 }

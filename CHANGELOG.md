@@ -2,6 +2,12 @@
 
 ## 1.2.1 — 2026-09-19
 
+- Recover additional strongly sheared retail labels with bounded sparse envelope fits.
+- Consolidate more warped linear observations using continuous ink and paper evidence,
+  while preserving separate equal-value labels and existing work limits.
+- Specialize exact RGB/RGBA luminance conversion and borrow packed grayscale inputs
+  for additional format readers.
+
 - Preserve unchanged generated package and adapter inputs during refresh; serialize
   supported package builds and provide experimental WASM assets outside release identities.
 - Clarify candidate scanning, mode budgets and frame reconciliation; reuse retail
