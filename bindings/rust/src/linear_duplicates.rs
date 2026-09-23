@@ -289,7 +289,9 @@ impl Evidence<'_> {
             clippy::cast_sign_loss,
             reason = "Bounded positive path length at most 96 pixels."
         )]
-        let steps = (length * 3.).ceil() as u32;
+        // Half-pixel steps still inspect one-pixel white separators. Spend the
+        // saved samples on light borders that widen or narrow along a fold.
+        let steps = (length * 2.).ceil() as u32;
         let delta = [
             (target[0] - from[0]) / f64::from(steps),
             (target[1] - from[1]) / f64::from(steps),
@@ -318,13 +320,20 @@ impl Evidence<'_> {
                 return false;
             }
             for sign in [-1., 1.] {
-                let radius = sign * (width * 0.5 + 0.7);
-                let Some(paper) =
-                    self.smooth([point[0] + radius * normal[0], point[1] + radius * normal[1]])
-                else {
-                    return false;
-                };
-                if paper - value < 24. {
+                let mut bracketed = false;
+                for factor in [0.5, 0.8, 1.1] {
+                    let radius = sign * (width * factor + 0.7);
+                    let Some(paper) =
+                        self.smooth([point[0] + radius * normal[0], point[1] + radius * normal[1]])
+                    else {
+                        return false;
+                    };
+                    if paper - value >= 24. {
+                        bracketed = true;
+                        break;
+                    }
+                }
+                if !bracketed {
                     return false;
                 }
             }
@@ -341,7 +350,7 @@ impl Evidence<'_> {
         let mut bv = [bl[1][0] - bl[0][0], bl[1][1] - bl[0][1]];
         let aw = av[0].hypot(av[1]);
         let bw = bv[0].hypot(bv[1]);
-        if aw < 48. || !(0.8..=1.2).contains(&(bw / aw)) {
+        if aw < 48. || !(0.7..=1.3).contains(&(bw / aw)) {
             return None;
         }
         if av[0] * bv[0] + av[1] * bv[1] < 0. {
@@ -370,7 +379,7 @@ impl Evidence<'_> {
             return None;
         }
         let threshold = low.midpoint(high);
-        let cut = low + (high - low) * 0.35;
+        let cut = low.midpoint(high);
         let mut bars = Vec::new();
         let mut i = 1usize;
         while i < 255 {
@@ -383,7 +392,7 @@ impl Evidence<'_> {
                 i += 1;
             }
             let width = f64::from(u32::try_from(i - start).ok()?) * aw / 256.;
-            if i < 255 && (1.5..=aw * 0.07).contains(&width) {
+            if i < 255 && (0.8..=aw * 0.07).contains(&width) {
                 bars.push((
                     (f64::from(u32::try_from(start + i).ok()?) * 0.5) / 256.,
                     width,
@@ -398,7 +407,7 @@ impl Evidence<'_> {
             let (f, width) = bars[index * (bars.len() - 1) / 7];
             let from = [al[0][0] + f * av[0], al[0][1] + f * av[1]];
             let to = [bl[0][0] + f * bv[0], bl[0][1] + f * bv[1]];
-            if self.trace_bar(from, to, normal, width, cut, aw * 0.03) {
+            if self.trace_bar(from, to, normal, width, cut, aw * 0.08) {
                 matched.push(f);
             }
         }
@@ -658,5 +667,35 @@ mod tests {
         }
         assert!(proof(&pixels, upper, lower).is_none());
         assert!(trace(&pixels, near_upper, near_lower).is_none());
+    }
+    #[test]
+    fn changing_bar_width_keeps_continuity_but_white_cuts_break_it() {
+        let mut pixels = vec![220; 320 * 180];
+        for y in 30_usize..160 {
+            let width = (5 + y.saturating_sub(70) / 20).min(7);
+            for x in 40..280 {
+                if (x - 40) % 12 < width {
+                    pixels[y * 320 + x] = 20;
+                }
+            }
+        }
+        let a = [[40., 77.], [280., 77.], [280., 83.], [40., 83.]];
+        let b = [[40., 125.], [280., 125.], [280., 131.], [40., 131.]];
+        let proof = |pixels: &[u8]| {
+            Evidence {
+                image: Image {
+                    data: pixels,
+                    width: 320,
+                    height: 180,
+                    channels: 1,
+                    stride: 320,
+                },
+                remaining: 32768,
+            }
+            .connected_traces(a, b)
+        };
+        assert!(proof(&pixels).is_some());
+        pixels[100 * 320..101 * 320].fill(255);
+        assert!(proof(&pixels).is_none());
     }
 }

@@ -284,6 +284,21 @@ fn continuous(im: Image<'_>, point: Point, p: Quad) -> bool {
 fn covered(im: Image<'_>, point: Point, p: Quad) -> bool {
     contains(point, p) || continuous(im, point, p)
 }
+// Keep detail recovery for short symbols with undersampled modules or weak
+// support: the enlarged crop can still improve their geometry and confidence.
+fn resolved_retail(read: &Read) -> bool {
+    let modules = match read.format.as_str() {
+        "EAN8" => 67.,
+        "UPCE" => 51.,
+        _ => return false,
+    };
+    let p = read.polygon;
+    let width = (p[1][0] - p[0][0])
+        .hypot(p[1][1] - p[0][1])
+        .min((p[2][0] - p[3][0]).hypot(p[2][1] - p[3][1]));
+    read.support >= 4 && width >= modules * 3. && span(p) >= 2.
+}
+
 fn span(p: Quad) -> f64 {
     let dx = p[1][0] - p[0][0];
     let dy = p[1][1] - p[0][1];
@@ -332,6 +347,7 @@ pub fn recover(
     primary: &mut Vec<Barcode>,
     scanner: &mut recovery_core::region_scan::RegionScanner,
     coverage: &[Quad],
+    known_retail: &[Read],
     options: RecoveryOptions,
 ) -> Result<Recovery, Error> {
     let RecoveryOptions {
@@ -351,6 +367,9 @@ pub fn recover(
         if coverage
             .iter()
             .any(|quad| crate::formats::contains_point([seed.x, seed.y], quad))
+            || known_retail.iter().chain(&retail_reads).any(|read: &Read| {
+                resolved_retail(read) && covered(im, [seed.x, seed.y], read.polygon)
+            })
             || seed.score < seeds[0].score * 0.6
             || primary
                 .iter()
@@ -492,4 +511,29 @@ pub fn recover(
         retail: retail_reads,
         diagnostics,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_retail_coverage_preserves_small_or_weak_detail_recovery() {
+        let polygon = |width| {
+            [
+                [10., 10.],
+                [10. + width, 10.],
+                [10. + width, 30.],
+                [10., 30.],
+            ]
+        };
+        let mut digits = [0; 13];
+        digits[0] = 14;
+        assert!(!resolved_retail(&Read::retail(digits, polygon(200.), 8)));
+        assert!(!resolved_retail(&Read::retail(digits, polygon(240.), 3)));
+        assert!(resolved_retail(&Read::retail(digits, polygon(240.), 4)));
+        digits[0] = 15;
+        assert!(!resolved_retail(&Read::retail(digits, polygon(150.), 8)));
+        assert!(resolved_retail(&Read::retail(digits, polygon(180.), 4)));
+    }
 }

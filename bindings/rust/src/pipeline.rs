@@ -76,7 +76,15 @@ fn scan_prepared(
     #[cfg(not(feature = "medium"))]
     let mut retail = Vec::new();
     #[cfg(not(feature = "low"))]
-    let recovery = recover(scanner, image, &mut scan, coverage, options, shared_retail)?;
+    let recovery = recover(
+        scanner,
+        image,
+        &mut scan,
+        coverage,
+        options,
+        shared_retail,
+        &retail,
+    )?;
     #[cfg(feature = "low")]
     let recovery: Option<super::read::Recovery> = None;
     if let Some(recovery) = &recovery {
@@ -231,12 +239,14 @@ fn recover(
     coverage: &[Quad],
     options: ScanOptions,
     shared_retail: bool,
+    retail: &[super::read::Read],
 ) -> std::result::Result<Option<super::read::Recovery>, Error> {
     let result = super::detail::recover(
         image,
         &mut scan.frame.barcodes,
         &mut scanner.recovery,
         coverage,
+        retail,
         super::detail::RecoveryOptions {
             directions: SELECTED.recovery_directions,
             complete: options.finish_candidates,

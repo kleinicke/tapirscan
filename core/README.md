@@ -106,3 +106,11 @@ Tracing tolerates approximate box endpoints on folded labels only after checking
 the continuous path; it does not treat overlapping boxes or matching text alone
 as evidence of one physical barcode. Curved-band consolidation keeps a supported
 observed polygon instead of extrapolating an unverified full-symbol envelope.
+
+Bar tracing checks ink at half-pixel steps and looks for a light border at three
+bounded radii as projected bar widths change. The source-pixel budget is unchanged.
+Medium detail recovery also consults completed short-retail reads: a supported
+symbol with at least three source pixels per module can cover a seed through its
+observed polygon or the existing continuous-profile proof. Small and weak reads
+retain the enlarged rescan to refine their geometry. This skips a recovery seed,
+not every candidate intersecting the enclosing crop.

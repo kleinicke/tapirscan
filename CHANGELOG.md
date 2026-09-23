@@ -2,6 +2,10 @@
 
 ## 1.2.1 — 2026-09-19
 
+- Follow changing bar widths when consolidating folded linear observations.
+- Reuse well-resolved EAN8/UPC-E coverage before enlarged detail rescans, while
+  retaining recovery for small or weakly supported symbols.
+
 - Recover additional strongly sheared retail labels with bounded sparse envelope fits.
 - Consolidate more warped linear observations using continuous ink and paper evidence,
   while preserving separate equal-value labels and existing work limits.
