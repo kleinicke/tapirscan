@@ -740,6 +740,7 @@ fn complete_footprints<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read
         remaining: 262_144,
     };
     let mut owners: Vec<(usize, footprint::Footprint)> = Vec::new();
+    let mut measured = vec![false; reads.len()];
     let mut keep = vec![true; reads.len()];
     let mut order: Vec<usize> = (0..reads.len()).collect();
     order.sort_by_key(|&i| std::cmp::Reverse(reads[i].support));
@@ -766,6 +767,17 @@ fn complete_footprints<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read
                 reads[i].polygon = owner.polygon;
                 reads[i].geometry_changed = true;
                 owners.push((i, owner));
+                measured[i] = true;
+            }
+        }
+    }
+    // Display recovery must not spend evidence needed by later ownership checks.
+    // It runs only after every strict footprint and duplicate decision is complete.
+    for (index, read) in reads.iter_mut().enumerate() {
+        if keep[index] && !measured[index] && read.supported() {
+            if let Some(polygon) = footprint::display(&mut evidence, read.polygon) {
+                read.polygon = polygon;
+                read.geometry_changed = true;
             }
         }
     }
