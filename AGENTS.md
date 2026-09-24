@@ -35,6 +35,12 @@ synchronized release versions. Follow the compatibility policy in
   parity and installation tests; preserve ownership and error behavior.
 - Keep research datasets, private labels, model weights and generated build outputs
   out of Git. Public demo assets have separate provenance and usage information.
+- Before any model training or scanner evaluation, consult
+  `../tapirscan-datasets/datasets/TESTSET_OVERVIEW.md` and
+  `../tapirscan-datasets/datasets/metadata/testset_catalog.json`. The all-format
+  variation test set and other listed suites are development evaluation data,
+  not untouched holdouts. Exclude their source groups and derivatives from
+  training when claiming unseen results.
 - The demo is a separate application and is excluded from language packages.
   Local builds do not publish it. Release publication is a separate operation.
 
@@ -45,10 +51,10 @@ paths and maintainer workflow notes. It is ignored by Git, optional, and not a
 prerequisite for contributing. It must not contain credentials. Public project
 requirements belong in this file or the linked documentation.
 
-## Current selected scanner (2026-09-24)
+## Current selected scanner (2026-09-25)
 
-The canonical source includes `59d8a55` (resolution-aware full barcode footprints),
-selected by the user as the next production candidate before the remaining broad
-checks. Use this as the current baseline; do not restore the older footprint code.
-Validation status: [footprint promotion](docs/FOOTPRINT_PROMOTION_20260924.md).
-Turbo is a separate demo scanner pinned by `demo/src/lib/turbo.json`; preserve it.
+The canonical source includes `9a093db` (bounded barcode-profile agreement for
+fuller display extents), selected by the user for production. Preserve the strict
+physical ownership decisions; the new fallback only adjusts display geometry.
+Validation: [consensus experiment](docs/FOOTPRINT_CONSENSUS_EXPERIMENT_20260924.md).
+Turbo remains separately pinned by `demo/src/lib/turbo.json`; preserve it.
