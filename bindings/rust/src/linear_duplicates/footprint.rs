@@ -128,12 +128,29 @@ fn follow(
     x: f64,
     width: f64,
     direction: f64,
+    fast: bool,
 ) -> Option<Vec<[f64; 2]>> {
     let mut points = vec![point(origin, u, x, 0.)];
     let mut current = x;
     let mut previous_ceiling = None;
+    let advance = if fast {
+        (width / 3.).clamp(0.5, 6.)
+    } else {
+        0.5
+    };
+    let lookahead = if fast {
+        (width * 0.75).clamp(2., 24.)
+    } else {
+        2.
+    };
+    let (decay, update) = if fast {
+        let decay = 0.9_f64.powf(advance / 0.5);
+        (decay, 1. - decay)
+    } else {
+        (0.9, 0.1)
+    };
     for step in 1..=1536 {
-        let y = direction * f64::from(step) * 0.5;
+        let y = direction * f64::from(step) * advance;
         let CrossSection::Ink {
             center: next,
             ceiling: ink_cut,
@@ -145,13 +162,42 @@ fn follow(
         let at = point(origin, u, next, y);
         let previous = *points.last()?;
         let middle = [previous[0].midpoint(at[0]), previous[1].midpoint(at[1])];
+        // Coarse cross-sections still require source-resolution ink continuity.
+        if advance > 0.5 {
+            let length = distance(previous, at);
+            let mut along = 0.25;
+            while along < length {
+                let fraction = along / length;
+                let probe = [
+                    previous[0] + fraction * (at[0] - previous[0]),
+                    previous[1] + fraction * (at[1] - previous[1]),
+                ];
+                let cut = previous_ceiling.unwrap_or(ink_cut).min(ink_cut);
+                if e.smooth(probe)? >= cut {
+                    let local = project(probe, origin, u);
+                    if let CrossSection::Ink { ceiling: ahead, .. } = center(
+                        e,
+                        origin,
+                        u,
+                        [local[0], local[1] + direction * lookahead],
+                        width,
+                    )? {
+                        if ahead > cut + 24. {
+                            return None;
+                        }
+                    }
+                    return Some(points);
+                }
+                along += 0.5;
+            }
+        }
         let ceiling = previous_ceiling.unwrap_or(ink_cut);
         if intensity >= ceiling || e.smooth(middle)? >= ceiling {
             // A lighting step can leave continuous ink beyond this point.
             // Reject a persistent sharp change instead of certifying a partial extent.
             if ink_cut > ceiling + 24. {
                 if let CrossSection::Ink { ceiling: ahead, .. } =
-                    center(e, origin, u, [next, y + direction * 2.], width)?
+                    center(e, origin, u, [next, y + direction * lookahead], width)?
                 {
                     if ahead > ceiling + 24. {
                         return None;
@@ -160,7 +206,7 @@ fn follow(
             }
             return Some(points);
         }
-        previous_ceiling = Some(ceiling * 0.9 + ink_cut * 0.1);
+        previous_ceiling = Some(ceiling * decay + ink_cut * update);
         current = next;
         points.push(at);
     }
@@ -247,6 +293,54 @@ fn coherent(tracks: &[Track], origin: [f64; 2], u: [f64; 2]) -> bool {
     true
 }
 
+fn trace_tracks(
+    evidence: &mut Evidence<'_>,
+    seed: [[f64; 2]; 2],
+    u: [f64; 2],
+    w: f64,
+    seeds: &[(f64, f64)],
+) -> Option<Vec<Track>> {
+    let mut tracks = Vec::new();
+    let mut outer = [false; 2];
+    // Amortize cross-sections only when the symbol itself has substantial
+    // source resolution. Small symbols retain their precise tracing policy.
+    let fast = w >= 512.;
+    let order = if fast {
+        [0, 11, 5, 8, 2, 10, 1, 4, 7, 9, 3, 6]
+    } else {
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    };
+    for index in order {
+        let (fraction, width) = seeds[index * (seeds.len() - 1) / 11];
+        let Some(mut left) = follow(evidence, seed[0], u, fraction * w, width, -1., fast) else {
+            continue;
+        };
+        let Some(right) = follow(evidence, seed[0], u, fraction * w, width, 1., fast) else {
+            continue;
+        };
+        left.reverse();
+        left.extend(right.into_iter().skip(1));
+        if left.len() >= 9 {
+            if index == 0 {
+                outer[0] = true;
+            }
+            if index == 11 {
+                outer[1] = true;
+            }
+            tracks.push(Track {
+                fraction,
+                width,
+                points: left,
+            });
+        }
+    }
+    tracks.sort_by(|a, b| a.fraction.total_cmp(&b.fraction));
+    if fast && !outer.into_iter().all(|valid| valid) {
+        return None;
+    }
+    Some(tracks)
+}
+
 pub(super) fn measure(evidence: &mut Evidence<'_>, q: Quad) -> Option<Footprint> {
     let seed = line(q);
     let w = distance(seed[0], seed[1]);
@@ -295,25 +389,7 @@ pub(super) fn measure(evidence: &mut Evidence<'_>, q: Quad) -> Option<Footprint>
     if seeds.len() < 12 {
         return None;
     }
-    let mut tracks = Vec::new();
-    for index in 0..12 {
-        let (fraction, width) = seeds[index * (seeds.len() - 1) / 11];
-        let Some(mut left) = follow(evidence, seed[0], u, fraction * w, width, -1.) else {
-            continue;
-        };
-        let Some(right) = follow(evidence, seed[0], u, fraction * w, width, 1.) else {
-            continue;
-        };
-        left.reverse();
-        left.extend(right.into_iter().skip(1));
-        if left.len() >= 9 {
-            tracks.push(Track {
-                fraction,
-                width,
-                points: left,
-            });
-        }
-    }
+    let tracks = trace_tracks(evidence, seed, u, w, &seeds)?;
     if tracks.len() < 9 || tracks.last()?.fraction - tracks.first()?.fraction < 0.8 {
         return None;
     }
@@ -483,5 +559,37 @@ mod tests {
         let f = measure_pixels(&p, 70.);
         assert!(f.polygon[0][1] < 22. && f.polygon[2][1] > 237.);
         assert!(f.owns([[60., 178.], [252., 178.], [252., 182.], [60., 182.]]));
+    }
+    #[test]
+    fn large_bars_finish_without_bridging_a_one_pixel_cut() {
+        let (width, height) = (1280, 1040);
+        let mut pixels = vec![240; width * height];
+        for y in 80..960 {
+            for x in 240..1008 {
+                if (x - 240) / 12 % 3 == 0 {
+                    pixels[y * width + x] = 20;
+                }
+            }
+        }
+        let quad = [[240., 278.], [1008., 278.], [1008., 282.], [240., 282.]];
+        let trace = |data: &[u8]| {
+            let mut e = Evidence {
+                image: crate::Image {
+                    data,
+                    width,
+                    height,
+                    channels: 1,
+                    stride: width,
+                },
+                remaining: 262_144,
+            };
+            measure(&mut e, quad).unwrap()
+        };
+        let full = trace(&pixels);
+        assert!(full.polygon[0][1] < 86. && full.polygon[2][1] > 953.);
+        pixels[520 * width..521 * width].fill(240);
+        let split = trace(&pixels);
+        assert!(split.polygon[2][1] < 521.);
+        assert!(!split.owns([[240., 778.], [1008., 778.], [1008., 782.], [240., 782.]]));
     }
 }
