@@ -25,7 +25,7 @@ integrating experimental algorithm changes.
 
 ## Changes and verification
 
-This checkout prepares version 1.2.1, following the API revision described in
+This checkout prepares version 1.2.2, following the API revision described in
 `docs/API_MIGRATION.md`. Implement the current documented APIs and preserve the
 synchronized release versions. Follow the compatibility policy in
 [CONTRIBUTING.md](CONTRIBUTING.md#api-stability) and [API design](docs/API_DESIGN.md).
@@ -44,3 +44,11 @@ If `MAINTAINER.local.md` exists at the repository root, read it for machine-spec
 paths and maintainer workflow notes. It is ignored by Git, optional, and not a
 prerequisite for contributing. It must not contain credentials. Public project
 requirements belong in this file or the linked documentation.
+
+## Current selected scanner (2026-09-24)
+
+The canonical source includes `59d8a55` (resolution-aware full barcode footprints),
+selected by the user as the next production candidate before the remaining broad
+checks. Use this as the current baseline; do not restore the older footprint code.
+Validation status: [footprint promotion](docs/FOOTPRINT_PROMOTION_20260924.md).
+Turbo is a separate demo scanner pinned by `demo/src/lib/turbo.json`; preserve it.
