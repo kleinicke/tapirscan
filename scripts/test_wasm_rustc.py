@@ -1,7 +1,10 @@
 """Prove release crate identities distinguish versions/features, not local paths."""
 
+import tempfile
 import unittest
+from pathlib import Path
 
+from build_wasm import source_paths
 from wasm_rustc import compiler_args
 
 
@@ -23,6 +26,17 @@ class WasmCompiler(unittest.TestCase):
         self.assertNotEqual(left[-1], changed[-1])
         changed = compiler_args([*common, "--cfg", "extra", "-Cmetadata=abc"], env)
         self.assertNotEqual(left[-1], changed[-1])
+
+    def test_generated_cargo_files_are_not_source_inputs(self) -> None:
+        """A prior native Cargo test cannot change the release WASM identity."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "src/lib.rs"
+            generated = root / "target/debug/build/serde/out/private.rs"
+            for path in (source, generated):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("// Rust source\n")
+            self.assertEqual(source_paths(root), [source])
 
     def test_compiler_queries_are_unchanged(self) -> None:
         """Cargo can query the real compiler before package variables are available."""

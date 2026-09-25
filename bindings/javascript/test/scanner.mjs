@@ -251,7 +251,7 @@ test("WASM base directory composes with the advanced loader", async () => {
     },
   });
   scanner.dispose();
-  assert.deepEqual(loaded, ["medium-public-low-turbo-working-20260925.wasm"]);
+  assert.deepEqual(loaded, ["medium-release-1.2.2-public-low.wasm"]);
 });
 
 test("UPC-A selection owns only one primary engine", async () => {
@@ -301,7 +301,7 @@ test("QR-only creation loads one complete engine", async () => {
     },
   });
   try {
-    assert.deepEqual(loaded, ["medium-public-low-turbo-working-20260925.wasm"]);
+    assert.deepEqual(loaded, ["medium-release-1.2.2-public-low.wasm"]);
     assert.deepEqual(scanner.scan(fixture().image).values, []);
     assert.throws(() => scanner.scan(fixture().image, { formats: "EAN13" }), /subset/);
   } finally {
@@ -458,7 +458,7 @@ test("supplement policy is opt-in, validated at creation and fixed for scans", a
     });
     try {
       assert.equal(scanner.eanAddOnPolicy, policy);
-      assert.deepEqual(loaded, ["low-public-low-turbo-working-20260925.wasm"]);
+      assert.deepEqual(loaded, ["low-release-1.2.2-public-low.wasm"]);
       assert.deepEqual(scanner.scan(image).values, policy === "Require" ? [] : [text]);
       assert.throws(() => {
         scanner.eanAddOnPolicy = "Read";

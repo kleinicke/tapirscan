@@ -1,6 +1,37 @@
 {
-  "default": "1.2.2+public-low.20260925",
+  "default": "1.2.2+release.20260925",
   "versions": [
+    {
+      "version": "1.2.2+release.20260925",
+      "label": "1.2.2 \u00b7 new Low",
+      "sourceDigest": "fe785ee8b7d35153a14bda8027a924615256838d1465d53ea768cd3a5ed4fabf",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-release-1.2.2-public-low.wasm",
+          "sha256": "e3fb147c33dbb61f7a53f1d6170ec0bfbdbf5b0229205e576b15e76b565825ca",
+          "bytes": 1504296
+        },
+        {
+          "mode": "medium",
+          "file": "medium-release-1.2.2-public-low.wasm",
+          "sha256": "7302af9b8b10e701fe62877425d6527e938a4ee8da54f263cf8a10f297fda026",
+          "bytes": 1779939
+        },
+        {
+          "mode": "high",
+          "file": "high-release-1.2.2-public-low.wasm",
+          "sha256": "56684ac2654a98e8ee566fc9942d06e7b97bec8e44356d2491ab57599625ee5a",
+          "bytes": 1731218
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-release-1.2.2-public-low.wasm",
+          "sha256": "ae33d7ea2a4bbbaa576849857a76a97bfa46523bca8d5d5c3b6ecb02ffedb862",
+          "bytes": 1771989
+        }
+      ]
+    },
     {
       "version": "1.2.2+public-low.20260925",
       "label": "1.2.2 \u00b7 new Low (former Turbo)",

@@ -18,6 +18,17 @@ MANIFEST = ROOT / json.loads((ROOT / "provenance/modes.json").read_text())["apiW
 PACKAGE = ROOT / "build/crates/tapirscan"
 
 
+def source_paths(folder: Path) -> list[Path]:
+    """Exclude Cargo output when collecting maintained Rust source inputs."""
+    return [
+        path
+        for path in folder.rglob("*")
+        if path.is_file()
+        and path.suffix in {".rs", ".toml", ".in", ".lock"}
+        and "target" not in path.relative_to(folder).parts
+    ]
+
+
 def source_files() -> dict[str, str]:
     """Hash shared API, core and adapter inputs, independent of JS hosts."""
     imported = json.loads((ROOT / "provenance/import.json").read_text())
@@ -32,9 +43,7 @@ def source_files() -> dict[str, str]:
         "tools/package-source",
     ):
         paths.update(
-            p.relative_to(ROOT).as_posix()
-            for p in (ROOT / folder).rglob("*")
-            if p.is_file() and p.suffix in {".rs", ".toml", ".in", ".lock"}
+            p.relative_to(ROOT).as_posix() for p in source_paths(ROOT / folder)
         )
     paths.update(
         [
