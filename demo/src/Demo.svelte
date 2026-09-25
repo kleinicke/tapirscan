@@ -12,6 +12,7 @@
   import {
     retailFormats,
     commonFormats,
+    commonLinearFormats,
     linearFormats,
     matrixFormats,
     type Format,
@@ -20,6 +21,22 @@
   import { DoubleTap } from "./lib/taps";
   import { LabelLayout } from "./lib/labels";
   import { version } from "../package.json";
+  import scannerVersions from "./lib/scanner-versions.json";
+  let releaseVersion = scannerVersions.default;
+  let tapirscanRevision = 0;
+  function changeVersion() {
+    tapirscanRevision++;
+    const ids = new Set(
+      options.filter((option) => option.engine === "classical").map((option) => option.id),
+    );
+    entries = entries.filter((entry) => !ids.has(entry.id));
+    for (const id of ids) {
+      pending.get(id)?.(new Error("Tapirscan version changed"));
+      workers.get(id)?.terminate();
+      workers.delete(id);
+    }
+    if ((source || live) && selected.some((id) => ids.has(id))) requestScan(0);
+  }
 
   let pdfDocument: import("pdfjs-dist").PDFDocumentProxy | null = null;
   let pdfName = "";
@@ -94,15 +111,19 @@
     }
   }
 
-  let detection: "ean13" | "retail" | "common" | "all" = "retail";
+  let detection: "ean13" | "retail" | "common1d" | "common" | "matrix" | "all" = "retail";
   $: formats =
     detection === "all"
       ? [...linearFormats, ...matrixFormats]
-      : detection === "common"
-        ? commonFormats
-        : detection === "retail"
-          ? retailFormats
-          : (["EAN13"] as const);
+      : detection === "matrix"
+        ? matrixFormats
+        : detection === "common1d"
+          ? commonLinearFormats
+          : detection === "common"
+            ? commonFormats
+            : detection === "retail"
+              ? retailFormats
+              : (["EAN13"] as const);
 
   function qrOnlyUnavailable(id: string) {
     return id === "jsqr" && !formats.includes("QRCode");
@@ -124,32 +145,6 @@
   let orientationLocked = false;
   let savedOverflow = "";
   let stageWidth = 800;
-  let zxingJSEnhanced = true;
-  $: zxingJSSettings = {
-    harder: zxingJSEnhanced,
-    rotate: zxingJSEnhanced,
-    downscale: false,
-    invert: false,
-  };
-  let zxingJSRevision = 0;
-  function changeZxingJS() {
-    zxingJSRevision++;
-    entries = entries.filter((entry) => entry.id !== "zxingjs");
-    pending.get("zxingjs")?.(new Error("ZXing-JS settings changed"));
-    workers.get("zxingjs")?.terminate();
-    workers.delete("zxingjs");
-    if ((source || live) && selected.includes("zxingjs")) requestScan(0);
-  }
-  let zxingEnhanced = true;
-  let zxingRevision = 0;
-  function changeZxing() {
-    zxingRevision++;
-    entries = entries.filter((entry) => entry.id !== "zxing");
-    pending.get("zxing")?.(new Error("ZXing settings changed"));
-    workers.get("zxing")?.terminate();
-    workers.delete("zxing");
-    if ((source || live) && selected.includes("zxing")) requestScan(0);
-  }
   let windowWidth = window.innerWidth,
     windowHeight = window.innerHeight;
   function restoreViewer() {
@@ -211,7 +206,13 @@
   }
   const options = [
     "fast",
+    "turbo",
+    "turbo2",
+    "turbo4",
+    "turbo8",
+    "turbo16",
     "zxing",
+    "zxingdefault",
     "zbar",
     "nano",
     "quality",
@@ -220,8 +221,10 @@
     "native",
     "quagga",
     "zxingjs",
+    "zxingjsdefault",
   ].map((id) => comparisonOptions.find((spec) => spec.id === id)!);
-  let selected = ["fast", "zxing", "zbar"];
+  let selected = ["fast", "turbo", "zxing", "zbar"];
+  let visibleScanners = [...selected];
   const demoImages = [
     { file: "synthetic-barcode.png", label: "Synthetic barcode" },
     { file: "pesto.jpg", label: "Pesto" },
@@ -390,6 +393,15 @@
       timer = undefined;
       void scan();
     }, delay);
+  }
+  function toggleVisibility(id: string) {
+    if (visibleScanners.includes(id)) {
+      visibleScanners = visibleScanners.filter((value) => value !== id);
+      if (selected.includes(id)) toggle(id);
+    } else {
+      visibleScanners = [...visibleScanners, id];
+      if (!selected.includes(id)) toggle(id);
+    }
   }
   function toggle(id: string) {
     selected = selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id];
@@ -577,7 +589,7 @@
     let worker = workers.get(spec.id);
     if (!worker) {
       worker =
-        spec.engine === "classical"
+        spec.engine === "classical" || spec.engine === "turbo"
           ? new Worker(new URL("./lib/scan.worker.ts", import.meta.url), { type: "module" })
           : spec.engine === "quagga"
             ? new Worker(new URL("./lib/quagga.worker.ts", import.meta.url), { type: "module" })
@@ -617,13 +629,12 @@
       current.postMessage(
         {
           id: 1,
-          engine: spec.engine,
+          engine: spec.engine === "turbo" ? spec.id : spec.engine,
           scannerVersion: spec.version,
+          releaseVersion: spec.releaseVersion ?? releaseVersion,
           searchFurther: true,
           finishCandidates: false,
           formats: scanFormats,
-          zxingEnhanced,
-          zxingJSSettings,
           engineBaseUrl: new URL(`${import.meta.env.BASE_URL}engines/`, document.baseURI).href,
           width: image.width,
           height: image.height,
@@ -747,23 +758,25 @@
         if (!selected.includes(spec.id)) continue;
         if (!live && entries.some((entry) => entry.id === spec.id && entry.viewRevision === token))
           continue;
-        const settingsRevision = spec.id === "zxingjs" ? zxingJSRevision : zxingRevision;
+        const settingsRevision = tapirscanRevision;
         try {
           if (!workers.has(spec.id)) {
             status = `Warming up ${spec.label}…`;
             await run(spec, image, scanFormats);
             // A new worker's first scan warms its runtime; display the second scan.
-            if (contentToken !== contentRevision || disposed || !selected.includes(spec.id))
+            if (
+              contentToken !== contentRevision ||
+              disposed ||
+              !selected.includes(spec.id) ||
+              (spec.engine === "classical" && settingsRevision !== tapirscanRevision)
+            )
               continue;
           }
           batch.push({ ...spec, ...view, result: await run(spec, image, scanFormats) });
         } catch (reason) {
           batch.push({ ...spec, ...view, error: String(reason) });
         }
-        if (
-          (spec.id === "zxing" && settingsRevision !== zxingRevision) ||
-          (spec.id === "zxingjs" && settingsRevision !== zxingJSRevision)
-        ) {
+        if (spec.engine === "classical" && settingsRevision !== tapirscanRevision) {
           batch.pop();
           continue;
         }
@@ -1113,8 +1126,16 @@
   </div>
   <main>
     <p class="scanner-key">TS = Tapirscan · Low, Med, High and VHigh indicate scan effort.</p>
+    <p class="hint">
+      TS-Low is the former Turbo reader. Optional Turbo experiments are under More scanners; their
+      numbers target multiples of TS-Low's Common1D speed. Actual gains vary by image and device,
+      and faster tiers miss more difficult codes. Common includes QR and Data Matrix; 2D selects
+      only matrix formats. All Turbo tiers share the same 2D search. All checks every format and
+      takes longer. TS-Low uses the selected public Low build. TS-Low Classic and Turbo experiments
+      use fixed builds.
+    </p>
     <div class="scanner-buttons" aria-label="Scanners">
-      {#each options.filter( (option) => ["fast", "zxing", "zbar"].includes(option.id) ) as option (option.id)}
+      {#each options.filter((option) => visibleScanners.includes(option.id)) as option (option.id)}
         {@const active = selected.includes(option.id)}
         <!-- Keep the last completed outcome visible until this scanner finishes again. -->
         {@const entry = entries.find((value) => value.id === option.id)}
@@ -1122,7 +1143,7 @@
           entry?.result?.regions.filter((region) => region.text).map((region) => region.text) ?? [],
         ).size}
         {@const outcome = !active
-          ? "Not selected"
+          ? "Paused"
           : entry?.error
             ? "Failed"
             : entry?.result
@@ -1151,36 +1172,18 @@
       {/each}
     </div>
     <details class="extra-scanners">
-      <summary
-        >More scanners ({selected.filter((id) => !["fast", "zxing", "zbar"].includes(id)).length} selected)</summary
-      >
+      <summary>More scanners ({visibleScanners.length} shown)</summary>
       <div class="scanner-menu">
-        {#each options.filter((option) => !["fast", "zxing", "zbar"].includes(option.id)) as option (option.id)}
-          {@const entry = overlayEntries.find((value) => value.id === option.id)}
-          <label
-            ><input
+        {#each options as option (option.id)}
+          <label>
+            <input
               type="checkbox"
-              checked={selected.includes(option.id)}
-              on:change={() => toggle(option.id)}
+              checked={visibleScanners.includes(option.id)}
+              on:change={() => toggleVisibility(option.id)}
             />
             <span style:color={option.color}>{option.label}</span>
-            <small
-              >{qrOnlyUnavailable(option.id)
-                ? "Not available for barcodes — QR only"
-                : entry?.result
-                  ? `${new Set(entry.result.regions.filter((r) => r.text).map((r) => r.text)).size} found · ${entry.result.scanMs.toFixed(1)} ms`
-                  : entry?.error
-                    ? "Unavailable / failed"
-                    : ""}</small
-            >
           </label>
         {/each}
-        <p>
-          Quagga2: linear barcodes only; multiple codes, large locator patches, no half-sampling.
-          Raw pixels are decoded in a background worker. jsQR: QR only, one code per scan; use
-          Common or All. Native: browser/device-dependent formats and availability, with no
-          fallback.
-        </p>
       </div>
     </details>
     <div class="viewer" class:expanded bind:this={viewer}>
@@ -1463,7 +1466,9 @@
         >
           <option value="ean13">EAN-13</option>
           <option value="retail">Retail</option>
+          <option value="common1d">Common1D</option>
           <option value="common">Common</option>
+          <option value="matrix">2D</option>
           <option value="all">All</option>
         </select></label
       >
@@ -1585,6 +1590,19 @@
         {#if totalMs}Preparation {preparationMs.toFixed(1)} ms · Total {totalMs.toFixed(1)} ms.{/if}
       </p>
       <div class="camera-settings">
+        <label class="version-picker"
+          >Tapirscan version
+          <select
+            aria-label="Tapirscan version"
+            bind:value={releaseVersion}
+            on:change={changeVersion}
+          >
+            {#each scannerVersions.versions as release (release.version)}<option
+                value={release.version}>{release.label}</option
+              >{/each}
+          </select>
+        </label>
+
         <label
           >Capture mode<select
             aria-label="Capture mode"
@@ -1621,6 +1639,25 @@
             /></label
           >{/if}
       </div>
+      {#if showAreas}
+        <section aria-label="Analyzed area counts">
+          <h3>Analyzed areas</h3>
+          {#each overlayEntries.filter((entry) => entry.engine === "classical" && entry.result?.areaCounts) as entry (entry.id)}
+            {@const counts = entry.result!.areaCounts!}
+            <p>
+              <strong>{entry.label}</strong>: {counts.proposed} proposed areas · {counts.checked} primary
+              candidates checked · {counts.withoutRead} without a primary EAN13/UPCA read · {counts.omitted ??
+                "not reported"} omitted by the localization limit.
+            </p>
+          {/each}
+          <p class="hint">
+            These are reported search areas, not barcode counts. Primary candidate counts cover the
+            EAN13/UPCA search. EAN8, UPCE and other selected formats may still be decoded in these
+            areas. Fast-discarded area counts are not exposed by these scanner builds; no primary
+            read does not mean the area was quickly rejected.
+          </p>
+        </section>
+      {/if}
       <div class="controls">
         <button on:click={takeSinglePhoto} disabled={opening}>Take photo</button>
         {#if live && hasTorch}<button on:click={light} aria-pressed={torch}
@@ -1690,27 +1727,6 @@
         Dashed outlines show reported candidate regions and search windows. An unfinished search
         does not guarantee that every visible symbol was examined.
       </p>{/if}
-    <div class="zxing-settings">
-      <label
-        ><input type="checkbox" bind:checked={zxingEnhanced} on:change={changeZxing} />
-        ZXing: enable tryHarder, tryRotate and tryDownscale</label
-      >
-      <p class="hint">
-        Enabled by default: more thorough search, quarter-turn rotation checks and downscaled scans.
-        Uncheck to disable these three options; other ZXing settings stay at their library defaults.
-      </p>
-    </div>
-    <div class="zxing-settings">
-      <label
-        ><input type="checkbox" bind:checked={zxingJSEnhanced} on:change={changeZxingJS} /> ZXing-JS:
-        enable TRY_HARDER and quarter-turn rotations</label
-      >
-      <p class="hint">
-        Enabled by default. Up to four full-resolution passes, one code per pass. Half-resolution
-        and inverted-color passes are not used. All search work is included in the runtime. Changing
-        this setting reruns only ZXing-JS.
-      </p>
-    </div>
     <footer>
       <span>Local processing. No image or PDF uploads.</span>
       <nav aria-label="Project and legal links">
@@ -1737,7 +1753,10 @@
     font-weight: 600;
   }
   .scanner-menu {
-    padding: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    padding: 10px 12px;
     background: #173633;
     color: white;
     border-radius: 12px;
@@ -1746,12 +1765,11 @@
   .scanner-menu label {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 0;
-  }
-  .scanner-menu p {
-    font-size: 12px;
-    max-width: 65ch;
+    gap: 6px;
+    padding: 4px 0;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
   }
 
   .demo {
@@ -1900,7 +1918,7 @@
   }
   .scanner-buttons {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
   }
   .scanner-buttons button {
@@ -2049,10 +2067,6 @@
   .exit-viewer {
     flex-shrink: 0;
     pointer-events: auto;
-  }
-  .zxing-settings {
-    margin-top: 20px;
-    font-size: 13px;
   }
   .viewer-actions {
     display: flex;
@@ -2376,7 +2390,7 @@
       padding: 8px 12px 20px;
     }
     .scanner-buttons {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 5px;
     }
     .scanner-buttons button {

@@ -1,4 +1,4 @@
-//! Private oriented linear fast path. Deliberately bounded, always reports deferred work.
+//! Public Low oriented linear fast path. Deliberately bounded, always reports deferred work.
 use crate::{
     read::{Read, ReaderPayload, Region},
     Error, Image, ImageView, Quad, ScanOptions, Scanner,
@@ -24,7 +24,7 @@ pub(crate) fn enabled(
     mask: u32,
     addons: crate::formats::EanAddOnPolicy,
 ) -> bool {
-    option_env!("TAPIRSCAN_EXPERIMENTAL_TURBO").is_some()
+    crate::LOW_FAST_PATH
         && mask & crate::format_registry::LINEAR_MASK != 0
         && addons == crate::formats::EanAddOnPolicy::Ignore
         && !options.finish_candidates
@@ -218,7 +218,32 @@ pub(crate) fn scan(
     if !options.multiple {
         reads.truncate(1);
     }
-    let raw=options.retain_diagnostics.then(||serde_json::json!({"schemaVersion":2,"mode":"low","experimental":"common1d-turbo","tier":TIER,"localizationLimited":localized.limited,"lines":lines,"scan":{"barcodes":[],"regions":unread,"unfinished":true}}));
+    let raw = options.retain_diagnostics.then(|| {
+        let mut raw = serde_json::json!({
+            "schemaVersion": 2, "mode": "low", "policy": "low-fast", "tier": TIER,
+            "multiple": options.multiple, "elapsedMs": 0.,
+            "localizationLimited": localized.limited, "lines": lines,
+            "scan": {"barcodes": [], "unfinished": true}
+        });
+        if options.include_regions {
+            raw["localization"] = serde_json::json!({
+                "proposals": proposals[..local_count].iter().map(|p| serde_json::json!({
+                    "polygon": p.polygon, "score": p.score, "text": ""
+                })).collect::<Vec<_>>(),
+                "omitted": null, "workLimited": localized.limited
+            });
+            raw["searchWindows"] = serde_json::json!([{
+                "kind": "full_frame_search", "candidateIndex": local_count,
+                "polygon": [[0., 0.], [usize_f64(image.width), 0.],
+                    [usize_f64(image.width), usize_f64(image.height)], [0., usize_f64(image.height)]]
+            }]);
+            raw["scan"]["regions"] = serde_json::json!(unread);
+            // Fast profiles do not produce the core reader's per-candidate diagnostics.
+            raw["scan"]["candidates"] = serde_json::json!([]);
+            raw["scan"]["candidateDetailsAvailable"] = serde_json::json!(false);
+        }
+        raw
+    });
     crate::formats::typed_result(reads, unread, true, localized.limited, raw)
 }
 
@@ -689,6 +714,28 @@ fn supplement_ean(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<line
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_low_selection_preserves_explicit_recovery_requests() {
+        use crate::formats::EanAddOnPolicy;
+        let basic = ScanOptions::default();
+        assert_eq!(
+            enabled(basic, 1, EanAddOnPolicy::Ignore),
+            crate::LOW_FAST_PATH
+        );
+        assert!(!enabled(basic, 512, EanAddOnPolicy::Ignore));
+        assert!(!enabled(basic, 1, EanAddOnPolicy::Read));
+        assert!(!enabled(basic, 1, EanAddOnPolicy::Require));
+        assert!(!enabled(
+            ScanOptions {
+                finish_candidates: true,
+                ..basic
+            },
+            1,
+            EanAddOnPolicy::Ignore
+        ));
+    }
+
     /// Independent ZXing-writer module patterns, reproduced without an encoder dependency.
     /// Small UPC-E modules previously aliased into another checksum-valid payload; a
     /// large EAN-8 exposed a clipped sparse proposal and needs the bounded axis retry.

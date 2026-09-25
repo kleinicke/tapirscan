@@ -7,10 +7,28 @@ const selection = JSON.parse(await readFile(new URL("provenance/modes.json", roo
 const apiWasm = JSON.parse(await readFile(new URL(selection.apiWasm, root), "utf8"));
 if (apiWasm.schema !== 1 || apiWasm.apiVersion !== 1)
   throw Error("Unsupported Tapirscan WASM manifest");
-const assets = apiWasm.modes.map(({ file, sha256 }) => [file, sha256]);
+const versions = JSON.parse(
+  await readFile(new URL("demo/src/lib/scanner-versions.json", root), "utf8"),
+);
+const current = versions.versions.find((entry) => entry.version === versions.default);
+if (JSON.stringify(current?.modes) !== JSON.stringify(apiWasm.modes))
+  throw Error("Demo default version differs from the selected scanner build");
+const assets = versions.versions.flatMap((entry) =>
+  entry.modes.map(({ file, sha256 }) => [file, sha256]),
+);
+const turbo = JSON.parse(await readFile(new URL("demo/src/lib/turbo.json", root), "utf8"));
+const experimental = [turbo, ...(turbo.previous ?? []), ...(turbo.variants ?? [])];
+assets.push(...experimental.map(({ file, sha256 }) => [file, sha256]));
 const loaded = await Promise.all(
   assets.map(async ([file, hash]) => {
-    const bytes = await readFile(new URL("bindings/javascript/wasm/" + file, root));
+    const bytes = await readFile(
+      new URL(
+        (experimental.some((entry) => entry.file === file)
+          ? "build/demo-experiments/"
+          : "bindings/javascript/wasm/") + file,
+        root,
+      ),
+    );
     if (createHash("sha256").update(bytes).digest("hex") !== hash)
       throw Error(`Engine hash mismatch: ${file}`);
     return [file, bytes];

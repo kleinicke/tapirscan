@@ -62,7 +62,7 @@ site output is ignored too. License texts and source/build links are included in
 - Changing Resolution immediately reanalyzes the loaded photo from its retained
   original pixels. Full HD/4K cap the long edge at 1920/3840 pixels, preserving
   aspect ratio without upscaling. Original is capped at the scanner’s 32 MP limit.
-- Pesto is the default at 1.2× zoom and 0° rotation, with TS-Med, ZXing and ZBar enabled.
+- Pesto is the default at 1.2× zoom and 0° rotation, with TS-Low, TS-Med, ZXing and ZBar enabled.
   Sauce loads at 2.21× zoom and 34° rotation.
   Pills loads at 2.33× zoom and 45° rotation. Other images start at 1× zoom and 0° rotation. Demo-image buttons include the synthetic example, Pesto, Pills, Sauce, and Sunscreen.
   Camera access begins only after Use camera is pressed.
@@ -158,11 +158,6 @@ The normal view shows runtimes in the scanner buttons above the image. Fullscree
 shows scanner names and runtimes in a translucent overlay beside Back, without
 shrinking or moving the image. Its order and runtime widths stay fixed while scanners finish.
 
-The checkbox at the bottom enables ZXing tryHarder, tryRotate and tryDownscale
-by default. Unchecking explicitly disables all three; other library defaults remain.
-Changing it clears only ZXing’s result and restarts only its worker before reanalysis;
-other readers keep their results for the same image.
-
 Label placement is recalculated next to the current barcode bounds on every update,
 with a bounded preference for nearby positions and small sideways corrections. The
 preference follows the barcode; candidate positions are always rebuilt from its current
@@ -196,12 +191,6 @@ RGBA-to-grayscale conversion and decoding are timed; there is no PNG encoding or
 image loading. The UI remains free to update while Quagga2 scans. Its built-in
 worker pool remains disabled; the demo owns the worker and cancellation lifecycle.
 
-ZXing-JS has one enabled-by-default checkbox for TRY_HARDER and quarter-turn
-rotations, with at most four full-resolution passes. Disabling it uses one pass
-without TRY_HARDER. Half-resolution and inverted-color passes are not used.
-Changing the setting restarts only ZXing-JS; other completed results remain cached.
-Each pass finds at most one code, so this is not exhaustive multiple-code scanning.
-
 The Quagga2 worker build applies two guarded compatibility fixes to the pinned
 1.12.1 browser bundle: the start check only requires a framegrabber for UI input,
 and the raw update path decodes its supplied ImageWrapper without grabbing an image.
@@ -232,3 +221,20 @@ to a 4096-pixel long edge and 16 MP before the scanner's resolution limit.
 Only the current page is retained as an image. Password-protected files must be
 unlocked before loading. Parsing uses PDF.js's worker, and its worker, fonts,
 character maps and WASM helpers are served from the demo's own origin.
+
+## Scanner names and selection
+
+See [Low and Low Classic](../docs/LOW_MODES.md) for the public API mapping.
+TS-Low is the former Turbo and uses the selected public Low build. TS-Low Classic
+is the original Low implementation, pinned to the improved consensus build.
+Turbo2/4/8/16 remain optional private comparisons. Detect supports Common1D, 2D
+and All in addition to Retail and Common.
+
+TS-Low starts active alongside TS-Med, ZXing and ZBar. More scanners contains all
+readers in a compact checkbox selector. Checking adds and activates a card;
+clicking a card pauses/resumes it without hiding it. Unchecking removes it.
+
+ZXing default disables tryHarder, tryRotate and tryDownscale and preserves all
+other library defaults. ZXing-JS default uses a single pass without TRY_HARDER or
+added rotations. Enhanced ZXing and ZXing-JS are separate entries; their previous
+settings checkboxes have been removed. The basic modes trade recovery for speed.

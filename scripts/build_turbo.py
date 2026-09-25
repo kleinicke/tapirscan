@@ -19,7 +19,8 @@ def environment(tier: str) -> dict[str, str]:
     env = {
         key: value
         for key, value in os.environ.items()
-        if not key.startswith(
+        if key != "TAPIRSCAN_LOW_CLASSIC"
+        and not key.startswith(
             ("TAPIRSCAN_TURBO_", "TAPIRSCAN_EXPERIMENT_", "TAPIRSCAN_EXPERIMENTAL_")
         )
     }

@@ -169,6 +169,10 @@ accuracy ranking. **[Read the illustrated comparison and its sources](docs/COMPA
 | `high`      | Difficult images when you can spend more time on each scan.             |
 | `very-high` | Your largest effort budget when latency matters less.                   |
 
+`low` uses the former Turbo implementation. The previous implementation is
+called **Low Classic** and remains a demo-only comparison. See
+[Low and Low Classic](docs/LOW_MODES.md) for behavior and compatibility.
+
 Start with `medium`. Try `low` if scanning slows down your camera preview, or
 `high` and `very-high` when an image is difficult to read. Measure on your own
 images and devices: higher effort does not guarantee more reads on every image.

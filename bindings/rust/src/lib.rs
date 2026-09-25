@@ -253,6 +253,11 @@ mod tests {
     }
 }
 
+// Low now selects the original Turbo policy. Classic is a demo-only build recipe;
+// higher effort modes must never inherit the bounded Low policy.
+pub(crate) const LOW_FAST_PATH: bool =
+    cfg!(feature = "low") && option_env!("TAPIRSCAN_LOW_CLASSIC").is_none();
+
 /// Compiled effort identity, matching the pinned JavaScript host policy.
 pub const MODE_ID: u32 = if cfg!(feature = "low") {
     0

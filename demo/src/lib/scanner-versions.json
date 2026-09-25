@@ -1,0 +1,222 @@
+{
+  "default": "1.2.2+public-low.20260925",
+  "versions": [
+    {
+      "version": "1.2.2+public-low.20260925",
+      "label": "1.2.2 \u00b7 new Low (former Turbo)",
+      "sourceDigest": "8dda4348bebb63828bcdf787ed4597a058763b52b3b77b519c2865aa2712dc11",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-public-low-turbo-20260925.wasm",
+          "sha256": "ceb115b655e191f733792f203d51814e308e1e3011c31835361578759e0183cb",
+          "bytes": 1504296
+        },
+        {
+          "mode": "medium",
+          "file": "medium-public-low-turbo-20260925.wasm",
+          "sha256": "39eb0e9ea1341eedee277db413b3682e80aee99dabfbff23e2961b1115a0135e",
+          "bytes": 1779939
+        },
+        {
+          "mode": "high",
+          "file": "high-public-low-turbo-20260925.wasm",
+          "sha256": "0b3a8892c402662c5add767216edf6975c8be7df59d1aadbd13b4a201e12ff7e",
+          "bytes": 1731218
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-public-low-turbo-20260925.wasm",
+          "sha256": "371163472280e8c97e1820a5e1f8f51e2c429a7744754d4d15eb6616ce8a4afa",
+          "bytes": 1771989
+        }
+      ]
+    },
+    {
+      "version": "1.2.2+consensus.20260925",
+      "label": "1.2.2 \u00b7 improved barcode outlines",
+      "sourceDigest": "d264fae395dd6cbf47f509f29ec796f523b3a21e80355ed7011034c70fd8a36a",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-footprint-consensus-20260925.wasm",
+          "sha256": "8f9635de0b2a23d96874860dc60b22e96a03bd64eb2814e6f0206dc553ae85cc",
+          "bytes": 1456554
+        },
+        {
+          "mode": "medium",
+          "file": "medium-footprint-consensus-20260925.wasm",
+          "sha256": "ebce998618c2fc3adbbb21095dcafd67f55c0041b95398e0d3998b07805857b1",
+          "bytes": 1779629
+        },
+        {
+          "mode": "high",
+          "file": "high-footprint-consensus-20260925.wasm",
+          "sha256": "d186efbcfe8199ef8ea4b04bbbdf3580ac5d34442aadee7b8b7c8b674da0c6c3",
+          "bytes": 1730844
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-footprint-consensus-20260925.wasm",
+          "sha256": "1df53ab39fec67ba00751ab0a7d7288f860b2f5d12f600578ceb7e0efc309b07",
+          "bytes": 1771616
+        }
+      ]
+    },
+    {
+      "version": "1.2.2+footprint-fast.20260924",
+      "label": "1.2.2 \u00b7 faster full barcode areas",
+      "sourceDigest": "13b0b44c815a0f1eace49cf6bf19e4eb795ab630949f2a50ba50830f33b9ba3c",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-footprint-fast-20260924.wasm",
+          "sha256": "beb8b891248e17e05110194b4ecf6d5c095e14a51274f872820f39a0ff2122fa",
+          "bytes": 1449812
+        },
+        {
+          "mode": "medium",
+          "file": "medium-footprint-fast-20260924.wasm",
+          "sha256": "2dc230ab6b62d1cd725381e7c9dd7a863e44fdf9cc3f6fb151e0055b6e5b38ef",
+          "bytes": 1772888
+        },
+        {
+          "mode": "high",
+          "file": "high-footprint-fast-20260924.wasm",
+          "sha256": "38e806d3169fc845a273a43c35c2fb5928a13145b3517e663d2bc7a600c2c3ff",
+          "bytes": 1724102
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-footprint-fast-20260924.wasm",
+          "sha256": "4c0978057420a3fcf0ec03f40c47b1b403ea1360f0fde7ffbc58fba33f23be34",
+          "bytes": 1764874
+        }
+      ]
+    },
+    {
+      "version": "1.2.2+footprint.20260923",
+      "label": "1.2.2 \u00b7 full barcode areas",
+      "sourceDigest": "5a39b8be0abb5bd5baf354b54aefbf4c96b34d8b9d490f8279cbf81011091f56",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-barcode-footprint-20260923.wasm",
+          "sha256": "f7bc094835503f47c52fb62e54e12473d13a5d71c5c0cfd2977fcd09cdfdf0a4",
+          "bytes": 1441190
+        },
+        {
+          "mode": "medium",
+          "file": "medium-barcode-footprint-20260923.wasm",
+          "sha256": "957e4f5d9c824943a89ee5a35cbcf6ff6c466ab60adfd5e285e8d802dfcd94f2",
+          "bytes": 1764266
+        },
+        {
+          "mode": "high",
+          "file": "high-barcode-footprint-20260923.wasm",
+          "sha256": "4d4e064bd5e400b2393bc84e29b68b515695e44425990882c4265924d7e11e40",
+          "bytes": 1715480
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-barcode-footprint-20260923.wasm",
+          "sha256": "3c04ffc8656e9bc492c8585937a1ebaf2c2da36a247c1849c66c153330506fab",
+          "bytes": 1756252
+        }
+      ]
+    },
+    {
+      "version": "1.2.2+ownership.20260923",
+      "label": "1.2.2 \u00b7 ownership experiment",
+      "sourceDigest": "9f207728b5f88b1bd8ae77dd425fdff6db2ab481ce704cf64d6da029b79a34f2",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-physical-ownership-20260923.wasm",
+          "sha256": "97872e50ec0265787fd1b646073780912be0701257796055bc32e3490e4ef6b7",
+          "bytes": 1401420
+        },
+        {
+          "mode": "medium",
+          "file": "medium-physical-ownership-20260923.wasm",
+          "sha256": "379df69309d7e7e9f8c82bdddbaaf5f16461382e71981b221ab97b1a87ae3d46",
+          "bytes": 1724603
+        },
+        {
+          "mode": "high",
+          "file": "high-physical-ownership-20260923.wasm",
+          "sha256": "97071734962e3802abfd200bd62b90300679187dd69fd09aed7571895007ea33",
+          "bytes": 1675913
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-physical-ownership-20260923.wasm",
+          "sha256": "896ebfd5271060fd9bc7d41361fddae7c8dec9d0ab167c67a333ed3b65e4fc84",
+          "bytes": 1716678
+        }
+      ]
+    },
+    {
+      "version": "1.2.2",
+      "label": "1.2.2 \u00b7 deployed build",
+      "sourceDigest": "811fe29b2f33912c3e394eebc1403065ffb521d561b4f6004a62d1222fcbaba4",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-release-1.2.2.wasm",
+          "sha256": "70046670ad238bb22f037db65c16f10602d6e6526524f9ff1bdf4dcabfc6654a",
+          "bytes": 1391224
+        },
+        {
+          "mode": "medium",
+          "file": "medium-release-1.2.2.wasm",
+          "sha256": "88df5ba0309e57b42da7bcd12615a1b84912c21bf242a0ab00b6ed742854afb4",
+          "bytes": 1714478
+        },
+        {
+          "mode": "high",
+          "file": "high-release-1.2.2.wasm",
+          "sha256": "9a42e49a06e399ac63c7eb9b9a32e7015fefdf82427ace2740a0e21bfc9df97c",
+          "bytes": 1665726
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-release-1.2.2.wasm",
+          "sha256": "007f42a9a0c3ea00792a3150e6c2cc8ac8329f09f7cf1e2781ef3e0d4a148fee",
+          "bytes": 1706432
+        }
+      ]
+    },
+    {
+      "version": "1.2.1",
+      "label": "1.2.1 \u00b7 previous local build",
+      "sourceDigest": "d43b7c9ed7c721f14f5c339a21e58b317086ef1cd979db11d13cd1cf94495d22",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-experiment-workflow-20260923.wasm",
+          "sha256": "6831f656c85b52e86740be2592f44313d5e0c67cb2b2f48795a7d1fa78d720ea",
+          "bytes": 1377524
+        },
+        {
+          "mode": "medium",
+          "file": "medium-experiment-workflow-20260923.wasm",
+          "sha256": "a1ed0f8e2d2673e0951633e1e8d83dfb193cc542ec6e04760e030b9ba8fe0ac2",
+          "bytes": 1700236
+        },
+        {
+          "mode": "high",
+          "file": "high-experiment-workflow-20260923.wasm",
+          "sha256": "9cf542b8f1b36446f51efd0a13943b8d07002a787d9569655b3f918e31378d62",
+          "bytes": 1651448
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-experiment-workflow-20260923.wasm",
+          "sha256": "0799f344d8b97ce1cc5f192110db75366fd46d4f7e18b8065f222a76e5a41606",
+          "bytes": 1692213
+        }
+      ]
+    }
+  ]
+}

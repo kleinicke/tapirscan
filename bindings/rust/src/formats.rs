@@ -513,7 +513,7 @@ fn scan_additional(
         gray.as_slice()
     };
     #[cfg(feature = "low")]
-    let sparse = (option_env!("TAPIRSCAN_EXPERIMENTAL_TURBO").is_some()
+    let sparse = (crate::LOW_FAST_PATH
         && (matrix != 0 || (linear & !127 != 0 && addons == EanAddOnPolicy::Ignore)))
         .then(|| crate::fast_sparse::Prepared::new(pixels, image.width, image.height));
     let mut scans = Vec::new();

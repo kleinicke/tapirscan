@@ -1,10 +1,10 @@
 # Private Turbo scanners
 
-The maintained source includes the original Turbo scanner (shown as **TS-Low** in
-the demo) and optional Turbo2, Turbo4, Turbo8 and Turbo16 experiments. These are
-private build recipes, not public API modes. The ordinary Low, Medium, High and
-Very High builds retain their existing mode selections. Turbo32 was retired:
-it lost substantially more reads and did not reach its speed target.
+The original Turbo policy is now the public **Low** implementation (TS-Low in
+the demo). **TS-Low Classic** retains the original Low as a fixed demo comparison.
+See [Low and Low Classic](LOW_MODES.md). Turbo2, Turbo4, Turbo8 and Turbo16 remain
+private build recipes. Turbo32 was retired because it lost substantially more
+reads and did not reach its speed target.
 
 Build an explicit private artifact:
 
@@ -83,7 +83,7 @@ matrix readers. Each group independently retries the original source if its crop
 fails or retains unresolved regions; success in one group never suppresses the
 other group's recovery. Common1D-only decoding keeps its existing policy.
 
-These changes are private build recipes and do not add public API modes. The
+The original policy is public Low; the numbered tiers do not add public API modes. The
 `turbo-all-formats-20260925` experiment in the sibling workspace records per-format
 quality, strict and presentation-normalized payload metrics, duplicate controls,
 paired Chrome timing and rejected alternatives. Tier numbers are still targets

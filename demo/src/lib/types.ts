@@ -6,6 +6,7 @@ export interface Region {
   support?: number;
 }
 export interface Result {
+  areaCounts?: { proposed: number; checked: number; withoutRead: number; omitted: number | null };
   searchWindows?: {
     polygon: readonly (readonly number[])[];
     kind: string;

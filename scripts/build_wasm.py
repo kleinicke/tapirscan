@@ -97,10 +97,15 @@ def arguments() -> argparse.Namespace:
         help="Build under build/ without modifying release identities",
     )
     args = parser.parse_args()
-    if not args.development and "TAPIRSCAN_EXPERIMENTAL_TURBO" in os.environ:
-        parser.error(
-            "private Turbo requires --development; release recording is forbidden"
+    if not args.development and any(
+        key in os.environ
+        for key in (
+            "TAPIRSCAN_EXPERIMENTAL_TURBO",
+            "TAPIRSCAN_LOW_CLASSIC",
+            "TAPIRSCAN_TURBO_TIER",
         )
+    ):
+        parser.error("private Turbo tiers and Low Classic require --development")
     if args.record and args.development:
         parser.error("choose release recording or development assets")
     args.modes = args.modes or list(MODES)

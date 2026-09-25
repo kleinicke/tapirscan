@@ -1,5 +1,13 @@
 # Release notes
 
+## Unreleased: Low implementation update
+
+- Public `low` now uses the original Turbo policy across all bindings. Medium,
+  High and Very High retain their existing behavior. No Turbo API names added.
+- The former Low is named TS-Low Classic and retained as a fixed demo comparison.
+- Demo scanner cards can be paused without disappearing; More scanners controls
+  visibility. Basic ZXing and ZXing-JS comparisons are separate optional readers.
+
 ## Unreleased
 
 - Speed up Medium, High and Very High recovery crops with pixel-identical integer interpolation and cached rows; retain existing APIs and scan behavior.

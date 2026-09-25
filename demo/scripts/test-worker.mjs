@@ -23,6 +23,12 @@ const selections = [
 ];
 
 const root = new URL("../../", import.meta.url);
+const turboPins = JSON.parse(await readFile(new URL("demo/src/lib/turbo.json", root), "utf8"));
+const experimentalEngines = ["turbo", ...turboPins.variants.map((entry) => entry.key)];
+const registry = JSON.parse(
+  await readFile(new URL("demo/src/lib/scanner-versions.json", root), "utf8"),
+);
+const releaseVersions = registry.versions.map((entry) => entry.version);
 const dist = new URL("demo/dist/", root);
 const worker = (await readdir(new URL("assets/", dist))).find((p) => p.startsWith("scan.worker-"));
 assert.ok(worker, "Build the demo before testing its worker");
@@ -65,6 +71,7 @@ const context = {
   ArrayBuffer,
   performance,
   console,
+  crypto: globalThis.crypto,
   fetch: async (input) => {
     const url = new URL(input, base + "assets/" + worker);
     assert.ok(url.href.startsWith(base + "engines/"), `Incorrect worker asset URL: ${url}`);
@@ -110,6 +117,33 @@ assert.equal(
   modes.length,
   "Each selected mode must load exactly one complete scanner",
 );
+
+// Version changes must replace the worker's cached session, including switching back.
+for (const releaseVersion of [...releaseVersions.toReversed(), ...releaseVersions]) {
+  for (const mode of modes) {
+    messages.length = 0;
+    await context.self.onmessage({
+      data: {
+        width: fixture.width,
+        height: fixture.height,
+        buffer: rgba.slice().buffer,
+        scannerVersion: mode,
+        releaseVersion,
+        formats: retailFormats,
+        engineBaseUrl: base + "engines/",
+      },
+    });
+    const message = messages.at(-1);
+    assert.ok(message.result, JSON.stringify(message));
+    assert.ok(message.result.regions.some((read) => read.text === "4006381333931"));
+  }
+}
+assert.equal(
+  loaded.size,
+  modes.length * releaseVersions.length,
+  "Every immutable version must be loaded",
+);
+console.log("Version switching and switching back passed for every effort");
 
 // Independent test-only encoder: ensure non-EAN13 results survive the demo adapter.
 await prepareZXingModule({
@@ -158,15 +192,83 @@ for (const [format, text, formats] of [
       `${mode} ${format} must reach the demo: ${JSON.stringify(message)}`,
     );
   }
+  for (const engine of experimentalEngines) {
+    messages.length = 0;
+    await context.self.onmessage({
+      data: {
+        engine,
+        scannerVersion: "medium",
+        releaseVersion: "ignored-for-turbo",
+        width: w,
+        height: h,
+        buffer: pixels.slice().buffer,
+        formats,
+        finishCandidates: true,
+        engineBaseUrl: base + "engines/",
+      },
+    });
+    const turboMessage = messages.at(-1);
+    assert.ok(turboMessage.result, JSON.stringify(turboMessage));
+    assert.equal(turboMessage.result.unfinished, true);
+    assert.equal(
+      turboMessage.result.regions.some((region) => region.text === text),
+      true,
+      `${engine} ${format}: ${JSON.stringify(turboMessage)}`,
+    );
+  }
   console.log(`${format}: decoded value reaches demo in all modes`);
 }
+
+for (const engine of experimentalEngines) {
+  for (const formats of [["QRCode"], ["EAN13"], ["Code128", "QRCode"]]) {
+    messages.length = 0;
+    await context.self.onmessage({
+      data: {
+        engine,
+        scannerVersion: "very-high",
+        formats,
+        width: qrFixture.width,
+        height: qrFixture.height,
+        buffer: qrFixture.pixels.slice().buffer,
+        engineBaseUrl: base + "engines/",
+        finishCandidates: true,
+      },
+    });
+    const message = messages.at(-1);
+    assert.ok(message.result, JSON.stringify(message));
+    assert.equal(
+      message.result.regions.some((region) => region.text === qrFixture.text),
+      formats.includes("QRCode"),
+    );
+  }
+}
+for (const entry of [turboPins, ...turboPins.variants]) {
+  assert.ok(loaded.has(`engines/${entry.file}`), `${entry.label} must load its own pinned asset`);
+}
+messages.length = 0;
+await context.self.onmessage({
+  data: { engine: "turbo-unknown", scannerVersion: "low", formats: commonFormats },
+});
+assert.match(messages.at(-1).error, /Unknown Tapirscan/);
+console.log(
+  "Turbo tiers: independent assets and QR-only, excluded QR, mixed format coverage passed",
+);
 
 const reference = (await readdir(new URL("assets/", dist))).find((p) =>
   p.startsWith("reference.worker-"),
 );
 assert.ok(reference);
 const referenceSource = await readFile(new URL(`assets/${reference}`, dist), "utf8");
-for (const engine of ["zxing", "zbar", "jsqr", "native", "zxingjs", "quagga"]) {
+for (const engine of [
+  "zxing",
+  "zxingdefault",
+  "zbar",
+  "jsqr",
+  "native",
+  "zxingjs",
+  "zxingjsdefault",
+  "quagga",
+]) {
   messages.length = 0;
   const referenceContext = {
     ...context,

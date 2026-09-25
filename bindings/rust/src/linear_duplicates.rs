@@ -704,8 +704,7 @@ impl<T> Read<T> {
             && (matches!(
                 self.format.as_str(),
                 "EAN13" | "UPCA" | "EAN8" | "UPCE" | "Code128" | "Code39" | "ITF"
-            ) || (cfg!(feature = "low")
-                && option_env!("TAPIRSCAN_EXPERIMENTAL_TURBO").is_some()
+            ) || (crate::LOW_FAST_PATH
                 && matches!(
                     self.format.as_str(),
                     "Codabar" | "Code93" | "DataBar" | "DataBarExpanded"

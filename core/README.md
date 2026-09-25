@@ -38,6 +38,10 @@ frame reconciliation. No plugin interface is needed for either experiment.
 
 ## Mode differences
 
+Public Low now selects the original Turbo fast path in the Rust facade; the core
+Low policy below remains its recovery implementation and the demo-only Low Classic
+policy. See [Low and Low Classic](../docs/LOW_MODES.md).
+
 Low keeps its module-axis discovery shortcut, bounded retries and sparse stripe
 work. Medium retains evidence-dependent retry caps and shared short-retail work.
 High retains native-soft decoding and its existing retry policy. Very High also

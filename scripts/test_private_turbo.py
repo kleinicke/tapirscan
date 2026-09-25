@@ -15,9 +15,13 @@ class PrivateTurboTests(unittest.TestCase):
 
     def test_recipe_clears_unselected_overrides(self) -> None:
         """A caller's previous experiment must not silently alter a recipe."""
-        with patch.dict(os.environ, {"TAPIRSCAN_TURBO_MATRIX_CAP": "64"}):
+        with patch.dict(
+            os.environ,
+            {"TAPIRSCAN_TURBO_MATRIX_CAP": "64", "TAPIRSCAN_LOW_CLASSIC": "1"},
+        ):
             original = environment("original")
             tier = environment("16")
+        self.assertNotIn("TAPIRSCAN_LOW_CLASSIC", original)
         self.assertNotIn("TAPIRSCAN_TURBO_MATRIX_CAP", original)
         self.assertEqual(original["TAPIRSCAN_TURBO_TIER"], "0")
         self.assertEqual(tier["TAPIRSCAN_TURBO_DIRECT_SAMPLE"], "1")
