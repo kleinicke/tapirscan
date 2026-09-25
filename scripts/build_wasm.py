@@ -82,8 +82,8 @@ def build_environment(root: Path = ROOT) -> dict[str, str]:
     return env
 
 
-def main() -> None:
-    """Build and verify distribution assets; record new identities explicitly."""
+def arguments() -> argparse.Namespace:
+    """Separate private development builds from immutable release recording."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("modes", nargs="*", metavar="MODE")
     parser.add_argument(
@@ -97,15 +97,25 @@ def main() -> None:
         help="Build under build/ without modifying release identities",
     )
     args = parser.parse_args()
+    if not args.development and "TAPIRSCAN_EXPERIMENTAL_TURBO" in os.environ:
+        parser.error(
+            "private Turbo requires --development; release recording is forbidden"
+        )
     if args.record and args.development:
         parser.error("choose release recording or development assets")
+    args.modes = args.modes or list(MODES)
+    if set(args.modes) - set(MODES):
+        parser.error("modes must be low, medium, high or very-high")
+    return args
+
+
+def main() -> None:
+    """Build and verify distribution assets; record new identities explicitly."""
+    args = arguments()
     manifest = (
         ROOT / "build/wasm-development/manifest.json" if args.development else MANIFEST
     )
     record = args.record or args.development
-    args.modes = args.modes or list(MODES)
-    if set(args.modes) - set(MODES):
-        parser.error("modes must be low, medium, high or very-high")
     with prepared_package(PACKAGE, refresh=PACKAGE.exists()):
         inputs = source_files()
         digest = hashlib.sha256(

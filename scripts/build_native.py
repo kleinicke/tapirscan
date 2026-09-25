@@ -13,7 +13,7 @@ from prepare_rust import prepared_package, sync_tree, write_changed
 from build import MODES, ROOT
 
 
-def build(mode: str, public_crate: Path) -> None:
+def build(mode: str, public_crate: Path, destination: Path | None = None) -> None:
     """Build and validate one native adapter mode."""
     _, tag = MODES[mode]
     out = ROOT / "build" / mode
@@ -72,8 +72,8 @@ def build(mode: str, public_crate: Path) -> None:
         env=env,
         check=True,
     )
-    dest = ROOT / "build/native"
-    dest.mkdir(exist_ok=True)
+    dest = destination if destination is not None else ROOT / "build/native"
+    dest.mkdir(parents=True, exist_ok=True)
     shutil.copy2(target / "release" / name, dest / name)
     if sys.platform == "win32":
         shutil.copy2(
@@ -93,10 +93,14 @@ def build(mode: str, public_crate: Path) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("modes", nargs="*", metavar="MODE")
-    selected = parser.parse_args().modes or list(MODES)
+    parser.add_argument(
+        "--output", type=Path, help="Separate output directory for private artifacts"
+    )
+    args = parser.parse_args()
+    selected = args.modes or list(MODES)
     if unknown := [mode for mode in selected if mode not in MODES]:
         parser.error(f"unknown mode: {', '.join(unknown)}")
     public = ROOT / "build/crates/tapirscan"
     with prepared_package(public, refresh=public.exists()):
         for mode in selected:
-            build(mode, public)
+            build(mode, public, args.output)

@@ -1,6 +1,6 @@
 //! Ordered tile components, compatible merges and bounded growth.
 use super::raster::Raster;
-use super::{angle, bounds, distance, tensor_magnitude, Tile};
+use super::{angle, bounds, distance, Tile};
 pub(super) struct Groups {
     pub items: Vec<Vec<usize>>,
     pub originals: usize,
@@ -11,6 +11,15 @@ pub(super) struct Groups {
     pub growth_limited: bool,
 }
 pub(super) fn collect(raster: &Raster) -> Groups {
+    collect_with_growth(raster, true)
+}
+
+/// Compact policies consume only original and merged components.
+pub(super) fn collect_compact(raster: &Raster) -> Groups {
+    collect_with_growth(raster, false)
+}
+
+fn collect_with_growth(raster: &Raster, include_growth: bool) -> Groups {
     let (tw, th) = (raster.width.div_ceil(8), raster.height.div_ceil(8));
     let tiles = &raster.tiles;
     let mut groups = components(tiles, tw, th);
@@ -20,7 +29,7 @@ pub(super) fn collect(raster: &Raster) -> Groups {
     let merged_count = merged.len();
     groups.extend(merged);
     let base_count = groups.len();
-    let growth_limited = grow(&mut groups, tiles, tw, th, originals);
+    let growth_limited = include_growth && grow(&mut groups, tiles, tw, th, originals);
     Groups {
         items: groups,
         originals,
@@ -66,7 +75,13 @@ fn components(tiles: &[Tile], tw: usize, th: usize) -> Vec<Vec<usize>> {
             }
         }
 
-        if quad.len() >= 3 {
+        if quad.len()
+            >= if option_env!("TAPIRSCAN_TURBO_SMALL_COMPONENTS").is_some() {
+                2
+            } else {
+                3
+            }
+        {
             groups.push(quad);
         }
     }
@@ -184,15 +199,7 @@ fn grow(
 
                         let neighbor_tile = &tiles[neighbor_index];
 
-                        let energy = neighbor_tile.xx + neighbor_tile.yy;
-
-                        if energy <= 64. * 80.
-                            || tensor_magnitude(
-                                neighbor_tile.xx,
-                                neighbor_tile.xy,
-                                neighbor_tile.yy,
-                            ) / (energy + 1.)
-                                < 0.4
+                        if !neighbor_tile.can_grow()
                             || distance(neighbor_tile.angle, axis) > std::f64::consts::PI / 9.
                         {
                             continue;

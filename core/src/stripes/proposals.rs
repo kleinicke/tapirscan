@@ -33,6 +33,7 @@ pub(super) fn fit(
     fitted.proposals.extend(bands);
     fitted
 }
+
 fn fit_group(
     im: ImageView<'_>,
     raster: &Raster,

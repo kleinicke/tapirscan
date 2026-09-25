@@ -1,5 +1,5 @@
 //! Working-raster preparation and Scharr tensors; storage belongs to the detector.
-use super::{tensor_magnitude, Error, ImageView, Tile};
+use super::{Error, ImageView, Tile};
 
 #[derive(Default)]
 pub(super) struct Raster {
@@ -235,10 +235,7 @@ impl Raster {
 
         {
             for tile in tiles.iter_mut() {
-                let energy = tile.xx + tile.yy;
-                tile.angle = 0.5 * (2. * tile.xy).atan2(tile.xx - tile.yy);
-                tile.active = energy > 64. * 80.
-                    && tensor_magnitude(tile.xx, tile.xy, tile.yy) / (energy + 1.) > 0.60;
+                tile.classify(0.60);
             }
         }
     }

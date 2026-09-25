@@ -22,13 +22,7 @@ fn sample(e: &mut Evidence<'_>, p: [f64; 2]) -> Option<f64> {
         return None;
     }
     let at = y as usize * e.image.stride + x as usize * e.image.channels;
-    let data = e.image.data;
-    Some(if e.image.channels == 1 {
-        f64::from(data[at])
-    } else {
-        (77. * f64::from(data[at]) + 150. * f64::from(data[at + 1]) + 29. * f64::from(data[at + 2]))
-            / 256.
-    })
+    Some(e.image.fixed_luminance(at))
 }
 
 struct Track {

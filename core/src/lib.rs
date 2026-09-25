@@ -361,3 +361,5 @@ pub mod shear;
 
 pub mod stripes;
 pub mod transition;
+
+pub mod fast_profile;

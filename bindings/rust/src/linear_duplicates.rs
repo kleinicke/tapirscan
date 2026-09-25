@@ -11,6 +11,21 @@ fn line(q: Quad) -> [[f64; 2]; 2] {
 fn distance(a: [f64; 2], b: [f64; 2]) -> f64 {
     (b[0] - a[0]).hypot(b[1] - a[1])
 }
+// Only finite, nonnegative image luminance enters these hot extrema loops.
+#[inline]
+fn include_intensity(value: f64, lo: &mut f64, hi: &mut f64) {
+    if option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
+        if value < *lo {
+            *lo = value;
+        }
+        if value > *hi {
+            *hi = value;
+        }
+    } else {
+        *lo = lo.min(value);
+        *hi = hi.max(value);
+    }
+}
 struct Profile {
     bits: u64,
     dark: u64,
@@ -41,17 +56,8 @@ impl Evidence<'_> {
                 return None;
             }
             let offset = y as usize * self.image.stride + x as usize * self.image.channels;
-            let data = self.image.data;
-            *value = if self.image.channels == 1 {
-                f64::from(data[offset])
-            } else {
-                (77. * f64::from(data[offset])
-                    + 150. * f64::from(data[offset + 1])
-                    + 29. * f64::from(data[offset + 2]))
-                    / 256.
-            };
-            lo = lo.min(*value);
-            hi = hi.max(*value);
+            *value = self.image.fixed_luminance(offset);
+            include_intensity(*value, &mut lo, &mut hi);
         }
         if hi - lo < 24. {
             return None;
@@ -76,7 +82,112 @@ impl Evidence<'_> {
         Some(result)
     }
 
-    fn connected(&mut self, a: Quad, mut b: Quad) -> Option<Quad> {
+    // Gap checks only need contrast, not the thresholded profile. For an interior
+    // segment, later samples cannot invalidate contrast already found. Charge the
+    // original 64-sample budget so this optimization never changes search limits.
+    #[cfg(feature = "low")]
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn has_contrast(&mut self, left: [f64; 2], right: [f64; 2]) -> bool {
+        let (Ok(width), Ok(height)) = (
+            u32::try_from(self.image.width),
+            u32::try_from(self.image.height),
+        ) else {
+            return self.profile(left, right).is_some();
+        };
+        let interior = |p: [f64; 2]| {
+            p[0].is_finite()
+                && p[1].is_finite()
+                && p[0] >= 0.
+                && p[1] >= 0.
+                && p[0] < f64::from(width.saturating_sub(1))
+                && p[1] < f64::from(height.saturating_sub(1))
+        };
+        if !interior(left) || !interior(right) {
+            return self.profile(left, right).is_some();
+        }
+        if self.remaining < 64 {
+            return false;
+        }
+        self.remaining -= 64;
+        let (mut lo, mut hi) = (255_f64, 0_f64);
+        for i in 0..64 {
+            let f = (f64::from(i) + 0.5) / 64.;
+            let x = (left[0] + (right[0] - left[0]) * f + 0.5).floor() as usize;
+            let y = (left[1] + (right[1] - left[1]) * f + 0.5).floor() as usize;
+            let offset = y * self.image.stride + x * self.image.channels;
+            let value = self.image.fixed_luminance(offset);
+            include_intensity(value, &mut lo, &mut hi);
+            if hi - lo >= 24. {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[cfg(feature = "low")]
+    fn gap_free(&mut self, a: Quad, b: Quad) -> bool {
+        let al = line(a);
+        let bl = line(b);
+        let count = (distance(al[0], bl[0]).max(distance(al[1], bl[1])) * 2.).ceil();
+        if !(1.0..=768.).contains(&count) {
+            return false;
+        }
+        let steps = barcode_research_core::numeric::f64_usize(count);
+        for i in 0..=steps {
+            let f = barcode_research_core::numeric::usize_f64(i) / count;
+            let left = [
+                al[0][0] + (bl[0][0] - al[0][0]) * f,
+                al[0][1] + (bl[0][1] - al[0][1]) * f,
+            ];
+            let right = [
+                al[1][0] + (bl[1][0] - al[1][0]) * f,
+                al[1][1] + (bl[1][1] - al[1][1]) * f,
+            ];
+            if !self.has_contrast(left, right) {
+                return false;
+            }
+        }
+        true
+    }
+    fn fast_profile(&mut self, left: [f64; 2], right: [f64; 2], smooth: bool) -> Option<Profile> {
+        if !smooth {
+            return self.profile(left, right);
+        }
+        let mut values = [0.; 64];
+        let (mut lo, mut hi) = (255_f64, 0_f64);
+        for (i, v) in values.iter_mut().enumerate() {
+            let f = (f64::from(u32::try_from(i).ok()?) + 0.5) / 64.;
+            *v = self.smooth([
+                left[0] + (right[0] - left[0]) * f,
+                left[1] + (right[1] - left[1]) * f,
+            ])?;
+            include_intensity(*v, &mut lo, &mut hi);
+        }
+        if hi - lo < 24. {
+            return None;
+        }
+        let mut result = Profile {
+            bits: 0,
+            dark: 0,
+            light: 0,
+        };
+        for (i, &v) in values.iter().enumerate() {
+            if v < lo.midpoint(hi) {
+                result.bits |= 1 << i;
+            }
+            if v < lo + (hi - lo) * 0.25 {
+                result.dark |= 1 << i;
+            }
+            if v > lo + (hi - lo) * 0.75 {
+                result.light |= 1 << i;
+            }
+        }
+        Some(result)
+    }
+    fn connected(&mut self, a: Quad, b: Quad) -> Option<Quad> {
+        self.connected_sampling(a, b, false)
+    }
+    fn connected_sampling(&mut self, a: Quad, mut b: Quad, smooth: bool) -> Option<Quad> {
         if !a.iter().chain(&b).flatten().all(|v| v.is_finite()) {
             return None;
         }
@@ -118,7 +229,7 @@ impl Evidence<'_> {
         if usize::try_from(steps + 2).ok()? * 64 > self.remaining {
             return None;
         }
-        let reference = self.profile(al[0], al[1])?.bits;
+        let reference = self.fast_profile(al[0], al[1], smooth)?.bits;
         let (mut dark, mut light) = (reference, !reference);
         let minimum_dark = 4.max(dark.count_ones().div_ceil(4));
         let minimum_light = 4.max(light.count_ones().div_ceil(4));
@@ -132,7 +243,7 @@ impl Evidence<'_> {
                 al[1][0] + (bl[1][0] - al[1][0]) * f,
                 al[1][1] + (bl[1][1] - al[1][1]) * f,
             ];
-            let sample = self.profile(left, right)?.bits;
+            let sample = self.fast_profile(left, right, smooth)?.bits;
             if (reference ^ sample).count_ones() > 12 {
                 return None;
             }
@@ -257,13 +368,7 @@ impl Evidence<'_> {
         let (x, y) = (p[0].floor() as usize, p[1].floor() as usize);
         let gray = |x: usize, y: usize| {
             let at = y * self.image.stride + x * self.image.channels;
-            let d = self.image.data;
-            if self.image.channels == 1 {
-                f64::from(d[at])
-            } else {
-                (77. * f64::from(d[at]) + 150. * f64::from(d[at + 1]) + 29. * f64::from(d[at + 2]))
-                    / 256.
-            }
+            self.image.fixed_luminance(at)
         };
         let (fx, fy) = (p[0] - p[0].floor(), p[1] - p[1].floor());
         Some(
@@ -734,7 +839,17 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
         .collect()
 }
 
-fn complete_footprints<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
+fn complete_footprints<T>(reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
+    trace_footprints(reads, image, true, true, None)
+}
+
+fn trace_footprints<T>(
+    mut reads: Vec<Read<T>>,
+    image: Image<'_>,
+    suppress_conflicts: bool,
+    display_recovery: bool,
+    minimum_aspect: Option<f64>,
+) -> Vec<Read<T>> {
     let mut evidence = Evidence {
         image,
         remaining: 262_144,
@@ -746,6 +861,19 @@ fn complete_footprints<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read
     order.sort_by_key(|&i| std::cmp::Reverse(reads[i].support));
     for i in order {
         if !reads[i].supported() {
+            continue;
+        }
+        if minimum_aspect.is_some_and(|limit| {
+            if reads[i].support > 3 {
+                return true;
+            }
+            let q = reads[i].polygon;
+            let width = distance(q[0], q[1]) + distance(q[3], q[2]);
+            let height = distance(q[0], q[3]) + distance(q[1], q[2]);
+            height >= limit * width
+        }) {
+            // Display-only shortcut; strict ownership always passes no aspect filter.
+            measured[i] = true;
             continue;
         }
         for (j, owner) in &owners {
@@ -766,15 +894,16 @@ fn complete_footprints<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read
             if let Some(owner) = footprint::measure(&mut evidence, reads[i].polygon) {
                 reads[i].polygon = owner.polygon;
                 reads[i].geometry_changed = true;
-                owners.push((i, owner));
+                if suppress_conflicts {
+                    owners.push((i, owner));
+                }
                 measured[i] = true;
             }
         }
     }
-    // Display recovery must not spend evidence needed by later ownership checks.
-    // It runs only after every strict footprint and duplicate decision is complete.
+    // Display recovery follows strict ownership and never suppresses a read.
     for (index, read) in reads.iter_mut().enumerate() {
-        if keep[index] && !measured[index] && read.supported() {
+        if display_recovery && keep[index] && !measured[index] && read.supported() {
             if let Some(polygon) = footprint::display(&mut evidence, read.polygon) {
                 read.polygon = polygon;
                 read.geometry_changed = true;
@@ -805,6 +934,78 @@ pub(crate) fn merge(reads: Vec<crate::read::Read>, image: Image<'_>) -> Vec<crat
         })
         .collect();
     complete_footprints(consolidate(reads, image), image)
+        .into_iter()
+        .map(|mut read| {
+            read.payload.polygon = read.polygon;
+            read.payload
+        })
+        .collect()
+}
+
+/// Reuse the original pixel-continuity proof when joining fast observations.
+#[cfg(feature = "low")]
+pub(crate) fn connect_fast(a: Quad, b: Quad, image: Image<'_>, remaining: &mut usize) -> bool {
+    let mut evidence = Evidence {
+        image,
+        remaining: *remaining,
+    };
+    let connected = evidence.gap_free(a, b)
+        && evidence
+            .connected(a, b)
+            .or_else(|| evidence.connected_sampling(a, b, true))
+            .or_else(|| evidence.connected_traces(a, b))
+            .is_some();
+    *remaining = evidence.remaining;
+    connected
+}
+
+#[cfg(feature = "low")]
+pub(crate) fn merge_fast(
+    reads: Vec<crate::read::Read>,
+    image: Image<'_>,
+) -> Vec<crate::read::Read> {
+    let reads = reads
+        .into_iter()
+        .map(|value| Read {
+            text: value.text.clone(),
+            format: value.format.clone(),
+            addon: value.addon.clone(),
+            gs1: value.gs1.unwrap_or(false),
+            reader_initialization: value.reader_initialization.unwrap_or(false),
+            support: value.support,
+            polygon: value.polygon,
+            geometry_changed: false,
+            payload: value,
+        })
+        .collect();
+    let reads = consolidate(reads, image);
+    let ambiguous = reads
+        .iter()
+        .enumerate()
+        .any(|(i, a)| reads[..i].iter().any(|b| a.same_symbol(b)));
+    // Extend every accepted outline, but retain the original conflict policy.
+    // A display footprint must not suppress another distinct valid payload.
+    let selective = option_env!("TAPIRSCAN_TURBO_SELECTIVE_OUTLINES").is_some();
+    let reads = if ambiguous || selective || option_env!("TAPIRSCAN_TURBO_BAND_OUTLINES").is_none()
+    {
+        trace_footprints(
+            reads,
+            image,
+            ambiguous,
+            option_env!("TAPIRSCAN_TURBO_LEGACY_OUTLINES").is_none(),
+            (selective && !ambiguous).then_some(0.08),
+        )
+    } else {
+        // No ownership suppression occurs in the unambiguous footprint pass.
+        // Retain the confirmed source band instead of spending time on display extents.
+        reads
+    };
+    let reads = if ambiguous {
+        consolidate(reads, image)
+    } else {
+        reads
+    };
+    reads
         .into_iter()
         .map(|mut read| {
             read.payload.polygon = read.polygon;
@@ -848,6 +1049,67 @@ pub(crate) fn merge_primary(reads: &mut Vec<crate::Barcode>, image: Image<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "low")]
+    #[test]
+    fn contrast_shortcut_preserves_boundary_color_and_budget_semantics() {
+        for channels in [1, 3, 4] {
+            for contrast in [0_u8, 23, 24, 200] {
+                let mut pixels = vec![0; 80 * 64 * channels];
+                for y in 0..64 {
+                    for x in 0..80 {
+                        for c in 0..channels {
+                            pixels[(y * 80 + x) * channels + c] = if (x / 3 + y / 5 + c) % 2 == 0 {
+                                20
+                            } else {
+                                20 + contrast
+                            };
+                        }
+                    }
+                }
+                let image = Image {
+                    data: &pixels,
+                    width: 80,
+                    height: 64,
+                    channels,
+                    stride: 80 * channels,
+                };
+                for left in [
+                    [0., 0.],
+                    [2., 2.],
+                    [40., 31.],
+                    [-0.49, 10.],
+                    [-1., 20.],
+                    [79.4, 63.4],
+                ] {
+                    for right in [
+                        [79., 63.],
+                        [70., 10.],
+                        [2., 2.],
+                        [-1., 0.],
+                        [80., 64.],
+                        [40., 31.],
+                    ] {
+                        for budget in [0, 63, 64, 128, 4096] {
+                            let mut reference = Evidence {
+                                image,
+                                remaining: budget,
+                            };
+                            let mut candidate = Evidence {
+                                image,
+                                remaining: budget,
+                            };
+                            assert_eq!(
+                                candidate.has_contrast(left, right),
+                                reference.profile(left, right).is_some()
+                            );
+                            assert_eq!(candidate.remaining, reference.remaining);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn continuous_bands_merge_but_separators_and_supplements_preserve_products() {

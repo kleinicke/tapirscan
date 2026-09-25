@@ -11,6 +11,43 @@ struct Tile {
     yy: f64,
     angle: f64,
     active: bool,
+    growable: bool,
+}
+const CACHE_TILES: bool = option_env!("TAPIRSCAN_EXPERIMENT_TILE_CACHE").is_some();
+impl Tile {
+    fn classify(&mut self, threshold: f64) {
+        self.classify_policy(threshold, CACHE_TILES);
+    }
+    fn classify_policy(&mut self, threshold: f64, cached: bool) {
+        let energy = self.xx + self.yy;
+        if cached {
+            let coherence = if energy > 64. * 80. {
+                tensor_magnitude(self.xx, self.xy, self.yy) / (energy + 1.)
+            } else {
+                0.
+            };
+            self.growable = energy > 64. * 80. && coherence >= 0.4;
+            self.active = energy > 64. * 80. && coherence > threshold;
+            // All angle consumers reject inactive, non-growable tiles first.
+            self.angle = if self.active || self.growable {
+                0.5 * (2. * self.xy).atan2(self.xx - self.yy)
+            } else {
+                0.
+            };
+        } else {
+            self.angle = 0.5 * (2. * self.xy).atan2(self.xx - self.yy);
+            self.active = energy > 64. * 80.
+                && tensor_magnitude(self.xx, self.xy, self.yy) / (energy + 1.) > threshold;
+        }
+    }
+    fn can_grow(&self) -> bool {
+        if CACHE_TILES {
+            self.growable
+        } else {
+            let energy = self.xx + self.yy;
+            energy > 64. * 80. && tensor_magnitude(self.xx, self.xy, self.yy) / (energy + 1.) >= 0.4
+        }
+    }
 }
 #[derive(Clone, Copy)]
 struct Bounds {
@@ -119,6 +156,7 @@ pub struct GroupDiagnostic {
 
 mod groups;
 mod proposals;
+mod quick;
 mod raster;
 mod refinement;
 
@@ -134,11 +172,56 @@ impl Detector {
     pub fn has_stripe_evidence(&self) -> bool {
         self.raster.tiles.iter().any(|tile| tile.active)
     }
+    /// Existing coherent tiles near the top, bottom, left and right image edges.
+    /// Horizontal discovery needs mostly horizontal gradients, and conversely
+    /// for vertical discovery. This schedules additional work only; it never
+    /// suppresses an existing proposal or claims that an edge is fully searched.
+    #[must_use]
+    pub fn border_stripe_evidence(&self) -> [bool; 4] {
+        let raster = &self.raster;
+        let columns = raster.width.div_ceil(8);
+        let margin = crate::numeric::f64_usize((30. * raster.scale).ceil()) + 8;
+        let mut evidence = [false; 4];
+        for (index, tile) in raster.tiles.iter().enumerate() {
+            if !tile.active {
+                continue;
+            }
+            let (x, y) = (index % columns * 8, index / columns * 8);
+            if tile.angle.abs() <= std::f64::consts::FRAC_PI_4 {
+                evidence[0] |= y < margin;
+                evidence[1] |= raster.height.saturating_sub(y + 8) < margin;
+            } else {
+                evidence[2] |= x < margin;
+                evidence[3] |= raster.width.saturating_sub(x + 8) < margin;
+            }
+        }
+        evidence
+    }
     /// Detect the primary grid while retaining scratch storage for the next frame.
     /// # Errors
     /// Rejects unsupported image dimensions.
     pub fn detect(&mut self, im: ImageView<'_>) -> std::result::Result<Result, Error> {
         self.detect_grid(im, 768., false, |_| {})
+    }
+    /// Private experimental grid size; source decoding remains full resolution.
+    /// # Errors
+    /// Rejects unsupported image dimensions.
+    pub fn detect_fast(
+        &mut self,
+        im: ImageView<'_>,
+        dimension: f64,
+    ) -> std::result::Result<Result, Error> {
+        self.detect_grid(im, dimension.clamp(128., 768.), false, |_| {})
+    }
+    /// Sparse source-gradient hypotheses for private speed-tier experiments.
+    /// # Errors
+    /// Rejects unsupported image dimensions.
+    pub fn detect_sparse(
+        &mut self,
+        im: ImageView<'_>,
+        dimension: f64,
+    ) -> std::result::Result<Result, Error> {
+        quick::detect(&mut self.raster, im, dimension.clamp(64., 768.))
     }
     /// Detect the supplementary grid after the primary pass.
     /// # Errors
@@ -182,7 +265,67 @@ pub fn detect_secondary(im: ImageView<'_>) -> std::result::Result<Result, Error>
 
 #[cfg(test)]
 mod reuse_tests {
+    #[test]
+    fn cached_tiles_preserve_threshold_boundaries_and_used_angles() {
+        for energy in [0., 5119.999, 5120., 5120.001, 1_000_000.] {
+            for coherence in [0., 0.399_999, 0.4, 0.400_001, 0.6, 0.600_001, 0.65, 1.] {
+                for xy in [-1., 0., 1.] {
+                    for threshold in [0.60, 0.65] {
+                        let mut legacy = super::Tile {
+                            xx: energy * (1. + coherence) * 0.5,
+                            yy: energy * (1. - coherence) * 0.5,
+                            xy,
+                            ..super::Tile::default()
+                        };
+                        let mut cached = legacy.clone();
+                        legacy.classify_policy(threshold, false);
+                        cached.classify_policy(threshold, true);
+                        let e = legacy.xx + legacy.yy;
+                        let growable = e > 64. * 80.
+                            && super::tensor_magnitude(legacy.xx, legacy.xy, legacy.yy) / (e + 1.)
+                                >= 0.4;
+                        assert_eq!(legacy.active, cached.active);
+                        assert_eq!(growable, cached.growable);
+                        if cached.active || cached.growable {
+                            assert_eq!(legacy.angle.to_bits(), cached.angle.to_bits());
+                        }
+                    }
+                }
+            }
+        }
+    }
     use super::{Detector, ImageView, Result};
+    #[test]
+    fn border_evidence_tracks_axes_and_clears_between_images() {
+        let mut detector = Detector::default();
+        for side in 0..4 {
+            let mut data = vec![255; 256 * 256];
+            for y in 0..256 {
+                for x in 0..256 {
+                    let (along, across) = if side < 2 { (x, y) } else { (y, x) };
+                    let near = if side % 2 == 0 {
+                        across < 20
+                    } else {
+                        across >= 236
+                    };
+                    if near && (64..192).contains(&along) && along / 3 % 2 == 0 {
+                        data[y * 256 + x] = 0;
+                    }
+                }
+            }
+            detector
+                .detect(ImageView::new(&data, 256, 256, 1, 256).unwrap())
+                .unwrap();
+            let mut expected = [false; 4];
+            expected[side] = true;
+            assert_eq!(detector.border_stripe_evidence(), expected);
+            data.fill(255);
+            detector
+                .detect(ImageView::new(&data, 256, 256, 1, 256).unwrap())
+                .unwrap();
+            assert_eq!(detector.border_stripe_evidence(), [false; 4]);
+        }
+    }
     fn same(a: &Result, b: &Result) {
         assert_eq!(
             (a.omitted, a.limited, a.trace),
@@ -218,6 +361,12 @@ mod reuse_tests {
                 })
                 .collect();
             let image = ImageView::new(&pixels, width, height, channels, stride).unwrap();
+            for dimension in [64., 80., 128., 256., 320., 768.] {
+                same(
+                    &detector.detect_sparse(image, dimension).unwrap(),
+                    &Detector::default().detect_sparse(image, dimension).unwrap(),
+                );
+            }
             same(
                 &detector.detect(image).unwrap(),
                 &Detector::default().detect(image).unwrap(),

@@ -3,6 +3,10 @@
 #[cfg(not(feature = "low"))]
 mod detail;
 mod effort;
+#[cfg(feature = "low")]
+mod fast_linear;
+#[cfg(feature = "low")]
+mod fast_matrix;
 mod format_registry;
 mod geometry;
 mod linear_duplicates;
@@ -24,6 +28,22 @@ pub struct Image<'a> {
     pub height: usize,
     pub channels: usize,
     pub stride: usize,
+}
+impl Image<'_> {
+    /// Binary-fraction luminance used by detail and continuity evidence.
+    /// All weighted terms and their sum are exact integers below 65536.
+    #[inline]
+    pub(crate) fn fixed_luminance(self, offset: usize) -> f64 {
+        if self.channels == 1 {
+            f64::from(self.data[offset])
+        } else {
+            f64::from(
+                77 * u32::from(self.data[offset])
+                    + 150 * u32::from(self.data[offset + 1])
+                    + 29 * u32::from(self.data[offset + 2]),
+            ) / 256.
+        }
+    }
 }
 #[derive(Clone, Copy, Debug)]
 #[expect(
@@ -72,6 +92,8 @@ pub struct Scanner {
     regions: RegionScanner,
     localizer: barcode_research_core::stripes::Detector,
     additional_gray: Vec<u8>,
+    #[cfg(feature = "low")]
+    fast_profiles: barcode_research_core::fast_profile::Sampler,
     retail_rgba: Vec<u8>,
     #[cfg(not(feature = "low"))]
     recovery: recovery_core::region_scan::RegionScanner,
@@ -151,6 +173,28 @@ impl Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn integer_luminance_preserves_all_rgb_triples() {
+        for red in 0..=255_u8 {
+            for green in 0..=255_u8 {
+                for blue in 0..=255_u8 {
+                    let data = [red, green, blue];
+                    let image = Image {
+                        data: &data,
+                        width: 1,
+                        height: 1,
+                        channels: 3,
+                        stride: 3,
+                    };
+                    let expected =
+                        (77. * f64::from(red) + 150. * f64::from(green) + 29. * f64::from(blue))
+                            / 256.;
+                    assert_eq!(image.fixed_luminance(0).to_bits(), expected.to_bits());
+                }
+            }
+        }
+    }
+
     #[test]
     fn defaults_and_optional_regions() {
         let mut scanner = Scanner::default();

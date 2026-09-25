@@ -249,6 +249,96 @@ impl<'a> ImageView<'a> {
         }
     }
 }
+/// Exact source-luminance reuse for adjacent samples of one immutable image.
+/// The interpolation order and precision remain identical to `ImageView::bilinear`.
+pub(crate) struct BilinearCursor<'a> {
+    image: ImageView<'a>,
+    key: [usize; 4],
+    values: [f64; 4],
+}
+impl<'a> BilinearCursor<'a> {
+    pub(crate) fn new(image: ImageView<'a>) -> Self {
+        Self {
+            image,
+            key: [usize::MAX; 4],
+            values: [0.; 4],
+        }
+    }
+
+    #[expect(
+        clippy::inline_always,
+        reason = "Keep the same inlining policy as the source sampler; paired benchmarks decide whether cross-sample reuse is worthwhile."
+    )]
+    #[inline(always)]
+    pub(crate) fn sample(&mut self, x: f64, y: f64) -> f32 {
+        let image = self.image;
+        let x0 = x.floor();
+        let y0 = y.floor();
+        let fx = x - x0;
+        let fy = y - y0;
+        let (left, right, top, bottom) =
+            if cfg!(any(feature = "mode-low", feature = "mode-very-high"))
+                && x0 >= 0.
+                && y0 >= 0.
+                && x0 < crate::numeric::usize_f64(image.width - 1)
+                && y0 < crate::numeric::usize_f64(image.height - 1)
+            {
+                let left = crate::numeric::f64_usize(x0) * image.channels;
+                let top = crate::numeric::f64_usize(y0) * image.stride;
+                (left, left + image.channels, top, top + image.stride)
+            } else {
+                (
+                    crate::numeric::f64_usize(
+                        x0.clamp(0., crate::numeric::usize_f64(image.width - 1)),
+                    ) * image.channels,
+                    crate::numeric::f64_usize(
+                        (x0 + 1.).clamp(0., crate::numeric::usize_f64(image.width - 1)),
+                    ) * image.channels,
+                    crate::numeric::f64_usize(
+                        y0.clamp(0., crate::numeric::usize_f64(image.height - 1)),
+                    ) * image.stride,
+                    crate::numeric::f64_usize(
+                        (y0 + 1.).clamp(0., crate::numeric::usize_f64(image.height - 1)),
+                    ) * image.stride,
+                )
+            };
+        let key = [left, right, top, bottom];
+        if key != self.key {
+            let gray = |i: usize| {
+                if image.channels == 1 {
+                    f64::from(image.data[i])
+                } else {
+                    rgb_luminance(image.data[i], image.data[i + 1], image.data[i + 2])
+                }
+            };
+            let [old_left, old_right, old_top, old_bottom] = self.key;
+            let [tl, tr, bl, br] = self.values;
+            self.values = if top == old_top && bottom == old_bottom && left == old_right {
+                [tr, gray(top + right), br, gray(bottom + right)]
+            } else if top == old_top && bottom == old_bottom && right == old_left {
+                [gray(top + left), tl, gray(bottom + left), bl]
+            } else if left == old_left && right == old_right && top == old_bottom {
+                [bl, br, gray(bottom + left), gray(bottom + right)]
+            } else if left == old_left && right == old_right && bottom == old_top {
+                [gray(top + left), gray(top + right), tl, tr]
+            } else {
+                [
+                    gray(top + left),
+                    gray(top + right),
+                    gray(bottom + left),
+                    gray(bottom + right),
+                ]
+            };
+            self.key = key;
+        }
+        let [top_left, top_right, bottom_left, bottom_right] = self.values;
+        crate::numeric::f64_f32(
+            (top_left * (1. - fx) + top_right * fx) * (1. - fy)
+                + (bottom_left * (1. - fx) + bottom_right * fx) * fy,
+        )
+    }
+}
+
 /// # Errors
 /// Rejects zero/oversized dimensions, unsupported channel counts, short strides and size overflow.
 pub fn image_len(
@@ -403,6 +493,31 @@ impl Sampler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cursor_matches_uncached_bits_for_color_stride_boundary_and_direction() {
+        for channels in [1, 3, 4] {
+            for (width, height) in [(1, 1), (1, 7), (9, 1), (9, 7)] {
+                let stride = width * channels + 5;
+                let mut data = vec![0; stride * height];
+                for (i, byte) in data.iter_mut().enumerate() {
+                    *byte = u8::try_from((i * 71 + i / 3) % 256).unwrap();
+                }
+                let image = ImageView::new(&data, width, height, channels, stride).unwrap();
+                let mut cursor = BilinearCursor::new(image);
+                for direction in [1., -1.] {
+                    for i in 0..400 {
+                        let x = direction * (f64::from(i) / 23. - 2.);
+                        let y = (f64::from(i) / 31.).sin() * 8.;
+                        assert_eq!(
+                            cursor.sample(x, y).to_bits(),
+                            image.bilinear(x, y).to_bits()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn shared_bilinear_preserves_channels_stride_and_border_arithmetic() {
         for channels in [1usize, 3, 4] {

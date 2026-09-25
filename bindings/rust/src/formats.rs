@@ -41,6 +41,10 @@ impl Scanner {
         addons: EanAddOnPolicy,
     ) -> Result<EngineScan, Error> {
         validate(image, mask)?;
+        #[cfg(feature = "low")]
+        if crate::fast_linear::enabled(options, mask, addons) {
+            return crate::fast_linear::scan(self, image, options, mask);
+        }
 
         if mask == 1 && addons == EanAddOnPolicy::Ignore {
             return primary_result(&self.scan_with_options(image, options)?);
@@ -208,7 +212,7 @@ fn primary_reads(result: &crate::Result) -> Vec<Read> {
         .collect()
 }
 
-fn typed_result(
+pub(crate) fn typed_result(
     reads: Vec<Read>,
     unread: Vec<Region>,
     unfinished: bool,
@@ -445,6 +449,44 @@ pub(crate) fn uncovered_mask(
         })
 }
 
+/// Broad selections also retain the existing full-image readers, including their
+/// complementary linear detections. Pure `Common1D` never pays for this pass.
+#[cfg(feature = "low")]
+pub(crate) fn fast_additional(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    options: ScanOptions,
+    mask: u32,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    let (scans, _) = scan_additional(
+        image,
+        mask,
+        EanAddOnPolicy::Ignore,
+        &mut scanner.additional_gray,
+    )?;
+    let mut reads = Vec::new();
+    let mut unread = Vec::new();
+    for scan in scans {
+        reads.extend(scan.barcodes.into_iter().map(Read::additional));
+        if options.include_regions {
+            unread.extend(scan.regions.into_iter().map(|region| Region {
+                format: region.format,
+                text: region.text,
+                polygon: region.polygon.map(|point| point.map(f64::from)),
+                support: region.support as u64,
+                localization_score: Some(f64::from(region.localization_score)),
+            }));
+        }
+    }
+    let reads = distinct(reads);
+    unread.retain(|region| {
+        !reads
+            .iter()
+            .any(|read| overlap_quads(&region.polygon, &read.polygon).1 >= 0.65)
+    });
+    Ok((reads, distinct_regions(unread)))
+}
+
 /// Run the linear reader before primary discovery so strong reads can guide deep retries.
 fn scan_additional(
     image: Image<'_>,
@@ -479,6 +521,19 @@ fn scan_additional(
         if selected == 0 {
             continue;
         }
+        #[cfg(feature = "low")]
+        let scan = if option_env!("TAPIRSCAN_EXPERIMENTAL_TURBO").is_some() && selected == matrix {
+            crate::fast_matrix::scan(pixels, image.width, image.height, selected, level)
+        } else {
+            barcode_multiformat::scan(
+                pixels,
+                image.width,
+                image.height,
+                selected | addons.engine_bits(),
+                level,
+            )
+        };
+        #[cfg(not(feature = "low"))]
         let scan = barcode_multiformat::scan(
             pixels,
             image.width,
