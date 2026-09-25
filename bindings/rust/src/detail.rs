@@ -304,29 +304,68 @@ fn span(p: Quad) -> f64 {
     let dy = p[1][1] - p[0][1];
     (dx * (p[3][1] - p[0][1]) - dy * (p[3][0] - p[0][0])).abs() / dx.hypot(dy).max(1e-9)
 }
-// Keep the pinned JavaScript equations and operation order directly comparable.
+// Threefold center sampling has weights 0, 1/3 and 2/3. For byte pixels,
+// the two-dimensional numerator is an integer in 0..=2295 over denominator 9.
+// It cannot land on a half-integer (minimum distance 1/18). At the bounded
+// 256-pixel crop size, legacy f64 coordinate/interpolation error is far below
+// that margin, so integer rounding gives the identical output byte.
 #[allow(clippy::many_single_char_names)]
 fn upscale(im: Image<'_>, x: usize, y: usize, w: usize, h: usize) -> Vec<u8> {
+    debug_assert!((1..=256).contains(&w) && (1..=256).contains(&h));
+    let axis = |index: usize, length: usize| {
+        let base = index / 3;
+        let phase = index % 3;
+        let left = if phase == 0 {
+            base.saturating_sub(1)
+        } else {
+            base
+        };
+        let fraction = if index == 0 { 0_u16 } else { [2, 0, 1][phase] };
+        (left, (left + 1).min(length - 1), fraction)
+    };
+    let output_width = w * 3;
+    let columns: Vec<_> = (0..output_width)
+        .map(|col| {
+            let (left, right, fraction) = axis(col, w);
+            (
+                (x + left) * im.channels,
+                (x + right) * im.channels,
+                fraction,
+            )
+        })
+        .collect();
+    let horizontal = |source_row: usize, values: &mut [[u16; 3]]| {
+        let row = &im.data[source_row * im.stride..];
+        for (&(left, right, fraction), rgb) in columns.iter().zip(values) {
+            for (channel, value) in rgb.iter_mut().enumerate() {
+                let channel = if im.channels == 1 { 0 } else { channel };
+                *value = u16::from(row[left + channel]) * (3 - fraction)
+                    + u16::from(row[right + channel]) * fraction;
+            }
+        }
+    };
+    let mut top = vec![[0; 3]; output_width];
+    let mut bottom = vec![[0; 3]; output_width];
+    let mut cached_row = None;
     let mut data = vec![0; w * h * 9 * 4];
     for row in 0..h * 3 {
-        let sy = ((row as f64 + 0.5) / 3. - 0.5).clamp(0., (h - 1) as f64);
-        let y0 = sy.floor() as usize;
-        let y1 = (y0 + 1).min(h - 1);
-        let fy = sy - y0 as f64;
-        for col in 0..w * 3 {
-            let sx = ((col as f64 + 0.5) / 3. - 0.5).clamp(0., (w - 1) as f64);
-            let x0 = sx.floor() as usize;
-            let x1 = (x0 + 1).min(w - 1);
-            let fx = sx - x0 as f64;
-            for c in 0..4 {
-                let a = pixel(im, x + x0, y + y0, c);
-                let b = pixel(im, x + x1, y + y0, c);
-                let d = pixel(im, x + x0, y + y1, c);
-                let e = pixel(im, x + x1, y + y1, c);
-                data[(row * w * 3 + col) * 4 + c] = ((a * (1. - fx) + b * fx) * (1. - fy)
-                    + (d * (1. - fx) + e * fx) * fy)
-                    .round() as u8;
+        let (y0, y1, fraction) = axis(row, h);
+        if cached_row != Some(y0) {
+            if cached_row.is_some_and(|previous| previous + 1 == y0) {
+                std::mem::swap(&mut top, &mut bottom);
+            } else {
+                horizontal(y + y0, &mut top);
             }
+            horizontal(y + y1, &mut bottom);
+            cached_row = Some(y0);
+        }
+        let output = &mut data[row * output_width * 4..(row + 1) * output_width * 4];
+        for ((a, b), rgba) in top.iter().zip(&bottom).zip(output.chunks_exact_mut(4)) {
+            for channel in 0..3 {
+                rgba[channel] =
+                    ((a[channel] * (3 - fraction) + b[channel] * fraction + 4) / 9) as u8;
+            }
+            rgba[3] = 255;
         }
     }
     data
@@ -516,6 +555,111 @@ pub fn recover(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn integer_upscale_exhaustive_pairs_and_two_dimensional_palette() {
+        for a in 0..=255_u8 {
+            for b in 0..=255_u8 {
+                let data = [a, b];
+                for (width, height) in [(2, 1), (1, 2)] {
+                    let image = Image {
+                        data: &data,
+                        width,
+                        height,
+                        channels: 1,
+                        stride: width,
+                    };
+                    assert_eq!(
+                        upscale(image, 0, 0, width, height),
+                        reference_upscale(image, 0, 0, width, height)
+                    );
+                }
+            }
+        }
+        for key in 0..65536_u32 {
+            let data = std::array::from_fn::<_, 4, _>(|i| (((key >> (i * 4)) & 15) * 17) as u8);
+            let image = Image {
+                data: &data,
+                width: 2,
+                height: 2,
+                channels: 1,
+                stride: 2,
+            };
+            assert_eq!(
+                upscale(image, 0, 0, 2, 2),
+                reference_upscale(image, 0, 0, 2, 2)
+            );
+        }
+    }
+
+    #[test]
+    fn integer_upscale_coordinate_error_stays_below_rounding_margin() {
+        for size in 1..=256 {
+            for index in 0..size * 3 {
+                let exact = ((f64::from(index) + 0.5) / 3. - 0.5).clamp(0., f64::from(size - 1));
+                let expected = ((f64::from(index) - 1.) / 3.).clamp(0., f64::from(size - 1));
+                assert!((exact - expected).abs() < 1e-12);
+                // Compare to an exactly representable integer grid as well:
+                // this bounds error against the rational coordinate itself.
+                let numerator = (index - 1).clamp(0, (size - 1) * 3);
+                assert!((exact * 3. - f64::from(numerator)).abs() < 1e-12);
+            }
+        }
+        // Integer numerators over an odd denominator cannot be rounding ties.
+        for numerator in 0..=2295 {
+            let value = f64::from(numerator) / 9.;
+            assert!((value - value.floor() - 0.5).abs() > 0.05);
+        }
+    }
+
+    #[test]
+    fn cached_upscale_preserves_every_output_byte() {
+        for channels in [1, 3, 4] {
+            for (width, height) in [(1, 1), (2, 3), (17, 11), (127, 253), (254, 255), (256, 256)] {
+                let stride = (width + 4) * channels + 3;
+                let data: Vec<u8> = (0..stride * (height + 5))
+                    .map(|i| u8::try_from((i * 37 + i / 3) % 256).unwrap())
+                    .collect();
+                let image = Image {
+                    data: &data,
+                    width: width + 4,
+                    height: height + 5,
+                    channels,
+                    stride,
+                };
+                assert_eq!(
+                    upscale(image, 2, 3, width, height),
+                    reference_upscale(image, 2, 3, width, height)
+                );
+            }
+        }
+    }
+
+    #[allow(clippy::many_single_char_names)]
+    fn reference_upscale(im: Image<'_>, x: usize, y: usize, w: usize, h: usize) -> Vec<u8> {
+        let mut data = vec![0; w * h * 9 * 4];
+        for row in 0..h * 3 {
+            let sy = ((row as f64 + 0.5) / 3. - 0.5).clamp(0., (h - 1) as f64);
+            let y0 = sy.floor() as usize;
+            let y1 = (y0 + 1).min(h - 1);
+            let fy = sy - y0 as f64;
+            for col in 0..w * 3 {
+                let sx = ((col as f64 + 0.5) / 3. - 0.5).clamp(0., (w - 1) as f64);
+                let x0 = sx.floor() as usize;
+                let x1 = (x0 + 1).min(w - 1);
+                let fx = sx - x0 as f64;
+                for c in 0..4 {
+                    let a = pixel(im, x + x0, y + y0, c);
+                    let b = pixel(im, x + x1, y + y0, c);
+                    let d = pixel(im, x + x0, y + y1, c);
+                    let e = pixel(im, x + x1, y + y1, c);
+                    data[(row * w * 3 + col) * 4 + c] = ((a * (1. - fx) + b * fx) * (1. - fy)
+                        + (d * (1. - fx) + e * fx) * fy)
+                        .round() as u8;
+                }
+            }
+        }
+        data
+    }
 
     #[test]
     fn short_retail_coverage_preserves_small_or_weak_detail_recovery() {
