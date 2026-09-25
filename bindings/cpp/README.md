@@ -67,7 +67,7 @@ coordinates; support is not a probability. Repeated `barcodes()`/`best()` calls
 copy reads again. Store the returned vector when reusing it. There are no image
 loading, values-only or rectangle helpers. Decode image files before scanning.
 
-The CMake install is version 1.2.1 and includes the matching ABI-4 library. Effort
+The CMake install is version 1.2.2 and includes the matching ABI-4 library. Effort
 is selected by linking one mode, unlike Python/Java's runtime selection. CMake
 installation works locally; Conan/vcpkg distribution is not yet provided.
 

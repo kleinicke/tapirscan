@@ -150,9 +150,18 @@ physical ownership. Lower-ranked or tied supported linear interpretations using
 the same distributed source bars are suppressed, including different payloads
 and formats; distinct supplement/reader metadata remains separate. Stable
 support order breaks ties. The whole additional pass is capped at 262,144 source
-samples, and trace length is capped at 768 pixels per direction. Returned quads
+samples, and each direction is capped at 1,536 cross-sections. Returned quads
 approximate curved boundaries; they are not pixel-exact masks or certificates
 that unseen/occluded bars were recovered.
 
 This pass runs after decoding. It does not skip pending search candidates;
 that requires separately verified coverage in the search scheduler.
+
+The selected 2026-09-24 revision uses adaptive cross-section spacing for symbols
+at least 512 source pixels wide. Width/contrast measurements advance by up to
+six pixels while intervening ink is checked with interpolated half-pixel samples.
+Both outside tracks must finish before accepting a large-symbol envelope.
+Endpoint lookahead and illumination adaptation scale with bar width and physical
+advance. Smaller symbols keep the original half-pixel tracing policy. The shared
+262,144-sample budget is unchanged. See
+[the current selection and validation status](../docs/FOOTPRINT_PROMOTION_20260924.md).

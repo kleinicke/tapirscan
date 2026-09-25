@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Tapirscan VERSION 1.2.1 LANGUAGES C CXX)
+project(Tapirscan VERSION 1.2.2 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 set(BARCODE_MODE medium CACHE STRING "Scanner mode: low, medium, high or very-high")

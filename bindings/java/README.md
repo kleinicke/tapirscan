@@ -8,7 +8,7 @@ describes native library lookup and its arena lifetime.
 ```sh
 python3 scripts/build_native.py low medium high very-high
 python3 scripts/build_java.py
-# Output: build/java/tapirscan-1.2.1.jar
+# Output: build/java/tapirscan-1.2.2.jar
 # Alternatively, with Maven installed: mvn -f bindings/java/pom.xml package
 ```
 
@@ -29,7 +29,7 @@ try (var scanner = new Tapirscan(Path.of("/absolute/path/to/build/native"),
 ```
 
 Run classpath applications with `--enable-native-access=ALL-UNNAMED`. For example:
-`java --enable-native-access=ALL-UNNAMED -cp tapirscan-1.2.1.jar:app.jar Main`
+`java --enable-native-access=ALL-UNNAMED -cp tapirscan-1.2.2.jar:app.jar Main`
 (use `;` as the classpath separator on Windows).
 
 The JAR contains Java classes; provide the four native libraries separately. Mode
@@ -73,7 +73,7 @@ Points use input-image coordinates. Empty barcodes means no read. Unlike the
 Python/JS convenience APIs, there is no values-only accessor, rectangle helper or
 image decoder. Decode JPEG/TIFF using an image library before passing pixel bytes.
 
-The binding is current with native ABI 4 and library version 1.2.1, but no Maven
+The binding is current with native ABI 4 and library version 1.2.2, but no Maven
 Central package or bundled native JAR is published. JDK 22+ and separate native
 libraries are requirements, not optional optimizations. See [validation](../../docs/VALIDATION.md).
 

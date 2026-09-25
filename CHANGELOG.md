@@ -1,18 +1,24 @@
 # Release notes
 
-## Unreleased: Low implementation update
+## 1.2.2 — 2026-09-25
 
-- Public `low` now uses the original Turbo policy across all bindings. Medium,
-  High and Very High retain their existing behavior. No Turbo API names added.
-- The former Low is named TS-Low Classic and retained as a fixed demo comparison.
-- Demo scanner cards can be paused without disappearing; More scanners controls
-  visibility. Basic ZXing and ZXing-JS comparisons are separate optional readers.
-
-## Unreleased
+- Public `low` now uses the original Turbo policy across all bindings; higher
+  effort modes remain available. Low prioritizes speed and can miss difficult
+  symbols; Medium remains the default API mode. The previous Low is
+  TS-Low Classic in the demo. Experimental Turbo tiers remain demo-only.
+- Demo cards pause without disappearing; More scanners controls visibility.
+  Basic ZXing and ZXing-JS readers are separate optional comparisons.
 
 - Speed up Medium, High and Very High recovery crops with pixel-identical integer interpolation and cached rows; retain existing APIs and scan behavior.
 
-## 1.2.1 — 2026-09-19
+- Recover fuller barcode display outlines with bounded profile agreement when strict bar tracing fails, including high-resolution photos.
+
+- Measure high-resolution linear barcode extents with adaptive cross-section spacing and outer-edge priority under the existing sample budget.
+
+- Measure full visible linear-bar extents and reconcile competing interpretations through connected source-bar footprints.
+
+- Reconcile crossing linear reads through distributed source-bar ownership while preserving earlier duplicate proofs.
+- Suppress weak ITF interpretations when supported retail reads demonstrably occupy the same bars.
 
 - Follow changing bar widths when consolidating folded linear observations.
 - Reuse well-resolved EAN8/UPC-E coverage before enlarged detail rescans, while
@@ -37,6 +43,8 @@
   physical identity/conflict resolution into concrete stages.
 - Assemble native results on typed data, including supplements, ordering and unread
   regions. JSON serialization is limited to outputs and optional diagnostics.
+
+## 1.2.1 — 2026-09-19
 
 - Enable retail formats (EAN13, UPCA, EAN8 and UPCE) by default across all public
   bindings. Explicit EAN13 selection retains its existing reader path.

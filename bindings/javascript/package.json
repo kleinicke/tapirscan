@@ -1,6 +1,6 @@
 {
   "name": "tapirscan",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "type": "module",
   "description": "Orientation-aware barcode scanning with a Rust/WASM core and four effort modes",
   "exports": {
@@ -13,10 +13,10 @@
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-public-low-turbo-20260925.wasm",
-    "wasm/medium-public-low-turbo-20260925.wasm",
-    "wasm/high-public-low-turbo-20260925.wasm",
-    "wasm/very-high-public-low-turbo-20260925.wasm"
+    "wasm/low-public-low-turbo-working-20260925.wasm",
+    "wasm/medium-public-low-turbo-working-20260925.wasm",
+    "wasm/high-public-low-turbo-working-20260925.wasm",
+    "wasm/very-high-public-low-turbo-working-20260925.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

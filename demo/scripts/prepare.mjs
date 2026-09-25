@@ -21,14 +21,23 @@ const experimental = [turbo, ...(turbo.previous ?? []), ...(turbo.variants ?? []
 assets.push(...experimental.map(({ file, sha256 }) => [file, sha256]));
 const loaded = await Promise.all(
   assets.map(async ([file, hash]) => {
-    const bytes = await readFile(
-      new URL(
-        (experimental.some((entry) => entry.file === file)
-          ? "build/demo-experiments/"
-          : "bindings/javascript/wasm/") + file,
-        root,
-      ),
+    const local = new URL(
+      (experimental.some((entry) => entry.file === file)
+        ? "build/demo-experiments/"
+        : "bindings/javascript/wasm/") + file,
+      root,
     );
+    let bytes;
+    try {
+      bytes = await readFile(local);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      // Archived demo engines are immutable and verified against the registry below.
+      const response = await fetch(`https://tapirscan.f-kleinicke.de/engines/${file}`);
+      if (!response.ok)
+        throw Error(`Cannot fetch archived engine ${file}: ${response.status}`, { cause: error });
+      bytes = Buffer.from(await response.arrayBuffer());
+    }
     if (createHash("sha256").update(bytes).digest("hex") !== hash)
       throw Error(`Engine hash mismatch: ${file}`);
     return [file, bytes];

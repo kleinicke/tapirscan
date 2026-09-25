@@ -1,11 +1,13 @@
 # Releasing Tapirscan
 
-This checkout prepares **1.2.1**, which enables retail formats by default across
-the public bindings. It retains the 1.2.0 API revision and native ABI 4.
+This checkout prepares **1.2.2**, which promotes the original Turbo implementation to public Low and improves
+warped retail detection, duplicate suppression and redundant recovery work.
+Medium remains the default API mode; TS-Low Classic names the previous Low in the demo. It retains the 1.2.1 retail defaults, 1.2.0 API
+revision and native ABI 4.
 See [API migration](API_MIGRATION.md); select EAN13 explicitly to retain the
 previous default format selection.
 
-All release-owned manifests and artifact names use 1.2.1. The demo is already
+All release-owned manifests and artifact names use 1.2.2. The demo is already
 public at [tapirscan.netlify.app](https://tapirscan.netlify.app). Publishing the
 library, publishing a GitHub release, and updating the demo are separate actions.
 
@@ -101,7 +103,7 @@ The separate `publish.yml` workflow publishes only when explicitly selected.
    and all five wheel platforms. It also checks Python distribution metadata and
    installs the npm tarball. Download the resulting `release-bundle` artifact:
    it contains `npm/`, `wheels/`, and `SHA256SUMS`.
-3. Review this exact bundle, then tag the validated commit `v1.2.1` and push the
+3. Review this exact bundle, then tag the validated commit `v1.2.2` and push the
    tag. Run the publication workflow **from that tag**, supplying the same two
    successful build run IDs. Select `pypi`, `npm`, or `both` once the corresponding
    trusted publishers are configured. Jobs use the `pypi` and `npm` GitHub
@@ -112,7 +114,7 @@ The separate `publish.yml` workflow publishes only when explicitly selected.
 ```sh
 # From the downloaded release-bundle directory:
 npm login
-npm publish npm/tapirscan-1.2.1.tgz --access public
+npm publish npm/tapirscan-1.2.2.tgz --access public
 ```
 
 This publishes the already-tested tarball without rebuilding it. Use only the
@@ -127,7 +129,7 @@ Rust publication is handled separately below.
 
 ## Rust crate
 
-The Rust crate uses version 1.2.1 too. Preparation packages all four exact
+The Rust crate uses version 1.2.2 too. Preparation packages all four exact
 mode recipes and the multiformat readers into one crate. Internal source copies
 are generated only for distribution; edit `bindings/rust/api` for the public API
 and keep scanner changes under the normal promotion procedure.
@@ -143,7 +145,7 @@ python3 scripts/test_rust_package.py build/crates/tapirscan
 cargo +1.91.1 publish --dry-run --manifest-path build/crates/tapirscan/Cargo.toml
 ```
 
-Inspect `target/package/tapirscan-1.2.1.crate` inside the prepared package. It must
+Inspect `target/package/tapirscan-1.2.2.crate` inside the prepared package. It must
 contain only Rust sources, manifests, license, README, tests, small text fixtures
 and provenance. No native binaries, private images, model weights, credentials or
 repository-relative dependencies belong in the archive. The generated build
@@ -158,7 +160,7 @@ cargo +1.91.1 publish --locked --manifest-path build/crates/tapirscan/Cargo.toml
 ```
 
 Cargo credentials stay outside the repository. Verify a fresh consumer using
-`tapirscan = "1.2.1"` from crates.io after publication. Publication is permanent
+`tapirscan = "1.2.2"` from crates.io after publication. Publication is permanent
 for a version; fixes need a new version. See the
 [Cargo publishing guide](https://doc.rust-lang.org/cargo/reference/publishing.html).
 
