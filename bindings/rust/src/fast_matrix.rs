@@ -11,6 +11,10 @@ pub(crate) fn scan(pixels: &[u8], width: usize, height: usize, mask: u32, effort
             bounds[1] = bounds[1].min(y);
             bounds[2] = bounds[2].max(right + 1);
             bounds[3] = y + 1;
+            // Bounds only grow. A busy frame cannot become eligible later.
+            if (bounds[2] - bounds[0]).max(bounds[3] - bounds[1]) > 512 {
+                return barcode_multiformat::scan(pixels, width, height, mask, effort);
+            }
         }
     }
     if bounds[0] == width {
@@ -28,7 +32,8 @@ pub(crate) fn scan(pixels: &[u8], width: usize, height: usize, mask: u32, effort
     let y1 = bounds[3].saturating_add(padding).min(height);
     let w = x1 - x0;
     let h = y1 - y0;
-    if w * h > width * height * 3 / 4 {
+    // A failed retry should cost only a small fraction of the source search.
+    if w.max(h) > 512 || w * h > width * height / 4 {
         return barcode_multiformat::scan(pixels, width, height, mask, effort);
     }
     let mut cropped = Vec::with_capacity(w * h);

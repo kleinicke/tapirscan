@@ -46,15 +46,16 @@ pipeline. The public API and release assets are separate from demo labels.
 
 All five retained private recipes use the same conservative 2D policy. After
 shared grayscale conversion, a constant frame needs no matrix search. Otherwise,
-when generous padding around all non-background pixels occupies at most 75% of
-the frame, scan that complete source-resolution crop. Do not stop after finding
+when generous padding around all non-background pixels occupies at most 25% of
+the frame and spans at most 512 pixels per side, scan that complete
+source-resolution crop. Busy foreground spans reject the crop early. Do not stop after finding
 a first symbol. Failed crops and crops with unresolved regions run the original
 full-source search. Translate successful crop geometry back to source pixels and
 report unfinished work. Busy images keep the full-source readers.
 
 This preserves small modules and improves sparse-frame performance, but crop
 context changes can affect detection. On 2,821 development images it retained
-all 683 baseline 2D reads and added five QR reads. On 95 full-HD synthetic controls
+all 683 baseline 2D reads without added or lost payloads. On 95 full-HD synthetic controls
 it preserved all 89 baseline reads, including rotated and unequal-sized copies;
 QR, Data Matrix, PDF417 and Aztec passed every control. MaxiCode retained its
 existing misses. Do not describe this as exhaustive decoding or uniform speedup
