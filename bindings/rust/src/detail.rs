@@ -584,6 +584,35 @@ pub fn recover(
     })
 }
 
+/// Cheap unrectified source bands; later decoding retains ordinary confirmation.
+#[cfg(any(feature = "high", feature = "very-high"))]
+pub(crate) fn source_bands(im: Image<'_>, known: &[Read]) -> Vec<Proposal> {
+    let points = seeds(im);
+    let mut out = Vec::new();
+    for seed in &points {
+        if seed.score < points[0].score * 0.3
+            || known
+                .iter()
+                .any(|read| covered(im, [seed.x, seed.y], read.polygon))
+        {
+            continue;
+        }
+        let angle = refined_angle(im, *seed);
+        let (c, s) = (angle.cos(), angle.sin());
+        for half in [128., 256.] {
+            let polygon = [[-half, -32.], [half, -32.], [half, 32.], [-half, 32.]]
+                .map(|[u, v]| [seed.x + u * c - v * s, seed.y + u * s + v * c]);
+            if evidence(im, polygon, true, 32) >= 32 {
+                out.push(Proposal {
+                    polygon,
+                    score: seed.score,
+                });
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -712,33 +741,4 @@ mod tests {
         assert!(!resolved_retail(&Read::retail(digits, polygon(150.), 8)));
         assert!(resolved_retail(&Read::retail(digits, polygon(180.), 4)));
     }
-}
-
-/// Cheap unrectified source bands; later decoding retains ordinary confirmation.
-#[cfg(any(feature = "high", feature = "very-high"))]
-pub(crate) fn source_bands(im: Image<'_>, known: &[Read]) -> Vec<Proposal> {
-    let points = seeds(im);
-    let mut out = Vec::new();
-    for seed in &points {
-        if seed.score < points[0].score * 0.3
-            || known
-                .iter()
-                .any(|read| covered(im, [seed.x, seed.y], read.polygon))
-        {
-            continue;
-        }
-        let angle = refined_angle(im, *seed);
-        let (c, s) = (angle.cos(), angle.sin());
-        for half in [128., 256.] {
-            let polygon = [[-half, -32.], [half, -32.], [half, 32.], [-half, 32.]]
-                .map(|[u, v]| [seed.x + u * c - v * s, seed.y + u * s + v * c]);
-            if evidence(im, polygon, true, 32) >= 32 {
-                out.push(Proposal {
-                    polygon,
-                    score: seed.score,
-                });
-            }
-        }
-    }
-    out
 }
