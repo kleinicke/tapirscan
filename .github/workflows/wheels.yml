@@ -16,6 +16,7 @@ jobs:
         shell: bash
     env:
       RUSTUP_TOOLCHAIN: 1.91.1
+      PYTHONUTF8: "1"
       MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +59,7 @@ jobs:
     container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
     env:
       RUSTUP_TOOLCHAIN: 1.91.1
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Set Python and Rust paths
