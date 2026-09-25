@@ -6,7 +6,7 @@ mod effort;
 #[cfg(feature = "low")]
 mod fast_linear;
 #[cfg(feature = "low")]
-mod fast_matrix;
+mod fast_sparse;
 mod format_registry;
 mod geometry;
 mod linear_duplicates;

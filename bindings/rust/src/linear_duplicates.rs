@@ -701,10 +701,15 @@ struct Read<T> {
 impl<T> Read<T> {
     fn supported(&self) -> bool {
         !self.text.is_empty()
-            && matches!(
+            && (matches!(
                 self.format.as_str(),
                 "EAN13" | "UPCA" | "EAN8" | "UPCE" | "Code128" | "Code39" | "ITF"
-            )
+            ) || (cfg!(feature = "low")
+                && option_env!("TAPIRSCAN_EXPERIMENTAL_TURBO").is_some()
+                && matches!(
+                    self.format.as_str(),
+                    "Codabar" | "Code93" | "DataBar" | "DataBarExpanded"
+                )))
     }
     fn same_symbol(&self, other: &Self) -> bool {
         self.text == other.text

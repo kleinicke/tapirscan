@@ -1,4 +1,4 @@
-//! Experimental `Common1D` fast path. Deliberately bounded, always reports deferred work.
+//! Private oriented linear fast path. Deliberately bounded, always reports deferred work.
 use crate::{
     read::{Read, ReaderPayload, Region},
     Error, Image, ImageView, Quad, ScanOptions, Scanner,
@@ -25,7 +25,7 @@ pub(crate) fn enabled(
     addons: crate::formats::EanAddOnPolicy,
 ) -> bool {
     option_env!("TAPIRSCAN_EXPERIMENTAL_TURBO").is_some()
-        && mask & 127 != 0
+        && mask & crate::format_registry::LINEAR_MASK != 0
         && addons == crate::formats::EanAddOnPolicy::Ignore
         && !options.finish_candidates
 }
@@ -76,7 +76,7 @@ struct Observation {
     dense: bool,
 }
 fn required_support(format: &str) -> u64 {
-    if matches!(format, "ITF" | "Code39") {
+    if matches!(format, "ITF" | "Code39" | "Codabar") {
         3
     } else {
         2
@@ -158,7 +158,7 @@ pub(crate) fn scan(
             quad: q,
             dense: false,
             localized: proposal.score > 0. || matches!(TIER, 8 | 16),
-            mask: mask & 127,
+            mask: mask & crate::format_registry::LINEAR_MASK,
             remaining: continuity_budget,
             observations: Vec::new(),
             row_positions: Vec::new(),
@@ -274,7 +274,7 @@ fn border_discovery(
                 quad: q,
                 dense: false,
                 localized: false,
-                mask: mask & 127,
+                mask: mask & crate::format_registry::LINEAR_MASK,
                 remaining: budget,
                 observations: Vec::new(),
                 row_positions: Vec::new(),

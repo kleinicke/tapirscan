@@ -68,3 +68,23 @@ measurements, rejected shortcuts and Medium transfer ideas live in the sibling
 experiment workspace under `common1d-turbo-tiers-20260925`,
 `common1d-turbo16-32-20260925` and `turbo-2d-integration-20260925`.
 These are development datasets, not unseen holdouts or phone performance claims.
+
+## Beyond Common
+
+Private builds also decode Codabar, Code93, DataBar and DataBar Expanded on
+oriented Turbo proposals. Codabar requires at least three distinct source-row
+confirmations. The existing pixel-continuity ownership checks now include these
+formats, preserving adjacent equal-payload symbols while consolidating repeated
+observations of the same physical barcode. Complementary full-image readers
+remain available, including their stacked DataBar handling.
+
+The bounded sparse-frame preparation is shared between additional linear and
+matrix readers. Each group independently retries the original source if its crop
+fails or retains unresolved regions; success in one group never suppresses the
+other group's recovery. Common1D-only decoding keeps its existing policy.
+
+These changes are private build recipes and do not add public API modes. The
+`turbo-all-formats-20260925` experiment in the sibling workspace records per-format
+quality, strict and presentation-normalized payload metrics, duplicate controls,
+paired Chrome timing and rejected alternatives. Tier numbers are still targets
+for Common1D work, not All-format speed guarantees.

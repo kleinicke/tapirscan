@@ -512,6 +512,10 @@ fn scan_additional(
         gray_image(image, gray)?;
         gray.as_slice()
     };
+    #[cfg(feature = "low")]
+    let sparse = (option_env!("TAPIRSCAN_EXPERIMENTAL_TURBO").is_some()
+        && (matrix != 0 || (linear & !127 != 0 && addons == EanAddOnPolicy::Ignore)))
+        .then(|| crate::fast_sparse::Prepared::new(pixels, image.width, image.height));
     let mut scans = Vec::new();
     let mut coverage = Vec::new();
     for (selected, level) in [
@@ -522,8 +526,10 @@ fn scan_additional(
             continue;
         }
         #[cfg(feature = "low")]
-        let scan = if option_env!("TAPIRSCAN_EXPERIMENTAL_TURBO").is_some() && selected == matrix {
-            crate::fast_matrix::scan(pixels, image.width, image.height, selected, level)
+        let scan = if let Some(sparse) = sparse.as_ref().filter(|_| {
+            selected == matrix || (selected & !127 != 0 && addons == EanAddOnPolicy::Ignore)
+        }) {
+            sparse.scan(selected, level)
         } else {
             barcode_multiformat::scan(
                 pixels,
