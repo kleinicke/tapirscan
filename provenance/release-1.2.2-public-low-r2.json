@@ -129,7 +129,7 @@
     "core/src/verified_coverage.rs": "4bde29d0229b0497fac0d064ca1855fa61198465151cc75f022d7556c0cc090d",
     "core/src/warp.rs": "3378185d019fb7576ea0262d104b0dc7135664a4050257ac31d4a801fd76e650",
     "core/tests/row_group.rs": "bea3d6907db6430c4dd18933f07502fa285f74f2b88cc38a3362f6719321323e",
-    "demo/scripts/prepare.mjs": "8863ab0321d7732f4143c1d041c2f3032c538a70c7cda01d30cd201f50d5bfa2",
+    "demo/scripts/prepare.mjs": "fbf41df5605f6be86ebf4c745a54453e352a6d5671e8e092a906c507757d68a3",
     "demo/scripts/test-worker.mjs": "9e313a3831530873137cd9b4ca0c0523c42cbcadde9cde0fe7569ebb89ef7894",
     "docs/COMPARING_SCANNERS.md": "d1dd15d5e23215b59ba41ddb1a6f92a0a34d6dc8ad44160d1bd822982ed5adde",
     "docs/EXPERIMENTAL_TURBO.md": "94f527c2036e772f3ccee0f6c703b9415dd72d69f194d994d53a6cf99cd3abe4",
