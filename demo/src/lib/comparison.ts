@@ -62,6 +62,30 @@ export const comparisonOptions: ComparisonSpec[] = [
     engine: "classical",
     version: "very-high",
   },
+  {
+    id: "ts-med-next",
+    label: "ts-med-next",
+    color: "#ff947d",
+    engine: "classical",
+    version: "medium",
+    releaseVersion: "1.2.2+recovery.20260925",
+  },
+  {
+    id: "ts-high-next",
+    label: "ts-high-next",
+    color: "#ffd08a",
+    engine: "classical",
+    version: "high",
+    releaseVersion: "1.2.2+recovery.20260925",
+  },
+  {
+    id: "ts-vhigh-next",
+    label: "ts-vhigh-next",
+    color: "#ffa4d1",
+    engine: "classical",
+    version: "very-high",
+    releaseVersion: "1.2.2+recovery.20260925",
+  },
 ];
 
 /** Keep each selected reader's last result for this source, in a fixed display order. */

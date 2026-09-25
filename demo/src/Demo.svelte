@@ -217,6 +217,9 @@
     "nano",
     "quality",
     "veryhigh",
+    "ts-med-next",
+    "ts-high-next",
+    "ts-vhigh-next",
     "jsqr",
     "native",
     "quagga",
@@ -1597,7 +1600,7 @@
             bind:value={releaseVersion}
             on:change={changeVersion}
           >
-            {#each scannerVersions.versions as release (release.version)}<option
+            {#each scannerVersions.versions.filter((release) => !("preview" in release && release.preview)) as release (release.version)}<option
                 value={release.version}>{release.label}</option
               >{/each}
           </select>

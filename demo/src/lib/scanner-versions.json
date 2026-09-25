@@ -1,10 +1,10 @@
 {
-  "default": "1.2.2+recovery.20260925",
+  "default": "1.2.2+release.20260925",
   "versions": [
     {
       "version": "1.2.2+recovery.20260925",
       "label": "Recovery preview",
-      "sourceDigest": "f22a3fcca5340600338bf63c68a9250d444b38f00bbfc207bf34fc0938d177e3",
+      "sourceDigest": "ce8c7496275639b366765fd97b4bedbd1d436ec066d4001badbbf77e553e69e0",
       "modes": [
         {
           "mode": "low",
@@ -30,7 +30,8 @@
           "sha256": "d56bf2aa7b9a0203383af564f10ec6f2b2b83b49135a435d683682eaf77cef09",
           "bytes": 1856129
         }
-      ]
+      ],
+      "preview": true
     },
     {
       "version": "1.2.2+release-r2.20260925",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { visibleResults } from "../src/lib/comparison.ts";
+import { comparisonOptions, visibleResults } from "../src/lib/comparison.ts";
 test("partial completions retain slow readers and fixed order, but never another source", () => {
   const order = ["fast", "zxing", "zbar"];
   const slow = { id: "zbar", contentRevision: 1, viewRevision: 1, value: "old" };
@@ -80,4 +80,30 @@ test("basic ZXing readers disable recovery independently of enhanced readers", a
     { harder: false, rotate: false, downscale: false, invert: false },
     { harder: true, rotate: true, downscale: false, invert: false },
   ]);
+});
+
+test("next scanners pin preview builds while standard names use official releases", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const registry = JSON.parse(
+    await readFile(new URL("../src/lib/scanner-versions.json", import.meta.url), "utf8"),
+  );
+  assert.equal(
+    registry.versions.find((entry) => entry.version === registry.default).preview,
+    undefined,
+  );
+  for (const [id, mode] of [
+    ["ts-med-next", "medium"],
+    ["ts-high-next", "high"],
+    ["ts-vhigh-next", "very-high"],
+  ]) {
+    const spec = comparisonOptions.find((entry) => entry.id === id);
+    assert.equal(spec.label, id);
+    assert.equal(spec.version, mode);
+    const release = registry.versions.find((entry) => entry.version === spec.releaseVersion);
+    assert.equal(release.preview, true);
+    assert.ok(release.modes.some((entry) => entry.mode === mode));
+  }
+  for (const id of ["fast", "quality", "veryhigh"]) {
+    assert.equal(comparisonOptions.find((entry) => entry.id === id).releaseVersion, undefined);
+  }
 });

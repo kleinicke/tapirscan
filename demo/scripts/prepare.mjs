@@ -10,9 +10,9 @@ if (apiWasm.schema !== 1 || apiWasm.apiVersion !== 1)
 const versions = JSON.parse(
   await readFile(new URL("demo/src/lib/scanner-versions.json", root), "utf8"),
 );
-const current = versions.versions.find((entry) => entry.version === versions.default);
+const current = versions.versions.find((entry) => entry.sourceDigest === apiWasm.sourceDigest);
 if (JSON.stringify(current?.modes) !== JSON.stringify(apiWasm.modes))
-  throw Error("Demo default version differs from the selected scanner build");
+  throw Error("Selected scanner build is missing from the demo version registry");
 const assets = versions.versions.flatMap((entry) =>
   entry.modes.map(({ file, sha256 }) => [file, sha256]),
 );
