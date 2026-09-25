@@ -13,10 +13,10 @@
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-release-1.2.2-public-low-r2.wasm",
-    "wasm/medium-release-1.2.2-public-low-r2.wasm",
-    "wasm/high-release-1.2.2-public-low-r2.wasm",
-    "wasm/very-high-release-1.2.2-public-low-r2.wasm"
+    "wasm/low-recovery-preview-20260925.wasm",
+    "wasm/medium-recovery-preview-20260925.wasm",
+    "wasm/high-recovery-preview-20260925.wasm",
+    "wasm/very-high-recovery-preview-20260925.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

@@ -30,6 +30,55 @@ impl EanAddOnPolicy {
 }
 
 impl Scanner {
+    #[cfg(not(feature = "low"))]
+    fn recover_linear_regions(
+        &mut self,
+        image: Image<'_>,
+        options: ScanOptions,
+        mask: u32,
+        primary: Option<&crate::Result>,
+        reads: &mut Vec<Read>,
+        unread: &mut Vec<Region>,
+    ) -> Result<(), Error> {
+        let proposals = if let Some(primary) = primary {
+            primary.proposals.clone()
+        } else {
+            let im = crate::ImageView::new(
+                image.data,
+                image.width,
+                image.height,
+                image.channels,
+                image.stride,
+            )?;
+            self.localizer.detect(im)?.proposals
+        };
+        let (found, pending) = crate::fast_linear::recover_proposals(
+            image,
+            &proposals,
+            mask & if crate::MODE_ID == 1 { 496 } else { 16 },
+            &mut self.fast_profiles,
+        )?;
+        reads.extend(found);
+        #[cfg(any(feature = "high", feature = "very-high"))]
+        if mask & 3 != 0 {
+            let bands = crate::detail::source_bands(image, reads);
+            let (extra, regions) = crate::fast_linear::recover_proposals(
+                image,
+                &bands,
+                mask & 3,
+                &mut self.fast_profiles,
+            )?;
+            reads.extend(extra);
+            if options.include_regions {
+                unread.extend(regions);
+            }
+        }
+        if options.include_regions {
+            unread.extend(pending);
+        }
+        Ok(())
+    }
+
     /// Scan selected formats into the shared typed result and optional raw diagnostics.
     /// # Errors
     /// Rejects invalid masks, image layouts, malformed reader output, and oversized inputs.
@@ -70,19 +119,7 @@ impl Scanner {
         };
         let mut reads = primary.as_ref().map_or_else(Vec::new, primary_reads);
         retain_requested_primary(&mut reads, mask);
-        if let Some(primary) = &primary {
-            reads.extend(
-                primary
-                    .retail
-                    .iter()
-                    .filter(|read| match read.format.as_str() {
-                        "EAN8" => mask & 4 != 0,
-                        "UPCE" => mask & 8 != 0,
-                        _ => false,
-                    })
-                    .cloned(),
-            );
-        }
+        extend_primary_retail(&mut reads, primary.as_ref(), mask);
         let mut unread = primary
             .as_ref()
             .map_or_else(Vec::new, |primary| unread_regions(primary, &reads));
@@ -103,6 +140,18 @@ impl Scanner {
                 }));
             }
             unfinished |= extra.unfinished;
+        }
+        #[cfg(not(feature = "low"))]
+        if mask & 511 != 0 && addons == EanAddOnPolicy::Ignore {
+            self.recover_linear_regions(
+                image,
+                options,
+                mask,
+                primary.as_ref(),
+                &mut reads,
+                &mut unread,
+            )?;
+            unfinished = true;
         }
         if had_extras {
             apply_supplement_policy(&mut reads, &mut unread, addons, options.include_regions);
@@ -504,7 +553,17 @@ fn scan_additional(
     }
     let linear = enabled & LINEAR_MASK;
     let matrix = enabled & !LINEAR_MASK;
-    let effort = [0, 1, 2, 2][crate::MODE_ID as usize];
+    // ITF needs the original angle coverage even with localized profile recovery.
+    let preserved = if crate::MODE_ID == 1 && addons == EanAddOnPolicy::Ignore {
+        linear & 64
+    } else {
+        0
+    };
+    let effort = if addons == EanAddOnPolicy::Ignore {
+        [0, 0, 2, 2]
+    } else {
+        [0, 1, 2, 2]
+    }[crate::MODE_ID as usize];
     let qr_effort = [0, 1, 2, 3][crate::MODE_ID as usize];
     let pixels = if image.channels == 1 && image.stride == image.width {
         &image.data[..image.width * image.height]
@@ -519,7 +578,8 @@ fn scan_additional(
     let mut scans = Vec::new();
     let mut coverage = Vec::new();
     for (selected, level) in [
-        (linear, effort),
+        (linear & !preserved, effort),
+        (preserved, 1),
         (matrix, if matrix & 512 != 0 { qr_effort } else { 1 }),
     ] {
         if selected == 0 {
@@ -547,7 +607,7 @@ fn scan_additional(
             selected | addons.engine_bits(),
             level,
         );
-        if selected == linear
+        if selected & LINEAR_MASK != 0
             && crate::MODE_ID != 0
             && mask & 3 != 0
             && addons == EanAddOnPolicy::Ignore
@@ -705,4 +765,20 @@ fn retain_requested_primary(reads: &mut Vec<Read>, mask: u32) {
             mask & 1 != 0
         }
     });
+}
+
+fn extend_primary_retail(reads: &mut Vec<Read>, primary: Option<&crate::Result>, mask: u32) {
+    if let Some(primary) = primary {
+        reads.extend(
+            primary
+                .retail
+                .iter()
+                .filter(|read| match read.format.as_str() {
+                    "EAN8" => mask & 4 != 0,
+                    "UPCE" => mask & 8 != 0,
+                    _ => false,
+                })
+                .cloned(),
+        );
+    }
 }

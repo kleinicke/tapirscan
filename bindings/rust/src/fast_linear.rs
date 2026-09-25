@@ -8,6 +8,7 @@ use barcode_research_core::numeric::usize_f64;
 
 // Build-only research selection, deliberately absent from every public API.
 // Cargo tracks this environment input; artifact manifests must record it.
+#[cfg(feature = "low")]
 const TIER: usize = match option_env!("TAPIRSCAN_TURBO_TIER") {
     Some(value) => match value.as_bytes() {
         [b'2'] => 2,
@@ -19,6 +20,10 @@ const TIER: usize = match option_env!("TAPIRSCAN_TURBO_TIER") {
     },
     None => 0,
 };
+#[cfg(not(feature = "low"))]
+const TIER: usize = 0;
+
+#[cfg(feature = "low")]
 pub(crate) fn enabled(
     options: ScanOptions,
     mask: u32,
@@ -113,6 +118,7 @@ fn full_frame_proposals(image: Image<'_>) -> [crate::Proposal; 2] {
     ]
 }
 
+#[cfg(feature = "low")]
 pub(crate) fn scan(
     scanner: &mut Scanner,
     image: Image<'_>,
@@ -742,7 +748,7 @@ fn supplement_ean(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<line
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "low"))]
 mod tests {
     use super::*;
 
@@ -1007,4 +1013,60 @@ mod tests {
             &mut 100_000
         ));
     }
+}
+
+/// Reuse confirmed oriented source profiles for localized regions in Medium, High and Very High.
+#[cfg(not(feature = "low"))]
+pub(crate) fn recover_proposals(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    let im = ImageView::new(
+        image.data,
+        image.width,
+        image.height,
+        image.channels,
+        image.stride,
+    )?;
+    let mut reads = Vec::new();
+    let mut refined = Vec::new();
+    let mut unread = Vec::new();
+    let mut continuity_budget = 131_072;
+    let mut refinement_budget = 32_768;
+    let mut refinement_lines = 0;
+    let mut dense_budget = 32_768;
+    let mut dense_lines = 0;
+    for proposal in proposals.iter().take(32) {
+        let mut candidate = Candidate {
+            image,
+            im,
+            quad: proposal.polygon,
+            mask,
+            dense: false,
+            localized: true,
+            remaining: continuity_budget,
+            observations: Vec::new(),
+            row_positions: Vec::new(),
+        };
+        for (row, &v) in ROWS.iter().enumerate() {
+            sample_line(&mut candidate, sampler, row, v);
+        }
+        continuity_budget = candidate.remaining;
+        let refined_count = candidate.refine(
+            sampler,
+            &mut refinement_budget,
+            &mut refinement_lines,
+            &mut dense_budget,
+            &mut dense_lines,
+        );
+        let before = reads.len() + refined.len();
+        candidate.append_confirmed(refined_count > 0, &mut reads, &mut refined);
+        if reads.len() + refined.len() == before {
+            unread.push(Region::unknown(proposal.polygon));
+        }
+    }
+    reads.extend(refined);
+    Ok((reads, unread))
 }

@@ -3,7 +3,12 @@
 #[cfg(not(feature = "low"))]
 mod detail;
 mod effort;
-#[cfg(feature = "low")]
+#[cfg(any(
+    feature = "low",
+    feature = "medium",
+    feature = "high",
+    feature = "very-high"
+))]
 mod fast_linear;
 #[cfg(feature = "low")]
 mod fast_sparse;
@@ -92,7 +97,12 @@ pub struct Scanner {
     regions: RegionScanner,
     localizer: barcode_research_core::stripes::Detector,
     additional_gray: Vec<u8>,
-    #[cfg(feature = "low")]
+    #[cfg(any(
+        feature = "low",
+        feature = "medium",
+        feature = "high",
+        feature = "very-high"
+    ))]
     fast_profiles: barcode_research_core::fast_profile::Sampler,
     retail_rgba: Vec<u8>,
     #[cfg(not(feature = "low"))]

@@ -85,7 +85,12 @@ impl Evidence<'_> {
     // Gap checks only need contrast, not the thresholded profile. For an interior
     // segment, later samples cannot invalidate contrast already found. Charge the
     // original 64-sample budget so this optimization never changes search limits.
-    #[cfg(feature = "low")]
+    #[cfg(any(
+        feature = "low",
+        feature = "medium",
+        feature = "high",
+        feature = "very-high"
+    ))]
     #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn has_contrast(&mut self, left: [f64; 2], right: [f64; 2]) -> bool {
         let (Ok(width), Ok(height)) = (
@@ -124,7 +129,12 @@ impl Evidence<'_> {
         false
     }
 
-    #[cfg(feature = "low")]
+    #[cfg(any(
+        feature = "low",
+        feature = "medium",
+        feature = "high",
+        feature = "very-high"
+    ))]
     fn gap_free(&mut self, a: Quad, b: Quad) -> bool {
         let al = line(a);
         let bl = line(b);
@@ -548,12 +558,23 @@ impl Evidence<'_> {
         let start = signed(from);
         let tangent = [-normal[1], normal[0]];
         let rate = (tangent[0] * v[1] - tangent[1] * v[0]) / length;
-        if rate.abs() < 0.8 || (start / rate).abs() > 384. {
+        if rate.abs() < 0.8
+            || (start / rate).abs()
+                > if matches!(crate::MODE_ID, 2 | 3) {
+                    1024.
+                } else {
+                    384.
+                }
+        {
             return false;
         }
         let direction = -(start / rate).signum();
         let mut point = from;
-        for _ in 0..768 {
+        for _ in 0..if matches!(crate::MODE_ID, 2 | 3) {
+            2048
+        } else {
+            768
+        } {
             let d = signed(point);
             if d.abs() <= 0.5 || d * start < 0. {
                 let f = ((point[0] - target[0][0]) * v[0] + (point[1] - target[0][1]) * v[1])
@@ -606,6 +627,8 @@ impl Evidence<'_> {
         false
     }
 
+    // Width is finite and clamped to a small positive sampling bound.
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn owned_bars(&mut self, a: Quad, mut b: Quad, partial: bool) -> Option<Quad> {
         let al = line(a);
         let mut bl = line(b);
@@ -631,10 +654,19 @@ impl Evidence<'_> {
         {
             return None;
         }
+        let count = if matches!(crate::MODE_ID, 2 | 3) {
+            usize::try_from((aw.ceil().clamp(256., 2048.)) as u32).ok()?
+        } else {
+            256
+        };
+        let count_f = f64::from(u32::try_from(count).ok()?);
+        #[cfg(not(feature = "low"))]
+        let mut values = vec![0.; count];
+        #[cfg(feature = "low")]
         let mut values = [0.; 256];
         let (mut low, mut high) = (255_f64, 0_f64);
         for (i, v) in values.iter_mut().enumerate() {
-            let f = (f64::from(u32::try_from(i).ok()?) + 0.5) / 256.;
+            let f = (f64::from(u32::try_from(i).ok()?) + 0.5) / count_f;
             *v = self.smooth([al[0][0] + f * av[0], al[0][1] + f * av[1]])?;
             low = low.min(*v);
             high = high.max(*v);
@@ -646,19 +678,19 @@ impl Evidence<'_> {
         let cut = low.midpoint(high);
         let mut bars = Vec::new();
         let mut i = 1usize;
-        while i < 255 {
+        while i < count - 1 {
             if values[i] >= threshold || values[i - 1] < threshold {
                 i += 1;
                 continue;
             }
             let start = i;
-            while i < 255 && values[i] < threshold {
+            while i < count - 1 && values[i] < threshold {
                 i += 1;
             }
-            let width = f64::from(u32::try_from(i - start).ok()?) * aw / 256.;
-            if i < 255 && (0.8..=aw * 0.07).contains(&width) {
+            let width = f64::from(u32::try_from(i - start).ok()?) * aw / count_f;
+            if i < count - 1 && (0.8..=aw * 0.07).contains(&width) {
                 bars.push((
-                    (f64::from(u32::try_from(start + i).ok()?) * 0.5) / 256.,
+                    (f64::from(u32::try_from(start + i).ok()?) * 0.5) / count_f,
                     width,
                 ));
             }
@@ -795,10 +827,15 @@ fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
 
 fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
     // Preserve the original proofs and their budget. Only unresolved results
-    // enter this separately bounded ownership pass.
+    // enter this separately bounded ownership pass. Higher modes allow longer
+    // traces on large source images without relaxing the continuity proof.
     let mut evidence = Evidence {
         image,
-        remaining: 32768,
+        remaining: if matches!(crate::MODE_ID, 2 | 3) {
+            524_288
+        } else {
+            32_768
+        },
     };
     let mut owned: Vec<Read<T>> = Vec::new();
     for read in extended {
@@ -806,7 +843,16 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
         if read.supported() {
             for other in &mut owned {
                 if read.same_symbol(other) {
-                    if let Some(polygon) = evidence.owned_bars(other.polygon, read.polygon, false) {
+                    if let Some(polygon) = evidence
+                        .owned_bars(other.polygon, read.polygon, false)
+                        .or_else(|| {
+                            if matches!(crate::MODE_ID, 2 | 3) {
+                                evidence.owned_bars(read.polygon, other.polygon, false)
+                            } else {
+                                None
+                            }
+                        })
+                    {
                         other.polygon = polygon;
                         other.geometry_changed = true;
                         merged = true;
@@ -947,7 +993,12 @@ pub(crate) fn merge(reads: Vec<crate::read::Read>, image: Image<'_>) -> Vec<crat
 }
 
 /// Reuse the original pixel-continuity proof when joining fast observations.
-#[cfg(feature = "low")]
+#[cfg(any(
+    feature = "low",
+    feature = "medium",
+    feature = "high",
+    feature = "very-high"
+))]
 pub(crate) fn connect_fast(a: Quad, b: Quad, image: Image<'_>, remaining: &mut usize) -> bool {
     let mut evidence = Evidence {
         image,
@@ -1236,6 +1287,37 @@ mod tests {
         pixels[100 * 320..101 * 320].fill(255);
         assert!(proof(&pixels).is_none());
     }
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    #[test]
+    fn long_ownership_traces_require_unbroken_bars() {
+        let mut pixels = vec![220; 1200 * 700];
+        for y in 40..660 {
+            for x in 80..1120 {
+                if (x - 80) % 16 < 7 {
+                    pixels[y * 1200 + x] = 20;
+                }
+            }
+        }
+        let a = [[80., 97.], [1120., 97.], [1120., 103.], [80., 103.]];
+        let b = [[80., 547.], [1120., 547.], [1120., 553.], [80., 553.]];
+        let proof = |pixels: &[u8]| {
+            Evidence {
+                image: Image {
+                    data: pixels,
+                    width: 1200,
+                    height: 700,
+                    channels: 1,
+                    stride: 1200,
+                },
+                remaining: 262_144,
+            }
+            .owned_bars(a, b, false)
+        };
+        assert!(proof(&pixels).is_some());
+        pixels[320 * 1200..324 * 1200].fill(255);
+        assert!(proof(&pixels).is_none());
+    }
+
     #[test]
     fn weak_itf_requires_shared_bars_not_just_overlapping_retail_boxes() {
         let mut pixels = vec![220; 320 * 260];

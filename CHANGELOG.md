@@ -1,5 +1,11 @@
 # Release notes
 
+## Unreleased: recovery preview
+
+- Improve Medium localized linear recovery and High/Very High wider-crop recovery.
+- Strengthen bounded duplicate ownership while preserving distinct same-value labels.
+- See `docs/HIGH_RECOVERY_20260925.md` for measurements and a known degraded-image duplicate.
+
 ## 1.2.2 — 2026-09-25
 
 - Public `low` now uses the original Turbo policy across all bindings; higher

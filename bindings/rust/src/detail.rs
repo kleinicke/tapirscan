@@ -169,7 +169,7 @@ fn seeds(im: Image<'_>) -> Vec<Seed> {
             continue;
         }
         selected.push(c);
-        if selected.len() == 2 {
+        if selected.len() == if crate::MODE_ID >= 2 { 8 } else { 2 } {
             break;
         }
     }
@@ -307,11 +307,11 @@ fn span(p: Quad) -> f64 {
 // Threefold center sampling has weights 0, 1/3 and 2/3. For byte pixels,
 // the two-dimensional numerator is an integer in 0..=2295 over denominator 9.
 // It cannot land on a half-integer (minimum distance 1/18). At the bounded
-// 256-pixel crop size, legacy f64 coordinate/interpolation error is far below
+// 512-pixel crop size, legacy f64 coordinate/interpolation error is far below
 // that margin, so integer rounding gives the identical output byte.
 #[allow(clippy::many_single_char_names)]
 fn upscale(im: Image<'_>, x: usize, y: usize, w: usize, h: usize) -> Vec<u8> {
-    debug_assert!((1..=256).contains(&w) && (1..=256).contains(&h));
+    debug_assert!((1..=512).contains(&w) && (1..=512).contains(&h));
     let axis = |index: usize, length: usize| {
         let base = index / 3;
         let phase = index % 3;
@@ -402,142 +402,174 @@ pub fn recover(
     let mut additions = Vec::new();
     let mut unread = Vec::new();
     let mut retail_reads = Vec::new();
-    for seed in &seeds {
-        if coverage
-            .iter()
-            .any(|quad| crate::formats::contains_point([seed.x, seed.y], quad))
-            || known_retail.iter().chain(&retail_reads).any(|read: &Read| {
-                resolved_retail(read) && covered(im, [seed.x, seed.y], read.polygon)
-            })
-            || seed.score < seeds[0].score * 0.6
-            || primary
+    // Keep the original two small-crop attempts first: increasing crop size
+    // changes proposal geometry and can lose otherwise readable symbols.
+    for wide in [false, true]
+        .into_iter()
+        .take(if crate::MODE_ID >= 2 { 2 } else { 1 })
+    {
+        for seed in seeds.iter().take(if wide { 3 } else { 2 }) {
+            if coverage
                 .iter()
-                .any(|b| covered(im, [seed.x, seed.y], b.detection.polygon))
-        {
-            continue;
-        }
-        let angle = refined_angle(im, *seed);
-        let mut quads = Vec::new();
-        for offset in [0_f64, -3., 3.] {
-            let angle = angle + offset * std::f64::consts::PI / 180.;
-            let (c, s) = (angle.cos(), angle.sin());
-            let polygon = [[-96., -24.], [96., -24.], [96., 24.], [-96., 24.]]
+                .any(|quad| crate::formats::contains_point([seed.x, seed.y], quad))
+                || known_retail.iter().chain(&retail_reads).any(|read: &Read| {
+                    resolved_retail(read) && covered(im, [seed.x, seed.y], read.polygon)
+                })
+                || seed.score < seeds[0].score * if wide { 0.3 } else { 0.6 }
+                || primary
+                    .iter()
+                    .any(|b| covered(im, [seed.x, seed.y], b.detection.polygon))
+            {
+                continue;
+            }
+            let angle = refined_angle(im, *seed);
+            let mut quads = Vec::new();
+            for offset in [0_f64, -3., 3.] {
+                let angle = angle + offset * std::f64::consts::PI / 180.;
+                let (c, s) = (angle.cos(), angle.sin());
+                let half_width = if wide { 192. } else { 96. };
+                let polygon = [
+                    [-half_width, -24.],
+                    [half_width, -24.],
+                    [half_width, 24.],
+                    [-half_width, 24.],
+                ]
                 .map(|[u, v]| [seed.x + u * c - v * s, seed.y + u * s + v * c]);
-            if evidence(im, polygon, true, 32) >= 32 {
-                quads.push(polygon);
-            }
-            if quads.len() >= directions {
-                break;
-            }
-        }
-        if quads.is_empty() {
-            continue;
-        }
-        let w = 256.min(im.width);
-        let h = 256.min(im.height);
-        let x = (seed.x - w as f64 / 2.)
-            .round()
-            .clamp(0., (im.width - w) as f64) as usize;
-        let y = (seed.y - h as f64 / 2.)
-            .round()
-            .clamp(0., (im.height - h) as f64) as usize;
-        let pixels = upscale(im, x, y, w, h);
-        let view = recovery_core::sampling::ImageView::new(&pixels, w * 3, h * 3, 4, w * 12)
-            .map_err(|_| Error::Parameters)?;
-        for polygon in quads {
-            let q = polygon.map(|[a, b]| [(a - x as f64) * 3., (b - y as f64) * 3.]);
-            let policy = recovery_core::multi_scan::Policy {
-                complete,
-                transition_cleanup: true,
-                source_identity: true,
-                interior_normalization: true,
-                guard_bias: true,
-                max_retry_paths_per_candidate: 64,
-                max_retry_paths_per_frame: 64,
-                ..Default::default()
-            };
-            scanner
-                .retail_configure(if shared_retail { 15 } else { 1 })
-                .map_err(|_| Error::Parameters)?;
-            let result = scanner
-                .scan(view, &[q], policy)
-                .map_err(|_| Error::Parameters)?;
-            let mut raw: Option<Value> = if diagnostics {
-                Some(
-                    serde_json::from_str(&recovery_core::region_json::frame_json(&result.frame))
-                        .map_err(|_| Error::OutputShape)?,
-                )
-            } else {
-                None
-            };
-            if let Some(retail) = scanner.retail_finish_typed(view, &result.frame, diagnostics) {
-                if let Some(raw) = &mut raw {
-                    raw["retail"] = serde_json::from_str(
-                        retail.diagnostics.as_deref().ok_or(Error::OutputShape)?,
-                    )
-                    .map_err(|_| Error::OutputShape)?;
+                if evidence(im, polygon, true, 32) >= 32 {
+                    quads.push(polygon);
                 }
-                for d in retail.detections {
-                    let polygon = d
+                if quads.len() >= directions {
+                    break;
+                }
+            }
+            if quads.is_empty() && !wide {
+                continue;
+            }
+            let w = (if wide { 512 } else { 256 }).min(im.width);
+            let h = (if wide { 512 } else { 256 }).min(im.height);
+            let x = (seed.x - w as f64 / 2.)
+                .round()
+                .clamp(0., (im.width - w) as f64) as usize;
+            let y = (seed.y - h as f64 / 2.)
+                .round()
+                .clamp(0., (im.height - h) as f64) as usize;
+            let pixels = upscale(im, x, y, w, h);
+            let view = recovery_core::sampling::ImageView::new(&pixels, w * 3, h * 3, 4, w * 12)
+                .map_err(|_| Error::Parameters)?;
+            if wide {
+                let found = recovery_core::stripes::detect(view).map_err(|_| Error::Parameters)?;
+                for proposal in found.proposals.iter().take(2) {
+                    if let Some(p) = recovery_core::shear::refine(view, proposal.polygon) {
+                        quads.push(
+                            p.polygon
+                                .map(|[a, b]| [x as f64 + a / 3., y as f64 + b / 3.]),
+                        );
+                    }
+                }
+                quads.extend(found.proposals.into_iter().take(4).map(|p| {
+                    p.polygon
+                        .map(|[a, b]| [x as f64 + a / 3., y as f64 + b / 3.])
+                }));
+            }
+            for polygon in quads {
+                let q = polygon.map(|[a, b]| [(a - x as f64) * 3., (b - y as f64) * 3.]);
+                let policy = recovery_core::multi_scan::Policy {
+                    complete,
+                    transition_cleanup: true,
+                    source_identity: true,
+                    interior_normalization: true,
+                    guard_bias: true,
+                    max_retry_paths_per_candidate: 64,
+                    max_retry_paths_per_frame: 64,
+                    ..Default::default()
+                };
+                scanner
+                    .retail_configure(if shared_retail { 15 } else { 1 })
+                    .map_err(|_| Error::Parameters)?;
+                let result = scanner
+                    .scan(view, &[q], policy)
+                    .map_err(|_| Error::Parameters)?;
+                let mut raw: Option<Value> = if diagnostics {
+                    Some(
+                        serde_json::from_str(&recovery_core::region_json::frame_json(
+                            &result.frame,
+                        ))
+                        .map_err(|_| Error::OutputShape)?,
+                    )
+                } else {
+                    None
+                };
+                if let Some(retail) = scanner.retail_finish_typed(view, &result.frame, diagnostics)
+                {
+                    if let Some(raw) = &mut raw {
+                        raw["retail"] = serde_json::from_str(
+                            retail.diagnostics.as_deref().ok_or(Error::OutputShape)?,
+                        )
+                        .map_err(|_| Error::OutputShape)?;
+                    }
+                    for d in retail.detections {
+                        let polygon = d
+                            .polygon
+                            .map(|[a, b]| [x as f64 + a / 3., y as f64 + b / 3.]);
+                        retail_reads.push(Read::retail(d.digits, polygon, d.support));
+                    }
+                }
+                let mut reads = Vec::new();
+                let mut deferred = Vec::new();
+                let mut seed_covered = false;
+                for b in &result.frame.barcodes {
+                    let d = &b.detection;
+                    let p = d
                         .polygon
                         .map(|[a, b]| [x as f64 + a / 3., y as f64 + b / 3.]);
-                    retail_reads.push(Read::retail(d.digits, polygon, d.support));
-                }
-            }
-            let mut reads = Vec::new();
-            let mut deferred = Vec::new();
-            let mut seed_covered = false;
-            for b in &result.frame.barcodes {
-                let d = &b.detection;
-                let p = d
-                    .polygon
-                    .map(|[a, b]| [x as f64 + a / 3., y as f64 + b / 3.]);
-                let read =
-                    Read::primary(d.digits, p, d.support, d.axis, b.candidate_indices.clone());
-                if span(p) < 1. {
-                    deferred.push(read);
-                    continue;
-                }
-                seed_covered |= covered(im, [seed.x, seed.y], p);
-                let center = p
-                    .iter()
-                    .fold([0., 0.], |a, p| [a[0] + p[0] / 4., a[1] + p[1] / 4.]);
-                if !primary.iter().any(|old| {
-                    old.detection.digits == d.digits && covered(im, center, old.detection.polygon)
-                }) {
-                    if diagnostics {
-                        additions.push(read.clone());
+                    let read =
+                        Read::primary(d.digits, p, d.support, d.axis, b.candidate_indices.clone());
+                    if span(p) < 1. {
+                        deferred.push(read);
+                        continue;
                     }
-                    primary.push(Barcode {
-                        detection: barcode_research_core::experiment::Detection {
-                            digits: d.digits,
-                            polygon: p,
-                            support: d.support,
-                            axis: d.axis,
-                        },
-                        candidate_indices: vec![],
-                    });
+                    seed_covered |= covered(im, [seed.x, seed.y], p);
+                    let center = p
+                        .iter()
+                        .fold([0., 0.], |a, p| [a[0] + p[0] / 4., a[1] + p[1] / 4.]);
+                    if !primary.iter().any(|old| {
+                        old.detection.digits == d.digits
+                            && covered(im, center, old.detection.polygon)
+                    }) {
+                        if diagnostics {
+                            additions.push(read.clone());
+                        }
+                        primary.push(Barcode {
+                            detection: barcode_research_core::experiment::Detection {
+                                digits: d.digits,
+                                polygon: p,
+                                support: d.support,
+                                axis: d.axis,
+                            },
+                            candidate_indices: vec![],
+                        });
+                    }
+                    reads.push(read);
                 }
-                reads.push(read);
-            }
-            if !reads.iter().any(|read| {
-                read.candidate_indices
-                    .as_ref()
-                    .is_some_and(|indices| indices.contains(&0))
-            }) {
-                unread.push(Region::unknown(polygon));
-            }
-            if diagnostics {
-                // Recovery reads historically omit format; keep the raw diagnostic schema.
-                let raw_reads = |reads: &[Read]| {
-                    reads.iter().map(|read| json!({"text":read.text,"polygon":read.polygon,"support":read.support,"axis":read.axis,"candidate_indices":read.candidate_indices})).collect::<Vec<_>>()
-                };
-                let proposal = json!({"polygon":polygon,"score":seed.score,"text":""});
-                proposals.push(proposal.clone());
-                attempts.push(json!({"x":x,"y":y,"w":w,"h":h,"factor":3,"frame":raw,"reads":raw_reads(&reads),"deferredReads":raw_reads(&deferred),"proposals":[proposal],"unfinished":result.frame.unfinished||!deferred.is_empty()}));
-            }
-            if seed_covered {
-                break;
+                if !reads.iter().any(|read| {
+                    read.candidate_indices
+                        .as_ref()
+                        .is_some_and(|indices| indices.contains(&0))
+                }) {
+                    unread.push(Region::unknown(polygon));
+                }
+                if diagnostics {
+                    // Recovery reads historically omit format; keep the raw diagnostic schema.
+                    let raw_reads = |reads: &[Read]| {
+                        reads.iter().map(|read| json!({"text":read.text,"polygon":read.polygon,"support":read.support,"axis":read.axis,"candidate_indices":read.candidate_indices})).collect::<Vec<_>>()
+                    };
+                    let proposal = json!({"polygon":polygon,"score":seed.score,"text":""});
+                    proposals.push(proposal.clone());
+                    attempts.push(json!({"x":x,"y":y,"w":w,"h":h,"factor":3,"frame":raw,"reads":raw_reads(&reads),"deferredReads":raw_reads(&deferred),"proposals":[proposal],"unfinished":result.frame.unfinished||!deferred.is_empty()}));
+                }
+                if seed_covered {
+                    break;
+                }
             }
         }
     }
@@ -680,4 +712,33 @@ mod tests {
         assert!(!resolved_retail(&Read::retail(digits, polygon(150.), 8)));
         assert!(resolved_retail(&Read::retail(digits, polygon(180.), 4)));
     }
+}
+
+/// Cheap unrectified source bands; later decoding retains ordinary confirmation.
+#[cfg(any(feature = "high", feature = "very-high"))]
+pub(crate) fn source_bands(im: Image<'_>, known: &[Read]) -> Vec<Proposal> {
+    let points = seeds(im);
+    let mut out = Vec::new();
+    for seed in &points {
+        if seed.score < points[0].score * 0.3
+            || known
+                .iter()
+                .any(|read| covered(im, [seed.x, seed.y], read.polygon))
+        {
+            continue;
+        }
+        let angle = refined_angle(im, *seed);
+        let (c, s) = (angle.cos(), angle.sin());
+        for half in [128., 256.] {
+            let polygon = [[-half, -32.], [half, -32.], [half, 32.], [-half, 32.]]
+                .map(|[u, v]| [seed.x + u * c - v * s, seed.y + u * s + v * c]);
+            if evidence(im, polygon, true, 32) >= 32 {
+                out.push(Proposal {
+                    polygon,
+                    score: seed.score,
+                });
+            }
+        }
+    }
+    out
 }
