@@ -141,10 +141,10 @@ interface WireResult {
 }
 
 const modes: Record<Mode, { id: number; file: string }> = {
-  low: { id: 0, file: "low-decoded-extent-20260923.wasm" },
-  medium: { id: 1, file: "medium-decoded-extent-20260923.wasm" },
-  high: { id: 2, file: "high-decoded-extent-20260923.wasm" },
-  "very-high": { id: 3, file: "very-high-decoded-extent-20260923.wasm" },
+  low: { id: 0, file: "low-crop-integer-20260925.wasm" },
+  medium: { id: 1, file: "medium-crop-integer-20260925.wasm" },
+  high: { id: 2, file: "high-crop-integer-20260925.wasm" },
+  "very-high": { id: 3, file: "very-high-crop-integer-20260925.wasm" },
 };
 const addOnPolicies: Record<EanAddOnPolicy, number> = { Ignore: 0, Read: 1, Require: 2 };
 

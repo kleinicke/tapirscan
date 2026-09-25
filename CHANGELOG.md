@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased
+
+- Speed up Medium, High and Very High recovery crops with pixel-identical integer interpolation and cached rows; retain existing APIs and scan behavior.
+
 ## 1.2.1 — 2026-09-19
 
 - Follow changing bar widths when consolidating folded linear observations.

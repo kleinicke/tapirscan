@@ -13,10 +13,10 @@
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-decoded-extent-20260923.wasm",
-    "wasm/medium-decoded-extent-20260923.wasm",
-    "wasm/high-decoded-extent-20260923.wasm",
-    "wasm/very-high-decoded-extent-20260923.wasm"
+    "wasm/low-crop-integer-20260925.wasm",
+    "wasm/medium-crop-integer-20260925.wasm",
+    "wasm/high-crop-integer-20260925.wasm",
+    "wasm/very-high-crop-integer-20260925.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

@@ -58,3 +58,8 @@ fuller display extents), selected by the user for production. Preserve the stric
 physical ownership decisions; the new fallback only adjusts display geometry.
 Validation: [consensus experiment](docs/FOOTPRINT_CONSENSUS_EXPERIMENT_20260924.md).
 Turbo remains separately pinned by `demo/src/lib/turbo.json`; preserve it.
+
+The selected runtime also includes exact integer threefold recovery-crop interpolation
+from experiment `82dfe65`, shared by Medium, High and Very High. Preserve its
+byte-equivalence tests and separate display geometry from physical ownership.
+See [crop optimization](docs/MEDIUM_CROP_EXPERIMENT_20260925.md).
