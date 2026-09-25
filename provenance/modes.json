@@ -44,8 +44,8 @@
       "historicalBinarySha256": "c1f2eb06c503fab081d705fab7100d2be879c3e4d7e00f4cef3c7d09817941c8"
     }
   ],
-  "runtimeRevision": "provenance/public-low-turbo-20260925.json",
-  "apiWasm": "provenance/wasm-public-low-turbo-20260925.json",
+  "runtimeRevision": "provenance/public-low-package-20260925.json",
+  "apiWasm": "provenance/wasm-public-low-package-20260925.json",
   "sourceRoot": "core/src",
   "historicalSourceRoot": "historical/core",
   "historicalRevision": "provenance/historical-core-20260922.json"

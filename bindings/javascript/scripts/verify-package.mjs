@@ -37,6 +37,13 @@ if (
   expectedModes.some((mode) => !manifest.modes.some((entry) => entry.mode === mode))
 )
   throw Error("Public Rust WASM manifest must contain all four modes exactly once");
+const packageMetadata = JSON.parse(await readFile(new URL("package.json", pkg), "utf8"));
+const packedWasm = packageMetadata.files.filter((file) => file.endsWith(".wasm"));
+if (
+  packedWasm.length !== manifest.modes.length ||
+  manifest.modes.some(({ file }) => !packedWasm.includes(`wasm/${file}`))
+)
+  throw Error("Package file list must include exactly the selected public WASM assets");
 for (const { mode, file, sha256, bytes } of manifest.modes) {
   if (!source.includes(file) || !compiled.includes(file))
     throw Error(`Stale ${mode} WASM selection`);
