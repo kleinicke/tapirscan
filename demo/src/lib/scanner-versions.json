@@ -1,6 +1,37 @@
 {
-  "default": "1.2.2+release.20260925",
+  "default": "1.2.2+release-r2.20260925",
   "versions": [
+    {
+      "version": "1.2.2+release-r2.20260925",
+      "label": "1.2.2 \u00b7 new Low",
+      "sourceDigest": "6d1d3c27fcf54fc43bd6fb92a0170ba3b2bddff71c70ef49dc08847c00cef6d8",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-release-1.2.2-public-low-r2.wasm",
+          "sha256": "ecae031e94e88ca6c4304c30e4428706c6b1a8ace590aaab5579b4080c59a43e",
+          "bytes": 1504220
+        },
+        {
+          "mode": "medium",
+          "file": "medium-release-1.2.2-public-low-r2.wasm",
+          "sha256": "7302af9b8b10e701fe62877425d6527e938a4ee8da54f263cf8a10f297fda026",
+          "bytes": 1779939
+        },
+        {
+          "mode": "high",
+          "file": "high-release-1.2.2-public-low-r2.wasm",
+          "sha256": "56684ac2654a98e8ee566fc9942d06e7b97bec8e44356d2491ab57599625ee5a",
+          "bytes": 1731218
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-release-1.2.2-public-low-r2.wasm",
+          "sha256": "ae33d7ea2a4bbbaa576849857a76a97bfa46523bca8d5d5c3b6ecb02ffedb862",
+          "bytes": 1771989
+        }
+      ]
+    },
     {
       "version": "1.2.2+release.20260925",
       "label": "1.2.2 \u00b7 new Low",
