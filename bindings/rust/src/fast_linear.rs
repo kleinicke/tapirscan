@@ -209,42 +209,73 @@ pub(crate) fn scan(
         reads.extend(additional);
         unread.extend(regions);
     }
+    let reads = finalize_reads(reads, &mut unread, image, mask, options.multiple);
+    let raw = options.retain_diagnostics.then(|| {
+        diagnostics(
+            image,
+            options,
+            &proposals[..local_count],
+            localized.limited,
+            lines,
+            &unread,
+        )
+    });
+    crate::formats::typed_result(reads, unread, true, localized.limited, raw)
+}
+
+#[cfg(feature = "low")]
+fn finalize_reads(
+    reads: Vec<Read>,
+    unread: &mut Vec<Region>,
+    image: Image<'_>,
+    mask: u32,
+    multiple: bool,
+) -> Vec<Read> {
     let mut reads = crate::linear_duplicates::merge_fast(reads, image);
     if mask & !127 != 0 {
-        remove_decoded_regions(&mut unread, &reads);
+        remove_decoded_regions(unread, &reads);
     }
     snap_integer_coordinates(&mut reads);
     reads.sort_by_key(|r| std::cmp::Reverse(r.support));
-    if !options.multiple {
+    if !multiple {
         reads.truncate(1);
     }
-    let raw = options.retain_diagnostics.then(|| {
-        let mut raw = serde_json::json!({
-            "schemaVersion": 2, "mode": "low", "policy": "low-fast", "tier": TIER,
-            "multiple": options.multiple, "elapsedMs": 0.,
-            "localizationLimited": localized.limited, "lines": lines,
-            "scan": {"barcodes": [], "unfinished": true}
-        });
-        if options.include_regions {
-            raw["localization"] = serde_json::json!({
-                "proposals": proposals[..local_count].iter().map(|p| serde_json::json!({
-                    "polygon": p.polygon, "score": p.score, "text": ""
-                })).collect::<Vec<_>>(),
-                "omitted": null, "workLimited": localized.limited
-            });
-            raw["searchWindows"] = serde_json::json!([{
-                "kind": "full_frame_search", "candidateIndex": local_count,
-                "polygon": [[0., 0.], [usize_f64(image.width), 0.],
-                    [usize_f64(image.width), usize_f64(image.height)], [0., usize_f64(image.height)]]
-            }]);
-            raw["scan"]["regions"] = serde_json::json!(unread);
-            // Fast profiles do not produce the core reader's per-candidate diagnostics.
-            raw["scan"]["candidates"] = serde_json::json!([]);
-            raw["scan"]["candidateDetailsAvailable"] = serde_json::json!(false);
-        }
-        raw
+    reads
+}
+
+#[cfg(feature = "low")]
+fn diagnostics(
+    image: Image<'_>,
+    options: ScanOptions,
+    proposals: &[crate::Proposal],
+    limited: bool,
+    lines: usize,
+    unread: &[Region],
+) -> serde_json::Value {
+    let mut raw = serde_json::json!({
+        "schemaVersion": 2, "mode": "low", "policy": "low-fast", "tier": TIER,
+        "multiple": options.multiple, "elapsedMs": 0.,
+        "localizationLimited": limited, "lines": lines,
+        "scan": {"barcodes": [], "unfinished": true}
     });
-    crate::formats::typed_result(reads, unread, true, localized.limited, raw)
+    if options.include_regions {
+        raw["localization"] = serde_json::json!({
+            "proposals": proposals.iter().map(|p| serde_json::json!({
+                "polygon": p.polygon, "score": p.score, "text": ""
+            })).collect::<Vec<_>>(),
+            "omitted": null, "workLimited": limited
+        });
+        raw["searchWindows"] = serde_json::json!([{
+            "kind": "full_frame_search", "candidateIndex": proposals.len(),
+            "polygon": [[0., 0.], [usize_f64(image.width), 0.],
+                [usize_f64(image.width), usize_f64(image.height)], [0., usize_f64(image.height)]]
+        }]);
+        raw["scan"]["regions"] = serde_json::json!(unread);
+        // Fast profiles do not produce the core reader's per-candidate diagnostics.
+        raw["scan"]["candidates"] = serde_json::json!([]);
+        raw["scan"]["candidateDetailsAvailable"] = serde_json::json!(false);
+    }
+    raw
 }
 
 fn snap_integer_coordinates(reads: &mut [Read]) {
