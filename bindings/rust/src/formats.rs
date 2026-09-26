@@ -973,18 +973,34 @@ fn matrix_retries(
     mask: u32,
     scan: &mut barcode_multiformat::Scan,
 ) -> Vec<barcode_multiformat::Scan> {
-    let mut budget = [0, 250_000, 2_000_000, 4_000_000][crate::MODE_ID as usize];
-    let mut retries = Vec::new();
+    let mode = crate::MODE_ID as usize;
+    let mut budget = [0, 250_000, 2_000_000, 4_000_000][mode];
+    let mut crop_budget = [0, 32_768, 131_072, 262_144][mode];
+    let mut retries: Vec<barcode_multiformat::Scan> = Vec::new();
     if mask & 4096 != 0 {
         crate::matrix_grid::resolve_runes(pixels, width, height, scan, &mut budget);
     }
     for region in scan.regions.iter().take(8) {
         let hinted = match region.format.as_str() {
+            "QRCode" => 512,
             "DataMatrix" => 1024,
             "Aztec" => 4096,
             _ => 0,
         };
-        if mask & hinted == 0 || budget == 0 {
+        if mask & hinted == 0 {
+            continue;
+        }
+        // Only complete containment can skip a localized retry. Small decoded
+        // matrix polygons cannot suppress a larger unresolved candidate.
+        if scan
+            .barcodes
+            .iter()
+            .chain(retries.iter().flat_map(|s| &s.barcodes))
+            .any(|r| {
+                r.format == region.format
+                    && crate::signal_recovery::covered(region.polygon, r.polygon)
+            })
+        {
             continue;
         }
         let pending = barcode_multiformat::Scan {
@@ -993,14 +1009,32 @@ fn matrix_retries(
             unfinished: true,
             lines: 0,
         };
-        retries.push(crate::matrix_grid::recover(
-            pixels,
-            width,
-            height,
-            hinted,
-            &pending,
-            &mut budget,
-        ));
+        if hinted != 512 && budget > 0 {
+            retries.push(crate::matrix_grid::recover(
+                pixels,
+                width,
+                height,
+                hinted,
+                &pending,
+                &mut budget,
+            ));
+        }
+        if crop_budget > 0
+            && !retries.iter().flat_map(|s| &s.barcodes).any(|r| {
+                r.format == region.format
+                    && crate::signal_recovery::covered(region.polygon, r.polygon)
+            })
+        {
+            retries.extend(crate::signal_recovery::region_retries(
+                pixels,
+                width,
+                height,
+                hinted,
+                [0, 1, 2, 3][mode],
+                &pending,
+                &mut crop_budget,
+            ));
+        }
     }
     retries
 }

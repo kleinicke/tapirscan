@@ -1347,7 +1347,7 @@ fn bridge_line(
     false
 }
 
-#[cfg(all(test, any(feature = "high", feature = "very-high")))]
+#[cfg(all(test, not(feature = "low")))]
 mod bridge_tests {
     use super::*;
     #[test]

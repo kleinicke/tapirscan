@@ -128,6 +128,10 @@ fn detection(read: qr::Payload, q: Quad, mask: u32, support: usize) -> Detection
         gs1: read.gs1,
     }
 }
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep bounded source sampling, priority decoding and remaining hypotheses in one ordered search."
+)]
 pub(crate) fn recover(
     pixels: &[u8],
     width: usize,
@@ -164,6 +168,7 @@ pub(crate) fn recover(
             continue;
         }
         let mut hypotheses = Vec::new();
+        let mut direct_attempts = 0;
         'search: for mirror in [false, true] {
             for turn in 0..4 {
                 let q: Quad = std::array::from_fn(|i| {
@@ -199,13 +204,41 @@ pub(crate) fn recover(
                         {
                             continue;
                         }
-                        hypotheses.push((error, cols, rows, bits, q));
+                        // A perfect border or validated Aztec mode is stronger
+                        // evidence than the remaining size guesses. Decode it
+                        // while the shared allowance still permits refinement.
+                        if error == 0 {
+                            if direct_attempts == 24 {
+                                break 'search;
+                            }
+                            direct_attempts += 1;
+                            attempts += 1;
+                            let read = if mask == 1024 {
+                                datamatrix::decode_matrix(&bits, cols, rows)
+                            } else {
+                                aztec::decode_matrix(&bits, cols)
+                            };
+                            if let Some(read) = read {
+                                reads.push(detection(read, q, mask, region.support));
+                                continue 'region;
+                            }
+                            if mask == 4096 {
+                                if let Some((read, refined)) =
+                                    refine_aztec(pixels, width, height, q, cols, budget)
+                                {
+                                    reads.push(detection(read, refined, mask, region.support));
+                                    continue 'region;
+                                }
+                            }
+                        } else {
+                            hypotheses.push((error, cols, rows, bits, q));
+                        }
                     }
                 }
             }
         }
         hypotheses.sort_by_key(|h| h.0);
-        for (_, cols, rows, bits, q) in hypotheses.into_iter().take(24) {
+        for (_, cols, rows, bits, q) in hypotheses.into_iter().take(24 - direct_attempts) {
             attempts += 1;
             let read = if mask == 1024 {
                 datamatrix::decode_matrix(&bits, cols, rows)
@@ -215,13 +248,6 @@ pub(crate) fn recover(
             if let Some(read) = read {
                 reads.push(detection(read, q, mask, region.support));
                 continue 'region;
-            }
-            if mask == 4096 {
-                if let Some((read, refined)) = refine_aztec(pixels, width, height, q, cols, budget)
-                {
-                    reads.push(detection(read, refined, mask, region.support));
-                    continue 'region;
-                }
             }
         }
     }
