@@ -714,9 +714,19 @@ fn scan_additional(
             addons,
             &scan,
         );
+        #[cfg(not(feature = "low"))]
+        let mut scan = scan;
+        #[cfg(not(feature = "low"))]
+        let grid_retries = if selected == matrix && addons == EanAddOnPolicy::Ignore {
+            matrix_retries(pixels, [image.width, image.height], selected, &mut scan)
+        } else {
+            Vec::new()
+        };
         scans.push(scan);
         #[cfg(feature = "medium")]
         scans.extend(retries);
+        #[cfg(not(feature = "low"))]
+        scans.extend(grid_retries);
     }
     Ok((scans, coverage))
 }
@@ -902,5 +912,63 @@ fn extend_primary_retail(reads: &mut Vec<Read>, primary: Option<&crate::Result>,
                 })
                 .cloned(),
         );
+    }
+}
+
+/// One source-sample allowance for the whole matrix group, independent of how
+/// many formats are enabled. Initial readers have already tried every format;
+/// finder hints prioritize bounded recovery without discarding pending regions.
+#[cfg(not(feature = "low"))]
+fn matrix_retries(
+    pixels: &[u8],
+    [width, height]: [usize; 2],
+    mask: u32,
+    scan: &mut barcode_multiformat::Scan,
+) -> Vec<barcode_multiformat::Scan> {
+    let mut budget = [0, 250_000, 2_000_000, 4_000_000][crate::MODE_ID as usize];
+    let mut retries = Vec::new();
+    if mask & 4096 != 0 {
+        crate::matrix_grid::resolve_runes(pixels, width, height, scan, &mut budget);
+    }
+    for region in scan.regions.iter().take(8) {
+        let hinted = match region.format.as_str() {
+            "DataMatrix" => 1024,
+            "Aztec" => 4096,
+            _ => 0,
+        };
+        if mask & hinted == 0 || budget == 0 {
+            continue;
+        }
+        let pending = barcode_multiformat::Scan {
+            barcodes: Vec::new(),
+            regions: vec![region.clone()],
+            unfinished: true,
+            lines: 0,
+        };
+        retries.push(crate::matrix_grid::recover(
+            pixels,
+            width,
+            height,
+            hinted,
+            &pending,
+            &mut budget,
+        ));
+    }
+    retries
+}
+
+#[cfg(all(test, not(feature = "low")))]
+mod matrix_budget_tests {
+    use super::matrix_retries;
+    #[test]
+    fn no_pending_candidates_do_not_invent_work() {
+        let mut scan = barcode_multiformat::Scan {
+            barcodes: Vec::new(),
+            regions: Vec::new(),
+            unfinished: false,
+            lines: 0,
+        };
+        assert!(matrix_retries(&[255; 64], [8, 8], 1536, &mut scan).is_empty());
+        assert!(!scan.unfinished);
     }
 }

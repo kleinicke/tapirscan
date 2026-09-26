@@ -281,3 +281,5 @@ pub const MODE_ID: u32 = if cfg!(feature = "low") {
 pub const MODE: &str = ["low", "medium", "high", "very-high"][MODE_ID as usize];
 
 pub mod formats;
+#[cfg(not(feature = "low"))]
+mod matrix_grid;
