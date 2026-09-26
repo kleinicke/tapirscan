@@ -274,6 +274,11 @@ pub(crate) fn resolve_runes(
     scan: &mut Scan,
     budget: &mut usize,
 ) {
+    scan.unfinished |= scan.barcodes.iter().skip(8).any(|candidate| {
+        candidate.format == "Aztec"
+            && candidate.text.len() == 3
+            && candidate.text.bytes().all(|v| v.is_ascii_digit())
+    });
     for candidate in scan.barcodes.iter_mut().take(8) {
         if candidate.format != "Aztec"
             || candidate.text.len() != 3
