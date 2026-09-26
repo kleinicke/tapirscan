@@ -3,6 +3,10 @@ use barcode_multiformat::numeric::{f32_usize, usize_f32, usize_f64};
 use barcode_multiformat::{aztec, datamatrix, qr, qr_detect, Detection, Scan};
 type Quad = [[f32; 2]; 4];
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Source layout, projective grid and shared sample allowance describe one sampling operation."
+)]
 fn sample(
     pixels: &[u8],
     width: usize,

@@ -119,6 +119,10 @@ fn full_frame_proposals(image: Image<'_>) -> [crate::Proposal; 2] {
 }
 
 #[cfg(feature = "low")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the original Low scan stages and accounting in their established order."
+)]
 pub(crate) fn scan(
     scanner: &mut Scanner,
     image: Image<'_>,
@@ -163,6 +167,7 @@ pub(crate) fn scan(
             im,
             quad: q,
             dense: false,
+            contrast: 0.,
             localized: proposal.score > 0. || matches!(TIER, 8 | 16),
             mask: mask & crate::format_registry::LINEAR_MASK,
             remaining: continuity_budget,
@@ -335,6 +340,7 @@ fn border_discovery(
                 im,
                 quad: q,
                 dense: false,
+                contrast: 0.,
                 localized: false,
                 mask: mask & crate::format_registry::LINEAR_MASK,
                 remaining: budget,
@@ -378,6 +384,7 @@ struct Candidate<'a> {
     quad: Quad,
     mask: u32,
     dense: bool,
+    contrast: f32,
     localized: bool,
     remaining: usize,
     observations: Vec<Observation>,
@@ -392,7 +399,14 @@ impl Candidate<'_> {
     ) {
         let q = self.quad;
         for mut o in self.observations {
-            let required = required_support(&o.read.format);
+            // ITF and ordinary Code39 lack mandatory payload checksums; enhanced
+            // profiles require a fourth independent row before acceptance.
+            let required =
+                if self.contrast > 0. && matches!(o.read.format.as_str(), "ITF" | "Code39") {
+                    4
+                } else {
+                    required_support(&o.read.format)
+                };
             // Close recovery rows are more correlated than the original grid.
             // Require three confirmations even for checksum-protected formats.
             let confirmation = if recovery {
@@ -634,8 +648,13 @@ fn sample_line_density(
         return;
     }
 
-    let methods = 3;
+    let enhanced = candidate.contrast > 0.;
+    let methods = if enhanced { 6 } else { 3 };
     for method in 0..methods {
+        if method == 3 {
+            sampler.restore_contrast(candidate.contrast);
+        }
+        let method = method % 3;
         let mut decoded_wide = false;
         if method == 1 {
             sampler.adaptive_threshold();
@@ -914,6 +933,7 @@ mod tests {
             mask: linear::CODE128,
             localized: true,
             dense: false,
+            contrast: 0.,
             remaining: 100_000,
             observations: Vec::new(),
             row_positions: Vec::new(),
@@ -1023,6 +1043,16 @@ pub(crate) fn recover_proposals(
     mask: u32,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    recover_proposals_contrast(image, proposals, mask, sampler, 0.)
+}
+#[cfg(not(feature = "low"))]
+pub(crate) fn recover_proposals_contrast(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    contrast: f32,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
     let im = ImageView::new(
         image.data,
         image.width,
@@ -1045,6 +1075,7 @@ pub(crate) fn recover_proposals(
             quad: proposal.polygon,
             mask,
             dense: false,
+            contrast,
             localized: true,
             remaining: continuity_budget,
             observations: Vec::new(),
@@ -1068,5 +1099,315 @@ pub(crate) fn recover_proposals(
         }
     }
     reads.extend(refined);
+    #[cfg(not(feature = "low"))]
+    let reads = if contrast > 0. {
+        join_recovered_bands(reads, image, sampler, contrast)
+    } else {
+        reads
+    };
     Ok((reads, unread))
+}
+
+/// Additional physical proof for recovered bands: every intervening half-pixel
+/// source line must decode the same complete symbol at the same endpoints.
+/// A matching value or overlapping display footprint alone never joins bands.
+#[cfg(not(feature = "low"))]
+pub(crate) fn join_recovered_bands(
+    reads: Vec<Read>,
+    image: Image<'_>,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    strength: f32,
+) -> Vec<Read> {
+    let Ok(im) = ImageView::new(
+        image.data,
+        image.width,
+        image.height,
+        image.channels,
+        image.stride,
+    ) else {
+        return reads;
+    };
+    let mut remaining = 262_144usize;
+    let mut rows = 256usize;
+    let mut merged: Vec<Read> = Vec::new();
+    for read in reads {
+        let mut used = false;
+        for previous in &mut merged {
+            if previous.format != read.format
+                || previous.text != read.text
+                || previous.payload_bytes != read.payload_bytes
+                || previous.addon != read.addon
+                || previous.gs1.unwrap_or(false) != read.gs1.unwrap_or(false)
+                || previous.reader_initialization.unwrap_or(false)
+                    != read.reader_initialization.unwrap_or(false)
+                || previous.structured_append != read.structured_append
+                || !matches!(
+                    read.format.as_str(),
+                    "Code128" | "Code39" | "ITF" | "Code93"
+                )
+            {
+                continue;
+            }
+            if let Some(quad) = decode_bridge(
+                previous,
+                &read,
+                im,
+                sampler,
+                strength,
+                &mut remaining,
+                &mut rows,
+            ) {
+                previous.polygon = quad;
+                previous.support = previous.support.max(read.support);
+                used = true;
+                break;
+            }
+        }
+        if !used {
+            merged.push(read);
+        }
+    }
+    merged
+}
+#[cfg(not(feature = "low"))]
+fn decode_bridge(
+    a: &Read,
+    b: &Read,
+    im: ImageView<'_>,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    strength: f32,
+    remaining: &mut usize,
+    rows: &mut usize,
+) -> Option<Quad> {
+    decode_bridge_path(a, b, im, sampler, strength, remaining, rows, false)
+        .or_else(|| decode_bridge_path(a, b, im, sampler, strength, remaining, rows, true))
+}
+#[cfg(not(feature = "low"))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Source geometry, sampling and shared budgets define one bounded physical proof."
+)]
+fn decode_bridge_path(
+    a: &Read,
+    b: &Read,
+    im: ImageView<'_>,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    strength: f32,
+    remaining: &mut usize,
+    rows: &mut usize,
+    facing_edges: bool,
+) -> Option<Quad> {
+    let aq = a.polygon;
+    let mut bq = b.polygon;
+    let mut am = [point(aq, 0., 0.5), point(aq, 1., 0.5)];
+    let mut bm = [point(bq, 0., 0.5), point(bq, 1., 0.5)];
+    let av = [am[1][0] - am[0][0], am[1][1] - am[0][1]];
+    let mut bv = [bm[1][0] - bm[0][0], bm[1][1] - bm[0][1]];
+    let aw = av[0].hypot(av[1]);
+    let bw = bv[0].hypot(bv[1]);
+    if aw < 24. || !(0.85..=1.15).contains(&(bw / aw)) {
+        return None;
+    }
+    if av[0] * bv[0] + av[1] * bv[1] < 0. {
+        bq = [bq[2], bq[3], bq[0], bq[1]];
+        bm = [bm[1], bm[0]];
+        bv = [-bv[0], -bv[1]];
+    }
+    if (av[0] * bv[0] + av[1] * bv[1]) / (aw * bw) < 0.98 {
+        return None;
+    }
+    let ac = point(aq, 0.5, 0.5);
+    let bc = point(bq, 0.5, 0.5);
+    if ((bc[0] - ac[0]) * av[0] + (bc[1] - ac[1]) * av[1]).abs() / aw > aw * 0.05 {
+        return None;
+    }
+    // These edges are actual confirmed first/last decode rows. Existing band
+    // continuity already owns their interiors; the extra proof covers the gap.
+    if facing_edges {
+        if (bc[1] - ac[1]) * av[0] - (bc[0] - ac[0]) * av[1] >= 0. {
+            am = [aq[3], aq[2]];
+            bm = [bq[0], bq[1]];
+        } else {
+            am = [aq[0], aq[1]];
+            bm = [bq[3], bq[2]];
+        }
+    }
+    let distance = (am[0][0] - bm[0][0])
+        .hypot(am[0][1] - bm[0][1])
+        .max((am[1][0] - bm[1][0]).hypot(am[1][1] - bm[1][1]));
+    if !(0.0..=96.).contains(&distance) {
+        return None;
+    }
+    let steps = barcode_research_core::numeric::f64_usize((distance * 2.).ceil()).max(1);
+    for step in 0..=steps {
+        if *rows == 0 || *remaining < 1536 {
+            return None;
+        }
+        *rows -= 1;
+        let f = usize_f64(step) / usize_f64(steps);
+        let left = lerp(am[0], bm[0], f);
+        let right = lerp(am[1], bm[1], f);
+        if !bridge_line(im, left, right, a, sampler, strength, remaining) {
+            return None;
+        }
+    }
+    let cross = |p: [f64; 2]| (-av[1] * p[0] + av[0] * p[1]) / aw;
+    let top = if cross(point(aq, 0.5, 0.)) < cross(point(bq, 0.5, 0.)) {
+        aq
+    } else {
+        bq
+    };
+    let bottom = if cross(point(aq, 0.5, 1.)) > cross(point(bq, 0.5, 1.)) {
+        aq
+    } else {
+        bq
+    };
+    Some([top[0], top[1], bottom[2], bottom[3]])
+}
+
+#[cfg(not(feature = "low"))]
+fn bridge_line(
+    im: ImageView<'_>,
+    left: [f64; 2],
+    right: [f64; 2],
+    expected: &Read,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    strength: f32,
+    remaining: &mut usize,
+) -> bool {
+    let mask = match expected.format.as_str() {
+        "Code128" => 16,
+        "Code39" => 32,
+        "ITF" => 64,
+        "Code93" => 256,
+        _ => return false,
+    };
+    // Source-position phases alias differently across bounded oversampling grids.
+    // Each hypothesis must validate the same complete payload and endpoints.
+    for density in [DENSITY, 3., 2., 4., 6.] {
+        if *remaining < 1536 {
+            return false;
+        }
+        sampler.sample_limited(
+            im,
+            lerp(left, right, -0.15),
+            lerp(left, right, 1.15),
+            density,
+            1536,
+        );
+        *remaining = remaining.saturating_sub(sampler.samples);
+        if !sampler.has_contrast() {
+            return false;
+        }
+        for method in 0..6 {
+            if method == 3 {
+                sampler.restore_contrast(strength);
+            }
+            if method % 3 == 1 {
+                sampler.adaptive_threshold();
+            } else {
+                sampler.threshold(method % 3 == 0);
+            }
+            for reverse in [false, true] {
+                if reverse {
+                    sampler.runs.reverse();
+                }
+                let first = if reverse {
+                    sampler.first_black ^ (sampler.runs.len().is_multiple_of(2))
+                } else {
+                    sampler.first_black
+                };
+                let found = linear::decode(&sampler.runs, first, mask);
+                if reverse {
+                    sampler.runs.reverse();
+                }
+                for read in found {
+                    if read.text != expected.text || read.format != expected.format {
+                        continue;
+                    }
+                    let (start, end) = if reverse {
+                        (
+                            sampler.runs.len() - read.end,
+                            sampler.runs.len() - read.start,
+                        )
+                    } else {
+                        (read.start, read.end)
+                    };
+                    let left = -0.15
+                        + 1.3 * f64::from(sampler.edges[start]) / usize_f64(sampler.samples - 1);
+                    let right = -0.15
+                        + 1.3 * f64::from(sampler.edges[end]) / usize_f64(sampler.samples - 1);
+                    if left.abs() <= 0.035 && (right - 1.).abs() <= 0.035 {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+#[cfg(all(test, any(feature = "high", feature = "very-high")))]
+mod bridge_tests {
+    use super::*;
+    #[test]
+    fn full_decoded_bridge_preserves_separate_same_value_labels() {
+        // Independent Code39 writer fixture already used by the Low controls.
+        let bits=b"1001011011010101101011001011011010010101101010010110101101010011011010110010101011001010110101001101011010100110110101011001011010100101101101";
+        let width = bits.len() * 2 + 40;
+        let height = 64;
+        for separated in [false, true] {
+            let mut pixels = vec![255; width * height];
+            for y in 8..56 {
+                if separated && (31..33).contains(&y) {
+                    continue;
+                }
+                for (x, &bit) in bits.iter().enumerate() {
+                    if bit == b'1' {
+                        pixels[y * width + 20 + x * 2..y * width + 22 + x * 2].fill(0);
+                    }
+                }
+            }
+            let image = Image {
+                data: &pixels,
+                width,
+                height,
+                channels: 1,
+                stride: width,
+            };
+            let quad = |top: f64, bottom: f64| {
+                [
+                    [20., top],
+                    [usize_f64(width - 20), top],
+                    [usize_f64(width - 20), bottom],
+                    [20., bottom],
+                ]
+            };
+            let mut a = Read::primary([0; 13], quad(12., 18.), 4, 0, vec![]);
+            a.format = "Code39".into();
+            a.text = "SCALE2409".into();
+            let mut coincident = a.clone();
+            for p in &mut coincident.polygon {
+                p[1] += 0.2;
+            }
+            let mut proof_sampler = barcode_research_core::fast_profile::Sampler::default();
+            assert_eq!(
+                join_recovered_bands(vec![a.clone(), coincident], image, &mut proof_sampler, 2.)
+                    .len(),
+                1
+            );
+            let mut b = a.clone();
+            b.polygon = quad(44., 50.);
+            let im = ImageView::new(&pixels, width, height, 1, width).unwrap();
+            let mut sampler = barcode_research_core::fast_profile::Sampler::default();
+            let result = decode_bridge(&a, &b, im, &mut sampler, 2., &mut 131_072, &mut 256);
+            assert_eq!(result.is_some(), !separated, "separated={separated}");
+            assert!(decode_bridge(&a, &b, im, &mut sampler, 2., &mut 0, &mut 256).is_none());
+            // A bounded proof may join continuous bands, never the white gap.
+            assert_eq!(
+                join_recovered_bands(vec![a, b], image, &mut sampler, 2.).len(),
+                if separated { 2 } else { 1 }
+            );
+        }
+    }
 }

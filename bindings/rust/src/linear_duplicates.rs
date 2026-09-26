@@ -728,6 +728,7 @@ struct Read<T> {
     support: u64,
     polygon: Quad,
     geometry_changed: bool,
+    allow_code93: bool,
     payload: T,
 }
 impl<T> Read<T> {
@@ -736,11 +737,12 @@ impl<T> Read<T> {
             && (matches!(
                 self.format.as_str(),
                 "EAN13" | "UPCA" | "EAN8" | "UPCE" | "Code128" | "Code39" | "ITF"
-            ) || (crate::LOW_FAST_PATH
-                && matches!(
-                    self.format.as_str(),
-                    "Codabar" | "Code93" | "DataBar" | "DataBarExpanded"
-                )))
+            ) || (self.allow_code93 && self.format == "Code93")
+                || (crate::LOW_FAST_PATH
+                    && matches!(
+                        self.format.as_str(),
+                        "Codabar" | "Code93" | "DataBar" | "DataBarExpanded"
+                    )))
     }
     fn same_symbol(&self, other: &Self) -> bool {
         self.text == other.text
@@ -969,6 +971,15 @@ fn trace_footprints<T>(
 
 /// Reconcile typed evidence while preserving reader metadata and stable ties.
 pub(crate) fn merge(reads: Vec<crate::read::Read>, image: Image<'_>) -> Vec<crate::read::Read> {
+    merge_selected(reads, image, false)
+}
+
+/// Extend source ownership proof for Code93 when a recovery path adds evidence.
+pub(crate) fn merge_selected(
+    reads: Vec<crate::read::Read>,
+    image: Image<'_>,
+    allow_code93: bool,
+) -> Vec<crate::read::Read> {
     let reads = reads
         .into_iter()
         .map(|value| Read {
@@ -980,6 +991,7 @@ pub(crate) fn merge(reads: Vec<crate::read::Read>, image: Image<'_>) -> Vec<crat
             support: value.support,
             polygon: value.polygon,
             geometry_changed: false,
+            allow_code93,
             payload: value,
         })
         .collect();
@@ -1030,6 +1042,7 @@ pub(crate) fn merge_fast(
             support: value.support,
             polygon: value.polygon,
             geometry_changed: false,
+            allow_code93: false,
             payload: value,
         })
         .collect();
@@ -1089,6 +1102,7 @@ pub(crate) fn merge_primary(reads: &mut Vec<crate::Barcode>, image: Image<'_>) {
             support: u64::try_from(read.detection.support).unwrap_or(u64::MAX),
             polygon: read.detection.polygon,
             geometry_changed: false,
+            allow_code93: false,
             payload: read,
         })
         .collect();
@@ -1204,6 +1218,48 @@ mod tests {
         pixels[200 * 460..202 * 460].fill(255);
         assert_eq!(scan(&pixels, reads).len(), 2);
     }
+    #[test]
+    fn selected_code93_ownership_preserves_separate_equal_labels() {
+        let mut pixels = vec![255; 320 * 160];
+        for y in 10..150 {
+            for x in 40..280 {
+                pixels[y * 320 + x] = if (x - 40) / 3 % 3 == 0 { 20 } else { 220 };
+            }
+        }
+        let read = |top, bottom| {
+            let mut r = crate::read::Read::primary(
+                [0; 13],
+                [[40., top], [280., top], [280., bottom], [40., bottom]],
+                7,
+                0,
+                vec![],
+            );
+            r.format = "Code93".into();
+            r.text = "SAME-CODE".into();
+            r
+        };
+        let reads = vec![read(20., 50.), read(110., 140.)];
+        let scan = |pixels: &[u8], enabled| {
+            merge_selected(
+                reads.clone(),
+                Image {
+                    data: pixels,
+                    width: 320,
+                    height: 160,
+                    channels: 1,
+                    stride: 320,
+                },
+                enabled,
+            )
+        };
+        if !crate::LOW_FAST_PATH {
+            assert_eq!(scan(&pixels, false).len(), 2);
+        }
+        assert_eq!(scan(&pixels, true).len(), 1);
+        pixels[79 * 320..81 * 320].fill(255);
+        assert_eq!(scan(&pixels, true).len(), 2);
+    }
+
     #[test]
     fn crossing_bands_share_ink_but_an_oblique_separator_breaks_the_proof() {
         let mut pixels = vec![255; 320 * 260];
@@ -1379,6 +1435,7 @@ mod tests {
             support,
             polygon: [[60., y - 2.], [252., y - 2.], [252., y + 2.], [60., y + 2.]],
             geometry_changed: false,
+            allow_code93: false,
             payload: (),
         };
         let scan = |p: &[u8]| {

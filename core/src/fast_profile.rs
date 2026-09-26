@@ -98,6 +98,20 @@ impl Sampler {
             );
         }
     }
+    /// Restore a bounded profile contrast hypothesis without changing source positions.
+    pub fn restore_contrast(&mut self, strength: f32) {
+        let original = self.values.clone();
+        let n = original.len();
+        for i in 0..n {
+            let blurred = (original[i.saturating_sub(2)]
+                + original[i.saturating_sub(1)] * 4.
+                + original[i] * 6.
+                + original[(i + 1).min(n - 1)] * 4.
+                + original[(i + 2).min(n - 1)])
+                / 16.;
+            self.values[i] = (original[i] + strength * (original[i] - blurred)).clamp(0., 255.);
+        }
+    }
     /// No threshold method can create transitions below eight gray levels.
     /// Stop as soon as contrast is proven; most useful profiles exit early.
     #[must_use]
@@ -432,6 +446,25 @@ mod tests {
             .filter_map(|i| crate::run_ean::decode(&sampler.runs[i..i + 59]))
             .collect::<Vec<_>>();
         assert_eq!(decoded, vec![digits]);
+    }
+    #[test]
+    fn contrast_restoration_preserves_source_coordinates_and_flat_profiles() {
+        let pixels = [127; 300];
+        let mut sampler = Sampler::default();
+        sampler.sample(
+            ImageView::new(&pixels, 100, 3, 1, 100).unwrap(),
+            [0., 1.],
+            [99., 1.],
+        );
+        let positions = sampler.positions.clone();
+        let values = sampler.values.clone();
+        let samples = sampler.samples;
+        sampler.restore_contrast(2.);
+        assert_eq!(sampler.positions, positions);
+        assert_eq!(sampler.samples, samples);
+        assert_eq!(sampler.values, values);
+        sampler.threshold(true);
+        assert!(sampler.runs.len() <= 2);
     }
     #[test]
     fn uniform_profiles_do_not_invent_bars() {

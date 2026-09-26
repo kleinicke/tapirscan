@@ -31,6 +31,10 @@ impl EanAddOnPolicy {
 
 impl Scanner {
     #[cfg(not(feature = "low"))]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Keep ordered bounded source recovery passes together."
+    )]
     fn recover_linear_regions(
         &mut self,
         image: Image<'_>,
@@ -89,6 +93,50 @@ impl Scanner {
             pending.extend(regions);
         }
         reads.extend(found);
+        // Reuse the existing source proposals and gray-profile sampler. A
+        // decoded region only suppresses a retry when it contains every corner
+        // of that proposal; one read never ends scanning of the whole image.
+        let recovery_mask = mask & (16 | 32 | 64 | 256);
+        if recovery_mask != 0 {
+            let limit = [0, 2, 8, 16][crate::MODE_ID as usize];
+            let unresolved: Vec<_> = proposals
+                .iter()
+                .filter(|proposal| {
+                    !reads.iter().any(|read| {
+                        proposal
+                            .polygon
+                            .iter()
+                            .all(|point| contains_point(*point, &read.polygon))
+                    })
+                })
+                .take(limit)
+                .cloned()
+                .collect();
+            let (extra, regions) = crate::fast_linear::recover_proposals_contrast(
+                image,
+                &unresolved,
+                recovery_mask,
+                &mut self.fast_profiles,
+                2.,
+            )?;
+            if !extra.is_empty() {
+                reads.extend(extra);
+                *reads = crate::fast_linear::join_recovered_bands(
+                    std::mem::take(reads),
+                    image,
+                    &mut self.fast_profiles,
+                    2.,
+                );
+                *reads = crate::linear_duplicates::merge_selected(
+                    std::mem::take(reads),
+                    image,
+                    recovery_mask & 256 != 0,
+                );
+            }
+            if options.include_regions {
+                pending.extend(regions);
+            }
+        }
         #[cfg(any(feature = "high", feature = "very-high"))]
         if mask & 3 != 0 {
             let bands = crate::detail::source_bands(image, reads);
