@@ -99,7 +99,7 @@ impl Scanner {
         // of that proposal; one read never ends scanning of the whole image.
         let recovery_mask = mask & (16 | 32 | 64 | 256);
         if recovery_mask != 0 {
-            let limit = [0, 4, 8, 16][crate::MODE_ID as usize];
+            let limit = [0, 8, 8, 16][crate::MODE_ID as usize];
             let unresolved: Vec<_> = proposals
                 .iter()
                 .filter(|proposal| {
@@ -241,12 +241,7 @@ impl Scanner {
         if had_extras {
             apply_supplement_policy(&mut reads, &mut unread, addons, options.include_regions);
             reads = distinct(reads);
-            unread.retain(|region| {
-                !reads
-                    .iter()
-                    .any(|read| overlap_quads(&region.polygon, &read.polygon).1 >= 0.65)
-            });
-            unread = distinct_regions(unread);
+            unread = retain_unresolved(unread, &reads);
         }
         // Deferred physical-instance claims must survive the generic overlap
         // cleanup: an existing read was not sufficient proof of their identity.
@@ -444,6 +439,15 @@ fn distinct(mut reads: Vec<Read>) -> Vec<Read> {
         }
     }
     result
+}
+
+fn retain_unresolved(mut unread: Vec<Region>, reads: &[Read]) -> Vec<Region> {
+    unread.retain(|region| {
+        !reads
+            .iter()
+            .any(|read| overlap_quads(&region.polygon, &read.polygon).1 >= 0.65)
+    });
+    distinct_regions(unread)
 }
 
 fn distinct_regions(mut regions: Vec<Region>) -> Vec<Region> {
