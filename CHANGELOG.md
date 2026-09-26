@@ -2,6 +2,10 @@
 
 ## Unreleased: recovery preview
 
+- Add bounded original-pixel subpixel EAN-13 recovery to Very High, with independent
+  band agreement and normal conflict checks. Precise affine candidate geometry
+  remains necessary; reliable subpixel localization is an ongoing Very High goal.
+
 - Improve Medium localized linear recovery and High/Very High wider-crop recovery.
 - Strengthen bounded duplicate ownership while preserving distinct same-value labels.
 - See `docs/HIGH_RECOVERY_20260925.md` for measurements and a known degraded-image duplicate.

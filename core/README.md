@@ -165,3 +165,18 @@ Endpoint lookahead and illumination adaptation scale with bar width and physical
 advance. Smaller symbols keep the original half-pixel tracing policy. The shared
 262,144-sample budget is unchanged. See
 [the current selection and validation status](../docs/FOOTPRINT_PROMOTION_20260924.md).
+
+## Very High subpixel development target
+
+Very High is the intended effort tier for solving difficult subpixel barcode
+reads as development continues. The current EAN-13 recovery fits original pixel
+areas and legal digit sequences inside small affine candidates; it does not yet
+solve subpixel localization, perspective, unknown camera response, or QR/Data
+Matrix. The synthetic research target is reliable decoding near 0.6 source
+pixels per narrow bar, with lower pitches possible at favorable rotations.
+This is a development target, not a guaranteed minimum resolution.
+
+Only unresolved Very High candidates enter the bounded recovery bank. Independent
+disjoint bands must agree; existing visual conflicts, source continuity, result
+association and frame reconciliation still apply. Low, Medium and High do not
+compile this path. See [integration evidence and remaining work](../docs/SUBPIXEL_VERY_HIGH_20260926.md).

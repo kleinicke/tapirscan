@@ -98,7 +98,51 @@ impl CandidateScanner {
         assemble(im, &mut outputs, &mut run, &plans);
         #[cfg(feature = "mode-very-high")]
         self.rescue_phases(im, &mut outputs, &mut run, &plans);
+        #[cfg(feature = "mode-very-high")]
+        Self::recover_subpixels(im, &mut outputs, &mut run);
         Ok(outputs)
+    }
+    #[cfg(feature = "mode-very-high")]
+    fn recover_subpixels(im: ImageView<'_>, outputs: &mut [Candidate], run: &mut Execution) {
+        let mut remaining = crate::subpixel::MAX_MODELS;
+        if !run.policy.complete {
+            remaining = remaining.min(
+                run.policy
+                    .max_retry_paths_per_frame
+                    .saturating_sub(run.used),
+            );
+        }
+        for c in outputs {
+            if c.work.association_truncated > 0
+                || run.policy.candidate_retry_mask & (1_u64 << c.index) == 0
+            {
+                continue;
+            }
+            let mut budget = remaining.min(
+                run.policy
+                    .max_retry_paths_per_candidate
+                    .saturating_sub(c.work.retry_paths),
+            );
+            let before = budget;
+            let count = c.observations.len();
+            crate::subpixel::recover(im, c, &mut budget);
+            let used = before - budget;
+            remaining -= used;
+            run.used += used;
+            if c.observations.len() != count {
+                if let Ok(m) = scan::transform(c.coverage) {
+                    c.detections = experiment::assemble_many_budget_options(
+                        im,
+                        m.0,
+                        &c.observations,
+                        &mut c.work,
+                        true,
+                        &mut run.association,
+                        false,
+                    );
+                }
+            }
+        }
     }
     fn initial_pass(
         &mut self,

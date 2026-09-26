@@ -162,12 +162,12 @@ accuracy ranking. **[Read the illustrated comparison and its sources](docs/COMPA
 
 ## Choose an effort mode
 
-| Mode        | When to use it                                                          |
-| ----------- | ----------------------------------------------------------------------- |
-| `low`       | Live camera scanning when keeping up with incoming frames matters most. |
-| `medium`    | Start here: the default for photos and camera frames.                   |
-| `high`      | Difficult images when you can spend more time on each scan.             |
-| `very-high` | Your largest effort budget when latency matters less.                   |
+| Mode        | When to use it                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------ |
+| `low`       | Live camera scanning when keeping up with incoming frames matters most.                          |
+| `medium`    | Start here: the default for photos and camera frames.                                            |
+| `high`      | Difficult images when you can spend more time on each scan.                                      |
+| `very-high` | Your largest effort budget when latency matters less; includes bounded subpixel EAN-13 recovery. |
 
 `low` uses the former Turbo implementation. The previous implementation is
 called **Low Classic** and remains a demo-only comparison. See
@@ -242,3 +242,8 @@ Set `extended_budget=True` (Python), `extendedBudget: true` (JavaScript), or
 Exact budgets may evolve. Today the flag relaxes shared EAN/UPC retry limits;
 other readers retain their existing budgets. It does not guarantee exhaustive
 search, and `unfinished` may remain true.
+
+Very High is also the development target for increasingly small, subpixel
+barcodes. Its current recovery needs a precise affine EAN-13 region; robust
+localization and camera-response handling remain future work. See the
+[subpixel development target](core/README.md#very-high-subpixel-development-target).

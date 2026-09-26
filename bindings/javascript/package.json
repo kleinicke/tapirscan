@@ -13,10 +13,10 @@
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-all-format-recovery-20260926.wasm",
-    "wasm/medium-all-format-recovery-20260926.wasm",
-    "wasm/high-all-format-recovery-20260926.wasm",
-    "wasm/very-high-all-format-recovery-20260926.wasm"
+    "wasm/low-subpixel-integration-20260926-r3.wasm",
+    "wasm/medium-subpixel-integration-20260926-r3.wasm",
+    "wasm/high-subpixel-integration-20260926-r3.wasm",
+    "wasm/very-high-subpixel-integration-20260926-r3.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

@@ -363,3 +363,6 @@ pub mod stripes;
 pub mod transition;
 
 pub mod fast_profile;
+
+#[cfg(feature = "mode-very-high")]
+mod subpixel;
