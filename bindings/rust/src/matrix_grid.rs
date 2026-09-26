@@ -492,3 +492,33 @@ mod tests {
         assert!(flat.iter().all(|v| *v == flat[0]));
     }
 }
+
+#[cfg(test)]
+mod pending_tests {
+    #[test]
+    fn exhausted_rune_resolution_keeps_the_read_and_marks_unfinished() {
+        let mut scan = barcode_multiformat::Scan {
+            barcodes: vec![barcode_multiformat::Detection {
+                bytes: None,
+                structured_append: None,
+                reader_initialization: false,
+                addon: None,
+                format: "Aztec".into(),
+                text: "123".into(),
+                polygon: [[2., 2.], [13., 2.], [13., 13.], [2., 13.]],
+                support: 1,
+                error: 0.,
+                gs1: false,
+            }],
+            regions: Vec::new(),
+            unfinished: false,
+            lines: 0,
+        };
+        let mut budget = 0;
+        super::resolve_runes(&[255; 256], 16, 16, &mut scan, &mut budget);
+        assert_eq!(scan.barcodes.len(), 1);
+        assert_eq!(scan.barcodes[0].text, "123");
+        assert!(scan.unfinished);
+        assert_eq!(budget, 0);
+    }
+}
