@@ -43,7 +43,8 @@ impl Scanner {
         primary: Option<&crate::Result>,
         reads: &mut Vec<Read>,
         unread: &mut Vec<Region>,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<Region>, Error> {
+        let mut deferred_reads = Vec::new();
         let proposals = if let Some(primary) = primary {
             primary.proposals.clone()
         } else {
@@ -128,7 +129,7 @@ impl Scanner {
                     2.,
                 );
                 *reads = reconciled;
-                pending.extend(deferred);
+                deferred_reads.extend(deferred);
                 *reads = crate::linear_duplicates::merge_selected(
                     std::mem::take(reads),
                     image,
@@ -156,7 +157,7 @@ impl Scanner {
         if options.include_regions {
             unread.extend(pending);
         }
-        Ok(())
+        Ok(deferred_reads)
     }
 
     /// Scan selected formats into the shared typed result and optional raw diagnostics.
@@ -222,10 +223,12 @@ impl Scanner {
             unfinished |= extra.unfinished;
         }
         #[cfg(not(feature = "low"))]
+        let mut deferred_reads = Vec::new();
+        #[cfg(not(feature = "low"))]
         if (mask & 511 != 0 || (crate::MODE_ID == 1 && mask == 16384))
             && addons == EanAddOnPolicy::Ignore
         {
-            self.recover_linear_regions(
+            deferred_reads = self.recover_linear_regions(
                 image,
                 options,
                 mask,
@@ -244,6 +247,12 @@ impl Scanner {
                     .any(|read| overlap_quads(&region.polygon, &read.polygon).1 >= 0.65)
             });
             unread = distinct_regions(unread);
+        }
+        // Deferred physical-instance claims must survive the generic overlap
+        // cleanup: an existing read was not sufficient proof of their identity.
+        #[cfg(not(feature = "low"))]
+        if options.include_regions {
+            unread.extend(deferred_reads);
         }
         reads = crate::linear_duplicates::merge(reads, image);
         reads.sort_by_key(|read| std::cmp::Reverse(read.support));
@@ -986,6 +995,21 @@ fn matrix_retries(
     if mask & 4096 != 0 {
         crate::matrix_grid::resolve_runes(pixels, width, height, scan, &mut budget);
     }
+    // Pending recovery remains unfinished even when its shared allowance or
+    // crop size cap prevents a retry, including candidates beyond the first eight.
+    scan.unfinished |= scan.regions.iter().any(|region| {
+        let selected = match region.format.as_str() {
+            "QRCode" => 512,
+            "DataMatrix" => 1024,
+            "Aztec" => 4096,
+            _ => 0,
+        };
+        mask & selected != 0
+            && !scan.barcodes.iter().any(|read| {
+                read.format == region.format
+                    && crate::signal_recovery::covered(region.polygon, read.polygon)
+            })
+    });
     for region in scan.regions.iter().take(8) {
         let hinted = match region.format.as_str() {
             "QRCode" => 512,
@@ -1058,5 +1082,28 @@ mod matrix_budget_tests {
         };
         assert!(matrix_retries(&[255; 64], [8, 8], 1536, &mut scan).is_empty());
         assert!(!scan.unfinished);
+    }
+}
+
+#[cfg(all(test, not(feature = "low")))]
+mod pending_recovery_tests {
+    #[test]
+    fn oversized_pending_qr_remains_unfinished_without_a_retry() {
+        let mut scan = barcode_multiformat::Scan {
+            barcodes: Vec::new(),
+            regions: vec![barcode_multiformat::regions::Region {
+                format: "QRCode".into(),
+                text: String::new(),
+                polygon: [[0., 0.], [999., 0.], [999., 999.], [0., 999.]],
+                localization_score: 1.,
+                support: 1,
+            }],
+            unfinished: false,
+            lines: 0,
+        };
+        let pixels = vec![255; 1_000_000];
+        assert!(super::matrix_retries(&pixels, [1000, 1000], 512, &mut scan).is_empty());
+        assert!(scan.unfinished);
+        assert_eq!(scan.regions.len(), 1);
     }
 }

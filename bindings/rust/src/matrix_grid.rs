@@ -304,6 +304,10 @@ pub(crate) fn resolve_runes(
                             continue;
                         };
                         for offset in [0., -0.15, 0.15] {
+                            if *budget < 225 {
+                                scan.unfinished = true;
+                                return;
+                            }
                             let Some(values) =
                                 sample(pixels, width, height, mode_q, 15, 15, offset, budget)
                             else {
@@ -323,6 +327,10 @@ pub(crate) fn resolve_runes(
                                 let Some(full_q) = expand(oriented, n) else {
                                     continue;
                                 };
+                                if n * n > *budget {
+                                    scan.unfinished = true;
+                                    continue;
+                                }
                                 let Some(values) =
                                     sample(pixels, width, height, full_q, n, n, offset, budget)
                                 else {
