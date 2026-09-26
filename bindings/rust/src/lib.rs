@@ -10,7 +10,7 @@ mod effort;
     feature = "very-high"
 ))]
 mod fast_linear;
-#[cfg(feature = "low")]
+#[cfg(any(feature = "low", feature = "medium"))]
 mod fast_sparse;
 mod format_registry;
 mod geometry;

@@ -50,14 +50,44 @@ impl Scanner {
                 image.channels,
                 image.stride,
             )?;
-            self.localizer.detect(im)?.proposals
+            if crate::MODE_ID == 1 && mask == 16384 {
+                self.localizer.detect_sparse(im, 768.)?.proposals
+            } else {
+                self.localizer.detect(im)?.proposals
+            }
         };
-        let (found, pending) = crate::fast_linear::recover_proposals(
+        // A broad mask can turn a short UPC-E interpretation of EAN-13 into a
+        // false extra read. The new rare-format recovery requires explicit
+        // selection; the established Medium readers keep their broad behavior.
+        let selected_rare = if matches!(mask, 8 | 16384) { mask } else { 0 };
+        let oriented_mask = if crate::MODE_ID == 1 {
+            mask & 496 | selected_rare
+        } else {
+            mask & 16
+        };
+        let (mut found, mut pending) = crate::fast_linear::recover_proposals(
             image,
             &proposals,
-            mask & if crate::MODE_ID == 1 { 496 } else { 16 },
+            oriented_mask,
             &mut self.fast_profiles,
         )?;
+        // The quick localizer misses a few severely rotated expanded symbols.
+        // Preserve the full proposal search only when this selected reader has
+        // no value after the source pass, keeping the common case bounded.
+        if crate::MODE_ID == 1 && mask == 16384 && reads.is_empty() && found.is_empty() {
+            let im = crate::ImageView::new(
+                image.data,
+                image.width,
+                image.height,
+                image.channels,
+                image.stride,
+            )?;
+            let full = self.localizer.detect(im)?.proposals;
+            let (extra, regions) =
+                crate::fast_linear::recover_proposals(image, &full, mask, &mut self.fast_profiles)?;
+            found.extend(extra);
+            pending.extend(regions);
+        }
         reads.extend(found);
         #[cfg(any(feature = "high", feature = "very-high"))]
         if mask & 3 != 0 {
@@ -142,7 +172,9 @@ impl Scanner {
             unfinished |= extra.unfinished;
         }
         #[cfg(not(feature = "low"))]
-        if mask & 511 != 0 && addons == EanAddOnPolicy::Ignore {
+        if (mask & 511 != 0 || (crate::MODE_ID == 1 && mask == 16384))
+            && addons == EanAddOnPolicy::Ignore
+        {
             self.recover_linear_regions(
                 image,
                 options,
@@ -435,6 +467,50 @@ fn gray_image(image: Image<'_>, gray: &mut Vec<u8>) -> Result<(), Error> {
     Ok(())
 }
 
+#[cfg(feature = "medium")]
+fn scaled_matrix_retry(
+    pixels: &[u8],
+    width: usize,
+    height: usize,
+    target_long: usize,
+    mask: u32,
+    effort: usize,
+) -> barcode_multiformat::Scan {
+    let long = width.max(height);
+    let out_width = ((width * target_long + long / 2) / long).max(3);
+    let out_height = ((height * target_long + long / 2) / long).max(3);
+    let x_source: Vec<_> = (0..out_width)
+        .map(|x| ((2 * x + 1) * width / (2 * out_width)).min(width - 1))
+        .collect();
+    let mut smaller = vec![0; out_width * out_height];
+    for y in 0..out_height {
+        let source_y = ((2 * y + 1) * height / (2 * out_height)).min(height - 1);
+        let source = &pixels[source_y * width..(source_y + 1) * width];
+        let target = &mut smaller[y * out_width..(y + 1) * out_width];
+        for (pixel, &x) in target.iter_mut().zip(&x_source) {
+            *pixel = source[x];
+        }
+    }
+    let mut scan = barcode_multiformat::scan(&smaller, out_width, out_height, mask, effort);
+    let scale_x = barcode_multiformat::numeric::usize_f32(width)
+        / barcode_multiformat::numeric::usize_f32(out_width);
+    let scale_y = barcode_multiformat::numeric::usize_f32(height)
+        / barcode_multiformat::numeric::usize_f32(out_height);
+    for polygon in scan
+        .barcodes
+        .iter_mut()
+        .map(|value| &mut value.polygon)
+        .chain(scan.regions.iter_mut().map(|value| &mut value.polygon))
+    {
+        for point in polygon {
+            point[0] *= scale_x;
+            point[1] *= scale_y;
+        }
+    }
+    scan.unfinished = true;
+    scan
+}
+
 fn validate(image: Image<'_>, mask: u32) -> Result<(), Error> {
     if mask == 0
         || mask & !ALL_FORMATS_MASK != 0
@@ -628,9 +704,55 @@ fn scan_additional(
                     .map(|b| b.polygon.map(|p| p.map(f64::from))),
             );
         }
+        #[cfg(feature = "medium")]
+        let retries = medium_retries(
+            pixels,
+            [image.width, image.height],
+            mask,
+            selected,
+            level,
+            addons,
+            &scan,
+        );
         scans.push(scan);
+        #[cfg(feature = "medium")]
+        scans.extend(retries);
     }
     Ok((scans, coverage))
+}
+
+#[cfg(feature = "medium")]
+fn medium_retries(
+    pixels: &[u8],
+    [width, height]: [usize; 2],
+    mask: u32,
+    selected: u32,
+    level: usize,
+    addons: EanAddOnPolicy,
+    scan: &barcode_multiformat::Scan,
+) -> Vec<barcode_multiformat::Scan> {
+    if addons != EanAddOnPolicy::Ignore || !scan.barcodes.is_empty() || mask != selected {
+        return Vec::new();
+    }
+    let mut retries = Vec::new();
+    if mask == 8192 {
+        let sparse = crate::fast_sparse::Prepared::new(pixels, width, height);
+        retries.push(sparse.scan(mask, 0));
+    }
+    if matches!(mask, 512 | 131_072) && width.max(height) > 1920 {
+        let dimensions: &[usize] = if mask == 512 { &[960] } else { &[1600, 1200] };
+        for &target in dimensions {
+            retries.push(scaled_matrix_retry(
+                pixels, width, height, target, mask, level,
+            ));
+        }
+    }
+    // Revisit an unresolved QR candidate with the existing extended reader.
+    // Requiring a pending region avoids the expensive pass on blank misses.
+    if mask == 512 && width.max(height) <= 1920 && scan.unfinished && !scan.regions.is_empty() {
+        retries.push(barcode_multiformat::scan(pixels, width, height, mask, 2));
+    }
+    retries
 }
 
 #[cfg(all(test, not(feature = "low")))]
