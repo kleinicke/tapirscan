@@ -990,7 +990,7 @@ fn matrix_retries(
 ) -> Vec<barcode_multiformat::Scan> {
     let mode = crate::MODE_ID as usize;
     let mut budget = [0, 250_000, 2_000_000, 4_000_000][mode];
-    let mut crop_budget = [0, 32_768, 131_072, 262_144][mode];
+    let mut crop_budget = [0, 65_536, 131_072, 262_144][mode];
     let mut retries: Vec<barcode_multiformat::Scan> = Vec::new();
     if mask & 4096 != 0 {
         crate::matrix_grid::resolve_runes(pixels, width, height, scan, &mut budget);
