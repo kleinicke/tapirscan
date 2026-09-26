@@ -98,7 +98,7 @@ impl Scanner {
         // of that proposal; one read never ends scanning of the whole image.
         let recovery_mask = mask & (16 | 32 | 64 | 256);
         if recovery_mask != 0 {
-            let limit = [0, 2, 8, 16][crate::MODE_ID as usize];
+            let limit = [0, 4, 8, 16][crate::MODE_ID as usize];
             let unresolved: Vec<_> = proposals
                 .iter()
                 .filter(|proposal| {
