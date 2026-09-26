@@ -458,10 +458,10 @@ mod tests {
         );
         let positions = sampler.positions.clone();
         let values = sampler.values.clone();
-        let samples = sampler.samples;
+        let count = sampler.samples;
         sampler.restore_contrast(2.);
         assert_eq!(sampler.positions, positions);
-        assert_eq!(sampler.samples, samples);
+        assert_eq!(sampler.samples, count);
         assert_eq!(sampler.values, values);
         sampler.threshold(true);
         assert!(sampler.runs.len() <= 2);

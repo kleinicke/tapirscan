@@ -654,6 +654,16 @@ fn sample_line_density(
         if method == 3 {
             sampler.restore_contrast(candidate.contrast);
         }
+        // Code39 has no mandatory checksum. Restored narrow bars can turn H
+        // into B consistently across rows, so only original profiles may add it.
+        let active_mask = if method >= 3 {
+            candidate.mask & !32
+        } else {
+            candidate.mask
+        };
+        if active_mask == 0 {
+            break;
+        }
         let method = method % 3;
         let mut decoded_wide = false;
         if method == 1 {
@@ -671,8 +681,8 @@ fn sample_line_density(
             } else {
                 sampler.first_black
             };
-            let mut decoded = linear::decode(&sampler.runs, first, candidate.mask);
-            supplement_ean(&sampler.runs, first, candidate.mask, &mut decoded);
+            let mut decoded = linear::decode(&sampler.runs, first, active_mask);
+            supplement_ean(&sampler.runs, first, active_mask, &mut decoded);
             let endpoints = if reverse { [b, a] } else { [a, b] };
             decoded.retain(|read| source_quiet(&sampler.runs, read, im, endpoints));
             if reverse {
@@ -1118,6 +1128,32 @@ pub(crate) fn join_recovered_bands(
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     strength: f32,
 ) -> Vec<Read> {
+    reconcile_recovered(reads, usize::MAX, image, sampler, strength).0
+}
+
+/// Additional physical instances need evidence beyond an overlapping equal
+/// value. Established reads survive; unresolved new claims remain pending.
+#[cfg(not(feature = "low"))]
+pub(crate) fn append_recovered(
+    mut reads: Vec<Read>,
+    additions: Vec<Read>,
+    image: Image<'_>,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    strength: f32,
+) -> (Vec<Read>, Vec<Region>) {
+    let established = reads.len();
+    reads.extend(additions);
+    reconcile_recovered(reads, established, image, sampler, strength)
+}
+
+#[cfg(not(feature = "low"))]
+fn reconcile_recovered(
+    reads: Vec<Read>,
+    established: usize,
+    image: Image<'_>,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    strength: f32,
+) -> (Vec<Read>, Vec<Region>) {
     let Ok(im) = ImageView::new(
         image.data,
         image.width,
@@ -1125,13 +1161,15 @@ pub(crate) fn join_recovered_bands(
         image.channels,
         image.stride,
     ) else {
-        return reads;
+        return (reads, Vec::new());
     };
+    let mut deferred = Vec::new();
     let mut remaining = 262_144usize;
     let mut rows = 256usize;
     let mut merged: Vec<Read> = Vec::new();
-    for read in reads {
+    for (index, read) in reads.into_iter().enumerate() {
         let mut used = false;
+        let mut ambiguous = false;
         for previous in &mut merged {
             if previous.format != read.format
                 || previous.text != read.text
@@ -1148,6 +1186,8 @@ pub(crate) fn join_recovered_bands(
             {
                 continue;
             }
+            ambiguous |= index >= established
+                && crate::geometry::overlap_quads(&previous.polygon, &read.polygon).0 > 0.;
             if let Some(quad) = decode_bridge(
                 previous,
                 &read,
@@ -1164,10 +1204,20 @@ pub(crate) fn join_recovered_bands(
             }
         }
         if !used {
-            merged.push(read);
+            if ambiguous {
+                deferred.push(Region {
+                    format: read.format,
+                    text: read.text,
+                    polygon: read.polygon,
+                    support: read.support,
+                    localization_score: None,
+                });
+            } else {
+                merged.push(read);
+            }
         }
     }
-    merged
+    (merged, deferred)
 }
 #[cfg(not(feature = "low"))]
 fn decode_bridge(
@@ -1299,7 +1349,7 @@ fn bridge_line(
         if !sampler.has_contrast() {
             return false;
         }
-        for method in 0..6 {
+        for method in 0..if mask == 32 { 3 } else { 6 } {
             if method == 3 {
                 sampler.restore_contrast(strength);
             }
@@ -1403,6 +1453,20 @@ mod bridge_tests {
             let result = decode_bridge(&a, &b, im, &mut sampler, 2., &mut 131_072, &mut 256);
             assert_eq!(result.is_some(), !separated, "separated={separated}");
             assert!(decode_bridge(&a, &b, im, &mut sampler, 2., &mut 0, &mut 256).is_none());
+            let (accepted, deferred) =
+                append_recovered(vec![a.clone()], vec![b.clone()], image, &mut sampler, 2.);
+            assert_eq!(accepted.len(), if separated { 2 } else { 1 });
+            assert!(deferred.is_empty());
+            // A conflicting module-axis interpretation cannot establish a
+            // second physical instance solely from the same value and overlap.
+            let mut uncertain = a.clone();
+            uncertain.polygon.rotate_left(1);
+            let original = uncertain.polygon;
+            let (accepted, deferred) =
+                append_recovered(vec![uncertain], vec![a.clone()], image, &mut sampler, 2.);
+            assert_eq!(accepted.len(), 1);
+            assert_eq!(accepted[0].polygon, original);
+            assert_eq!(deferred.len(), 1);
             // A bounded proof may join continuous bands, never the white gap.
             assert_eq!(
                 join_recovered_bands(vec![a, b], image, &mut sampler, 2.).len(),

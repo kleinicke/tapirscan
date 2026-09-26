@@ -110,7 +110,7 @@ impl Scanner {
                     })
                 })
                 .take(limit)
-                .cloned()
+                .copied()
                 .collect();
             let (extra, regions) = crate::fast_linear::recover_proposals_contrast(
                 image,
@@ -120,13 +120,15 @@ impl Scanner {
                 2.,
             )?;
             if !extra.is_empty() {
-                reads.extend(extra);
-                *reads = crate::fast_linear::join_recovered_bands(
+                let (reconciled, deferred) = crate::fast_linear::append_recovered(
                     std::mem::take(reads),
+                    extra,
                     image,
                     &mut self.fast_profiles,
                     2.,
                 );
+                *reads = reconciled;
+                pending.extend(deferred);
                 *reads = crate::linear_duplicates::merge_selected(
                     std::mem::take(reads),
                     image,
@@ -661,6 +663,10 @@ pub(crate) fn fast_additional(
 }
 
 /// Run the linear reader before primary discovery so strong reads can guide deep retries.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep shared grayscale, initial readers and bounded recovery ordered together."
+)]
 fn scan_additional(
     image: Image<'_>,
     mask: u32,

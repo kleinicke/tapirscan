@@ -719,6 +719,10 @@ impl Evidence<'_> {
     }
 }
 /// Algorithm inputs are typed; opaque payloads retain reader-specific evidence.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Payload flags, geometry changes and an opt-in ownership proof are independent conditions."
+)]
 struct Read<T> {
     text: String,
     format: String,

@@ -35,10 +35,6 @@ pub(crate) fn sharpen(gray: &[u8], width: usize, height: usize, strength: i32) -
     output
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Source layout, selected reader and shared crop allowance define a bounded retry."
-)]
 pub(crate) fn region_retries(
     pixels: &[u8],
     width: usize,
