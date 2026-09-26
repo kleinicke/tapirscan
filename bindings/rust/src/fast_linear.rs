@@ -684,7 +684,17 @@ fn sample_line_density(
             let mut decoded = linear::decode(&sampler.runs, first, active_mask);
             supplement_ean(&sampler.runs, first, active_mask, &mut decoded);
             let endpoints = if reverse { [b, a] } else { [a, b] };
-            decoded.retain(|read| source_quiet(&sampler.runs, read, im, endpoints));
+            decoded.retain(|read| {
+                source_quiet(&sampler.runs, read, im, endpoints)
+                    && (candidate.contrast <= 0.
+                        || read.format != "Code39"
+                        || code39_source_resolution(
+                            &sampler.runs,
+                            read,
+                            endpoints,
+                            sampler.samples,
+                        ))
+            });
             if reverse {
                 sampler.runs.reverse();
             }
@@ -711,6 +721,27 @@ fn sample_line_density(
             break;
         }
     }
+}
+
+/// Additional unchecked Code39 recovery needs two source pixels per narrow
+/// element. Multiple rows cannot disambiguate systematic subpixel aliases.
+fn code39_source_resolution(
+    runs: &[f32],
+    read: &linear::Read,
+    endpoints: [[f64; 2]; 2],
+    samples: usize,
+) -> bool {
+    let Some(segment) = runs.get(read.start..read.end) else {
+        return false;
+    };
+    if segment.is_empty() || samples < 2 {
+        return false;
+    }
+    let mut widths = segment.to_vec();
+    let index = widths.len() / 3;
+    let (_, narrow, _) = widths.select_nth_unstable_by(index, f32::total_cmp);
+    let span = (endpoints[1][0] - endpoints[0][0]).hypot(endpoints[1][1] - endpoints[0][1]);
+    f64::from(*narrow) * span / usize_f64(samples - 1) >= 2.
 }
 
 /// A proposal endpoint inside the image cannot stand in for a cropped image edge.
