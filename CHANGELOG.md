@@ -2,6 +2,11 @@
 
 ## Unreleased: recovery preview
 
+- Add shared bounded matrix-grid, localized image and linear-profile recovery to
+  Medium, High and Very High combined-format scanning. Preserve pending physical
+  instances and tighten unchecked Code39 admission. See
+  `docs/COMBINED_RECOVERY_20260927.md` for the measured quality/runtime tradeoff.
+
 - Add bounded original-pixel subpixel EAN-13 recovery to Very High, with independent
   band agreement and normal conflict checks. Precise affine candidate geometry
   remains necessary; reliable subpixel localization is an ongoing Very High goal.

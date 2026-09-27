@@ -141,10 +141,10 @@ interface WireResult {
 }
 
 const modes: Record<Mode, { id: number; file: string }> = {
-  low: { id: 0, file: "low-subpixel-integration-20260926-r3.wasm" },
-  medium: { id: 1, file: "medium-subpixel-integration-20260926-r3.wasm" },
-  high: { id: 2, file: "high-subpixel-integration-20260926-r3.wasm" },
-  "very-high": { id: 3, file: "very-high-subpixel-integration-20260926-r3.wasm" },
+  low: { id: 0, file: "low-combined-recovery-20260927.wasm" },
+  medium: { id: 1, file: "medium-combined-recovery-20260927.wasm" },
+  high: { id: 2, file: "high-combined-recovery-20260927.wasm" },
+  "very-high": { id: 3, file: "very-high-combined-recovery-20260927.wasm" },
 };
 const addOnPolicies: Record<EanAddOnPolicy, number> = { Ignore: 0, Read: 1, Require: 2 };
 
