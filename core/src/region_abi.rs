@@ -239,6 +239,7 @@ pub extern "C" fn regions_scan_mask(
         }
         let policy = Policy {
             candidate_retry_mask: u64::from(mask_low) | (u64::from(mask_high) << 32),
+            low_resolution_mask: 0,
             complete: flags & 32 != 0,
             max_retry_paths_per_candidate: per_candidate,
             max_retry_paths_per_frame: per_frame,

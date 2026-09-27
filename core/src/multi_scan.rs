@@ -29,6 +29,9 @@ pub struct Policy {
     ))]
     /// Deep-retry selection; initial discovery remains enabled for every candidate.
     pub candidate_retry_mask: u64,
+    #[cfg(not(feature = "mode-low"))]
+    /// Additional small-region recovery selection; does not enable ordinary deep retries.
+    pub low_resolution_mask: u64,
     /// Remove shared frame execution/association budgets. Per-candidate effort,
     /// weak-candidate deferral, sampling geometry and safety caps still apply.
     pub complete: bool,
@@ -48,6 +51,8 @@ impl Default for Policy {
         Self {
             #[cfg(not(feature = "mode-low"))]
             candidate_retry_mask: u64::MAX,
+            #[cfg(not(feature = "mode-low"))]
+            low_resolution_mask: 0,
             complete: false,
             max_retry_paths_per_candidate: 512,
             max_retry_paths_per_frame: 8192,

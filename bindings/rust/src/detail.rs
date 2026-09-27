@@ -111,17 +111,28 @@ fn evidence(im: Image<'_>, polygon: Quad, local: bool, target: usize) -> usize {
     }
     best
 }
-pub fn retry_mask(im: Image<'_>, proposals: &[Proposal]) -> u64 {
+pub fn retry_masks(im: Image<'_>, proposals: &[Proposal]) -> (u64, u64) {
     let mut mask = 0;
+    let mut low_resolution = 0;
     for (i, p) in proposals.iter().enumerate() {
-        if evidence(im, p.polygon, false, 48) >= 48 {
+        let runs = evidence(im, p.polygon, false, 48);
+        let q = p.polygon;
+        let width = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]);
+        let height = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
+        if runs >= 28
+            && ((45. ..=190.).contains(&width) && (12. ..=110.).contains(&height)
+                || (45. ..=190.).contains(&height) && (12. ..=110.).contains(&width))
+        {
+            low_resolution |= 1_u64 << i;
+        }
+        if runs >= 48 {
             mask |= 1_u64 << i;
         }
     }
     if proposals.len() < 64 {
         mask |= 1_u64 << proposals.len();
     }
-    mask
+    (mask, low_resolution)
 }
 #[derive(Clone, Copy)]
 struct Seed {

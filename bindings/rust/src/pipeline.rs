@@ -198,13 +198,17 @@ fn scan_policy(
 ) -> Policy {
     #[cfg(feature = "low")]
     let _ = (image, proposals, coverage);
+    #[cfg(not(feature = "low"))]
+    let (retry_mask, low_resolution_mask) = super::detail::retry_masks(image, proposals);
     Policy {
         complete: options.finish_candidates,
         #[cfg(not(feature = "low"))]
-        candidate_retry_mask: super::formats::uncovered_mask(
+        candidate_retry_mask: super::formats::uncovered_mask(proposals, coverage, retry_mask),
+        #[cfg(not(feature = "low"))]
+        low_resolution_mask: super::formats::uncovered_mask(
             proposals,
             coverage,
-            super::detail::retry_mask(image, proposals),
+            low_resolution_mask,
         ),
         transition_cleanup: true,
         source_identity: true,

@@ -16,6 +16,7 @@ name = "barcode-research-core"
 version = "0.0.0"
 dependencies = [
  "barcode-multiformat",
+ "serde_json",
 ]
 
 [[package]]

@@ -32,6 +32,11 @@ there is only one maintained algorithm tree.
 - `multi_scan/plan.rs` constructs retry paths. `multi_scan.rs` executes them in
   their defined order, enforces budgets and refreshes evidence-dependent effort.
   `verified_coverage.rs` proves which intervals can safely reuse prior work.
+- `lowres.rs` and `lowres/photo.rs` recover unresolved small EAN-13 regions by
+  fusing original pixels across height, calibrating active edges, and requiring
+  distributed visual agreement before checksum acceptance. Medium requires prior
+  guard evidence and rejects repeatedly invalid visual reads; higher modes use
+  larger bounded searches. See [low-resolution recovery](../docs/LOWRES_RECOVERY_20260927.md).
 - `frame/identity.rs` owns physical overlap and pending-coverage geometry.
   `frame/conflict.rs` proves identity and resolves competing values from pixels.
   `frame.rs` reconciles candidates and assembles the final frame.

@@ -2,6 +2,12 @@
 
 ## Unreleased: recovery preview
 
+- Recover additional small EAN-13 barcodes in real photos using original-pixel
+  multirow evidence and active-edge calibration. Medium uses a conservative
+  evidence gate to protect barcode-free latency; High/Very High search more
+  broadly while retaining normal source-continuity and display-boundary checks.
+  See `docs/LOWRES_RECOVERY_20260927.md` for measured scope and limitations.
+
 - Extend High/Very High QR recovery with original-gray sampling, bounded extra
   resolutions, contrast normalization and polarity retries. Preserve existing
   reads and map recovered regions into source coordinates. See

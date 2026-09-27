@@ -100,7 +100,40 @@ impl CandidateScanner {
         self.rescue_phases(im, &mut outputs, &mut run, &plans);
         #[cfg(feature = "mode-very-high")]
         Self::recover_subpixels(im, &mut outputs, &mut run);
+        #[cfg(not(feature = "mode-low"))]
+        Self::recover_low_resolution(im, &mut outputs, &mut run);
         Ok(outputs)
+    }
+    #[cfg(not(feature = "mode-low"))]
+    fn recover_low_resolution(im: ImageView<'_>, outputs: &mut [Candidate], run: &mut Execution) {
+        let mut remaining = crate::lowres::MAX_ATTEMPTS;
+        for c in outputs {
+            if c.work.association_truncated > 0
+                || (run.policy.candidate_retry_mask | run.policy.low_resolution_mask)
+                    & (1_u64 << c.index)
+                    == 0
+            {
+                continue;
+            }
+            let mut budget = remaining;
+            if !run.policy.complete {
+                budget = budget
+                    .min(
+                        run.policy
+                            .max_retry_paths_per_frame
+                            .saturating_sub(run.used),
+                    )
+                    .min(
+                        run.policy
+                            .max_retry_paths_per_candidate
+                            .saturating_sub(c.work.retry_paths),
+                    );
+            }
+            let before = budget;
+            crate::lowres::recover(im, c, &mut budget, &mut run.association);
+            remaining -= before - budget;
+            run.used += before - budget;
+        }
     }
     #[cfg(feature = "mode-very-high")]
     fn recover_subpixels(im: ImageView<'_>, outputs: &mut [Candidate], run: &mut Execution) {

@@ -370,3 +370,6 @@ mod subpixel;
 pub mod qr_frontend;
 
 pub mod qr_grid;
+
+#[cfg(not(feature = "mode-low"))]
+mod lowres;

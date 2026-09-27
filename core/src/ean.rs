@@ -172,11 +172,17 @@ fn digit_reference(p: &[f32], side: u8) -> Digit {
 /// Digit evidence is computed once per position/alphabet and reused by parity.
 /// Cost/gap are research evidence, not calibrated confidence.
 #[must_use]
+pub fn decode(p: &[f32], max_cost: f32, min_gap: f32) -> Option<Result> {
+    visual_fit(p, max_cost, min_gap).filter(|r| checksum(&r.digits))
+}
+
+/// Return visual evidence before checksum for geometry ranking.
+#[must_use]
 #[expect(
     clippy::float_cmp,
     reason = "Encoded samples are binary and equal decoder costs are exact ambiguity ties; epsilon matching would change accepted identities."
 )]
-pub fn decode(p: &[f32], max_cost: f32, min_gap: f32) -> Option<Result> {
+pub fn visual_fit(p: &[f32], max_cost: f32, min_gap: f32) -> Option<Result> {
     if p.len() != 95
         || p.iter().any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
         || !max_cost.is_finite()
@@ -247,7 +253,25 @@ pub fn decode(p: &[f32], max_cost: f32, min_gap: f32) -> Option<Result> {
             tied = true;
         }
     }
-    best.filter(|r| !tied && r.cost <= max_cost && r.gap >= min_gap && checksum(&r.digits))
+    best.filter(|r| !tied && r.cost <= max_cost && r.gap >= min_gap)
+}
+/// Per-digit visual evidence for spatial fragment validation.
+#[must_use]
+pub fn visual_support(p: &[f32; 95], digits: &[u8; 13]) -> Option<[(u8, f32, f32); 12]> {
+    if digits.iter().any(|&d| d > 9) || p.iter().any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+    {
+        return None;
+    }
+    Some(std::array::from_fn(|j| {
+        let side = if j < 6 {
+            PARITY[usize::from(digits[0])][j]
+        } else {
+            b'R'
+        };
+        let start = if j < 6 { 3 + j * 7 } else { 50 + (j - 6) * 7 };
+        let d = digit(&p[start..start + 7], side);
+        (d.value, d.cost, d.gap)
+    }))
 }
 #[cfg(test)]
 fn legacy_decode(p: &[f32], max_cost: f32, min_gap: f32) -> Option<Result> {
@@ -350,7 +374,14 @@ mod tests {
     fn damaged_checksum_is_not_repaired() {
         let d = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 8];
         assert!(!checksum(&d));
+        assert_eq!(visual_fit(&encode(&d), 0.01, 0.01).unwrap().digits, d);
         assert!(decode(&encode(&d), 0.01, 0.01).is_none());
+    }
+
+    #[test]
+    fn visual_support_rejects_invalid_input() {
+        assert!(visual_support(&[0.; 95], &[10; 13]).is_none());
+        assert!(visual_support(&[f32::NAN; 95], &[0; 13]).is_none());
     }
 
     #[test]
