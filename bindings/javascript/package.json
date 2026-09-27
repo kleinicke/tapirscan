@@ -13,10 +13,10 @@
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-qr-high-quality-20260927.wasm",
-    "wasm/medium-qr-high-quality-20260927.wasm",
-    "wasm/high-qr-high-quality-20260927.wasm",
-    "wasm/very-high-qr-high-quality-20260927.wasm"
+    "wasm/low-lowres-recovery-20260927.wasm",
+    "wasm/medium-lowres-recovery-20260927.wasm",
+    "wasm/high-lowres-recovery-20260927.wasm",
+    "wasm/very-high-lowres-recovery-20260927.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

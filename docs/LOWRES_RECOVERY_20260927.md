@@ -86,13 +86,13 @@ The experiment retains paired native timings over 81 fixed images: 20 atlas
 negative controls, 20 visually inspected background crops, and 41 barcode images.
 Pixels are preloaded, scanners reused, two warmups precede nine alternating
 paired trials. Native API conversion/materialization is included. On the selected
-Medium gate, negative medians are 6.98 → 6.93 ms and 1.89 → 1.87 ms; negative p95
-is 19.57 → 19.54 ms and 7.15 → 7.07 ms. Barcode-image median is 17.11 → 17.49 ms.
+Medium gate, negative medians are 6.65 → 6.62 ms and 1.83 → 1.80 ms; negative p95
+is 18.95 → 18.92 ms and 6.96 → 7.07 ms. Barcode-image median is 16.46 → 18.93 ms.
 This is one desktop host, not a mobile latency claim.
 
-Higher efforts intentionally spend more on unresolved candidates. Their prior
-quiet native comparison has barcode-image median 56.78 → 57.55 ms for High and
-62.37 → 99.62 ms for Very High. The median per-image ratios are 1.15 and 1.19;
+Higher efforts intentionally spend more on unresolved candidates. Their final
+quiet native comparison has barcode-image median 55.36 → 54.87 ms for High and
+62.66 → 92.93 ms for Very High. The median per-image ratios are 1.14 and 1.19;
 cohort medians and paired ratios summarize different distributions. Difficult
 barcode-like negatives can also cost more in these modes.
 
