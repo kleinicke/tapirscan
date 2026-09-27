@@ -82,3 +82,7 @@ for (const dir of ["cmaps", "standard_fonts", "wasm"]) {
     recursive: true,
   });
 }
+
+// A stale precomputed benchmark must never masquerade as results for new engine bytes.
+const { writeBenchmarkIdentity } = await import("./benchmark-identity.mjs");
+await writeBenchmarkIdentity();

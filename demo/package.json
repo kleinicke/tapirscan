@@ -9,7 +9,8 @@
     "build": "node scripts/prepare.mjs && vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test scripts/comparison.test.mjs scripts/camera.test.mjs scripts/labels.test.mjs scripts/taps.test.mjs && node scripts/test-worker.mjs"
+    "test": "node --test scripts/benchmark.test.mjs scripts/comparison.test.mjs scripts/camera.test.mjs scripts/labels.test.mjs scripts/taps.test.mjs && node scripts/test-worker.mjs",
+    "benchmark:precompute": "node scripts/prepare.mjs && node scripts/precompute-benchmarks.mjs"
   },
   "dependencies": {
     "@ericblade/quagga2": "1.12.1",

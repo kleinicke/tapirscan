@@ -17,12 +17,14 @@
     matrixFormats,
     type Format,
   } from "tapirscan";
+  import Benchmark from "./Benchmark.svelte";
   import SpringSlider from "./SpringSlider.svelte";
   import { DoubleTap } from "./lib/taps";
   import { LabelLayout } from "./lib/labels";
   import { version } from "../package.json";
   import scannerVersions from "./lib/scanner-versions.json";
   let releaseVersion = scannerVersions.default;
+  const benchmarkEnabled = import.meta.env.VITE_ENABLE_IMAGE_BENCHMARK === "true";
   let tapirscanRevision = 0;
   function changeVersion() {
     tapirscanRevision++;
@@ -1522,6 +1524,12 @@
         </div>
       </div>
     </div>
+    {#if benchmarkEnabled}<Benchmark
+        {source}
+        {releaseVersion}
+        example={selectedDemo}
+        sourceRevision={loadId}
+      />{/if}
     <p class="hint" id="detection-note">
       {formats.join(", ")}.{#if detection === "common" || detection === "all"}
         ZBar scans its supported formats only; it skips Data Matrix{detection === "all"

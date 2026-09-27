@@ -11,7 +11,7 @@ the same transformed pixels. ZBar stays selected in Common and All, scanning its
 supported subset. It skips Data Matrix, PDF417, Aztec and MaxiCode; the UI notes
 these coverage differences. Initialization is
 excluded from displayed scan times, and engines differ in search strategies and
-completion reporting; this interactive comparison is not a benchmark. Camera and image processing are local to the browser.
+completion reporting. The separate Image benchmark panel records a reproducible image suite; timings from different devices are not directly comparable. Camera and image processing are local to the browser.
 
 ## Local development
 
@@ -62,7 +62,7 @@ site output is ignored too. License texts and source/build links are included in
 - Changing Resolution immediately reanalyzes the loaded photo from its retained
   original pixels. Full HD/4K cap the long edge at 1920/3840 pixels, preserving
   aspect ratio without upscaling. Original is capped at the scanner’s 32 MP limit.
-- Pesto is the default at 1.2× zoom and 0° rotation, with TS-Low, TS-Med, ZXing and ZBar enabled.
+- Pesto is the default at 1.2× zoom and 0° rotation, with TS-Med, TS-Low, ZXing and ZBar enabled.
   Sauce loads at 2.21× zoom and 34° rotation.
   Pills loads at 2.33× zoom and 45° rotation. Other images start at 1× zoom and 0° rotation. Demo-image buttons include the synthetic example, Pesto, Pills, Sauce, and Sunscreen.
   Camera access begins only after Use camera is pressed.
@@ -158,6 +158,10 @@ The normal view shows runtimes in the scanner buttons above the image. Fullscree
 shows scanner names and runtimes in a translucent overlay beside Back, without
 shrinking or moving the image. Its order and runtime widths stay fixed while scanners finish.
 
+ZXing and ZXing default are separate comparisons. ZXing enables tryHarder,
+tryRotate and tryDownscale; ZXing default explicitly disables those three flags
+(the former unchecked behavior). All other library settings remain unchanged.
+
 Label placement is recalculated next to the current barcode bounds on every update,
 with a bounded preference for nearby positions and small sideways corrections. The
 preference follows the barcode; candidate positions are always rebuilt from its current
@@ -173,8 +177,8 @@ Labels follow the current barcode geometry during rotation and zoom.
 
 ## Additional comparisons and progressive results
 
-TS-Med, ZXing and ZBar stay in the main scanner row. More scanners opens a
-checkbox dropdown for the other Tapirscan effort levels, jsQR 1.4.0 and Native.
+Every scanner checked under More scanners gets a card in the main scanner row. More scanners opens a
+compact checkbox selector for all scanners, without runtime or result counters. It includes all Tapirscan effort levels, jsQR 1.4.0 and Native.
 jsQR supports QR only and returns at most one code per scan; select Common or All.
 Native uses the browser's BarcodeDetector, scans the intersection of the selected
 and device-supported formats, and reports unavailability without substituting a
@@ -190,6 +194,11 @@ worker, with multiple linear codes, large locator patches and halfSample disable
 RGBA-to-grayscale conversion and decoding are timed; there is no PNG encoding or
 image loading. The UI remains free to update while Quagga2 scans. Its built-in
 worker pool remains disabled; the demo owns the worker and cancellation lifecycle.
+
+ZXing-JS enables TRY_HARDER and quarter-turn rotations, with at most four
+full-resolution passes. ZXing-JS default omits TRY_HARDER and uses one pass.
+Neither uses extra downscale or inversion passes. Both are independently
+selectable under More scanners; there are no separate settings checkboxes.
 
 The Quagga2 worker build applies two guarded compatibility fixes to the pinned
 1.12.1 browser bundle: the start check only requires a framegrabber for UI input,
@@ -222,19 +231,175 @@ Only the current page is retained as an image. Password-protected files must be
 unlocked before loading. Parsing uses PDF.js's worker, and its worker, fonts,
 character maps and WASM helpers are served from the demo's own origin.
 
-## Scanner names and selection
+## Image benchmark
 
-See [Low and Low Classic](../docs/LOW_MODES.md) for the public API mapping.
-TS-Low is the former Turbo and uses the selected public Low build. TS-Low Classic
-is the original Low implementation, pinned to the improved consensus build.
-Turbo2/4/8/16 remain optional private comparisons. Detect supports Common1D, 2D
-and All in addition to Retail and Common.
+Open **Image benchmark** below the examples. The panel compares the actual browser
+BarcodeDetector (no fallback), ZXing-WASM, ZBar-WASM, Tapirscan Low and Tapirscan Medium using
+Retail formats. All image processing happens locally; uploaded files are never
+sent to a server.
 
-TS-Low starts active alongside TS-Med, ZXing and ZBar. More scanners contains all
-readers in a compact checkbox selector. Checking adds and activates a card;
-clicking a card pauses/resumes it without hiding it. Unchecking removes it.
+- **Batch:** choose any number of image files, then Run uploaded images. Files
+  decode and scan sequentially, with no application file-count cap. Original
+  resolution is optional; the default limits the longest side to 1920 pixels.
+  Results and thumbnails consume memory in proportion to the file count.
+- **Stress test:** choose one file and Generate variations, or use Stress-test
+  current image. Non-zoom variants preserve the complete image, including all
+  barcodes and background. Ordinary rotation uses padding to avoid clipping. The baseline keeps the chosen resolution; only
+  small variants deliberately downsample. The suite includes rotation, scaling,
+  all four edges and corners, blur, contrast, compression and perspective.
+  Destructive crop controls are excluded. Nine zoom variants enlarge the original
+  photo within a fixed viewport, centered on the first detected barcode (Medium
+  first; image-center fallback). Targets are 35%, 60% and 85% of the limiting frame
+  dimension, capped at 8×, plus rotated and near-edge cases. These are tagged
+  zoomed / viewport crop: other barcodes and background may leave the frame.
+  Zooming interpolates pixels; it does not add image detail. Current-image tests ignore the main preview's
+  zoom/rotation and have their own resolution setting.
+- **Saved examples:** the five existing public examples include precomputed
+  reports. Their browser/version/timestamp and engine identities are shown.
+  Run locally to measure the visitor's device; saved timings are not presented
+  as local measurements.
 
-ZXing default disables tryHarder, tryRotate and tryDownscale and preserves all
-other library defaults. ZXing-JS default uses a single pass without TRY_HARDER or
-added rotations. Enhanced ZXing and ZXing-JS are separate entries; their previous
-settings checkboxes have been removed. The basic modes trade recovery for speed.
+The table and gallery share method/tag/read/repeated-value/error filters. Each
+method includes scan time, decoded values and numbered returned geometry.
+ZBar outlines are hulls of returned sample points. Repeated values can represent
+separate physical symbols, so these are possible repeats, not confirmed duplicate
+scans. No upload has ground-truth labels: detection counts are not accuracy.
+Stop retains a partial report, including its cancelled status. JSON downloads
+include all scenes, not only the current filter or page.
+
+Each engine receives one untimed blank warm-up. Reported milliseconds cover a
+single scanner call per scene, excluding image preparation, loading, worker
+transfer and ZBar state creation. Native includes detector creation and format
+query; Low and Medium include their debug-enabled synchronous scans. Both use
+their normal mode budgets and report unfinished work. No claim of statistically significant
+speed ranking is made from these samples.
+
+### Regenerate and verify
+
+Browser automation uses an optional Playwright installation with Chrome:
+
+```sh
+# After changes to the local binding, rebuild it and refresh the file dependency first.
+# From demo/: npm run build --prefix ../bindings/javascript && pnpm install --force --offline --frozen-lockfile
+# PLAYWRIGHT_MODULE may name an installed Playwright module by absolute path.
+npm run benchmark:precompute
+npm run build
+npm run check
+npm test
+node scripts/benchmark-browser.test.mjs
+```
+
+The generator starts an isolated local Vite server and runs the same transformation
+and worker code as the UI. Commit `public/benchmarks/*.json` after regeneration.
+The build regenerates the identity manifest from the recipe, example pixels,
+worker adapters, JavaScript binding and WASM bytes. The UI rejects stale saved
+reports when identities differ. Tests cover a real 100-image five-engine batch,
+invalid file isolation, single-image variants, cancellation, source changes,
+overlays, filters and mobile overflow. Browser results depend on platform-native
+format support; the browser test expects BarcodeDetector to support EAN-13.
+
+Local builds and benchmark generation do not deploy the website.
+
+The statistics table groups successfully processed images into 0, exactly 1, or
+2+ unique decoded values, with matching filters. Multiple returns of the same
+value count once for these groups; total detections and repeated-read counts
+still preserve all returned detections. Errors are separate from zero detections.
+
+Gallery thumbnails are 720-pixel, high-quality JPEG previews, while decoders use
+larger scan images. **Inspect full resolution** recreates a scene from the example
+or retained upload and the same transform at its scan dimensions, with fit,
+1:1 and 2× views, per-method detection overlays and decoded values. Only the
+inspected image is recreated, so batch runs do not retain full-resolution copies
+of every scene in memory. A reported detection is not verified correctness.
+Pagination reserves square image frames and anchors new pages at the top controls
+so lazy image loading cannot collapse the page or shift the reading position.
+
+## Tapirscan versions
+
+Under **More options**, the **Tapirscan version** selector includes the local full-area build
+`1.2.2+footprint.20260923`, the local
+`1.2.2+ownership.20260923` experiment, the deployed 1.2.2 build, and the local 1.2.1
+baseline from commit `6b85e42`, before the warped-retail changes. The ownership build
+adds source-bar duplicate suppression and weak ITF/retail conflict resolution. The footprint
+build additionally traces visible bar extents and reconciles competing reads through those
+connected source bars. Uncertain extents keep their previous geometry. The baseline is
+an archived local build, not a claim about registry-published 1.2.1 artifacts.
+The selection applies to all TS effort buttons, photos, camera frames and new
+image benchmark runs. Changing it cancels Tapirscan work and rescans the current
+image with fresh Tapirscan workers.
+
+`src/lib/scanner-versions.json` pins each version's four WASM assets. Preparation
+and worker loading verify SHA-256 hashes. The public JavaScript host has identical
+behavior for these builds; only its default asset filenames changed. Saved example
+benchmarks are for 1.2.2 and are rejected when another version is selected; run
+locally to measure that version. Keep old bytes immutable when adding versions.
+
+The version selector invalidates only Tapirscan workers and results. Independent
+reference readers keep completed results for unchanged photo pixels. Live camera
+frames continue to be scanned normally. More options → Show analyzed areas also
+shows reported proposals, primary EAN13/UPCA candidate counts, candidates without a
+primary EAN13/UPCA read and localization-limit omissions. Fast-discarded areas are not exposed by the
+current builds and are explicitly marked unavailable, rather than inferred from
+failed decodes.
+
+Image benchmark is hidden by default for the current public deployment. To enable
+it in a later build, set `VITE_ENABLE_IMAGE_BENCHMARK=true` when building the demo.
+
+## Experimental fast scanners
+
+**TS-Low** is the former TS-Turbo, now using the selected public Low build beside
+TS-Med. **TS-Low Classic** is the original Low approach under **More scanners**;
+it preserves the improved original Low on a fixed consensus build.
+
+The experimental Turbo tiers are optional checkboxes under **More scanners**.
+Their numbers name speed targets relative to the original Turbo (now TS-Low),
+not guaranteed speedups for every image or format. Select **Detect → Common1D**
+for EAN-13, UPC-A, EAN-8, UPC-E, Code128, Code39 and ITF. Other explicit format
+selections and **All** are supported. **Detect → 2D** selects QR Code, Data Matrix,
+PDF417, Aztec and MaxiCode directly. Every Turbo tier shares the same guarded,
+source-resolution 2D fast path; their numeric speed targets apply to Common1D.
+Small code groups on large uniform backgrounds can decode much faster, while
+busy photographs retain the full-image readers. MaxiCode remains less reliable
+than the other matrix formats. These experiments remain outside the public API.
+
+**All** also applies oriented proposal decoding to Codabar, Code93, DataBar and
+DataBar Expanded, with source-based checks to consolidate repeated observations.
+The complementary readers remain available for missed and stacked symbols.
+This update primarily improves coverage; All-format scan time is approximately
+unchanged in the measured development cohort. Common intentionally excludes
+these four additional linear formats.
+
+These scanners support rotated codes but deliberately omit recovery work,
+always report unfinished, and can miss codes or produce repeated values and
+partial outlines. The numbered Turbo experiments use fixed builds independent of
+the release selector; TS-Low follows the selected public release.
+Images stay local.
+
+`src/lib/turbo.json` pins each artifact's source commit, source digest, build
+environment and WASM hash. These assets are demo-only and excluded from language
+packages. Reproduce a variant by checking out its recorded commit in an isolated
+worktree and running `python3 scripts/build_wasm.py --development low` with its
+recorded environment. Copy the resulting `build/wasm-development/assets/low.wasm`
+to `build/demo-experiments/<file>` using the manifest filename. Asset preparation
+and worker loading verify the pinned SHA-256. Existing immutable assets remain
+available; this does not add public API modes.
+
+### Basic ZXing comparisons
+
+**ZXing default** means the former checkbox-off behavior: tryHarder, tryRotate
+and tryDownscale are explicitly false, with other library defaults preserved.
+**ZXing-JS default** uses one full-resolution pass without TRY_HARDER or added
+rotation, downscale or inversion passes. These basic configurations reduce search
+work and may miss difficult codes. The separate **ZXing** and **ZXing-JS** entries
+retain the enhanced checkbox-on behavior.
+
+TS-Low is enabled on initial load alongside TS-Med, ZXing and ZBar. All scanners
+can be toggled under **More scanners**. Checking a reader adds and activates its runtime/result card above the image.
+Clicking the card pauses or resumes scanning while keeping it visible. Unchecking
+the reader under More scanners removes the card and deactivates it.
+
+## Public Low mapping
+
+Public `low` now uses the former Turbo approach. TS-Low follows the selected
+public release. TS-Low Classic preserves the original Low implementation on its
+fixed improved consensus build. See [Low and Low Classic](../docs/LOW_MODES.md).
