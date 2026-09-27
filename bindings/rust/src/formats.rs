@@ -534,7 +534,6 @@ fn gray_image(image: Image<'_>, gray: &mut Vec<u8>) -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(any(feature = "low", feature = "medium"))]
 fn scaled_matrix_retry(
     pixels: &[u8],
     width: usize,
@@ -559,6 +558,20 @@ fn scaled_matrix_retry(
         }
     }
     let mut scan = scan_reader(&smaller, out_width, out_height, mask, effort);
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    if mask == 512 && effort == 2 {
+        let known: Vec<_> = scan.barcodes.iter().collect();
+        let recovered =
+            barcode_research_core::qr_grid::recover(&smaller, out_width, out_height, &scan, &known);
+        scan.barcodes.extend(recovered.barcodes);
+        if scan.barcodes.is_empty() {
+            let foreground = barcode_research_core::qr_frontend::scan_foreground(
+                &smaller, out_width, out_height,
+            );
+            scan.barcodes.extend(foreground.barcodes);
+            scan.regions.extend(foreground.regions);
+        }
+    }
     let scale_x = barcode_multiformat::numeric::usize_f32(width)
         / barcode_multiformat::numeric::usize_f32(out_width);
     let scale_y = barcode_multiformat::numeric::usize_f32(height)
@@ -806,6 +819,24 @@ fn scan_additional(
             addons,
             &scan,
         );
+        #[cfg(any(feature = "high", feature = "very-high"))]
+        let retries = if selected == 512
+            && mask == selected
+            && addons == EanAddOnPolicy::Ignore
+            && scan.barcodes.is_empty()
+            && image.width.max(image.height) > 1920
+        {
+            vec![scaled_matrix_retry(
+                pixels,
+                image.width,
+                image.height,
+                960,
+                selected,
+                1,
+            )]
+        } else {
+            Vec::new()
+        };
         #[cfg(not(feature = "low"))]
         let mut scan = scan;
         #[cfg(not(feature = "low"))]
@@ -814,7 +845,6 @@ fn scan_additional(
         } else {
             Vec::new()
         };
-        #[cfg(any(feature = "low", feature = "medium"))]
         let projected = if selected == 512
             && !scan.regions.is_empty()
             && (crate::MODE_ID != 0 || crate::LOW_FAST_PATH)
@@ -824,7 +854,7 @@ fn scan_additional(
                 .iter()
                 .chain(retries.iter().flat_map(|r| &r.barcodes))
                 .collect();
-            #[cfg(feature = "medium")]
+            #[cfg(not(feature = "low"))]
             let known: Vec<_> = known
                 .into_iter()
                 .chain(grid_retries.iter().flat_map(|r| &r.barcodes))
@@ -840,9 +870,7 @@ fn scan_additional(
             None
         };
         scans.push(scan);
-        #[cfg(any(feature = "low", feature = "medium"))]
         scans.extend(retries);
-        #[cfg(any(feature = "low", feature = "medium"))]
         scans.extend(projected);
         #[cfg(not(feature = "low"))]
         scans.extend(grid_retries);
@@ -850,22 +878,34 @@ fn scan_additional(
     // Extra foreground thresholds reach unresolved QR frames without a surviving
     // region. Bound discovery to Full-HD-sized inputs; restoration has a smaller
     // pixel budget because it introduces another image and threshold search.
-    #[cfg(feature = "medium")]
+    #[cfg(not(feature = "low"))]
     if mask == 512
         && addons == EanAddOnPolicy::Ignore
         && image.width * image.height <= 2_097_152
         && scans.iter().all(|scan| scan.barcodes.is_empty())
-        && scans.iter().all(|scan| scan.regions.is_empty())
+        && (crate::MODE_ID >= 2 || scans.iter().all(|scan| scan.regions.is_empty()))
         && pixels.iter().any(|&value| value != 0 && value != 255)
     {
         let foreground =
             barcode_research_core::qr_frontend::scan_foreground(pixels, image.width, image.height);
-        let restore = foreground.barcodes.is_empty() && image.width * image.height <= 262_144;
+        let restoration_limit = if crate::MODE_ID >= 2 {
+            2_097_152
+        } else {
+            262_144
+        };
+        let restore =
+            foreground.barcodes.is_empty() && image.width * image.height <= restoration_limit;
         scans.push(foreground);
         if restore {
             let sharpened = crate::signal_recovery::sharpen(pixels, image.width, image.height, 2);
             if sharpened != pixels {
-                let sharpened_scan = scan_reader(&sharpened, image.width, image.height, 512, 1);
+                let sharpened_scan = scan_reader(
+                    &sharpened,
+                    image.width,
+                    image.height,
+                    512,
+                    if crate::MODE_ID >= 2 { 2 } else { 1 },
+                );
                 let retry_foreground = sharpened_scan.barcodes.is_empty();
                 scans.push(sharpened_scan);
                 if retry_foreground {
@@ -875,6 +915,51 @@ fn scan_additional(
                         image.height,
                     ));
                 }
+            }
+        }
+    }
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    if mask == 512
+        && addons == EanAddOnPolicy::Ignore
+        && scans.iter().all(|scan| scan.barcodes.is_empty())
+    {
+        let targets: &[usize] = if crate::MODE_ID == 3 {
+            &[1200, 1600]
+        } else {
+            &[1200]
+        };
+        for &target in targets {
+            if image.width.max(image.height) <= target {
+                continue;
+            }
+            let retry = scaled_matrix_retry(pixels, image.width, image.height, target, 512, 2);
+            let decoded = !retry.barcodes.is_empty();
+            scans.push(retry);
+            if decoded {
+                break;
+            }
+        }
+    }
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    if mask == 512
+        && addons == EanAddOnPolicy::Ignore
+        && image.width * image.height <= 2_097_152
+        && scans.iter().all(|scan| scan.barcodes.is_empty())
+    {
+        for method in 0..2 {
+            let normalized = if method == 0 {
+                crate::signal_recovery::equalize(pixels)
+            } else {
+                pixels.iter().map(|&v| 255 - v).collect::<Vec<_>>()
+            };
+            if normalized == pixels {
+                continue;
+            }
+            let retry = scan_reader(&normalized, image.width, image.height, 512, 2);
+            let decoded = !retry.barcodes.is_empty();
+            scans.push(retry);
+            if decoded {
+                break;
             }
         }
     }

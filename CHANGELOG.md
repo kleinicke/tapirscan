@@ -2,6 +2,11 @@
 
 ## Unreleased: recovery preview
 
+- Extend High/Very High QR recovery with original-gray sampling, bounded extra
+  resolutions, contrast normalization and polarity retries. Preserve existing
+  reads and map recovered regions into source coordinates. See
+  `docs/QR_HIGH_QUALITY_20260927.md` for scope and quality/runtime evidence.
+
 - Extend exact QR alignment-coordinate reuse and version-header rejection to High
   and Very High while preserving their thresholds, sharpening and curved-grid
   budgets. Fresh private Turbo recipes inherit the improved Low QR path.

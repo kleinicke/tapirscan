@@ -141,10 +141,10 @@ interface WireResult {
 }
 
 const modes: Record<Mode, { id: number; file: string }> = {
-  low: { id: 0, file: "low-qr-effort-transfer-20260927.wasm" },
-  medium: { id: 1, file: "medium-qr-effort-transfer-20260927.wasm" },
-  high: { id: 2, file: "high-qr-effort-transfer-20260927.wasm" },
-  "very-high": { id: 3, file: "very-high-qr-effort-transfer-20260927.wasm" },
+  low: { id: 0, file: "low-qr-high-quality-20260927.wasm" },
+  medium: { id: 1, file: "medium-qr-high-quality-20260927.wasm" },
+  high: { id: 2, file: "high-qr-high-quality-20260927.wasm" },
+  "very-high": { id: 3, file: "very-high-qr-high-quality-20260927.wasm" },
 };
 const addOnPolicies: Record<EanAddOnPolicy, number> = { Ignore: 0, Read: 1, Require: 2 };
 

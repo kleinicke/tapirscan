@@ -2,6 +2,18 @@
 use barcode_multiformat::numeric::{f32_usize, usize_f32};
 use barcode_multiformat::{qr, qr_detect, Detection, Scan};
 type Quad = [[f32; 2]; 4];
+const BASE_OFFSETS: &[(f32, f32)] = &[(0., 0.), (-0.15, -0.15), (0.15, 0.15)];
+const HIGH_OFFSETS: &[(f32, f32)] = &[
+    (0., 0.),
+    (-0.15, -0.15),
+    (0.15, 0.15),
+    (-0.15, 0.15),
+    (0.15, -0.15),
+    (-0.3, 0.),
+    (0.3, 0.),
+    (0., -0.3),
+    (0., 0.3),
+];
 
 fn value(
     pixels: &[u8],
@@ -102,7 +114,9 @@ pub fn recover(
     known: &[&Detection],
 ) -> Scan {
     let mut reads: Vec<Detection> = Vec::new();
-    let mut budget = 250_000;
+    let higher = cfg!(any(feature = "mode-high", feature = "mode-very-high"));
+    let mut budget = if higher { 1_000_000 } else { 250_000 };
+    let offsets = if higher { HIGH_OFFSETS } else { BASE_OFFSETS };
     for region in scan.regions.iter().filter(|r| r.format == "QRCode").take(8) {
         if known
             .iter()
@@ -128,9 +142,10 @@ pub fn recover(
             }
         }
         candidates.sort_by(|first, second| second.0.total_cmp(&first.0));
-        'candidate: for (_, size, projection, quad, cut, inverse) in candidates.into_iter().take(8)
+        'candidate: for (_, size, projection, quad, cut, inverse) in
+            candidates.into_iter().take(if higher { 16 } else { 8 })
         {
-            for offset in [0., -0.15, 0.15] {
+            for &(offset_x, offset_y) in offsets {
                 if size * size > budget {
                     break 'candidate;
                 }
@@ -143,8 +158,8 @@ pub fn recover(
                             width,
                             height,
                             &projection,
-                            usize_f32(x) + 0.5 + offset,
-                            usize_f32(y) + 0.5 + offset,
+                            usize_f32(x) + 0.5 + offset_x,
+                            usize_f32(y) + 0.5 + offset_y,
                         ) else {
                             continue 'candidate;
                         };

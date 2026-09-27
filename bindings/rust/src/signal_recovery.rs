@@ -88,7 +88,7 @@ pub(crate) fn region_retries(
                 1 => (sharpen(&crop, w, h, 2), 1),
                 _ => (double(&crop, w, h), 2),
             };
-            let mut retry = barcode_multiformat::scan(&image, w * scale, h * scale, mask, effort);
+            let mut retry = crate::formats::scan_reader(&image, w * scale, h * scale, mask, effort);
             retry.barcodes.retain(|r| {
                 !(mask == 4096 && r.text.len() == 3 && r.text.bytes().all(|v| v.is_ascii_digit()))
             });
@@ -191,5 +191,53 @@ mod coverage_tests {
             region,
             [region[0], region[3], region[2], region[1]]
         ));
+    }
+}
+
+/// Histogram normalization for bounded, otherwise unresolved higher-effort QR frames.
+#[cfg(any(feature = "high", feature = "very-high"))]
+pub(crate) fn equalize(pixels: &[u8]) -> Vec<u8> {
+    let mut histogram = [0_usize; 256];
+    for &value in pixels {
+        histogram[usize::from(value)] += 1;
+    }
+    let last = histogram.iter().rposition(|&count| count != 0).unwrap_or(0);
+    let step = (pixels.len() - histogram[last]) / 255;
+    if step == 0 {
+        return pixels.to_vec();
+    }
+    let mut sum = step / 2;
+    let table: [u8; 256] = std::array::from_fn(|value| {
+        let normalized = u8::try_from((sum / step).min(255)).expect("clamped intensity");
+        sum += histogram[value];
+        normalized
+    });
+    pixels
+        .iter()
+        .map(|&value| table[usize::from(value)])
+        .collect()
+}
+
+#[cfg(all(test, any(feature = "high", feature = "very-high")))]
+mod normalization_tests {
+    #[test]
+    fn histogram_normalization_matches_independent_reference_and_preserves_flat_frames() {
+        // Expected intensities independently generated with Pillow ImageOps.equalize.
+        let bands = [(0, 512), (64, 256), (128, 384), (192, 128), (255, 256)];
+        let input: Vec<u8> = bands
+            .into_iter()
+            .flat_map(|(value, count)| std::iter::repeat_n(value, count))
+            .collect();
+        let output = super::equalize(&input);
+        let mut start = 0;
+        for ((_, count), expected) in bands.into_iter().zip([0, 102, 154, 230, 255]) {
+            assert!(output[start..start + count].iter().all(|&v| v == expected));
+            start += count;
+        }
+        for value in [0, 127, 255] {
+            let flat = vec![value; 1024];
+            assert_eq!(super::equalize(&flat), flat);
+        }
+        assert!(super::equalize(&[]).is_empty());
     }
 }
