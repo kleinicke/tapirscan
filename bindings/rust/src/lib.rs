@@ -288,3 +288,8 @@ mod signal_recovery;
 
 #[cfg(feature = "very-high")]
 mod recovery_conflicts;
+
+#[cfg(any(feature = "medium", feature = "high"))]
+use fast_linear as recovery_admission;
+#[cfg(feature = "very-high")]
+use recovery_conflicts as recovery_admission;

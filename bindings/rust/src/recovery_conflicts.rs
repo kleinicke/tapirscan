@@ -5,7 +5,21 @@ use crate::{
 };
 use barcode_research_core::{fast_profile::Sampler, numeric::usize_f64};
 
-pub(crate) fn filter(
+pub(crate) fn append_recovered(
+    reads: Vec<Read>,
+    additions: Vec<Read>,
+    image: Image<'_>,
+    sampler: &mut Sampler,
+    strength: f32,
+) -> (Vec<Read>, Vec<Region>) {
+    let (additions, conflicts) = filter(&reads, additions, image, sampler);
+    let (reads, mut pending) =
+        crate::fast_linear::append_recovered(reads, additions, image, sampler, strength);
+    pending.extend(conflicts);
+    (reads, pending)
+}
+
+fn filter(
     established: &[Read],
     additions: Vec<Read>,
     image: Image<'_>,

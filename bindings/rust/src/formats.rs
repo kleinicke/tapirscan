@@ -121,7 +121,7 @@ impl Scanner {
                 2.,
             )?;
             if !extra.is_empty() {
-                let (reconciled, deferred) = crate::fast_linear::append_recovered(
+                let (reconciled, deferred) = crate::recovery_admission::append_recovered(
                     std::mem::take(reads),
                     extra,
                     image,

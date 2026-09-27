@@ -1172,15 +1172,9 @@ pub(crate) fn append_recovered(
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     strength: f32,
 ) -> (Vec<Read>, Vec<Region>) {
-    #[cfg(feature = "very-high")]
-    let (additions, conflicts) =
-        crate::recovery_conflicts::filter(&reads, additions, image, sampler);
     let established = reads.len();
     reads.extend(additions);
-    let result = reconcile_recovered(reads, established, image, sampler, strength);
-    #[cfg(feature = "very-high")]
-    let result = (result.0, result.1.into_iter().chain(conflicts).collect());
-    result
+    reconcile_recovered(reads, established, image, sampler, strength)
 }
 
 #[cfg(not(feature = "low"))]
