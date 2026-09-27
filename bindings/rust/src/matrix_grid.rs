@@ -525,5 +525,19 @@ mod pending_tests {
         assert_eq!(scan.barcodes[0].text, "123");
         assert!(scan.unfinished);
         assert_eq!(budget, 0);
+
+        // The cap also reports a skipped ambiguous read after completed reads.
+        let rune = scan.barcodes[0].clone();
+        scan.barcodes = vec![rune; 9];
+        for read in &mut scan.barcodes[..8] {
+            read.text = "completed full symbol".into();
+        }
+        scan.unfinished = false;
+        budget = 1000;
+        super::resolve_runes(&[255; 256], 16, 16, &mut scan, &mut budget);
+        assert_eq!(scan.barcodes.len(), 9);
+        assert_eq!(scan.barcodes[8].text, "123");
+        assert!(scan.unfinished);
+        assert_eq!(budget, 1000);
     }
 }

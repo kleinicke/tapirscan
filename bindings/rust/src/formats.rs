@@ -250,10 +250,7 @@ impl Scanner {
             unread.extend(deferred_reads);
         }
         reads = crate::linear_duplicates::merge(reads, image);
-        reads.sort_by_key(|read| std::cmp::Reverse(read.support));
-        for (i, read) in reads.iter_mut().enumerate() {
-            read.rank = Some(i + 1);
-        }
+        rank_reads(&mut reads);
         unfinished |= localization_limited;
         let raw = format_diagnostics(
             primary.as_ref(),
@@ -439,6 +436,13 @@ fn distinct(mut reads: Vec<Read>) -> Vec<Read> {
         }
     }
     result
+}
+
+fn rank_reads(reads: &mut [Read]) {
+    reads.sort_by_key(|read| std::cmp::Reverse(read.support));
+    for (i, read) in reads.iter_mut().enumerate() {
+        read.rank = Some(i + 1);
+    }
 }
 
 fn retain_unresolved(mut unread: Vec<Region>, reads: &[Read]) -> Vec<Region> {
