@@ -137,7 +137,7 @@ mod tests {
                 }
             }
         }
-        let q = [[40., 20.], [229., 20.], [229., 79.], [40., 79.]];
+        let q = [[40., 20.], [241., 20.], [241., 79.], [40., 79.]];
         let mut retail = Read::primary([0; 13], q, 7, 0, vec![]);
         retail.format = "EAN8".into();
         retail.text = "96385074".into();
