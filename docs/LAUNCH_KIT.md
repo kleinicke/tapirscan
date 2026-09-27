@@ -10,7 +10,7 @@ Start with developers building product lookup, inventory, document-processing an
 
 The initial objective is five independent developers trying their own images and two concrete integration conversations. These are campaign targets, not forecasts. Record reproducible failures and successful integrations alongside traffic and stars.
 
-The supported launch claims are orientation-aware scanning, multiple symbols, source-image geometry, four effort modes, local processing, an MIT license, and JavaScript/Python packages. Be explicit that EAN-13, UPC-A, EAN-8 and UPC-E are supported; formats outside this retail group remain experimental.
+The supported launch claims are orientation-aware scanning, multiple symbols, source-image geometry, four effort modes, local processing, a choice of MIT or Apache-2.0 licenses, and JavaScript/Python packages. Be explicit that EAN-13, UPC-A, EAN-8 and UPC-E are supported; formats outside this retail group remain experimental.
 
 “Much more reliable than ZXing/ZBar” needs a public paired comparison of the released versions. The development observations in [the blog](../BLOG_POST.md) and integration checks are not that comparison. We can launch now using the demo and concrete examples, then publish stronger quantified results when the evidence exists. Follow [the benchmark protocol](BENCHMARKS.md), including wrong reads and runtime as well as successful reads.
 
@@ -92,7 +92,7 @@ Subject: Tapirscan: orientation-aware barcode scanning in WebAssembly
 
 Hi,
 
-I’m the creator of Tapirscan, an MIT-licensed barcode scanning library with a Rust core and a JavaScript/TypeScript package for browsers and Node.
+I’m the creator of Tapirscan, a dual MIT/Apache-2.0-licensed barcode scanning library with a Rust core and a JavaScript/TypeScript package for browsers and Node.
 
 Its current focus is EAN-13. It localizes barcode regions, estimates their orientation, and samples across the bars. Results include multiple decoded symbols and their positions. Four effort modes let applications choose how much work to spend on a frame.
 
@@ -112,7 +112,7 @@ Suggested title: Tapirscan: orientation-aware barcode scanning for Python
 
 Link: https://github.com/kleinicke/tapirscan
 
-Description: Tapirscan is an MIT-licensed barcode scanning library with a Rust core and native Python wheels. It accepts Pillow images, NumPy arrays and PyTorch tensors, and returns decoded symbols with source-image positions. EAN-13, UPC-A, EAN-8 and UPC-E are supported; other formats remain experimental. A browser demo provides an installation-free comparison with ZXing and ZBar: https://tapirscan.netlify.app
+Description: Tapirscan is a dual MIT/Apache-2.0-licensed barcode scanning library with a Rust core and native Python wheels. It accepts Pillow images, NumPy arrays and PyTorch tensors, and returns decoded symbols with source-image positions. EAN-13, UPC-A, EAN-8 and UPC-E are supported; other formats remain experimental. A browser demo provides an installation-free comparison with ZXing and ZBar: https://tapirscan.netlify.app
 
 ## Additional distribution worth doing
 

@@ -11,7 +11,7 @@ All release-owned manifests and artifact names use 1.2.2. The demo is already
 public at [tapirscan.netlify.app](https://tapirscan.netlify.app). Publishing the
 library, publishing a GitHub release, and updating the demo are separate actions.
 
-The license is **MIT**, copyright © 2026 **Florian Nick**. License files and
+The license is **MIT OR Apache-2.0** (at the recipient’s option), copyright © 2026 **Florian Nick**. License files and
 author metadata are included in the release packages. Published API compatibility is governed by the [compatibility policy](../CONTRIBUTING.md#api-stability).
 
 ## Registry setup

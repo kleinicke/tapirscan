@@ -1,5 +1,5 @@
 [package]
-license = "MIT"
+license = "MIT OR Apache-2.0"
 authors = ["Florian Nick"]
 name = "tapirscan-native-@MODE@"
 version = "1.2.2"

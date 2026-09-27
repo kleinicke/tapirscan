@@ -230,7 +230,9 @@ for each additional platform before its artifacts are published. No general
 claim of superiority over ZXing or ZBar is made without a reproducible paired
 benchmark.
 
-Licensed under the [MIT License](LICENSE), copyright © 2026 Florian Nick.
+Licensed under either the [MIT License](LICENSE-MIT) or the
+[Apache License, Version 2.0](LICENSE-APACHE), at your option
+(`MIT OR Apache-2.0`), copyright © 2026 Florian Nick.
 Third-party components retain their own licenses and
 [notices](multiformat/THIRD_PARTY_NOTICES.md). Release preparation is described in the [release checklist](docs/RELEASING.md).
 

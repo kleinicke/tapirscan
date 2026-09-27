@@ -53,3 +53,10 @@ promised across compiler versions.
 
 Keep the public interface small. Validate API changes through consumers, packaging
 and cross-language parity tests.
+
+## Contribution license
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in Tapirscan by you, as defined in the Apache-2.0 license, shall be
+dual licensed as MIT OR Apache-2.0, without any additional terms or conditions.
+Third-party components retain their existing licenses and notices.

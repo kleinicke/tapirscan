@@ -8,7 +8,7 @@ ignore = [
     # Rules incompatible with Ruff's formatter (Astral's documented list).
     "W191", "E111", "E114", "E117", "D206", "D300",
     "Q000", "Q001", "Q002", "Q003", "COM812", "COM819", "ISC002",
-    # Copyright ownership/license selection is still pending; do not invent headers.
+    # Project licensing is recorded in LICENSE; per-file copyright headers are optional.
     "CPY001",
 ]
 [lint.per-file-ignores]
