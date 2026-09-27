@@ -285,3 +285,6 @@ pub mod formats;
 mod matrix_grid;
 #[cfg(not(feature = "low"))]
 mod signal_recovery;
+
+#[cfg(feature = "very-high")]
+mod recovery_conflicts;
