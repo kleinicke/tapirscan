@@ -13,10 +13,10 @@
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-qr-speed-quality-20260927.wasm",
-    "wasm/medium-qr-speed-quality-20260927.wasm",
-    "wasm/high-qr-speed-quality-20260927.wasm",
-    "wasm/very-high-qr-speed-quality-20260927.wasm"
+    "wasm/low-qr-effort-transfer-20260927.wasm",
+    "wasm/medium-qr-effort-transfer-20260927.wasm",
+    "wasm/high-qr-effort-transfer-20260927.wasm",
+    "wasm/very-high-qr-effort-transfer-20260927.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

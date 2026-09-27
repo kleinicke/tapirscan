@@ -1,5 +1,6 @@
 //! Project-owned QR finder grouping, projective grid estimation and sampling.
 mod alignment_cached;
+mod curved;
 mod finder_index;
 use barcode_multiformat::{qr, Detection};
 mod partial;
@@ -623,7 +624,24 @@ pub fn detect(
     regions: &mut barcode_multiformat::regions::Regions,
     binary_images: &mut crate::qr_frontend::binarization::Images<'_>,
 ) -> (Vec<Detection>, bool) {
-    detect_with_recovery(w, h, regions, binary_images, 0..4)
+    detect_with_recovery(w, h, regions, binary_images, 0..4, false)
+}
+/// Preserve extended thresholds and the Very High curved-grid budget.
+pub fn detect_effort(
+    w: usize,
+    h: usize,
+    regions: &mut barcode_multiformat::regions::Regions,
+    binary_images: &mut crate::qr_frontend::binarization::Images<'_>,
+    effort: usize,
+) -> (Vec<Detection>, bool) {
+    detect_with_recovery(
+        w,
+        h,
+        regions,
+        binary_images,
+        0..if effort > 1 { 6 } else { 4 },
+        effort > 2,
+    )
 }
 /// Additional foreground splits only; original passes remain owned by the caller.
 pub fn detect_foreground(
@@ -632,7 +650,7 @@ pub fn detect_foreground(
     regions: &mut barcode_multiformat::regions::Regions,
     binary_images: &mut crate::qr_frontend::binarization::Images<'_>,
 ) -> (Vec<Detection>, bool) {
-    detect_with_recovery(w, h, regions, binary_images, 4..8)
+    detect_with_recovery(w, h, regions, binary_images, 4..8, false)
 }
 #[expect(
     clippy::too_many_lines,
@@ -644,9 +662,12 @@ fn detect_with_recovery(
     regions: &mut barcode_multiformat::regions::Regions,
     binary_images: &mut crate::qr_frontend::binarization::Images<'_>,
     modes: std::ops::Range<usize>,
+    curved_recovery: bool,
 ) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
     let mut attempts = 0;
+    let mut curved_attempts = 0;
+    let mut curved_limited = false;
     let mut single_attempts = 0;
     let mut single_alignments = 0;
     let mut single_limited = false;
@@ -852,7 +873,7 @@ fn detect_with_recovery(
                         }
                     }
                     for t in transforms {
-                        for offset in [0., -0.2, 0.2] {
+                        for (offset_index, offset) in [0., -0.2, 0.2].into_iter().enumerate() {
                             attempts += 1;
                             if attempts > 1200 {
                                 partial::recover(
@@ -876,6 +897,41 @@ fn detect_with_recovery(
                                     );
                                 }
                                 return (results, true);
+                            }
+                            if curved_recovery
+                                && stage == 0
+                                && offset_index == 0
+                                && n >= 25
+                                && curved_attempts >= 24
+                            {
+                                curved_limited = true;
+                            }
+                            if curved_recovery
+                                && stage == 0
+                                && offset_index == 0
+                                && n >= 25
+                                && curved_attempts < 24
+                            {
+                                curved_attempts += 1;
+                                if let Some(read) = curved::recover(image, w, h, n, &t) {
+                                    used.extend(finder_triple.iter().map(|p| (*p).clone()));
+                                    results.push(Detection {
+                                        bytes: Some(read.bytes),
+                                        structured_append: read.structured_append,
+                                        reader_initialization: false,
+                                        addon: None,
+                                        format: "QRCode".into(),
+                                        text: read.text,
+                                        polygon: [[0., 0.], [nf, 0.], [nf, nf], [0., nf]]
+                                            .map(|[x, y]| map(&t, x, y)),
+                                        support: tl.support.min(tr.support).min(bl.support),
+                                        error: barcode_multiformat::numeric::usize_f32(
+                                            read.corrected,
+                                        ),
+                                        gs1: read.gs1,
+                                    });
+                                    break 'versions;
+                                }
                             }
                             if !qr::plausible_image_header(n, |x, y| {
                                 let p = map(
@@ -938,7 +994,7 @@ fn detect_with_recovery(
         }
         partial_modes.push((mode, finders));
     }
-    let mut limited = single_limited;
+    let mut limited = single_limited || curved_limited;
     for (mode, finders) in partial_modes {
         limited |= partial::recover(
             binary_images.get(mode),

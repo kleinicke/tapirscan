@@ -88,3 +88,15 @@ The original policy is public Low; the numbered tiers do not add public API mode
 quality, strict and presentation-normalized payload metrics, duplicate controls,
 paired Chrome timing and rejected alternatives. Tier numbers are still targets
 for Common1D work, not All-format speed guarantees.
+
+## QR improvements from September 27
+
+Fresh builds of all five retained recipes inherit the maintained Low QR path,
+including exact alignment-coordinate caching, version-header rejection and the
+bounded large-image recovery added in `qr-speed-quality-20260927`. The numbered
+recipes retain their distinct linear policies; their tier numbers are not QR
+speed multipliers. See [QR effort transfer](QR_EFFORT_TRANSFER_20260927.md).
+
+The historical assets in `demo/src/lib/turbo.json` remain immutable comparison
+pins. Rebuild with `scripts/build_turbo.py` and explicitly select the resulting
+private artifact to use current source. This does not publish or repoint the demo.

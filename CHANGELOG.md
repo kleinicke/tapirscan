@@ -2,6 +2,11 @@
 
 ## Unreleased: recovery preview
 
+- Extend exact QR alignment-coordinate reuse and version-header rejection to High
+  and Very High while preserving their thresholds, sharpening and curved-grid
+  budgets. Fresh private Turbo recipes inherit the improved Low QR path.
+  See `docs/QR_EFFORT_TRANSFER_20260927.md` for scope and paired evidence.
+
 - Speed up Low/Medium QR alignment searches without reducing their work budgets,
   and add bounded QR recovery for large empty Low frames and unresolved Medium
   contrast/blur cases. Preserve repeated physical symbols and source geometry.

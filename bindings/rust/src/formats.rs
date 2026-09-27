@@ -1235,7 +1235,7 @@ mod pending_recovery_tests {
     }
 }
 
-/// Dispatch ordinary QR-only scans through the maintained finder frontend.
+/// Dispatch effort-preserving QR-only scans through the maintained finder frontend.
 pub(crate) fn scan_reader(
     pixels: &[u8],
     width: usize,
@@ -1243,8 +1243,8 @@ pub(crate) fn scan_reader(
     mask: u32,
     effort: usize,
 ) -> barcode_multiformat::Scan {
-    if mask == 512 && effort <= 1 {
-        barcode_research_core::qr_frontend::scan(pixels, width, height)
+    if mask == 512 {
+        barcode_research_core::qr_frontend::scan_with_effort(pixels, width, height, effort)
     } else {
         barcode_multiformat::scan(pixels, width, height, mask, effort)
     }
