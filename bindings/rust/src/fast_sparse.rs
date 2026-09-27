@@ -82,12 +82,12 @@ impl<'a> Prepared<'a> {
             };
         }
         let source =
-            || barcode_multiformat::scan(self.pixels, self.width, self.height, mask, effort);
+            || crate::formats::scan_reader(self.pixels, self.width, self.height, mask, effort);
         let Some(crop) = &self.crop else {
             return source();
         };
         let mut result =
-            barcode_multiformat::scan(&crop.pixels, crop.width, crop.height, mask, effort);
+            crate::formats::scan_reader(&crop.pixels, crop.width, crop.height, mask, effort);
         // Recovery remains independent for each reader group. Finding a matrix symbol
         // must never suppress the full-source linear search, or vice versa.
         if result.barcodes.is_empty() || !result.regions.is_empty() {

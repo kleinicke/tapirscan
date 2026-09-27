@@ -2,6 +2,11 @@
 
 ## Unreleased: recovery preview
 
+- Speed up Low/Medium QR alignment searches without reducing their work budgets,
+  and add bounded QR recovery for large empty Low frames and unresolved Medium
+  contrast/blur cases. Preserve repeated physical symbols and source geometry.
+  See `docs/QR_SPEED_QUALITY_20260927.md` for the QR-only comparison and scope.
+
 - Add shared bounded matrix-grid, localized image and linear-profile recovery to
   Medium, High and Very High combined-format scanning. Preserve pending physical
   instances and tighten unchecked Code39 admission. See

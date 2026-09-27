@@ -366,3 +366,7 @@ pub mod fast_profile;
 
 #[cfg(feature = "mode-very-high")]
 mod subpixel;
+
+pub mod qr_frontend;
+
+pub mod qr_grid;

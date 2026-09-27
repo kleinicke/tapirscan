@@ -17,6 +17,13 @@ there is only one maintained algorithm tree.
 
 ## Stage boundaries
 
+- `qr_frontend` owns ordinary QR finder search and bounded foreground-threshold
+  recovery. Its separable alignment-coordinate tables preserve exact search
+  order and budgets; QR payload/ECC and region ownership stay shared with the
+  pinned multiformat reader. `qr_grid` resamples unresolved regions from original
+  grayscale pixels. The Rust facade selects QR-only reader groups and enforces
+  the mode-specific frame retry limits. See [QR study](../docs/QR_SPEED_QUALITY_20260927.md).
+
 - `experiment.rs` owns candidate evidence and reusable scratch buffers and runs
   the initial candidate pass. `experiment/sampling.rs` samples and normalizes
   profiles; `experiment/decoding.rs` invokes decoders and records accepted or
