@@ -1,6 +1,6 @@
 //! Bounded connected-component geometry shared by matrix finder detectors.
 type Quad = [[f32; 2]; 4];
-fn outline(
+pub(crate) fn outline(
     bits: &[bool],
     width: usize,
     start_coord: [usize; 2],

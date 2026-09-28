@@ -1328,7 +1328,10 @@ pub(crate) fn scan_reader(
     mask: u32,
     effort: usize,
 ) -> barcode_multiformat::Scan {
-    if mask == 512 {
+    if mask & 4096 != 0 && crate::MODE_ID != 0 && mask & !(512 | 1024 | 2048 | 4096 | 131_072) == 0
+    {
+        crate::matrix_frontend::scan(pixels, width, height, mask, effort)
+    } else if mask == 512 {
         barcode_research_core::qr_frontend::scan_with_effort(pixels, width, height, effort)
     } else {
         barcode_multiformat::scan(pixels, width, height, mask, effort)

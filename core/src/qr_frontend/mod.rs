@@ -1,8 +1,8 @@
 //! QR-only production frontend. Decoder/ECC and region ownership use the pinned
 //! shared implementation. Multi-matrix groups retain the shared threshold pipeline.
-mod binarization;
-mod component_geometry;
-mod dm_detect;
+pub(crate) mod binarization;
+pub(crate) mod component_geometry;
+pub(crate) mod dm_detect;
 mod qr_detect;
 mod qr_enhance;
 use barcode_multiformat::{Detection, Scan};
@@ -104,7 +104,7 @@ fn histogram(row: &[u8]) -> [usize; 256] {
     }
     hist
 }
-fn transition_offsets_into(bits: &[bool], offsets: &mut Vec<usize>) {
+pub(crate) fn transition_offsets_into(bits: &[bool], offsets: &mut Vec<usize>) {
     offsets.clear();
     offsets.push(0);
     if bits.is_empty() {

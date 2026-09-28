@@ -373,3 +373,5 @@ pub mod qr_grid;
 
 #[cfg(not(feature = "mode-low"))]
 mod lowres;
+
+pub mod aztec_frontend;

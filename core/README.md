@@ -17,6 +17,12 @@ there is only one maintained algorithm tree.
 
 ## Stage boundaries
 
+- `aztec_frontend` owns Medium/High/Very High Aztec finder recovery, bounded
+  source-gray refinement and sampling, and Rune confirmation. Its payload
+  decoder reuses immutable error-correction fields. The facade's
+  `matrix_frontend` shares the original threshold images and row runs with
+  other matrix readers. See [Aztec recovery](../docs/AZTEC_RECOVERY_20260928.md).
+
 - `qr_frontend` owns ordinary QR finder search and bounded foreground-threshold
   recovery. Its separable alignment-coordinate tables preserve exact search
   order and budgets; QR payload/ECC and region ownership stay shared with the

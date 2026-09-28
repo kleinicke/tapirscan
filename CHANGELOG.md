@@ -2,6 +2,11 @@
 
 ## Unreleased: recovery preview
 
+- Improve Medium/High/Very High Aztec recovery with shared matrix preprocessing,
+  bounded source-gray fitting and sampling, curved-grid hypotheses and stricter
+  Rune confirmation. Preserve explicit work limits and multiple physical symbols.
+  See `docs/AZTEC_RECOVERY_20260928.md` for scope and limitations.
+
 - Recover additional small EAN-13 barcodes in real photos using original-pixel
   multirow evidence and active-edge calibration. Medium uses a conservative
   evidence gate to protect barcode-free latency; High/Very High search more

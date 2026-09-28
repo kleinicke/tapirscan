@@ -293,3 +293,5 @@ mod recovery_conflicts;
 use fast_linear as recovery_admission;
 #[cfg(feature = "very-high")]
 use recovery_conflicts as recovery_admission;
+
+mod matrix_frontend;

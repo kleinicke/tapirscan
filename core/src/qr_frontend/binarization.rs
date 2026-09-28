@@ -271,6 +271,25 @@ impl<'a> Images<'a> {
         let _ = self.has_qr_contrast();
         matches!(self.qr_upper_cut, ContrastCut::Value(_))
     }
+    /// Return the checked scalar cut without allocating threshold pixels.
+    pub(crate) fn foreground_cut(&mut self, mode: usize) -> Option<u8> {
+        let present = match mode {
+            4 => self.has_qr_contrast(),
+            6 => self.has_qr_upper_contrast(),
+            _ => false,
+        };
+        if !present {
+            return None;
+        }
+        match if mode == 4 {
+            &self.qr_contrast_cut
+        } else {
+            &self.qr_upper_cut
+        } {
+            ContrastCut::Value(cut) => Some(*cut),
+            _ => None,
+        }
+    }
     /// Pixel-exact equality permits omitting deterministic repeated work.
     /// Callers with adaptive proposal grouping must also check their own state.
     ///
