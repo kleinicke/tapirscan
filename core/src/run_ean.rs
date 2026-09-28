@@ -145,7 +145,8 @@ pub fn decode_evidence(widths: &[f32]) -> Option<Evidence> {
     clippy::float_cmp,
     reason = "Encoded samples are binary and equal decoder costs are exact ambiguity ties; epsilon matching would change accepted identities."
 )]
-pub(crate) fn decode_visual_evidence(widths: &[f32]) -> Option<Evidence> {
+#[must_use]
+pub fn decode_visual_evidence(widths: &[f32]) -> Option<Evidence> {
     if widths.len() != 59 || widths.iter().any(|x| !x.is_finite() || *x <= 0.) {
         return None;
     }

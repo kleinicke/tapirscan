@@ -61,6 +61,71 @@ impl Sampler {
     ) {
         self.sample_scaled(image, start, end, density, limit.clamp(32, 4096));
     }
+    /// Sample an additional chromatic hypothesis only when source color varies.
+    /// Channel 1 is blue; channel 2 is the maximum of the source RGB channels.
+    pub fn sample_color_limited(
+        &mut self,
+        image: ImageView<'_>,
+        start: [f64; 2],
+        end: [f64; 2],
+        density: f64,
+        limit: usize,
+        channel: u8,
+    ) -> bool {
+        if image.channels == 1 {
+            return false;
+        }
+        let length = (end[0] - start[0]).hypot(end[1] - start[1]);
+        self.samples = crate::numeric::f64_isize((length * density).ceil())
+            .clamp(32, isize::try_from(limit.clamp(32, 4096)).unwrap_or(4096))
+            .cast_unsigned();
+        self.values.clear();
+        if self.positions.len() != self.samples {
+            self.positions.clear();
+            self.positions
+                .extend((0..self.samples).map(|i| usize_f64(i) / usize_f64(self.samples - 1)));
+        }
+        let pixel = |x: usize, y: usize| {
+            let at = y * image.stride + x * image.channels;
+            let r = image.data[at];
+            let g = image.data[at + 1];
+            let b = image.data[at + 2];
+            [
+                f64::from(if channel == 1 { b } else { r.max(g).max(b) }),
+                0.299 * f64::from(r) + 0.587 * f64::from(g) + 0.114 * f64::from(b),
+            ]
+        };
+        let (mut delta_min, mut delta_max) = (f64::INFINITY, f64::NEG_INFINITY);
+        for &t in &self.positions {
+            let x = start[0] + (end[0] - start[0]) * t;
+            let y = start[1] + (end[1] - start[1]) * t;
+            if x < 0. || y < 0. || x > usize_f64(image.width - 1) || y > usize_f64(image.height - 1)
+            {
+                self.values.push(255.);
+                continue;
+            }
+            let ix = crate::numeric::f64_usize(x.floor());
+            let iy = crate::numeric::f64_usize(y.floor());
+            let fx = x - x.floor();
+            let fy = y - y.floor();
+            let upper_left = pixel(ix, iy);
+            let upper_right = pixel((ix + 1).min(image.width - 1), iy);
+            let lower_left = pixel(ix, (iy + 1).min(image.height - 1));
+            let lower_right = pixel(
+                (ix + 1).min(image.width - 1),
+                (iy + 1).min(image.height - 1),
+            );
+            let interpolated: [f64; 2] = std::array::from_fn(|k| {
+                (upper_left[k] * (1. - fx) + upper_right[k] * fx) * (1. - fy)
+                    + (lower_left[k] * (1. - fx) + lower_right[k] * fx) * fy
+            });
+            let delta = interpolated[0] - interpolated[1];
+            delta_min = delta_min.min(delta);
+            delta_max = delta_max.max(delta);
+            self.values.push(f64_f32(interpolated[0]));
+        }
+        delta_max - delta_min >= 8.
+    }
     fn sample_scaled(
         &mut self,
         image: ImageView<'_>,
@@ -483,5 +548,54 @@ mod tests {
             sampler.threshold(false);
             assert!(sampler.runs.len() <= 2);
         }
+    }
+}
+
+#[cfg(test)]
+mod chromatic_profile_tests {
+    use super::*;
+
+    #[test]
+    fn chromatic_sampling_preserves_stride_alpha_and_skips_neutral_profiles() {
+        let (width, height) = (64, 3);
+        let mut packed = vec![0; width * height * 3];
+        for y in 0..height {
+            for x in 0..width {
+                let at = (y * width + x) * 3;
+                let color = if (x / 4) % 2 == 0 {
+                    [25, 40, 140]
+                } else {
+                    [220, 210, 180]
+                };
+                packed[at..at + 3].copy_from_slice(&color);
+            }
+        }
+        let rgb = ImageView::new(&packed, width, height, 3, width * 3).unwrap();
+        let mut reference = Sampler::default();
+        assert!(reference.sample_color_limited(rgb, [0., 0.5], [63., 1.5], 1.5, 1024, 2));
+        let stride = width * 4 + 13;
+        let mut padded = vec![91; stride * height];
+        for y in 0..height {
+            for x in 0..width {
+                let from = (y * width + x) * 3;
+                let to = y * stride + x * 4;
+                padded[to..to + 3].copy_from_slice(&packed[from..from + 3]);
+                padded[to + 3] = u8::try_from(x).unwrap();
+            }
+        }
+        padded.truncate((height - 1) * stride + width * 4);
+        let rgba = ImageView::new(&padded, width, height, 4, stride).unwrap();
+        let mut sampler = Sampler::default();
+        assert!(sampler.sample_color_limited(rgba, [0., 0.5], [63., 1.5], 1.5, 1024, 2));
+        assert_eq!(sampler.values, reference.values);
+        assert_eq!(sampler.samples, reference.samples);
+        for pixel in packed.chunks_exact_mut(3) {
+            pixel.fill(pixel[0]);
+        }
+        let neutral = ImageView::new(&packed, width, height, 3, width * 3).unwrap();
+        assert!(!sampler.sample_color_limited(neutral, [0., 0.5], [63., 1.5], 1.5, 1024, 2));
+        let gray = vec![127; width * height];
+        let gray = ImageView::new(&gray, width, height, 1, width).unwrap();
+        assert!(!sampler.sample_color_limited(gray, [0., 0.5], [63., 1.5], 1.5, 1024, 2));
     }
 }

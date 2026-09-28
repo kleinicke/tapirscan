@@ -21,6 +21,42 @@ fn trace_reads(stage: &str, r: &crate::multi_profile::Reads) {
     }
 }
 impl CandidateScanner {
+    #[cfg(not(feature = "mode-low"))]
+    fn cached_profile_decode(
+        &mut self,
+    ) -> (
+        Result<Option<profile::Read>, profile::Error>,
+        profile::BlurTrace,
+    ) {
+        // Keep fixed512 and native profiles separate: sampling alternates between them.
+        let slot = usize::from(self.signal.len() != 512);
+        if let Some(cache) = &self.profile_cache[slot] {
+            if cache.signal.len() == self.signal.len()
+                && cache
+                    .signal
+                    .iter()
+                    .zip(&self.signal)
+                    .all(|(a, b)| a.to_bits() == b.to_bits())
+            {
+                return (cache.result, cache.trace.clone());
+            }
+        }
+        let result = if self.signal.len() == 512 {
+            profile::decode_with_blur_trace(&self.signal)
+        } else {
+            profile::decode_native_with_blur_trace(&self.signal)
+        };
+        let cache = self.profile_cache[slot].get_or_insert_with(|| super::CachedProfile {
+            signal: Vec::new(),
+            result: Ok(None),
+            trace: profile::BlurTrace::default(),
+        });
+        cache.signal.clear();
+        cache.signal.extend_from_slice(&self.signal);
+        cache.result = result.0;
+        cache.trace.clone_from(&result.1);
+        result
+    }
     pub(super) fn run_decode(
         &mut self,
         work: &mut Work,
@@ -100,8 +136,11 @@ impl CandidateScanner {
             #[cfg(any(feature = "mode-low", feature = "mode-medium", feature = "mode-high"))]
             {
                 if self.signal.len() != 512
-                    && !(cfg!(any(feature = "mode-high", feature = "mode-very-high"))
-                        && (76..=384).contains(&self.signal.len()))
+                    && !(cfg!(any(
+                        feature = "mode-medium",
+                        feature = "mode-high",
+                        feature = "mode-very-high"
+                    )) && (76..=384).contains(&self.signal.len()))
                 {
                     return None;
                 }
@@ -109,28 +148,31 @@ impl CandidateScanner {
             #[cfg(feature = "mode-very-high")]
             {
                 if self.signal.len() != 512
-                    && !(cfg!(any(feature = "mode-high", feature = "mode-very-high"))
-                        && (76..=1536).contains(&self.signal.len()))
+                    && !(cfg!(any(
+                        feature = "mode-medium",
+                        feature = "mode-high",
+                        feature = "mode-very-high"
+                    )) && (76..=1536).contains(&self.signal.len()))
                 {
                     return None;
                 }
             }
         }
 
-        // Count actual boundary pairs and digit hypotheses used by unchanged profile.
-        // Forward-blur records the pairs in profile::BlurTrace, including the native
-        // variable-length path; do not retain the previous fixed-512 duplicate scan.
+        // Charge the decoder trace even on a cache hit so saved computation never
+        // expands downstream work budgets. BlurTrace also replays rejection
+        // intervals and conflicts for the fixed512 and native-length paths.
 
         let result = {
             let (result, trace) = {
-                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                if self.signal.len() == 512 {
-                    profile::decode_with_blur_trace(&self.signal)
-                } else {
-                    profile::decode_native_with_blur_trace(&self.signal)
+                #[cfg(not(feature = "mode-low"))]
+                {
+                    self.cached_profile_decode()
                 }
-                #[cfg(not(any(feature = "mode-high", feature = "mode-very-high")))]
-                profile::decode_with_blur_trace(&self.signal)
+                #[cfg(feature = "mode-low")]
+                {
+                    profile::decode_with_blur_trace(&self.signal)
+                }
             };
             work.profile_boundary_pairs += trace.boundary_pairs;
             work.profile_digit_hypotheses += trace.digit_hypotheses;
@@ -494,8 +536,39 @@ impl CandidateScanner {
         // Under-resolved source profiles can lose narrow dark/bright elements
         // at the middle threshold. Two fixed photometric hypotheses use observed
         // pixels only; their competing values still veto overlapping evidence.
-        if cleanup && (76..=384).contains(&self.signal.len()) && (45..61).contains(&self.runs.len())
+        #[cfg(not(feature = "mode-low"))]
+        let threshold_budget_available =
+            self.signal.len() <= 384 || work.medium_threshold_profiles < 8;
+        #[cfg(feature = "mode-low")]
+        let threshold_budget_available = true;
+        #[cfg(not(feature = "mode-low"))]
+        let mut long_threshold_evidence = false;
+        #[cfg(feature = "mode-low")]
+        let long_threshold_evidence = false;
+        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+        let long_profiles_allowed = self.threshold_recovery;
+        #[cfg(not(any(feature = "mode-high", feature = "mode-very-high")))]
+        let long_profiles_allowed = cfg!(feature = "mode-medium");
+        // Preserve the original short/fixed512 routes. Only unresolved longer
+        // profiles receive the bounded extra threshold attempts.
+        if cleanup
+            && (self.signal.len() <= 384 || long_profiles_allowed)
+            && (self.signal.len() <= 384 || (self.signal.len() != 512 && reads.symbols.is_empty()))
+            && (76..=if cfg!(feature = "mode-low") {
+                384
+            } else {
+                1536
+            })
+                .contains(&self.signal.len())
+            && (45..61).contains(&self.runs.len())
+            && threshold_budget_available
         {
+            #[cfg(not(feature = "mode-low"))]
+            if self.signal.len() > 384 {
+                work.medium_threshold_profiles += 1;
+                long_threshold_evidence =
+                    cfg!(any(feature = "mode-high", feature = "mode-very-high"));
+            }
             for threshold in [0.35f32, 0.65] {
                 let shifted: Vec<_> = self
                     .signal
@@ -528,14 +601,24 @@ impl CandidateScanner {
         work.conflicts += reads.ambiguous_intervals;
         work.truncated_paths += usize::from(reads.truncated);
 
-        // Complementary global evidence is valid only on fixed512 signals. A run
-        // ambiguity must not be resurrected through the single-result fallback.
+        let extra_profile_allowed = !cfg!(feature = "mode-medium")
+            || self.signal.len() == 512
+            || (self.signal.len() <= 384
+                && reads.symbols.is_empty()
+                && (30..=85).contains(&self.runs.len()));
+        // Medium's extra native-length fit is limited to unresolved short
+        // profiles with barcode-like transition counts. Fixed512 keeps its
+        // existing path. Run ambiguity still vetoes the single-result fallback.
         #[cfg(any(feature = "mode-low", feature = "mode-medium", feature = "mode-high"))]
         {
             if (self.signal.len() == 512
-                || (cfg!(any(feature = "mode-high", feature = "mode-very-high"))
-                    && (76..=384).contains(&self.signal.len())))
+                || (cfg!(any(
+                    feature = "mode-medium",
+                    feature = "mode-high",
+                    feature = "mode-very-high"
+                )) && (76..=384).contains(&self.signal.len())))
                 && reads.ambiguous_intervals == 0
+                && extra_profile_allowed
             {
                 if let Some(p) = self.profile_decode(work) {
                     soft_reads.push(p);
@@ -562,9 +645,13 @@ impl CandidateScanner {
         #[cfg(any(feature = "mode-low", feature = "mode-medium", feature = "mode-high"))]
         {
             if (self.signal.len() == 512
-                || (cfg!(any(feature = "mode-high", feature = "mode-very-high"))
-                    && (76..=384).contains(&self.signal.len())))
+                || (cfg!(any(
+                    feature = "mode-medium",
+                    feature = "mode-high",
+                    feature = "mode-very-high"
+                )) && (76..=384).contains(&self.signal.len())))
                 && reads.ambiguous_intervals == 0
+                && extra_profile_allowed
             {
                 // A same-window legacy/blur contradiction must not be resurrected by
                 // Many's retained run reads. Preserve disjoint source intervals.
@@ -575,14 +662,19 @@ impl CandidateScanner {
             }
         }
 
-        // Complementary global evidence is valid only on fixed512 signals. A run
-        // ambiguity must not be resurrected through the single-result fallback.
+        // Medium's extra native-length fit is limited to unresolved short
+        // profiles with barcode-like transition counts. Fixed512 keeps its
+        // existing path. Run ambiguity still vetoes the single-result fallback.
         #[cfg(feature = "mode-very-high")]
         {
             if (self.signal.len() == 512
-                || (cfg!(any(feature = "mode-high", feature = "mode-very-high"))
-                    && (76..=1536).contains(&self.signal.len())))
+                || (cfg!(any(
+                    feature = "mode-medium",
+                    feature = "mode-high",
+                    feature = "mode-very-high"
+                )) && (76..=1536).contains(&self.signal.len())))
                 && reads.ambiguous_intervals == 0
+                && extra_profile_allowed
             {
                 if let Some(p) = self.profile_decode(work) {
                     soft_reads.push(p);
@@ -609,9 +701,13 @@ impl CandidateScanner {
         #[cfg(feature = "mode-very-high")]
         {
             if (self.signal.len() == 512
-                || (cfg!(any(feature = "mode-high", feature = "mode-very-high"))
-                    && (76..=1536).contains(&self.signal.len())))
+                || (cfg!(any(
+                    feature = "mode-medium",
+                    feature = "mode-high",
+                    feature = "mode-very-high"
+                )) && (76..=1536).contains(&self.signal.len())))
                 && reads.ambiguous_intervals == 0
+                && extra_profile_allowed
             {
                 // A same-window legacy/blur contradiction must not be resurrected by
                 // Many's retained run reads. Preserve disjoint source intervals.
@@ -661,11 +757,20 @@ impl CandidateScanner {
         }
         for r in reads.symbols {
             let n = crate::numeric::usize_f64(self.signal.len());
+            // Native soft-only recovery uses the existing strict four-row
+            // consensus gate, also used by short-quiet/retail recovery evidence.
+            let weak_native = long_threshold_evidence
+                || cfg!(feature = "mode-medium")
+                    && self.signal.len() != 512
+                    && soft_reads
+                        .iter()
+                        .any(|p| p.digits == r.digits && p.left < r.right && r.left < p.right);
+
             {
                 #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
                 {
                     observations.push(Observation {
-                        short_quiet: false,
+                        short_quiet: weak_native,
                         ambiguous: false,
                         digits: r.digits,
                         axis,
@@ -681,7 +786,7 @@ impl CandidateScanner {
                     observations.push(Observation {
                         #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
                         invalid_checksum: false,
-                        short_quiet: false,
+                        short_quiet: weak_native,
                         ambiguous: false,
                         digits: r.digits,
                         axis,
@@ -711,6 +816,84 @@ impl CandidateScanner {
                 work,
             );
             work.accepted_paths += usize::from(observations[start..].iter().any(|o| !o.ambiguous));
+        }
+    }
+}
+
+#[cfg(all(test, not(feature = "mode-low")))]
+mod cache_tests {
+    use super::*;
+
+    fn profile(n: usize, invalid: bool) -> Vec<f32> {
+        let mut digits = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
+        if invalid {
+            digits[12] = 8;
+        }
+        let bits = crate::ean::encode(&digits);
+        let pitch = crate::numeric::usize_f32(n) / 119.;
+        (0..n)
+            .map(|i| {
+                let x = (crate::numeric::usize_f32(i) + 0.5) / pitch - 12.;
+                if (0.0..95.).contains(&x) {
+                    bits[crate::numeric::f32_usize(x.floor())]
+                } else {
+                    0.
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn cached_profiles_preserve_reads_errors_rejections_and_charged_work() {
+        let mut scanner = CandidateScanner::default();
+        let mut signals = Vec::new();
+        for n in [119, 238, 357, 512, 768, 1024, 1536] {
+            for invalid in [false, true] {
+                let p = profile(n, invalid);
+                signals.push(p.clone());
+                signals.push(p.into_iter().rev().collect());
+            }
+        }
+        signals.extend([
+            vec![0.; 119],
+            vec![-0.; 119],
+            vec![1.; 512],
+            vec![f32::NAN; 119],
+            vec![2.; 512],
+            vec![0.; 75],
+        ]);
+        for signal in signals {
+            let expected = if signal.len() == 512 {
+                profile::decode_with_blur_trace(&signal)
+            } else {
+                profile::decode_native_with_blur_trace(&signal)
+            };
+            scanner.signal.clone_from(&signal);
+            for _ in 0..2 {
+                assert_eq!(
+                    format!("{:?}", scanner.cached_profile_decode()),
+                    format!("{expected:?}")
+                );
+            }
+            scanner.profile_cache[usize::from(signal.len() != 512)] = None;
+            let mut work_first = Work::default();
+            scanner.blur_rejected_intervals.clear();
+            let first = scanner.profile_decode(&mut work_first);
+            let rejected = scanner.blur_rejected_intervals.clone();
+            let mut work_cached = Work::default();
+            scanner.blur_rejected_intervals.clear();
+            let cached = scanner.profile_decode(&mut work_cached);
+            assert_eq!(format!("{first:?}"), format!("{cached:?}"));
+            assert_eq!(format!("{work_first:?}"), format!("{work_cached:?}"));
+            assert_eq!(rejected, scanner.blur_rejected_intervals);
+            // Interleave the other profile size, then verify the original evidence again.
+            scanner.signal = profile(if signal.len() == 512 { 119 } else { 512 }, false);
+            let _ = scanner.cached_profile_decode();
+            scanner.signal = signal;
+            assert_eq!(
+                format!("{:?}", scanner.cached_profile_decode()),
+                format!("{expected:?}")
+            );
         }
     }
 }

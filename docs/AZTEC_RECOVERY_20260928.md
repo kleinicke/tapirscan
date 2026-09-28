@@ -94,3 +94,9 @@ non-Aztec controls. Targeted native/WASM parity covers352 scans across all modes
 and both extended-budget settings. Exact commands, source/input/engine hashes,
 failed variants, per-target outcomes and raw Chrome repetitions are retained in
 the experiment and dataset workspaces.
+
+## Subsequent Low selection
+
+The original measurements above keep Low unchanged. The subsequent selected Low
+budget and its separate accuracy/latency measurements are documented in
+[EAN13 continuation and Low Aztec selection](EAN13_RECOVERY_20260928.md).

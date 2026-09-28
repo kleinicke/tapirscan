@@ -58,6 +58,26 @@ fn scan_prepared(
     consolidate: bool,
     shared_retail: bool,
 ) -> std::result::Result<Result, Error> {
+    scan_prepared_impl(
+        scanner,
+        image,
+        options,
+        coverage,
+        consolidate,
+        shared_retail,
+        true,
+    )
+}
+
+fn scan_prepared_impl(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    options: ScanOptions,
+    coverage: &[Quad],
+    consolidate: bool,
+    shared_retail: bool,
+    allow_restoration: bool,
+) -> std::result::Result<Result, Error> {
     let im = checked_image(image)?;
     let localization = localize(&mut scanner.localizer, im, image)?;
     let mut candidates: Vec<_> = localization.proposals.iter().map(|p| p.polygon).collect();
@@ -91,6 +111,41 @@ fn scan_prepared(
         retail.extend(recovery.retail.iter().cloned());
     }
 
+    #[cfg(feature = "medium")]
+    recover_primary_proposals(
+        image,
+        &localization.proposals,
+        &mut scan,
+        &mut scanner.fast_profiles,
+    )?;
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    recover_primary_proposals_high(
+        image,
+        &localization.proposals,
+        &mut scan,
+        &mut scanner.fast_profiles,
+    )?;
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    if allow_restoration {
+        recover_threshold_regions(scanner, image, &localization.proposals, &mut scan)?;
+    }
+    // Preserve the shared Retail/Common budget in Medium. Source-region
+    // restoration remains available for EAN-only scans or explicit completion.
+    #[cfg(not(feature = "low"))]
+    if allow_restoration
+        && (!cfg!(feature = "medium") || !shared_retail || options.finish_candidates)
+    {
+        recover_restored_regions(
+            scanner,
+            image,
+            options,
+            coverage,
+            &localization.proposals,
+            &mut scan,
+        )?;
+    }
+    #[cfg(feature = "low")]
+    let _ = allow_restoration;
     if consolidate {
         super::linear_duplicates::merge_primary(&mut scan.frame.barcodes, image);
     }
@@ -107,6 +162,163 @@ fn scan_prepared(
         recovery,
         retail,
     })
+}
+
+#[cfg(not(feature = "low"))]
+fn protected_primary(image: Image<'_>, reads: &[Barcode]) -> Vec<Barcode> {
+    let mut protected = reads
+        .iter()
+        .map(|b| Barcode {
+            detection: b.detection.clone(),
+            candidate_indices: b.candidate_indices.clone(),
+        })
+        .collect::<Vec<_>>();
+    super::linear_duplicates::merge_primary(&mut protected, image);
+    protected
+}
+
+#[cfg(not(feature = "low"))]
+fn admit_primary_reads(
+    image: Image<'_>,
+    scan: &mut super::ScanResult,
+    mut protected: Vec<Barcode>,
+    reads: impl IntoIterator<Item = super::read::Read>,
+) -> std::result::Result<(), Error> {
+    for r in reads {
+        if r.support < 3
+            || protected
+                .iter()
+                .chain(&scan.frame.barcodes)
+                .any(|b| super::geometry::overlap_quads(&r.polygon, &b.detection.polygon).0 >= 0.65)
+        {
+            continue;
+        }
+        let bytes = r.text.as_bytes();
+        if bytes.len() == 13 && bytes.iter().all(u8::is_ascii_digit) {
+            let digits = std::array::from_fn(|i| bytes[i] - b'0');
+            // A new same-value read intersecting existing ownership is not an
+            // independently established instance. Preserve the existing read;
+            // separated physical copies remain eligible for recovery.
+            if protected.iter().chain(&scan.frame.barcodes).any(|b| {
+                b.detection.digits == digits
+                    && super::geometry::overlap_quads(&r.polygon, &b.detection.polygon).0 > 0.
+            }) {
+                continue;
+            }
+            let barcode = Barcode {
+                detection: barcode_research_core::experiment::Detection {
+                    digits,
+                    polygon: r.polygon,
+                    support: usize::try_from(r.support).map_err(|_| Error::Parameters)?,
+                    axis: r.axis.unwrap_or(0),
+                },
+                candidate_indices: Vec::new(),
+            };
+            // These are optional hypotheses, not existing frame ownership. A
+            // second same-value band needs a separated measured extent before
+            // it can be admitted as another physical symbol. Keep original
+            // frame reads and their geometry untouched.
+            let owners = protected_primary(image, std::slice::from_ref(&barcode));
+            if owners.iter().any(|new| {
+                protected.iter().any(|old| {
+                    old.detection.digits == new.detection.digits
+                        && super::geometry::overlap_quads(
+                            &new.detection.polygon,
+                            &old.detection.polygon,
+                        )
+                        .0 > 0.
+                })
+            }) {
+                continue;
+            }
+            protected.extend(owners);
+            scan.frame.barcodes.push(barcode);
+        }
+    }
+    Ok(())
+}
+
+/// Retry bounded unresolved source proposals with independent row confirmation.
+/// Protect reconciled original ownership before adding a new physical read.
+#[cfg(feature = "medium")]
+fn recover_primary_proposals(
+    image: Image<'_>,
+    proposals: &[Proposal],
+    scan: &mut super::ScanResult,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> std::result::Result<(), Error> {
+    let protected = protected_primary(image, &scan.frame.barcodes);
+    let mut unresolved: Vec<_> = proposals
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            scan.frame.candidates.get(*i).is_some_and(|c| {
+                (c.work.guard_pass > 0
+                    || (c.work.invalid_visual_seen == 0
+                        && c.work.invalid_veto_reads == 0
+                        && (p.score >= 0.95 || c.work.forward_blur_windows >= 4)))
+                    && c.detections.is_empty()
+            }) && !protected
+                .iter()
+                .any(|b| super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3)
+        })
+        .collect();
+    unresolved.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
+    let proposals: Vec<_> = unresolved.into_iter().take(2).map(|(_, p)| *p).collect();
+    let (extra, _) = super::fast_linear::recover_proposals(image, &proposals, 1, sampler)?;
+    let (restored, _) =
+        super::fast_linear::recover_proposals_contrast(image, &proposals, 1, sampler, 1.0)?;
+    let (colored, _) = super::fast_linear::recover_proposals_color(
+        image,
+        &proposals[..proposals.len().min(2)],
+        1,
+        sampler,
+        2,
+    )?;
+    admit_primary_reads(
+        image,
+        scan,
+        protected,
+        extra.into_iter().chain(restored).chain(colored),
+    )
+}
+
+/// Retry bounded unresolved source proposals with independent row confirmation.
+/// Protect reconciled original ownership before adding a new physical read.
+#[cfg(any(feature = "high", feature = "very-high"))]
+fn recover_primary_proposals_high(
+    image: Image<'_>,
+    proposals: &[Proposal],
+    scan: &mut super::ScanResult,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> std::result::Result<(), Error> {
+    let protected = protected_primary(image, &scan.frame.barcodes);
+    let mut unresolved: Vec<_> = proposals
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            scan.frame.candidates.get(*i).is_some_and(|c| {
+                (c.work.guard_pass > 0
+                    || (c.work.invalid_visual_seen == 0
+                        && c.work.invalid_veto_reads == 0
+                        && (p.score >= 0.95 || c.work.forward_blur_windows >= 4)))
+                    && c.detections.is_empty()
+            }) && !protected
+                .iter()
+                .any(|b| super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3)
+        })
+        .collect();
+    unresolved.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
+    let proposals: Vec<_> = unresolved.into_iter().take(6).map(|(_, p)| *p).collect();
+    let (extra, _) = super::fast_linear::recover_proposals(image, &proposals, 1, sampler)?;
+    let (colored, _) = super::fast_linear::recover_proposals_color(
+        image,
+        &proposals[..proposals.len().min(2)],
+        1,
+        sampler,
+        2,
+    )?;
+    admit_primary_reads(image, scan, protected, extra.into_iter().chain(colored))
 }
 
 fn localize(
@@ -348,5 +560,493 @@ mod tests {
                 assert_eq!(storage, expected);
             }
         }
+    }
+}
+
+#[cfg(not(feature = "low"))]
+fn restore_source_image(image: Image<'_>) -> Vec<u8> {
+    let (w, h) = (image.width, image.height);
+    let gray: Vec<u32> = (0..h)
+        .flat_map(|y| {
+            (0..w).map(move |x| {
+                let at = y * image.stride + x * image.channels;
+                if image.channels == 1 {
+                    u32::from(image.data[at])
+                } else {
+                    (77 * u32::from(image.data[at])
+                        + 150 * u32::from(image.data[at + 1])
+                        + 29 * u32::from(image.data[at + 2])
+                        + 128)
+                        / 256
+                }
+            })
+        })
+        .collect();
+    let weights = [1_u32, 4, 6, 4, 1];
+    let mut horizontal = vec![0_u32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            horizontal[y * w + x] = weights
+                .iter()
+                .enumerate()
+                .map(|(i, a)| a * gray[y * w + x.saturating_add(i).saturating_sub(2).min(w - 1)])
+                .sum();
+        }
+    }
+    let mut out = vec![0_u8; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let smooth: u32 = weights
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    a * horizontal[y.saturating_add(i).saturating_sub(2).min(h - 1) * w + x]
+                })
+                .sum();
+            let value = (5 * i32::try_from(gray[y * w + x]).expect("gray")
+                - 3 * i32::try_from((smooth + 128) / 256).expect("smooth")
+                + 1)
+                / 2;
+            out[y * w + x] = u8::try_from(value.clamp(0, 255)).expect("clamped gray");
+        }
+    }
+    out
+}
+
+#[cfg(not(feature = "low"))]
+fn source_contradiction(
+    image: Image<'_>,
+    q: Quad,
+    expected: [u8; 13],
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> std::result::Result<bool, Error> {
+    let im = checked_image(image)?;
+    let point = |u: f64, v: f64| {
+        let a = [
+            q[0][0] + (q[1][0] - q[0][0]) * u,
+            q[0][1] + (q[1][1] - q[0][1]) * u,
+        ];
+        let b = [
+            q[3][0] + (q[2][0] - q[3][0]) * u,
+            q[3][1] + (q[2][1] - q[3][1]) * u,
+        ];
+        [a[0] + (b[0] - a[0]) * v, a[1] + (b[1] - a[1]) * v]
+    };
+    let mut conflicts: Vec<([u8; 13], usize)> = Vec::new();
+    for v in [0.2, 0.5, 0.8] {
+        sampler.sample_limited(im, point(-0.15, v), point(1.15, v), 3., 1536);
+        let mut row = Vec::new();
+        for method in 0..3 {
+            if method == 1 {
+                sampler.adaptive_threshold();
+            } else {
+                sampler.threshold(method == 0);
+            }
+            for reverse in [false, true] {
+                if reverse {
+                    sampler.runs.reverse();
+                }
+                let black = if reverse {
+                    sampler.first_black ^ sampler.runs.len().is_multiple_of(2)
+                } else {
+                    sampler.first_black
+                };
+                let total = sampler.runs.iter().sum::<f32>();
+                for start in (usize::from(!black)..sampler.runs.len().saturating_sub(59)).step_by(2)
+                {
+                    if start == 0 {
+                        continue;
+                    }
+                    let widths = &sampler.runs[start..start + 59];
+                    let left = sampler.runs[..start].iter().sum::<f32>() / total;
+                    let symbol_width = widths.iter().sum::<f32>();
+                    let right = left + symbol_width / total;
+                    if (left - 0.15 / 1.3).abs() > 0.12 || (right - 1.15 / 1.3).abs() > 0.12 {
+                        continue;
+                    }
+                    let module = symbol_width / 95.;
+                    if sampler.runs[start - 1] < module * 4.
+                        || sampler.runs[start + 59] < module * 4.
+                    {
+                        continue;
+                    }
+                    if let Some(e) = barcode_research_core::run_ean::decode_visual_evidence(widths)
+                    {
+                        if e.digits != expected && !row.contains(&e.digits) {
+                            row.push(e.digits);
+                        }
+                    }
+                }
+                if reverse {
+                    sampler.runs.reverse();
+                }
+            }
+        }
+        for digits in row {
+            if let Some((_, count)) = conflicts.iter_mut().find(|(d, _)| *d == digits) {
+                *count += 1;
+                if *count >= 2 {
+                    return Ok(true);
+                }
+            } else {
+                conflicts.push((digits, 1));
+            }
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(not(feature = "low"))]
+fn recover_restored_regions(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    options: ScanOptions,
+    coverage: &[Quad],
+    proposals: &[Proposal],
+    scan: &mut super::ScanResult,
+) -> std::result::Result<(), Error> {
+    use barcode_research_core::numeric::usize_f64;
+    if !scan
+        .frame
+        .candidates
+        .iter()
+        .any(|c| c.work.guard_pass >= 4 && c.detections.is_empty())
+    {
+        return Ok(());
+    }
+    let protected = protected_primary(image, &scan.frame.barcodes);
+    let mut unresolved: Vec<_> = proposals
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            scan.frame
+                .candidates
+                .get(*i)
+                .is_some_and(|c| c.work.guard_pass >= 4 && c.detections.is_empty())
+                && !protected.iter().any(|b| {
+                    super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3
+                })
+        })
+        .collect();
+    unresolved.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
+    let mut remaining = if cfg!(feature = "medium") {
+        131_072
+    } else {
+        262_144
+    };
+    for (_, p) in unresolved.into_iter().take(2) {
+        let (x, y, w, h) = restoration_bounds(image, p.polygon);
+        if w < 3 || h < 3 || w * h > remaining {
+            continue;
+        }
+        remaining -= w * h;
+        let crop = Image {
+            data: &image.data[y * image.stride + x * image.channels..],
+            width: w,
+            height: h,
+            channels: image.channels,
+            stride: image.stride,
+        };
+        let pixels = restore_source_image(crop);
+        let enhanced = Image {
+            data: &pixels,
+            width: w,
+            height: h,
+            channels: 1,
+            stride: w,
+        };
+        let crop_coverage: Vec<Quad> = coverage
+            .iter()
+            .map(|q| q.map(|v| [v[0] - usize_f64(x), v[1] - usize_f64(y)]))
+            .collect();
+        let retry = scan_prepared_impl(
+            scanner,
+            enhanced,
+            options,
+            &crop_coverage,
+            true,
+            false,
+            false,
+        )?;
+        for mut read in retry.scan.frame.barcodes {
+            if read.detection.support < 5 {
+                continue;
+            }
+            for point in &mut read.detection.polygon {
+                point[0] += usize_f64(x);
+                point[1] += usize_f64(y);
+            }
+            if super::geometry::overlap_quads(&read.detection.polygon, &p.polygon).0 < 0.3 {
+                continue;
+            }
+            if protected.iter().chain(&scan.frame.barcodes).any(|b| {
+                super::geometry::overlap_quads(&read.detection.polygon, &b.detection.polygon).0
+                    >= 0.3
+            }) {
+                continue;
+            }
+            if source_contradiction(
+                image,
+                read.detection.polygon,
+                read.detection.digits,
+                &mut scanner.fast_profiles,
+            )? {
+                continue;
+            }
+            read.candidate_indices.clear();
+            scan.frame.barcodes.push(read);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "low"))]
+fn restoration_bounds(image: Image<'_>, polygon: Quad) -> (usize, usize, usize, usize) {
+    use barcode_research_core::numeric::{f64_usize, usize_f64};
+    let xmin = polygon.iter().map(|v| v[0]).fold(f64::INFINITY, f64::min);
+    let xmax = polygon
+        .iter()
+        .map(|v| v[0])
+        .fold(f64::NEG_INFINITY, f64::max);
+    let ymin = polygon.iter().map(|v| v[1]).fold(f64::INFINITY, f64::min);
+    let ymax = polygon
+        .iter()
+        .map(|v| v[1])
+        .fold(f64::NEG_INFINITY, f64::max);
+    let horizontal_padding = (xmax - xmin) * 0.2 + 4.;
+    let vertical_padding = (ymax - ymin) * 0.2 + 4.;
+    let x = f64_usize(
+        (xmin - horizontal_padding)
+            .floor()
+            .clamp(0., usize_f64(image.width)),
+    );
+    let y = f64_usize(
+        (ymin - vertical_padding)
+            .floor()
+            .clamp(0., usize_f64(image.height)),
+    );
+    let right = f64_usize(
+        (xmax + horizontal_padding)
+            .ceil()
+            .clamp(0., usize_f64(image.width)),
+    );
+    let bottom = f64_usize(
+        (ymax + vertical_padding)
+            .ceil()
+            .clamp(0., usize_f64(image.height)),
+    );
+    let w = right.saturating_sub(x);
+    let h = bottom.saturating_sub(y);
+    (x, y, w, h)
+}
+
+#[cfg(any(feature = "high", feature = "very-high"))]
+fn recover_threshold_regions(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    proposals: &[Proposal],
+    scan: &mut super::ScanResult,
+) -> std::result::Result<(), Error> {
+    let protected = protected_primary(image, &scan.frame.barcodes);
+    let mut unresolved: Vec<_> = proposals
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            scan.frame
+                .candidates
+                .get(*i)
+                .is_some_and(|c| c.work.guard_pass > 0 && c.detections.is_empty())
+                && !protected.iter().any(|b| {
+                    super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3
+                })
+        })
+        .collect();
+    unresolved.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
+    let regions: Vec<_> = unresolved
+        .into_iter()
+        .take(2)
+        .map(|(_, p)| p.polygon)
+        .collect();
+    if regions.is_empty() {
+        return Ok(());
+    }
+    let policy = Policy {
+        complete: false,
+        max_retry_paths_per_candidate: if cfg!(feature = "very-high") { 64 } else { 16 },
+        max_retry_paths_per_frame: if cfg!(feature = "very-high") { 128 } else { 32 },
+        max_association_checks: 32_768,
+        max_association_pixels: 262_144,
+        transition_cleanup: true,
+        source_identity: true,
+        interior_normalization: true,
+        guard_bias: true,
+        ..Policy::default()
+    };
+    let retry = scanner
+        .regions
+        .scan_threshold_recovery(checked_image(image)?, &regions, policy)?;
+    scan.frame.unfinished |= retry.frame.unfinished;
+    for mut read in retry.frame.barcodes {
+        if read.detection.support < 4
+            || protected.iter().chain(&scan.frame.barcodes).any(|b| {
+                super::geometry::overlap_quads(&read.detection.polygon, &b.detection.polygon).0
+                    >= 0.3
+            })
+        {
+            continue;
+        }
+        if source_contradiction(
+            image,
+            read.detection.polygon,
+            read.detection.digits,
+            &mut scanner.fast_profiles,
+        )? {
+            continue;
+        }
+        read.candidate_indices.clear();
+        scan.frame.barcodes.push(read);
+    }
+    Ok(())
+}
+
+#[cfg(all(test, not(feature = "low")))]
+mod recovery_tests {
+    use super::*;
+
+    #[test]
+    fn region_restoration_preserves_padded_rgb_rgba_and_gray_crops() {
+        for (width, height) in [(1, 1), (3, 5), (17, 9)] {
+            let gray: Vec<u8> = (0..width * height)
+                .map(|i| u8::try_from((i * 73 + 19) % 256).unwrap())
+                .collect();
+            let expected = restore_source_image(Image {
+                data: &gray,
+                width,
+                height,
+                channels: 1,
+                stride: width,
+            });
+            for channels in [1, 3, 4] {
+                let stride = (width + 4) * channels + 7;
+                let offset = stride + 2 * channels;
+                let mut padded = vec![173; offset + (height - 1) * stride + width * channels];
+                for y in 0..height {
+                    for x in 0..width {
+                        for c in 0..channels.min(3) {
+                            padded[offset + y * stride + x * channels + c] = gray[y * width + x];
+                        }
+                        if channels == 4 {
+                            padded[offset + y * stride + x * channels + 3] = 11;
+                        }
+                    }
+                }
+                assert_eq!(
+                    restore_source_image(Image {
+                        data: &padded[offset..],
+                        width,
+                        height,
+                        channels,
+                        stride,
+                    }),
+                    expected
+                );
+            }
+        }
+        for value in [0, 1, 127, 254, 255] {
+            let data = vec![value; 21];
+            assert_eq!(
+                restore_source_image(Image {
+                    data: &data,
+                    width: 7,
+                    height: 3,
+                    channels: 1,
+                    stride: 7,
+                }),
+                data
+            );
+        }
+    }
+
+    #[test]
+    fn optional_bands_keep_two_separated_copies_but_not_two_bands_of_one_copy() {
+        let digits = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
+        let bits = barcode_research_core::ean::encode(&digits);
+        let width = 400;
+        let height = 100;
+        let mut pixels = vec![255; width * height];
+        for y in (5..35).chain(55..85) {
+            for (module, bit) in bits.iter().enumerate() {
+                if *bit > 0.5 {
+                    pixels[y * width + 50 + module * 3..y * width + 53 + module * 3].fill(0);
+                }
+            }
+        }
+        let image = Image {
+            data: &pixels,
+            width,
+            height,
+            channels: 1,
+            stride: width,
+        };
+        let mut scan = super::super::ScanResult {
+            frame: barcode_research_core::frame::Frame {
+                candidates: Vec::new(),
+                barcodes: Vec::new(),
+                reconciliation: barcode_research_core::frame::ReconciliationWork::default(),
+                unfinished: false,
+            },
+            errors: Vec::new(),
+            candidate_timings_available: false,
+        };
+        let reads = [(13., 6), (23., 5), (63., 4)].map(|(top, support)| {
+            super::super::read::Read::primary(
+                digits,
+                [[50., top], [335., top], [335., top + 4.], [50., top + 4.]],
+                support,
+                0,
+                Vec::new(),
+            )
+        });
+        admit_primary_reads(image, &mut scan, Vec::new(), reads).unwrap();
+        assert_eq!(scan.frame.barcodes.len(), 2);
+        assert_eq!(scan.frame.barcodes[0].detection.support, 6);
+        assert_eq!(scan.frame.barcodes[1].detection.support, 4);
+    }
+
+    #[test]
+    fn source_veto_requires_a_conflicting_symbol_at_the_same_location() {
+        let digits = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
+        let other = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
+        let bits = barcode_research_core::ean::encode(&digits);
+        let width = 400;
+        let height = 40;
+        let mut pixels = vec![255; width * height];
+        for y in 0..height {
+            for (module, bit) in bits.iter().enumerate() {
+                if *bit > 0.5 {
+                    pixels[y * width + 50 + module * 3..y * width + 53 + module * 3].fill(0);
+                }
+            }
+        }
+        let image = Image {
+            data: &pixels,
+            width,
+            height,
+            channels: 1,
+            stride: width,
+        };
+        let q = [[50., 0.], [335., 0.], [335., 39.], [50., 39.]];
+        let mut sampler = barcode_research_core::fast_profile::Sampler::default();
+        assert!(!source_contradiction(image, q, digits, &mut sampler).unwrap());
+        assert!(source_contradiction(image, q, other, &mut sampler).unwrap());
+        pixels.fill(255);
+        let blank = Image {
+            data: &pixels,
+            width,
+            height,
+            channels: 1,
+            stride: width,
+        };
+        assert!(!source_contradiction(blank, q, other, &mut sampler).unwrap());
     }
 }

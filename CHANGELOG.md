@@ -2,6 +2,12 @@
 
 ## Unreleased: recovery preview
 
+- Improve bounded EAN13 original-profile recovery in Medium, High and Very High.
+  Preserve the default Medium combined-mode budget by reserving source-region
+  restoration for EAN-only scans or explicit completion. Protect existing reads
+  and require independent evidence for color and threshold retries. Low receives
+  a smaller Aztec recovery budget. See `docs/EAN13_RECOVERY_20260928.md`.
+
 - Improve Medium/High/Very High Aztec recovery with shared matrix preprocessing,
   bounded source-gray fitting and sampling, curved-grid hypotheses and stricter
   Rune confirmation. Preserve explicit work limits and multiple physical symbols.

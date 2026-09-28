@@ -78,6 +78,7 @@ struct Observation {
     min_span: f64,
     last_row: usize,
     seen_rows: u64,
+    original_rows: u64,
     dense: bool,
 }
 fn required_support(format: &str) -> u64 {
@@ -167,7 +168,9 @@ pub(crate) fn scan(
             im,
             quad: q,
             dense: false,
+            restored: false,
             contrast: 0.,
+            color: 0,
             localized: proposal.score > 0. || matches!(TIER, 8 | 16),
             mask: mask & crate::format_registry::LINEAR_MASK,
             remaining: continuity_budget,
@@ -340,7 +343,9 @@ fn border_discovery(
                 im,
                 quad: q,
                 dense: false,
+                restored: false,
                 contrast: 0.,
+                color: 0,
                 localized: false,
                 mask: mask & crate::format_registry::LINEAR_MASK,
                 remaining: budget,
@@ -385,6 +390,8 @@ struct Candidate<'a> {
     mask: u32,
     dense: bool,
     contrast: f32,
+    color: u8,
+    restored: bool,
     localized: bool,
     remaining: usize,
     observations: Vec<Observation>,
@@ -401,12 +408,17 @@ impl Candidate<'_> {
         for mut o in self.observations {
             // ITF and ordinary Code39 lack mandatory payload checksums; enhanced
             // profiles require a fourth independent row before acceptance.
-            let required =
-                if self.contrast > 0. && matches!(o.read.format.as_str(), "ITF" | "Code39") {
-                    4
-                } else {
-                    required_support(&o.read.format)
-                };
+            let required = if self.color > 0
+                || (self.contrast > 0.
+                    && (matches!(o.read.format.as_str(), "ITF" | "Code39")
+                        || (cfg!(feature = "medium")
+                            && self.mask == 1
+                            && o.original_rows.count_ones() < 3)))
+            {
+                4
+            } else {
+                required_support(&o.read.format)
+            };
             // Close recovery rows are more correlated than the original grid.
             // Require three confirmations even for checksum-protected formats.
             let confirmation = if recovery {
@@ -553,6 +565,9 @@ impl Candidate<'_> {
                         &mut self.remaining,
                     ))
         }) {
+            if !self.restored {
+                old.original_rows |= 1_u64 << row;
+            }
             if old.seen_rows & (1_u64 << row) == 0 {
                 old.seen_rows |= 1_u64 << row;
                 old.read.support += 1;
@@ -580,6 +595,7 @@ impl Candidate<'_> {
             anchor: v,
             last_row: row,
             seen_rows: 1_u64 << row,
+            original_rows: if self.restored { 0 } else { 1_u64 << row },
             dense: self.dense,
             read: Read {
                 text: found.text,
@@ -620,37 +636,15 @@ fn sample_line_density(
     v: f64,
     dense: bool,
 ) {
-    let q = candidate.quad;
     let im = candidate.im;
-    let a = point(q, -0.15, v);
-    let b = point(q, 1.15, v);
-    if dense {
-        sampler.sample_dense(im, a, b);
-    } else {
-        let limit = if candidate.localized {
-            match TIER {
-                2 => 1024,
-                4 => 768,
-                16 => 512,
-                8 => match option_env!("TAPIRSCAN_TURBO_PROFILE_CAP") {
-                    Some(value) if value.as_bytes() == b"576" => 576,
-                    Some(value) if value.as_bytes() == b"640" => 640,
-                    _ => 512,
-                },
-                _ => SAMPLE_LIMIT,
-            }
-        } else {
-            SAMPLE_LIMIT
-        };
-        sampler.sample_limited(im, a, b, DENSITY, limit);
-    }
-    if !sampler.has_contrast() {
+    let Some([a, b]) = sample_candidate_profile(candidate, sampler, v, dense) else {
         return;
-    }
+    };
 
     let enhanced = candidate.contrast > 0.;
     let methods = if enhanced { 6 } else { 3 };
     for method in 0..methods {
+        candidate.restored = method >= 3;
         if method == 3 {
             sampler.restore_contrast(candidate.contrast);
         }
@@ -721,6 +715,68 @@ fn sample_line_density(
             break;
         }
     }
+}
+
+fn sample_candidate_profile(
+    candidate: &Candidate<'_>,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    v: f64,
+    dense: bool,
+) -> Option<[[f64; 2]; 2]> {
+    let q = candidate.quad;
+    let im = candidate.im;
+    let a = point(q, -0.15, v);
+    let b = point(q, 1.15, v);
+    if candidate.color > 0 {
+        if !sampler.sample_color_limited(
+            im,
+            a,
+            b,
+            if dense { 3. } else { 1.5 },
+            1024,
+            candidate.color,
+        ) {
+            return None;
+        }
+    } else if dense {
+        sampler.sample_dense(im, a, b);
+    } else {
+        let limit = if candidate.localized {
+            match TIER {
+                2 => 1024,
+                4 => 768,
+                16 => 512,
+                8 => match option_env!("TAPIRSCAN_TURBO_PROFILE_CAP") {
+                    Some(value) if value.as_bytes() == b"576" => 576,
+                    Some(value) if value.as_bytes() == b"640" => 640,
+                    _ => 512,
+                },
+                _ => SAMPLE_LIMIT,
+            }
+        } else {
+            SAMPLE_LIMIT
+        };
+        sampler.sample_limited(
+            im,
+            a,
+            b,
+            if cfg!(feature = "medium") && candidate.contrast > 0. && candidate.mask == 1 {
+                1.0
+            } else {
+                DENSITY
+            },
+            if cfg!(feature = "medium") && candidate.contrast > 0. && candidate.mask == 1 {
+                limit.min(768)
+            } else {
+                limit
+            },
+        );
+    }
+    if !sampler.has_contrast() {
+        return None;
+    }
+
+    Some([a, b])
 }
 
 /// Additional unchecked Code39 recovery needs two source pixels per narrow
@@ -974,7 +1030,9 @@ mod tests {
             mask: linear::CODE128,
             localized: true,
             dense: false,
+            restored: false,
             contrast: 0.,
+            color: 0,
             remaining: 100_000,
             observations: Vec::new(),
             row_positions: Vec::new(),
@@ -1094,6 +1152,27 @@ pub(crate) fn recover_proposals_contrast(
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     contrast: f32,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    recover_proposals_variant(image, proposals, mask, sampler, contrast, 0)
+}
+#[cfg(not(feature = "low"))]
+pub(crate) fn recover_proposals_color(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    color: u8,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    recover_proposals_variant(image, proposals, mask, sampler, 0., color)
+}
+#[cfg(not(feature = "low"))]
+fn recover_proposals_variant(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    contrast: f32,
+    color: u8,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
     let im = ImageView::new(
         image.data,
         image.width,
@@ -1116,7 +1195,9 @@ pub(crate) fn recover_proposals_contrast(
             quad: proposal.polygon,
             mask,
             dense: false,
+            restored: false,
             contrast,
+            color,
             localized: true,
             remaining: continuity_budget,
             observations: Vec::new(),

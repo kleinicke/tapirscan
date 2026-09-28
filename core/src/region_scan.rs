@@ -46,6 +46,22 @@ pub struct RegionScanner {
     engine: crate::experiment::CandidateScanner,
 }
 impl RegionScanner {
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+    /// Run the optional threshold path in an isolated, caller-bounded transaction.
+    /// # Errors
+    /// Propagates the ordinary region scan errors and always restores the primary policy.
+    pub fn scan_threshold_recovery(
+        &mut self,
+        image: ImageView<'_>,
+        candidates: &[Quad],
+        policy: Policy,
+    ) -> Result<ScanResult, Error> {
+        self.engine.threshold_recovery = true;
+        let result = self.scan(image, candidates, policy);
+        self.engine.threshold_recovery = false;
+        result
+    }
+
     #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     /// Configure shared retail evidence; bit 1 keeps the primary reader enabled.
     /// # Errors
@@ -145,5 +161,39 @@ mod tests {
             scanner.scan(image, &[q; 65], Policy::default()),
             Err(Error::Parameters)
         ));
+    }
+}
+
+#[cfg(all(test, any(feature = "mode-high", feature = "mode-very-high")))]
+mod threshold_recovery_tests {
+    use super::*;
+
+    #[test]
+    fn optional_threshold_state_is_reset_after_success_and_invalid_request() {
+        let data = vec![255; 64 * 32];
+        let image = ImageView::new(&data, 64, 32, 1, 64).unwrap();
+        let q = [[0., 0.], [63., 0.], [63., 31.], [0., 31.]];
+        let mut scanner = RegionScanner::default();
+        assert!(!scanner.engine.threshold_recovery);
+        assert!(scanner
+            .scan_threshold_recovery(image, &[q; 65], Policy::default())
+            .is_err());
+        assert!(!scanner.engine.threshold_recovery);
+        let result = scanner
+            .scan_threshold_recovery(image, &[q], Policy::default())
+            .unwrap();
+        assert!(result.frame.barcodes.is_empty());
+        assert!(!scanner.engine.threshold_recovery);
+        let ordinary = scanner.scan(image, &[q], Policy::default()).unwrap();
+        let baseline = RegionScanner::default()
+            .scan(image, &[q], Policy::default())
+            .unwrap();
+        assert_eq!(ordinary.frame.barcodes.len(), baseline.frame.barcodes.len());
+        assert_eq!(ordinary.frame.unfinished, baseline.frame.unfinished);
+        assert_eq!(ordinary.errors, baseline.errors);
+        assert_eq!(
+            format!("{:?}", ordinary.frame.candidates[0].work),
+            format!("{:?}", baseline.frame.candidates[0].work)
+        );
     }
 }

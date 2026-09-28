@@ -198,3 +198,10 @@ Only unresolved Very High candidates enter the bounded recovery bank. Independen
 disjoint bands must agree; existing visual conflicts, source continuity, result
 association and frame reconciliation still apply. Low, Medium and High do not
 compile this path. See [integration evidence and remaining work](../docs/SUBPIXEL_VERY_HIGH_20260926.md).
+
+## EAN13 and Low Aztec recovery (28 September 2026)
+
+The selected runtime adds bounded source-profile evidence and exact profile reuse
+for EAN13. Medium default combined modes skip the more expensive source-region
+restoration; High and Very High retain bounded region/threshold retries. Low uses
+a smaller Aztec gray-sampling budget. See [policy and evidence](../docs/EAN13_RECOVERY_20260928.md).

@@ -531,11 +531,27 @@ impl Default for Search {
         Self {
             reads: Vec::new(),
             limited: false,
-            refine_budget: 100_000,
-            curve_budget: 150_000,
-            bow_budget: 50_000,
+            refine_budget: if cfg!(feature = "mode-low") {
+                10_000
+            } else {
+                100_000
+            },
+            curve_budget: if cfg!(feature = "mode-low") {
+                20_000
+            } else {
+                150_000
+            },
+            bow_budget: if cfg!(feature = "mode-low") {
+                0
+            } else {
+                50_000
+            },
             rune_gray_budget: 8_192,
-            adaptive_budget: 50_000,
+            adaptive_budget: if cfg!(feature = "mode-low") {
+                0
+            } else {
+                50_000
+            },
         }
     }
 }

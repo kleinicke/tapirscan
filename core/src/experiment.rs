@@ -28,6 +28,9 @@ pub struct Observation {
 }
 #[derive(Default, Debug, Clone)]
 pub struct Work {
+    #[cfg(not(feature = "mode-low"))]
+    /// Additional long-profile threshold attempts, capped at eight per candidate.
+    pub medium_threshold_profiles: usize,
     #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     pub selected_retry_limit: usize,
     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
@@ -298,8 +301,19 @@ pub(crate) fn distance(a: [f64; 2], b: [f64; 2]) -> f64 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
 
+#[cfg(not(feature = "mode-low"))]
+struct CachedProfile {
+    signal: Vec<f32>,
+    result: Result<Option<profile::Read>, profile::Error>,
+    trace: profile::BlurTrace,
+}
+
 #[derive(Default)]
 pub struct CandidateScanner {
+    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+    pub(crate) threshold_recovery: bool,
+    #[cfg(not(feature = "mode-low"))]
+    profile_cache: [Option<CachedProfile>; 2],
     #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     pub(crate) retail: crate::retail_pipeline::Collector,
 

@@ -4,7 +4,7 @@
 #![forbid(unsafe_code)]
 use crate::ean;
 pub const LEN: usize = 512;
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     Length,
     Value,
@@ -59,7 +59,7 @@ pub fn decode(p: &[f32]) -> Result<Option<Read>, Error> {
     decode_checked(p, true)
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct BlurTrace {
     pub boundary_pairs: usize,
     pub digit_hypotheses: usize,
@@ -93,7 +93,11 @@ fn decode_impl(
 ) -> Result<Option<Read>, Error> {
     decode_impl_length(p, precheck, prune, false, trace)
 }
-#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+#[cfg(any(
+    feature = "mode-medium",
+    feature = "mode-high",
+    feature = "mode-very-high"
+))]
 pub(crate) fn decode_native_with_blur_trace(p: &[f32]) -> (Result<Option<Read>, Error>, BlurTrace) {
     let mut trace = BlurTrace::default();
     let result = decode_impl_length(p, true, true, true, &mut trace);
@@ -529,7 +533,14 @@ mod forward_blur_tests {
     }
 }
 
-#[cfg(all(test, any(feature = "mode-high", feature = "mode-very-high")))]
+#[cfg(all(
+    test,
+    any(
+        feature = "mode-medium",
+        feature = "mode-high",
+        feature = "mode-very-high"
+    )
+))]
 mod native_soft_tests {
     use super::*;
     #[test]
@@ -577,6 +588,11 @@ mod native_soft_tests {
         }
         assert!(matches!(
             decode_native_with_blur_trace(&[0.; 75]).0,
+            Err(Error::Length)
+        ));
+        #[cfg(any(feature = "mode-medium", feature = "mode-high"))]
+        assert!(matches!(
+            decode_native_with_blur_trace(&[0.; 385]).0,
             Err(Error::Length)
         ));
         assert!(matches!(

@@ -18,9 +18,12 @@ fn pixel(im: Image<'_>, x: usize, y: usize, c: usize) -> f64 {
         f64::from(im.data[y * im.stride + x * im.channels + channel])
     }
 }
+// The legacy weighted sum is an exact integer <=65280, followed by an
+// exact power-of-two division. Integer accumulation preserves every bit.
 fn gray(im: Image<'_>, x: usize, y: usize) -> f64 {
-    (77. * pixel(im, x, y, 0) + 150. * pixel(im, x, y, 1) + 29. * pixel(im, x, y, 2)) / 256.
+    im.fixed_luminance(y * im.stride + x * im.channels)
 }
+
 fn sample(im: Image<'_>, x: f64, y: f64) -> f64 {
     let x = x.clamp(0., (im.width - 1) as f64);
     let y = y.clamp(0., (im.height - 1) as f64);
@@ -627,6 +630,42 @@ pub(crate) fn source_bands(im: Image<'_>, known: &[Read]) -> Vec<Proposal> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn integer_gray_preserves_legacy_rgb_and_gray_values() {
+        for channels in [3, 4] {
+            for red in 0..=255u8 {
+                for green in 0..=255u8 {
+                    for blue in [0, 1, 127, 128, 254, 255] {
+                        let data = [red, green, blue, 37];
+                        let image = Image {
+                            data: &data,
+                            width: 1,
+                            height: 1,
+                            channels,
+                            stride: channels,
+                        };
+                        let legacy = (77. * pixel(image, 0, 0, 0)
+                            + 150. * pixel(image, 0, 0, 1)
+                            + 29. * pixel(image, 0, 0, 2))
+                            / 256.;
+                        assert_eq!(gray(image, 0, 0).to_bits(), legacy.to_bits());
+                    }
+                }
+            }
+        }
+        for value in 0..=255u8 {
+            let data = [value];
+            let image = Image {
+                data: &data,
+                width: 1,
+                height: 1,
+                channels: 1,
+                stride: 1,
+            };
+            assert_eq!(gray(image, 0, 0).to_bits(), f64::from(value).to_bits());
+        }
+    }
+
     #[test]
     fn integer_upscale_exhaustive_pairs_and_two_dimensional_palette() {
         for a in 0..=255_u8 {
