@@ -34,8 +34,8 @@ Scanning is synchronous after JavaScript initialization.
 
 Recovery, interpolation, reader ordering, budgets and duplicate reconciliation
 are implemented once in Rust. The JavaScript layer validates inputs, transfers
-pixels and exposes immutable results. Historical imported JavaScript remains
-available for provenance but is not shipped as an active scanner.
+pixels and exposes immutable results. Obsolete JavaScript hosts are retained in the experiment archive. They are not
+part of this repository or required by its builds.
 
 Grayscale, RGB and RGBA inputs support explicit strides; alpha is ignored.
 Positions refer to the pixels supplied by the caller, not an earlier image before
@@ -83,8 +83,7 @@ from an EAN-13 result.
 | Directory                                 | Purpose                                                    |
 | ----------------------------------------- | ---------------------------------------------------------- |
 | `core/`                                   | Maintained production algorithms and explicit effort modes |
-| `historical/`                             | Frozen original sources, recipes and reproduction scripts  |
-| `provenance/`                             | Selected mode recipes and source/binary hashes             |
+| `provenance/`                             | Selected modes and source/binary hashes                    |
 | `bindings/javascript/`                    | Browser/Node API and WASM session adapter                  |
 | `bindings/rust/`                          | Public Scanner API and shared private pipeline             |
 | `bindings/wasm/`                          | Thin WebAssembly adapter over the Rust API                 |
@@ -96,7 +95,7 @@ from an EAN-13 result.
 Production builds compile `core/src` directly. The public Rust package relocates
 this shared tree into private per-mode namespaces to support several modes in one
 process. Generated namespaces are build artifacts, not separate maintained copies.
-Historical promotion records and original recipe inputs remain available for audit.
+Research records and original recipes are retained in the separate experiment archive.
 
 The demo's ZXing and ZBar workers are comparison tools. They never supply fallback
 results to Tapirscan, and they are not dependencies of the distributed library.
@@ -104,13 +103,13 @@ results to Tapirscan, and they are not dependencies of the distributed library.
 ## Developing algorithms and experiments
 
 Edit `core/src` in an isolated experiment worktree. Plain Cargo selects Medium;
-`python3 scripts/build.py MODE` runs a selected production core's tests. Historical
-recipe reconstruction is explicit: `python3 scripts/build.py MODE --historical`.
+`python3 scripts/build.py MODE` runs a selected production core's tests.
+Historical recipe reconstruction belongs in the experiment workspace.
 See [the core guide](../core/README.md) for mode features and scratch ownership.
 
 | Stage                           | Main implementation                               | Preserve when testing another stage                  |
 | ------------------------------- | ------------------------------------------------- | ---------------------------------------------------- |
-| Candidate discovery             | `core/src/stripes.rs`, `localize.rs`, `shear.rs`  | Source coordinates and omitted/work-limited signals  |
+| Candidate discovery             | `core/src/stripes.rs`, `shear.rs`                 | Source coordinates and omitted/work-limited signals  |
 | Profile sampling                | `core/src/experiment/sampling.rs`                 | Sampling order and numerical precision               |
 | Decoding and acceptance         | `core/src/experiment/decoding.rs`                 | Acceptance thresholds and observation evidence       |
 | Observation association         | `core/src/experiment/association.rs`              | Independent support and source continuity            |

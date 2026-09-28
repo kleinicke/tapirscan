@@ -83,7 +83,7 @@ export function protectedFiles() {
   const provenance = path.join(root, "provenance/import.json");
   if (fs.existsSync(provenance))
     for (const file of Object.keys(JSON.parse(fs.readFileSync(provenance, "utf8")).files))
-      pinned.add(file.startsWith("core/") ? `historical/${file}` : file);
+      pinned.add(file);
   const experiments = path.join(root, "rust/barcode-core/experiments");
   if (fs.existsSync(experiments))
     for (const file of fs.readdirSync(experiments).filter((f) => f.endsWith(".json"))) {

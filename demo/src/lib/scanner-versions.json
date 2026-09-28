@@ -2,6 +2,37 @@
   "default": "1.2.2+release-r2.20260925",
   "versions": [
     {
+      "version": "1.2.2+production-boundary.20260928",
+      "label": "1.2.2 · production cleanup",
+      "sourceDigest": "b7d583041d14e23aa9d0ef9233faabfe1149a1b434e426f972a5d316ab9bbefb",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-production-boundary-20260928.wasm",
+          "sha256": "73a42c257b4dfdad020774800b27662709cb5c22087e3ad5da5e61359021342f",
+          "bytes": 1775707
+        },
+        {
+          "mode": "medium",
+          "file": "medium-production-boundary-20260928.wasm",
+          "sha256": "41188e57c02d3be39bfd1189518638c52aac8f1cd6569cd4e7f0caadbbf02da3",
+          "bytes": 2252810
+        },
+        {
+          "mode": "high",
+          "file": "high-production-boundary-20260928.wasm",
+          "sha256": "06b5cd24b5332dd0dc102c643f2ce3fc393fbb63e503a20442d01ea53cffb949",
+          "bytes": 2256763
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-production-boundary-20260928.wasm",
+          "sha256": "a849a05d2752a6ec89cbf52675d87b292549bf23c49386af2d2e7e8b9534b6ad",
+          "bytes": 2341968
+        }
+      ]
+    },
+    {
       "version": "1.2.2+lowres.20260927",
       "label": "Low-resolution recovery preview",
       "sourceDigest": "1557ef7154d8ed37dc4989745292b2e014093ccb7f4ede181d0bdaeed70311e4",
@@ -99,7 +130,7 @@
     },
     {
       "version": "1.2.2+release-r2.20260925",
-      "label": "1.2.2 \u00b7 new Low",
+      "label": "1.2.2 · new Low",
       "sourceDigest": "6d1d3c27fcf54fc43bd6fb92a0170ba3b2bddff71c70ef49dc08847c00cef6d8",
       "modes": [
         {
@@ -130,7 +161,7 @@
     },
     {
       "version": "1.2.2+release.20260925",
-      "label": "1.2.2 \u00b7 new Low",
+      "label": "1.2.2 · new Low",
       "sourceDigest": "fe785ee8b7d35153a14bda8027a924615256838d1465d53ea768cd3a5ed4fabf",
       "modes": [
         {
@@ -161,7 +192,7 @@
     },
     {
       "version": "1.2.2+public-low.20260925",
-      "label": "1.2.2 \u00b7 new Low (former Turbo)",
+      "label": "1.2.2 · new Low (former Turbo)",
       "sourceDigest": "e4c6787ee9ab872176252231755dc997ba8922e9c6a240acf78efef11c12522c",
       "modes": [
         {
@@ -192,7 +223,7 @@
     },
     {
       "version": "1.2.2+consensus.20260925",
-      "label": "1.2.2 \u00b7 improved barcode outlines",
+      "label": "1.2.2 · improved barcode outlines",
       "sourceDigest": "d264fae395dd6cbf47f509f29ec796f523b3a21e80355ed7011034c70fd8a36a",
       "modes": [
         {
@@ -223,7 +254,7 @@
     },
     {
       "version": "1.2.2+footprint-fast.20260924",
-      "label": "1.2.2 \u00b7 faster full barcode areas",
+      "label": "1.2.2 · faster full barcode areas",
       "sourceDigest": "13b0b44c815a0f1eace49cf6bf19e4eb795ab630949f2a50ba50830f33b9ba3c",
       "modes": [
         {
@@ -254,7 +285,7 @@
     },
     {
       "version": "1.2.2+footprint.20260923",
-      "label": "1.2.2 \u00b7 full barcode areas",
+      "label": "1.2.2 · full barcode areas",
       "sourceDigest": "5a39b8be0abb5bd5baf354b54aefbf4c96b34d8b9d490f8279cbf81011091f56",
       "modes": [
         {
@@ -285,7 +316,7 @@
     },
     {
       "version": "1.2.2+ownership.20260923",
-      "label": "1.2.2 \u00b7 ownership experiment",
+      "label": "1.2.2 · ownership experiment",
       "sourceDigest": "9f207728b5f88b1bd8ae77dd425fdff6db2ab481ce704cf64d6da029b79a34f2",
       "modes": [
         {
@@ -316,7 +347,7 @@
     },
     {
       "version": "1.2.2",
-      "label": "1.2.2 \u00b7 deployed build",
+      "label": "1.2.2 · deployed build",
       "sourceDigest": "811fe29b2f33912c3e394eebc1403065ffb521d561b4f6004a62d1222fcbaba4",
       "modes": [
         {
@@ -347,7 +378,7 @@
     },
     {
       "version": "1.2.1",
-      "label": "1.2.1 \u00b7 previous local build",
+      "label": "1.2.1 · previous local build",
       "sourceDigest": "d43b7c9ed7c721f14f5c339a21e58b317086ef1cd979db11d13cd1cf94495d22",
       "modes": [
         {

@@ -21,14 +21,14 @@ there is only one maintained algorithm tree.
   source-gray refinement and sampling, and Rune confirmation. Its payload
   decoder reuses immutable error-correction fields. The facade's
   `matrix_frontend` shares the original threshold images and row runs with
-  other matrix readers. See [Aztec recovery](../docs/AZTEC_RECOVERY_20260928.md).
+  other matrix readers. See [Aztec recovery](README.md).
 
 - `qr_frontend` owns ordinary QR finder search and bounded foreground-threshold
   recovery. Its separable alignment-coordinate tables preserve exact search
   order and budgets; QR payload/ECC and region ownership stay shared with the
   pinned multiformat reader. `qr_grid` resamples unresolved regions from original
   grayscale pixels. The Rust facade selects QR-only reader groups and enforces
-  the mode-specific frame retry limits. See [QR study](../docs/QR_SPEED_QUALITY_20260927.md).
+  the mode-specific frame retry limits. See [QR study](README.md).
 
 - `experiment.rs` owns candidate evidence and reusable scratch buffers and runs
   the initial candidate pass. `experiment/sampling.rs` samples and normalizes
@@ -42,12 +42,12 @@ there is only one maintained algorithm tree.
   fusing original pixels across height, calibrating active edges, and requiring
   distributed visual agreement before checksum acceptance. Medium requires prior
   guard evidence and rejects repeatedly invalid visual reads; higher modes use
-  larger bounded searches. See [low-resolution recovery](../docs/LOWRES_RECOVERY_20260927.md).
+  larger bounded searches. See [low-resolution recovery](README.md).
 - `frame/identity.rs` owns physical overlap and pending-coverage geometry.
   `frame/conflict.rs` proves identity and resolves competing values from pixels.
   `frame.rs` reconciles candidates and assembles the final frame.
-- `retail_pipeline.rs` returns typed retail detections. Its legacy JSON adapter
-  is only for diagnostics and the historical region ABI.
+- `retail_pipeline.rs` returns typed retail detections. Optional diagnostics are
+  serialized only when requested by the public scanner.
 
 Keep allocations reusable where the scanner already owns scratch. A new sampling
 method should return observations through the existing acceptance stage. A new
@@ -70,22 +70,19 @@ with an algebraically equivalent norm can change borderline source decisions.
 
 Common historical features are now ordinary code. Genuine differences use
 `mode-*` conditions; passive timing/tracing remain optional compile-time features.
-The previous feature graph and rejected research alternatives remain reproducible
-under `historical/core`, rather than complicating production configuration.
+The previous feature graph and rejected alternatives are retained in the separate
+experiment archive. They are not production configuration options.
 
-## History and provenance
+## Source and provenance
 
-`provenance/historical-core-20260922.json` pins the archived baseline.
-`python3 scripts/build.py medium --historical --prepare-only` reconstructs its
-exact selected sources in `build/history/medium`. Omit `--prepare-only` to run
-the original selected-mode tests and verified legacy WASM build; use `--resume`
-to complete an already prepared historical build.
+The maintained scanner lives in this tree. Development builds verify the frozen
+multiformat decoder inputs; release verification also checks the selected runtime
+snapshot. Archive reproduction, exploratory adapters and unused implementations
+belong in the separate experiment workspace, not the production build.
 
-Development builds verify frozen imported/history files and record the current
-production inputs in the generated package. `scripts/verify_import.py` without
-arguments also enforces the selected release source snapshot. After validating
-an intentional production change, record a new runtime provenance revision and
-new WASM identities; never rewrite an old historical hash to hide a change.
+Turbo tiers and Low Classic are intentionally retained for the demo and future
+API work. Their build settings and selected artifacts remain separate from the
+four public effort modes. See [repository boundaries](../docs/RESEARCH_BOUNDARY.md).
 
 ## Localization and retry execution
 
@@ -182,26 +179,20 @@ Both outside tracks must finish before accepting a large-symbol envelope.
 Endpoint lookahead and illumination adaptation scale with bar width and physical
 advance. Smaller symbols keep the original half-pixel tracing policy. The shared
 262,144-sample budget is unchanged. See
-[the current selection and validation status](../docs/FOOTPRINT_PROMOTION_20260924.md).
+[the current selection and validation status](README.md).
 
-## Very High subpixel development target
+## Very High subpixel recovery
 
-Very High is the intended effort tier for solving difficult subpixel barcode
-reads as development continues. The current EAN-13 recovery fits original pixel
-areas and legal digit sequences inside small affine candidates; it does not yet
-solve subpixel localization, perspective, unknown camera response, or QR/Data
-Matrix. The synthetic research target is reliable decoding near 0.6 source
-pixels per narrow bar, with lower pitches possible at favorable rotations.
-This is a development target, not a guaranteed minimum resolution.
-
-Only unresolved Very High candidates enter the bounded recovery bank. Independent
-disjoint bands must agree; existing visual conflicts, source continuity, result
-association and frame reconciliation still apply. Low, Medium and High do not
-compile this path. See [integration evidence and remaining work](../docs/SUBPIXEL_VERY_HIGH_20260926.md).
+Very High includes bounded EAN-13 recovery from original pixel areas and legal
+digit sequences inside small affine candidates. Only unresolved candidates enter
+the recovery bank. Independent disjoint bands must agree; visual conflicts,
+source continuity, association and frame reconciliation still apply. Low, Medium
+and High do not compile this path. It does not provide subpixel localization or a
+minimum-resolution guarantee, and does not apply to QR or Data Matrix.
 
 ## EAN13 and Low Aztec recovery (28 September 2026)
 
 The selected runtime adds bounded source-profile evidence and exact profile reuse
 for EAN13. Medium default combined modes skip the more expensive source-region
 restoration; High and Very High retain bounded region/threshold retries. Low uses
-a smaller Aztec gray-sampling budget. See [policy and evidence](../docs/EAN13_RECOVERY_20260928.md).
+a smaller Aztec gray-sampling budget. All retries preserve the original physical ownership checks.

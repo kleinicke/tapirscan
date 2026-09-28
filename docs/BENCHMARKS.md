@@ -38,7 +38,7 @@ ZXing/ZBar.
 
 Detailed development studies remain in the research repository. Promotion records
 summarize the relevant limitations and exact selections; start with
-[the current promotion](PROMOTION_DETAIL_20260914.md). Performance claims in future
+[the current promotion](../core/README.md). Performance claims in future
 releases should link to a reproducible public report with the protocol above.
 
 ## Reporting a difficult image

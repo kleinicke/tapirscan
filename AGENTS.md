@@ -14,13 +14,15 @@ paired evidence.
 `core/src` is the maintained production algorithm. Edit it directly in isolated
 experiment worktrees; select one `mode-*` feature or use `scripts/build.py MODE`.
 Read [the core guide](core/README.md) for stage boundaries and mode differences.
-`historical/`, `multiformat/` and imported JavaScript hosts remain hash-pinned.
-Never edit or format those historical inputs to make a build pass.
+`multiformat/` remains hash-pinned. Never edit or format imported decoder inputs
+to make a build pass. Research archives and unused prototypes belong in the
+separate experiment workspace; see [repository boundaries](docs/RESEARCH_BOUNDARY.md).
+Preserve all Turbo variants: they are intentionally retained for future API work.
 
-Development builds verify frozen history and compile current production source.
+Development builds verify frozen decoder imports and compile current production source.
 After parity and performance validation, record a new runtime source snapshot and
 new immutable WASM identities. `scripts/verify_import.py` checks the release
-snapshot as well as history. Follow [promotion](docs/PROMOTING_CHANGES.md) when
+snapshot as well as decoder imports. Follow [promotion](docs/PROMOTING_CHANGES.md) when
 integrating experimental algorithm changes.
 
 ## Changes and verification
@@ -56,10 +58,10 @@ requirements belong in this file or the linked documentation.
 The canonical source includes `9a093db` (bounded barcode-profile agreement for
 fuller display extents), selected by the user for production. Preserve the strict
 physical ownership decisions; the new fallback only adjusts display geometry.
-Validation: [consensus experiment](docs/FOOTPRINT_CONSENSUS_EXPERIMENT_20260924.md).
+Validation: [consensus experiment](core/README.md).
 Turbo remains separately pinned by `demo/src/lib/turbo.json`; preserve it.
 
 The selected runtime also includes exact integer threefold recovery-crop interpolation
 from experiment `82dfe65`, shared by Medium, High and Very High. Preserve its
 byte-equivalence tests and separate display geometry from physical ownership.
-See [crop optimization](docs/MEDIUM_CROP_EXPERIMENT_20260925.md).
+See [crop optimization](core/README.md).

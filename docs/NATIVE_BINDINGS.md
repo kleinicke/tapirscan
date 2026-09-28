@@ -41,7 +41,7 @@ Native compilation uses a separate prepared source tree. One source adapter
 makes the existing secondary localization helper public within the dependency;
 the recovery dependency is also renamed to prevent Cargo feature unification.
 Algorithms and pinned WASM inputs remain unchanged. Native builds enable unwind
-for panic containment. See [promotion provenance](PROMOTION_DETAIL_20260914.md).
+for panic containment. See [promotion provenance](../core/README.md).
 
 After the root build commands:
 

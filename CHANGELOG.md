@@ -2,42 +2,48 @@
 
 ## Unreleased: recovery preview
 
+- Keep the public source tree focused on selected scanner implementations. Move
+  research archives, obsolete JavaScript hosts, unused neural/row-scanning
+  prototypes and legacy research ABIs to the experiment workspace. Preserve
+  Turbo variants and active recovery paths. Production builds require no research
+  checkout; import verification enforces the repository boundary.
+
 - Improve bounded EAN13 original-profile recovery in Medium, High and Very High.
   Preserve the default Medium combined-mode budget by reserving source-region
   restoration for EAN-only scans or explicit completion. Protect existing reads
   and require independent evidence for color and threshold retries. Low receives
-  a smaller Aztec recovery budget. See `docs/EAN13_RECOVERY_20260928.md`.
+  a smaller Aztec recovery budget. See `core/README.md`.
 
 - Improve Medium/High/Very High Aztec recovery with shared matrix preprocessing,
   bounded source-gray fitting and sampling, curved-grid hypotheses and stricter
   Rune confirmation. Preserve explicit work limits and multiple physical symbols.
-  See `docs/AZTEC_RECOVERY_20260928.md` for scope and limitations.
+  See `core/README.md` for scope and limitations.
 
 - Recover additional small EAN-13 barcodes in real photos using original-pixel
   multirow evidence and active-edge calibration. Medium uses a conservative
   evidence gate to protect barcode-free latency; High/Very High search more
   broadly while retaining normal source-continuity and display-boundary checks.
-  See `docs/LOWRES_RECOVERY_20260927.md` for measured scope and limitations.
+  See `core/README.md` for measured scope and limitations.
 
 - Extend High/Very High QR recovery with original-gray sampling, bounded extra
   resolutions, contrast normalization and polarity retries. Preserve existing
   reads and map recovered regions into source coordinates. See
-  `docs/QR_HIGH_QUALITY_20260927.md` for scope and quality/runtime evidence.
+  `core/README.md` for scope and quality/runtime evidence.
 
 - Extend exact QR alignment-coordinate reuse and version-header rejection to High
   and Very High while preserving their thresholds, sharpening and curved-grid
   budgets. Fresh private Turbo recipes inherit the improved Low QR path.
-  See `docs/QR_EFFORT_TRANSFER_20260927.md` for scope and paired evidence.
+  See `core/README.md` for scope and paired evidence.
 
 - Speed up Low/Medium QR alignment searches without reducing their work budgets,
   and add bounded QR recovery for large empty Low frames and unresolved Medium
   contrast/blur cases. Preserve repeated physical symbols and source geometry.
-  See `docs/QR_SPEED_QUALITY_20260927.md` for the QR-only comparison and scope.
+  See `core/README.md` for the QR-only comparison and scope.
 
 - Add shared bounded matrix-grid, localized image and linear-profile recovery to
   Medium, High and Very High combined-format scanning. Preserve pending physical
   instances and tighten unchecked Code39 admission. See
-  `docs/COMBINED_RECOVERY_20260927.md` for the measured quality/runtime tradeoff.
+  `core/README.md` for the measured quality/runtime tradeoff.
 
 - Add bounded original-pixel subpixel EAN-13 recovery to Very High, with independent
   band agreement and normal conflict checks. Precise affine candidate geometry
@@ -45,7 +51,7 @@
 
 - Improve Medium localized linear recovery and High/Very High wider-crop recovery.
 - Strengthen bounded duplicate ownership while preserving distinct same-value labels.
-- See `docs/HIGH_RECOVERY_20260925.md` for measurements and a known degraded-image duplicate.
+- See `core/README.md` for measurements and a known degraded-image duplicate.
 
 ## 1.2.2 — 2026-09-25
 
@@ -85,7 +91,8 @@
 
 - Make release WASM identities independent of checkout paths.
 - Maintain production algorithms directly in `core/src` with explicit effort-mode
-  features; preserve original recipes and sources under `historical/`.
+  features; originally preserve recipes under `historical/` (subsequently moved
+  to the experiment archive).
 - Separate profile sampling, decoding, observation association, retry planning and
   physical identity/conflict resolution into concrete stages.
 - Assemble native results on typed data, including supplements, ordering and unread

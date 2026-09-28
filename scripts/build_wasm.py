@@ -51,7 +51,6 @@ def source_files() -> dict[str, str]:
             "core/Cargo.toml",
             "core/Cargo.lock",
             "scripts/build.py",
-            "scripts/build_support.py",
             "scripts/prepare_rust.py",
             "scripts/build_wasm.py",
             "scripts/wasm_rustc.py",

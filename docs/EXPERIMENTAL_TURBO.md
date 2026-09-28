@@ -95,7 +95,7 @@ Fresh builds of all five retained recipes inherit the maintained Low QR path,
 including exact alignment-coordinate caching, version-header rejection and the
 bounded large-image recovery added in `qr-speed-quality-20260927`. The numbered
 recipes retain their distinct linear policies; their tier numbers are not QR
-speed multipliers. See [QR effort transfer](QR_EFFORT_TRANSFER_20260927.md).
+speed multipliers. See [QR effort transfer](../core/README.md).
 
 The historical assets in `demo/src/lib/turbo.json` remain immutable comparison
 pins. Rebuild with `scripts/build_turbo.py` and explicitly select the resulting

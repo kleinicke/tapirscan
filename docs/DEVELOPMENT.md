@@ -38,16 +38,10 @@ runs its selected core tests without applying patches. Plain Cargo defaults to
 Medium; use `--no-default-features --features mode-low` for a different mode.
 See [core architecture and mode differences](../core/README.md).
 
-Development builds verify frozen imports with `verify_import.py --historical-only`.
-The ordinary `verify_import.py` command additionally checks the recorded release
-source snapshot. This separates working-source experimentation from release
-identity verification without weakening historical hash checks.
-
-To reconstruct an original selected recipe, use
-`python3 scripts/build.py medium --historical --prepare-only`. Historical outputs
-go to `build/history/medium`. Omit `--prepare-only` to test and build its legacy
-WASM; use `--resume` for an already prepared directory. The original builder
-refuses to overwrite existing prepared sources.
+Development builds verify required decoder imports with
+`verify_import.py --imports-only`. The ordinary command additionally checks the
+recorded release source snapshot. Neither command requires a research checkout.
+Historical recipe reproduction belongs in the separate experiment workspace.
 
 ## Install local packages
 
@@ -96,13 +90,13 @@ and a JDK in `JAVA_HOME`. You can save local tool paths in the ignored
 for the focused tests, platform matrix, and reproduction commands.
 
 The public package is assembled under `build/crates/tapirscan` by
-`scripts/prepare_rust.py`. `--refresh` verifies frozen history and updates generated
+`scripts/prepare_rust.py`. `--refresh` verifies frozen decoder imports and updates generated
 sources while preserving compilation caches. The C and WASM adapters select one
 mode through Cargo features; ordinary Rust packages include all modes by default.
 Generated sources are build outputs, not a second implementation to edit.
 
 Algorithm changes use ordinary diffs in `core/src` and exact experiment records.
-Follow [PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); historical inputs and their
+Follow [PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); imported decoder inputs and their
 checksums remain immutable.
 
 ## Maintained runtime boundaries

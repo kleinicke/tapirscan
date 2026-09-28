@@ -78,15 +78,6 @@ impl RegionScanner {
         Ok(())
     }
     #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-    /// Complete bounded retail recovery against the original primary frame.
-    pub fn retail_finish(&mut self, image: ImageView<'_>, frame: &Frame) -> Option<String> {
-        if self.engine.retail.mask & 12 == 0 {
-            return None;
-        }
-        self.engine.retail.set_primary(frame);
-        Some(self.engine.retail.finish(image))
-    }
-    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     pub fn retail_finish_typed(
         &mut self,
         image: ImageView<'_>,

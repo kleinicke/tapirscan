@@ -35,6 +35,7 @@ jobs:
       - name: Check provenance and reproducible compiler identities
         run: |
           python3 scripts/test_import_provenance.py
+          python3 scripts/test_repository_boundary.py
           python3 scripts/test_wasm_rustc.py
       - run: for mode in low medium high very-high; do python3 scripts/build.py "$mode"; done
       - name: Preserve failed WASM build for reproducibility diagnosis

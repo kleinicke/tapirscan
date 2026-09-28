@@ -43,7 +43,7 @@ Missing dependencies or a missing JDK fail checks; they are never silently skipp
 
 The ordinary quality gate includes strict Clippy checks for the maintained core in all four
 production modes, and the multiformat crate.
-Historical snapshots remain excluded from automatic formatting. Production
+Frozen decoder imports remain excluded from automatic formatting. Production
 source changes use ordinary formatting and require recorded provenance and [promotion validation](PROMOTING_CHANGES.md).
 
 ## Tools and focused checks
@@ -105,25 +105,18 @@ Fix lint findings with focused behavioral tests. Do not disable strict rules who
 The release Rust audit checks all targets for all four production core modes and the multiformat crate. Research-only recipes are
 outside that gate. Runtime parity is verified separately.
 
-## Protected scanner history and promotion
+## Protected decoder imports and promotion
 
-The automatic formatter excludes upstream `sources/`, datasets, generated outputs,
-benchmark reports/results, `historical/` and provenance, frozen JS hosts, and
-research files named in experiment `baseHashes`. Formatting those inputs would
-invalidate reproducible patches and WASM hashes. VS Code's native rustfmt runs on
-an explicitly edited Rust document: do not casually edit/save frozen inputs.
+The formatter excludes hash-pinned decoder imports, provenance and generated
+assets. Maintained production source is formatted normally. Research-only source
+and dated experiment reports are rejected by `scripts/check_repository_boundary.py`,
+which also runs during import verification. Turbo variants are intentionally kept.
 
-Production algorithms are maintained directly in `core/src`, with four explicit
-`mode-*` features. The formatter includes them. `historical/core` preserves the
-old base, feature graph and recipe patches; `scripts/build.py MODE --historical`
-reproduces that frozen selection. See [core architecture](../core/README.md).
-
-For a production change, format the coherent edit batch, validate all affected
-modes and bindings, then record a new source/WASM identity before integration.
-The development build verifies frozen history without requiring the working
-source to equal the previous release snapshot. The full quality gate still runs
-strict `verify_import.py` against the selected release revision. Follow
-[PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); never rewrite frozen history.
+Format the coherent edit batch, validate affected modes and bindings, then record
+a new source/WASM identity before integration. Development builds verify decoder
+imports without requiring working source to equal the previous release snapshot.
+The full quality gate checks the selected release revision too. Follow
+[PROMOTING_CHANGES.md](PROMOTING_CHANGES.md).
 
 Sources: [Claude Code hooks](https://code.claude.com/docs/en/hooks),
 [Codex hooks](https://learn.chatgpt.com/docs/hooks),

@@ -367,10 +367,6 @@ impl Collector {
             });
         }
     }
-    pub fn finish(&mut self, im: ImageView<'_>) -> String {
-        self.finish_typed(im, true).diagnostics.unwrap()
-    }
-
     pub fn finish_typed(&mut self, im: ImageView<'_>, diagnostics: bool) -> RetailResult {
         let mut budget = AssociationBudget {
             checks_left: 100_000,

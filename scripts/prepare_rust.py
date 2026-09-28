@@ -278,7 +278,7 @@ def prepared_package(destination: Path, *, refresh: bool = False) -> Iterator[Pa
             [
                 sys.executable,
                 str(ROOT / "scripts/verify_import.py"),
-                "--historical-only",
+                "--imports-only",
             ],
             check=True,
         )
