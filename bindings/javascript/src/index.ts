@@ -141,10 +141,10 @@ interface WireResult {
 }
 
 const modes: Record<Mode, { id: number; file: string }> = {
-  low: { id: 0, file: "low-aztec-recovery-20260928.wasm" },
-  medium: { id: 1, file: "medium-aztec-recovery-20260928.wasm" },
-  high: { id: 2, file: "high-aztec-recovery-20260928.wasm" },
-  "very-high": { id: 3, file: "very-high-aztec-recovery-20260928.wasm" },
+  low: { id: 0, file: "low-ean13-reference-recovery-20260928.wasm" },
+  medium: { id: 1, file: "medium-ean13-reference-recovery-20260928.wasm" },
+  high: { id: 2, file: "high-ean13-reference-recovery-20260928.wasm" },
+  "very-high": { id: 3, file: "very-high-ean13-reference-recovery-20260928.wasm" },
 };
 const addOnPolicies: Record<EanAddOnPolicy, number> = { Ignore: 0, Read: 1, Require: 2 };
 

@@ -13,10 +13,10 @@
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-aztec-recovery-20260928.wasm",
-    "wasm/medium-aztec-recovery-20260928.wasm",
-    "wasm/high-aztec-recovery-20260928.wasm",
-    "wasm/very-high-aztec-recovery-20260928.wasm"
+    "wasm/low-ean13-reference-recovery-20260928.wasm",
+    "wasm/medium-ean13-reference-recovery-20260928.wasm",
+    "wasm/high-ean13-reference-recovery-20260928.wasm",
+    "wasm/very-high-ean13-reference-recovery-20260928.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

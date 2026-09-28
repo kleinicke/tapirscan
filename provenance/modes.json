@@ -3,7 +3,7 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-aztec-recovery-20260928",
+      "tag": "low-ean13-reference-recovery-20260928",
       "recipe": "low-shared-retail-20260918",
       "fitLimit": 0,
       "maxLocalizedProposals": 32,
@@ -12,7 +12,7 @@
     },
     {
       "mode": "medium",
-      "tag": "medium-aztec-recovery-20260928",
+      "tag": "medium-ean13-reference-recovery-20260928",
       "recipe": "medium-shared-retail-20260918",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
@@ -23,7 +23,7 @@
     },
     {
       "mode": "high",
-      "tag": "high-aztec-recovery-20260928",
+      "tag": "high-ean13-reference-recovery-20260928",
       "recipe": "high-complete-detail-20260916",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
@@ -34,7 +34,7 @@
     },
     {
       "mode": "very-high",
-      "tag": "very-high-aztec-recovery-20260928",
+      "tag": "very-high-ean13-reference-recovery-20260928",
       "recipe": "very-high-complete-detail-20260916",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
@@ -44,8 +44,8 @@
       "historicalBinarySha256": "c1f2eb06c503fab081d705fab7100d2be879c3e4d7e00f4cef3c7d09817941c8"
     }
   ],
-  "runtimeRevision": "provenance/aztec-recovery-20260928.json",
-  "apiWasm": "provenance/wasm-aztec-recovery-20260928.json",
+  "runtimeRevision": "provenance/ean13-reference-recovery-20260928.json",
+  "apiWasm": "provenance/wasm-ean13-reference-recovery-20260928.json",
   "sourceRoot": "core/src",
   "historicalSourceRoot": "historical/core",
   "historicalRevision": "provenance/historical-core-20260922.json"
