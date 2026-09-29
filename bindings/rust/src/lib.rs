@@ -76,6 +76,7 @@ impl Default for ScanOptions {
 }
 pub struct Result {
     proposals: Vec<Proposal>,
+    short_fragments: Option<Vec<Proposal>>,
     localization_omitted: usize,
     localization_work_limited: bool,
     search_window: Quad,

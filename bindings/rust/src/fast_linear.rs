@@ -169,8 +169,7 @@ pub(crate) fn scan(
             quad: q,
             dense: false,
             restored: false,
-            contrast: 0.,
-            color: 0,
+            profile: SourceProfile::Gray(0.),
             localized: proposal.score > 0. || matches!(TIER, 8 | 16),
             mask: mask & crate::format_registry::LINEAR_MASK,
             remaining: continuity_budget,
@@ -344,8 +343,7 @@ fn border_discovery(
                 quad: q,
                 dense: false,
                 restored: false,
-                contrast: 0.,
-                color: 0,
+                profile: SourceProfile::Gray(0.),
                 localized: false,
                 mask: mask & crate::format_registry::LINEAR_MASK,
                 remaining: budget,
@@ -383,14 +381,63 @@ fn border_discovery(
     (reads, lines)
 }
 
+#[derive(Clone, Copy)]
+enum SourceProfile {
+    Gray(f32),
+    #[cfg(not(feature = "low"))]
+    Color(u8),
+    #[cfg(not(feature = "low"))]
+    Inverted,
+    #[cfg(feature = "medium")]
+    WideEan,
+}
+impl SourceProfile {
+    fn contrast(self) -> f32 {
+        match self {
+            Self::Gray(strength) => strength,
+            // Discovery uses the wider 1.5 kernel; continuity uses the existing
+            // narrow 2.25 kernel and its stricter source-line confirmation.
+            #[cfg(feature = "medium")]
+            Self::WideEan => 2.25,
+            #[cfg(not(feature = "low"))]
+            _ => 0.,
+        }
+    }
+    fn color(self) -> u8 {
+        match self {
+            #[cfg(not(feature = "low"))]
+            Self::Color(channel) => channel,
+            _ => 0,
+        }
+    }
+    fn inverted(self) -> bool {
+        match self {
+            Self::Gray(_) => false,
+            #[cfg(not(feature = "low"))]
+            Self::Color(_) => false,
+            #[cfg(not(feature = "low"))]
+            Self::Inverted => true,
+            #[cfg(feature = "medium")]
+            Self::WideEan => false,
+        }
+    }
+    fn wide(self) -> bool {
+        match self {
+            Self::Gray(_) => false,
+            #[cfg(not(feature = "low"))]
+            Self::Color(_) | Self::Inverted => false,
+            #[cfg(feature = "medium")]
+            Self::WideEan => true,
+        }
+    }
+}
 struct Candidate<'a> {
     image: Image<'a>,
     im: ImageView<'a>,
     quad: Quad,
     mask: u32,
     dense: bool,
-    contrast: f32,
-    color: u8,
+    profile: SourceProfile,
     restored: bool,
     localized: bool,
     remaining: usize,
@@ -408,8 +455,9 @@ impl Candidate<'_> {
         for mut o in self.observations {
             // ITF and ordinary Code39 lack mandatory payload checksums; enhanced
             // profiles require a fourth independent row before acceptance.
-            let required = if self.color > 0
-                || (self.contrast > 0.
+            let required = if self.profile.inverted()
+                || self.profile.color() > 0
+                || (self.profile.contrast() > 0.
                     && (matches!(o.read.format.as_str(), "ITF" | "Code39")
                         || (cfg!(feature = "medium")
                             && self.mask == 1
@@ -636,17 +684,24 @@ fn sample_line_density(
     v: f64,
     dense: bool,
 ) {
+    if candidate.mask == 0 {
+        return;
+    }
     let im = candidate.im;
     let Some([a, b]) = sample_candidate_profile(candidate, sampler, v, dense) else {
         return;
     };
 
-    let enhanced = candidate.contrast > 0.;
+    let enhanced = candidate.profile.contrast() > 0.;
     let methods = if enhanced { 6 } else { 3 };
     for method in 0..methods {
         candidate.restored = method >= 3;
         if method == 3 {
-            sampler.restore_contrast(candidate.contrast);
+            if cfg!(feature = "medium") && candidate.profile.wide() {
+                sampler.restore_contrast_wide(1.5);
+            } else {
+                sampler.restore_contrast(candidate.profile.contrast());
+            }
         }
         // Code39 has no mandatory checksum. Restored narrow bars can turn H
         // into B consistently across rows, so only original profiles may add it.
@@ -670,17 +725,21 @@ fn sample_line_density(
             if reverse {
                 sampler.runs.reverse();
             }
-            let first = if reverse {
-                sampler.first_black ^ (sampler.runs.len().is_multiple_of(2))
-            } else {
-                sampler.first_black
-            };
+            let first = candidate.profile.inverted()
+                ^ if reverse {
+                    sampler.first_black ^ (sampler.runs.len().is_multiple_of(2))
+                } else {
+                    sampler.first_black
+                };
             let mut decoded = linear::decode(&sampler.runs, first, active_mask);
             supplement_ean(&sampler.runs, first, active_mask, &mut decoded);
             let endpoints = if reverse { [b, a] } else { [a, b] };
             decoded.retain(|read| {
                 source_quiet(&sampler.runs, read, im, endpoints)
-                    && (candidate.contrast <= 0.
+                    && (candidate.profile.contrast() <= 0.
+                        || read.format != "UPCE"
+                        || recovered_upce_quiet(&sampler.runs, read, im, endpoints))
+                    && (candidate.profile.contrast() <= 0.
                         || read.format != "Code39"
                         || code39_source_resolution(
                             &sampler.runs,
@@ -727,14 +786,14 @@ fn sample_candidate_profile(
     let im = candidate.im;
     let a = point(q, -0.15, v);
     let b = point(q, 1.15, v);
-    if candidate.color > 0 {
+    if candidate.profile.color() > 0 {
         if !sampler.sample_color_limited(
             im,
             a,
             b,
             if dense { 3. } else { 1.5 },
             1024,
-            candidate.color,
+            candidate.profile.color(),
         ) {
             return None;
         }
@@ -760,12 +819,22 @@ fn sample_candidate_profile(
             im,
             a,
             b,
-            if cfg!(feature = "medium") && candidate.contrast > 0. && candidate.mask == 1 {
+            if cfg!(feature = "medium") && candidate.profile.wide() && candidate.mask == 1 {
+                2.0
+            } else if cfg!(feature = "medium")
+                && candidate.profile.contrast() > 0.
+                && candidate.mask == 1
+            {
                 1.0
             } else {
                 DENSITY
             },
-            if cfg!(feature = "medium") && candidate.contrast > 0. && candidate.mask == 1 {
+            if cfg!(feature = "medium") && candidate.profile.wide() && candidate.mask == 1 {
+                limit.min(1536)
+            } else if cfg!(feature = "medium")
+                && candidate.profile.contrast() > 0.
+                && candidate.mask == 1
+            {
                 limit.min(768)
             } else {
                 limit
@@ -822,6 +891,31 @@ fn source_quiet(
     let leading = read.start > 0 && runs[read.start - 1] >= 7. * module
         || read.start == 1 && boundary(endpoints[0]);
     let trailing = read.end < runs.len() && runs[read.end] >= 7. * module
+        || read.end + 1 >= runs.len() && boundary(endpoints[1]);
+    leading && trailing
+}
+
+// Additional restored short-code evidence must have actual quiet space.
+// Only a real image edge permits the decoder's cropped-margin exception.
+fn recovered_upce_quiet(
+    runs: &[f32],
+    read: &linear::Read,
+    image: ImageView<'_>,
+    endpoints: [[f64; 2]; 2],
+) -> bool {
+    let Some(guard) = runs.get(read.start..read.start + 3) else {
+        return false;
+    };
+    let module = guard.iter().sum::<f32>() / 3.;
+    let boundary = |point: [f64; 2]| {
+        point[0] <= 0.
+            || point[1] <= 0.
+            || point[0] >= usize_f64(image.width - 1)
+            || point[1] >= usize_f64(image.height - 1)
+    };
+    let leading = read.start > 0 && runs[read.start - 1] >= 7.0 * module
+        || read.start == 1 && boundary(endpoints[0]);
+    let trailing = read.end < runs.len() && runs[read.end] >= 7.0 * module
         || read.end + 1 >= runs.len() && boundary(endpoints[1]);
     leading && trailing
 }
@@ -1031,8 +1125,7 @@ mod tests {
             localized: true,
             dense: false,
             restored: false,
-            contrast: 0.,
-            color: 0,
+            profile: SourceProfile::Gray(0.),
             remaining: 100_000,
             observations: Vec::new(),
             row_positions: Vec::new(),
@@ -1152,7 +1245,13 @@ pub(crate) fn recover_proposals_contrast(
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     contrast: f32,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
-    recover_proposals_variant(image, proposals, mask, sampler, contrast, 0)
+    recover_proposals_variant(
+        image,
+        proposals,
+        mask,
+        sampler,
+        SourceProfile::Gray(contrast),
+    )
 }
 #[cfg(not(feature = "low"))]
 pub(crate) fn recover_proposals_color(
@@ -1162,7 +1261,25 @@ pub(crate) fn recover_proposals_color(
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     color: u8,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
-    recover_proposals_variant(image, proposals, mask, sampler, 0., color)
+    recover_proposals_variant(image, proposals, mask, sampler, SourceProfile::Color(color))
+}
+#[cfg(not(feature = "low"))]
+pub(crate) fn recover_proposals_inverted(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    recover_proposals_variant(image, proposals, mask, sampler, SourceProfile::Inverted)
+}
+#[cfg(feature = "medium")]
+pub(crate) fn recover_proposals_wide(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    recover_proposals_variant(image, proposals, mask, sampler, SourceProfile::WideEan)
 }
 #[cfg(not(feature = "low"))]
 fn recover_proposals_variant(
@@ -1170,9 +1287,9 @@ fn recover_proposals_variant(
     proposals: &[crate::Proposal],
     mask: u32,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
-    contrast: f32,
-    color: u8,
+    profile: SourceProfile,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    let contrast = profile.contrast();
     let im = ImageView::new(
         image.data,
         image.width,
@@ -1196,8 +1313,7 @@ fn recover_proposals_variant(
             mask,
             dense: false,
             restored: false,
-            contrast,
-            color,
+            profile,
             localized: true,
             remaining: continuity_budget,
             observations: Vec::new(),
@@ -1585,5 +1701,46 @@ mod bridge_tests {
                 if separated { 2 } else { 1 }
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod restored_quiet_tests {
+    use super::*;
+
+    #[test]
+    fn restored_upce_requires_source_quiet_space_or_actual_image_edge() {
+        let pixels = vec![255; 100 * 60];
+        let image = ImageView::new(&pixels, 100, 60, 1, 100).unwrap();
+        let read = linear::Read {
+            decoded: true,
+            addon: None,
+            format: "UPCE",
+            text: "01234565".into(),
+            start: 1,
+            end: 8,
+            error: 0.,
+            gs1: false,
+        };
+        let mut runs = vec![0.5, 1., 1., 1., 1., 3., 1., 1., 0.5];
+        let interior = [[20., 30.], [80., 30.]];
+        assert!(!recovered_upce_quiet(&runs, &read, image, interior));
+        assert!(recovered_upce_quiet(
+            &runs,
+            &read,
+            image,
+            [[0., 30.], [99., 30.]]
+        ));
+        assert!(!recovered_upce_quiet(
+            &runs,
+            &read,
+            image,
+            [[0., 30.], [80., 30.]]
+        ));
+        runs[0] = 7.;
+        runs[8] = 7.;
+        assert!(recovered_upce_quiet(&runs, &read, image, interior));
+        runs[8] = 6.;
+        assert!(!recovered_upce_quiet(&runs, &read, image, interior));
     }
 }

@@ -4,6 +4,7 @@ use barcode_research_core::{frame::Barcode, multi_scan::Policy, shear, stripes};
 
 struct Localization {
     proposals: Vec<Proposal>,
+    short_fragments: Option<Vec<Proposal>>,
     omitted: usize,
     work_limited: bool,
     search_window: Quad,
@@ -79,7 +80,7 @@ fn scan_prepared_impl(
     allow_restoration: bool,
 ) -> std::result::Result<Result, Error> {
     let im = checked_image(image)?;
-    let localization = localize(&mut scanner.localizer, im, image)?;
+    let localization = localize(&mut scanner.localizer, im, image, shared_retail)?;
     let mut candidates: Vec<_> = localization.proposals.iter().map(|p| p.polygon).collect();
     candidates.push(localization.search_window);
     let policy = scan_policy(image, &localization.proposals, coverage, options);
@@ -133,7 +134,10 @@ fn scan_prepared_impl(
     // restoration remains available for EAN-only scans or explicit completion.
     #[cfg(not(feature = "low"))]
     if allow_restoration
-        && (!cfg!(feature = "medium") || !shared_retail || options.finish_candidates)
+        && (!cfg!(feature = "medium")
+            || !shared_retail
+            || options.finish_candidates
+            || scan.frame.barcodes.is_empty())
     {
         recover_restored_regions(
             scanner,
@@ -142,6 +146,7 @@ fn scan_prepared_impl(
             coverage,
             &localization.proposals,
             &mut scan,
+            cfg!(feature = "medium") && shared_retail && !options.finish_candidates,
         )?;
     }
     #[cfg(feature = "low")]
@@ -154,6 +159,7 @@ fn scan_prepared_impl(
     }
     Ok(Result {
         proposals: localization.proposals,
+        short_fragments: localization.short_fragments,
         localization_omitted: localization.omitted,
         localization_work_limited: localization.work_limited,
         search_window: localization.search_window,
@@ -264,6 +270,7 @@ fn recover_primary_proposals(
         })
         .collect();
     unresolved.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
+    let dense_eligible: Vec<_> = unresolved.iter().take(2).map(|(_, p)| **p).collect();
     let proposals: Vec<_> = unresolved.into_iter().take(2).map(|(_, p)| *p).collect();
     let (extra, _) = super::fast_linear::recover_proposals(image, &proposals, 1, sampler)?;
     let (restored, _) =
@@ -280,7 +287,31 @@ fn recover_primary_proposals(
         scan,
         protected,
         extra.into_iter().chain(restored).chain(colored),
-    )
+    )?;
+    if !scan.frame.barcodes.is_empty() {
+        return Ok(());
+    }
+    let dense_proposals = dense_eligible;
+    let (extra, _) =
+        super::fast_linear::recover_proposals_wide(image, &dense_proposals, 1, sampler)?;
+    if extra.len() != 1 {
+        return Ok(());
+    }
+    let mut accepted = Vec::new();
+    for r in extra {
+        let bytes = r.text.as_bytes();
+        if r.support < 4 || bytes.len() != 13 || !bytes.iter().all(u8::is_ascii_digit) {
+            continue;
+        }
+        let digits = std::array::from_fn(|i| bytes[i] - b'0');
+        if recovered_ean_source_agreement(image, r.polygon, &digits)
+            && !source_contradiction(image, r.polygon, digits, sampler)?
+        {
+            accepted.push(r);
+        }
+    }
+    let protected = protected_primary(image, &scan.frame.barcodes);
+    admit_primary_reads(image, scan, protected, accepted)
 }
 
 /// Retry bounded unresolved source proposals with independent row confirmation.
@@ -325,8 +356,40 @@ fn localize(
     detector: &mut stripes::Detector,
     im: ImageView<'_>,
     image: Image<'_>,
+    capture_short_fragments: bool,
 ) -> std::result::Result<Localization, Error> {
-    let found = detector.detect(im)?;
+    let mut fragments = Vec::new();
+    let found = if capture_short_fragments {
+        use barcode_research_core::numeric::usize_f64;
+        let scale = (768. / usize_f64(image.width.max(image.height))).min(1.);
+        let sx = usize_f64(image.width) / (usize_f64(image.width) * scale).round().max(3.);
+        let sy = usize_f64(image.height) / (usize_f64(image.height) * scale).round().max(3.);
+        detector.detect_with_observer(im, |g| {
+            let [u0, u1, v0, v1] = g.bounds;
+            let (w, h) = (u1 - u0, v1 - v0);
+            if g.reason != "narrow" || w < 24. || h < 5. || w / h < 2. || g.edges < 120 {
+                return;
+            }
+            let half = w * 2.;
+            let center = f64::midpoint(u0, u1);
+            let (s, c) = g.angle.sin_cos();
+            let polygon = [
+                [center - half, v0],
+                [center + half, v0],
+                [center + half, v1],
+                [center - half, v1],
+            ]
+            .map(|[u, v]| [(u * c - v * s) * sx, (u * s + v * c) * sy]);
+            fragments.push((g.edges, Proposal { polygon, score: 0. }));
+            // Stable ties preserve the original collect/sort/take ordering.
+            fragments.sort_by_key(|(edges, _)| std::cmp::Reverse(*edges));
+            fragments.truncate(4);
+        })?
+    } else {
+        detector.detect(im)?
+    };
+    let short_fragments =
+        capture_short_fragments.then(|| fragments.into_iter().map(|(_, p)| p).collect());
     let count = found.proposals.len();
     let examined = count.min(SELECTED.fit_limit);
     let mut proposals = found.proposals;
@@ -360,6 +423,7 @@ fn localize(
     let bottom = f64::from(u32::try_from(image.height - 1).map_err(|_| Error::Parameters)?);
     Ok(Localization {
         proposals,
+        short_fragments,
         omitted: found.omitted + count - examined + secondary_omitted,
         work_limited: found.limited
             || count > examined
@@ -704,6 +768,7 @@ fn recover_restored_regions(
     coverage: &[Quad],
     proposals: &[Proposal],
     scan: &mut super::ScanResult,
+    retail_limited: bool,
 ) -> std::result::Result<(), Error> {
     use barcode_research_core::numeric::usize_f64;
     if !scan
@@ -729,12 +794,17 @@ fn recover_restored_regions(
         })
         .collect();
     unresolved.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
-    let mut remaining = if cfg!(feature = "medium") {
+    let mut remaining = if retail_limited {
+        262_144
+    } else if cfg!(feature = "medium") {
         131_072
     } else {
         262_144
     };
-    for (_, p) in unresolved.into_iter().take(2) {
+    for (_, p) in unresolved
+        .into_iter()
+        .take(if retail_limited { 1 } else { 2 })
+    {
         let (x, y, w, h) = restoration_bounds(image, p.polygon);
         if w < 3 || h < 3 || w * h > remaining {
             continue;
@@ -1048,5 +1118,253 @@ mod recovery_tests {
             stride: width,
         };
         assert!(!source_contradiction(blank, q, other, &mut sampler).unwrap());
+    }
+}
+
+#[cfg(feature = "medium")]
+fn raw_source_normalize(values: &mut [f64; 256]) -> f64 {
+    use barcode_research_core::numeric::usize_f64;
+    const N: usize = 256;
+    let mean = values.iter().sum::<f64>() / 256.;
+    let slope = values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (usize_f64(i) - 127.5) * (v - mean))
+        .sum::<f64>()
+        / (0..N).map(|i| (usize_f64(i) - 127.5).powi(2)).sum::<f64>();
+    for (i, v) in values.iter_mut().enumerate() {
+        *v -= mean + slope * (usize_f64(i) - 127.5);
+    }
+    let norm = values.iter().map(|v| v * v).sum::<f64>().sqrt();
+    if norm > 0. {
+        for v in values {
+            *v /= norm;
+        }
+    }
+    norm
+}
+#[cfg(feature = "medium")]
+fn raw_source_profiles(image: Image<'_>, q: Quad) -> Vec<([f64; 256], f64)> {
+    use barcode_research_core::numeric::{f64_usize, usize_f64};
+    let gray = |x: usize, y: usize| {
+        let at = y * image.stride + x * image.channels;
+        if image.channels == 1 {
+            f64::from(image.data[at])
+        } else {
+            0.299 * f64::from(image.data[at])
+                + 0.587 * f64::from(image.data[at + 1])
+                + 0.114 * f64::from(image.data[at + 2])
+        }
+    };
+    let pixel = |x: f64, y: f64| {
+        if x < 0. || y < 0. || x > usize_f64(image.width - 1) || y > usize_f64(image.height - 1) {
+            return 255.;
+        }
+        let ix = f64_usize(x.floor());
+        let iy = f64_usize(y.floor());
+        let fx = x - x.floor();
+        let fy = y - y.floor();
+        let right = (ix + 1).min(image.width - 1);
+        let bottom = (iy + 1).min(image.height - 1);
+        (gray(ix, iy) * (1. - fx) + gray(right, iy) * fx) * (1. - fy)
+            + (gray(ix, bottom) * (1. - fx) + gray(right, bottom) * fx) * fy
+    };
+    [0.2, 0.5, 0.8]
+        .into_iter()
+        .map(|v| {
+            let a = [
+                q[0][0] * (1. - v) + q[3][0] * v,
+                q[0][1] * (1. - v) + q[3][1] * v,
+            ];
+            let b = [
+                q[1][0] * (1. - v) + q[2][0] * v,
+                q[1][1] * (1. - v) + q[2][1] * v,
+            ];
+            let mut row = std::array::from_fn(|i| {
+                let u = -0.02 + 1.04 * usize_f64(i) / 255.;
+                pixel(a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u)
+            });
+            let norm = raw_source_normalize(&mut row);
+            (row, norm)
+        })
+        .collect()
+}
+
+// Optional recovery acceptance only: test the claimed payload against unmodified
+// source luminance. Never repair digits or change existing decoder acceptance.
+#[cfg(feature = "medium")]
+fn recovered_ean_source_agreement(image: Image<'_>, q: Quad, digits: &[u8; 13]) -> bool {
+    use barcode_research_core::numeric::{f64_isize, f64_usize, isize_f64, usize_f64};
+    let profiles = raw_source_profiles(image, q);
+    let bits = barcode_research_core::ean::encode(digits);
+    let mut best = [0_f64; 3];
+    for reverse in [false, true] {
+        let raster: Vec<f64> = (0..824)
+            .map(|i| {
+                let module = f64_isize((usize_f64(i) / 8. - 4.).floor());
+                if (0..95).contains(&module) {
+                    f64::from(
+                        bits[if reverse {
+                            94 - usize::try_from(module).expect("module checked in 0..95")
+                        } else {
+                            usize::try_from(module).expect("module checked in 0..95")
+                        }],
+                    )
+                } else {
+                    0.
+                }
+            })
+            .collect();
+        for sigma in [0., 0.3, 0.6, 0.9] {
+            let smoothed = if sigma == 0. {
+                raster.clone()
+            } else {
+                let radius = f64_isize((sigma * 8. * 3_f64).ceil());
+                let weights: Vec<_> = (-radius..=radius)
+                    .map(|k| (-0.5 * (isize_f64(k) / (sigma * 8.)).powi(2)).exp())
+                    .collect();
+                let sum = weights.iter().sum::<f64>();
+                (0..raster.len())
+                    .map(|i| {
+                        (-radius..=radius)
+                            .zip(&weights)
+                            .map(|(k, w)| {
+                                let index =
+                                    isize::try_from(i).expect("fixed 824-sample raster") + k;
+                                if index < 0
+                                    || index
+                                        >= isize::try_from(raster.len())
+                                            .expect("fixed 824-sample raster")
+                                {
+                                    0.
+                                } else {
+                                    raster
+                                        [usize::try_from(index).expect("index checked nonnegative")]
+                                        * w
+                                }
+                            })
+                            .sum::<f64>()
+                            / sum
+                    })
+                    .collect()
+            };
+            for pitch in [0.98, 1., 1.02] {
+                for offset in [-1., -0.5, 0., 0.5, 1.] {
+                    let mut template = std::array::from_fn(|i| {
+                        let u = -0.02 + 1.04 * usize_f64(i) / 255.;
+                        let index = ((95. * u - offset) / pitch + 4.) * 8.;
+                        if index < 0. || index >= usize_f64(smoothed.len() - 1) {
+                            return 0.;
+                        }
+                        let k = f64_usize(index.floor());
+                        let f = index - index.floor();
+                        smoothed[k] * (1. - f) + smoothed[k + 1] * f
+                    });
+                    raw_source_normalize(&mut template);
+                    for (j, (row, norm)) in profiles.iter().enumerate() {
+                        if *norm < 160. {
+                            continue;
+                        }
+                        let corr = template.iter().zip(row).map(|(a, b)| a * b).sum::<f64>();
+                        best[j] = best[j].min(corr);
+                    }
+                }
+            }
+        }
+    }
+    // At least two physical source rows explain 65% of raw profile variance.
+    // A failed optional recovery is deferred; existing reads are untouched.
+    let height = f64::midpoint(
+        (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]),
+        (q[2][0] - q[1][0]).hypot(q[2][1] - q[1][1]),
+    );
+    (0..3).any(|i| {
+        ((i + 1)..3).any(|j| {
+            best[i] < 0.
+                && best[i] * best[i] >= 0.65
+                && best[j] < 0.
+                && best[j] * best[j] >= 0.65
+                && usize_f64(j - i) * 0.3 * height >= 2.
+        })
+    })
+}
+
+#[cfg(all(test, feature = "medium"))]
+mod recovered_source_tests {
+    use super::*;
+
+    const DIGITS: [u8; 13] = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
+    const OTHER: [u8; 13] = [9, 7, 8, 0, 2, 0, 1, 3, 7, 9, 6, 2, 4];
+    const WIDTH: usize = 412;
+    const HEIGHT: usize = 100;
+    const SYMBOL: Quad = [[16., 10.], [396., 10.], [396., 90.], [16., 90.]];
+
+    fn fixture(black: u8, white: u8) -> Vec<u8> {
+        let bits = barcode_research_core::ean::encode(&DIGITS);
+        let mut pixels = vec![white; WIDTH * HEIGHT];
+        for y in 8..92 {
+            for (module, bit) in bits.iter().enumerate() {
+                if *bit > 0.5 {
+                    for x in 16 + module * 4..20 + module * 4 {
+                        pixels[y * WIDTH + x] = black;
+                    }
+                }
+            }
+        }
+        pixels
+    }
+
+    fn image(pixels: &[u8]) -> Image<'_> {
+        Image {
+            data: pixels,
+            width: WIDTH,
+            height: HEIGHT,
+            channels: 1,
+            stride: WIDTH,
+        }
+    }
+
+    #[test]
+    fn raw_evidence_rejects_unrelated_payload_and_accepts_either_direction() {
+        let pixels = fixture(20, 235);
+        assert!(recovered_ean_source_agreement(
+            image(&pixels),
+            SYMBOL,
+            &DIGITS
+        ));
+        assert!(!recovered_ean_source_agreement(
+            image(&pixels),
+            SYMBOL,
+            &OTHER
+        ));
+        let reversed = [SYMBOL[2], SYMBOL[3], SYMBOL[0], SYMBOL[1]];
+        assert!(recovered_ean_source_agreement(
+            image(&pixels),
+            reversed,
+            &DIGITS
+        ));
+    }
+
+    #[test]
+    fn raw_evidence_needs_contrast_and_separate_source_rows() {
+        let faint = fixture(120, 130);
+        assert!(!recovered_ean_source_agreement(
+            image(&faint),
+            SYMBOL,
+            &DIGITS
+        ));
+        let flat = vec![128; WIDTH * HEIGHT];
+        assert!(!recovered_ean_source_agreement(
+            image(&flat),
+            SYMBOL,
+            &DIGITS
+        ));
+        let pixels = fixture(20, 235);
+        let thin = [[16., 49.], [396., 49.], [396., 51.], [16., 51.]];
+        assert!(!recovered_ean_source_agreement(
+            image(&pixels),
+            thin,
+            &DIGITS
+        ));
     }
 }

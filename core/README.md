@@ -193,6 +193,52 @@ minimum-resolution guarantee, and does not apply to QR or Data Matrix.
 ## EAN13 and Low Aztec recovery (28 September 2026)
 
 The selected runtime adds bounded source-profile evidence and exact profile reuse
-for EAN13. Medium default combined modes skip the more expensive source-region
-restoration; High and Very High retain bounded region/threshold retries. Low uses
-a smaller Aztec gray-sampling budget. All retries preserve the original physical ownership checks.
+for EAN13. Medium default combined modes use the guarded source-region exception described
+below; High and Very High retain bounded region/threshold retries. Low uses a
+smaller Aztec gray-sampling budget. All retries preserve physical ownership checks.
+
+## Bounded Retail recovery
+
+Medium, High and Very High try additional short-code contrast and polarity
+hypotheses only when the frame has no established read. Each probe examines at
+most four existing proposals and requires agreement across source rows. Optional
+positive-contrast UPC-E recovery requires seven-module quiet runs, except at an
+actual image boundary. A proposal boundary inside the image is not an image edge.
+The primary decoder retains its existing acceptance policy. The quiet-space
+threshold is an empirical recovery safeguard, not a printing-conformance test.
+
+Medium can reuse up to four rejected narrow stripe groups from the original
+localizer after ordinary recovery fails. This avoids a second full localization
+pass when the primary proposals are available. At the full-image source-profile stage, its wider EAN13 contrast retry
+requires a single supported hypothesis, agreement with the input luminance on
+at least two separated source rows, and no contradictory source reading. When
+that decoder is reused inside a restored crop, the profile agreement concerns
+the restored crop pixels; final crop admission separately requires support of
+at least five and contradiction/ownership checks against the original image.
+These checks corroborate a decoded payload; they do not repair digits, invoke a
+reference scanner or prove that every alternative payload is impossible.
+
+In default Medium combined scans, an empty primary Retail result with sufficient
+existing guard evidence can trigger one source-region restoration, limited to
+262,144 source pixels. EAN-only and explicit-completion scans retain their
+previous two-region, 131,072-pixel policy. These are different bounded search
+policies; increasing effort does not guarantee that every individual result is
+retained. A matrix code already found in a Common frame can prevent the later
+optional empty-frame short-code probes. Ordinary multi-symbol scanning continues.
+
+Medium also tries the existing distributed-bar ownership proof in the reverse
+direction before retaining a duplicate interpretation. High and Very High can
+reject an overlapping UPC-E fragment in favor of an EAN13/UPC-A read with support
+at least three and no weaker than the fragment. Both rules still require shared
+source-bar continuity; equal text or overlapping bounding boxes are insufficient.
+Low receives no new Retail recovery policy. All modes skip source sampling when
+no requested linear formats remain active.
+
+Validation and failed alternatives are retained under the separate experiment
+repository's `retained/retail-native-recovery-20260929/`. The development corpus
+mixes complete product photographs, capability fixtures and related variations;
+it is not an untouched holdout. Runtime measurements use paired installed-Chrome
+calls on declared Retail/Common1D/Common panels. See the retained report for
+per-format quality, mean/median latency, remaining reference advantages and
+limits of annotation coverage. No dataset or experiment dependency is needed by
+normal builds.

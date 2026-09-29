@@ -2,6 +2,14 @@
 
 ## Unreleased: recovery preview
 
+- Improve bounded Retail recovery in Medium, High and Very High, including
+  short-code contrast and polarity retries. Medium reuses rejected stripe-group
+  evidence and allows one guarded source-region retry in combined modes.
+  Require actual quiet space for optional restored UPC-E and source-profile
+  agreement for wider Medium EAN13 recovery. High and Very High reject weak
+  UPC-E fragments only with a stronger long-code owner and continuous source-bar
+  evidence. See `core/README.md` for limits and validation.
+
 - Keep the public source tree focused on selected scanner implementations. Move
   research archives, obsolete JavaScript hosts, unused neural/row-scanning
   prototypes and legacy research ABIs to the experiment workspace. Preserve
@@ -9,9 +17,9 @@
   checkout; import verification enforces the repository boundary.
 
 - Improve bounded EAN13 original-profile recovery in Medium, High and Very High.
-  Preserve the default Medium combined-mode budget by reserving source-region
-  restoration for EAN-only scans or explicit completion. Protect existing reads
-  and require independent evidence for color and threshold retries. Low receives
+  Keep Medium combined-mode source-region restoration bounded to the guarded
+  empty-frame exception described above. Protect existing reads and require
+  independent evidence for color and threshold retries. Low receives
   a smaller Aztec recovery budget. See `core/README.md`.
 
 - Improve Medium/High/Very High Aztec recovery with shared matrix preprocessing,

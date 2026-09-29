@@ -203,6 +203,17 @@ impl Detector {
     pub fn detect(&mut self, im: ImageView<'_>) -> std::result::Result<Result, Error> {
         self.detect_grid(im, 768., false, |_| {})
     }
+    /// Observe primary stripe groups while reusing the detector raster.
+    /// The observer does not modify primary proposal decisions.
+    /// # Errors
+    /// Rejects unsupported image dimensions.
+    pub fn detect_with_observer(
+        &mut self,
+        im: ImageView<'_>,
+        observe: impl FnMut(GroupDiagnostic),
+    ) -> std::result::Result<Result, Error> {
+        self.detect_grid(im, 768., false, observe)
+    }
     /// Private experimental grid size; source decoding remains full resolution.
     /// # Errors
     /// Rejects unsupported image dimensions.

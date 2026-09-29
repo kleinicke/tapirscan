@@ -177,6 +177,23 @@ impl Sampler {
             self.values[i] = (original[i] + strength * (original[i] - blurred)).clamp(0., 255.);
         }
     }
+    /// Wider bounded contrast hypothesis for independently checked EAN recovery.
+    pub fn restore_contrast_wide(&mut self, strength: f32) {
+        let original = self.values.clone();
+        let n = original.len();
+        if n == 0 {
+            return;
+        }
+        let weights = [1., 4., 11., 21., 26., 21., 11., 4., 1.];
+        for i in 0..n {
+            let mut blurred = 0.;
+            for (k, weight) in weights.into_iter().enumerate() {
+                blurred += original[(i + k).saturating_sub(4).min(n - 1)] * weight;
+            }
+            self.values[i] =
+                (original[i] + strength * (original[i] - blurred / 100.)).clamp(0., 255.);
+        }
+    }
     /// No threshold method can create transitions below eight gray levels.
     /// Stop as soon as contrast is proven; most useful profiles exit early.
     #[must_use]

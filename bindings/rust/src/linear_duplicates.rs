@@ -761,10 +761,15 @@ impl<T> Read<T> {
 // a supported checksum-valid retail symbol. Geometry only admits the proof;
 // distributed source-bar continuity must establish the shared physical region.
 fn conflicts<T>(weak: &Read<T>, strong: &Read<T>) -> bool {
-    weak.format == "ITF"
+    (weak.format == "ITF"
         && weak.support <= 2
         && strong.support >= 3
-        && matches!(strong.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE")
+        && matches!(strong.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE"))
+        || (matches!(crate::MODE_ID, 2 | 3)
+            && weak.format == "UPCE"
+            && weak.support <= strong.support
+            && strong.support >= 3
+            && matches!(strong.format.as_str(), "EAN13" | "UPCA"))
 }
 
 fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
@@ -852,7 +857,7 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
                     if let Some(polygon) = evidence
                         .owned_bars(other.polygon, read.polygon, false)
                         .or_else(|| {
-                            if matches!(crate::MODE_ID, 2 | 3) {
+                            if matches!(crate::MODE_ID, 1..=3) {
                                 evidence.owned_bars(read.polygon, other.polygon, false)
                             } else {
                                 None
@@ -873,7 +878,7 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
     }
     let mut keep = vec![true; owned.len()];
     for (i, weak) in owned.iter().enumerate() {
-        if weak.format != "ITF" || weak.support > 2 {
+        if !matches!(weak.format.as_str(), "ITF" | "UPCE") {
             continue;
         }
         for strong in &owned {
@@ -1456,6 +1461,46 @@ mod tests {
         };
         assert_eq!(scan(&pixels).len(), 1);
         pixels[120 * 320..121 * 320].fill(240);
+        assert_eq!(scan(&pixels).len(), 2);
+    }
+    #[test]
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    fn upce_fragment_requires_continuous_source_bars() {
+        let mut pixels = vec![220; 320 * 260];
+        for y in 20..240 {
+            for x in 60..252 {
+                if (x - 60) / 3 % 3 == 0 {
+                    pixels[y * 320 + x] = 20;
+                }
+            }
+        }
+        let primary = crate::read::Read::primary(
+            [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+            [[60., 50.], [252., 50.], [252., 160.], [60., 160.]],
+            7,
+            0,
+            vec![],
+        );
+        let mut fragment = primary.clone();
+        fragment.format = "UPCE".into();
+        fragment.text = "12562213".into();
+        fragment.support = 5;
+        fragment.polygon = [[60., 70.], [156., 70.], [156., 180.], [60., 180.]];
+        let scan = |pixels: &[u8]| {
+            merge(
+                vec![primary.clone(), fragment.clone()],
+                Image {
+                    data: pixels,
+                    width: 320,
+                    height: 260,
+                    channels: 1,
+                    stride: 320,
+                },
+            )
+        };
+        assert_eq!(scan(&pixels).len(), 1);
+        // The same overlapping outlines cannot prove ownership across a white gap.
+        pixels[115 * 320..116 * 320].fill(255);
         assert_eq!(scan(&pixels).len(), 2);
     }
 }

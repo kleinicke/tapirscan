@@ -94,6 +94,130 @@ impl Scanner {
             pending.extend(regions);
         }
         reads.extend(found);
+        // Independent short-code source hypothesis, bounded to unresolved proposals.
+        if reads.is_empty() && mask & 12 != 0 {
+            let unresolved: Vec<_> = proposals.iter().take(4).copied().collect();
+            let (mut extra, regions) = crate::fast_linear::recover_proposals_contrast(
+                image,
+                &unresolved,
+                mask & 12,
+                &mut self.fast_profiles,
+                1.5,
+            )?;
+            if matches!(crate::MODE_ID, 2 | 3) {
+                // Additional unresolved equal-payload claims remain provisional;
+                // an equal value alone cannot establish physical ownership.
+                extra = crate::linear_duplicates::merge(extra, image);
+                let ambiguous: Vec<_> = extra
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, read)| {
+                        extra[..*i]
+                            .iter()
+                            .any(|old| old.format == read.format && old.text == read.text)
+                    })
+                    .map(|(_, read)| (read.format.clone(), read.text.clone()))
+                    .collect();
+                extra.retain(|read| {
+                    !ambiguous
+                        .iter()
+                        .any(|(format, text)| *format == read.format && *text == read.text)
+                });
+            }
+            for r in extra {
+                // Preserve existing physical owners and require separate source rows.
+                if r.support < 4
+                    || reads
+                        .iter()
+                        .any(|old| overlap_quads(&r.polygon, &old.polygon).0 > 0.)
+                {
+                    continue;
+                }
+                reads.push(r);
+            }
+            if options.include_regions {
+                pending.extend(regions);
+            }
+        }
+        // Polarity probe only for frames without an established owner. Multiple
+        // inverse claims remain deferred rather than risking glare-split duplicates.
+        if reads.is_empty() && mask & 15 != 0 {
+            let selected: Vec<_> = proposals.iter().take(4).copied().collect();
+            let (extra, regions) = crate::fast_linear::recover_proposals_inverted(
+                image,
+                &selected,
+                mask & 15,
+                &mut self.fast_profiles,
+            )?;
+            let extra = crate::linear_duplicates::merge(extra, image);
+            if extra.len() == 1 && extra[0].support >= 4 {
+                reads.extend(extra);
+            }
+            if options.include_regions {
+                pending.extend(regions);
+            }
+        }
+        // Reuse rejected narrow groups only after ordinary Medium recovery fails.
+        if crate::MODE_ID == 1 && reads.is_empty() && mask & 12 != 0 {
+            let hypotheses = if let Some(cached) = primary.and_then(|p| p.short_fragments.as_ref())
+            {
+                cached.clone()
+            } else {
+                use barcode_research_core::numeric::usize_f64;
+                let im = crate::ImageView::new(
+                    image.data,
+                    image.width,
+                    image.height,
+                    image.channels,
+                    image.stride,
+                )?;
+                let scale = (768. / usize_f64(image.width.max(image.height))).min(1.);
+                let sx = usize_f64(image.width) / (usize_f64(image.width) * scale).round().max(3.);
+                let sy =
+                    usize_f64(image.height) / (usize_f64(image.height) * scale).round().max(3.);
+                let mut fragments = Vec::new();
+                let _ = barcode_research_core::stripes::detect_with_observer(im, |g| {
+                    let [u0, u1, v0, v1] = g.bounds;
+                    let (w, h) = (u1 - u0, v1 - v0);
+                    let narrow = g.reason == "narrow"
+                        && w >= 24.
+                        && h >= 5.
+                        && w / h >= 2.
+                        && g.edges >= 120;
+                    if !narrow {
+                        return;
+                    }
+                    let half = w * 2.;
+                    let center = f64::midpoint(u0, u1);
+                    let (s, c) = g.angle.sin_cos();
+                    let polygon = [
+                        [center - half, v0],
+                        [center + half, v0],
+                        [center + half, v1],
+                        [center - half, v1],
+                    ]
+                    .map(|[u, v]| [(u * c - v * s) * sx, (u * s + v * c) * sy]);
+                    fragments.push((g.edges, crate::Proposal { polygon, score: 0. }));
+                })?;
+                fragments.sort_by_key(|(edges, _)| std::cmp::Reverse(*edges));
+                let hypotheses: Vec<_> = fragments.into_iter().take(4).map(|(_, p)| p).collect();
+                hypotheses
+            };
+            let (extra, regions) = crate::fast_linear::recover_proposals_contrast(
+                image,
+                &hypotheses,
+                mask & 12,
+                &mut self.fast_profiles,
+                1.5,
+            )?;
+            let extra = crate::linear_duplicates::merge(extra, image);
+            if extra.len() == 1 && extra[0].support >= 4 {
+                reads.extend(extra);
+            }
+            if options.include_regions {
+                pending.extend(regions);
+            }
+        }
         // Reuse the existing source proposals and gray-profile sampler. A
         // decoded region only suppresses a retry when it contains every corner
         // of that proposal; one read never ends scanning of the whole image.
