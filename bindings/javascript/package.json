@@ -13,10 +13,10 @@
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-production-boundary-20260928.wasm",
-    "wasm/medium-production-boundary-20260928.wasm",
-    "wasm/high-production-boundary-20260928.wasm",
-    "wasm/very-high-production-boundary-20260928.wasm"
+    "wasm/low-retail-runtime-20260929.wasm",
+    "wasm/medium-retail-runtime-20260929.wasm",
+    "wasm/high-retail-runtime-20260929.wasm",
+    "wasm/very-high-retail-runtime-20260929.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",
