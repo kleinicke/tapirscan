@@ -64,7 +64,11 @@ pub(crate) fn recover(
         .0;
         let extra = crate::linear_duplicates::merge(extra, image);
         for r in extra {
-            if r.support < 4
+            let read_width =
+                (r.polygon[1][0] - r.polygon[0][0]).hypot(r.polygon[1][1] - r.polygon[0][1]);
+            let proposal_width = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]);
+            if (r.format == "UPCE" && read_width < proposal_width * 0.6)
+                || r.support < 4
                 || overlap_quads(&r.polygon, &q).0 < 0.3
                 || reads.iter().any(|old| {
                     overlap_quads(&r.polygon, &old.polygon).0 > 0.
@@ -123,12 +127,9 @@ fn crop_proposals(
         reduced.reserve(crop_width * crop_height * image.channels);
         for row in 0..crop_height {
             for col in 0..crop_width {
-                for channel in 0..image.channels {
-                    let offset = (y + row * step + step / 2) * image.stride
-                        + (x + col * step + step / 2) * image.channels
-                        + channel;
-                    reduced.push(image.data[offset]);
-                }
+                let offset = (y + row * step + step / 2) * image.stride
+                    + (x + col * step + step / 2) * image.channels;
+                reduced.extend_from_slice(&image.data[offset..offset + image.channels]);
             }
         }
         crate::ImageView::new(

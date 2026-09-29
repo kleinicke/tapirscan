@@ -3,13 +3,13 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-retail-medium-low-20260929",
+      "tag": "low-retail-runtime-20260929",
       "fitLimit": 0,
       "maxLocalizedProposals": 32
     },
     {
       "mode": "medium",
-      "tag": "medium-retail-medium-low-20260929",
+      "tag": "medium-retail-runtime-20260929",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
       "directions": 1,
@@ -17,7 +17,7 @@
     },
     {
       "mode": "high",
-      "tag": "high-retail-medium-low-20260929",
+      "tag": "high-retail-runtime-20260929",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
       "directions": 2,
@@ -25,14 +25,14 @@
     },
     {
       "mode": "very-high",
-      "tag": "very-high-retail-medium-low-20260929",
+      "tag": "very-high-retail-runtime-20260929",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
       "directions": 2,
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/retail-medium-low-20260929.json",
-  "apiWasm": "provenance/wasm-retail-medium-low-20260929.json",
+  "runtimeRevision": "provenance/retail-runtime-20260929.json",
+  "apiWasm": "provenance/wasm-retail-runtime-20260929.json",
   "sourceRoot": "core/src"
 }

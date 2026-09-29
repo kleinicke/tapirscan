@@ -4,10 +4,10 @@ use crate::{
     sampling::ImageView,
 };
 
-// Image-derived profiles are finite nonnegative values. The experimental
-// comparison form avoids generic NaN handling while preserving these inputs.
+// Image-derived profiles are finite nonnegative values. Medium uses direct
+// comparisons; the retained Turbo switch preserves its independent policy.
 fn minimum(a: f32, b: f32) -> f32 {
-    if option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
+    if cfg!(feature = "mode-medium") || option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
         if a < b {
             a
         } else {
@@ -18,7 +18,7 @@ fn minimum(a: f32, b: f32) -> f32 {
     }
 }
 fn maximum(a: f32, b: f32) -> f32 {
-    if option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
+    if cfg!(feature = "mode-medium") || option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
         if a > b {
             a
         } else {
@@ -906,5 +906,20 @@ mod scoped_source_cache_tests {
             plain.threshold(true);
             compare(cached, &plain);
         });
+    }
+}
+
+#[cfg(test)]
+mod finite_extrema_tests {
+    #[test]
+    fn comparison_extrema_preserve_bounded_profile_values() {
+        let mut values: Vec<f32> = (0_u8..=255).map(f32::from).collect();
+        values.extend([0.001, 7.99, 8.001, 127.5, 254.99]);
+        for &a in &values {
+            for &b in &values {
+                assert_eq!(super::minimum(a, b).to_bits(), a.min(b).to_bits());
+                assert_eq!(super::maximum(a, b).to_bits(), a.max(b).to_bits());
+            }
+        }
     }
 }

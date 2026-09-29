@@ -2,6 +2,11 @@
 
 ## Unreleased: recovery preview
 
+- Bound Medium band recovery with a preliminary source-row probe; keep full
+  confirmation for promising regions. Avoid extra short-code localization on
+  images already within the primary working resolution, and reject narrow
+  internal UPC-E fragments from the optional crop pass.
+
 - Improve Medium Retail recovery with bounded parallel-source profiles, deferred
   EAN proposals, one optional late EAN crop, and two limited short-code localization
   crops confirmed on original pixels. Reuse exact source profiles within a scan.

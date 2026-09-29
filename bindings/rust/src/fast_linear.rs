@@ -1092,6 +1092,34 @@ pub(crate) fn recover_proposals_wide(
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
     recover_proposals_variant(image, proposals, mask, sampler, SourceProfile::WideEan)
 }
+/// Probe unresolved bands before spending the full confirmation budget.
+/// Probe observations never become outputs; the established pass starts fresh.
+#[cfg(feature = "medium")]
+fn band_has_evidence(
+    candidate: &mut Candidate<'_>,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> bool {
+    let previous_runs = sampler.runs.clone();
+    let previous_budget = candidate.remaining;
+    let previous_restored = candidate.restored;
+    for (row, v) in [0.08, 0.22, 0.36, 0.5, 0.64, 0.78, 0.92]
+        .into_iter()
+        .enumerate()
+    {
+        sample_line(candidate, sampler, row, v);
+        if !candidate.observations.is_empty() {
+            break;
+        }
+    }
+    let promising = !candidate.observations.is_empty();
+    sampler.runs = previous_runs;
+    candidate.observations.clear();
+    candidate.row_positions.clear();
+    candidate.remaining = previous_budget;
+    candidate.restored = previous_restored;
+    promising
+}
+
 #[cfg(not(feature = "low"))]
 fn recover_proposals_variant(
     image: Image<'_>,
@@ -1130,6 +1158,13 @@ fn recover_proposals_variant(
             observations: Vec::new(),
             row_positions: Vec::new(),
         };
+        #[cfg(feature = "medium")]
+        if matches!(profile, SourceProfile::BandEan(_))
+            && !band_has_evidence(&mut candidate, sampler)
+        {
+            unread.push(Region::unknown(proposal.polygon));
+            continue;
+        }
         for (row, &v) in ROWS.iter().enumerate() {
             sample_line(&mut candidate, sampler, row, v);
         }
@@ -1931,6 +1966,58 @@ mod source_ean8_tests {
             let mut invalid = valid;
             invalid[10] = value;
             assert!(source_ean8_evidence(&invalid).is_none());
+        }
+    }
+}
+
+#[cfg(all(test, feature = "medium"))]
+mod band_probe_tests {
+    use super::*;
+
+    #[test]
+    fn probe_requires_a_value_and_restores_confirmation_state() {
+        let digits = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7];
+        let bits = barcode_research_core::ean::encode(&digits);
+        for printed in [false, true] {
+            let mut pixels = vec![255; 345 * 60];
+            if printed {
+                for row in pixels.chunks_exact_mut(345) {
+                    for (i, bit) in bits.iter().enumerate() {
+                        if *bit > 0.5 {
+                            row[30 + i * 3..33 + i * 3].fill(0);
+                        }
+                    }
+                }
+            }
+            let image = Image {
+                data: &pixels,
+                width: 345,
+                height: 60,
+                channels: 1,
+                stride: 345,
+            };
+            let mut candidate = Candidate {
+                image,
+                im: ImageView::new(&pixels, 345, 60, 1, 345).unwrap(),
+                quad: [[30., 6.], [315., 6.], [315., 54.], [30., 54.]],
+                mask: 1,
+                dense: false,
+                restored: false,
+                profile: SourceProfile::BandEan(1.5),
+                localized: true,
+                remaining: 131_072,
+                observations: Vec::new(),
+                row_positions: Vec::new(),
+            };
+            let mut sampler = barcode_research_core::fast_profile::Sampler::default();
+            sampler.runs = vec![1., 2., 3.];
+            let previous_runs = sampler.runs.clone();
+            assert_eq!(band_has_evidence(&mut candidate, &mut sampler), printed);
+            assert_eq!(sampler.runs, previous_runs);
+            assert_eq!(candidate.remaining, 131_072);
+            assert!(!candidate.restored);
+            assert!(candidate.observations.is_empty());
+            assert!(candidate.row_positions.is_empty());
         }
     }
 }

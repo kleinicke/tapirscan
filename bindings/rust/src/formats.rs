@@ -289,7 +289,7 @@ impl Scanner {
                     }
                 }
                 #[cfg(feature = "medium")]
-                if mask & 12 != 0 {
+                if mask & 12 != 0 && image.width.max(image.height) > 768 {
                     crate::short_crop::recover(
                         &mut self.localizer,
                         image,
