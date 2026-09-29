@@ -2,6 +2,13 @@
 
 ## Unreleased: recovery preview
 
+- Improve Medium Retail recovery with bounded parallel-source profiles, deferred
+  EAN proposals, one optional late EAN crop, and two limited short-code localization
+  crops confirmed on original pixels. Reuse exact source profiles within a scan.
+  Add bounded Retail contrast recovery to Low and strict visual EAN8 evidence to
+  Medium/Low. Preserve existing owners, Turbo routing, and High/Very High recovery
+  policies. See `core/README.md` for limits and retained validation evidence.
+
 - Improve bounded Retail recovery in Medium, High and Very High, including
   short-code contrast and polarity retries. Medium reuses rejected stripe-group
   evidence and allows one guarded source-region retry in combined modes.

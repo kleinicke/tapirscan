@@ -119,6 +119,15 @@ fn scan_prepared_impl(
         &mut scan,
         &mut scanner.fast_profiles,
     )?;
+    #[cfg(feature = "medium")]
+    if scan.frame.barcodes.is_empty() && retail.is_empty() {
+        recover_deferred_proposals(
+            image,
+            &localization.proposals,
+            &mut scan,
+            &mut scanner.fast_profiles,
+        )?;
+    }
     #[cfg(any(feature = "high", feature = "very-high"))]
     recover_primary_proposals_high(
         image,
@@ -149,14 +158,20 @@ fn scan_prepared_impl(
             cfg!(feature = "medium") && shared_retail && !options.finish_candidates,
         )?;
     }
+    #[cfg(feature = "medium")]
+    if allow_restoration && scan.frame.barcodes.is_empty() && retail.is_empty() {
+        recover_late_wide_crop(
+            scanner,
+            image,
+            options,
+            coverage,
+            &localization.proposals,
+            &mut scan,
+        )?;
+    }
     #[cfg(feature = "low")]
     let _ = allow_restoration;
-    if consolidate {
-        super::linear_duplicates::merge_primary(&mut scan.frame.barcodes, image);
-    }
-    if !options.multiple {
-        select_one(&mut scan.frame.barcodes);
-    }
+    finish_primary(&mut scan, image, consolidate, options.multiple);
     Ok(Result {
         proposals: localization.proposals,
         short_fragments: localization.short_fragments,
@@ -294,21 +309,11 @@ fn recover_primary_proposals(
     let dense_proposals = dense_eligible;
     let (extra, _) =
         super::fast_linear::recover_proposals_wide(image, &dense_proposals, 1, sampler)?;
-    if extra.len() != 1 {
-        return Ok(());
-    }
-    let mut accepted = Vec::new();
-    for r in extra {
-        let bytes = r.text.as_bytes();
-        if r.support < 4 || bytes.len() != 13 || !bytes.iter().all(u8::is_ascii_digit) {
-            continue;
-        }
-        let digits = std::array::from_fn(|i| bytes[i] - b'0');
-        if recovered_ean_source_agreement(image, r.polygon, &digits)
-            && !source_contradiction(image, r.polygon, digits, sampler)?
-        {
-            accepted.push(r);
-        }
+    let mut accepted = independently_confirmed_ean_reads(image, extra, sampler)?;
+    if accepted.is_empty() {
+        let extra =
+            super::fast_linear::recover_proposals_band(image, &dense_proposals, 1, sampler, 1.5)?.0;
+        accepted = independently_confirmed_ean_reads(image, extra, sampler)?;
     }
     let protected = protected_primary(image, &scan.frame.barcodes);
     admit_primary_reads(image, scan, protected, accepted)
@@ -581,52 +586,6 @@ pub(super) fn select_one(reads: &mut Vec<Barcode>) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn retail_storage_reuse_preserves_stride_channels_and_alpha() {
-        let mut storage = Vec::new();
-        for (width, height) in [(12, 8), (3, 4), (12, 8)] {
-            for channels in [1, 3, 4] {
-                let stride = width * channels + 7;
-                let mut data = vec![37; stride * height];
-                let mut expected = Vec::new();
-                for y in 0..height {
-                    for x in 0..width {
-                        let source = y * stride + x * channels;
-                        let value = u8::try_from(x + y).unwrap();
-                        data[source] = value;
-                        if channels != 1 {
-                            data[source + 1] = value + 1;
-                            data[source + 2] = value + 2;
-                        }
-                        expected.extend_from_slice(&[
-                            value,
-                            value + u8::from(channels != 1),
-                            value + 2 * u8::from(channels != 1),
-                            255,
-                        ]);
-                    }
-                }
-                data.truncate((height - 1) * stride + width * channels);
-                retail_pixels(
-                    Image {
-                        data: &data,
-                        width,
-                        height,
-                        channels,
-                        stride,
-                    },
-                    &mut storage,
-                );
-                assert_eq!(storage, expected);
-            }
-        }
-    }
-}
-
 #[cfg(not(feature = "low"))]
 fn restore_source_image(image: Image<'_>) -> Vec<u8> {
     let (w, h) = (image.width, image.height);
@@ -677,8 +636,7 @@ fn restore_source_image(image: Image<'_>) -> Vec<u8> {
     out
 }
 
-#[cfg(not(feature = "low"))]
-fn source_contradiction(
+pub(crate) fn source_contradiction(
     image: Image<'_>,
     q: Quad,
     expected: [u8; 13],
@@ -979,6 +937,483 @@ fn recover_threshold_regions(
     Ok(())
 }
 
+#[cfg(any(feature = "medium", feature = "low"))]
+fn raw_source_normalize(values: &mut [f64; 256]) -> f64 {
+    use barcode_research_core::numeric::usize_f64;
+    const N: usize = 256;
+    let mean = values.iter().sum::<f64>() / 256.;
+    let slope = values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (usize_f64(i) - 127.5) * (v - mean))
+        .sum::<f64>()
+        / (0..N).map(|i| (usize_f64(i) - 127.5).powi(2)).sum::<f64>();
+    for (i, v) in values.iter_mut().enumerate() {
+        *v -= mean + slope * (usize_f64(i) - 127.5);
+    }
+    let norm = values.iter().map(|v| v * v).sum::<f64>().sqrt();
+    if norm > 0. {
+        for v in values {
+            *v /= norm;
+        }
+    }
+    norm
+}
+#[cfg(any(feature = "medium", feature = "low"))]
+fn raw_source_profiles(image: Image<'_>, q: Quad) -> Vec<([f64; 256], f64)> {
+    use barcode_research_core::numeric::{f64_usize, usize_f64};
+    let gray = |x: usize, y: usize| {
+        let at = y * image.stride + x * image.channels;
+        if image.channels == 1 {
+            f64::from(image.data[at])
+        } else {
+            0.299 * f64::from(image.data[at])
+                + 0.587 * f64::from(image.data[at + 1])
+                + 0.114 * f64::from(image.data[at + 2])
+        }
+    };
+    let pixel = |x: f64, y: f64| {
+        if x < 0. || y < 0. || x > usize_f64(image.width - 1) || y > usize_f64(image.height - 1) {
+            return 255.;
+        }
+        let ix = f64_usize(x.floor());
+        let iy = f64_usize(y.floor());
+        let fx = x - x.floor();
+        let fy = y - y.floor();
+        let right = (ix + 1).min(image.width - 1);
+        let bottom = (iy + 1).min(image.height - 1);
+        (gray(ix, iy) * (1. - fx) + gray(right, iy) * fx) * (1. - fy)
+            + (gray(ix, bottom) * (1. - fx) + gray(right, bottom) * fx) * fy
+    };
+    [0.2, 0.5, 0.8]
+        .into_iter()
+        .map(|v| {
+            let a = [
+                q[0][0] * (1. - v) + q[3][0] * v,
+                q[0][1] * (1. - v) + q[3][1] * v,
+            ];
+            let b = [
+                q[1][0] * (1. - v) + q[2][0] * v,
+                q[1][1] * (1. - v) + q[2][1] * v,
+            ];
+            let mut row = std::array::from_fn(|i| {
+                let u = -0.02 + 1.04 * usize_f64(i) / 255.;
+                pixel(a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u)
+            });
+            let norm = raw_source_normalize(&mut row);
+            (row, norm)
+        })
+        .collect()
+}
+
+// Optional recovery acceptance only: test the claimed payload against unmodified
+// source luminance. Never repair digits or change existing decoder acceptance.
+#[cfg(any(feature = "medium", feature = "low"))]
+pub(crate) fn recovered_ean_source_agreement(image: Image<'_>, q: Quad, digits: &[u8; 13]) -> bool {
+    use barcode_research_core::numeric::{f64_isize, f64_usize, isize_f64, usize_f64};
+    let profiles = raw_source_profiles(image, q);
+    let height = f64::midpoint(
+        (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]),
+        (q[2][0] - q[1][0]).hypot(q[2][1] - q[1][1]),
+    );
+    // Eligibility follows the same variance and physical-row separation gates.
+    if !(0..3).any(|i| {
+        ((i + 1)..3).any(|j| {
+            profiles[i].1 >= 160. && profiles[j].1 >= 160. && usize_f64(j - i) * 0.3 * height >= 2.
+        })
+    }) {
+        return false;
+    }
+    let bits = barcode_research_core::ean::encode(digits);
+    let mut best = [0_f64; 3];
+    for reverse in [false, true] {
+        let raster: Vec<f64> = (0..824)
+            .map(|i| {
+                let module = f64_isize((usize_f64(i) / 8. - 4.).floor());
+                if (0..95).contains(&module) {
+                    f64::from(
+                        bits[if reverse {
+                            94 - usize::try_from(module).expect("module checked in 0..95")
+                        } else {
+                            usize::try_from(module).expect("module checked in 0..95")
+                        }],
+                    )
+                } else {
+                    0.
+                }
+            })
+            .collect();
+        for sigma in [0., 0.3, 0.6, 0.9] {
+            let smoothed = if sigma == 0. {
+                raster.clone()
+            } else {
+                let radius = f64_isize((sigma * 8. * 3_f64).ceil());
+                let weights: Vec<_> = (-radius..=radius)
+                    .map(|k| (-0.5 * (isize_f64(k) / (sigma * 8.)).powi(2)).exp())
+                    .collect();
+                let sum = weights.iter().sum::<f64>();
+                (0..raster.len())
+                    .map(|i| {
+                        (-radius..=radius)
+                            .zip(&weights)
+                            .map(|(k, w)| {
+                                let index =
+                                    isize::try_from(i).expect("fixed 824-sample raster") + k;
+                                if index < 0
+                                    || index
+                                        >= isize::try_from(raster.len())
+                                            .expect("fixed 824-sample raster")
+                                {
+                                    0.
+                                } else {
+                                    raster
+                                        [usize::try_from(index).expect("index checked nonnegative")]
+                                        * w
+                                }
+                            })
+                            .sum::<f64>()
+                            / sum
+                    })
+                    .collect()
+            };
+            for pitch in [0.98, 1., 1.02] {
+                for offset in [-1., -0.5, 0., 0.5, 1.] {
+                    let mut template = std::array::from_fn(|i| {
+                        let u = -0.02 + 1.04 * usize_f64(i) / 255.;
+                        let index = ((95. * u - offset) / pitch + 4.) * 8.;
+                        if index < 0. || index >= usize_f64(smoothed.len() - 1) {
+                            return 0.;
+                        }
+                        let k = f64_usize(index.floor());
+                        let f = index - index.floor();
+                        smoothed[k] * (1. - f) + smoothed[k + 1] * f
+                    });
+                    raw_source_normalize(&mut template);
+                    for (j, (row, norm)) in profiles.iter().enumerate() {
+                        if *norm < 160. {
+                            continue;
+                        }
+                        let corr = template.iter().zip(row).map(|(a, b)| a * b).sum::<f64>();
+                        best[j] = best[j].min(corr);
+                    }
+                    if separated_source_rows_agree(&best, height) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+#[cfg(feature = "medium")]
+fn recover_deferred_proposals(
+    image: Image<'_>,
+    proposals: &[Proposal],
+    scan: &mut super::ScanResult,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> std::result::Result<(), Error> {
+    let mut eligible: Vec<_> = proposals
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            scan.frame.candidates.get(*i).is_some_and(|c| {
+                (c.work.guard_pass > 0
+                    || (c.work.invalid_visual_seen == 0
+                        && c.work.invalid_veto_reads == 0
+                        && (p.score >= 0.95 || c.work.forward_blur_windows >= 4)))
+                    && c.detections.is_empty()
+            })
+        })
+        .collect();
+    eligible.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
+    let already: Vec<_> = eligible.iter().take(2).map(|(i, _)| *i).collect();
+    let mut deferred: Vec<_> = proposals
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            !already.contains(i)
+                && p.score >= 0.75
+                && scan
+                    .frame
+                    .candidates
+                    .get(*i)
+                    .is_some_and(|c| c.detections.is_empty())
+        })
+        .collect();
+    deferred.sort_by(|a, b| b.1.score.total_cmp(&a.1.score));
+    let selected: Vec<_> = deferred.into_iter().take(2).map(|(_, p)| *p).collect();
+    let extra = super::fast_linear::recover_proposals_band(image, &selected, 1, sampler, 0.75)?.0;
+    let extra = super::linear_duplicates::merge(extra, image);
+    if extra.len() != 1 {
+        return Ok(());
+    }
+    let mut accepted = Vec::new();
+    for r in extra {
+        let bytes = r.text.as_bytes();
+        if r.support < 4 || bytes.len() != 13 || !bytes.iter().all(u8::is_ascii_digit) {
+            continue;
+        }
+        let digits = std::array::from_fn(|i| bytes[i] - b'0');
+        if recovered_ean_source_agreement(image, r.polygon, &digits)
+            && !source_contradiction(image, r.polygon, digits, sampler)?
+        {
+            accepted.push(r);
+        }
+    }
+    let protected = protected_primary(image, &scan.frame.barcodes);
+    admit_primary_reads(image, scan, protected, accepted)
+}
+
+#[cfg(feature = "medium")]
+fn independently_confirmed_ean_reads(
+    image: Image<'_>,
+    extra: Vec<super::read::Read>,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> std::result::Result<Vec<super::read::Read>, Error> {
+    if extra.len() != 1 {
+        return Ok(Vec::new());
+    }
+    let mut accepted = Vec::new();
+    for r in extra {
+        let bytes = r.text.as_bytes();
+        if r.support < 4 || bytes.len() != 13 || !bytes.iter().all(u8::is_ascii_digit) {
+            continue;
+        }
+        let digits = std::array::from_fn(|i| bytes[i] - b'0');
+        if recovered_ean_source_agreement(image, r.polygon, &digits)
+            && !source_contradiction(image, r.polygon, digits, sampler)?
+        {
+            accepted.push(r);
+        }
+    }
+    Ok(accepted)
+}
+
+#[cfg(feature = "medium")]
+fn restore_alternate_source_image(image: Image<'_>) -> Vec<u8> {
+    let (w, h) = (image.width, image.height);
+    let gray: Vec<u32> = (0..h)
+        .flat_map(|y| {
+            (0..w).map(move |x| {
+                let at = y * image.stride + x * image.channels;
+                if image.channels == 1 {
+                    u32::from(image.data[at])
+                } else {
+                    (77 * u32::from(image.data[at])
+                        + 150 * u32::from(image.data[at + 1])
+                        + 29 * u32::from(image.data[at + 2])
+                        + 128)
+                        / 256
+                }
+            })
+        })
+        .collect();
+    let weights = [1_u32, 4, 11, 21, 26, 21, 11, 4, 1];
+    let center = weights.len() / 2;
+    let normalizer = weights.iter().sum::<u32>().pow(2);
+    let mut horizontal = vec![0_u32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            horizontal[y * w + x] = weights
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    a * gray[y * w + x.saturating_add(i).saturating_sub(center).min(w - 1)]
+                })
+                .sum();
+        }
+    }
+    let mut out = vec![0_u8; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let smooth: u32 = weights
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    a * horizontal[y.saturating_add(i).saturating_sub(center).min(h - 1) * w + x]
+                })
+                .sum();
+            let value = (5 * i32::try_from(gray[y * w + x]).expect("gray")
+                - 3 * i32::try_from((smooth + normalizer / 2) / normalizer).expect("smooth")
+                + 1)
+                / 2;
+            out[y * w + x] = u8::try_from(value.clamp(0, 255)).expect("clamped gray");
+        }
+    }
+    out
+}
+
+#[cfg(feature = "medium")]
+fn recover_late_wide_crop(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    options: ScanOptions,
+    coverage: &[Quad],
+    proposals: &[Proposal],
+    scan: &mut super::ScanResult,
+) -> std::result::Result<(), Error> {
+    use barcode_research_core::numeric::usize_f64;
+    let mut candidates: Vec<_> = proposals
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            scan.frame.candidates.get(*i).is_some_and(|c| {
+                c.detections.is_empty() && (c.work.guard_pass >= 4 || p.score >= 0.95)
+            })
+        })
+        .collect();
+    candidates.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
+    for (_, p) in candidates.into_iter().take(1) {
+        let (x, y, w, h) = restoration_bounds(image, p.polygon);
+        if w < 3 || h < 3 || w * h > 131_072 {
+            continue;
+        }
+        let crop = Image {
+            data: &image.data[y * image.stride + x * image.channels..],
+            width: w,
+            height: h,
+            channels: image.channels,
+            stride: image.stride,
+        };
+        let pixels = restore_alternate_source_image(crop);
+        let enhanced = Image {
+            data: &pixels,
+            width: w,
+            height: h,
+            channels: 1,
+            stride: w,
+        };
+        let crop_coverage: Vec<_> = coverage
+            .iter()
+            .map(|q| q.map(|v| [v[0] - usize_f64(x), v[1] - usize_f64(y)]))
+            .collect();
+        let proposal = Proposal {
+            polygon: p
+                .polygon
+                .map(|v| [v[0] - usize_f64(x), v[1] - usize_f64(y)]),
+            score: p.score,
+        };
+        let policy = scan_policy(enhanced, &[proposal], &crop_coverage, options);
+        scanner.regions.retail_configure(1)?;
+        let retry = scanner
+            .regions
+            .scan(checked_image(enhanced)?, &[proposal.polygon], policy)?;
+        scan.frame.unfinished |= retry.frame.unfinished;
+        for mut read in retry.frame.barcodes {
+            if read.detection.support < 5 {
+                continue;
+            }
+            for point in &mut read.detection.polygon {
+                point[0] += usize_f64(x);
+                point[1] += usize_f64(y);
+            }
+            if super::geometry::overlap_quads(&read.detection.polygon, &p.polygon).0 < 0.3 {
+                continue;
+            }
+            if scan.frame.barcodes.iter().any(|old| {
+                old.detection.digits == read.detection.digits
+                    || super::geometry::overlap_quads(
+                        &read.detection.polygon,
+                        &old.detection.polygon,
+                    )
+                    .0 > 0.
+            }) {
+                continue;
+            }
+            if !recovered_ean_source_agreement(
+                image,
+                read.detection.polygon,
+                &read.detection.digits,
+            ) || source_contradiction(
+                image,
+                read.detection.polygon,
+                read.detection.digits,
+                &mut scanner.fast_profiles,
+            )? {
+                continue;
+            }
+            read.candidate_indices.clear();
+            scan.frame.barcodes.push(read);
+        }
+    }
+    Ok(())
+}
+
+fn finish_primary(
+    scan: &mut super::ScanResult,
+    image: Image<'_>,
+    consolidate: bool,
+    multiple: bool,
+) {
+    if consolidate {
+        super::linear_duplicates::merge_primary(&mut scan.frame.barcodes, image);
+    }
+    if !multiple {
+        select_one(&mut scan.frame.barcodes);
+    }
+}
+
+#[cfg(any(feature = "medium", feature = "low"))]
+fn separated_source_rows_agree(best: &[f64; 3], height: f64) -> bool {
+    use barcode_research_core::numeric::usize_f64;
+    (0..3).any(|i| {
+        ((i + 1)..3).any(|j| {
+            best[i] < 0.
+                && best[i] * best[i] >= 0.65
+                && best[j] < 0.
+                && best[j] * best[j] >= 0.65
+                && usize_f64(j - i) * 0.3 * height >= 2.
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retail_storage_reuse_preserves_stride_channels_and_alpha() {
+        let mut storage = Vec::new();
+        for (width, height) in [(12, 8), (3, 4), (12, 8)] {
+            for channels in [1, 3, 4] {
+                let stride = width * channels + 7;
+                let mut data = vec![37; stride * height];
+                let mut expected = Vec::new();
+                for y in 0..height {
+                    for x in 0..width {
+                        let source = y * stride + x * channels;
+                        let value = u8::try_from(x + y).unwrap();
+                        data[source] = value;
+                        if channels != 1 {
+                            data[source + 1] = value + 1;
+                            data[source + 2] = value + 2;
+                        }
+                        expected.extend_from_slice(&[
+                            value,
+                            value + u8::from(channels != 1),
+                            value + 2 * u8::from(channels != 1),
+                            255,
+                        ]);
+                    }
+                }
+                data.truncate((height - 1) * stride + width * channels);
+                retail_pixels(
+                    Image {
+                        data: &data,
+                        width,
+                        height,
+                        channels,
+                        stride,
+                    },
+                    &mut storage,
+                );
+                assert_eq!(storage, expected);
+            }
+        }
+    }
+}
+
 #[cfg(all(test, not(feature = "low")))]
 mod recovery_tests {
     use super::*;
@@ -1121,174 +1556,6 @@ mod recovery_tests {
     }
 }
 
-#[cfg(feature = "medium")]
-fn raw_source_normalize(values: &mut [f64; 256]) -> f64 {
-    use barcode_research_core::numeric::usize_f64;
-    const N: usize = 256;
-    let mean = values.iter().sum::<f64>() / 256.;
-    let slope = values
-        .iter()
-        .enumerate()
-        .map(|(i, v)| (usize_f64(i) - 127.5) * (v - mean))
-        .sum::<f64>()
-        / (0..N).map(|i| (usize_f64(i) - 127.5).powi(2)).sum::<f64>();
-    for (i, v) in values.iter_mut().enumerate() {
-        *v -= mean + slope * (usize_f64(i) - 127.5);
-    }
-    let norm = values.iter().map(|v| v * v).sum::<f64>().sqrt();
-    if norm > 0. {
-        for v in values {
-            *v /= norm;
-        }
-    }
-    norm
-}
-#[cfg(feature = "medium")]
-fn raw_source_profiles(image: Image<'_>, q: Quad) -> Vec<([f64; 256], f64)> {
-    use barcode_research_core::numeric::{f64_usize, usize_f64};
-    let gray = |x: usize, y: usize| {
-        let at = y * image.stride + x * image.channels;
-        if image.channels == 1 {
-            f64::from(image.data[at])
-        } else {
-            0.299 * f64::from(image.data[at])
-                + 0.587 * f64::from(image.data[at + 1])
-                + 0.114 * f64::from(image.data[at + 2])
-        }
-    };
-    let pixel = |x: f64, y: f64| {
-        if x < 0. || y < 0. || x > usize_f64(image.width - 1) || y > usize_f64(image.height - 1) {
-            return 255.;
-        }
-        let ix = f64_usize(x.floor());
-        let iy = f64_usize(y.floor());
-        let fx = x - x.floor();
-        let fy = y - y.floor();
-        let right = (ix + 1).min(image.width - 1);
-        let bottom = (iy + 1).min(image.height - 1);
-        (gray(ix, iy) * (1. - fx) + gray(right, iy) * fx) * (1. - fy)
-            + (gray(ix, bottom) * (1. - fx) + gray(right, bottom) * fx) * fy
-    };
-    [0.2, 0.5, 0.8]
-        .into_iter()
-        .map(|v| {
-            let a = [
-                q[0][0] * (1. - v) + q[3][0] * v,
-                q[0][1] * (1. - v) + q[3][1] * v,
-            ];
-            let b = [
-                q[1][0] * (1. - v) + q[2][0] * v,
-                q[1][1] * (1. - v) + q[2][1] * v,
-            ];
-            let mut row = std::array::from_fn(|i| {
-                let u = -0.02 + 1.04 * usize_f64(i) / 255.;
-                pixel(a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u)
-            });
-            let norm = raw_source_normalize(&mut row);
-            (row, norm)
-        })
-        .collect()
-}
-
-// Optional recovery acceptance only: test the claimed payload against unmodified
-// source luminance. Never repair digits or change existing decoder acceptance.
-#[cfg(feature = "medium")]
-fn recovered_ean_source_agreement(image: Image<'_>, q: Quad, digits: &[u8; 13]) -> bool {
-    use barcode_research_core::numeric::{f64_isize, f64_usize, isize_f64, usize_f64};
-    let profiles = raw_source_profiles(image, q);
-    let bits = barcode_research_core::ean::encode(digits);
-    let mut best = [0_f64; 3];
-    for reverse in [false, true] {
-        let raster: Vec<f64> = (0..824)
-            .map(|i| {
-                let module = f64_isize((usize_f64(i) / 8. - 4.).floor());
-                if (0..95).contains(&module) {
-                    f64::from(
-                        bits[if reverse {
-                            94 - usize::try_from(module).expect("module checked in 0..95")
-                        } else {
-                            usize::try_from(module).expect("module checked in 0..95")
-                        }],
-                    )
-                } else {
-                    0.
-                }
-            })
-            .collect();
-        for sigma in [0., 0.3, 0.6, 0.9] {
-            let smoothed = if sigma == 0. {
-                raster.clone()
-            } else {
-                let radius = f64_isize((sigma * 8. * 3_f64).ceil());
-                let weights: Vec<_> = (-radius..=radius)
-                    .map(|k| (-0.5 * (isize_f64(k) / (sigma * 8.)).powi(2)).exp())
-                    .collect();
-                let sum = weights.iter().sum::<f64>();
-                (0..raster.len())
-                    .map(|i| {
-                        (-radius..=radius)
-                            .zip(&weights)
-                            .map(|(k, w)| {
-                                let index =
-                                    isize::try_from(i).expect("fixed 824-sample raster") + k;
-                                if index < 0
-                                    || index
-                                        >= isize::try_from(raster.len())
-                                            .expect("fixed 824-sample raster")
-                                {
-                                    0.
-                                } else {
-                                    raster
-                                        [usize::try_from(index).expect("index checked nonnegative")]
-                                        * w
-                                }
-                            })
-                            .sum::<f64>()
-                            / sum
-                    })
-                    .collect()
-            };
-            for pitch in [0.98, 1., 1.02] {
-                for offset in [-1., -0.5, 0., 0.5, 1.] {
-                    let mut template = std::array::from_fn(|i| {
-                        let u = -0.02 + 1.04 * usize_f64(i) / 255.;
-                        let index = ((95. * u - offset) / pitch + 4.) * 8.;
-                        if index < 0. || index >= usize_f64(smoothed.len() - 1) {
-                            return 0.;
-                        }
-                        let k = f64_usize(index.floor());
-                        let f = index - index.floor();
-                        smoothed[k] * (1. - f) + smoothed[k + 1] * f
-                    });
-                    raw_source_normalize(&mut template);
-                    for (j, (row, norm)) in profiles.iter().enumerate() {
-                        if *norm < 160. {
-                            continue;
-                        }
-                        let corr = template.iter().zip(row).map(|(a, b)| a * b).sum::<f64>();
-                        best[j] = best[j].min(corr);
-                    }
-                }
-            }
-        }
-    }
-    // At least two physical source rows explain 65% of raw profile variance.
-    // A failed optional recovery is deferred; existing reads are untouched.
-    let height = f64::midpoint(
-        (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]),
-        (q[2][0] - q[1][0]).hypot(q[2][1] - q[1][1]),
-    );
-    (0..3).any(|i| {
-        ((i + 1)..3).any(|j| {
-            best[i] < 0.
-                && best[i] * best[i] >= 0.65
-                && best[j] < 0.
-                && best[j] * best[j] >= 0.65
-                && usize_f64(j - i) * 0.3 * height >= 2.
-        })
-    })
-}
-
 #[cfg(all(test, feature = "medium"))]
 mod recovered_source_tests {
     use super::*;
@@ -1366,5 +1633,18 @@ mod recovered_source_tests {
             thin,
             &DIGITS
         ));
+    }
+}
+
+#[cfg(all(test, any(feature = "medium", feature = "low")))]
+mod independent_source_rows_tests {
+    use super::separated_source_rows_agree;
+    #[test]
+    fn requires_contrast_agreement_on_physically_separated_rows() {
+        assert!(!separated_source_rows_agree(&[-0.9, -0.9, 0.], 6.));
+        assert!(separated_source_rows_agree(&[-0.9, -0.9, 0.], 7.));
+        assert!(separated_source_rows_agree(&[-0.9, 0., -0.9], 4.));
+        assert!(!separated_source_rows_agree(&[-0.8, -0.95, 0.], 100.));
+        assert!(!separated_source_rows_agree(&[0.95, 0.95, 0.95], 100.));
     }
 }

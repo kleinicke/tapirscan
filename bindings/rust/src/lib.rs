@@ -18,6 +18,8 @@ mod linear_duplicates;
 mod pipeline;
 mod read;
 mod result;
+#[cfg(feature = "medium")]
+mod short_crop;
 mod timer;
 pub use barcode_research_core::region_scan::{Error, ImageView, RegionScanner, ScanResult};
 pub use barcode_research_core::{

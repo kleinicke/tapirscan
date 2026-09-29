@@ -222,6 +222,63 @@ pub(crate) fn scan(
         reads.extend(additional);
         unread.extend(regions);
     }
+    if TIER == 0 && reads.is_empty() && mask & 15 != 0 {
+        let mut recovered = Vec::new();
+        let mut unused = Vec::new();
+        let mut remaining = 32_768;
+        for proposal in proposals.iter().take(local_count.min(2)) {
+            let mut candidate = Candidate {
+                image,
+                im,
+                quad: proposal.polygon,
+                dense: false,
+                restored: false,
+                profile: SourceProfile::Gray(2.25),
+                localized: true,
+                mask: mask & 15,
+                remaining,
+                observations: Vec::new(),
+                row_positions: Vec::new(),
+            };
+            for (row, &v) in ROWS.iter().enumerate() {
+                sample_line(&mut candidate, &mut scanner.fast_profiles, row, v);
+                lines += 1;
+            }
+            remaining = candidate.remaining;
+            candidate.append_confirmed(false, &mut recovered, &mut unused);
+        }
+        recovered.retain(|read| read.support >= 4);
+        let mut accepted = Vec::new();
+        for r in recovered {
+            if matches!(r.format.as_str(), "EAN13" | "UPCA") {
+                let text = if r.text.len() == 12 {
+                    format!("0{}", r.text)
+                } else {
+                    r.text.clone()
+                };
+                let bytes = text.as_bytes();
+                if bytes.len() != 13 || !bytes.iter().all(u8::is_ascii_digit) {
+                    continue;
+                }
+                let digits = std::array::from_fn(|i| bytes[i] - b'0');
+                if !crate::pipeline::recovered_ean_source_agreement(image, r.polygon, &digits)
+                    || crate::pipeline::source_contradiction(
+                        image,
+                        r.polygon,
+                        digits,
+                        &mut scanner.fast_profiles,
+                    )?
+                {
+                    continue;
+                }
+            }
+            accepted.push(r);
+        }
+        let recovered = crate::linear_duplicates::merge_fast(accepted, image);
+        if recovered.len() == 1 {
+            reads.extend(recovered);
+        }
+    }
     let reads = finalize_reads(reads, &mut unread, image, mask, options.multiple);
     let raw = options.retain_diagnostics.then(|| {
         diagnostics(
@@ -390,15 +447,32 @@ enum SourceProfile {
     Inverted,
     #[cfg(feature = "medium")]
     WideEan,
+    #[cfg(feature = "medium")]
+    BandEan(f64),
 }
 impl SourceProfile {
+    fn band(profile: Self) -> Option<f64> {
+        #[cfg(feature = "medium")]
+        {
+            if let Self::BandEan(offset) = profile {
+                Some(offset)
+            } else {
+                None
+            }
+        }
+        #[cfg(not(feature = "medium"))]
+        {
+            let _ = profile;
+            None
+        }
+    }
     fn contrast(self) -> f32 {
         match self {
             Self::Gray(strength) => strength,
             // Discovery uses the wider 1.5 kernel; continuity uses the existing
             // narrow 2.25 kernel and its stricter source-line confirmation.
             #[cfg(feature = "medium")]
-            Self::WideEan => 2.25,
+            Self::WideEan | Self::BandEan(_) => 2.25,
             #[cfg(not(feature = "low"))]
             _ => 0.,
         }
@@ -418,7 +492,7 @@ impl SourceProfile {
             #[cfg(not(feature = "low"))]
             Self::Inverted => true,
             #[cfg(feature = "medium")]
-            Self::WideEan => false,
+            Self::WideEan | Self::BandEan(_) => false,
         }
     }
     fn wide(self) -> bool {
@@ -427,7 +501,7 @@ impl SourceProfile {
             #[cfg(not(feature = "low"))]
             Self::Color(_) | Self::Inverted => false,
             #[cfg(feature = "medium")]
-            Self::WideEan => true,
+            Self::WideEan | Self::BandEan(_) => true,
         }
     }
 }
@@ -733,6 +807,10 @@ fn sample_line_density(
                 };
             let mut decoded = linear::decode(&sampler.runs, first, active_mask);
             supplement_ean(&sampler.runs, first, active_mask, &mut decoded);
+            #[cfg(any(feature = "low", feature = "medium"))]
+            if TIER == 0 && enhanced && decoded.is_empty() {
+                supplement_ean8_visual(&sampler.runs, first, active_mask & 4, &mut decoded);
+            }
             let endpoints = if reverse { [b, a] } else { [a, b] };
             decoded.retain(|read| {
                 source_quiet(&sampler.runs, read, im, endpoints)
@@ -797,6 +875,8 @@ fn sample_candidate_profile(
         ) {
             return None;
         }
+    } else if let Some(offset) = SourceProfile::band(candidate.profile) {
+        sampler.sample_band_limited(im, a, b, 2., 1536, offset);
     } else if dense {
         sampler.sample_dense(im, a, b);
     } else {
@@ -955,275 +1035,6 @@ fn supplement_ean(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<line
                 gs1: false,
             });
         }
-    }
-}
-
-#[cfg(all(test, feature = "low"))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn public_low_selection_preserves_explicit_recovery_requests() {
-        use crate::formats::EanAddOnPolicy;
-        let basic = ScanOptions::default();
-        assert_eq!(
-            enabled(basic, 1, EanAddOnPolicy::Ignore),
-            crate::LOW_FAST_PATH
-        );
-        assert!(!enabled(basic, 512, EanAddOnPolicy::Ignore));
-        assert!(!enabled(basic, 1, EanAddOnPolicy::Read));
-        assert!(!enabled(basic, 1, EanAddOnPolicy::Require));
-        assert!(!enabled(
-            ScanOptions {
-                finish_candidates: true,
-                ..basic
-            },
-            1,
-            EanAddOnPolicy::Ignore
-        ));
-    }
-
-    /// Independent ZXing-writer module patterns, reproduced without an encoder dependency.
-    /// Small UPC-E modules previously aliased into another checksum-valid payload; a
-    /// large EAN-8 exposed a clipped sparse proposal and needs the bounded axis retry.
-    #[test]
-    fn source_density_and_axis_retry_preserve_clean_retail_values() {
-        let upce = b"101001110100100110111001001101101011110011001010101";
-        let ean8 = b"1010001011010111101111010110111010101001110111001010001001011100101";
-        for (bits, scale, padding, expected) in [
-            (&upce[..], 1, 20, "04252614"),
-            (&upce[..], 1, 60, "04252614"),
-            (&ean8[..], 6, 60, "96385074"),
-        ] {
-            for rotated in [false, true] {
-                let width = bits.len() * scale + 2 * padding;
-                let height = 55 * scale + 2 * padding;
-                let (output_width, output_height) = if rotated {
-                    (height, width)
-                } else {
-                    (width, height)
-                };
-                let mut pixels = vec![255; width * height];
-                for y in padding..height - padding {
-                    for x in padding..width - padding {
-                        let at = if rotated {
-                            x * output_width + height - 1 - y
-                        } else {
-                            y * width + x
-                        };
-                        pixels[at] = if bits[(x - padding) / scale] == b'1' {
-                            0
-                        } else {
-                            255
-                        };
-                    }
-                }
-                let image = Image {
-                    data: &pixels,
-                    width: output_width,
-                    height: output_height,
-                    channels: 1,
-                    stride: output_width,
-                };
-                let result =
-                    scan(&mut Scanner::default(), image, ScanOptions::default(), 127).unwrap();
-                assert_eq!(
-                    result
-                        .barcodes
-                        .iter()
-                        .map(|read| read.text.as_str())
-                        .collect::<Vec<_>>(),
-                    [expected],
-                    "tier={TIER}, scale={scale}, padding={padding}, rotated={rotated}"
-                );
-                assert!(result.unfinished);
-            }
-        }
-    }
-
-    #[test]
-    fn short_clean_bars_keep_three_rows_and_do_not_invent_itf() {
-        if TIER != 16 {
-            return;
-        }
-        let itf =
-            b"101011101000101011100011101110100010100011101000111000101010001010111000111011101";
-        let code39 = b"1001011011010101101011001011011010010101101010010110101101010011011010110010101011001010110101001101011010100110110101011001011010100101101101";
-        for (bits, scale, padding, expected) in [
-            (&itf[..], 1, 60, "12345678"),
-            (&code39[..], 1, 60, "SCALE2409"),
-            (&code39[..], 4, 60, "SCALE2409"),
-        ] {
-            for rotated in [false, true] {
-                let width = bits.len() * scale + 2 * padding;
-                let height = 50 * scale + 2 * padding;
-                let (output_width, output_height) = if rotated {
-                    (height, width)
-                } else {
-                    (width, height)
-                };
-                let mut pixels = vec![255; width * height];
-                for y in padding..height - padding {
-                    for x in padding..width - padding {
-                        let at = if rotated {
-                            x * output_width + height - 1 - y
-                        } else {
-                            y * width + x
-                        };
-                        pixels[at] = if bits[(x - padding) / scale] == b'1' {
-                            0
-                        } else {
-                            255
-                        };
-                    }
-                }
-                let image = Image {
-                    data: &pixels,
-                    width: output_width,
-                    height: output_height,
-                    channels: 1,
-                    stride: output_width,
-                };
-                let result =
-                    scan(&mut Scanner::default(), image, ScanOptions::default(), 127).unwrap();
-                assert_eq!(
-                    result
-                        .barcodes
-                        .iter()
-                        .map(|read| read.text.as_str())
-                        .collect::<Vec<_>>(),
-                    [expected],
-                    "tier={TIER}, scale={scale}, padding={padding}, rotated={rotated}"
-                );
-                assert!(result.unfinished);
-            }
-        }
-    }
-
-    #[test]
-    fn nearby_confirmation_counts_distinct_rows_and_preserves_extent() {
-        let mut pixels = vec![255; 100 * 60];
-        for y in 0..60 {
-            for x in 10..90 {
-                if x / 3 % 2 == 0 {
-                    pixels[y * 100 + x] = 0;
-                }
-            }
-        }
-        let image = Image {
-            data: &pixels,
-            width: 100,
-            height: 60,
-            channels: 1,
-            stride: 100,
-        };
-        let mut candidate = Candidate {
-            image,
-            im: ImageView::new(&pixels, 100, 60, 1, 100).unwrap(),
-            quad: [[10., 10.], [90., 10.], [90., 50.], [10., 50.]],
-            mask: linear::CODE128,
-            localized: true,
-            dense: false,
-            restored: false,
-            profile: SourceProfile::Gray(0.),
-            remaining: 100_000,
-            observations: Vec::new(),
-            row_positions: Vec::new(),
-        };
-        let read = || linear::Read {
-            decoded: true,
-            addon: None,
-            format: "Code128",
-            text: "example".into(),
-            start: 0,
-            end: 40,
-            error: 0.,
-            gs1: false,
-        };
-        let mut sampler = barcode_research_core::fast_profile::Sampler::default();
-        let (mut budget, mut used, mut dense_budget, mut dense_used) = (100_000, 0, 100_000, 0);
-        assert_eq!(
-            candidate.refine(
-                &mut sampler,
-                &mut budget,
-                &mut used,
-                &mut dense_budget,
-                &mut dense_used
-            ),
-            0
-        );
-        assert_eq!((used, dense_used), (0, 0));
-        candidate.admit(read(), 0., 1., 6, 0.5);
-        candidate.admit(read(), 0., 1., 19, 0.5);
-        assert_eq!(candidate.observations[0].read.support, 1);
-        candidate.admit(read(), 0., 1., 6, 0.482);
-        candidate.admit(read(), 0., 1., 6, 0.518);
-        assert_eq!(candidate.observations.len(), 1);
-        candidate.admit(read(), 0., 1., 6, 0.5);
-        candidate.admit(read(), 0., 1., 13, 0.482);
-        let observation = &candidate.observations[0];
-        assert_eq!(observation.read.support, 3);
-        assert!((observation.first - 0.482).abs() < 1e-9);
-        assert!((observation.last - 0.518).abs() < 1e-9);
-    }
-
-    #[test]
-    fn truncated_proposal_is_not_a_cropped_image() {
-        let pixels = vec![255; 100 * 60];
-        let image = ImageView::new(&pixels, 100, 60, 1, 100).unwrap();
-        let read = linear::Read {
-            decoded: true,
-            addon: None,
-            format: "ITF",
-            text: "0240".into(),
-            start: 1,
-            end: 8,
-            error: 0.,
-            gs1: false,
-        };
-        let mut runs = vec![0.5, 1., 1., 1., 1., 3., 1., 1., 0.5];
-        assert!(!source_quiet(&runs, &read, image, [[20., 30.], [80., 30.]]));
-        assert!(source_quiet(&runs, &read, image, [[-1., 30.], [100., 30.]]));
-        assert!(source_quiet(&runs, &read, image, [[20., -1.], [80., 60.]]));
-        runs[0] = 7.;
-        runs[8] = 7.;
-        assert!(source_quiet(&runs, &read, image, [[20., 30.], [80., 30.]]));
-    }
-
-    #[test]
-    fn observation_join_respects_single_pixel_separator() {
-        fn image(data: &[u8]) -> Image<'_> {
-            Image {
-                data,
-                width: 100,
-                height: 60,
-                channels: 1,
-                stride: 100,
-            }
-        }
-        let mut pixels = vec![255; 100 * 60];
-        for y in 0..60 {
-            for x in 10..90 {
-                if (x / 3) % 2 == 0 {
-                    pixels[y * 100 + x] = 0;
-                }
-            }
-        }
-        let q = [[10., 10.], [90., 10.], [90., 11.], [10., 11.]];
-        let r = [[10., 40.], [90., 40.], [90., 41.], [10., 41.]];
-        assert!(crate::linear_duplicates::connect_fast(
-            q,
-            r,
-            image(&pixels),
-            &mut 100_000
-        ));
-        pixels[25 * 100..26 * 100].fill(255);
-        assert!(!crate::linear_duplicates::connect_fast(
-            q,
-            r,
-            image(&pixels),
-            &mut 100_000
-        ));
     }
 }
 
@@ -1625,6 +1436,338 @@ fn bridge_line(
     false
 }
 
+#[cfg(feature = "medium")]
+pub(crate) fn recover_proposals_band(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    offset: f64,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    recover_proposals_variant(
+        image,
+        proposals,
+        mask,
+        sampler,
+        SourceProfile::BandEan(offset),
+    )
+}
+
+#[cfg(any(feature = "low", feature = "medium"))]
+fn supplement_ean8_visual(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<linear::Read>) {
+    if mask & 4 == 0 {
+        return;
+    }
+    let mut attempts = 0;
+    for start in (usize::from(!first_black)..runs.len().saturating_sub(43)).step_by(2) {
+        let end = start + 43;
+        if start == 0 || out.iter().any(|r| r.start < end && r.end > start) {
+            continue;
+        }
+        // Conservative consequences of the unchanged minimum module and guard gates.
+        let exterior = runs[start - 1].min(runs[end]);
+        if exterior < 4. * 0.79 {
+            continue;
+        }
+        let widths = &runs[start..end];
+        let guard = widths[..3].iter().copied().fold(0_f32, f32::max);
+        if exterior < 4. * guard / 1.66 {
+            continue;
+        }
+        let module = widths.iter().sum::<f32>() / 67.;
+        if exterior < 4. * module {
+            continue;
+        }
+        if attempts >= 16 {
+            break;
+        }
+        attempts += 1;
+        if let Some((digits, cost, _)) =
+            barcode_research_core::multi_profile::retail_short::source_ean8_evidence(widths)
+        {
+            out.push(linear::Read {
+                decoded: true,
+                addon: None,
+                format: "EAN8",
+                text: digits.iter().map(|d| char::from(b'0' + d)).collect(),
+                start,
+                end,
+                error: cost,
+                gs1: false,
+            });
+        }
+    }
+}
+
+#[cfg(all(test, feature = "low"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_low_selection_preserves_explicit_recovery_requests() {
+        use crate::formats::EanAddOnPolicy;
+        let basic = ScanOptions::default();
+        assert_eq!(
+            enabled(basic, 1, EanAddOnPolicy::Ignore),
+            crate::LOW_FAST_PATH
+        );
+        assert!(!enabled(basic, 512, EanAddOnPolicy::Ignore));
+        assert!(!enabled(basic, 1, EanAddOnPolicy::Read));
+        assert!(!enabled(basic, 1, EanAddOnPolicy::Require));
+        assert!(!enabled(
+            ScanOptions {
+                finish_candidates: true,
+                ..basic
+            },
+            1,
+            EanAddOnPolicy::Ignore
+        ));
+    }
+
+    /// Independent ZXing-writer module patterns, reproduced without an encoder dependency.
+    /// Small UPC-E modules previously aliased into another checksum-valid payload; a
+    /// large EAN-8 exposed a clipped sparse proposal and needs the bounded axis retry.
+    #[test]
+    fn source_density_and_axis_retry_preserve_clean_retail_values() {
+        let upce = b"101001110100100110111001001101101011110011001010101";
+        let ean8 = b"1010001011010111101111010110111010101001110111001010001001011100101";
+        for (bits, scale, padding, expected) in [
+            (&upce[..], 1, 20, "04252614"),
+            (&upce[..], 1, 60, "04252614"),
+            (&ean8[..], 6, 60, "96385074"),
+        ] {
+            for rotated in [false, true] {
+                let width = bits.len() * scale + 2 * padding;
+                let height = 55 * scale + 2 * padding;
+                let (output_width, output_height) = if rotated {
+                    (height, width)
+                } else {
+                    (width, height)
+                };
+                let mut pixels = vec![255; width * height];
+                for y in padding..height - padding {
+                    for x in padding..width - padding {
+                        let at = if rotated {
+                            x * output_width + height - 1 - y
+                        } else {
+                            y * width + x
+                        };
+                        pixels[at] = if bits[(x - padding) / scale] == b'1' {
+                            0
+                        } else {
+                            255
+                        };
+                    }
+                }
+                let image = Image {
+                    data: &pixels,
+                    width: output_width,
+                    height: output_height,
+                    channels: 1,
+                    stride: output_width,
+                };
+                let result =
+                    scan(&mut Scanner::default(), image, ScanOptions::default(), 127).unwrap();
+                assert_eq!(
+                    result
+                        .barcodes
+                        .iter()
+                        .map(|read| read.text.as_str())
+                        .collect::<Vec<_>>(),
+                    [expected],
+                    "tier={TIER}, scale={scale}, padding={padding}, rotated={rotated}"
+                );
+                assert!(result.unfinished);
+            }
+        }
+    }
+
+    #[test]
+    fn short_clean_bars_keep_three_rows_and_do_not_invent_itf() {
+        if TIER != 16 {
+            return;
+        }
+        let itf =
+            b"101011101000101011100011101110100010100011101000111000101010001010111000111011101";
+        let code39 = b"1001011011010101101011001011011010010101101010010110101101010011011010110010101011001010110101001101011010100110110101011001011010100101101101";
+        for (bits, scale, padding, expected) in [
+            (&itf[..], 1, 60, "12345678"),
+            (&code39[..], 1, 60, "SCALE2409"),
+            (&code39[..], 4, 60, "SCALE2409"),
+        ] {
+            for rotated in [false, true] {
+                let width = bits.len() * scale + 2 * padding;
+                let height = 50 * scale + 2 * padding;
+                let (output_width, output_height) = if rotated {
+                    (height, width)
+                } else {
+                    (width, height)
+                };
+                let mut pixels = vec![255; width * height];
+                for y in padding..height - padding {
+                    for x in padding..width - padding {
+                        let at = if rotated {
+                            x * output_width + height - 1 - y
+                        } else {
+                            y * width + x
+                        };
+                        pixels[at] = if bits[(x - padding) / scale] == b'1' {
+                            0
+                        } else {
+                            255
+                        };
+                    }
+                }
+                let image = Image {
+                    data: &pixels,
+                    width: output_width,
+                    height: output_height,
+                    channels: 1,
+                    stride: output_width,
+                };
+                let result =
+                    scan(&mut Scanner::default(), image, ScanOptions::default(), 127).unwrap();
+                assert_eq!(
+                    result
+                        .barcodes
+                        .iter()
+                        .map(|read| read.text.as_str())
+                        .collect::<Vec<_>>(),
+                    [expected],
+                    "tier={TIER}, scale={scale}, padding={padding}, rotated={rotated}"
+                );
+                assert!(result.unfinished);
+            }
+        }
+    }
+
+    #[test]
+    fn nearby_confirmation_counts_distinct_rows_and_preserves_extent() {
+        let mut pixels = vec![255; 100 * 60];
+        for y in 0..60 {
+            for x in 10..90 {
+                if x / 3 % 2 == 0 {
+                    pixels[y * 100 + x] = 0;
+                }
+            }
+        }
+        let image = Image {
+            data: &pixels,
+            width: 100,
+            height: 60,
+            channels: 1,
+            stride: 100,
+        };
+        let mut candidate = Candidate {
+            image,
+            im: ImageView::new(&pixels, 100, 60, 1, 100).unwrap(),
+            quad: [[10., 10.], [90., 10.], [90., 50.], [10., 50.]],
+            mask: linear::CODE128,
+            localized: true,
+            dense: false,
+            restored: false,
+            profile: SourceProfile::Gray(0.),
+            remaining: 100_000,
+            observations: Vec::new(),
+            row_positions: Vec::new(),
+        };
+        let read = || linear::Read {
+            decoded: true,
+            addon: None,
+            format: "Code128",
+            text: "example".into(),
+            start: 0,
+            end: 40,
+            error: 0.,
+            gs1: false,
+        };
+        let mut sampler = barcode_research_core::fast_profile::Sampler::default();
+        let (mut budget, mut used, mut dense_budget, mut dense_used) = (100_000, 0, 100_000, 0);
+        assert_eq!(
+            candidate.refine(
+                &mut sampler,
+                &mut budget,
+                &mut used,
+                &mut dense_budget,
+                &mut dense_used
+            ),
+            0
+        );
+        assert_eq!((used, dense_used), (0, 0));
+        candidate.admit(read(), 0., 1., 6, 0.5);
+        candidate.admit(read(), 0., 1., 19, 0.5);
+        assert_eq!(candidate.observations[0].read.support, 1);
+        candidate.admit(read(), 0., 1., 6, 0.482);
+        candidate.admit(read(), 0., 1., 6, 0.518);
+        assert_eq!(candidate.observations.len(), 1);
+        candidate.admit(read(), 0., 1., 6, 0.5);
+        candidate.admit(read(), 0., 1., 13, 0.482);
+        let observation = &candidate.observations[0];
+        assert_eq!(observation.read.support, 3);
+        assert!((observation.first - 0.482).abs() < 1e-9);
+        assert!((observation.last - 0.518).abs() < 1e-9);
+    }
+
+    #[test]
+    fn truncated_proposal_is_not_a_cropped_image() {
+        let pixels = vec![255; 100 * 60];
+        let image = ImageView::new(&pixels, 100, 60, 1, 100).unwrap();
+        let read = linear::Read {
+            decoded: true,
+            addon: None,
+            format: "ITF",
+            text: "0240".into(),
+            start: 1,
+            end: 8,
+            error: 0.,
+            gs1: false,
+        };
+        let mut runs = vec![0.5, 1., 1., 1., 1., 3., 1., 1., 0.5];
+        assert!(!source_quiet(&runs, &read, image, [[20., 30.], [80., 30.]]));
+        assert!(source_quiet(&runs, &read, image, [[-1., 30.], [100., 30.]]));
+        assert!(source_quiet(&runs, &read, image, [[20., -1.], [80., 60.]]));
+        runs[0] = 7.;
+        runs[8] = 7.;
+        assert!(source_quiet(&runs, &read, image, [[20., 30.], [80., 30.]]));
+    }
+
+    #[test]
+    fn observation_join_respects_single_pixel_separator() {
+        fn image(data: &[u8]) -> Image<'_> {
+            Image {
+                data,
+                width: 100,
+                height: 60,
+                channels: 1,
+                stride: 100,
+            }
+        }
+        let mut pixels = vec![255; 100 * 60];
+        for y in 0..60 {
+            for x in 10..90 {
+                if (x / 3) % 2 == 0 {
+                    pixels[y * 100 + x] = 0;
+                }
+            }
+        }
+        let q = [[10., 10.], [90., 10.], [90., 11.], [10., 11.]];
+        let r = [[10., 40.], [90., 40.], [90., 41.], [10., 41.]];
+        assert!(crate::linear_duplicates::connect_fast(
+            q,
+            r,
+            image(&pixels),
+            &mut 100_000
+        ));
+        pixels[25 * 100..26 * 100].fill(255);
+        assert!(!crate::linear_duplicates::connect_fast(
+            q,
+            r,
+            image(&pixels),
+            &mut 100_000
+        ));
+    }
+}
+
 #[cfg(all(test, not(feature = "low")))]
 mod bridge_tests {
     use super::*;
@@ -1742,5 +1885,52 @@ mod restored_quiet_tests {
         assert!(recovered_upce_quiet(&runs, &read, image, interior));
         runs[8] = 6.;
         assert!(!recovered_upce_quiet(&runs, &read, image, interior));
+    }
+}
+
+#[cfg(all(test, any(feature = "low", feature = "medium")))]
+mod source_ean8_tests {
+    use super::supplement_ean8_visual;
+    const WIDTHS: [u8; 43] = [
+        1, 1, 1, 2, 2, 2, 1, 2, 1, 2, 2, 1, 4, 1, 1, 1, 1, 3, 2, 1, 1, 1, 1, 1, 1, 2, 3, 1, 1, 1,
+        1, 4, 1, 3, 1, 2, 3, 2, 1, 1, 1, 1, 1,
+    ];
+    fn runs(quiet: f32) -> Vec<f32> {
+        let mut runs = vec![quiet];
+        runs.extend(WIDTHS.map(|width| f32::from(width) * 2.));
+        runs.push(quiet);
+        runs
+    }
+    #[test]
+    fn accepts_observed_ean8_without_synthesizing_quiet_space() {
+        let mut reads = Vec::new();
+        supplement_ean8_visual(&runs(8.), false, 4, &mut reads);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].text, "12345670");
+        supplement_ean8_visual(&runs(8.), false, 4, &mut reads);
+        assert_eq!(
+            reads.len(),
+            1,
+            "an existing overlapping owner blocks another claim"
+        );
+        let mut absent = Vec::new();
+        supplement_ean8_visual(&runs(7.9), false, 4, &mut absent);
+        supplement_ean8_visual(&runs(8.), false, 0, &mut absent);
+        assert!(absent.is_empty());
+    }
+    #[test]
+    fn rejects_invalid_profile_values_and_incomplete_symbols() {
+        use barcode_research_core::multi_profile::retail_short::source_ean8_evidence;
+        let valid = WIDTHS.map(|width| f32::from(width) * 2.);
+        assert_eq!(
+            source_ean8_evidence(&valid).unwrap().0,
+            [1, 2, 3, 4, 5, 6, 7, 0]
+        );
+        assert!(source_ean8_evidence(&valid[..42]).is_none());
+        for value in [0., -1., f32::NAN, f32::INFINITY] {
+            let mut invalid = valid;
+            invalid[10] = value;
+            assert!(source_ean8_evidence(&invalid).is_none());
+        }
     }
 }

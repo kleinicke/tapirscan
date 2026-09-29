@@ -44,244 +44,269 @@ impl Scanner {
         reads: &mut Vec<Read>,
         unread: &mut Vec<Region>,
     ) -> Result<Vec<Region>, Error> {
-        let mut deferred_reads = Vec::new();
-        let proposals = if let Some(primary) = primary {
-            primary.proposals.clone()
-        } else {
-            let im = crate::ImageView::new(
+        let mut profiles = std::mem::take(&mut self.fast_profiles);
+        let result = profiles.with_source_cache(
+            crate::ImageView::new(
                 image.data,
                 image.width,
                 image.height,
                 image.channels,
                 image.stride,
-            )?;
-            if crate::MODE_ID == 1 && mask == 16384 {
-                self.localizer.detect_sparse(im, 768.)?.proposals
-            } else {
-                self.localizer.detect(im)?.proposals
-            }
-        };
-        // A broad mask can turn a short UPC-E interpretation of EAN-13 into a
-        // false extra read. The new rare-format recovery requires explicit
-        // selection; the established Medium readers keep their broad behavior.
-        let selected_rare = if matches!(mask, 8 | 16384) { mask } else { 0 };
-        let oriented_mask = if crate::MODE_ID == 1 {
-            mask & 496 | selected_rare
-        } else {
-            mask & 16
-        };
-        let (mut found, mut pending) = crate::fast_linear::recover_proposals(
-            image,
-            &proposals,
-            oriented_mask,
-            &mut self.fast_profiles,
-        )?;
-        // The quick localizer misses a few severely rotated expanded symbols.
-        // Preserve the full proposal search only when this selected reader has
-        // no value after the source pass, keeping the common case bounded.
-        if crate::MODE_ID == 1 && mask == 16384 && reads.is_empty() && found.is_empty() {
-            let im = crate::ImageView::new(
-                image.data,
-                image.width,
-                image.height,
-                image.channels,
-                image.stride,
-            )?;
-            let full = self.localizer.detect(im)?.proposals;
-            let (extra, regions) =
-                crate::fast_linear::recover_proposals(image, &full, mask, &mut self.fast_profiles)?;
-            found.extend(extra);
-            pending.extend(regions);
-        }
-        reads.extend(found);
-        // Independent short-code source hypothesis, bounded to unresolved proposals.
-        if reads.is_empty() && mask & 12 != 0 {
-            let unresolved: Vec<_> = proposals.iter().take(4).copied().collect();
-            let (mut extra, regions) = crate::fast_linear::recover_proposals_contrast(
-                image,
-                &unresolved,
-                mask & 12,
-                &mut self.fast_profiles,
-                1.5,
-            )?;
-            if matches!(crate::MODE_ID, 2 | 3) {
-                // Additional unresolved equal-payload claims remain provisional;
-                // an equal value alone cannot establish physical ownership.
-                extra = crate::linear_duplicates::merge(extra, image);
-                let ambiguous: Vec<_> = extra
-                    .iter()
-                    .enumerate()
-                    .filter(|(i, read)| {
-                        extra[..*i]
-                            .iter()
-                            .any(|old| old.format == read.format && old.text == read.text)
-                    })
-                    .map(|(_, read)| (read.format.clone(), read.text.clone()))
-                    .collect();
-                extra.retain(|read| {
-                    !ambiguous
-                        .iter()
-                        .any(|(format, text)| *format == read.format && *text == read.text)
-                });
-            }
-            for r in extra {
-                // Preserve existing physical owners and require separate source rows.
-                if r.support < 4
-                    || reads
-                        .iter()
-                        .any(|old| overlap_quads(&r.polygon, &old.polygon).0 > 0.)
-                {
-                    continue;
-                }
-                reads.push(r);
-            }
-            if options.include_regions {
-                pending.extend(regions);
-            }
-        }
-        // Polarity probe only for frames without an established owner. Multiple
-        // inverse claims remain deferred rather than risking glare-split duplicates.
-        if reads.is_empty() && mask & 15 != 0 {
-            let selected: Vec<_> = proposals.iter().take(4).copied().collect();
-            let (extra, regions) = crate::fast_linear::recover_proposals_inverted(
-                image,
-                &selected,
-                mask & 15,
-                &mut self.fast_profiles,
-            )?;
-            let extra = crate::linear_duplicates::merge(extra, image);
-            if extra.len() == 1 && extra[0].support >= 4 {
-                reads.extend(extra);
-            }
-            if options.include_regions {
-                pending.extend(regions);
-            }
-        }
-        // Reuse rejected narrow groups only after ordinary Medium recovery fails.
-        if crate::MODE_ID == 1 && reads.is_empty() && mask & 12 != 0 {
-            let hypotheses = if let Some(cached) = primary.and_then(|p| p.short_fragments.as_ref())
-            {
-                cached.clone()
-            } else {
-                use barcode_research_core::numeric::usize_f64;
-                let im = crate::ImageView::new(
-                    image.data,
-                    image.width,
-                    image.height,
-                    image.channels,
-                    image.stride,
-                )?;
-                let scale = (768. / usize_f64(image.width.max(image.height))).min(1.);
-                let sx = usize_f64(image.width) / (usize_f64(image.width) * scale).round().max(3.);
-                let sy =
-                    usize_f64(image.height) / (usize_f64(image.height) * scale).round().max(3.);
-                let mut fragments = Vec::new();
-                let _ = barcode_research_core::stripes::detect_with_observer(im, |g| {
-                    let [u0, u1, v0, v1] = g.bounds;
-                    let (w, h) = (u1 - u0, v1 - v0);
-                    let narrow = g.reason == "narrow"
-                        && w >= 24.
-                        && h >= 5.
-                        && w / h >= 2.
-                        && g.edges >= 120;
-                    if !narrow {
-                        return;
+            )?,
+            crate::MODE_ID == 1,
+            |sampler| {
+                let mut deferred_reads = Vec::new();
+                let proposals = if let Some(primary) = primary {
+                    primary.proposals.clone()
+                } else {
+                    let im = crate::ImageView::new(
+                        image.data,
+                        image.width,
+                        image.height,
+                        image.channels,
+                        image.stride,
+                    )?;
+                    if crate::MODE_ID == 1 && mask == 16384 {
+                        self.localizer.detect_sparse(im, 768.)?.proposals
+                    } else {
+                        self.localizer.detect(im)?.proposals
                     }
-                    let half = w * 2.;
-                    let center = f64::midpoint(u0, u1);
-                    let (s, c) = g.angle.sin_cos();
-                    let polygon = [
-                        [center - half, v0],
-                        [center + half, v0],
-                        [center + half, v1],
-                        [center - half, v1],
-                    ]
-                    .map(|[u, v]| [(u * c - v * s) * sx, (u * s + v * c) * sy]);
-                    fragments.push((g.edges, crate::Proposal { polygon, score: 0. }));
-                })?;
-                fragments.sort_by_key(|(edges, _)| std::cmp::Reverse(*edges));
-                let hypotheses: Vec<_> = fragments.into_iter().take(4).map(|(_, p)| p).collect();
-                hypotheses
-            };
-            let (extra, regions) = crate::fast_linear::recover_proposals_contrast(
-                image,
-                &hypotheses,
-                mask & 12,
-                &mut self.fast_profiles,
-                1.5,
-            )?;
-            let extra = crate::linear_duplicates::merge(extra, image);
-            if extra.len() == 1 && extra[0].support >= 4 {
-                reads.extend(extra);
-            }
-            if options.include_regions {
-                pending.extend(regions);
-            }
-        }
-        // Reuse the existing source proposals and gray-profile sampler. A
-        // decoded region only suppresses a retry when it contains every corner
-        // of that proposal; one read never ends scanning of the whole image.
-        let recovery_mask = mask & (16 | 32 | 64 | 256);
-        if recovery_mask != 0 {
-            let limit = [0, 8, 8, 16][crate::MODE_ID as usize];
-            let unresolved: Vec<_> = proposals
-                .iter()
-                .filter(|proposal| {
-                    !reads.iter().any(|read| {
-                        proposal
-                            .polygon
+                };
+                // A broad mask can turn a short UPC-E interpretation of EAN-13 into a
+                // false extra read. The new rare-format recovery requires explicit
+                // selection; the established Medium readers keep their broad behavior.
+                let selected_rare = if matches!(mask, 8 | 16384) { mask } else { 0 };
+                let oriented_mask = if crate::MODE_ID == 1 {
+                    mask & 496 | selected_rare
+                } else {
+                    mask & 16
+                };
+                let (mut found, mut pending) = crate::fast_linear::recover_proposals(
+                    image,
+                    &proposals,
+                    oriented_mask,
+                    sampler,
+                )?;
+                // The quick localizer misses a few severely rotated expanded symbols.
+                // Preserve the full proposal search only when this selected reader has
+                // no value after the source pass, keeping the common case bounded.
+                if crate::MODE_ID == 1 && mask == 16384 && reads.is_empty() && found.is_empty() {
+                    let im = crate::ImageView::new(
+                        image.data,
+                        image.width,
+                        image.height,
+                        image.channels,
+                        image.stride,
+                    )?;
+                    let full = self.localizer.detect(im)?.proposals;
+                    let (extra, regions) =
+                        crate::fast_linear::recover_proposals(image, &full, mask, sampler)?;
+                    found.extend(extra);
+                    pending.extend(regions);
+                }
+                reads.extend(found);
+                // Independent short-code source hypothesis, bounded to unresolved proposals.
+                if reads.is_empty() && mask & 12 != 0 {
+                    let unresolved: Vec<_> = proposals.iter().take(4).copied().collect();
+                    let (mut extra, regions) = crate::fast_linear::recover_proposals_contrast(
+                        image,
+                        &unresolved,
+                        mask & 12,
+                        sampler,
+                        1.5,
+                    )?;
+                    if matches!(crate::MODE_ID, 2 | 3) {
+                        // Additional unresolved equal-payload claims remain provisional;
+                        // an equal value alone cannot establish physical ownership.
+                        extra = crate::linear_duplicates::merge(extra, image);
+                        let ambiguous: Vec<_> = extra
                             .iter()
-                            .all(|point| contains_point(*point, &read.polygon))
-                    })
-                })
-                .take(limit)
-                .copied()
-                .collect();
-            let (extra, regions) = crate::fast_linear::recover_proposals_contrast(
-                image,
-                &unresolved,
-                recovery_mask,
-                &mut self.fast_profiles,
-                2.,
-            )?;
-            if !extra.is_empty() {
-                let (reconciled, deferred) = crate::recovery_admission::append_recovered(
-                    std::mem::take(reads),
-                    extra,
-                    image,
-                    &mut self.fast_profiles,
-                    2.,
-                );
-                *reads = reconciled;
-                deferred_reads.extend(deferred);
-                *reads = crate::linear_duplicates::merge_selected(
-                    std::mem::take(reads),
-                    image,
-                    recovery_mask & 256 != 0,
-                );
-            }
-            if options.include_regions {
-                pending.extend(regions);
-            }
-        }
-        #[cfg(any(feature = "high", feature = "very-high"))]
-        if mask & 3 != 0 {
-            let bands = crate::detail::source_bands(image, reads);
-            let (extra, regions) = crate::fast_linear::recover_proposals(
-                image,
-                &bands,
-                mask & 3,
-                &mut self.fast_profiles,
-            )?;
-            reads.extend(extra);
-            if options.include_regions {
-                unread.extend(regions);
-            }
-        }
-        if options.include_regions {
-            unread.extend(pending);
-        }
-        Ok(deferred_reads)
+                            .enumerate()
+                            .filter(|(i, read)| {
+                                extra[..*i]
+                                    .iter()
+                                    .any(|old| old.format == read.format && old.text == read.text)
+                            })
+                            .map(|(_, read)| (read.format.clone(), read.text.clone()))
+                            .collect();
+                        extra.retain(|read| {
+                            !ambiguous
+                                .iter()
+                                .any(|(format, text)| *format == read.format && *text == read.text)
+                        });
+                    }
+                    for r in extra {
+                        // Preserve existing physical owners and require separate source rows.
+                        if r.support < 4
+                            || reads
+                                .iter()
+                                .any(|old| overlap_quads(&r.polygon, &old.polygon).0 > 0.)
+                        {
+                            continue;
+                        }
+                        reads.push(r);
+                    }
+                    if options.include_regions {
+                        pending.extend(regions);
+                    }
+                }
+                // Polarity probe only for frames without an established owner. Multiple
+                // inverse claims remain deferred rather than risking glare-split duplicates.
+                if reads.is_empty() && mask & 15 != 0 {
+                    let selected: Vec<_> = proposals.iter().take(4).copied().collect();
+                    let (extra, regions) = crate::fast_linear::recover_proposals_inverted(
+                        image,
+                        &selected,
+                        mask & 15,
+                        sampler,
+                    )?;
+                    let extra = crate::linear_duplicates::merge(extra, image);
+                    if extra.len() == 1 && extra[0].support >= 4 {
+                        reads.extend(extra);
+                    }
+                    if options.include_regions {
+                        pending.extend(regions);
+                    }
+                }
+                // Reuse rejected narrow groups only after ordinary Medium recovery fails.
+                if crate::MODE_ID == 1 && reads.is_empty() && mask & 12 != 0 {
+                    let hypotheses = if let Some(cached) =
+                        primary.and_then(|p| p.short_fragments.as_ref())
+                    {
+                        cached.clone()
+                    } else {
+                        use barcode_research_core::numeric::usize_f64;
+                        let im = crate::ImageView::new(
+                            image.data,
+                            image.width,
+                            image.height,
+                            image.channels,
+                            image.stride,
+                        )?;
+                        let scale = (768. / usize_f64(image.width.max(image.height))).min(1.);
+                        let sx = usize_f64(image.width)
+                            / (usize_f64(image.width) * scale).round().max(3.);
+                        let sy = usize_f64(image.height)
+                            / (usize_f64(image.height) * scale).round().max(3.);
+                        let mut fragments = Vec::new();
+                        let _ = barcode_research_core::stripes::detect_with_observer(im, |g| {
+                            let [u0, u1, v0, v1] = g.bounds;
+                            let (w, h) = (u1 - u0, v1 - v0);
+                            let narrow = g.reason == "narrow"
+                                && w >= 24.
+                                && h >= 5.
+                                && w / h >= 2.
+                                && g.edges >= 120;
+                            if !narrow {
+                                return;
+                            }
+                            let half = w * 2.;
+                            let center = f64::midpoint(u0, u1);
+                            let (s, c) = g.angle.sin_cos();
+                            let polygon = [
+                                [center - half, v0],
+                                [center + half, v0],
+                                [center + half, v1],
+                                [center - half, v1],
+                            ]
+                            .map(|[u, v]| [(u * c - v * s) * sx, (u * s + v * c) * sy]);
+                            fragments.push((g.edges, crate::Proposal { polygon, score: 0. }));
+                        })?;
+                        fragments.sort_by_key(|(edges, _)| std::cmp::Reverse(*edges));
+                        let hypotheses: Vec<_> =
+                            fragments.into_iter().take(4).map(|(_, p)| p).collect();
+                        hypotheses
+                    };
+                    let (extra, regions) = crate::fast_linear::recover_proposals_contrast(
+                        image,
+                        &hypotheses,
+                        mask & 12,
+                        sampler,
+                        1.5,
+                    )?;
+                    let extra = crate::linear_duplicates::merge(extra, image);
+                    if extra.len() == 1 && extra[0].support >= 4 {
+                        reads.extend(extra);
+                    }
+                    if options.include_regions {
+                        pending.extend(regions);
+                    }
+                }
+                // Reuse the existing source proposals and gray-profile sampler. A
+                // decoded region only suppresses a retry when it contains every corner
+                // of that proposal; one read never ends scanning of the whole image.
+                let recovery_mask = mask & (16 | 32 | 64 | 256);
+                if recovery_mask != 0 {
+                    let limit = [0, 8, 8, 16][crate::MODE_ID as usize];
+                    let unresolved: Vec<_> = proposals
+                        .iter()
+                        .filter(|proposal| {
+                            !reads.iter().any(|read| {
+                                proposal
+                                    .polygon
+                                    .iter()
+                                    .all(|point| contains_point(*point, &read.polygon))
+                            })
+                        })
+                        .take(limit)
+                        .copied()
+                        .collect();
+                    let (extra, regions) = crate::fast_linear::recover_proposals_contrast(
+                        image,
+                        &unresolved,
+                        recovery_mask,
+                        sampler,
+                        2.,
+                    )?;
+                    if !extra.is_empty() {
+                        let (reconciled, deferred) = crate::recovery_admission::append_recovered(
+                            std::mem::take(reads),
+                            extra,
+                            image,
+                            sampler,
+                            2.,
+                        );
+                        *reads = reconciled;
+                        deferred_reads.extend(deferred);
+                        *reads = crate::linear_duplicates::merge_selected(
+                            std::mem::take(reads),
+                            image,
+                            recovery_mask & 256 != 0,
+                        );
+                    }
+                    if options.include_regions {
+                        pending.extend(regions);
+                    }
+                }
+                #[cfg(any(feature = "high", feature = "very-high"))]
+                if mask & 3 != 0 {
+                    let bands = crate::detail::source_bands(image, reads);
+                    let (extra, regions) =
+                        crate::fast_linear::recover_proposals(image, &bands, mask & 3, sampler)?;
+                    reads.extend(extra);
+                    if options.include_regions {
+                        unread.extend(regions);
+                    }
+                }
+                #[cfg(feature = "medium")]
+                if mask & 12 != 0 {
+                    crate::short_crop::recover(
+                        &mut self.localizer,
+                        image,
+                        &proposals,
+                        mask,
+                        sampler,
+                        reads,
+                    )?;
+                }
+                if options.include_regions {
+                    unread.extend(pending);
+                }
+                Ok(deferred_reads)
+            },
+        );
+        self.fast_profiles = profiles;
+        result
     }
 
     /// Scan selected formats into the shared typed result and optional raw diagnostics.

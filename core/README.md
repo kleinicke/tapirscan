@@ -226,16 +226,43 @@ policies; increasing effort does not guarantee that every individual result is
 retained. A matrix code already found in a Common frame can prevent the later
 optional empty-frame short-code probes. Ordinary multi-symbol scanning continues.
 
+Medium additionally averages three parallel source lines for bounded EAN
+recovery and revisits at most two deferred proposals. If the original-image
+pass still has no Retail result after its established recovery, it can try one
+alternate EAN crop, capped at 131,072 source pixels. This pass retains the earlier
+crop kernel and requires original-source agreement before admitting a result.
+
+For EAN8/UPC-E, Medium can relocalize at most two unresolved source regions,
+using an overlap filter to avoid repeatedly selecting the same area. Each region is capped at 1,048,576 source pixels and reduced to
+at most 32,768 localization pixels; the combined localization budget is 65,536.
+Source-width ordering and an equal per-region allowance prevent one region from
+using the entire budget. Only localization uses reduced pixels. Decoding and
+confirmation use the original image, require multiple supported rows, and
+preserve existing physical owners. This pass can recover an additional label
+in a frame that already contains a read.
+
+Medium reuses up to 64 exact source profiles and their thresholds inside one
+immutable-image transaction. Image layout, coordinates, density and sample limit
+identify entries. Transformations invalidate threshold reuse, a new transaction
+clears the active entries, and overflow uses ordinary uncached sampling.
+
+Low adds one bounded Retail contrast pass when its normal fast path has no read,
+using at most two existing proposals and a bounded continuity-work budget. EAN13/UPC-A claims also
+need independent original-source agreement and no contradiction. Medium and Low
+can consult visual EAN8 evidence on optional source profiles, with observed quiet
+space and existing-owner checks. Private Turbo tiers retain their earlier routing.
+These new recovery passes are not added to High or Very High.
+
 Medium also tries the existing distributed-bar ownership proof in the reverse
 direction before retaining a duplicate interpretation. High and Very High can
 reject an overlapping UPC-E fragment in favor of an EAN13/UPC-A read with support
 at least three and no weaker than the fragment. Both rules still require shared
 source-bar continuity; equal text or overlapping bounding boxes are insufficient.
-Low receives no new Retail recovery policy. All modes skip source sampling when
-no requested linear formats remain active.
+All modes skip source sampling when no requested linear formats remain active.
 
 Validation and failed alternatives are retained under the separate experiment
-repository's `retained/retail-native-recovery-20260929/`. The development corpus
+repository's `retained/retail-native-recovery-20260929/` and
+`retained/retail-medium-low-20260929/`. The development corpus
 mixes complete product photographs, capability fixtures and related variations;
 it is not an untouched holdout. Runtime measurements use paired installed-Chrome
 calls on declared Retail/Common1D/Common panels. See the retained report for

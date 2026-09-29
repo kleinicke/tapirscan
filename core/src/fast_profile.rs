@@ -30,7 +30,27 @@ fn maximum(a: f32, b: f32) -> f32 {
 }
 
 #[derive(Default)]
+struct ThresholdCache {
+    valid: bool,
+    radius: usize,
+    edges: Vec<f32>,
+    runs: Vec<f32>,
+    first_black: bool,
+}
+struct SourceCacheEntry {
+    image: [usize; 5],
+    line: [u64; 6],
+    values: Vec<f32>,
+    thresholds: [ThresholdCache; 3],
+}
+
+#[derive(Default)]
 pub struct Sampler {
+    cache_active: bool,
+    cache_image: Option<[usize; 5]>,
+    cache_current: Option<usize>,
+    source_cache_used: usize,
+    source_cache: Vec<SourceCacheEntry>,
     values: Vec<f32>,
     positions: Vec<f64>,
     envelope: Vec<[f32; 4]>,
@@ -42,6 +62,55 @@ pub struct Sampler {
     pub samples: usize,
 }
 impl Sampler {
+    /// Reuse exact source profiles only inside one immutable-image transaction.
+    /// Restored values never replace the original cached samples.
+    pub fn with_source_cache<T>(
+        &mut self,
+        image: ImageView<'_>,
+        enabled: bool,
+        run: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        self.source_cache_used = 0;
+        self.cache_current = None;
+        self.cache_image = Some([
+            image.data.as_ptr().addr(),
+            image.width,
+            image.height,
+            image.channels,
+            image.stride,
+        ]);
+        self.cache_active = enabled;
+        let result = run(self);
+        self.cache_active = false;
+        self.cache_current = None;
+        self.cache_image = None;
+        self.source_cache_used = 0;
+        result
+    }
+    fn load_threshold(&mut self, slot: usize, radius: usize) -> bool {
+        let Some(index) = self.cache_current else {
+            return false;
+        };
+        let saved = &self.source_cache[index].thresholds[slot];
+        if !saved.valid || saved.radius != radius {
+            return false;
+        }
+        self.edges.clone_from(&saved.edges);
+        self.runs.clone_from(&saved.runs);
+        self.first_black = saved.first_black;
+        true
+    }
+    fn save_threshold(&mut self, slot: usize, radius: usize) {
+        let Some(index) = self.cache_current else {
+            return;
+        };
+        let saved = &mut self.source_cache[index].thresholds[slot];
+        saved.valid = true;
+        saved.radius = radius;
+        saved.edges.clone_from(&self.edges);
+        saved.runs.clone_from(&self.runs);
+        saved.first_black = self.first_black;
+    }
     /// Sample a source line. Out-of-image samples are white quiet-zone padding.
     pub fn sample(&mut self, image: ImageView<'_>, start: [f64; 2], end: [f64; 2]) {
         self.sample_scaled(image, start, end, 1.5, 4096);
@@ -72,6 +141,7 @@ impl Sampler {
         limit: usize,
         channel: u8,
     ) -> bool {
+        self.cache_current = None;
         if image.channels == 1 {
             return false;
         }
@@ -134,6 +204,7 @@ impl Sampler {
         density: f64,
         limit: usize,
     ) {
+        self.cache_current = None;
         let length = (end[0] - start[0]).hypot(end[1] - start[1]);
         self.samples = crate::numeric::f64_isize((length * density).ceil())
             .clamp(32, isize::try_from(limit).unwrap_or(4096))
@@ -144,6 +215,31 @@ impl Sampler {
             self.positions.clear();
             self.positions
                 .extend((0..self.samples).map(|i| usize_f64(i) / usize_f64(self.samples - 1)));
+        }
+        let cache_image = [
+            image.data.as_ptr().addr(),
+            image.width,
+            image.height,
+            image.channels,
+            image.stride,
+        ];
+        let cache_line = [
+            start[0].to_bits(),
+            start[1].to_bits(),
+            end[0].to_bits(),
+            end[1].to_bits(),
+            density.to_bits(),
+            u64::try_from(limit).unwrap_or(u64::MAX),
+        ];
+        if self.cache_active && self.cache_image == Some(cache_image) {
+            if let Some(index) = self.source_cache[..self.source_cache_used]
+                .iter()
+                .position(|entry| entry.image == cache_image && entry.line == cache_line)
+            {
+                self.values.clone_from(&self.source_cache[index].values);
+                self.cache_current = Some(index);
+                return;
+            }
         }
         for &t in &self.positions {
             let x = start[0] + (end[0] - start[0]) * t;
@@ -162,9 +258,77 @@ impl Sampler {
                 },
             );
         }
+        if self.cache_active && self.cache_image == Some(cache_image) && self.source_cache_used < 64
+        {
+            let index = self.source_cache_used;
+            if index == self.source_cache.len() {
+                self.source_cache.push(SourceCacheEntry {
+                    image: cache_image,
+                    line: cache_line,
+                    values: Vec::new(),
+                    thresholds: std::array::from_fn(|_| ThresholdCache::default()),
+                });
+            }
+            let entry = &mut self.source_cache[index];
+            entry.image = cache_image;
+            entry.line = cache_line;
+            entry.values.clone_from(&self.values);
+            for threshold in &mut entry.thresholds {
+                threshold.valid = false;
+            }
+            self.source_cache_used += 1;
+            self.cache_current = Some(index);
+        }
+    }
+    /// Average three parallel original-pixel lines without changing module positions.
+    pub fn sample_band_limited(
+        &mut self,
+        image: ImageView<'_>,
+        start: [f64; 2],
+        end: [f64; 2],
+        density: f64,
+        limit: usize,
+        offset: f64,
+    ) {
+        self.sample_limited(image, start, end, density, limit);
+        self.cache_current = None;
+        let length = (end[0] - start[0]).hypot(end[1] - start[1]);
+        if length <= 0. {
+            return;
+        }
+        let normal = [
+            -(end[1] - start[1]) / length * offset,
+            (end[0] - start[0]) / length * offset,
+        ];
+        let mut upper = crate::sampling::BilinearCursor::new(image);
+        let mut lower = crate::sampling::BilinearCursor::new(image);
+        for (i, &t) in self.positions.iter().enumerate() {
+            let x = start[0] + (end[0] - start[0]) * t;
+            let y = start[1] + (end[1] - start[1]) * t;
+            let inside = |x: f64, y: f64| {
+                x >= 0.
+                    && y >= 0.
+                    && x <= usize_f64(image.width - 1)
+                    && y <= usize_f64(image.height - 1)
+            };
+            let (ux, uy) = (x + normal[0], y + normal[1]);
+            let (lx, ly) = (x - normal[0], y - normal[1]);
+            let a = if inside(ux, uy) {
+                upper.sample(ux, uy)
+            } else {
+                255.
+            };
+            let b = if inside(lx, ly) {
+                lower.sample(lx, ly)
+            } else {
+                255.
+            };
+            self.values[i] = (self.values[i] + a + b) / 3.;
+        }
     }
     /// Restore a bounded profile contrast hypothesis without changing source positions.
     pub fn restore_contrast(&mut self, strength: f32) {
+        self.cache_current = None;
         let original = self.values.clone();
         let n = original.len();
         for i in 0..n {
@@ -179,6 +343,7 @@ impl Sampler {
     }
     /// Wider bounded contrast hypothesis for independently checked EAN recovery.
     pub fn restore_contrast_wide(&mut self, strength: f32) {
+        self.cache_current = None;
         let original = self.values.clone();
         let n = original.len();
         if n == 0 {
@@ -211,6 +376,10 @@ impl Sampler {
 
     /// Build subpixel run boundaries from local extrema or a whole-line threshold.
     pub fn threshold(&mut self, local: bool) {
+        let slot = if local { 0 } else { 2 };
+        if self.load_threshold(slot, 0) {
+            return;
+        }
         self.edges.clear();
         self.runs.clear();
         self.extrema.clear();
@@ -302,6 +471,7 @@ impl Sampler {
         }
         self.edges.push(f64_f32(usize_f64(values.len() - 1)));
         self.runs.extend(self.edges.windows(2).map(|p| p[1] - p[0]));
+        self.save_threshold(slot, 0);
     }
 }
 
@@ -326,6 +496,9 @@ impl Sampler {
         } else {
             (n / 32).clamp(6, 128)
         };
+        if self.load_threshold(1, radius) {
+            return;
+        }
         let block = 2 * radius + 1;
         self.envelope.resize(n, [0.; 4]);
         // Prefix/suffix extrema reset at block boundaries. Iterating chunks
@@ -378,6 +551,7 @@ impl Sampler {
         }
         self.edges.push(f64_f32(usize_f64(n - 1)));
         self.runs.extend(self.edges.windows(2).map(|p| p[1] - p[0]));
+        self.save_threshold(1, radius);
     }
 }
 
@@ -614,5 +788,123 @@ mod chromatic_profile_tests {
         let gray = vec![127; width * height];
         let gray = ImageView::new(&gray, width, height, 1, width).unwrap();
         assert!(!sampler.sample_color_limited(gray, [0., 0.5], [63., 1.5], 1.5, 1024, 2));
+    }
+}
+
+#[cfg(test)]
+mod scoped_source_cache_tests {
+    use super::*;
+
+    fn compare(a: &Sampler, b: &Sampler) {
+        assert_eq!(a.values, b.values);
+        assert_eq!(a.positions, b.positions);
+        assert_eq!(a.samples, b.samples);
+        assert_eq!(a.edges, b.edges);
+        assert_eq!(a.runs, b.runs);
+        assert_eq!(a.first_black, b.first_black);
+    }
+
+    #[test]
+    fn cache_preserves_thresholds_after_restoration_and_reversed_runs() {
+        let pixels: Vec<u8> = (0..640 * 8)
+            .map(|i| u8::try_from((i * 37 + i / 11) % 256).unwrap())
+            .collect();
+        let image = ImageView::new(&pixels, 640, 8, 1, 640).unwrap();
+        let mut cached = Sampler::default();
+        let mut plain = Sampler::default();
+        cached.with_source_cache(image, true, |cached| {
+            for repeat in 0..5 {
+                for (a, b) in [([-10., 2.], [650., 5.]), ([610., 5.], [12., 1.])] {
+                    cached.sample_limited(image, a, b, 1.5, 1536);
+                    plain.sample_limited(image, a, b, 1.5, 1536);
+                    // Adaptive threshold reads the previous run widths. Both histories
+                    // include reversed runs and changes in source-restoration policy.
+                    for local in [true, false] {
+                        cached.threshold(local);
+                        plain.threshold(local);
+                        compare(cached, &plain);
+                        cached.runs.reverse();
+                        plain.runs.reverse();
+                        cached.adaptive_threshold();
+                        plain.adaptive_threshold();
+                        compare(cached, &plain);
+                    }
+                    if repeat % 2 == 0 {
+                        cached.restore_contrast(1.5);
+                        plain.restore_contrast(1.5);
+                    } else {
+                        cached.restore_contrast_wide(1.5);
+                        plain.restore_contrast_wide(1.5);
+                    }
+                    cached.threshold(true);
+                    plain.threshold(true);
+                    compare(cached, &plain);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn reused_image_address_cannot_reuse_previous_frame_pixels() {
+        let mut pixels = vec![255; 320 * 3];
+        let mut cached = Sampler::default();
+        for frame in 0..8 {
+            for (i, value) in pixels.iter_mut().enumerate() {
+                *value = if (i / (frame + 2)) % 2 == 0 { 15 } else { 235 };
+            }
+            let image = ImageView::new(&pixels, 320, 3, 1, 320).unwrap();
+            let mut plain = Sampler::default();
+            plain.sample(image, [0., 1.], [319., 1.]);
+            plain.threshold(true);
+            cached.with_source_cache(image, true, |cached| {
+                for _ in 0..2 {
+                    cached.sample(image, [0., 1.], [319., 1.]);
+                    cached.threshold(true);
+                    compare(cached, &plain);
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn cache_scope_does_not_alias_other_images_or_color_profiles() {
+        let (width, height, stride) = (80, 4, 337);
+        let mut pixels = vec![91; stride * height];
+        for y in 0..height {
+            for x in 0..width {
+                let color = if x % 7 < 3 {
+                    [15, 60, 140, 0]
+                } else {
+                    [230, 215, 180, 255]
+                };
+                pixels[y * stride + x * 4..y * stride + x * 4 + 4].copy_from_slice(&color);
+            }
+        }
+        let other = vec![127; width * height];
+        let image = ImageView::new(&pixels, width, height, 4, stride).unwrap();
+        let other = ImageView::new(&other, width, height, 1, width).unwrap();
+        let mut cached = Sampler::default();
+        let mut plain = Sampler::default();
+        cached.with_source_cache(image, true, |cached| {
+            for source in [image, other, image] {
+                cached.sample(source, [-3., 1.], [82., 2.]);
+                plain.sample(source, [-3., 1.], [82., 2.]);
+                cached.threshold(true);
+                plain.threshold(true);
+                compare(cached, &plain);
+            }
+            assert_eq!(
+                cached.sample_color_limited(image, [0., 1.], [79., 2.], 1.5, 512, 2),
+                plain.sample_color_limited(image, [0., 1.], [79., 2.], 1.5, 512, 2)
+            );
+            cached.threshold(true);
+            plain.threshold(true);
+            compare(cached, &plain);
+            cached.sample(image, [-3., 1.], [82., 2.]);
+            plain.sample(image, [-3., 1.], [82., 2.]);
+            cached.threshold(true);
+            plain.threshold(true);
+            compare(cached, &plain);
+        });
     }
 }

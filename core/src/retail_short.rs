@@ -448,3 +448,18 @@ fn confirms_upce(w: &[f32], digits: &[u8; 8]) -> bool {
                 .all(|(a, b)| *a == b'0' + *b)
         })
 }
+
+/// Strict visual EAN8 hypothesis over observed run widths.
+/// The caller must verify real quiet space, independent rows and ownership.
+#[must_use]
+pub fn source_ean8_evidence(widths: &[f32]) -> Option<([u8; 8], f32, f32)> {
+    if widths.len() != 43
+        || widths
+            .iter()
+            .any(|value| !value.is_finite() || *value <= 0.)
+    {
+        return None;
+    }
+    let mut calls = 0;
+    decode_widths(widths, 4, &mut calls)
+}
