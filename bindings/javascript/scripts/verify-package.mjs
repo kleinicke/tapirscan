@@ -47,6 +47,8 @@ if (
 for (const { mode, file, sha256, bytes } of manifest.modes) {
   if (!source.includes(file) || !compiled.includes(file))
     throw Error(`Stale ${mode} WASM selection`);
+  if (packageMetadata.exports[`./wasm/${mode}.wasm`] !== `./wasm/${file}`)
+    throw Error(`Stable WASM export does not match its manifest: ${mode}`);
   const binary = await readFile(new URL(`wasm/${file}`, pkg));
   if (binary.byteLength !== bytes || createHash("sha256").update(binary).digest("hex") !== sha256)
     throw Error(`Public Rust WASM does not match its manifest: ${mode}`);

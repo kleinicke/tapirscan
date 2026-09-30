@@ -186,7 +186,24 @@ function freeze<T extends object>(value: T): ReadonlyDeep<T> {
     if (child !== null && typeof child === "object") freeze(child);
   return Object.freeze(value) as ReadonlyDeep<T>;
 }
-async function loadDefault(url: URL): Promise<ArrayBuffer> {
+// Retain at most four asset loads (one per effort mode), including pending requests.
+const wasmLoads = new Map<string, Promise<ArrayBuffer>>();
+function loadDefault(url: URL): Promise<ArrayBuffer> {
+  const key = url.href;
+  const cached = wasmLoads.get(key);
+  if (cached) return cached;
+  const pending = readWasm(url).catch((error: unknown) => {
+    if (wasmLoads.get(key) === pending) wasmLoads.delete(key);
+    throw error;
+  });
+  wasmLoads.set(key, pending);
+  if (wasmLoads.size > 4) {
+    const oldest = wasmLoads.keys().next().value;
+    if (oldest !== undefined) wasmLoads.delete(oldest);
+  }
+  return pending;
+}
+async function readWasm(url: URL): Promise<ArrayBuffer> {
   if (url.protocol === "file:") {
     const nodeFs = "node:fs/promises";
     const fs = (await import(/* @vite-ignore */ nodeFs)) as {

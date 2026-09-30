@@ -66,8 +66,44 @@ const result = await scan({ data: pixels, width, height, channels: 1, stride: wi
 Here `pixels` is a Uint8Array of decoded grayscale pixels. Image codecs are not
 included; filenames, URLs and encoded JPEG/PNG bytes are not scan inputs.
 
-In a browser, the default loader fetches assets relative to the module. If your
-bundler relocates modules, copy the WASMs into your public directory:
+### Vite and SvelteKit
+
+Import a stable WASM asset URL so Vite includes it in development and production
+builds, including apps deployed under a base path:
+
+```js
+import { Scanner } from "tapirscan";
+import mediumWasmUrl from "tapirscan/wasm/medium.wasm?url";
+
+// Load once; reuse these bytes if you create more than one scanner.
+const response = await fetch(mediumWasmUrl);
+if (!response.ok) throw new Error(`WASM load failed: ${response.status}`);
+const bytes = await response.arrayBuffer();
+const scanner = await Scanner.create({ loadWasm: async () => bytes });
+try {
+  console.log(scanner.scan(image).values);
+} finally {
+  scanner.dispose();
+}
+```
+
+The stable imports are `tapirscan/wasm/low.wasm`, `medium.wasm`, `high.wasm`
+and `very-high.wasm` (all under `tapirscan/wasm/`). Match the imported asset to
+`mode`; the example uses the default Medium. The package maps these imports to
+its current immutable binaries, so upgrades need no filename changes or manual
+copies. `?url` is Vite syntax, not part of the export name.
+
+In SvelteKit, initialize in browser code (for example, `onMount`) or inside your
+scan worker, rather than during server rendering. Dispose the scanner on teardown;
+if initialization finishes after teardown, dispose it immediately. Keep one scanner
+for camera frames. Import the asset inside the worker when scanning there.
+See the runnable [Vite example](examples/vite/README.md), which uses a worker.
+
+### Other browser setups
+
+The default loader fetches assets relative to the module. If your bundler
+relocates modules, serve the WASMs from your public directory. Run the copy as
+part of your build so package upgrades cannot leave stale assets:
 
 ```sh
 mkdir -p public/tapirscan
@@ -93,6 +129,12 @@ Node; use an absolute URL for an unambiguous location. For authenticated request
 or custom storage, use `loadWasm: async (url) => arrayBuffer`. The callback receives
 URLs resolved against `wasmBaseUrl` when both options are supplied. Creation loads
 one complete Rust scanner for the selected effort mode.
+
+The default loader shares pending and completed loads by resolved URL within each
+JavaScript module instance, retaining at most four assets. Failed loads are removed
+so they can be retried. Each scanner still owns its own WASM instance and memory.
+Custom `loadWasm` callbacks are called for every creation and manage their own cache.
+Workers have separate caches. Reuse a scanner to avoid repeated initialization.
 
 Use the deployed base path if your app is hosted below a subpath. Copy all current
 WASMs so every effort mode remains available. The demo and its comparison engines

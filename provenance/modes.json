@@ -32,7 +32,7 @@
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/retail-integration-20260929.json",
-  "apiWasm": "provenance/wasm-retail-integration-20260929.json",
+  "runtimeRevision": "provenance/js-wasm-loading-20260930.json",
+  "apiWasm": "provenance/wasm-js-wasm-loading-20260930.json",
   "sourceRoot": "core/src"
 }
