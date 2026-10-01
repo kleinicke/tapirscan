@@ -54,6 +54,70 @@ EAN8 and UPCE. `"common1D"` adds Code128, Code39 and ITF; `"common"` adds
 QRCode and DataMatrix to `"common1D"`. See
 [format presets and runtime behavior](../../docs/FORMATS.md).
 
+## Experimental Turbo presets
+
+For faster **1D barcode scanning**, opt into a Turbo preset:
+
+```js
+const scanner = await Scanner.create({ experimentalTurbo: 4, formats: "retail" });
+try {
+  const result = scanner.scan(image);
+  console.log(result.values, result.experimentalTurbo); // Selected preset: 4
+} finally {
+  scanner.dispose();
+}
+
+// The one-shot helper accepts the same selection:
+const result = await scan(image, { experimentalTurbo: 8 });
+```
+
+Accepted values are **2, 4, 8 and 16**. These identify presets with historical
+speed targets, not guaranteed speed multipliers or fractions of a time budget.
+Higher presets generally do less work and can miss more barcodes, including clean
+symbols placed close together. Start with 2 and check detection on your own inputs.
+The acceleration targets linear formats, including all four Retail formats and
+Code128, Code39 and ITF. **These presets do not provide corresponding 2D speedups.**
+QR and other matrix formats remain usable when selected, but changing the Turbo
+number does not select a faster matrix-decoding tier. Mixed-format scanning still
+pays for the enabled 2D readers. Formats outside Retail remain experimental in
+coverage too. See [Turbo behavior and limitations](../../docs/EXPERIMENTAL_TURBO.md).
+
+Choose either `mode` or `experimentalTurbo`; supplying both is an error. Omitting
+both keeps the normal Medium default. The Turbo selection is fixed at creation;
+`scanner.experimentalTurbo` and `result.experimentalTurbo` report it. The underlying
+`mode` is `"low"`. Ordinary results omit `experimentalTurbo`. Results retain the
+same geometry, multiple-barcode and diagnostic fields, including `unfinished`.
+Fast linear scans report unfinished work; this does not invalidate decoded values.
+
+Turbo requires the default `eanAddOnPolicy: "Ignore"` and rejects
+`extendedBudget: true`, because those options would bypass the fast linear path.
+Per-call format subsets and `debug` work normally.
+
+**API stability:** this option, its accepted presets and associated experimental
+asset imports may change or be removed in a minor release; patch releases retain
+API compatibility. Changes are documented in release notes. Pin the exact package
+version when relying on this experimental interface. Stable effort modes and
+shared result fields retain their normal compatibility policy.
+
+For Vite/SvelteKit, use the same loader pattern below, with the matching asset:
+
+```js
+import turboWasmUrl from "tapirscan/wasm/experimental-turbo4.wasm?url";
+
+const response = await fetch(turboWasmUrl);
+if (!response.ok) throw new Error(`WASM load failed: ${response.status}`);
+const bytes = await response.arrayBuffer();
+const scanner = await Scanner.create({
+  experimentalTurbo: 4,
+  loadWasm: async () => bytes,
+});
+// Reuse scanner for frames; call scanner.dispose() on teardown.
+```
+
+Exports exist for `experimental-turbo2.wasm`, `experimental-turbo4.wasm`,
+`experimental-turbo8.wasm` and `experimental-turbo16.wasm` under `tapirscan/wasm/`.
+Only the selected asset is loaded. A mismatched stable mode or Turbo asset is an error.
+
 ## WASM loading
 
 In Node, the default loader reads assets from the installed package. Decode your
@@ -176,15 +240,16 @@ call and does not change the default formats. Previously returned results surviv
 
 ## All options
 
-| Option           | Where               | Default                | Meaning                                                                                                                                                           |
-| ---------------- | ------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mode`           | Creation            | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                                                     |
-| `formats`        | Creation / scan     | `"retail"`             | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call selections must be subsets of creation formats. |
-| `wasmBaseUrl`    | Creation            | Module-relative assets | Directory URL for packaged WASMs. Use this for normal browser hosting.                                                                                            |
-| `loadWasm`       | Creation            | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`. Uses HTTP fetch in browsers and filesystem reads for Node file URLs.                                                        |
-| `eanAddOnPolicy` | Creation / one-shot | `"Ignore"`             | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                            |
-| `extendedBudget` | Scan / one-shot     | `false`                | Allow extra reader work for any format. Exact budgets may evolve.                                                                                                 |
-| `debug`          | Scan                | `false`                | Include search evidence under `result.debug`. Decoded polygons are always returned.                                                                               |
+| Option              | Where               | Default                | Meaning                                                                                                                                                           |
+| ------------------- | ------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `experimentalTurbo` | Creation / one-shot | Unset                  | **Experimental:** `2`, `4`, `8` or `16`; targets faster 1D scanning, not 2D speedups. Mutually exclusive with `mode`.                                             |
+| `mode`              | Creation            | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                                                     |
+| `formats`           | Creation / scan     | `"retail"`             | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call selections must be subsets of creation formats. |
+| `wasmBaseUrl`       | Creation            | Module-relative assets | Directory URL for packaged WASMs. Use this for normal browser hosting.                                                                                            |
+| `loadWasm`          | Creation            | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`. Uses HTTP fetch in browsers and filesystem reads for Node file URLs.                                                        |
+| `eanAddOnPolicy`    | Creation / one-shot | `"Ignore"`             | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                            |
+| `extendedBudget`    | Scan / one-shot     | `false`                | Allow extra reader work for any format. Exact budgets may evolve.                                                                                                 |
+| `debug`             | Scan                | `false`                | Include search evidence under `result.debug`. Decoded polygons are always returned.                                                                               |
 
 Format presets cover supported symbologies. Exports `commonFormats`, `commonLinearFormats`, `linearFormats`, `matrixFormats`
 and `retailFormats` let you compose custom selections; `formatBits` provides their

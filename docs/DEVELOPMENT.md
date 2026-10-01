@@ -31,7 +31,10 @@ npm test --prefix bindings/javascript
 
 Both adapters build the prepared public Rust package. `build_wasm.py` verifies
 source and binary identities in the `apiWasm` manifest selected by `provenance/modes.json`; `--record`
-records an intentionally changed build after review and validation.
+records an intentionally changed build after review and validation. Release WASM
+builds include the four stable modes and four experimental JavaScript Turbo presets.
+Preset recipes come from `scripts/build_turbo.py`; their compile-time settings are
+recorded with each artifact. Environment overrides remain development-only.
 
 `core/src` is directly editable production source. `python3 scripts/build.py MODE`
 runs its selected core tests without applying patches. Plain Cargo defaults to

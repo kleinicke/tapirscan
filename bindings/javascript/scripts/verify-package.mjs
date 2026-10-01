@@ -38,20 +38,36 @@ if (
 )
   throw Error("Public Rust WASM manifest must contain all four modes exactly once");
 const packageMetadata = JSON.parse(await readFile(new URL("package.json", pkg), "utf8"));
+const experimental = manifest.experimentalTurbo;
+const presets = [2, 4, 8, 16];
+if (
+  !Array.isArray(experimental) ||
+  experimental.length !== presets.length ||
+  presets.some((preset) => !experimental.some((entry) => entry.preset === preset))
+)
+  throw Error("Public WASM manifest must contain Turbo presets 2, 4, 8 and 16 exactly once");
+const assets = [...manifest.modes, ...experimental];
 const packedWasm = packageMetadata.files.filter((file) => file.endsWith(".wasm"));
 if (
-  packedWasm.length !== manifest.modes.length ||
-  manifest.modes.some(({ file }) => !packedWasm.includes(`wasm/${file}`))
+  packedWasm.length !== assets.length ||
+  assets.some(({ file }) => !packedWasm.includes(`wasm/${file}`))
 )
   throw Error("Package file list must include exactly the selected public WASM assets");
-for (const { mode, file, sha256, bytes } of manifest.modes) {
+for (const { mode, preset, file, sha256, bytes } of assets) {
+  const name = preset === undefined ? mode : `experimental-turbo${preset}`;
   if (!source.includes(file) || !compiled.includes(file))
-    throw Error(`Stale ${mode} WASM selection`);
-  if (packageMetadata.exports[`./wasm/${mode}.wasm`] !== `./wasm/${file}`)
-    throw Error(`Stable WASM export does not match its manifest: ${mode}`);
+    throw Error(`Stale ${name} WASM selection`);
+  if (packageMetadata.exports[`./wasm/${name}.wasm`] !== `./wasm/${file}`)
+    throw Error(`WASM export does not match its manifest: ${name}`);
   const binary = await readFile(new URL(`wasm/${file}`, pkg));
   if (binary.byteLength !== bytes || createHash("sha256").update(binary).digest("hex") !== sha256)
-    throw Error(`Public Rust WASM does not match its manifest: ${mode}`);
+    throw Error(`Public Rust WASM does not match its manifest: ${name}`);
+  const { instance } = await WebAssembly.instantiate(binary, {});
+  if (
+    instance.exports.tapirscan_experimental_turbo() !== (preset ?? 0) ||
+    instance.exports.tapirscan_mode() !== expectedModes.indexOf(mode)
+  )
+    throw Error(`WASM compiled selection does not match its manifest: ${name}`);
 }
 for (const file of [
   "dist/index.d.ts",
@@ -60,4 +76,6 @@ for (const file of [
   "THIRD_PARTY_NOTICES.md",
 ])
   await readFile(new URL(file, pkg));
-console.log("Package inputs verified: public Rust API WASM in all four modes and notices");
+console.log(
+  "Package inputs verified: public Rust API WASM in four stable modes, four experimental Turbo presets and notices",
+);

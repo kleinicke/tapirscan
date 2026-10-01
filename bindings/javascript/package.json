@@ -8,23 +8,31 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./wasm/low.wasm": "./wasm/low-retail-runtime-20260929.wasm",
-    "./wasm/medium.wasm": "./wasm/medium-retail-runtime-20260929.wasm",
-    "./wasm/high.wasm": "./wasm/high-retail-runtime-20260929.wasm",
-    "./wasm/very-high.wasm": "./wasm/very-high-retail-runtime-20260929.wasm"
+    "./wasm/low.wasm": "./wasm/low-experimental-turbo-api-20261001.wasm",
+    "./wasm/medium.wasm": "./wasm/medium-experimental-turbo-api-20261001.wasm",
+    "./wasm/high.wasm": "./wasm/high-experimental-turbo-api-20261001.wasm",
+    "./wasm/very-high.wasm": "./wasm/very-high-experimental-turbo-api-20261001.wasm",
+    "./wasm/experimental-turbo2.wasm": "./wasm/experimental-turbo2-api-20261001.wasm",
+    "./wasm/experimental-turbo4.wasm": "./wasm/experimental-turbo4-api-20261001.wasm",
+    "./wasm/experimental-turbo8.wasm": "./wasm/experimental-turbo8-api-20261001.wasm",
+    "./wasm/experimental-turbo16.wasm": "./wasm/experimental-turbo16-api-20261001.wasm"
   },
   "files": [
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-retail-runtime-20260929.wasm",
-    "wasm/medium-retail-runtime-20260929.wasm",
-    "wasm/high-retail-runtime-20260929.wasm",
-    "wasm/very-high-retail-runtime-20260929.wasm"
+    "wasm/low-experimental-turbo-api-20261001.wasm",
+    "wasm/medium-experimental-turbo-api-20261001.wasm",
+    "wasm/high-experimental-turbo-api-20261001.wasm",
+    "wasm/very-high-experimental-turbo-api-20261001.wasm",
+    "wasm/experimental-turbo2-api-20261001.wasm",
+    "wasm/experimental-turbo4-api-20261001.wasm",
+    "wasm/experimental-turbo8-api-20261001.wasm",
+    "wasm/experimental-turbo16-api-20261001.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",
-    "test": "node --test test/scanner.mjs test/shared-retail.mjs test/loading.mjs && tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext test/api-types.ts",
+    "test": "node --test test/scanner.mjs test/shared-retail.mjs test/loading.mjs test/turbo.mjs && tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext test/api-types.ts",
     "prepack": "npm run build && node scripts/verify-package.mjs"
   },
   "devDependencies": {

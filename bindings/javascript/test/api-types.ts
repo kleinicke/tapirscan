@@ -1,5 +1,12 @@
 // Compile-time consumer contract. This function is never executed.
-import { scan, Scanner, type Barcode, type Image, type ScanResult } from "../dist/index.js";
+import {
+  scan,
+  Scanner,
+  type Barcode,
+  type Image,
+  type ScanResult,
+  type ScannerOptions,
+} from "../dist/index.js";
 
 export async function consumer(data: Uint8Array, imageData: ImageData) {
   const image: Image = { data, width: 640, height: 480, channels: 1 };
@@ -59,4 +66,12 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
   } finally {
     scanner.dispose();
   }
+}
+
+// Experimental values stay numeric; runtime validation rejects mode + preset.
+void Scanner.create({ experimentalTurbo: 4 });
+// @ts-expect-error Turbo accepts only the four named presets.
+void Scanner.create({ experimentalTurbo: 3 });
+export interface ApplicationOptions extends ScannerOptions {
+  label: string;
 }

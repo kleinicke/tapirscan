@@ -102,6 +102,8 @@ export interface ScanResult {
   readonly best: Barcode | undefined;
   readonly image: { readonly width: number; readonly height: number };
   readonly mode: Mode;
+  /** @experimental Selected Turbo preset, when requested. */
+  readonly experimentalTurbo?: ExperimentalTurbo;
   /** Whole synchronous WASM call time measured by the JavaScript host. */
   readonly elapsedMs: number;
   readonly unfinished: boolean;
@@ -109,10 +111,13 @@ export interface ScanResult {
   readonly debug?: Diagnostics;
 }
 export type EanAddOnPolicy = "Ignore" | "Read" | "Require";
+export type ExperimentalTurbo = 2 | 4 | 8 | 16;
 export interface ScannerOptions {
+  mode?: Mode;
+  /** @experimental Targets faster 1D scanning, not 2D speedups. May change in minor releases. */
+  experimentalTurbo?: ExperimentalTurbo;
   /** Optional EAN/UPC supplement policy, fixed at creation. */
   eanAddOnPolicy?: EanAddOnPolicy;
-  mode?: Mode;
   formats?: FormatSelection;
   /** Directory containing the packaged WASMs; relative to the page in browsers. */
   wasmBaseUrl?: string | URL;
@@ -141,10 +146,16 @@ interface WireResult {
 }
 
 const modes: Record<Mode, { id: number; file: string }> = {
-  low: { id: 0, file: "low-retail-runtime-20260929.wasm" },
-  medium: { id: 1, file: "medium-retail-runtime-20260929.wasm" },
-  high: { id: 2, file: "high-retail-runtime-20260929.wasm" },
-  "very-high": { id: 3, file: "very-high-retail-runtime-20260929.wasm" },
+  low: { id: 0, file: "low-experimental-turbo-api-20261001.wasm" },
+  medium: { id: 1, file: "medium-experimental-turbo-api-20261001.wasm" },
+  high: { id: 2, file: "high-experimental-turbo-api-20261001.wasm" },
+  "very-high": { id: 3, file: "very-high-experimental-turbo-api-20261001.wasm" },
+};
+const turboFiles: Record<ExperimentalTurbo, string> = {
+  2: "experimental-turbo2-api-20261001.wasm",
+  4: "experimental-turbo4-api-20261001.wasm",
+  8: "experimental-turbo8-api-20261001.wasm",
+  16: "experimental-turbo16-api-20261001.wasm",
 };
 const addOnPolicies: Record<EanAddOnPolicy, number> = { Ignore: 0, Read: 1, Require: 2 };
 
@@ -186,7 +197,7 @@ function freeze<T extends object>(value: T): ReadonlyDeep<T> {
     if (child !== null && typeof child === "object") freeze(child);
   return Object.freeze(value) as ReadonlyDeep<T>;
 }
-// Retain at most four asset loads (one per effort mode), including pending requests.
+// Bound retained WASM bytes across stable modes, experimental presets and custom URLs.
 const wasmLoads = new Map<string, Promise<ArrayBuffer>>();
 function loadDefault(url: URL): Promise<ArrayBuffer> {
   const key = url.href;
@@ -239,7 +250,12 @@ function wireResult(value: unknown): WireResult {
     throw new ScannerError("invalid_output", "Scanner returned an invalid result");
   return value as WireResult;
 }
-function publicResult(raw: WireResult, elapsedMs: number, debug: boolean): ScanResult {
+function publicResult(
+  raw: WireResult,
+  elapsedMs: number,
+  debug: boolean,
+  experimentalTurbo?: ExperimentalTurbo,
+): ScanResult {
   const barcodes = raw.barcodes;
   const undecoded = raw.undecoded.map(({ format, polygon }) => ({
     format: format ?? ("Unknown" as const),
@@ -256,6 +272,7 @@ function publicResult(raw: WireResult, elapsedMs: number, debug: boolean): ScanR
     best: raw.bestIndex === null ? undefined : barcodes[raw.bestIndex],
     image: raw.image,
     mode: raw.mode,
+    ...(experimentalTurbo === undefined ? {} : { experimentalTurbo }),
     elapsedMs,
     unfinished: raw.unfinished,
     undecoded,
@@ -270,6 +287,8 @@ export class Scanner {
     readonly mode: Mode,
     private readonly configuredFormats: readonly Format[],
     private readonly addOnPolicy: EanAddOnPolicy,
+    /** @experimental Selected Turbo preset, fixed at creation. */
+    readonly experimentalTurbo?: ExperimentalTurbo,
   ) {
     Object.freeze(configuredFormats);
   }
@@ -286,9 +305,27 @@ export class Scanner {
     if (input === null || typeof input !== "object" || Array.isArray(input))
       throw new TypeError("Invalid scanner options");
     for (const key of Object.keys(options))
-      if (!["mode", "formats", "wasmBaseUrl", "loadWasm", "eanAddOnPolicy"].includes(key))
+      if (
+        ![
+          "mode",
+          "experimentalTurbo",
+          "formats",
+          "wasmBaseUrl",
+          "loadWasm",
+          "eanAddOnPolicy",
+        ].includes(key)
+      )
         throw new TypeError(`Unknown scanner option: ${key}`);
-    const mode = options.mode ?? "medium";
+    const turbo = options.experimentalTurbo;
+    if (turbo !== undefined) {
+      if (typeof turbo !== "number" || !Object.hasOwn(turboFiles, turbo))
+        throw new TypeError("experimentalTurbo must be 2, 4, 8 or 16");
+      if (options.mode !== undefined)
+        throw new TypeError("Choose mode or experimentalTurbo, not both");
+      if (options.eanAddOnPolicy !== undefined && options.eanAddOnPolicy !== "Ignore")
+        throw new TypeError("experimentalTurbo requires eanAddOnPolicy: Ignore");
+    }
+    const mode = turbo === undefined ? (options.mode ?? "medium") : "low";
     if (!Object.hasOwn(modes, mode)) throw new TypeError("Unknown scanner mode");
     const formats = resolveFormats(options.formats);
     const addOnPolicy = options.eanAddOnPolicy === undefined ? "Ignore" : options.eanAddOnPolicy;
@@ -311,14 +348,17 @@ export class Scanner {
           );
     if (!base.pathname.endsWith("/")) base.pathname += "/";
     const selected = modes[mode];
-    const bytes = await (options.loadWasm ?? loadDefault)(new URL(selected.file, base));
+    const bytes = await (options.loadWasm ?? loadDefault)(
+      new URL(turbo === undefined ? selected.file : turboFiles[turbo], base),
+    );
     const host = await RustScannerSession.create(
       bytes,
       selected.id,
       maskFor(formats),
       addOnPolicies[addOnPolicy],
+      turbo,
     );
-    return new Scanner(host, mode, formats, addOnPolicy);
+    return new Scanner(host, mode, formats, addOnPolicy, turbo);
   }
 
   scan(inputImage: PixelImage, options: ScanOptions = {}): ScanResult {
@@ -333,6 +373,8 @@ export class Scanner {
       throw new TypeError("debug must be a boolean");
     if (options.extendedBudget !== undefined && typeof options.extendedBudget !== "boolean")
       throw new TypeError("extendedBudget must be a boolean");
+    if (this.experimentalTurbo !== undefined && options.extendedBudget === true)
+      throw new TypeError("experimentalTurbo cannot be combined with extendedBudget: true");
     const formats = options.formats === undefined ? this.formats : resolveFormats(options.formats);
     if (formats.some((format) => !this.formats.includes(format)))
       throw new TypeError(
@@ -346,7 +388,7 @@ export class Scanner {
     );
     if (debug && !raw.debug)
       throw new ScannerError("invalid_output", "Scanner omitted requested diagnostics");
-    return publicResult(raw, performance.now() - start, debug);
+    return publicResult(raw, performance.now() - start, debug, this.experimentalTurbo);
   }
   /** Release the WASM session. Repeated disposal is safe; scanning afterward fails. */
   dispose(): void {

@@ -97,6 +97,21 @@ pub extern "C" fn tapirscan_mode() -> u32 {
     MODE_ID
 }
 
+/// Experimental Turbo preset compiled into this asset; zero for stable modes.
+#[no_mangle]
+pub extern "C" fn tapirscan_experimental_turbo() -> u32 {
+    if MODE_ID != 0 {
+        return 0;
+    }
+    match option_env!("TAPIRSCAN_TURBO_TIER") {
+        Some("2") => 2,
+        Some("4") => 4,
+        Some("8") => 8,
+        Some("16") => 16,
+        _ => 0,
+    }
+}
+
 /// Create a scanner. Returns zero for invalid configuration or capacity exhaustion.
 #[no_mangle]
 pub extern "C" fn tapirscan_create(mode: u32, format_mask: u32, addon_policy: u32) -> u32 {

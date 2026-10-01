@@ -173,6 +173,11 @@ accuracy ranking. **[Read the illustrated comparison and its sources](docs/COMPA
 called **Low Classic** and remains a demo-only comparison. See
 [Low and Low Classic](docs/LOW_MODES.md) for behavior and compatibility.
 
+JavaScript also offers **experimental Turbo presets** for faster 1D scanning,
+including Retail: `experimentalTurbo: 2 | 4 | 8 | 16`. They trade difficult-image
+recovery for less work and do not provide corresponding 2D speedups. Numbers are
+preset identifiers, not guaranteed multipliers. See [usage and stability](bindings/javascript/README.md#experimental-turbo-presets).
+
 Start with `medium`. Try `low` if scanning slows down your camera preview, or
 `high` and `very-high` when an image is difficult to read. Measure on your own
 images and devices: higher effort does not guarantee more reads on every image.

@@ -1,5 +1,13 @@
 # Release notes
 
+## Unreleased
+
+- JavaScript: add `experimentalTurbo: 2 | 4 | 8 | 16` as an alternative to stable
+  effort selection, with matching WASM exports and preset validation. Targets
+  faster 1D scanning (including Retail), not 2D speedups; numbers are not speed
+  guarantees. Experimental options, presets and associated imports/properties
+  may change in minor releases. Stable defaults remain unchanged.
+
 ## Unreleased: recovery preview
 
 - Bound Medium band recovery with a preliminary source-row probe; keep full

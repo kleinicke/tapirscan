@@ -47,6 +47,13 @@ selection to retail; callers needing EAN13-only behavior should select it explic
 Decoder improvements can change reads, geometry, ordering and runtime on a given
 image. Those outputs are not bit-for-bit compatibility promises. Experimental
 format coverage describes decoding maturity, not permission to break the API.
+The JavaScript `experimentalTurbo` option, its preset values, corresponding
+`experimentalTurbo` scanner/result properties and `wasm/experimental-turbo*.wasm`
+imports are explicitly exempt from minor-version compatibility: they may change
+or be removed in a minor release, with changes recorded in release notes. Patch
+releases retain interface compatibility. Pin an exact version when using them.
+This exception does not cover stable effort modes or shared result fields.
+
 Undocumented internal counters, private modules and generated build paths are not
 public interfaces. The C ABI is version 4; Rust binary ABI stability is not
 promised across compiler versions.

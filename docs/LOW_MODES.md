@@ -9,7 +9,9 @@ name is added; `medium` remains the default.
 improvements. It remains an optional, fixed-build demo comparison. It is not a
 public `low-classic` mode. The demo pins the improved consensus build for Classic;
 changing the public version selector changes TS-Low, Medium, High and Very High,
-not that historical comparison. Optional Turbo2/4/8/16 remain private experiments.
+not that historical comparison. JavaScript can opt into experimental Turbo2/4/8/16 through `experimentalTurbo`;
+see the [Turbo guide](EXPERIMENTAL_TURBO.md). They target faster 1D scanning,
+not corresponding 2D speedups.
 
 Low emphasizes bounded, rotation-aware decoding with all supported format masks.
 It can miss difficult codes that higher effort modes find, and fast linear scans

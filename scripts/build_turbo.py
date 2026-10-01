@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build private Turbo artifacts without adding a public scanner mode."""
+"""Build isolated Turbo artifacts for native research and development."""
 
 import argparse
 import hashlib

@@ -3,13 +3,13 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-retail-runtime-20260929",
+      "tag": "low-experimental-turbo-api-20261001",
       "fitLimit": 0,
       "maxLocalizedProposals": 32
     },
     {
       "mode": "medium",
-      "tag": "medium-retail-runtime-20260929",
+      "tag": "medium-experimental-turbo-api-20261001",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
       "directions": 1,
@@ -17,7 +17,7 @@
     },
     {
       "mode": "high",
-      "tag": "high-retail-runtime-20260929",
+      "tag": "high-experimental-turbo-api-20261001",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
       "directions": 2,
@@ -25,14 +25,32 @@
     },
     {
       "mode": "very-high",
-      "tag": "very-high-retail-runtime-20260929",
+      "tag": "very-high-experimental-turbo-api-20261001",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
       "directions": 2,
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/js-wasm-loading-working-20260930.json",
-  "apiWasm": "provenance/wasm-js-wasm-loading-working-20260930.json",
-  "sourceRoot": "core/src"
+  "runtimeRevision": "provenance/experimental-turbo-api-20261001.json",
+  "apiWasm": "provenance/wasm-experimental-turbo-api-20261001.json",
+  "sourceRoot": "core/src",
+  "experimentalTurbo": [
+    {
+      "preset": 2,
+      "tag": "experimental-turbo2-api-20261001"
+    },
+    {
+      "preset": 4,
+      "tag": "experimental-turbo4-api-20261001"
+    },
+    {
+      "preset": 8,
+      "tag": "experimental-turbo8-api-20261001"
+    },
+    {
+      "preset": 16,
+      "tag": "experimental-turbo16-api-20261001"
+    }
+  ]
 }

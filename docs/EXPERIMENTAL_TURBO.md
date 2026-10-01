@@ -1,10 +1,21 @@
-# Private Turbo scanners
+# Experimental Turbo scanners
 
-The original Turbo policy is now the public **Low** implementation (TS-Low in
-the demo). **TS-Low Classic** retains the original Low as a fixed demo comparison.
-See [Low and Low Classic](LOW_MODES.md). Turbo2, Turbo4, Turbo8 and Turbo16 remain
-private build recipes. Turbo32 was retired because it lost substantially more
-reads and did not reach its speed target.
+JavaScript exposes the retained Turbo2, Turbo4, Turbo8 and Turbo16 recipes through
+`experimentalTurbo: 2 | 4 | 8 | 16`. See the [JavaScript guide](../bindings/javascript/README.md#experimental-turbo-presets)
+for usage, WASM imports, option restrictions and the experimental compatibility policy.
+The presets target faster **1D scanning, including Retail**; they do not provide
+corresponding 2D speedups. Numbers identify presets, not guaranteed multipliers.
+
+The original Turbo policy remains public **Low** (TS-Low in the demo).
+**TS-Low Classic** is the previous Low retained as a fixed demo comparison.
+Turbo32 remains retired because it lost substantially more reads and did not reach
+its speed target. See [Low and Low Classic](LOW_MODES.md).
+
+Normal WASM package builds include four stable modes and the four experimental
+presets from current source, each with an immutable binary identity and recorded
+build policy. The scanner verifies the selected asset's preset identity.
+Native language APIs are unchanged. The private builder below remains available
+for native research and explicit development artifacts.
 
 Build an explicit private artifact:
 
@@ -18,8 +29,8 @@ The ordinary builders are used internally, with native output directed to the
 private directory so the ordinary `build/native` libraries remain unchanged.
 Private WASM compilation uses development assets and does not change
 release identities or publish a package or demo. Select the private file
-explicitly; it still uses the Low adapter ABI. No Turbo names are accepted by
-public constructors, format enums or mode registries.
+explicitly; it still uses the Low adapter ABI. JavaScript selects numbered presets through `experimentalTurbo`; stable mode names
+and format identifiers are unchanged.
 
 ## Formats and quality
 
@@ -32,19 +43,21 @@ quality or the Common1D speed ratio on every format.
 
 The tiers reduce the localization grid, sampling rows and recovery work. Their
 numbers are experimental Common1D speed targets, not guarantees on a particular
-image or multipliers for 2D decoding. Small modules, blur, damage, distortion,
+image or multipliers for 2D decoding. Even clean nearby symbols can be missed at aggressive presets; a retained
+Turbo16 EAN8-only control misses two symbols that lower presets read.
+Small modules, blur, damage, distortion,
 difficult lighting and crowded scenes can lose reads relative to Medium. There
 is no reference-decoder or neural fallback. The source image is never assumed to
 contain only one symbol; `multiple: false` ranks after scanning all candidates.
 
-Every private fast linear result reports `unfinished: true`. Source-coordinate
+Every fast linear Turbo result reports `unfinished: true`. Source-coordinate
 geometry, undecoded candidates and support ranking remain available. Add-on
 policies other than Ignore and extended linear budgets retain the ordinary
 pipeline. The public API and release assets are separate from demo labels.
 
 ## Matrix fast path
 
-All five retained private recipes use the same conservative 2D policy. After
+All five retained Turbo recipes use the same conservative 2D policy. After
 shared grayscale conversion, a constant frame needs no matrix search. Otherwise,
 when generous padding around all non-background pixels occupies at most 25% of
 the frame and spans at most 512 pixels per side, scan that complete
@@ -83,7 +96,8 @@ matrix readers. Each group independently retries the original source if its crop
 fails or retains unresolved regions; success in one group never suppresses the
 other group's recovery. Common1D-only decoding keeps its existing policy.
 
-The original policy is public Low; the numbered tiers do not add public API modes. The
+The original policy is public Low; JavaScript selects numbered tiers with the
+experimental option rather than adding stable effort-mode names. The
 `turbo-all-formats-20260925` experiment in the sibling workspace records per-format
 quality, strict and presentation-normalized payload metrics, duplicate controls,
 paired Chrome timing and rejected alternatives. Tier numbers are still targets

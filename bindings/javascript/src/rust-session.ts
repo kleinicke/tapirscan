@@ -12,6 +12,7 @@ interface RustExports extends WebAssembly.Exports {
   memory: WebAssembly.Memory;
   tapirscan_abi_version: () => number;
   tapirscan_mode: () => number;
+  tapirscan_experimental_turbo: () => number;
   tapirscan_create: (mode: number, formats: number, addOnPolicy: number) => number;
   tapirscan_destroy: (handle: number) => number;
   tapirscan_prepare: (
@@ -66,6 +67,7 @@ export class RustScannerSession {
     mode: number,
     formats: number,
     addOnPolicy: number,
+    experimentalTurbo = 0,
   ): Promise<RustScannerSession> {
     const instance = await WebAssembly.instantiate(bytes, {});
     const exports = instance.instance.exports as RustExports;
@@ -78,6 +80,13 @@ export class RustScannerSession {
       throw new ScannerError("abi_version", "Unsupported scanner ABI");
     if (exports.tapirscan_mode() !== mode)
       throw new ScannerError("abi_mode", "Scanner WASM mode does not match the requested mode");
+    const tier = exports.tapirscan_experimental_turbo;
+    const actualTurbo = typeof tier === "function" ? tier() : 0;
+    if (actualTurbo !== experimentalTurbo)
+      throw new ScannerError(
+        "abi_turbo",
+        "Scanner WASM does not match the requested experimentalTurbo preset",
+      );
     const handle = exports.tapirscan_create(mode, formats, addOnPolicy);
     if (!handle) throw new ScannerError("capacity", "Could not create scanner session");
     return new RustScannerSession(exports, handle);

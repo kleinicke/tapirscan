@@ -77,3 +77,18 @@ Use a worker for browser responsiveness. Results survive scanner disposal.
 The native ABI remains version 4. C, C++ and Java retain their existing ABI-facing
 interfaces. This revision changes the Python, JavaScript and standalone Rust
 application APIs; publication and release versioning are separate steps.
+
+## Experimental JavaScript Turbo selection
+
+JavaScript accepts `experimentalTurbo: 2 | 4 | 8 | 16` instead of `mode` at
+creation or in the one-shot helper. The underlying effort is Low; the scanner
+and results expose the selected `experimentalTurbo` preset. Ordinary result
+shapes are unchanged. Presets target less work for 1D scanning, including Retail;
+they do not select 2D speed tiers and their numbers are not speed guarantees.
+The selection is fixed at creation and requires ignored supplements and no extended
+budget, so unsupported combinations fail instead of silently bypassing Turbo.
+
+This is an explicit experimental API exception: presets, the option and its
+associated properties/imports may change in minor releases, with release notes.
+Patch releases retain API compatibility. Other bindings retain their current API.
+See the JavaScript guide and the compatibility policy in CONTRIBUTING.md.

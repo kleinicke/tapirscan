@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from build_turbo import environment as turbo_environment
 from prepare_rust import prepared_package, sync_tree, write_changed
 
 from build import MODES, ROOT, wasm_flags
@@ -53,6 +54,7 @@ def source_files() -> dict[str, str]:
             "scripts/build.py",
             "scripts/prepare_rust.py",
             "scripts/build_wasm.py",
+            "scripts/build_turbo.py",
             "scripts/wasm_rustc.py",
             "config/formats.json",
         ]
@@ -106,20 +108,73 @@ def arguments() -> argparse.Namespace:
     )
     args = parser.parse_args()
     if not args.development and any(
-        key in os.environ
-        for key in (
-            "TAPIRSCAN_EXPERIMENTAL_TURBO",
-            "TAPIRSCAN_LOW_CLASSIC",
-            "TAPIRSCAN_TURBO_TIER",
+        key == "TAPIRSCAN_LOW_CLASSIC"
+        or key.startswith(
+            ("TAPIRSCAN_TURBO_", "TAPIRSCAN_EXPERIMENT_", "TAPIRSCAN_EXPERIMENTAL_")
         )
+        for key in os.environ
     ):
-        parser.error("private Turbo tiers and Low Classic require --development")
+        parser.error("private policy overrides require --development")
     if args.record and args.development:
         parser.error("choose release recording or development assets")
     args.modes = args.modes or list(MODES)
     if set(args.modes) - set(MODES):
         parser.error("modes must be low, medium, high or very-high")
     return args
+
+
+def build_variant(
+    mode: str,
+    identity: str,
+    destination: Path,
+    env: dict[str, str],
+    expected_hash: str | None,
+) -> dict:
+    """Compile one isolated stable mode or experimental preset."""
+    env["CARGO_TARGET_DIR"] = str(ROOT / "build/wasm-target" / identity)
+    out = ROOT / "build/wasm" / identity
+    sync_tree(ROOT / "bindings/wasm/src", out / "src")
+    template = (ROOT / "bindings/wasm/Cargo.toml.in").read_text()
+    write_changed(
+        out / "Cargo.toml",
+        (
+            template.replace("@PUBLIC_CRATE@", PACKAGE.as_posix())
+            .replace("@MODE@", mode)
+            .replace("@MODE_ID@", str(list(MODES).index(mode)))
+        ).encode(),
+    )
+    write_changed(out / "Cargo.lock", (PACKAGE / "Cargo.lock").read_bytes())
+    subprocess.run(
+        [
+            "cargo",
+            "build",
+            "--offline",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--manifest-path",
+            str(out / "Cargo.toml"),
+        ],
+        env=env,
+        check=True,
+    )
+    binary = (
+        Path(env["CARGO_TARGET_DIR"])
+        / "wasm32-unknown-unknown/release/tapirscan_wasm.wasm"
+    )
+    actual = hashlib.sha256(binary.read_bytes()).hexdigest()
+    if expected_hash is not None and expected_hash != actual:
+        msg = f"WASM reproducibility mismatch: {mode}"
+        raise SystemExit(msg)
+    shutil.copy2(binary, destination)
+    result = {
+        "mode": mode,
+        "file": destination.name,
+        "sha256": actual,
+        "bytes": binary.stat().st_size,
+    }
+    print(f"Built public Rust API WASM {destination.name}: {actual}", flush=True)
+    return result
 
 
 def main() -> None:
@@ -151,51 +206,36 @@ def main() -> None:
         )
         assets.mkdir(parents=True, exist_ok=True)
         for mode in args.modes:
-            # Each mode exports the same filename; isolate Cargo final artifacts.
-            env["CARGO_TARGET_DIR"] = str(ROOT / "build/wasm-target" / mode)
-            out = ROOT / "build/wasm" / mode
-            sync_tree(ROOT / "bindings/wasm/src", out / "src")
-            template = (ROOT / "bindings/wasm/Cargo.toml.in").read_text()
-            write_changed(
-                out / "Cargo.toml",
-                (
-                    template.replace("@PUBLIC_CRATE@", PACKAGE.as_posix())
-                    .replace("@MODE@", mode)
-                    .replace("@MODE_ID@", str(list(MODES).index(mode)))
-                ).encode(),
-            )
-            write_changed(out / "Cargo.lock", (PACKAGE / "Cargo.lock").read_bytes())
-            subprocess.run(
-                [
-                    "cargo",
-                    "build",
-                    "--offline",
-                    "--release",
-                    "--target",
-                    "wasm32-unknown-unknown",
-                    "--manifest-path",
-                    str(out / "Cargo.toml"),
-                ],
-                env=env,
-                check=True,
-            )
-            binary = (
-                Path(env["CARGO_TARGET_DIR"])
-                / "wasm32-unknown-unknown/release/tapirscan_wasm.wasm"
-            )
             filename = f"{mode}.wasm" if args.development else f"{MODES[mode][1]}.wasm"
-            actual = hashlib.sha256(binary.read_bytes()).hexdigest()
-            if not record and records.get(mode, {}).get("sha256") != actual:
-                msg = f"WASM reproducibility mismatch: {mode}"
-                raise SystemExit(msg)
-            shutil.copy2(binary, assets / filename)
-            records[mode] = {
-                "mode": mode,
-                "file": filename,
-                "sha256": actual,
-                "bytes": binary.stat().st_size,
-            }
-            print(f"Built public Rust API WASM {mode}: {actual}", flush=True)
+            records[mode] = build_variant(
+                mode,
+                mode,
+                assets / filename,
+                env.copy(),
+                None if record else records.get(mode, {}).get("sha256", ""),
+            )
+        experimental = previous.get("experimentalTurbo", [])
+        if not args.development:
+            selection = json.loads((ROOT / "provenance/modes.json").read_text())
+            expected = {entry["preset"]: entry for entry in experimental}
+            experimental = []
+            for entry in selection["experimentalTurbo"]:
+                tier = entry["preset"]
+                variant_env = env.copy()
+                policy = {
+                    key: value
+                    for key, value in turbo_environment(str(tier)).items()
+                    if key.startswith("TAPIRSCAN_")
+                }
+                variant_env.update(policy)
+                result = build_variant(
+                    "low",
+                    f"turbo{tier}",
+                    assets / f"{entry['tag']}.wasm",
+                    variant_env,
+                    None if record else expected.get(tier, {}).get("sha256", ""),
+                )
+                experimental.append({**result, "preset": tier, "environment": policy})
         if record:
             if not args.development and changed and set(args.modes) != set(MODES):
                 msg = "Changed source requires rebuilding every mode before recording"
@@ -209,6 +249,11 @@ def main() -> None:
                         "sourceDigest": digest,
                         "sourceFiles": inputs,
                         "modes": [records[mode] for mode in MODES if mode in records],
+                        **(
+                            {"experimentalTurbo": experimental}
+                            if not args.development
+                            else {}
+                        ),
                     },
                     indent=2,
                 )

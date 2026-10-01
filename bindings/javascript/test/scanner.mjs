@@ -3,54 +3,16 @@ import assert from "node:assert/strict";
 import { readFile, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Scanner, scan, retailFormats, commonFormats, commonLinearFormats } from "../dist/index.js";
+const wasmFile = (mode) =>
+  basename(fileURLToPath(import.meta.resolve(`tapirscan/wasm/${mode}.wasm`)));
 const loadWasm = async (url) => {
   const b = await readFile(url);
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
 };
-// Independent EAN-13 writer: 4006381333931, first-digit parity LGLLGG.
-function fixture() {
-  const L = [
-    "0001101",
-    "0011001",
-    "0010011",
-    "0111101",
-    "0100011",
-    "0110001",
-    "0101111",
-    "0111011",
-    "0110111",
-    "0001011",
-  ];
-  const G = [
-    "0100111",
-    "0110011",
-    "0011011",
-    "0100001",
-    "0011101",
-    "0111001",
-    "0000101",
-    "0010001",
-    "0001001",
-    "0010111",
-  ];
-  const text = "4006381333931";
-  let bits = "101";
-  for (let i = 0; i < 6; i++) bits += ("LGLLGG"[i] === "L" ? L : G)[Number(text[i + 1])];
-  bits += "01010";
-  for (let i = 7; i < 13; i++)
-    bits += L[Number(text[i])].replace(/[01]/g, (x) => (x === "0" ? "1" : "0"));
-  bits += "101";
-  const width = 480,
-    height = 180,
-    data = new Uint8Array(width * height).fill(255);
-  for (let y = 30; y < 150; y++)
-    for (let i = 0; i < bits.length; i++)
-      if (bits[i] === "1") data.fill(0, y * width + 50 + i * 4, y * width + 54 + i * 4);
-  return { text, image: { data, width, height, channels: 1, stride: width } };
-}
+import { fixture } from "./fixtures.mjs";
 for (const mode of ["low", "medium", "high", "very-high"]) {
   test(`${mode}: known EAN, native/WASM parity and lifetime`, async () => {
     const scanner = await Scanner.create({ mode, loadWasm, formats: "EAN13" });
@@ -251,7 +213,7 @@ test("WASM base directory composes with the advanced loader", async () => {
     },
   });
   scanner.dispose();
-  assert.deepEqual(loaded, ["medium-retail-runtime-20260929.wasm"]);
+  assert.deepEqual(loaded, [wasmFile("medium")]);
 });
 
 test("UPC-A selection owns only one primary engine", async () => {
@@ -301,7 +263,7 @@ test("QR-only creation loads one complete engine", async () => {
     },
   });
   try {
-    assert.deepEqual(loaded, ["medium-retail-runtime-20260929.wasm"]);
+    assert.deepEqual(loaded, [wasmFile("medium")]);
     assert.deepEqual(scanner.scan(fixture().image).values, []);
     assert.throws(() => scanner.scan(fixture().image, { formats: "EAN13" }), /subset/);
   } finally {
@@ -458,7 +420,7 @@ test("supplement policy is opt-in, validated at creation and fixed for scans", a
     });
     try {
       assert.equal(scanner.eanAddOnPolicy, policy);
-      assert.deepEqual(loaded, ["low-retail-runtime-20260929.wasm"]);
+      assert.deepEqual(loaded, [wasmFile("low")]);
       assert.deepEqual(scanner.scan(image).values, policy === "Require" ? [] : [text]);
       assert.throws(() => {
         scanner.eanAddOnPolicy = "Read";

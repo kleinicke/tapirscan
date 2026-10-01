@@ -2,36 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Scanner } from "../dist/index.js";
 
-function ean8(copies = 1, gap = 1, text = "96385074") {
-  const digits = [
-    "0001101",
-    "0011001",
-    "0010011",
-    "0111101",
-    "0100011",
-    "0110001",
-    "0101111",
-    "0111011",
-    "0110111",
-    "0001011",
-  ];
-  const bits =
-    "101" +
-    [...text.slice(0, 4)].map((d) => digits[Number(d)]).join("") +
-    "01010" +
-    [...text.slice(4)]
-      .map((d) => digits[Number(d)].replace(/[01]/g, (bit) => (bit === "0" ? "1" : "0")))
-      .join("") +
-    "101";
-  const width = 340,
-    height = 40 + copies * 80 + (copies - 1) * gap;
-  const data = new Uint8Array(width * height).fill(255);
-  for (let copy = 0; copy < copies; copy++)
-    for (let y = 20 + copy * (80 + gap); y < 100 + copy * (80 + gap); y++)
-      for (let x = 0; x < bits.length; x++)
-        if (bits[x] === "1") data.fill(0, y * width + 36 + x * 4, y * width + 40 + x * 4);
-  return { data, width, height, channels: 1 };
-}
+import { ean8 } from "./fixtures.mjs";
 const reads = (result) =>
   result.barcodes
     .filter((b) => b.format === "EAN8")
