@@ -16,7 +16,7 @@ Homepage = "https://github.com/kleinicke/tapirscan"
 Repository = "https://github.com/kleinicke/tapirscan"
 Documentation = "https://github.com/kleinicke/tapirscan/blob/main/bindings/python/README.md"
 Issues = "https://github.com/kleinicke/tapirscan/issues"
-Demo = "https://tapirscan.netlify.app"
+Demo = "https://tapirscan.f-kleinicke.de"
 
 [project.optional-dependencies]
 pillow = ["Pillow>=9"]

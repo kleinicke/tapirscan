@@ -1,6 +1,6 @@
 # How I used an AI coding agent to build Tapirscan
 
-[Tapirscan](README.md) is a barcode library with a [browser demo](https://tapirscan.netlify.app). I built Tapirscan with the help of GPT-6 Astra. Astra wrote the code; I set the goals, tested the results, and guided the experiments. This is the story of that development; the comparisons below describe research observations, rather than a published benchmark of the release.
+[Tapirscan](README.md) is a barcode library with a [browser demo](https://tapirscan.f-kleinicke.de). I built Tapirscan with the help of GPT-6 Astra. Astra wrote the code; I set the goals, tested the results, and guided the experiments. This is the story of that development; the comparisons below describe research observations, rather than a published benchmark of the release.
 
 This started with a problem, before I had a plan to build a library. Open-source barcode scanners seemed worse than they needed to be. I could clearly see a barcode in an image, yet the scanner returned nothing. Why?
 
@@ -63,4 +63,4 @@ To repeat this approach:
 
 Long autonomous runs helped, but **clear measurements and useful feedback mattered more than simply giving the agent more time**. My initial localization hypothesis provided a starting point. The harness showed me where the scanner was improving. Using it on my phone showed me what to ask Astra to work on next.
 
-[Try Tapirscan in your browser](https://tapirscan.netlify.app), or see the [README](README.md) for installation and current format coverage.
+[Try Tapirscan in your browser](https://tapirscan.f-kleinicke.de), or see the [README](README.md) for installation and current format coverage.

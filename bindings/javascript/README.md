@@ -1,7 +1,7 @@
 # Tapirscan for JavaScript and TypeScript
 
 Scan image pixels in a browser or Node with the same Rust/WASM core.
-[Try the live demo](https://tapirscan.netlify.app) · [Quick start](#quick-start) · [WASM loading](#wasm-loading) · [Functions](#functions) · [All options](#all-options) · [Results](#results)
+[Try the live demo](https://tapirscan.f-kleinicke.de) · [Quick start](#quick-start) · [WASM loading](#wasm-loading) · [Functions](#functions) · [All options](#all-options) · [Results](#results)
 
 ## Quick start
 
@@ -359,3 +359,9 @@ a source-image polygon and a format hint. It is a localized proposal without an
 accepted decode, not proof of a real or permanently unreadable barcode. Entries
 can overlap or describe false candidates. An empty collection does not prove
 that every barcode was found. Raw candidate attempts remain in debug diagnostics.
+
+## License
+
+Tapirscan is dual-licensed under **MIT OR Apache-2.0**, at your option.
+See the [full license texts](https://tapirscan.f-kleinicke.de/license/).
+Third-party components retain their own licenses and notices.

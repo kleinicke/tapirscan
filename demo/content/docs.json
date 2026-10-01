@@ -1,0 +1,212 @@
+[
+  {
+    "path": "docs",
+    "title": "Tapirscan documentation",
+    "description": "Use the Tapirscan barcode scanner in JavaScript, Python and native applications.",
+    "sections": [
+      {
+        "title": "Scan locally",
+        "text": "Tapirscan detects multiple barcodes and returns their values, formats and positions. Browser and Node applications use Rust/WebAssembly; Python uses native libraries. Images stay in your application."
+      },
+      {
+        "title": "Start here",
+        "links": [
+          ["JavaScript and TypeScript", "/docs/javascript/"],
+          ["Python", "/docs/python/"],
+          ["Formats and effort modes", "/formats/"],
+          ["Releases and demo builds", "/releases/"],
+          ["License and third-party notices", "/license/"]
+        ]
+      },
+      {
+        "title": "Other language bindings",
+        "text": "Rust, C, C++ and Java bindings share the scanner core. Follow each guide for build and platform requirements.",
+        "links": [
+          ["Rust", "https://github.com/kleinicke/tapirscan/tree/main/bindings/rust"],
+          ["C", "https://github.com/kleinicke/tapirscan/tree/main/bindings/c"],
+          ["Java", "https://github.com/kleinicke/tapirscan/tree/main/bindings/java"],
+          ["C++", "https://github.com/kleinicke/tapirscan/tree/main/bindings/cpp"]
+        ]
+      },
+      {
+        "title": "For coding agents",
+        "text": "Use the documentation for your installed version. The next demo builds can be newer than the published packages. Formats outside Retail remain experimental. Use the Markdown exports for compact documentation; AGENTS.md describes repository development, not the public API.",
+        "links": [
+          ["Documentation index for agents", "/llms.txt"],
+          ["GitHub repository", "https://github.com/kleinicke/tapirscan"]
+        ]
+      }
+    ]
+  },
+  {
+    "path": "docs/javascript",
+    "title": "Barcode scanning with JavaScript and TypeScript",
+    "description": "Install Tapirscan for browser and Node.js applications, load WASM assets and reuse a scanner.",
+    "sections": [
+      {
+        "title": "Install",
+        "text": "Node.js 20+ is required by the package. The runtime must support WebAssembly SIMD. TypeScript declarations and WASM files are included.",
+        "code": "npm install tapirscan",
+        "lang": "sh"
+      },
+      {
+        "title": "Browser quick start",
+        "text": "Pass decoded pixels, such as canvas ImageData. For a bundler-based app, copy the installed WASM files into your public directory first.",
+        "code": "mkdir -p public/tapirscan\ncp node_modules/tapirscan/wasm/*.wasm public/tapirscan/",
+        "lang": "sh"
+      },
+      {
+        "title": "Reuse a scanner",
+        "text": "Initialization is asynchronous; scan() is synchronous. This example expects an existing canvas containing the image you want to scan.",
+        "code": "import { Scanner } from \"tapirscan\";\n\nconst canvas = document.querySelector(\"canvas\");\nconst context = canvas.getContext(\"2d\");\nconst image = context.getImageData(0, 0, canvas.width, canvas.height);\nconst scanner = await Scanner.create({\n  mode: \"medium\", formats: \"retail\", wasmBaseUrl: \"/tapirscan/\"\n});\ntry {\n  const result = scanner.scan(image);\n  console.log(result.values);\n  for (const barcode of result.barcodes) {\n    console.log(barcode.text, barcode.format, barcode.polygon);\n  }\n} finally {\n  scanner.dispose();\n}",
+        "lang": "js"
+      },
+      {
+        "title": "Node.js inputs",
+        "text": "The default Node loader reads packaged WASM files. Decode PNG/JPEG files with an image library before calling scan: encoded bytes and filenames are not pixel inputs.",
+        "code": "import { scan } from \"tapirscan\";\n// pixels: Uint8Array containing decoded grayscale image data.\nconst result = await scan({ data: pixels, width, height, channels: 1, stride: width });\nconsole.log(result.values);",
+        "lang": "js"
+      },
+      {
+        "title": "Camera and worker integration",
+        "text": "Use a Web Worker to keep the interface responsive, reuse one scanner, and keep one frame in flight. Transferred pixel buffers cannot be reused by their sender until ownership is returned. Serve WASM at the configured URL; HTML fallback pages are not valid WASM.",
+        "links": [
+          [
+            "Complete JavaScript API guide",
+            "https://github.com/kleinicke/tapirscan/blob/main/bindings/javascript/README.md"
+          ],
+          ["Complete API guide as Markdown", "/docs/javascript/api.md"],
+          [
+            "Runnable camera and worker examples",
+            "https://github.com/kleinicke/tapirscan/tree/main/bindings/javascript/examples"
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "path": "docs/python",
+    "title": "Barcode scanning with Python",
+    "description": "Read barcodes from Pillow images, NumPy arrays and tensors with Tapirscan.",
+    "sections": [
+      {
+        "title": "Install",
+        "text": "Python 3.10+ is required. Available platform wheels include native scanner libraries. Install Pillow for the following example.",
+        "code": "pip install tapirscan pillow",
+        "lang": "sh"
+      },
+      {
+        "title": "Scan a photo",
+        "text": "Medium effort and the Retail format group are the defaults. Barcode coordinates refer to the input image.",
+        "code": "from PIL import Image\nimport tapirscan\n\nwith Image.open(\"label.jpg\") as image:\n    result = tapirscan.scan(image, mode=\"medium\", formats=\"retail\")\n\nprint(result.values)\nfor barcode in result.barcodes:\n    print(barcode.text, barcode.format, barcode.polygon)",
+        "lang": "python"
+      },
+      {
+        "title": "Arrays and repeated scans",
+        "text": "The library also accepts supported NumPy arrays, tensors and explicit pixel buffers. Check the complete guide for dtype, channel layout, stride, device and ownership requirements. Use a reusable Scanner when scanning many images."
+      },
+      {
+        "title": "Troubleshooting",
+        "text": "If no wheel matches your platform, follow the native build instructions. Install only the optional image libraries you use. Keep supported Retail formats distinct from experimental readers when evaluating results.",
+        "links": [
+          [
+            "Complete Python API guide",
+            "https://github.com/kleinicke/tapirscan/blob/main/bindings/python/README.md"
+          ],
+          ["Complete API guide as Markdown", "/docs/python/api.md"],
+          ["PyPI package", "https://pypi.org/project/tapirscan/"]
+        ]
+      }
+    ]
+  },
+  {
+    "path": "formats",
+    "title": "Barcode formats and scanning effort",
+    "description": "Supported and experimental Tapirscan formats, format presets and four effort modes.",
+    "sections": [
+      {
+        "title": "Supported versus experimental",
+        "text": "EAN13, UPCA, EAN8 and UPCE are the supported Retail formats. Other implemented readers are experimental and opt-in. Inclusion in a preset does not guarantee every barcode of that format will decode."
+      },
+      {
+        "title": "Format presets",
+        "text": "Preset names are case-sensitive. Retail is the default. Enable the formats you need: broader selections may require more work."
+      },
+      {
+        "title": "Effort modes",
+        "text": "Choose low, medium, high or very-high. Medium is the default. Higher effort permits more search; it does not guarantee a read or lower latency on any particular image. These are scanner effort modes, not downloadable neural models."
+      },
+      {
+        "title": "Results and limitations",
+        "text": "Multiple symbols can be returned. A missing read is not proof that an image has no barcode. Empty result arrays mean no barcode was decoded. Read completion and work-limit diagnostics when making decisions about partial scans.",
+        "links": [
+          ["JavaScript guide", "/docs/javascript/"],
+          ["Python guide", "/docs/python/"]
+        ]
+      }
+    ]
+  },
+  {
+    "path": "releases",
+    "title": "Tapirscan releases and demo builds",
+    "description": "Understand published Tapirscan packages and the newer next builds used by the interactive demo.",
+    "sections": [
+      {
+        "title": "Published packages",
+        "text": "At this documentation update, npm and PyPI publish version 1.2.2. Check their current version listings before installation. Package releases and website deployments are separate operations.",
+        "links": [
+          ["npm versions", "https://www.npmjs.com/package/tapirscan?activeTab=versions"],
+          ["PyPI release history", "https://pypi.org/project/tapirscan/#history"],
+          ["GitHub releases", "https://github.com/kleinicke/tapirscan/releases"]
+        ]
+      },
+      {
+        "title": "Current demo preview",
+        "text": "The TS-Med-next, TS-High-next and TS-VHigh-next options select the Retail runtime build from 2026-09-29. It includes the merged Retail recovery work and bounded Medium retry optimizations. The ordinary scanner options follow the demo version selector. Select the current Retail build there to try its Low mode."
+      },
+      {
+        "title": "Version identity matters",
+        "text": "Do not assume a demo preview is already available from npm or PyPI. Use release tags for released API documentation. For reproducible comparisons, record the scanner build, active formats, effort mode, image transformations and device. No new comparative performance claims are published on this page.",
+        "links": [
+          ["Source release notes", "https://github.com/kleinicke/tapirscan/blob/main/CHANGELOG.md"]
+        ]
+      },
+      {
+        "title": "License packaging correction",
+        "text": "The current source includes the full MIT and Apache 2.0 texts. Existing 1.2.2 package artifacts have a license-file mismatch; see the license page for the audit result. No new npm or PyPI release is implied by this documentation update.",
+        "links": [["License details", "/license/"]]
+      }
+    ]
+  },
+  {
+    "path": "license",
+    "title": "Tapirscan license",
+    "description": "Tapirscan is dual-licensed under MIT or Apache License 2.0, at your option.",
+    "sections": [
+      {
+        "title": "Choose MIT or Apache 2.0",
+        "text": "Tapirscan is licensed under MIT OR Apache-2.0, at the recipient’s option. Copyright © 2026 Florian Nick. Both complete license texts are provided below; this page does not replace their terms.",
+        "links": [
+          ["Apache License 2.0 text", "/license/LICENSE-APACHE.txt"],
+          ["MIT License text", "/license/LICENSE-MIT.txt"],
+          ["Combined package license", "/license/LICENSE.txt"]
+        ]
+      },
+      {
+        "title": "Published package packaging",
+        "text": "The current repository and local package inputs include both license texts. The npm 1.2.2 archive and the inspected PyPI 1.2.2 wheel still bundle a MIT-only LICENSE file despite dual-license metadata. A subsequent package release is needed to distribute the corrected combined license consistently. The website deployment does not replace published packages."
+      },
+      {
+        "title": "Third-party components",
+        "text": "Bundled decoders and demo comparison libraries retain their own licenses and notices. The Tapirscan license does not replace those terms.",
+        "links": [
+          ["Demo third-party notices", "/THIRD_PARTY_NOTICES.txt"],
+          [
+            "Scanner third-party notices",
+            "https://github.com/kleinicke/tapirscan/blob/main/multiformat/THIRD_PARTY_NOTICES.md"
+          ]
+        ]
+      }
+    ]
+  }
+]

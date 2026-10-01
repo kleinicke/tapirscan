@@ -1,6 +1,6 @@
 # Tapirscan demo
 
-[Open the public demo](https://tapirscan.netlify.app)
+[Open the public demo](https://tapirscan.f-kleinicke.de)
 
 A browser interface for trying Tapirscan on photos and camera frames. It uses
 the `tapirscan` package, four EAN13 effort modes, and separately loaded
@@ -210,8 +210,8 @@ Production-worker tests exercise repeated initialization and format switching.
 ## Analytics
 
 The demo loads the self-hosted Plausible script at
-`https://analytics.re4vive.com/js/script.js` only on `tapirscan.netlify.app` and
-`tapirscan.f-kleinicke.de`. Both use the existing `tapirscan.netlify.app` dashboard
+`https://analytics.re4vive.com/js/script.js` only on
+`tapirscan.f-kleinicke.de`. It uses the existing legacy analytics dashboard identifier
 identifier to preserve its history. No build environment variable is required.
 Localhost, deploy previews and forks do not load the tracker. The server also
 restricts ingestion to those two production hostnames; adding another hostname
@@ -316,27 +316,17 @@ so lazy image loading cannot collapse the page or shift the reading position.
 
 ## Tapirscan versions
 
-Under **More options**, the **Tapirscan version** selector includes the local full-area build
-`1.2.2+footprint.20260923`, the local
-`1.2.2+ownership.20260923` experiment, the deployed 1.2.2 build, and the local 1.2.1
-baseline from commit `6b85e42`, before the warped-retail changes. The ownership build
-adds source-bar duplicate suppression and weak ITF/retail conflict resolution. The footprint
-build additionally traces visible bar extents and reconciles competing reads through those
-connected source bars. Uncertain extents keep their previous geometry. The baseline is
-an archived local build, not a claim about registry-published 1.2.1 artifacts.
-The selection applies to all TS effort buttons, photos, camera frames and new
-image benchmark runs. Changing it cancels Tapirscan work and rescans the current
-image with fresh Tapirscan workers.
+The public demo offers fixed current and next scanner entries, without a version
+selector. Standard TS entries use the registry default
+`1.2.2+release-r2.20260925`; the next entries pin
+`1.2.2+retail-runtime.20260929`. This keeps current-versus-next comparisons distinct.
 
-`src/lib/scanner-versions.json` pins each version's four WASM assets. Preparation
-and worker loading verify SHA-256 hashes. The public JavaScript host has identical
-behavior for these builds; only its default asset filenames changed. Saved example
-benchmarks are for 1.2.2 and are rejected when another version is selected; run
-locally to measure that version. Keep old bytes immutable when adding versions.
+`src/lib/scanner-versions.json` retains historical versions and pins each version's
+four WASM assets. Preparation and worker loading verify SHA-256 hashes. Keep old
+bytes immutable when adding versions. Saved example benchmarks must match the
+requested build identity.
 
-The version selector invalidates only Tapirscan workers and results. Independent
-reference readers keep completed results for unchanged photo pixels. Live camera
-frames continue to be scanned normally. More options → Show analyzed areas also
+More options → Show analyzed areas also
 shows reported proposals, primary EAN13/UPCA candidate counts, candidates without a
 primary EAN13/UPCA read and localization-limit omissions. Fast-discarded areas are not exposed by the
 current builds and are explicitly marked unavailable, rather than inferred from
@@ -372,7 +362,7 @@ these four additional linear formats.
 These scanners support rotated codes but deliberately omit recovery work,
 always report unfinished, and can miss codes or produce repeated values and
 partial outlines. The numbered Turbo experiments use fixed builds independent of
-the release selector; TS-Low follows the selected public release.
+the current/next builds; TS-Low uses the default public release.
 Images stay local.
 
 `src/lib/turbo.json` pins each artifact's source commit, source digest, build
@@ -403,3 +393,7 @@ the reader under More scanners removes the card and deactivates it.
 Public `low` now uses the former Turbo approach. TS-Low follows the selected
 public release. TS-Low Classic preserves the original Low implementation on its
 fixed improved consensus build. See [Low and Low Classic](../docs/LOW_MODES.md).
+
+## Public documentation
+
+`content/docs.json` contains the website documentation. `scripts/build-docs.mjs` generates static HTML, Markdown exports, license downloads, `llms.txt`, and the sitemap during preparation. The format table comes from `config/formats.json`; complete API Markdown comes from the binding guides. Update both version-specific content and examples when preparing a new release.

@@ -23,22 +23,8 @@
   import { LabelLayout } from "./lib/labels";
   import { version } from "../package.json";
   import scannerVersions from "./lib/scanner-versions.json";
-  let releaseVersion = scannerVersions.default;
+  const releaseVersion = scannerVersions.default;
   const benchmarkEnabled = import.meta.env.VITE_ENABLE_IMAGE_BENCHMARK === "true";
-  let tapirscanRevision = 0;
-  function changeVersion() {
-    tapirscanRevision++;
-    const ids = new Set(
-      options.filter((option) => option.engine === "classical").map((option) => option.id),
-    );
-    entries = entries.filter((entry) => !ids.has(entry.id));
-    for (const id of ids) {
-      pending.get(id)?.(new Error("Tapirscan version changed"));
-      workers.get(id)?.terminate();
-      workers.delete(id);
-    }
-    if ((source || live) && selected.some((id) => ids.has(id))) requestScan(0);
-  }
 
   let pdfDocument: import("pdfjs-dist").PDFDocumentProxy | null = null;
   let pdfName = "";
@@ -763,27 +749,17 @@
         if (!selected.includes(spec.id)) continue;
         if (!live && entries.some((entry) => entry.id === spec.id && entry.viewRevision === token))
           continue;
-        const settingsRevision = tapirscanRevision;
         try {
           if (!workers.has(spec.id)) {
             status = `Warming up ${spec.label}…`;
             await run(spec, image, scanFormats);
             // A new worker's first scan warms its runtime; display the second scan.
-            if (
-              contentToken !== contentRevision ||
-              disposed ||
-              !selected.includes(spec.id) ||
-              (spec.engine === "classical" && settingsRevision !== tapirscanRevision)
-            )
+            if (contentToken !== contentRevision || disposed || !selected.includes(spec.id))
               continue;
           }
           batch.push({ ...spec, ...view, result: await run(spec, image, scanFormats) });
         } catch (reason) {
           batch.push({ ...spec, ...view, error: String(reason) });
-        }
-        if (spec.engine === "classical" && settingsRevision !== tapirscanRevision) {
-          batch.pop();
-          continue;
         }
         if (contentToken !== contentRevision || disposed) break;
         // Publish this decoder immediately, without waiting for later decoders.
@@ -1131,14 +1107,6 @@
   </div>
   <main>
     <p class="scanner-key">TS = Tapirscan · Low, Med, High and VHigh indicate scan effort.</p>
-    <p class="hint">
-      TS-Low is the former Turbo reader. Optional Turbo experiments are under More scanners; their
-      numbers target multiples of TS-Low's Common1D speed. Actual gains vary by image and device,
-      and faster tiers miss more difficult codes. Common includes QR and Data Matrix; 2D selects
-      only matrix formats. All Turbo tiers share the same 2D search. All checks every format and
-      takes longer. TS-Low uses the selected public Low build. TS-Low Classic and Turbo experiments
-      use fixed builds.
-    </p>
     <div class="scanner-buttons" aria-label="Scanners">
       {#each options.filter((option) => visibleScanners.includes(option.id)) as option (option.id)}
         {@const active = selected.includes(option.id)}
@@ -1601,19 +1569,6 @@
         {#if totalMs}Preparation {preparationMs.toFixed(1)} ms · Total {totalMs.toFixed(1)} ms.{/if}
       </p>
       <div class="camera-settings">
-        <label class="version-picker"
-          >Tapirscan version
-          <select
-            aria-label="Tapirscan version"
-            bind:value={releaseVersion}
-            on:change={changeVersion}
-          >
-            {#each scannerVersions.versions.filter((release) => !("preview" in release && release.preview)) as release (release.version)}<option
-                value={release.version}>{release.label}</option
-              >{/each}
-          </select>
-        </label>
-
         <label
           >Capture mode<select
             aria-label="Capture mode"

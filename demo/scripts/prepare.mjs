@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, rm, cp } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+await import("./build-docs.mjs");
 const root = new URL("../../", import.meta.url);
 const selection = JSON.parse(await readFile(new URL("provenance/modes.json", root), "utf8"));
 const apiWasm = JSON.parse(await readFile(new URL(selection.apiWasm, root), "utf8"));
@@ -21,11 +22,7 @@ const experimental = [turbo, ...(turbo.previous ?? []), ...(turbo.variants ?? []
 assets.push(...experimental.map(({ file, sha256 }) => [file, sha256]));
 async function archivedEngine(file) {
   const failures = [];
-  for (const host of [
-    "tapirscan.netlify.app",
-    "tapirscan.f-kleinicke.de",
-    "tapirscan.netlify.app",
-  ]) {
+  for (const host of ["tapirscan.f-kleinicke.de"]) {
     try {
       const response = await fetch(`https://${host}/engines/${file}`, {
         signal: AbortSignal.timeout(30_000),

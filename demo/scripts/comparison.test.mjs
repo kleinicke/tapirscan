@@ -82,7 +82,7 @@ test("basic ZXing readers disable recovery independently of enhanced readers", a
   ]);
 });
 
-test("next scanners pin preview builds while standard names use official releases", async () => {
+test("next scanners pin the current production build while standard names use the version selector", async () => {
   const { readFile } = await import("node:fs/promises");
   const registry = JSON.parse(
     await readFile(new URL("../src/lib/scanner-versions.json", import.meta.url), "utf8"),
@@ -91,16 +91,23 @@ test("next scanners pin preview builds while standard names use official release
     registry.versions.find((entry) => entry.version === registry.default).preview,
     undefined,
   );
-  for (const [id, mode] of [
-    ["ts-med-next", "medium"],
-    ["ts-high-next", "high"],
-    ["ts-vhigh-next", "very-high"],
+  const selection = JSON.parse(
+    await readFile(new URL("../../provenance/modes.json", import.meta.url), "utf8"),
+  );
+  const current = JSON.parse(
+    await readFile(new URL(`../../${selection.apiWasm}`, import.meta.url), "utf8"),
+  );
+  for (const [id, mode, label] of [
+    ["ts-med-next", "medium", "TS-Med-next"],
+    ["ts-high-next", "high", "TS-High-next"],
+    ["ts-vhigh-next", "very-high", "TS-VHigh-next"],
   ]) {
     const spec = comparisonOptions.find((entry) => entry.id === id);
-    assert.equal(spec.label, id);
+    assert.equal(spec.label, label);
     assert.equal(spec.version, mode);
     const release = registry.versions.find((entry) => entry.version === spec.releaseVersion);
-    assert.equal(release.preview, true);
+    assert.equal(release.sourceDigest, current.sourceDigest);
+    assert.deepEqual(release.modes, current.modes);
     assert.ok(release.modes.some((entry) => entry.mode === mode));
   }
   for (const id of ["fast", "quality", "veryhigh"]) {

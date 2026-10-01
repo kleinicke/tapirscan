@@ -93,3 +93,9 @@ Enable the `BARCODE_FINISH_CANDIDATES` scan flag to remove shared frame retry an
 for EAN13/UPC-A candidates. Default is disabled; selected formats must include
 EAN13 or UPCA. Per-candidate effort and other limits remain; unfinished work is
 still reported. See [API design](../../docs/API_DESIGN.md) for scope and cost.
+
+## License
+
+Tapirscan is dual-licensed under **MIT OR Apache-2.0**, at your option.
+See the [full license texts](https://tapirscan.f-kleinicke.de/license/).
+Third-party components retain their own licenses and notices.

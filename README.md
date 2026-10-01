@@ -6,7 +6,7 @@
 
 Orientation-aware barcode scanning for JavaScript, Python and Rust.
 
-[Try the live demo](https://tapirscan.netlify.app) · [npm](https://www.npmjs.com/package/tapirscan) · [PyPI](https://pypi.org/project/tapirscan/) · [JavaScript](bindings/javascript/README.md) · [Python](bindings/python/README.md) · [How it works](docs/ARCHITECTURE.md) · [Compare scanners](docs/COMPARISON.md)
+[Documentation](https://tapirscan.f-kleinicke.de/docs/) · [Try the live demo](https://tapirscan.f-kleinicke.de) · [npm](https://www.npmjs.com/package/tapirscan) · [PyPI](https://pypi.org/project/tapirscan/) · [JavaScript](bindings/javascript/README.md) · [Python](bindings/python/README.md) · [How it works](docs/ARCHITECTURE.md) · [Compare scanners](docs/COMPARISON.md)
 
 </div>
 
@@ -27,13 +27,13 @@ spend on a frame. Formats outside the retail group, including QR Code, remain
 
 ## Try it
 
-**[Open the camera and photo demo →](https://tapirscan.netlify.app)**
+**[Open the camera and photo demo →](https://tapirscan.f-kleinicke.de)**
 
 Start with Pesto, choose another example, load a photo, or scan with your camera.
 Medium, ZXing and ZBar are enabled initially to compare the same image. Images are
-processed in your browser. The demo currently compares **EAN-13 only**.
+processed in your browser. Choose Retail, Common or other format selections to compare the supported readers.
 
-[![Tapirscan demo comparing scanners on the default Pesto photo](docs/assets/demo.png)](https://tapirscan.netlify.app)
+[![Tapirscan demo comparing scanners on the default Pesto photo](docs/assets/demo.png)](https://tapirscan.f-kleinicke.de)
 
 ## Language support
 

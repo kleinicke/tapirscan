@@ -2,8 +2,39 @@
   "default": "1.2.2+release-r2.20260925",
   "versions": [
     {
+      "version": "1.2.2+retail-runtime.20260929",
+      "label": "Current \u00b7 Retail recovery improvements",
+      "sourceDigest": "efdd6909650532d0dba81bf4121a65a1e83b48aa5e6423cbae20a3732e578dcb",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-retail-runtime-20260929.wasm",
+          "sha256": "c982e7ce5cd4ffd847e354e143fdb8f57acc86cbe0d5adff520f29f1ccb08c04",
+          "bytes": 1795947
+        },
+        {
+          "mode": "medium",
+          "file": "medium-retail-runtime-20260929.wasm",
+          "sha256": "e560f581c5e801b3d1b85d424fa52f5ffec135119d882a6a222901e74b9ae404",
+          "bytes": 2353878
+        },
+        {
+          "mode": "high",
+          "file": "high-retail-runtime-20260929.wasm",
+          "sha256": "7bb2aa90e7bdf3b19291fee02262bf725ce9306936c067d56b536e17482086d5",
+          "bytes": 2264364
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-retail-runtime-20260929.wasm",
+          "sha256": "2e1c9508d60cbd2b23c9c6d24a8fe8413ffbb4a38875164189839e65b5351efd",
+          "bytes": 2349702
+        }
+      ]
+    },
+    {
       "version": "1.2.2+production-boundary.20260928",
-      "label": "1.2.2 · production cleanup",
+      "label": "1.2.2 \u00b7 production cleanup",
       "sourceDigest": "b7d583041d14e23aa9d0ef9233faabfe1149a1b434e426f972a5d316ab9bbefb",
       "modes": [
         {
@@ -130,7 +161,7 @@
     },
     {
       "version": "1.2.2+release-r2.20260925",
-      "label": "1.2.2 · new Low",
+      "label": "1.2.2 \u00b7 new Low",
       "sourceDigest": "6d1d3c27fcf54fc43bd6fb92a0170ba3b2bddff71c70ef49dc08847c00cef6d8",
       "modes": [
         {
@@ -161,7 +192,7 @@
     },
     {
       "version": "1.2.2+release.20260925",
-      "label": "1.2.2 · new Low",
+      "label": "1.2.2 \u00b7 new Low",
       "sourceDigest": "fe785ee8b7d35153a14bda8027a924615256838d1465d53ea768cd3a5ed4fabf",
       "modes": [
         {
@@ -192,7 +223,7 @@
     },
     {
       "version": "1.2.2+public-low.20260925",
-      "label": "1.2.2 · new Low (former Turbo)",
+      "label": "1.2.2 \u00b7 new Low (former Turbo)",
       "sourceDigest": "e4c6787ee9ab872176252231755dc997ba8922e9c6a240acf78efef11c12522c",
       "modes": [
         {
@@ -223,7 +254,7 @@
     },
     {
       "version": "1.2.2+consensus.20260925",
-      "label": "1.2.2 · improved barcode outlines",
+      "label": "1.2.2 \u00b7 improved barcode outlines",
       "sourceDigest": "d264fae395dd6cbf47f509f29ec796f523b3a21e80355ed7011034c70fd8a36a",
       "modes": [
         {
@@ -254,7 +285,7 @@
     },
     {
       "version": "1.2.2+footprint-fast.20260924",
-      "label": "1.2.2 · faster full barcode areas",
+      "label": "1.2.2 \u00b7 faster full barcode areas",
       "sourceDigest": "13b0b44c815a0f1eace49cf6bf19e4eb795ab630949f2a50ba50830f33b9ba3c",
       "modes": [
         {
@@ -285,7 +316,7 @@
     },
     {
       "version": "1.2.2+footprint.20260923",
-      "label": "1.2.2 · full barcode areas",
+      "label": "1.2.2 \u00b7 full barcode areas",
       "sourceDigest": "5a39b8be0abb5bd5baf354b54aefbf4c96b34d8b9d490f8279cbf81011091f56",
       "modes": [
         {
@@ -316,7 +347,7 @@
     },
     {
       "version": "1.2.2+ownership.20260923",
-      "label": "1.2.2 · ownership experiment",
+      "label": "1.2.2 \u00b7 ownership experiment",
       "sourceDigest": "9f207728b5f88b1bd8ae77dd425fdff6db2ab481ce704cf64d6da029b79a34f2",
       "modes": [
         {
@@ -347,7 +378,7 @@
     },
     {
       "version": "1.2.2",
-      "label": "1.2.2 · deployed build",
+      "label": "1.2.2 \u00b7 deployed build",
       "sourceDigest": "811fe29b2f33912c3e394eebc1403065ffb521d561b4f6004a62d1222fcbaba4",
       "modes": [
         {
@@ -378,7 +409,7 @@
     },
     {
       "version": "1.2.1",
-      "label": "1.2.1 · previous local build",
+      "label": "1.2.1 \u00b7 previous local build",
       "sourceDigest": "d43b7c9ed7c721f14f5c339a21e58b317086ef1cd979db11d13cd1cf94495d22",
       "modes": [
         {

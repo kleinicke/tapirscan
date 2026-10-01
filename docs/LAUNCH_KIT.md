@@ -28,7 +28,7 @@ The development process was unusual too: an AI coding agent wrote the scanner al
 
 If you work on inventory, product lookup, or camera-based applications, I’d love to hear how it handles your images—especially the ones that are difficult to scan.
 
-Try it: https://tapirscan.netlify.app
+Try it: https://tapirscan.f-kleinicke.de
 
 Code and installation: https://github.com/kleinicke/tapirscan
 
@@ -98,7 +98,7 @@ Its current focus is EAN-13. It localizes barcode regions, estimates their orien
 
 The browser demo lets readers compare it with ZXing and ZBar on the same image, including their own photos, without uploading them.
 
-Demo: https://tapirscan.netlify.app
+Demo: https://tapirscan.f-kleinicke.de
 
 Repository and quick start: https://github.com/kleinicke/tapirscan
 
@@ -112,7 +112,7 @@ Suggested title: Tapirscan: orientation-aware barcode scanning for Python
 
 Link: https://github.com/kleinicke/tapirscan
 
-Description: Tapirscan is a dual MIT/Apache-2.0-licensed barcode scanning library with a Rust core and native Python wheels. It accepts Pillow images, NumPy arrays and PyTorch tensors, and returns decoded symbols with source-image positions. EAN-13, UPC-A, EAN-8 and UPC-E are supported; other formats remain experimental. A browser demo provides an installation-free comparison with ZXing and ZBar: https://tapirscan.netlify.app
+Description: Tapirscan is a dual MIT/Apache-2.0-licensed barcode scanning library with a Rust core and native Python wheels. It accepts Pillow images, NumPy arrays and PyTorch tensors, and returns decoded symbols with source-image positions. EAN-13, UPC-A, EAN-8 and UPC-E are supported; other formats remain experimental. A browser demo provides an installation-free comparison with ZXing and ZBar: https://tapirscan.f-kleinicke.de
 
 ## Additional distribution worth doing
 

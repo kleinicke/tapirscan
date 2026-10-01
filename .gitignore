@@ -35,3 +35,10 @@ __pycache__/
 
 # Frozen recipe reproduction writes through this generated link.
 /historical/build
+
+# Generated public documentation; sources are under demo/content and scripts.
+/demo/public/docs/
+/demo/public/formats/
+/demo/public/releases/
+/demo/public/license/
+/demo/public/llms.txt

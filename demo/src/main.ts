@@ -4,7 +4,7 @@ import "./style.css";
 
 // Keep forks, local development and deploy previews out of production analytics.
 // The dashboard identifier stays unchanged so both hostnames share its history.
-const analyticsHosts = ["tapirscan.netlify.app", "tapirscan.f-kleinicke.de"];
+const analyticsHosts = ["tapirscan.f-kleinicke.de"];
 if (analyticsHosts.includes(window.location.hostname)) {
   const script = document.createElement("script");
   script.defer = true;

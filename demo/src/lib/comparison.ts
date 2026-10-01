@@ -64,27 +64,27 @@ export const comparisonOptions: ComparisonSpec[] = [
   },
   {
     id: "ts-med-next",
-    label: "ts-med-next",
+    label: "TS-Med-next",
     color: "#ff947d",
     engine: "classical",
     version: "medium",
-    releaseVersion: "1.2.2+lowres.20260927",
+    releaseVersion: "1.2.2+retail-runtime.20260929",
   },
   {
     id: "ts-high-next",
-    label: "ts-high-next",
+    label: "TS-High-next",
     color: "#ffd08a",
     engine: "classical",
     version: "high",
-    releaseVersion: "1.2.2+lowres.20260927",
+    releaseVersion: "1.2.2+retail-runtime.20260929",
   },
   {
     id: "ts-vhigh-next",
-    label: "ts-vhigh-next",
+    label: "TS-VHigh-next",
     color: "#ffa4d1",
     engine: "classical",
     version: "very-high",
-    releaseVersion: "1.2.2+lowres.20260927",
+    releaseVersion: "1.2.2+retail-runtime.20260929",
   },
 ];
 

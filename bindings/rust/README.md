@@ -118,3 +118,9 @@ mode and only disables the optional image integration.
 
 On `wasm32-unknown-unknown`, Rust `elapsed` is zero because no platform clock is
 imported. The JavaScript adapter measures the complete synchronous scan call.
+
+## License
+
+Tapirscan is dual-licensed under **MIT OR Apache-2.0**, at your option.
+See the [full license texts](https://tapirscan.f-kleinicke.de/license/).
+Third-party components retain their own licenses and notices.
