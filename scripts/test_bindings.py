@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end native binding tests, against Rust and the original WASM host."""
+"""End-to-end parity of the Python, Rust, C++, Java and JavaScript bindings."""
 
 import json
 import os
@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from build_java import JAR, tool
+from build_native import EXAMPLES, library_name
 from fixture_data import TEXT, fixtures
 
 from build import ROOT
@@ -20,9 +21,13 @@ from build import ROOT
 sys.path.insert(
     0, os.environ.get("BARCODE_PYTHON_PACKAGE", str(ROOT / "bindings/python/src"))
 )
-from tapirscan import PixelImage, Scanner
+from tapirscan import PixelImage, Scanner, ScanResult
 
 LIBS = ROOT / "build/native"
+MODES = ("low", "medium", "high", "very-high")
+EAN13 = 1
+# Engine evidence compared across languages; timing fields are excluded.
+EVIDENCE = ("scan", "localization", "searchWindows")
 
 
 def run(*args: object) -> dict[str, Any]:
@@ -33,14 +38,99 @@ def run(*args: object) -> dict[str, Any]:
     )
 
 
-class Bindings(unittest.TestCase):
-    """Verify native and WASM results across language interfaces."""
+def harnesses(
+    mode: str, image: tuple[int, int, int, int, Path], *, debug: bool
+) -> dict[str, dict[str, Any]]:
+    """Scan one raw image with every non-Python binding's scan_raw harness."""
+    w, h, c, stride, path = image
+    args = [mode, w, h, c, stride, path, int(debug), EAN13]
+    classpath = os.pathsep.join([str(JAR), str(ROOT / "build/java/test-classes")])
+    return {
+        "rust": run(EXAMPLES / "scan_raw", *args),
+        "cpp": run(ROOT / "build/cpp/scan_raw", *args),
+        "java": run(
+            tool("java"),
+            f"-Dtapirscan.library={LIBS / library_name()}",
+            "--enable-native-access=ALL-UNNAMED",
+            "-cp",
+            classpath,
+            "org.tapirscan.Smoke",
+            *args,
+        ),
+        "js": run(
+            "node",
+            ROOT / "bindings/javascript/test/native_parity.mjs",
+            *args[:7],
+            "EAN13",
+        ),
+    }
 
-    def test_continuation_parity(self) -> None:
-        """The public continuation flag preserves native/WASM reader parity."""
-        with tempfile.TemporaryDirectory(prefix="barcode-continuation-") as temp:
+
+def typed(result: ScanResult) -> dict[str, Any]:
+    """Project a Python result onto the harnesses' typed JSON shape."""
+    best = (
+        None
+        if result.best is None
+        else next(i for i, b in enumerate(result.barcodes) if b is result.best)
+    )
+    return {
+        "mode": result.mode,
+        "unfinished": result.unfinished,
+        "best": best,
+        "barcodes": [
+            {
+                "text": b.text,
+                "format": b.format,
+                "support": b.support,
+                "polygon": [[p.x, p.y] for p in b.polygon],
+            }
+            for b in result.barcodes
+        ],
+        "undecoded": [
+            {"format": r.format, "polygon": [[p.x, p.y] for p in r.polygon]}
+            for r in result.undecoded
+        ],
+    }
+
+
+class Bindings(unittest.TestCase):
+    """Verify every language binding returns the same results."""
+
+    def test_all_languages_modes_and_diagnostics(self) -> None:
+        """Typed results and engine evidence agree in every binding and mode."""
+        with tempfile.TemporaryDirectory(prefix="tapirscan-bindings-") as temp:
             path = Path(temp) / "pixels.raw"
-            for mode in ("low", "medium", "high", "very-high"):
+            for mode in MODES:
+                with Scanner(mode, formats="EAN13", library_dir=LIBS) as scanner:
+                    for name, pixels, w, h, c, stride, expected in fixtures():
+                        path.write_bytes(pixels)
+                        image = PixelImage(
+                            pixels, width=w, height=h, channels=c, stride=stride
+                        )
+                        for debug in (False, True):
+                            with self.subTest(mode=mode, fixture=name, debug=debug):
+                                result = scanner.scan(image, debug=debug)
+                                self.assertEqual(result.values, [TEXT] * expected)
+                                reference = typed(result)
+                                raw = result.to_raw_dict()
+                                for language, other in harnesses(
+                                    mode, (w, h, c, stride, path), debug=debug
+                                ).items():
+                                    evidence = other.pop("debug")
+                                    self.assertEqual(other, reference, language)
+                                    if not debug:
+                                        self.assertIsNone(evidence, language)
+                                        continue
+                                    for key in EVIDENCE:
+                                        self.assertEqual(
+                                            evidence[key], raw[key], (language, key)
+                                        )
+
+    def test_extended_budget_parity(self) -> None:
+        """The extended budget preserves native/WASM reader parity."""
+        with tempfile.TemporaryDirectory(prefix="tapirscan-budget-") as temp:
+            path = Path(temp) / "pixels.raw"
+            for mode in MODES:
                 with Scanner(mode, formats="EAN13", library_dir=LIBS) as scanner:
                     for name, pixels, w, h, channels, stride, _ in fixtures():
                         with self.subTest(mode=mode, fixture=name):
@@ -53,9 +143,8 @@ class Bindings(unittest.TestCase):
                                     channels=channels,
                                     stride=stride,
                                 ),
-                                debug=True,
                                 extended_budget=True,
-                            ).to_raw_dict()
+                            )
                             wasm = run(
                                 "node",
                                 ROOT / "bindings/javascript/test/native_parity.mjs",
@@ -65,278 +154,16 @@ class Bindings(unittest.TestCase):
                                 channels,
                                 stride,
                                 path,
-                                1,
-                                1,
+                                0,
                                 "EAN13",
                                 1,
                             )
-                            self.assertEqual(
-                                native["scan"]["barcodes"], wasm["scan"]["barcodes"]
-                            )
-                            self.assertEqual(
-                                native["scan"]["unfinished"], wasm["scan"]["unfinished"]
-                            )
-
-    def test_all_languages_and_modes(self) -> None:
-        """Verify all languages and modes."""
-        with tempfile.TemporaryDirectory(prefix="barcode-binding-test-") as temp:
-            for mode in ("low", "medium", "high", "very-high"):
-                with Scanner(mode, formats="EAN13", library_dir=LIBS) as scanner:
-                    for name, pixels, w, h, c, stride, expected in fixtures():
-                        with self.subTest(mode=mode, fixture=name):
-                            path = Path(temp) / "pixels.raw"
-                            path.write_bytes(pixels)
-                            result = scanner.scan(
-                                PixelImage(
-                                    pixels, width=w, height=h, channels=c, stride=stride
-                                ),
-                                debug=True,
-                            ).to_raw_dict()
-                            reads = result["scan"]["barcodes"]
-                            self.assertEqual(len(reads), expected)
-                            self.assertTrue(all(b["text"] == TEXT for b in reads))
-                            self.assertEqual(result["mode"], mode)
-                            self.assertEqual(len(result["searchWindows"]), 1)
-                            rust = run(
-                                ROOT
-                                / f"build/{mode}/cargo-target/release/examples"
-                                / "scan_raw",
-                                w,
-                                h,
-                                path,
-                                c,
-                                stride,
-                            )
-                            cpp = run(
-                                ROOT / f"build/cpp-{mode}/scan_raw",
-                                w,
-                                h,
-                                c,
-                                stride,
-                                path,
-                                1,
-                                1,
-                                1,
-                            )
-                            classpath = os.pathsep.join(
-                                map(
-                                    str,
-                                    [
-                                        JAR,
-                                        ROOT / "build/java/test-classes",
-                                    ],
-                                )
-                            )
-                            java = run(
-                                tool("java"),
-                                "--enable-native-access=ALL-UNNAMED",
-                                "-cp",
-                                classpath,
-                                "org.tapirscan.Smoke",
-                                LIBS,
-                                mode,
-                                w,
-                                h,
-                                c,
-                                stride,
-                                path,
-                                1,
-                                1,
-                                1,
-                            )
-                            js = run(
-                                "node",
-                                ROOT / "bindings/javascript/test/native_parity.mjs",
-                                mode,
-                                w,
-                                h,
-                                c,
-                                stride,
-                                path,
-                                1,
-                                1,
-                                "EAN13",
-                            )
-                            typed = [
-                                {k: b[k] for k in ("text", "support", "polygon")}
-                                for b in reads
-                            ]
-                            self.assertEqual(cpp["typed"], typed)
-                            self.assertEqual(java["typed"], typed)
-                            cpp = cpp["result"]
-                            java = java["result"]
-                            for foreign in (
-                                rust,
-                                cpp["scan"],
-                                java["scan"],
-                                js["scan"],
-                            ):
-                                for key in result["scan"]:
-                                    self.assertEqual(
-                                        foreign[key], result["scan"][key], key
-                                    )
-                            for foreign in (cpp, java):
-                                self.assertEqual(
-                                    foreign["localization"], result["localization"]
-                                )
-                                self.assertEqual(
-                                    foreign["searchWindows"], result["searchWindows"]
-                                )
-                            self.assertEqual(
-                                js["localization"]["proposals"],
-                                result["localization"]["proposals"],
-                            )
-                            self.assertEqual(
-                                js["localization"]["omitted"],
-                                result["localization"]["omitted"],
-                            )
-                            self.assertEqual(
-                                js["localization"]["workLimited"],
-                                result["localization"]["workLimited"],
-                            )
-                            self.assertEqual(
-                                js["searchWindows"], result["searchWindows"]
-                            )
-                            self.assertEqual(
-                                max(
-                                    result["scan"]["barcodes"],
-                                    key=lambda b: b["support"],
-                                    default=None,
-                                ),
-                                max(reads, key=lambda b: b["support"], default=None),
-                            )
-
-    def test_output_choices_across_languages(self) -> None:
-        """Verify output choices across languages."""
-        sample = next(f for f in fixtures() if f[0] == "same-value-pair")
-        _, pixels, w, h, c, stride, _ = sample
-        classpath = os.pathsep.join(
-            map(
-                str,
-                [
-                    JAR,
-                    ROOT / "build/java/test-classes",
-                ],
-            )
-        )
-        with tempfile.TemporaryDirectory(prefix="barcode-options-") as temp:
-            path = Path(temp) / "pixels.raw"
-            path.write_bytes(pixels)
-            for mode in ("low", "medium", "high", "very-high"):
-                with Scanner(mode, formats="EAN13", library_dir=LIBS) as scanner:
-                    default_result = scanner.scan(PixelImage(pixels, width=w, height=h))
-                    self.assertIsNone(default_result.debug)
-                    defaults = default_result.to_raw_dict()
-                    self.assertTrue(defaults["multiple"])
-                    self.assertEqual(len(defaults["scan"]["barcodes"]), 2)
-                    self.assertIn("localization", defaults)
-                    all_details = scanner.scan(
-                        PixelImage(pixels, width=w, height=h), debug=True
-                    ).to_raw_dict()
-                    for multiple in (True, False):
-                        for regions in (False, True):
-                            with self.subTest(
-                                mode=mode, multiple=multiple, regions=regions
-                            ):
-                                scan_result = scanner.scan(
-                                    PixelImage(pixels, width=w, height=h), debug=regions
-                                )
-                                self.assertEqual(scan_result.debug is not None, regions)
-                                self.assertEqual(
-                                    scan_result.undecoded, default_result.undecoded
-                                )
-                                result = scan_result.to_raw_dict()
-                                self.assertEqual(result["schemaVersion"], 2)
-                                expected = (
-                                    defaults["scan"]["barcodes"]
-                                    if multiple
-                                    else [
-                                        max(
-                                            defaults["scan"]["barcodes"],
-                                            key=lambda b: b["support"],
-                                        )
-                                    ]
-                                )
-                                self.assertEqual(
-                                    result["scan"]["barcodes"],
-                                    defaults["scan"]["barcodes"],
-                                )
-                                self.assertEqual(
-                                    result["scan"]["unfinished"],
-                                    defaults["scan"]["unfinished"],
-                                )
-                                for key in ("localization", "searchWindows"):
-                                    self.assertIn(key, result)
-                                self.assertEqual("candidates" in result["scan"], True)
-                                if regions:
-                                    self.assertEqual(
-                                        result["scan"]["candidates"],
-                                        all_details["scan"]["candidates"],
-                                    )
-                                args = [
-                                    w,
-                                    h,
-                                    c,
-                                    stride,
-                                    path,
-                                    int(multiple),
-                                    int(regions),
-                                ]
-                                cpp = run(ROOT / f"build/cpp-{mode}/scan_raw", *args, 1)
-                                java = run(
-                                    tool("java"),
-                                    "--enable-native-access=ALL-UNNAMED",
-                                    "-cp",
-                                    classpath,
-                                    "org.tapirscan.Smoke",
-                                    LIBS,
-                                    mode,
-                                    *args,
-                                    1,
-                                )
-                                js = run(
-                                    "node",
-                                    ROOT / "bindings/javascript/test/native_parity.mjs",
-                                    mode,
-                                    *args,
-                                    "EAN13",
-                                )
-                                rust = run(
-                                    ROOT
-                                    / f"build/{mode}/cargo-target/release/examples"
-                                    / "scan_options",
-                                    mode,
-                                    *args,
-                                )
-                                typed = [
-                                    {k: b[k] for k in ("text", "support", "polygon")}
-                                    for b in expected
-                                ]
-                                self.assertEqual(cpp["typed"], typed)
-                                self.assertEqual(java["typed"], typed)
-                                for other in (cpp["result"], java["result"], js, rust):
-                                    self.assertEqual(other["multiple"], multiple)
-                                    self.assertEqual(
-                                        other["scan"]["barcodes"], expected
-                                    )
-                                    self.assertEqual("localization" in other, regions)
-                                    self.assertEqual("searchWindows" in other, regions)
-                                    self.assertEqual(
-                                        "candidates" in other["scan"], regions
-                                    )
-                                    if regions:
-                                        self.assertEqual(
-                                            other["scan"]["candidates"],
-                                            result["scan"]["candidates"],
-                                        )
-                    blank = scanner.scan(
-                        PixelImage(bytes([255]) * len(pixels), width=w, height=h)
-                    ).to_raw_dict()
-                    self.assertEqual(blank["scan"]["barcodes"], [])
+                            wasm.pop("debug")
+                            self.assertEqual(wasm, typed(native))
 
     def test_python_validation_and_lifetime(self) -> None:
-        """Verify python validation and lifetime."""
-        for mode in ("low", "medium", "high", "very-high"):
+        """Invalid input is rejected and results outlive their scanner."""
+        for mode in MODES:
             scanner = Scanner(mode, library_dir=LIBS)
             _, pixels, w, h, _c, _stride, _ = next(fixtures())
             first = scanner.scan(PixelImage(pixels, width=w, height=h)).to_raw_dict()
@@ -349,49 +176,41 @@ class Bindings(unittest.TestCase):
                 ({"width": w, "height": h}, pixels[:1]),
             ]:
                 with self.assertRaises(ValueError):
-                    scanner.scan(PixelImage(data, **options)).to_raw_dict()
+                    scanner.scan(PixelImage(data, **options))
             with self.assertRaises(ValueError):
-                scanner.scan(
-                    PixelImage(memoryview(pixels)[::2], width=w, height=h)
-                ).to_raw_dict()
+                scanner.scan(PixelImage(memoryview(pixels)[::2], width=w, height=h))
             self.assertEqual(
                 scanner.scan(
                     PixelImage(bytes([255]) * len(pixels), width=w, height=h)
-                ).to_raw_dict()["scan"]["barcodes"],
+                ).values,
                 [],
             )
-            self.assertEqual(json.dumps(first), frozen)
             scanner.close()
             scanner.close()
             with self.assertRaises(RuntimeError):
-                scanner.scan(PixelImage(pixels, width=w, height=h)).to_raw_dict()
+                scanner.scan(PixelImage(pixels, width=w, height=h))
             self.assertEqual(json.dumps(first), frozen)
         with self.assertRaises(ValueError):
             Scanner("typo", library_dir=LIBS)  # ty: ignore[invalid-argument-type]
 
     def test_concurrent_modes(self) -> None:
-        """Verify concurrent modes."""
+        """Scanners in different modes share one library and run concurrently."""
         _, pixels, w, h, _, _, _ = next(fixtures())
         with (
-            Scanner("medium", library_dir=LIBS) as fast,
-            Scanner("high", library_dir=LIBS) as quality,
+            Scanner("medium", library_dir=LIBS) as medium,
+            Scanner("high", library_dir=LIBS) as high,
+            ThreadPoolExecutor(max_workers=4) as pool,
         ):
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                scanners = [fast, quality, fast, quality]
-                results = list(
-                    pool.map(
-                        lambda scanner: scanner.scan(
-                            PixelImage(pixels, width=w, height=h)
-                        ).to_raw_dict(),
-                        scanners,
-                    )
+            results = list(
+                pool.map(
+                    lambda scanner: scanner.scan(PixelImage(pixels, width=w, height=h)),
+                    [medium, high, medium, high],
                 )
-            self.assertEqual(
-                [r["mode"] for r in results], ["medium", "high", "medium", "high"]
             )
-            self.assertTrue(
-                all(r["scan"]["barcodes"][0]["text"] == TEXT for r in results)
-            )
+        self.assertEqual(
+            [r.mode for r in results], ["medium", "high", "medium", "high"]
+        )
+        self.assertTrue(all(r.values == [TEXT] for r in results))
 
 
 if __name__ == "__main__":

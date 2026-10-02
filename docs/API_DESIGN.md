@@ -1,9 +1,9 @@
 # Public API design
 
-This is the 1.2.0 API revision. See [migration](API_MIGRATION.md).
-Python, JavaScript and Rust expose one scan operation returning `ScanResult`.
-The public Rust `Scanner` owns the pipeline in every binding. JavaScript uses a
-thin WASM adapter; the C ABI connects Python, C++, and Java to the same API.
+This is the 1.3.0 API revision. See [migration](API_MIGRATION.md).
+Every binding exposes one scan operation returning `ScanResult`. The public Rust
+`Scanner` owns the pipeline in every binding. JavaScript uses a thin WASM
+adapter; native ABI 5 connects C, C++, Python and Java to the same API.
 One-shot calls clean up automatically; reusable scanners amortize initialization.
 Rust uses `scan(image)` for defaults and `scan_with_options(image, options)` for
 overrides; Python uses keyword arguments and JavaScript an options object. All return independent results, including empty results.
@@ -29,9 +29,9 @@ efforts and does not change scan work. Applications should select by the format,
 payload or position they need. Support remains uncalibrated evidence.
 
 Polygons use source-image pixels, origin top-left, x rightward and y downward.
-`rect` encloses the polygon with floor(minimum) and ceil(maximum) pixel bounds in
-all three bindings. Rust returns `[left, top, width, height]`; Python/JS use named
-fields. GS1 and reader-initialization metadata preserve unavailable versus false.
+`rect` encloses the polygon with floor(minimum) and ceil(maximum) pixel bounds.
+Rust and C++ return `[left, top, width, height]`; Python, JS and Java use named
+fields; C applications compute bounds from the polygon. GS1 and reader-initialization metadata preserve unavailable versus false.
 Payload bytes are original decoded bytes when available, never text re-encoding.
 Supplements remain separate from the main text and polygon.
 
@@ -54,8 +54,8 @@ claim that every reader already performs extra work. Future readers can extend
 appropriate budgets under the same flag. Per-candidate effort, intentional
 deferral, localization, sampling, result and ambiguity limits still apply.
 It is not unlimited search or a deadline, and `unfinished` may remain true.
-The adapters translate this intent to existing engine controls; ABI 4 and pinned
-recipes are unchanged. There is no retry-until-finished loop.
+The adapters translate this intent to existing engine controls; pinned recipes
+are unchanged. There is no retry-until-finished loop.
 
 ## Configuration and ownership
 
@@ -74,21 +74,6 @@ Rust borrows pixels synchronously and uses RAII. JavaScript initializes
 asynchronously, scans synchronously and releases WASM sessions with `dispose`.
 Use a worker for browser responsiveness. Results survive scanner disposal.
 
-The native ABI remains version 4. C, C++ and Java retain their existing ABI-facing
-interfaces. This revision changes the Python, JavaScript and standalone Rust
-application APIs; publication and release versioning are separate steps.
-
-## Experimental JavaScript Turbo selection
-
-JavaScript accepts `experimentalTurbo: 2 | 4 | 8 | 16` instead of `mode` at
-creation or in the one-shot helper. The underlying effort is Low; the scanner
-and results expose the selected `experimentalTurbo` preset. Ordinary result
-shapes are unchanged. Presets target less work for 1D scanning, including Retail;
-they do not select 2D speed tiers and their numbers are not speed guarantees.
-The selection is fixed at creation and requires ignored supplements and no extended
-budget, so unsupported combinations fail instead of silently bypassing Turbo.
-
-This is an explicit experimental API exception: presets, the option and its
-associated properties/imports may change in minor releases, with release notes.
-Patch releases retain API compatibility. Other bindings retain their current API.
-See the JavaScript guide and the compatibility policy in CONTRIBUTING.md.
+C exposes the same model through explicit structs and copy functions; C++ and
+Java wrap it with the names used here and return owned results. See
+[native bindings](NATIVE_BINDINGS.md).

@@ -7,7 +7,7 @@ feature combination. `Cargo.toml` exposes four mutually exclusive effort modes:
 ```sh
 cargo test --manifest-path core/Cargo.toml
 python3 scripts/build.py low
-python3 scripts/build_native.py low medium high very-high
+python3 scripts/build_native.py
 ```
 
 The public Rust package compiles private mode instances from this same source

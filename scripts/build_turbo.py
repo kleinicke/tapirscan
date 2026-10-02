@@ -64,13 +64,14 @@ def main() -> None:
             continue
         command = [sys.executable, str(ROOT / "scripts" / script)]
         if script == "build_wasm.py":
-            command.append("--development")
+            command.extend(["--development", "low"])
         else:
+            # Turbo applies to Low; the native library contains every mode.
             command.extend(["--output", str(destination)])
-        subprocess.run([*command, "low"], cwd=ROOT, env=env, check=True)
+        subprocess.run(command, cwd=ROOT, env=env, check=True)
         for source in sources.iterdir():
             if source.name == "low.wasm" or source.name.startswith(
-                ("libtapirscan_low.", "tapirscan_low.")
+                ("libtapirscan.", "tapirscan.")
             ):
                 target = destination / source.name
                 if source != target:

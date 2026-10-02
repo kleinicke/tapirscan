@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import zxingcpp
 from build_java import JAR, tool
+from build_native import EXAMPLES, library_name
 from test_bindings import LIBS, PixelImage, Scanner, run
 
 from build import ROOT
@@ -78,12 +79,14 @@ class Formats(unittest.TestCase):
                         1000,
                         path,
                         1,
-                        1,
                         "EAN13,Code128,QRCode",
                     )
                     self.assertEqual(
                         [(b.text, b.format) for b in result],
-                        [(b["text"], b["format"]) for b in js["scan"]["barcodes"]],
+                        [
+                            (b["text"], b["format"])
+                            for b in js["debug"]["scan"]["barcodes"]
+                        ],
                     )
                     self.assertEqual(result.best, result[0])
                     linear_only = scanner.scan(
@@ -156,15 +159,16 @@ class Formats(unittest.TestCase):
                                 stride,
                                 path,
                                 1,
-                                1,
                                 "QRCode",
                             )
                             self.assertEqual(
-                                result.unfinished, js["scan"]["unfinished"]
+                                result.unfinished, js["debug"]["scan"]["unfinished"]
                             )
-                            self.assertEqual(len(result), len(js["scan"]["barcodes"]))
+                            self.assertEqual(
+                                len(result), len(js["debug"]["scan"]["barcodes"])
+                            )
                             for native, wasm in zip(
-                                result, js["scan"]["barcodes"], strict=True
+                                result, js["debug"]["scan"]["barcodes"], strict=True
                             ):
                                 self.assertEqual(native.text, wasm["text"])
                                 self.assertEqual(native.support, wasm["support"])
@@ -217,22 +221,22 @@ class Formats(unittest.TestCase):
                             width,
                             path,
                             1,
-                            1,
                             fmt,
                         )
                         cpp = run(
-                            ROOT / f"build/cpp-{mode}/scan_raw",
+                            ROOT / "build/cpp/scan_raw",
+                            mode,
                             width,
                             height,
                             1,
                             width,
                             path,
                             1,
-                            1,
                             mask,
                         )
                         java = run(
                             tool("java"),
+                            f"-Dtapirscan.library={LIBS / library_name()}",
                             "--enable-native-access=ALL-UNNAMED",
                             "-cp",
                             os.pathsep.join(
@@ -242,21 +246,17 @@ class Formats(unittest.TestCase):
                                 ]
                             ),
                             "org.tapirscan.Smoke",
-                            LIBS,
                             mode,
                             width,
                             height,
                             1,
                             width,
                             path,
-                            1,
                             1,
                             mask,
                         )
                         rust = run(
-                            ROOT
-                            / f"build/{mode}/cargo-target/release/examples"
-                            / "scan_options",
+                            EXAMPLES / "scan_raw",
                             mode,
                             width,
                             height,
@@ -264,27 +264,26 @@ class Formats(unittest.TestCase):
                             width,
                             path,
                             1,
-                            1,
                             mask,
                         )
                         self.assertEqual(
-                            rust["scan"]["barcodes"],
+                            rust["debug"]["scan"]["barcodes"],
                             result.to_raw_dict()["scan"]["barcodes"],
                         )
                         for foreign in (cpp, java):
-                            self.assertEqual(foreign["typed"][0]["text"], text)
+                            self.assertEqual(foreign["barcodes"][0]["text"], text)
                             self.assertEqual(
-                                foreign["result"]["scan"]["barcodes"],
+                                foreign["debug"]["scan"]["barcodes"],
                                 result.to_raw_dict()["scan"]["barcodes"],
                             )
                         if result.debug is None:
                             self.fail("Diagnostics were requested")
                         self.assertEqual(
                             [b.support for b in result.debug.barcodes],
-                            [b["support"] for b in js["scan"]["barcodes"]],
+                            [b["support"] for b in js["debug"]["scan"]["barcodes"]],
                         )
                         for b, other in zip(
-                            result, js["scan"]["barcodes"], strict=True
+                            result, js["debug"]["scan"]["barcodes"], strict=True
                         ):
                             self.assertEqual(
                                 (b.text, b.format),
@@ -295,7 +294,9 @@ class Formats(unittest.TestCase):
                             ):
                                 self.assertAlmostEqual(point.x, foreign[0], places=4)
                                 self.assertAlmostEqual(point.y, foreign[1], places=4)
-                        self.assertEqual(result.unfinished, js["scan"]["unfinished"])
+                        self.assertEqual(
+                            result.unfinished, js["debug"]["scan"]["unfinished"]
+                        )
                         with self.assertRaises(ValueError):
                             scanner.scan(
                                 PixelImage(pixels, width=width, height=height),

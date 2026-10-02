@@ -16,7 +16,7 @@ For a local unpublished Tapirscan version, install its npm tarball instead of
 the registry dependency before running the example:
 
 ```sh
-npm install /absolute/path/to/tapirscan-1.2.2.tgz
+npm install /absolute/path/to/tapirscan-1.3.0.tgz
 ```
 
 Test production hosting, including a subpath:

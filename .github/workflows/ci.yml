@@ -46,7 +46,7 @@ jobs:
           path: |
             build/wasm-target/wasm32-unknown-unknown/release/*.wasm
             build/wasm/*/Cargo.toml
-      - run: python3 scripts/build_native.py low medium high very-high
+      - run: python3 scripts/build_native.py
       - run: python3 scripts/build_wasm.py
       - run: npm ci --prefix bindings/javascript
       - run: npm run build --prefix bindings/javascript
@@ -54,11 +54,9 @@ jobs:
       - name: Build and test C/C++
         shell: bash
         run: |
-          for mode in low medium high very-high; do
-            cmake -S bindings/cpp -B build/cpp-$mode -DBARCODE_MODE=$mode
-            cmake --build build/cpp-$mode
-            ctest --test-dir build/cpp-$mode --output-on-failure
-          done
+          cmake -S bindings/cpp -B build/cpp
+          cmake --build build/cpp
+          ctest --test-dir build/cpp --output-on-failure
       - run: python3 scripts/build_java.py
       - name: Build and install the Python wheel
         run: |

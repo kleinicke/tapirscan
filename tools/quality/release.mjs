@@ -63,6 +63,13 @@ if (selected("native")) {
       source,
     ]);
   const java = environment.JAVA_HOME ? path.join(environment.JAVA_HOME, "bin/javac") : "javac";
+  const javaSources = ["main", "test"].flatMap((kind) => {
+    const folder = `bindings/java/src/${kind}/java/org/tapirscan`;
+    return fs
+      .readdirSync(path.join(root, folder))
+      .filter((name) => name.endsWith(".java"))
+      .map((name) => `${folder}/${name}`);
+  });
   run(java, [
     "--release",
     "22",
@@ -70,8 +77,7 @@ if (selected("native")) {
     "-Werror",
     "-d",
     ".quality-cache/java",
-    "bindings/java/src/main/java/org/tapirscan/Tapirscan.java",
-    "bindings/java/src/test/java/org/tapirscan/Smoke.java",
+    ...javaSources,
   ]);
 }
 if (selected("rust")) {
@@ -110,37 +116,36 @@ if (selected("rust")) {
       process.exitCode = 1;
     } else {
       clippy(path.join(publicCrate, "Cargo.toml"));
-      for (const { mode: name } of modes) {
-        for (const binding of ["c", "wasm"]) {
-          const dest = path.join(parent, `${binding}-${name}`);
-          fs.mkdirSync(dest);
-          fs.cpSync(path.join(root, `bindings/${binding}/src`), path.join(dest, "src"), {
-            recursive: true,
-          });
-          fs.copyFileSync(path.join(publicCrate, "Cargo.lock"), path.join(dest, "Cargo.lock"));
-          const template = fs.readFileSync(
-            path.join(root, `bindings/${binding}/Cargo.toml.in`),
-            "utf8",
-          );
-          fs.writeFileSync(
-            path.join(dest, "Cargo.toml"),
-            template
-              .replaceAll("@MODE@", name)
-              .replaceAll("@MODE_ID@", String(modes.findIndex((mode) => mode.mode === name)))
-              .replaceAll("@LIB_MODE@", name.replaceAll("-", "_"))
-              .replaceAll("@PUBLIC_CRATE@", publicCrate),
-          );
-          run("rustup", [
-            "run",
-            "1.91.1",
-            "cargo",
-            "generate-lockfile",
-            "--offline",
-            "--manifest-path",
-            path.join(dest, "Cargo.toml"),
-          ]);
-          clippy(path.join(dest, "Cargo.toml"));
-        }
+      // The C library contains every mode; each WASM adapter is built per mode.
+      const adapters = [["c", "all"], ...modes.map(({ mode }) => ["wasm", mode])];
+      for (const [binding, name] of adapters) {
+        const dest = path.join(parent, `${binding}-${name}`);
+        fs.mkdirSync(dest);
+        fs.cpSync(path.join(root, `bindings/${binding}/src`), path.join(dest, "src"), {
+          recursive: true,
+        });
+        fs.copyFileSync(path.join(publicCrate, "Cargo.lock"), path.join(dest, "Cargo.lock"));
+        const template = fs.readFileSync(
+          path.join(root, `bindings/${binding}/Cargo.toml.in`),
+          "utf8",
+        );
+        fs.writeFileSync(
+          path.join(dest, "Cargo.toml"),
+          template
+            .replaceAll("@MODE@", name)
+            .replaceAll("@MODE_ID@", String(modes.findIndex((mode) => mode.mode === name)))
+            .replaceAll("@PUBLIC_CRATE@", publicCrate),
+        );
+        run("rustup", [
+          "run",
+          "1.91.1",
+          "cargo",
+          "generate-lockfile",
+          "--offline",
+          "--manifest-path",
+          path.join(dest, "Cargo.toml"),
+        ]);
+        clippy(path.join(dest, "Cargo.toml"));
       }
     }
   } finally {

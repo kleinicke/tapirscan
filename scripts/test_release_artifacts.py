@@ -20,19 +20,17 @@ class ReleaseArtifacts(unittest.TestCase):
             wheel = (
                 Path(temporary) / "tapirscan-1.1.0-py3-none-manylinux_2_28_x86_64.whl"
             )
-            for modes in (("low", "medium", "high", "very_high"), ("low",)):
+            for bundled in (True, False):
                 with zipfile.ZipFile(wheel, "w") as archive:
                     archive.writestr("tapirscan/_native/", "")
                     archive.writestr(
                         "tapirscan-1.1.0.dist-info/METADATA",
                         "Name: tapirscan\nVersion: 1.1.0\n",
                     )
-                    for mode in modes:
-                        archive.writestr(
-                            f"tapirscan/_native/libtapirscan_{mode}.so", b""
-                        )
-                if len(modes) == 1:
-                    with self.assertRaisesRegex(SystemExit, "Missing medium"):
+                    if bundled:
+                        archive.writestr("tapirscan/_native/libtapirscan.so", b"")
+                if not bundled:
+                    with self.assertRaisesRegex(SystemExit, "Missing native library"):
                         wheel_platform(wheel, "1.1.0")
                 else:
                     self.assertEqual(

@@ -146,16 +146,16 @@ interface WireResult {
 }
 
 const modes: Record<Mode, { id: number; file: string }> = {
-  low: { id: 0, file: "low-quality-cleanup-20261002.wasm" },
-  medium: { id: 1, file: "medium-quality-cleanup-20261002.wasm" },
-  high: { id: 2, file: "high-quality-cleanup-20261002.wasm" },
-  "very-high": { id: 3, file: "very-high-quality-cleanup-20261002.wasm" },
+  low: { id: 0, file: "low-native-api-1.3-20261002.wasm" },
+  medium: { id: 1, file: "medium-native-api-1.3-20261002.wasm" },
+  high: { id: 2, file: "high-native-api-1.3-20261002.wasm" },
+  "very-high": { id: 3, file: "very-high-native-api-1.3-20261002.wasm" },
 };
 const turboFiles: Record<ExperimentalTurbo, string> = {
-  2: "experimental-turbo2-quality-cleanup-20261002.wasm",
-  4: "experimental-turbo4-quality-cleanup-20261002.wasm",
-  8: "experimental-turbo8-quality-cleanup-20261002.wasm",
-  16: "experimental-turbo16-quality-cleanup-20261002.wasm",
+  2: "experimental-turbo2-native-api-1.3-20261002.wasm",
+  4: "experimental-turbo4-native-api-1.3-20261002.wasm",
+  8: "experimental-turbo8-native-api-1.3-20261002.wasm",
+  16: "experimental-turbo16-native-api-1.3-20261002.wasm",
 };
 const addOnPolicies: Record<EanAddOnPolicy, number> = { Ignore: 0, Read: 1, Require: 2 };
 

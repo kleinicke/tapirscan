@@ -27,14 +27,15 @@ integrating experimental algorithm changes.
 
 ## Changes and verification
 
-This checkout prepares version 1.2.2, following the API revision described in
+This checkout prepares version 1.3.0, following the API revision described in
 `docs/API_MIGRATION.md`. Implement the current documented APIs and preserve the
 synchronized release versions. Follow the compatibility policy in
 [CONTRIBUTING.md](CONTRIBUTING.md#api-stability) and [API design](docs/API_DESIGN.md).
 
 - Follow `docs/QUALITY.md`; format a coherent batch before running relevant checks.
-- C, C++, Python and Java share the native ABI. ABI changes need cross-language
-  parity and installation tests; preserve ownership and error behavior.
+- C, C++, Python and Java share native ABI 5: one library containing every mode.
+  ABI changes need cross-language parity and installation tests; preserve
+  ownership and error behavior.
 - Keep research datasets, private labels, model weights and generated build outputs
   out of Git. Public demo assets have separate provenance and usage information.
 - Before any model training or scanner evaluation, consult

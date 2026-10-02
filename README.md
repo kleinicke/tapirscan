@@ -37,17 +37,17 @@ processed in your browser. Choose Retail, Common or other format selections to c
 
 ## Language support
 
-| Language                | Integration                                                       | Guide                                  |
-| ----------------------- | ----------------------------------------------------------------- | -------------------------------------- |
-| JavaScript / TypeScript | Browser and Node, WASM included                                   | [JS/TS](bindings/javascript/README.md) |
-| Python                  | Native platform wheels; Pillow, NumPy and tensors                 | [Python](bindings/python/README.md)    |
-| Java                    | JDK 22+ JAR with separate native libraries; no Android            | [Java](bindings/java/README.md)        |
-| C++                     | C++17 RAII wrapper and CMake installation; one linked effort mode | [C++](bindings/cpp/README.md)          |
-| C                       | Shared-library ABI with explicit handles and buffers              | [C](bindings/c/README.md)              |
-| Rust                    | Standalone Cargo package; all four runtime effort modes           | [Rust](bindings/rust/README.md)        |
+| Language                | Integration                                             | Guide                                  |
+| ----------------------- | ------------------------------------------------------- | -------------------------------------- |
+| JavaScript / TypeScript | Browser and Node, WASM included                         | [JS/TS](bindings/javascript/README.md) |
+| Python                  | Native platform wheels; Pillow, NumPy and tensors       | [Python](bindings/python/README.md)    |
+| Java                    | JDK 22+ JAR with a separate native library; no Android  | [Java](bindings/java/README.md)        |
+| C++                     | Header-only C++17 wrapper and CMake installation        | [C++](bindings/cpp/README.md)          |
+| C                       | Shared library with typed results and explicit buffers  | [C](bindings/c/README.md)              |
+| Rust                    | Standalone Cargo package; all four runtime effort modes | [Rust](bindings/rust/README.md)        |
 
 All use the selected release algorithms. Packaging and convenience differ:
-Java/C/C++ need native libraries. Rust has a self-contained source package prepared
+Every binding offers all four effort modes; Java/C/C++ need the native library. Rust has a self-contained source package prepared
 for crates.io, with typed results and runtime mode selection. JavaScript and Python are available on
 [npm](https://www.npmjs.com/package/tapirscan) and [PyPI](https://pypi.org/project/tapirscan/).
 The other language guides explain how to build their bindings from source.

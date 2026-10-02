@@ -82,14 +82,10 @@ def wheel_platform(wheel: Path, version: str) -> str:
         if metadata["Name"] != "tapirscan" or metadata["Version"] != version:
             fail(f"Wheel metadata mismatch: {wheel.name}")
         native = {Path(name).name for name in archive.namelist() if "/_native/" in name}
-        for mode in ("low", "medium", "high", "very_high"):
-            names = {
-                f"libtapirscan_{mode}.so",
-                f"libtapirscan_{mode}.dylib",
-                f"tapirscan_{mode}.dll",
-            }
-            if not native.intersection(names):
-                fail(f"Missing {mode} native library: {wheel.name}")
+        if not native.intersection(
+            {"libtapirscan.so", "libtapirscan.dylib", "tapirscan.dll"}
+        ):
+            fail(f"Missing native library: {wheel.name}")
     return matches.pop()
 
 

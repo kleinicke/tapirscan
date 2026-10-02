@@ -1,98 +1,140 @@
-# C native interface
+# Tapirscan for C
 
-`python3 scripts/build_native.py low medium high very-high` builds four independent shared libraries
-in `build/native/`. All implement ABI version 4 from `include/tapirscan.h`.
-The core source and WASM mode recipes remain unchanged. Native builds use unwinding
-so Rust panics can be caught at the C boundary; invalid raw pointers and allocation
-failure are outside that guarantee.
+Scan decoded pixels and receive every accepted barcode, source-image geometry,
+undecoded proposals and reported work limits. Defaults are Medium effort and
+retail formats (EAN13, UPCA, EAN8 and UPCE). One shared library contains all
+four effort modes.
 
 ```c
 #include <tapirscan.h>
-tapirscan_handle scanner = 0;
-barcode_result result = 0;
-int status = tapirscan_create(&scanner);
-if (status != BARCODE_OK) return status;
-status = barcode_scan_with_options(scanner, pixels, length, width, height, 4, stride,
-    0, &result);
-if (status == BARCODE_OK) {
-    barcode_result_metadata metadata;
-    status = barcode_result_info(result, &metadata);
-    /* Check status before using metadata.
-       barcode_result_read gives typed decoded reads.
-       barcode_result_copy_json gives all localization and candidate evidence. */
-    barcode_result_destroy(result);
+#include <stdio.h>
+
+int scan_rgba(const uint8_t *pixels, uint64_t width, uint64_t height) {
+    tapirscan_scanner scanner;
+    int status = tapirscan_scanner_create(NULL, &scanner); /* Medium, Retail */
+    if (status != TAPIRSCAN_OK) return status;
+    tapirscan_image image = {pixels, width * height * 4, width, height, 4, 0};
+    tapirscan_result result;
+    status = tapirscan_scan(scanner, &image, NULL, &result);
+    if (status == TAPIRSCAN_OK) {
+        tapirscan_summary summary;
+        tapirscan_result_info(result, &summary);
+        for (uint64_t i = 0; i < summary.barcode_count; i++) {
+            tapirscan_barcode barcode;
+            char text[256];
+            tapirscan_result_barcode(result, i, &barcode);
+            if (barcode.text_length < sizeof text &&
+                tapirscan_result_copy(result, i, TAPIRSCAN_FIELD_TEXT, (uint8_t *)text,
+                                      sizeof text) == TAPIRSCAN_OK) {
+                printf("%s %s at (%.1f, %.1f)\n", tapirscan_format_name(barcode.format),
+                       text, barcode.polygon[0].x, barcode.polygon[0].y);
+            }
+        }
+        tapirscan_result_destroy(result);
+    } else {
+        fprintf(stderr, "%s\n", tapirscan_status_message(status));
+    }
+    tapirscan_scanner_destroy(scanner);
+    return status;
 }
-tapirscan_destroy(scanner);
 ```
 
-Link the selected mode library; `barcode_mode()` returns 0 (low), 1 (medium), 2 (high), or 3 (very-high).
-Use the same library for creation, scanning, result access and destruction. Handles
-are checked registry IDs. Null outputs, short buffers, invalid dimensions/strides,
-stale handles and exhausted handle capacity return explicit status codes. Valid
-pointer ranges and their lengths remain the C caller's responsibility.
+Every function returns a `tapirscan_status`; `tapirscan_status_message` describes
+it. No detection is a successful result with `barcode_count` 0. Results own their
+data and outlive their scanner. Equal payloads at distinct locations remain
+separate physical instances.
 
-Input is borrowed during the synchronous call. Distinct scanners can run concurrently;
-one scanner serializes scans. Destruction prevents subsequent operations, while an
-already-started call may finish. Every successful result must be destroyed separately;
-results remain valid after scanner destruction. JSON is copied into caller memory,
-so no borrowed result pointer can escape. Capacity must include its NUL terminator.
-The registry allows at most 1024 live scanners and 1024 live results per library.
+## Reuse and configuration
 
-The supported native target is currently 64-bit. macOS arm64 has been tested; Linux
-has CI coverage configured but not run remotely yet. Windows build naming is included
-but Windows/MSVC validation remains pending. See [the ABI contract](../../docs/NATIVE_BINDINGS.md) for schema.
+Create a scanner once and reuse it across images. Pass `NULL` options for the
+defaults, or select a mode, formats and supplement policy:
 
-`barcode_scan` uses the defaults: retail formats (mask 15), multiple results, no exposed region evidence.
-`barcode_scan_with_options` adds flags: `BARCODE_SINGLE` returns at most one
-highest-support decoded result after full scanning; `BARCODE_INCLUDE_REGIONS`
-adds localization/search/candidate evidence to JSON. Combine flags with bitwise OR;
-zero uses the defaults and unknown bits return `BARCODE_INVALID_ARGUMENT`.
-The typed result count follows the selected mode; no-read results have count zero.
-JSON schema 2 keeps completion flags even when region fields are omitted. ABI
-version 4 requires supplement-policy support. Rebuild clients and native libraries
-together. The wrappers check the required ABI during initialization.
+```c
+tapirscan_scanner_options options = {
+    TAPIRSCAN_MODE_HIGH,
+    TAPIRSCAN_FORMAT_EAN13 | TAPIRSCAN_FORMAT_QR_CODE,
+    TAPIRSCAN_EAN_ADD_ON_IGNORE,
+};
+tapirscan_scanner scanner;
+tapirscan_scanner_create(&options, &scanner);
 
-`BARCODE_READ_EAN_ADDON` attempts a supplement; `BARCODE_REQUIRE_EAN_ADDON`
-accepts retail reads only with a confirmed supplement. These flags are mutually
-exclusive and leave other formats unaffected. Supplement text is in JSON
-`eanAddOn`; geometry describes the main barcode.
+tapirscan_scan_options scan = {0}; /* zero fields keep the defaults */
+scan.extended_budget = 1;
+tapirscan_scan(scanner, &image, &scan, &result);
+```
 
-## Functions and format selection
+| Scanner option      | Default                       | Choices                                      |
+| ------------------- | ----------------------------- | -------------------------------------------- |
+| `mode`              | `TAPIRSCAN_MODE_MEDIUM`       | `_LOW`, `_MEDIUM`, `_HIGH`, `_VERY_HIGH`     |
+| `formats`           | `TAPIRSCAN_FORMATS_RETAIL`    | `TAPIRSCAN_FORMAT_*` bits combined with `\|` |
+| `ean_add_on_policy` | `TAPIRSCAN_EAN_ADD_ON_IGNORE` | `_IGNORE`, `_READ`, `_REQUIRE`               |
 
-The example is a function-body fragment with decoded RGBA pixels, their byte
-length, dimensions and stride supplied by the caller. It uses default result
-options; it does not load an encoded image file.
+Presets: `TAPIRSCAN_FORMATS_RETAIL`, `_COMMON_1D`, `_COMMON`, `_LINEAR`, `_MATRIX`
+and `_ALL`, from the generated `tapirscan_formats.h`. Retail formats are
+supported; other readers remain experimental. See [format coverage](../../docs/FORMATS.md).
 
-| Function                                | Purpose                                                                |
-| --------------------------------------- | ---------------------------------------------------------------------- |
-| `barcode_abi_version`, `barcode_mode`   | Inspect ABI and selected mode.                                         |
-| `tapirscan_create`, `tapirscan_destroy` | Allocate/free a scanner handle.                                        |
-| `barcode_scan`                          | Retail formats, multiple results, no diagnostics.                      |
-| `barcode_scan_with_options`             | Retail formats with output flags.                                      |
-| `barcode_scan_formats`                  | Output flags plus an explicit nonzero format mask.                     |
-| `barcode_result_info`                   | Read count, JSON length and completion flags.                          |
-| `barcode_result_read`                   | Read a zero-based barcode's polygon, support, UTF-8 length and format. |
-| `barcode_result_copy_text`              | Copy decoded text into caller memory, including terminal NUL.          |
-| `barcode_result_copy_json`              | Copy complete JSON into caller memory, including terminal NUL.         |
-| `barcode_result_destroy`                | Free a result handle.                                                  |
+| Per-scan option   | Default | Meaning                                      |
+| ----------------- | ------- | -------------------------------------------- |
+| `formats`         | `0`     | Override readers for this call; 0 keeps them |
+| `debug`           | `0`     | 1 adds engine evidence to the result JSON    |
+| `extended_budget` | `0`     | 1 allows extra reader work for any format    |
 
-All signatures, argument types and status constants are in the
-[public header](include/tapirscan.h). `barcode_scan_formats` has the same arguments
-as `barcode_scan_with_options`, with a format mask before the output result pointer.
-For example, `1u | 16u` selects EAN13 and Code128. See [format bits](../../docs/FORMATS.md).
-There are no string presets in C. Check every status before consuming its outputs;
-text capacity must be `text_length + 1`, using the explicit length for embedded NULs.
+`NULL` scan options equal a zero-initialized struct. `extended_budget` can cost
+more time and does not promise exhaustive decoding; see [API design](../../docs/API_DESIGN.md).
 
-For a runnable consumer and compile/link setup, use
-[the C smoke example](tests/smoke.c) and the [CMake build](../cpp/README.md).
-The mixed `tapirscan_*`/`barcode_*` names are the current ABI, not separate libraries.
+## Results
 
-## Finishing candidate work
+`tapirscan_result_info` fills a `tapirscan_summary`: `barcode_count`,
+`undecoded_count`, `best_index` (highest support, first on ties; -1 when empty),
+`width`, `height`, `mode`, `elapsed_ms` and `unfinished`. Support is
+reader-specific evidence, not a probability or a cross-format confidence.
 
-Enable the `BARCODE_FINISH_CANDIDATES` scan flag to remove shared frame retry and association budgets
-for EAN13/UPC-A candidates. Default is disabled; selected formats must include
-EAN13 or UPCA. Per-candidate effort and other limits remain; unfinished work is
-still reported. See [API design](../../docs/API_DESIGN.md) for scope and cost.
+`tapirscan_result_barcode` fills a `tapirscan_barcode` with the source-image
+`polygon`, `support`, `format` and the lengths of its variable fields. Copy a
+field with `tapirscan_result_copy` into a buffer larger than its length; the copy
+is NUL-terminated and preserves embedded NUL bytes. Optional fields
+(`TAPIRSCAN_FIELD_PAYLOAD_BYTES`, `_EAN_ADD_ON`, `_STRUCTURED_APPEND_ID`) report
+`TAPIRSCAN_ABSENT` as their length when unavailable. `gs1` and
+`reader_initialization` are -1 when the reader does not report them.
+
+`tapirscan_result_undecoded` fills a `tapirscan_region` for each localized
+proposal without an accepted decode; `format` is 0 when unknown. These can be
+false candidates or deferred work. An empty list and `unfinished` 0 do not
+guarantee exhaustive coverage.
+
+`tapirscan_result_copy_json` copies schema-2 JSON of the decoded results, plus
+unstable engine evidence when the scan requested `debug`. Destroy every result
+with `tapirscan_result_destroy` and every scanner with `tapirscan_scanner_destroy`.
+
+## Images
+
+`tapirscan_image` describes gray8, RGB8 or RGBA8 pixels (`channels` 1, 3 or 4).
+Alpha is ignored. `stride` is bytes per row; 0 means `width * channels`. Images
+are at least 3×3, at most 32 megapixels, and `length` must cover
+`(height - 1) * stride + width * channels` bytes, at most 128 MiB. Pixels are
+borrowed only during the call. Decode image files and convert BGR, planar, float
+or 16-bit pixels before scanning.
+
+## Threads and limits
+
+Calls are thread-safe. Scans on one scanner serialize; separate scanners run
+concurrently. Handles are checked IDs: a destroyed or unknown handle returns
+`TAPIRSCAN_INVALID_HANDLE`. At most 1024 scanners and 1024 results may be alive
+at once. Native panics never unwind into C. Invalid raw pointers remain the
+caller's responsibility. The ABI targets 64-bit platforms; macOS arm64 is
+validated locally and Linux in CI.
+
+## Building
+
+```sh
+python3 scripts/build_native.py
+```
+
+This builds `build/native/libtapirscan.{so,dylib}` (or `tapirscan.dll`). Compile
+with `-Ibindings/c/include` and link the library. The CMake package in
+[bindings/cpp](../cpp/README.md) installs the library and both headers for C and
+C++ consumers. `tapirscan_abi_version()` returns `TAPIRSCAN_ABI_VERSION`; rebuild
+applications and the library together after an ABI change.
 
 ## License
 

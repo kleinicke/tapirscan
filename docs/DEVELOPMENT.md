@@ -22,7 +22,7 @@ python3 scripts/verify_import.py
 ## Build the library
 
 ```sh
-python3 scripts/build_native.py low medium high very-high
+python3 scripts/build_native.py
 python3 scripts/build_wasm.py
 npm ci --prefix bindings/javascript
 npm run build --prefix bindings/javascript
@@ -53,12 +53,12 @@ Historical recipe reproduction belongs in the separate experiment workspace.
 mkdir -p build/packages
 (cd bindings/javascript && npm pack --pack-destination ../../build/packages)
 
-# Platform wheel; all four native modes must already be built.
+# Platform wheel; the native library must already be built.
 python3 -m pip wheel --no-deps --wheel-dir build/wheels bindings/python
 python3 -m pip install build/wheels/tapirscan-*.whl
 ```
 
-Python wheels include the native libraries. In a source checkout, you can instead
+Python wheels include the native library, which contains every mode. In a source checkout, you can instead
 use `library_dir="build/native"` or `TAPIRSCAN_LIBRARY_DIR`. The wheel builder
 accepts `TAPIRSCAN_NATIVE_DIR` for a prebuilt directory and fails if a mode is missing.
 
@@ -137,10 +137,10 @@ Use the [scanner comparison command](COMPARING_SCANNERS.md) to record native or 
 
 ## Fast iteration and experimental WASM
 
-For a complete single-mode native build and its ABI tests:
+For the native library, which contains every mode, and its ABI tests:
 
 ```sh
-python3 scripts/build_native.py medium
+python3 scripts/build_native.py
 ```
 
 Package preparation updates changed generated files and removes obsolete modules,

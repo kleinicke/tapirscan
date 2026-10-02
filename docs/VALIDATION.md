@@ -4,7 +4,7 @@ The release is validated with reproducible mode builds, native/WASM parity,
 public API tests and clean package installations. These checks establish behavior
 on the tested inputs; they do not establish exhaustive decoding or general accuracy.
 
-The native bindings share ABI 4. Python tests cover pixel inputs, float ranges,
+The native bindings share ABI 5. Python tests cover pixel inputs, float ranges,
 layouts, optional BGR conversion, tensor ownership, serialization, diagnostics,
 error handling and resource lifetime. JavaScript tests cover typed results,
 format subsets, optional supplement policies, WASM loading and resource lifetime.
@@ -28,11 +28,9 @@ Installed-package checks also exercise browser workers and relocated assets.
 The binding checks need built C++ examples and Java classes:
 
 ```sh
-for mode in low medium high very-high; do
-  cmake -S bindings/cpp -B build/cpp-$mode -DBARCODE_MODE=$mode
-  cmake --build build/cpp-$mode
-  ctest --test-dir build/cpp-$mode --output-on-failure
-done
+cmake -S bindings/cpp -B build/cpp
+cmake --build build/cpp
+ctest --test-dir build/cpp --output-on-failure
 python3 scripts/build_java.py
 python3 scripts/test_bindings.py
 python3 scripts/test_cmake_install.py

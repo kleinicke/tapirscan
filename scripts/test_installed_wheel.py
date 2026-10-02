@@ -1,4 +1,4 @@
-"""Install a wheel in an isolated environment and decode with bundled libraries."""
+"""Install a wheel in an isolated environment and decode with the bundled library."""
 
 import argparse
 import json
@@ -10,8 +10,6 @@ import zipfile
 from pathlib import Path
 
 from fixture_data import TEXT, fixtures
-
-MODE_COUNT = 4
 
 SMOKE = """
 import importlib.util, json, pathlib, sys
@@ -43,8 +41,8 @@ def main() -> None:
             for entry in archive.infolist()
             if "/_native/" in entry.filename and not entry.is_dir()
         ]
-        if len(native) != MODE_COUNT:
-            msg = f"Expected four bundled libraries, found {native}"
+        if len(native) != 1:
+            msg = f"Expected one bundled native library, found {native}"
             raise RuntimeError(msg)
         metadata = next(n for n in archive.namelist() if n.endswith(".dist-info/WHEEL"))
         if b"Root-Is-Purelib: false" not in archive.read(metadata):

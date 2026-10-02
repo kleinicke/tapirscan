@@ -1,42 +1,102 @@
-//! Version 3 native ABI. Handles are registry IDs, never dereferenced pointers.
+//! Native ABI 5. Handles are registry IDs, never dereferenced pointers.
 //! Caller-owned pointer ranges must be valid, correctly aligned and nonoverlapping.
 #[cfg(not(target_pointer_width = "64"))]
-compile_error!("Native ABI v4 currently supports 64-bit targets only");
+compile_error!("Native ABI 5 currently supports 64-bit targets only");
 use std::{
     collections::HashMap,
+    ffi::{c_char, CString},
     panic::{catch_unwind, AssertUnwindSafe},
     sync::{Arc, Mutex, OnceLock},
 };
-use tapirscan::{EanAddOnPolicy, Formats, Image, Mode, ScanOptions, Scanner, ScannerOptions};
+use tapirscan_api::{
+    Barcode, EanAddOnPolicy, Format, Formats, Image, Mode, ScanOptions, ScanResult, Scanner,
+    ScannerOptions, UndecodedRegion,
+};
+
+const ABI_VERSION: u32 = 5;
 const ARG: i32 = 1;
 const HANDLE: i32 = 2;
 const BUFFER: i32 = 3;
 const PANIC: i32 = 4;
 const CAPACITY: i32 = 5;
 const MAX_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_HANDLES: usize = 1024;
+/// Length of an optional field that the reader did not report.
+const ABSENT: u64 = u64::MAX;
+
+const FIELD_TEXT: u32 = 0;
+const FIELD_PAYLOAD_BYTES: u32 = 1;
+const FIELD_EAN_ADD_ON: u32 = 2;
+const FIELD_STRUCTURED_APPEND_ID: u32 = 3;
+
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct BarcodeRead {
-    pub polygon: [f64; 8],
-    pub support: u32,
-    pub text_length: u64,
-    pub format: [u8; 24],
+pub struct ScannerOptionsC {
+    pub mode: u32,
+    pub formats: u32,
+    pub ean_add_on_policy: u32,
+}
+#[repr(C)]
+pub struct ImageC {
+    pub data: *const u8,
+    pub length: u64,
+    pub width: u64,
+    pub height: u64,
+    pub channels: u32,
+    pub stride: u64,
+}
+#[repr(C)]
+pub struct ScanOptionsC {
+    pub formats: u32,
+    pub debug: u32,
+    pub extended_budget: u32,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct ResultInfo {
-    pub json_length: u64,
+pub struct PointC {
+    pub x: f64,
+    pub y: f64,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ResultInfoC {
     pub barcode_count: u64,
+    pub undecoded_count: u64,
+    pub best_index: i64,
+    pub json_length: u64,
+    pub width: u64,
+    pub height: u64,
+    pub elapsed_ms: f64,
+    pub mode: u32,
     pub unfinished: u32,
-    pub localization_limited: u32,
 }
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct BarcodeC {
+    pub polygon: [PointC; 4],
+    pub support: u64,
+    pub format: u32,
+    pub gs1: i32,
+    pub reader_initialization: i32,
+    pub structured_append_parity: i32,
+    pub structured_append_index: u64,
+    pub structured_append_count: u64,
+    pub text_length: u64,
+    pub payload_bytes_length: u64,
+    pub ean_add_on_length: u64,
+    pub structured_append_id_length: u64,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct RegionC {
+    pub polygon: [PointC; 4],
+    pub format: u32,
+}
+
 struct Output {
+    result: ScanResult,
     json: Vec<u8>,
-    reads: Vec<BarcodeRead>,
-    texts: Vec<Vec<u8>>,
-    unfinished: bool,
-    limited: bool,
 }
+
 #[derive(Default)]
 struct Registry {
     next: u64,
@@ -66,201 +126,153 @@ fn boundary(f: impl FnOnce() -> Result<(), i32>) -> i32 {
 fn output(id: u64) -> Result<Arc<Output>, i32> {
     registry()?.results.get(&id).cloned().ok_or(HANDLE)
 }
-fn scan_output(
-    scanner: &Mutex<Scanner>,
-    image: Image<'_>,
-    flags: u32,
-    formats: Formats,
-) -> Result<Output, i32> {
-    let add_on_policy = match flags & 12 {
-        4 => EanAddOnPolicy::Read,
-        8 => EanAddOnPolicy::Require,
-        _ => EanAddOnPolicy::Ignore,
-    };
-    let mut scanner = scanner.lock().map_err(|_| PANIC)?;
-    let configured = scanner.options();
-    if configured.ean_add_on_policy != add_on_policy {
-        *scanner = Scanner::new(ScannerOptions {
-            ean_add_on_policy: add_on_policy,
-            ..configured
-        });
+fn index(value: u64) -> Result<usize, i32> {
+    usize::try_from(value).map_err(|_| ARG)
+}
+fn polygon(points: &[[f64; 2]; 4]) -> [PointC; 4] {
+    points.map(|[x, y]| PointC { x, y })
+}
+fn tristate(value: Option<bool>) -> i32 {
+    value.map_or(-1, i32::from)
+}
+fn length(value: Option<usize>) -> u64 {
+    value.map_or(ABSENT, |n| n as u64)
+}
+fn mode_from(value: u32) -> Result<Mode, i32> {
+    match value {
+        0 => Ok(Mode::Low),
+        1 => Ok(Mode::Medium),
+        2 => Ok(Mode::High),
+        3 => Ok(Mode::VeryHigh),
+        _ => Err(ARG),
     }
-    let result = scanner
-        .scan_with_options(
-            image,
-            ScanOptions {
-                formats: Some(formats),
-                debug: true,
-                extended_budget: flags & 16 != 0,
-            },
-        )
-        .map_err(|_| ARG)?;
+}
+fn mode_id(mode: Mode) -> u32 {
+    match mode {
+        Mode::Low => 0,
+        Mode::Medium => 1,
+        Mode::High => 2,
+        Mode::VeryHigh => 3,
+    }
+}
+
+/// Serialize schema 2: the complete engine evidence for debug scans, otherwise
+/// the compact decoded result.
+fn result_json(result: &ScanResult, debug: bool) -> Result<Vec<u8>, i32> {
     let mut raw = result.debug.as_ref().ok_or(PANIC)?.raw.clone();
     raw["elapsedMs"] = serde_json::json!(result.elapsed.as_secs_f64() * 1000.0);
-    raw["multiple"] = serde_json::json!(flags & 1 == 0);
-    if flags & 1 != 0 {
-        let best = result.best();
-        let index =
-            best.and_then(|best| result.barcodes.iter().position(|b| std::ptr::eq(b, best)));
-        let selected = index
-            .and_then(|index| raw["scan"]["barcodes"].get(index).cloned())
-            .into_iter()
-            .collect::<Vec<_>>();
-        raw["scan"]["barcodes"] = serde_json::json!(selected);
-    }
-    if flags & 2 == 0 {
-        let scan = serde_json::json!({
-            "unfinished": raw["scan"]["unfinished"],
-            "barcodes": raw["scan"]["barcodes"],
-        });
+    raw["multiple"] = serde_json::json!(true);
+    if !debug {
         raw = serde_json::json!({
             "schemaVersion": raw["schemaVersion"],
             "mode": raw["mode"],
             "multiple": raw["multiple"],
             "elapsedMs": raw["elapsedMs"],
             "localizationLimited": raw["localizationLimited"],
-            "scan": scan,
+            "scan": {
+                "unfinished": raw["scan"]["unfinished"],
+                "barcodes": raw["scan"]["barcodes"],
+            },
         });
     }
-    let barcodes = raw["scan"]["barcodes"].as_array().ok_or(PANIC)?;
-    let mut reads = Vec::with_capacity(barcodes.len());
-    let mut texts = Vec::with_capacity(barcodes.len());
-    for b in barcodes {
-        let mut read = BarcodeRead::default();
-        for i in 0..4 {
-            read.polygon[2 * i] = b["polygon"][i][0].as_f64().ok_or(PANIC)?;
-            read.polygon[2 * i + 1] = b["polygon"][i][1].as_f64().ok_or(PANIC)?;
-        }
-        read.support = u32::try_from(b["support"].as_u64().ok_or(PANIC)?).map_err(|_| CAPACITY)?;
-        let text = b["text"].as_str().ok_or(PANIC)?.as_bytes().to_vec();
-        read.text_length = text.len() as u64;
-        let format = b["format"].as_str().unwrap_or("EAN13").as_bytes();
-        if format.len() >= read.format.len() {
-            return Err(CAPACITY);
-        }
-        read.format[..format.len()].copy_from_slice(format);
-        reads.push(read);
-        texts.push(text);
-    }
-    Ok(Output {
-        unfinished: raw["scan"]["unfinished"].as_bool().ok_or(PANIC)?,
-        limited: raw["localizationLimited"].as_bool().ok_or(PANIC)?,
-        json: serde_json::to_vec(&raw).map_err(|_| PANIC)?,
-        reads,
-        texts,
-    })
+    serde_json::to_vec(&raw).map_err(|_| PANIC)
 }
-/// Bit 0: finishing effort-selected EAN/UPC candidates is supported.
+
 #[no_mangle]
-pub extern "C" fn barcode_capabilities() -> u32 {
-    1
+pub extern "C" fn tapirscan_abi_version() -> u32 {
+    ABI_VERSION
 }
+
+/// Static, NUL-terminated description of a status code.
 #[no_mangle]
-pub extern "C" fn barcode_abi_version() -> u32 {
-    4
+pub extern "C" fn tapirscan_status_message(status: i32) -> *const c_char {
+    let message: &'static [u8] = match status {
+        0 => b"Success\0",
+        ARG => b"Invalid scanner arguments or image parameters\0",
+        HANDLE => b"Invalid scanner or result handle; it may already have been destroyed\0",
+        BUFFER => b"Result buffer is too small\0",
+        PANIC => b"Internal scanner failure\0",
+        CAPACITY => b"Scanner resource capacity exceeded; destroy unused scanners and results\0",
+        _ => b"Unknown scanner status\0",
+    };
+    message.as_ptr().cast()
 }
+
+/// Static, NUL-terminated name of one format bit, or null for anything else.
 #[no_mangle]
-pub extern "C" fn barcode_mode() -> u32 {
-    MODE_ID
+pub extern "C" fn tapirscan_format_name(format: u32) -> *const c_char {
+    static NAMES: OnceLock<Vec<(u32, CString)>> = OnceLock::new();
+    NAMES
+        .get_or_init(|| {
+            Format::ALL
+                .iter()
+                .filter_map(|f| Some((*f as u32, CString::new(f.as_str()).ok()?)))
+                .collect()
+        })
+        .iter()
+        .find(|(bits, _)| *bits == format)
+        .map_or(std::ptr::null(), |(_, name)| name.as_ptr())
 }
-const MODE_ID: u32 = if cfg!(feature = "mode-low") {
-    0
-} else if cfg!(feature = "mode-medium") {
-    1
-} else if cfg!(feature = "mode-high") {
-    2
-} else {
-    3
-};
-const MODE: Mode = if cfg!(feature = "mode-low") {
-    Mode::Low
-} else if cfg!(feature = "mode-medium") {
-    Mode::Medium
-} else if cfg!(feature = "mode-high") {
-    Mode::High
-} else {
-    Mode::VeryHigh
-};
+
+/// Null options select Medium, Retail formats and ignored EAN/UPC supplements.
 /// # Safety
-/// `out` must be null or point to writable, aligned storage for one `u64`.
+/// `options` must be null or readable; `out` must be null or writable for one `u64`.
 #[no_mangle]
-pub unsafe extern "C" fn tapirscan_create(out: *mut u64) -> i32 {
+pub unsafe extern "C" fn tapirscan_scanner_create(
+    options: *const ScannerOptionsC,
+    out: *mut u64,
+) -> i32 {
     boundary(|| {
         if out.is_null() {
             return Err(ARG);
         }
         *out = 0;
+        let options = match options.as_ref() {
+            None => ScannerOptions::default(),
+            Some(options) => ScannerOptions {
+                mode: mode_from(options.mode)?,
+                formats: Formats::try_from(options.formats).map_err(|_| ARG)?,
+                ean_add_on_policy: match options.ean_add_on_policy {
+                    0 => EanAddOnPolicy::Ignore,
+                    1 => EanAddOnPolicy::Read,
+                    2 => EanAddOnPolicy::Require,
+                    _ => return Err(ARG),
+                },
+            },
+        };
         let mut r = registry()?;
-        if r.scanners.len() >= 1024 {
+        if r.scanners.len() >= MAX_HANDLES {
             return Err(CAPACITY);
         }
         let id = r.id()?;
-        r.scanners.insert(
-            id,
-            Arc::new(Mutex::new(Scanner::new(ScannerOptions {
-                mode: MODE,
-                ..ScannerOptions::default()
-            }))),
-        );
+        r.scanners
+            .insert(id, Arc::new(Mutex::new(Scanner::new(options))));
         *out = id;
         Ok(())
     })
 }
+
 #[no_mangle]
-pub extern "C" fn tapirscan_destroy(id: u64) -> i32 {
-    boundary(|| registry()?.scanners.remove(&id).map(|_| ()).ok_or(HANDLE))
+pub extern "C" fn tapirscan_scanner_destroy(scanner: u64) -> i32 {
+    boundary(|| {
+        registry()?
+            .scanners
+            .remove(&scanner)
+            .map(|_| ())
+            .ok_or(HANDLE)
+    })
 }
-/// Input is borrowed only until this synchronous call returns. Errors clear out.
+
+/// Pixels are borrowed only until this synchronous call returns. Null scan
+/// options, and zero fields within them, select the scanner defaults.
 /// # Safety
-/// `pixels` must be null or readable for `length` bytes for the duration of the call.
-/// `out` must be null or writable and aligned for one `u64`, without overlapping pixels.
+/// `image` must be readable and its `data` readable for `length` bytes.
+/// `options` must be null or readable; `out` must be null or writable for one `u64`.
 #[no_mangle]
-pub unsafe extern "C" fn barcode_scan(
-    id: u64,
-    pixels: *const u8,
-    length: u64,
-    width: u64,
-    height: u64,
-    channels: u32,
-    stride: u64,
-    out: *mut u64,
-) -> i32 {
-    barcode_scan_with_options(id, pixels, length, width, height, channels, stride, 0, out)
-}
-/// Flags: 1 selects one read; 2 includes localized/search-region evidence.
-/// # Safety
-/// `pixels` must be null or readable for `length` bytes for the duration of the call.
-/// `out` must be null or writable and aligned for one `u64`, without overlapping pixels.
-#[no_mangle]
-pub unsafe extern "C" fn barcode_scan_with_options(
-    id: u64,
-    pixels: *const u8,
-    length: u64,
-    width: u64,
-    height: u64,
-    channels: u32,
-    stride: u64,
-    flags: u32,
-    out: *mut u64,
-) -> i32 {
-    barcode_scan_formats(
-        id, pixels, length, width, height, channels, stride, flags, 15, out,
-    )
-}
-/// Scan an explicit nonempty format bitmask; results own UTF-8 strings.
-/// # Safety
-/// Same pointer contract as `barcode_scan_with_options`.
-#[no_mangle]
-pub unsafe extern "C" fn barcode_scan_formats(
-    id: u64,
-    pixels: *const u8,
-    length: u64,
-    width: u64,
-    height: u64,
-    channels: u32,
-    stride: u64,
-    flags: u32,
-    formats: u32,
+pub unsafe extern "C" fn tapirscan_scan(
+    scanner: u64,
+    image: *const ImageC,
+    options: *const ScanOptionsC,
     out: *mut u64,
 ) -> i32 {
     boundary(|| {
@@ -268,235 +280,232 @@ pub unsafe extern "C" fn barcode_scan_formats(
             return Err(ARG);
         }
         *out = 0;
-        if flags & !31 != 0
-            || flags & 12 == 12
-            || pixels.is_null()
-            || length > MAX_BYTES
-            || width < 3
-            || height < 3
-            || ![1, 3, 4].contains(&channels)
+        let image = image.as_ref().ok_or(ARG)?;
+        let (formats, debug, extended_budget) = match options.as_ref() {
+            None => (0, false, false),
+            Some(o) if o.debug > 1 || o.extended_budget > 1 => return Err(ARG),
+            Some(o) => (o.formats, o.debug == 1, o.extended_budget == 1),
+        };
+        let formats = match formats {
+            0 => None,
+            bits => Some(Formats::try_from(bits).map_err(|_| ARG)?),
+        };
+        if image.data.is_null()
+            || image.length > MAX_BYTES
+            || image.width < 3
+            || image.height < 3
+            || ![1, 3, 4].contains(&image.channels)
         {
             return Err(ARG);
         }
-        let row = width.checked_mul(u64::from(channels)).ok_or(ARG)?;
-        let required = (height - 1)
+        let row = image
+            .width
+            .checked_mul(u64::from(image.channels))
+            .ok_or(ARG)?;
+        let stride = if image.stride == 0 { row } else { image.stride };
+        let required = (image.height - 1)
             .checked_mul(stride)
             .and_then(|n| n.checked_add(row))
             .ok_or(ARG)?;
-        if stride < row || required > length || required > MAX_BYTES {
+        if stride < row || required > image.length || required > MAX_BYTES {
             return Err(ARG);
         }
-        let formats = Formats::try_from(formats).map_err(|_| ARG)?;
-        let scanner = registry()?.scanners.get(&id).cloned().ok_or(HANDLE)?;
-        let data = std::slice::from_raw_parts(pixels, usize::try_from(required).map_err(|_| ARG)?);
-        let width = usize::try_from(width).map_err(|_| ARG)?;
-        let height = usize::try_from(height).map_err(|_| ARG)?;
-        let image = match channels {
+        let scanner = registry()?.scanners.get(&scanner).cloned().ok_or(HANDLE)?;
+        let data = std::slice::from_raw_parts(image.data, index(required)?);
+        let (width, height) = (index(image.width)?, index(image.height)?);
+        let pixels = match image.channels {
             1 => Image::gray(data, width, height),
             3 => Image::rgb(data, width, height),
-            4 => Image::rgba(data, width, height),
-            _ => return Err(ARG),
+            _ => Image::rgba(data, width, height),
         }
-        .with_stride(usize::try_from(stride).map_err(|_| ARG)?);
-        let output = Arc::new(scan_output(&scanner, image, flags, formats)?);
+        .with_stride(index(stride)?);
+        // Diagnostics are always retained: the compact JSON is derived from them.
+        let result = scanner
+            .lock()
+            .map_err(|_| PANIC)?
+            .scan_with_options(
+                pixels,
+                ScanOptions {
+                    formats,
+                    debug: true,
+                    extended_budget,
+                },
+            )
+            .map_err(|error| match error {
+                tapirscan_api::Error::Engine(_) => PANIC,
+                _ => ARG,
+            })?;
+        let json = result_json(&result, debug)?;
+        let mut result = result;
+        if !debug {
+            result.debug = None;
+        }
         let mut r = registry()?;
-        if r.results.len() >= 1024 {
+        if r.results.len() >= MAX_HANDLES {
             return Err(CAPACITY);
         }
-        let result_id = r.id()?;
-        r.results.insert(result_id, output);
-        *out = result_id;
+        let id = r.id()?;
+        r.results.insert(id, Arc::new(Output { result, json }));
+        *out = id;
         Ok(())
     })
 }
+
 /// # Safety
-/// `out` must be null or point to writable, aligned storage for one `ResultInfo`.
+/// `out` must be null or writable and aligned for one `tapirscan_summary`.
 #[no_mangle]
-pub unsafe extern "C" fn barcode_result_info(id: u64, out: *mut ResultInfo) -> i32 {
+pub unsafe extern "C" fn tapirscan_result_info(result: u64, out: *mut ResultInfoC) -> i32 {
     boundary(|| {
         if out.is_null() {
             return Err(ARG);
         }
-        *out = ResultInfo::default();
-        let r = output(id)?;
-        *out = ResultInfo {
-            json_length: r.json.len() as u64,
-            barcode_count: r.reads.len() as u64,
+        *out = ResultInfoC::default();
+        let output = output(result)?;
+        let r = &output.result;
+        let best = r
+            .best()
+            .and_then(|best| r.barcodes.iter().position(|b| std::ptr::eq(b, best)));
+        *out = ResultInfoC {
+            barcode_count: r.barcodes.len() as u64,
+            undecoded_count: r.undecoded.len() as u64,
+            best_index: best.map_or(-1, |i| i64::try_from(i).unwrap_or(-1)),
+            json_length: output.json.len() as u64,
+            width: r.image_size[0] as u64,
+            height: r.image_size[1] as u64,
+            elapsed_ms: r.elapsed.as_secs_f64() * 1000.0,
+            mode: mode_id(r.mode),
             unfinished: u32::from(r.unfinished),
-            localization_limited: u32::from(r.limited),
         };
         Ok(())
     })
 }
+
+fn barcode_c(b: &Barcode) -> BarcodeC {
+    let append = b.structured_append.as_ref();
+    BarcodeC {
+        polygon: polygon(&b.polygon),
+        support: b.support,
+        format: b.format as u32,
+        gs1: tristate(b.gs1),
+        reader_initialization: tristate(b.reader_initialization),
+        structured_append_parity: append.and_then(|a| a.parity).map_or(-1, i32::from),
+        structured_append_index: append.map_or(0, |a| a.index as u64),
+        structured_append_count: append.map_or(0, |a| a.count as u64),
+        text_length: b.text.len() as u64,
+        payload_bytes_length: length(b.payload_bytes.as_ref().map(Vec::len)),
+        ean_add_on_length: length(b.ean_add_on.as_ref().map(String::len)),
+        structured_append_id_length: length(append.and_then(|a| a.id.as_ref()).map(String::len)),
+    }
+}
+
 /// # Safety
-/// `out` must be null or point to writable, aligned storage for one `BarcodeRead`.
+/// `out` must be null or writable and aligned for one `tapirscan_barcode`.
 #[no_mangle]
-pub unsafe extern "C" fn barcode_result_read(id: u64, index: u64, out: *mut BarcodeRead) -> i32 {
+pub unsafe extern "C" fn tapirscan_result_barcode(
+    result: u64,
+    position: u64,
+    out: *mut BarcodeC,
+) -> i32 {
     boundary(|| {
         if out.is_null() {
             return Err(ARG);
         }
-        *out = BarcodeRead::default();
-        let r = output(id)?;
-        *out = *r
-            .reads
-            .get(usize::try_from(index).map_err(|_| ARG)?)
-            .ok_or(ARG)?;
+        *out = BarcodeC::default();
+        let output = output(result)?;
+        let barcode = output.result.barcodes.get(index(position)?).ok_or(ARG)?;
+        *out = barcode_c(barcode);
         Ok(())
     })
 }
-/// UTF-8 JSON plus a NUL terminator; required capacity is `json_length` + 1.
+
 /// # Safety
-/// `bytes` must be null or point to writable storage of at least `capacity` bytes.
+/// `out` must be null or writable and aligned for one `tapirscan_region`.
 #[no_mangle]
-pub unsafe extern "C" fn barcode_result_copy_json(id: u64, bytes: *mut u8, capacity: u64) -> i32 {
+pub unsafe extern "C" fn tapirscan_result_undecoded(
+    result: u64,
+    position: u64,
+    out: *mut RegionC,
+) -> i32 {
     boundary(|| {
-        if bytes.is_null() {
+        if out.is_null() {
             return Err(ARG);
         }
-        let r = output(id)?;
-        if capacity <= r.json.len() as u64 {
-            return Err(BUFFER);
-        }
-        std::ptr::copy_nonoverlapping(r.json.as_ptr(), bytes, r.json.len());
-        *bytes.add(r.json.len()) = 0;
+        *out = RegionC::default();
+        let output = output(result)?;
+        let region: &UndecodedRegion = output.result.undecoded.get(index(position)?).ok_or(ARG)?;
+        *out = RegionC {
+            polygon: polygon(&region.polygon),
+            format: region.format.map_or(0, |f| f as u32),
+        };
         Ok(())
     })
 }
-#[no_mangle]
-pub extern "C" fn barcode_result_destroy(id: u64) -> i32 {
-    boundary(|| registry()?.results.remove(&id).map(|_| ()).ok_or(HANDLE))
+
+unsafe fn copy_bytes(value: &[u8], out: *mut u8, capacity: u64) -> Result<(), i32> {
+    if out.is_null() {
+        return Err(ARG);
+    }
+    if capacity <= value.len() as u64 {
+        return Err(BUFFER);
+    }
+    std::ptr::copy_nonoverlapping(value.as_ptr(), out, value.len());
+    *out.add(value.len()) = 0;
+    Ok(())
 }
-/// Copy the full UTF-8 payload plus NUL; embedded NUL bytes are preserved.
+
+/// Copy one variable-length barcode field plus a NUL terminator. Embedded NUL
+/// bytes are preserved; use the reported length. Absent fields are rejected.
 /// # Safety
-/// `bytes` must be null or writable for `capacity` bytes, without overlap.
+/// `out` must be null or writable for `capacity` bytes, without overlap.
 #[no_mangle]
-pub unsafe extern "C" fn barcode_result_copy_text(
-    id: u64,
-    index: u64,
-    bytes: *mut u8,
+pub unsafe extern "C" fn tapirscan_result_copy(
+    result: u64,
+    position: u64,
+    field: u32,
+    out: *mut u8,
     capacity: u64,
 ) -> i32 {
     boundary(|| {
-        if bytes.is_null() {
-            return Err(ARG);
-        }
-        let result = output(id)?;
-        let text = result
-            .texts
-            .get(usize::try_from(index).map_err(|_| ARG)?)
-            .ok_or(ARG)?;
-        if capacity <= text.len() as u64 {
-            return Err(BUFFER);
-        }
-        std::ptr::copy_nonoverlapping(text.as_ptr(), bytes, text.len());
-        *bytes.add(text.len()) = 0;
-        Ok(())
+        let output = output(result)?;
+        let b = output.result.barcodes.get(index(position)?).ok_or(ARG)?;
+        let value: &[u8] = match field {
+            FIELD_TEXT => b.text.as_bytes(),
+            FIELD_PAYLOAD_BYTES => b.payload_bytes.as_deref().ok_or(ARG)?,
+            FIELD_EAN_ADD_ON => b.ean_add_on.as_deref().ok_or(ARG)?.as_bytes(),
+            FIELD_STRUCTURED_APPEND_ID => b
+                .structured_append
+                .as_ref()
+                .and_then(|a| a.id.as_deref())
+                .ok_or(ARG)?
+                .as_bytes(),
+            _ => return Err(ARG),
+        };
+        copy_bytes(value, out, capacity)
+    })
+}
+
+/// UTF-8 schema-2 JSON plus a NUL terminator; capacity must exceed `json_length`.
+/// # Safety
+/// `out` must be null or writable for `capacity` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn tapirscan_result_copy_json(
+    result: u64,
+    out: *mut u8,
+    capacity: u64,
+) -> i32 {
+    boundary(|| copy_bytes(&output(result)?.json, out, capacity))
+}
+
+#[no_mangle]
+pub extern "C" fn tapirscan_result_destroy(result: u64) -> i32 {
+    boundary(|| {
+        registry()?
+            .results
+            .remove(&result)
+            .map(|_| ())
+            .ok_or(HANDLE)
     })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn supplement_flags_are_mutually_exclusive() {
-        unsafe {
-            let mut id = 0;
-            assert_eq!(tapirscan_create(&raw mut id), 0);
-            let pixels = [255u8; 64 * 64];
-            for flags in [4, 8, 12, 16, 20, 24, 32] {
-                let mut result = 99;
-                let status = barcode_scan_with_options(
-                    id,
-                    pixels.as_ptr(),
-                    pixels.len() as u64,
-                    64,
-                    64,
-                    1,
-                    64,
-                    flags,
-                    &raw mut result,
-                );
-                if matches!(flags, 4 | 8 | 16 | 20 | 24) {
-                    assert_eq!(status, 0);
-                    assert_eq!(barcode_result_destroy(result), 0);
-                } else {
-                    assert_eq!(status, ARG);
-                    assert_eq!(result, 0);
-                }
-            }
-            assert_eq!(tapirscan_destroy(id), 0);
-        }
-    }
-
-    #[test]
-    fn handles_buffers_and_owned_results() {
-        unsafe {
-            assert_eq!(std::mem::size_of::<BarcodeRead>(), 104);
-            assert_eq!(std::mem::size_of::<ResultInfo>(), 24);
-            assert_eq!(tapirscan_create(std::ptr::null_mut()), ARG);
-            let mut id = 0;
-            assert_eq!(tapirscan_create(&raw mut id), 0);
-            let pixels = vec![255u8; 64 * 64];
-            let mut result = 99;
-            assert_eq!(
-                barcode_scan(id, pixels.as_ptr(), 1, 64, 64, 1, 64, &raw mut result),
-                ARG
-            );
-            assert_eq!(result, 0);
-            assert_eq!(
-                barcode_scan_with_options(
-                    id,
-                    pixels.as_ptr(),
-                    pixels.len() as u64,
-                    64,
-                    64,
-                    1,
-                    64,
-                    32,
-                    &raw mut result
-                ),
-                ARG
-            );
-            assert_eq!(result, 0);
-            assert_eq!(
-                barcode_scan(
-                    id,
-                    pixels.as_ptr(),
-                    pixels.len() as u64,
-                    64,
-                    64,
-                    1,
-                    64,
-                    &raw mut result
-                ),
-                0
-            );
-            assert_eq!(tapirscan_destroy(id), 0);
-            assert_eq!(tapirscan_destroy(id), HANDLE);
-            let mut info = ResultInfo::default();
-            assert_eq!(barcode_result_info(result, &raw mut info), 0);
-            let mut bytes = vec![0; usize::try_from(info.json_length).unwrap() + 1];
-            assert_eq!(
-                barcode_result_copy_json(result, bytes.as_mut_ptr(), 1),
-                BUFFER
-            );
-            assert_eq!(
-                barcode_result_copy_json(result, bytes.as_mut_ptr(), bytes.len() as u64),
-                0
-            );
-            assert_eq!(bytes.last(), Some(&0));
-            let json =
-                std::str::from_utf8(&bytes[..usize::try_from(info.json_length).unwrap()]).unwrap();
-            assert!(!json.contains("\"candidates\""));
-            assert!(!json.contains("\"searchWindows\""));
-            assert_eq!(barcode_result_destroy(result), 0);
-            assert_eq!(barcode_result_info(result, &raw mut info), HANDLE);
-            assert_eq!(info.json_length, 0);
-        }
-    }
-    #[test]
-    fn catches_unwinding() {
-        assert_eq!(boundary(|| panic!("boundary probe")), PANIC);
-    }
-}
+mod tests;

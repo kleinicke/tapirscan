@@ -1,88 +1,105 @@
-# Java binding (JDK 22+)
+# Tapirscan for Java
 
-This dependency-free API uses Java's final Foreign Function & Memory API. It needs
-JDK 22 or newer; it does not support Java 8/11/17 or Android. Local tests use JDK 25
-and compile with `--release 22`. The [Java API documentation](https://docs.oracle.com/en/java/javase/25/docs/api/java.base/java/lang/foreign/SymbolLookup.html)
-describes native library lookup and its arena lifetime.
-
-```sh
-python3 scripts/build_native.py low medium high very-high
-python3 scripts/build_java.py
-# Output: build/java/tapirscan-1.2.2.jar
-# Alternatively, with Maven installed: mvn -f bindings/java/pom.xml package
-```
+Scan decoded pixels and receive every accepted barcode, source-image geometry,
+undecoded proposals and reported work limits. Defaults are Medium effort and
+retail formats (EAN13, UPCA, EAN8 and UPCE). The dependency-free JDK 22+ binding
+uses one native library that contains all four effort modes.
 
 ```java
-import java.nio.file.Path;
-import org.tapirscan.Tapirscan;
-// rgbaBytes contains decoded RGBA pixels; width and height are pixel dimensions.
-try (var scanner = new Tapirscan(Path.of("/absolute/path/to/build/native"),
-        Tapirscan.Mode.HIGH)) {
-    var result = scanner.scan(rgbaBytes, width, height, 4,
-        new Tapirscan.ScanOptions(true, false, 1 | 16));
-    var reads = result.barcodes();
-    var best = result.best();
-    for (var barcode : reads) {
-        System.out.println(barcode.text() + " (" + barcode.format() + ")");
-    }
+import org.tapirscan.*;
+
+byte[] pixels = new byte[640 * 480];
+java.util.Arrays.fill(pixels, (byte) 255);
+ScanResult result = Tapirscan.scan(Image.gray(pixels, 640, 480));
+for (Barcode barcode : result.barcodes()) {
+    System.out.println(barcode.text() + " " + barcode.format() + " " + barcode.polygon());
+}
+System.out.println(result.undecoded().size() + " undecoded; unfinished: " + result.unfinished());
+```
+
+No detection is an empty `barcodes()` list. Invalid input and engine failures
+throw `ScannerException`, whose `code` is the native status. Results are
+immutable records that survive the scanner. Equal payloads at distinct
+locations remain separate physical instances.
+
+## Reuse and configuration
+
+```java
+ScannerOptions options = ScannerOptions.defaults()
+        .withMode(Mode.HIGH)
+        .withFormats(java.util.Set.of(Format.EAN13, Format.QR_CODE));
+try (Scanner scanner = new Scanner(options)) {
+    ScanResult result = scanner.scan(Image.rgba(pixels, width, height),
+            ScanOptions.defaults().withExtendedBudget(true));
+    result.best().ifPresent(best -> System.out.println(best.text()));
 }
 ```
 
-Run classpath applications with `--enable-native-access=ALL-UNNAMED`. For example:
-`java --enable-native-access=ALL-UNNAMED -cp tapirscan-1.2.2.jar:app.jar Main`
-(use `;` as the classpath separator on Windows).
+Reuse a scanner across images and close it, or use try-with-resources. Scans on
+one scanner serialize; separate scanners run concurrently.
+`Tapirscan.scan(image, options)` uses a temporary scanner for one image.
 
-The JAR contains Java classes; provide the four native libraries separately. Mode
-selection loads the matching library explicitly. Scanner implements `AutoCloseable`;
-scan and close synchronize, repeated close is safe, and use after close fails.
-Every result is copied into immutable Java records and a complete JSON string, so
-it remains valid after close. The native result is freed before `scan` returns.
+| Scanner option   | Default                 | Choices                                 |
+| ---------------- | ----------------------- | --------------------------------------- |
+| `mode`           | `Mode.MEDIUM`           | `LOW`, `MEDIUM`, `HIGH`, `VERY_HIGH`    |
+| `formats`        | `Format.RETAIL`         | Any nonempty `Set<Format>`, or a preset |
+| `eanAddOnPolicy` | `EanAddOnPolicy.IGNORE` | `IGNORE`, `READ`, `REQUIRE`             |
 
-Input is byte[] gray8/RGB8/RGBA8, with optional explicit stride. ARGB/BGR images must
-be converted. Each call snapshots input into native memory. Argument validation and
-native status codes become Java exceptions. `ScanResult.unfinished()` and
-`localizationLimited()` remain separate; `json()` preserves candidate evidence when `includeRegions` was requested.
-The Maven coordinates are provisional and no package has been published.
+Presets: `Format.RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX` and `ALL`.
+Retail formats are supported; other readers remain experimental. See
+[format coverage](../../docs/FORMATS.md).
 
-`ScanOptions(multiple, includeRegions, formats)` defaults to `(true, false, 1)`
-via `ScanOptions.defaults()`. The two-argument constructor also selects retail formats (mask 15).
-The example selects EAN13 and Code128 (`1 | 16`); use
-[format bits](../../docs/FORMATS.md) to select other readers. Set `multiple`
-to false to return at most the highest-support read after the full scan. The
-immutable result and barcode-list types do not change. An empty list means no
-successful read. Include region evidence explicitly when needed; otherwise JSON
-omits localization/search windows/candidates. Native ABI 4 and the matching JAR
-must be deployed together. Output options do not change the selected scanning effort.
+| Per-scan option  | Default            | Meaning                                      |
+| ---------------- | ------------------ | -------------------------------------------- |
+| `formats`        | `Optional.empty()` | Override readers for this call               |
+| `debug`          | `false`            | Include engine evidence in `debug()` as JSON |
+| `extendedBudget` | `false`            | Allow extra reader work for any format       |
 
-## API reference
+`extendedBudget` can cost more time and does not promise exhaustive decoding;
+see [API design](../../docs/API_DESIGN.md).
 
-| Call                                                     | Purpose                                                                 |
-| -------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `new Tapirscan(libraryDirectory, mode)`                  | Load a native mode from a Path. Mode is LOW, MEDIUM, HIGH or VERY_HIGH. |
-| `scan(pixels, width, height, channels)`                  | Scan with tightly packed rows and default options.                      |
-| `scan(pixels, width, height, channels, options)`         | Set multiple-result selection, diagnostics and format bits.             |
-| `scan(pixels, width, height, channels, stride)`          | Default options with explicit row stride in bytes.                      |
-| `scan(pixels, width, height, channels, stride, options)` | Set both stride and options.                                            |
-| `mode()`                                                 | Return the loaded mode.                                                 |
-| `close()`                                                | Release native resources; normally handled by try-with-resources.       |
+## Results
 
-`ScanResult` exposes `barcodes()`, `best()` (Optional), `unfinished()`,
-`localizationLimited()` and `json()`. Each Barcode has `text()`, `format()`,
-`polygon()` (immutable Point list), and `support()` (ranking, not confidence).
-Points use input-image coordinates. Empty barcodes means no read. Unlike the
-Python/JS convenience APIs, there is no values-only accessor, rectangle helper or
-image decoder. Decode JPEG/TIFF using an image library before passing pixel bytes.
+`ScanResult` exposes `barcodes()`, `undecoded()`, `width()`, `height()`,
+`mode()`, `elapsedMs()`, `unfinished()` and optional `debug()` JSON. `values()`
+returns decoded text; `best()` returns the largest-support read, keeping
+first-read ties. Support is reader-specific and not comparable confidence across
+formats.
 
-The binding is current with native ABI 4 and library version 1.2.2, but no Maven
-Central package or bundled native JAR is published. JDK 22+ and separate native
-libraries are requirements, not optional optimizations. See [validation](../../docs/VALIDATION.md).
+`Barcode` contains `text()`, `format()`, `polygon()` (four `Point`s in
+source-image pixels, top-left origin), `support()`, and optional
+`payloadBytes()`, `eanAddOn()`, `gs1()`, `readerInitialization()` and
+`structuredAppend()`. An empty optional means the reader did not report it.
+`rect()` returns enclosing integer pixel bounds. `Format.toString()` gives names
+such as `"QRCode"`.
 
-## Finishing candidate work
+`undecoded()` contains localized proposals without accepted decodes. These can
+be false candidates or deferred work; an empty list and `unfinished() == false`
+do not guarantee exhaustive coverage. Debug JSON schemas are unstable.
 
-Enable the fourth `ScanOptions` component, `finishCandidates` to remove shared frame retry and association budgets
-for EAN13/UPC-A candidates. Default is disabled; selected formats must include
-EAN13 or UPCA. Per-candidate effort and other limits remain; unfinished work is
-still reported. See [API design](../../docs/API_DESIGN.md) for scope and cost.
+## Images
+
+`Image.gray`, `Image.rgb` and `Image.rgba` take a byte array, width and height;
+`.withStride(bytesPerRow)` describes padded rows. Alpha is ignored. Pixels are
+copied when scanning. Images are at least 3×3 and at most 32 megapixels; the
+array must cover `(height - 1) * stride + width * channels` bytes, at most
+128 MiB. Decode image files and convert BGR, ARGB, planar, float or 16-bit
+pixels before scanning.
+
+## Building and loading the native library
+
+```sh
+python3 scripts/build_native.py
+python3 scripts/build_java.py
+java --enable-native-access=ALL-UNNAMED -Dtapirscan.library=build/native/libtapirscan.dylib \
+    -cp build/java/tapirscan-1.3.0.jar:. MyApp
+```
+
+The library is located through the `tapirscan.library` system property (a
+file), the `TAPIRSCAN_LIBRARY_DIR` environment variable (a directory), or the
+operating system's library search path. `--enable-native-access=ALL-UNNAMED`
+avoids the JDK's native-access warning. The JAR and the native library are
+distributed separately; Android is not supported.
 
 ## License
 

@@ -46,6 +46,26 @@ pub enum Format {
 }
 
 impl Format {
+    /// Every supported format in native bit order.
+    pub const ALL: [Self; 16] = [
+        Self::Ean13,
+        Self::Upca,
+        Self::Ean8,
+        Self::Upce,
+        Self::Code128,
+        Self::Code39,
+        Self::Itf,
+        Self::Codabar,
+        Self::Code93,
+        Self::QrCode,
+        Self::DataMatrix,
+        Self::Pdf417,
+        Self::Aztec,
+        Self::DataBar,
+        Self::DataBarExpanded,
+        Self::MaxiCode,
+    ];
+
     /// Stable schema name used by language adapters.
     #[must_use]
     pub const fn as_str(self) -> &'static str {

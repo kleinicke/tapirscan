@@ -69,40 +69,60 @@ __all__ = [
     "retail_formats",
     "scan",
 ]
-ABI_VERSION = 4
+ABI_VERSION = 5
 MAX_IMAGE_BYTES = 128 * 1024 * 1024
-# Native ABI v4 statuses from bindings/c/include/tapirscan.h.
-_ADDON_FLAGS = {"Ignore": 0, "Read": 4, "Require": 8}
-_STATUS_MESSAGES = {
-    1: "Invalid scanner arguments or image parameters",
-    2: "Invalid scanner or result handle; it may already have been closed",
-    3: "Result buffer is too small",
-    4: "Internal scanner failure",
-    5: "Scanner resource capacity exceeded; close unused scanners",
-}
+_MODES = ("low", "medium", "high", "very-high")
+_ADDON_POLICIES = ("Ignore", "Read", "Require")
 
 
 class ScannerError(RuntimeError):
     """A native scanner failure with its numeric ABI status code."""
 
-    def __init__(self, code: int) -> None:
+    def __init__(self, code: int, message: str) -> None:
         """Preserve the numeric status and explain the native failure."""
         self.code = code
-        message = _STATUS_MESSAGES.get(code, "Unknown native scanner failure")
         super().__init__(f"{message} (code {code})")
 
 
-def _check(code: int) -> None:
-    if code:
-        raise ScannerError(code)
+# Native ABI 5 structures from bindings/c/include/tapirscan.h.
+class _ScannerOptions(c.Structure):
+    _fields_ = [
+        ("mode", c.c_uint32),
+        ("formats", c.c_uint32),
+        ("ean_add_on_policy", c.c_uint32),
+    ]
+
+
+class _Image(c.Structure):
+    _fields_ = [
+        ("data", c.c_void_p),
+        ("length", c.c_uint64),
+        ("width", c.c_uint64),
+        ("height", c.c_uint64),
+        ("channels", c.c_uint32),
+        ("stride", c.c_uint64),
+    ]
+
+
+class _ScanOptions(c.Structure):
+    _fields_ = [
+        ("formats", c.c_uint32),
+        ("debug", c.c_uint32),
+        ("extended_budget", c.c_uint32),
+    ]
 
 
 class _Info(c.Structure):
     _fields_ = [
-        ("json_length", c.c_uint64),
         ("barcode_count", c.c_uint64),
+        ("undecoded_count", c.c_uint64),
+        ("best_index", c.c_int64),
+        ("json_length", c.c_uint64),
+        ("width", c.c_uint64),
+        ("height", c.c_uint64),
+        ("elapsed_ms", c.c_double),
+        ("mode", c.c_uint32),
         ("unfinished", c.c_uint32),
-        ("localization_limited", c.c_uint32),
     ]
 
 
@@ -165,8 +185,8 @@ def _snapshot(
 class Scanner:
     """A reusable scanner. Use a context manager or call close().
 
-    mode selects a separate compiled library. library_dir may also be supplied
-    through TAPIRSCAN_LIBRARY_DIR; otherwise bundled libraries are used.
+    library_dir may also be supplied through TAPIRSCAN_LIBRARY_DIR; otherwise the
+    bundled library is used.
     Installed packages never search the cwd.
     Results are immutable typed objects and remain valid after close/next scan.
     """
@@ -180,10 +200,10 @@ class Scanner:
         library_dir: str | os.PathLike[str] | None = None,
     ) -> None:
         """Initialize the scanner state or native error code."""
-        if mode not in ("low", "medium", "high", "very-high"):
+        if mode not in _MODES:
             msg = "mode must be low, medium, high or very-high"
             raise ValueError(msg)
-        if ean_add_on_policy not in ("Ignore", "Read", "Require"):
+        if ean_add_on_policy not in _ADDON_POLICIES:
             msg = "ean_add_on_policy must be Ignore, Read or Require"
             raise ValueError(msg)
         self._ean_add_on_policy = ean_add_on_policy
@@ -197,7 +217,7 @@ class Scanner:
             directory = Path(__file__).resolve().parent / "_native"
             if not directory.is_dir():
                 msg = (
-                    "This installation has no bundled native libraries. "
+                    "This installation has no bundled native library. "
                     "Install a platform wheel, or set library_dir / "
                     "TAPIRSCAN_LIBRARY_DIR for a source checkout."
                 )
@@ -207,10 +227,7 @@ class Scanner:
             if sys.platform == "win32"
             else ("lib", ".dylib" if sys.platform == "darwin" else ".so")
         )
-        path = (
-            Path(directory).expanduser().resolve()
-            / f"{prefix}tapirscan_{mode.replace('-', '_')}{suffix}"
-        )
+        path = Path(directory).expanduser().resolve() / f"{prefix}tapirscan{suffix}"
         self._lock = RLock()
         self._handle = c.c_uint64(0)
         self._lib = c.CDLL(str(path))
@@ -219,36 +236,46 @@ class Scanner:
         u32 = c.c_uint32
         ptr = c.POINTER
         signatures = {
-            "barcode_abi_version": ([], u32),
-            "barcode_mode": ([], u32),
-            "tapirscan_create": ([ptr(u64)], c.c_int32),
-            "tapirscan_destroy": ([u64], c.c_int32),
-            "barcode_scan_formats": (
-                [u64, c.c_void_p, u64, u64, u64, u32, u64, u32, u32, ptr(u64)],
+            "tapirscan_abi_version": ([], u32),
+            "tapirscan_status_message": ([c.c_int32], c.c_char_p),
+            "tapirscan_scanner_create": (
+                [ptr(_ScannerOptions), ptr(u64)],
                 c.c_int32,
             ),
-            "barcode_result_info": ([u64, ptr(_Info)], c.c_int32),
-            "barcode_result_copy_json": ([u64, c.c_void_p, u64], c.c_int32),
-            "barcode_result_destroy": ([u64], c.c_int32),
+            "tapirscan_scanner_destroy": ([u64], c.c_int32),
+            "tapirscan_scan": (
+                [u64, ptr(_Image), ptr(_ScanOptions), ptr(u64)],
+                c.c_int32,
+            ),
+            "tapirscan_result_info": ([u64, ptr(_Info)], c.c_int32),
+            "tapirscan_result_copy_json": ([u64, c.c_void_p, u64], c.c_int32),
+            "tapirscan_result_destroy": ([u64], c.c_int32),
         }
         for name, (args, result) in signatures.items():
             fn = getattr(self._lib, name)
             fn.argtypes = args
             fn.restype = result
-        actual_abi = self._lib.barcode_abi_version()
+        actual_abi = self._lib.tapirscan_abi_version()
         if actual_abi != ABI_VERSION:
             msg = (
                 f"Native library ABI mismatch: expected {ABI_VERSION}, "
                 f"got {actual_abi} from {path}. "
-                "Rebuild custom native libraries or reinstall a matching wheel."
+                "Rebuild the native library or reinstall a matching wheel."
             )
             raise RuntimeError(msg)
-        if self._lib.barcode_mode() != (
-            ("low", "medium", "high", "very-high").index(mode)
-        ):
-            msg = "Native library mode mismatch"
-            raise RuntimeError(msg)
-        _check(self._lib.tapirscan_create(c.byref(self._handle)))
+        options = _ScannerOptions(
+            _MODES.index(mode),
+            format_mask(self._formats),
+            _ADDON_POLICIES.index(ean_add_on_policy),
+        )
+        self._check(
+            self._lib.tapirscan_scanner_create(c.byref(options), c.byref(self._handle))
+        )
+
+    def _check(self, code: int) -> None:
+        if code:
+            message = self._lib.tapirscan_status_message(code).decode()
+            raise ScannerError(code, message)
 
     @property
     def mode(self) -> Mode:
@@ -284,16 +311,6 @@ class Scanner:
         if type(extended_budget) is not bool:
             msg = "extended_budget must be a boolean"
             raise TypeError(msg)
-        # The current native ABI extends primary-reader budgets only.
-        finish_candidates = extended_budget and bool(mask & 3)
-        if finish_candidates:
-            capability = getattr(self._lib, "barcode_capabilities", None)
-            if capability is None or not capability() & 1:
-                msg = (
-                    "This native library does not support extended budget; "
-                    "rebuild or update it"
-                )
-                raise RuntimeError(msg)
         with self._lock:
             if not self._handle.value:
                 msg = "Scanner is closed"
@@ -301,40 +318,32 @@ class Scanner:
         data, width, height, channels, stride = _snapshot(
             image, layout, value_range, color_order
         )
+        pixels = _Image(c.addressof(data), len(data), width, height, channels, stride)
+        # Engine evidence is always requested: undecoded regions and the
+        # schema-2 JSON are derived from it, and `debug` only controls exposure.
+        options = _ScanOptions(mask, 1, int(extended_budget))
         with self._lock:
             if not self._handle.value:
                 msg = "Scanner is closed"
                 raise RuntimeError(msg)
             result = c.c_uint64()
-            flags = (
-                2
-                | (16 if finish_candidates else 0)
-                | _ADDON_FLAGS[self.ean_add_on_policy]
-            )
-            _check(
-                self._lib.barcode_scan_formats(
-                    self._handle,
-                    data,
-                    len(data),
-                    width,
-                    height,
-                    channels,
-                    stride,
-                    flags,
-                    mask,
-                    c.byref(result),
+            self._check(
+                self._lib.tapirscan_scan(
+                    self._handle, c.byref(pixels), c.byref(options), c.byref(result)
                 )
             )
             try:
                 info = _Info()
-                _check(self._lib.barcode_result_info(result, c.byref(info)))
+                self._check(self._lib.tapirscan_result_info(result, c.byref(info)))
                 output = c.create_string_buffer(info.json_length + 1)
-                _check(self._lib.barcode_result_copy_json(result, output, len(output)))
+                self._check(
+                    self._lib.tapirscan_result_copy_json(result, output, len(output))
+                )
                 return _from_json(
                     output.raw[: info.json_length], width, height, debug=debug
                 )
             finally:
-                _check(self._lib.barcode_result_destroy(result))
+                self._check(self._lib.tapirscan_result_destroy(result))
 
     def close(self) -> None:
         """Release the native scanner handle; repeated calls are safe."""
@@ -342,7 +351,7 @@ class Scanner:
             if self._handle.value:
                 handle = self._handle.value
                 self._handle.value = 0
-                _check(self._lib.tapirscan_destroy(handle))
+                self._check(self._lib.tapirscan_scanner_destroy(handle))
 
     def __enter__(self) -> Self:
         """Return this scanner if it is still open."""

@@ -1,4 +1,4 @@
-"""Build platform wheels containing all four ctypes libraries, without a Python ABI."""
+"""Build platform wheels containing the ctypes native library, without a Python ABI."""
 
 import os
 import platform as host_platform
@@ -23,7 +23,7 @@ class BuildWithLibraries(build_py):
     """Copy prebuilt, validated libraries and license notices into the package."""
 
     def run(self) -> None:
-        """Require and bundle every effort mode."""
+        """Require and bundle the native library, which contains every mode."""
         super().run()
         source = Path(
             os.environ.get(
@@ -31,10 +31,12 @@ class BuildWithLibraries(build_py):
                 Path(__file__).resolve().parents[2] / "build/native",
             )
         )
-        prefix, suffix = (
-            ("", ".dll")
+        name = (
+            "tapirscan.dll"
             if sys.platform == "win32"
-            else ("lib", ".dylib" if sys.platform == "darwin" else ".so")
+            else "libtapirscan.dylib"
+            if sys.platform == "darwin"
+            else "libtapirscan.so"
         )
         package = Path(self.build_lib) / "tapirscan"
         shutil.copy2(
@@ -42,16 +44,16 @@ class BuildWithLibraries(build_py):
             package / "THIRD_PARTY_NOTICES.md",
         )
         destination = package / "_native"
-        destination.mkdir(parents=True, exist_ok=True)
-        for mode in ("low", "medium", "high", "very_high"):
-            name = f"{prefix}tapirscan_{mode}{suffix}"
-            if not (source / name).is_file():
-                msg = (
-                    f"Missing {source / name}. "
-                    "Build all native modes or set TAPIRSCAN_NATIVE_DIR."
-                )
-                raise RuntimeError(msg)
-            shutil.copy2(source / name, destination / name)
+        # Reused build directories may hold libraries from earlier builds.
+        shutil.rmtree(destination, ignore_errors=True)
+        destination.mkdir(parents=True)
+        if not (source / name).is_file():
+            msg = (
+                f"Missing {source / name}. "
+                "Build the native library or set TAPIRSCAN_NATIVE_DIR."
+            )
+            raise RuntimeError(msg)
+        shutil.copy2(source / name, destination / name)
 
 
 class CtypesWheel(bdist_wheel):

@@ -48,10 +48,10 @@ class Images(unittest.TestCase):
     def test_old_native_abi(self) -> None:
         """Reject older libraries at initialization with actionable version details."""
         with patch("tapirscan.c.CDLL") as load:
-            load.return_value.barcode_abi_version.return_value = 3
-            with self.assertRaisesRegex(RuntimeError, "expected 4, got 3.*Rebuild"):
+            load.return_value.tapirscan_abi_version.return_value = 4
+            with self.assertRaisesRegex(RuntimeError, "expected 5, got 4.*Rebuild"):
                 Scanner(library_dir=LIBS)
-            load.return_value.tapirscan_create.assert_not_called()
+            load.return_value.tapirscan_scanner_create.assert_not_called()
 
     def test_finish_candidates(self) -> None:
         """Continuation is opt-in and validates the selected reader."""
@@ -75,19 +75,6 @@ class Images(unittest.TestCase):
             decode(image, library_dir=LIBS, extended_budget=True).values,
             [TEXT],
         )
-
-    def test_missing_continuation_capability(self) -> None:
-        """Older custom native builds fail clearly only when continuation is used."""
-        with (
-            Scanner(library_dir=LIBS) as scanner,
-            patch.object(scanner._lib, "barcode_capabilities", return_value=0),  # noqa: SLF001
-        ):
-            image = PixelImage(RAW, width=W, height=H)
-            self.assertEqual(scanner.scan(image).values, [TEXT])
-            with self.assertRaisesRegex(
-                RuntimeError, "does not support extended budget"
-            ):
-                scanner.scan(image, extended_budget=True)
 
     def test_supplement_policy(self) -> None:
         """Policy is opt-in, creation-only and forwarded by one-shot scanning."""
@@ -495,21 +482,23 @@ class Images(unittest.TestCase):
                 scanner.scan(PixelImage(b"", width=width, height=height - 1))
 
     def test_native_error_messages(self) -> None:
-        """Numeric native status remains available with descriptive error text."""
-        for code, message in (
-            (1, "Invalid scanner arguments"),
-            (2, "handle"),
-            (3, "buffer is too small"),
-            (4, "Internal scanner"),
-            (5, "capacity exceeded"),
-            (99, "Unknown native"),
-        ):
-            with self.subTest(code=code):
-                error = barcode.ScannerError(code)
-                self.assertIsInstance(error, RuntimeError)
-                self.assertEqual(error.code, code)
-                self.assertIn(message, str(error))
-                self.assertIn(f"code {code}", str(error))
+        """Numeric native status remains available with the library's error text."""
+        with Scanner(library_dir=LIBS) as scanner:
+            for code, message in (
+                (1, "Invalid scanner arguments"),
+                (2, "handle"),
+                (3, "buffer is too small"),
+                (4, "Internal scanner"),
+                (5, "capacity exceeded"),
+                (99, "Unknown scanner status"),
+            ):
+                with self.subTest(code=code):
+                    with self.assertRaises(barcode.ScannerError) as raised:
+                        scanner._check(code)  # noqa: SLF001
+                    self.assertIsInstance(raised.exception, RuntimeError)
+                    self.assertEqual(raised.exception.code, code)
+                    self.assertIn(message, str(raised.exception))
+                    self.assertIn(f"code {code}", str(raised.exception))
 
     def test_invalid(self) -> None:
         """Verify invalid."""

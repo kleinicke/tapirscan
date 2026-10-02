@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build native ABI libraries over the prepared public Rust package."""
+"""Build the native library, containing all four modes, over the public Rust crate."""
 
 import argparse
 import os
@@ -10,46 +10,41 @@ from pathlib import Path
 
 from prepare_rust import prepared_package, sync_tree, write_changed
 
-from build import MODES, ROOT
+from build import ROOT
+
+TARGET = ROOT / "build/native-target"
+# Rust examples used by the cross-language parity tests.
+EXAMPLES = TARGET / "release/examples"
 
 
-def build(mode: str, public_crate: Path, destination: Path | None = None) -> None:
-    """Build and validate one native adapter mode."""
-    _, tag = MODES[mode]
-    out = ROOT / "build" / mode
-    out.mkdir(parents=True, exist_ok=True)
-    native = out / "native"
+def library_name() -> str:
+    """Platform file name of the native library."""
+    if sys.platform == "win32":
+        return "tapirscan.dll"
+    return "libtapirscan.dylib" if sys.platform == "darwin" else "libtapirscan.so"
+
+
+def build(public_crate: Path, destination: Path) -> None:
+    """Build, test and install the native library and the Rust examples."""
+    native = ROOT / "build/native-crate"
     sync_tree(ROOT / "bindings/c/src", native / "src")
     write_changed(
         native / "Cargo.toml",
-        (
-            (ROOT / "bindings/c/Cargo.toml.in")
-            .read_text()
-            .replace("@MODE@", mode)
-            .replace("@LIB_MODE@", mode.replace("-", "_"))
-            .replace("@PUBLIC_CRATE@", public_crate.as_posix())
-        ).encode(),
+        (ROOT / "bindings/c/Cargo.toml.in")
+        .read_text()
+        .replace("@PUBLIC_CRATE@", public_crate.as_posix())
+        .encode(),
     )
     public_lock = public_crate / "Cargo.lock"
     if public_lock.exists():
         write_changed(native / "Cargo.lock", public_lock.read_bytes())
     env = os.environ.copy()
     env.pop("RUSTFLAGS", None)
-    target = ROOT / "build/native-target" / mode
-    env["CARGO_TARGET_DIR"] = str(target)
+    env["CARGO_TARGET_DIR"] = str(TARGET)
     env["CARGO_INCREMENTAL"] = "0"
     common = ["--offline", "--manifest-path", str(native / "Cargo.toml")]
-
     subprocess.run(["cargo", "test", *common], env=env, check=True)
-    suffix = (
-        ".dll"
-        if sys.platform == "win32"
-        else ".dylib"
-        if sys.platform == "darwin"
-        else ".so"
-    )
-    prefix = "" if sys.platform == "win32" else "lib"
-    name = f"{prefix}tapirscan_{mode.replace(chr(45), chr(95))}{suffix}"
+    name = library_name()
     command = ["cargo", "rustc", "--release", "--lib", *common]
     if sys.platform == "darwin":
         command += ["--", "-C", f"link-arg=-Wl,-install_name,@rpath/{name}"]
@@ -64,43 +59,29 @@ def build(mode: str, public_crate: Path, destination: Path | None = None) -> Non
             "--release",
             "--manifest-path",
             str(public_crate / "Cargo.toml"),
-            "--no-default-features",
-            "--features",
-            f"mode-{mode}",
             "--examples",
         ],
         env=env,
         check=True,
     )
-    dest = destination if destination is not None else ROOT / "build/native"
-    dest.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(target / "release" / name, dest / name)
+    destination.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(TARGET / "release" / name, destination / name)
     if sys.platform == "win32":
         shutil.copy2(
-            target / "release" / f"tapirscan_{mode.replace(chr(45), chr(95))}.dll.lib",
-            dest / f"tapirscan_{mode.replace(chr(45), chr(95))}.dll.lib",
+            TARGET / "release/tapirscan.dll.lib", destination / "tapirscan.dll.lib"
         )
-    legacy_examples = out / "cargo-target/release/examples"
-    legacy_examples.mkdir(parents=True, exist_ok=True)
-    for example in ("scan_raw", "scan_options"):
-        executable = example + (".exe" if sys.platform == "win32" else "")
-        shutil.copy2(
-            target / "release/examples" / executable, legacy_examples / executable
-        )
-    print(f"Built {tag}: {dest / name}", flush=True)
+    print(f"Built {destination / name}", flush=True)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("modes", nargs="*", metavar="MODE")
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--output", type=Path, help="Separate output directory for private artifacts"
+        "--output",
+        type=Path,
+        default=ROOT / "build/native",
+        help="Separate output directory for private artifacts",
     )
     args = parser.parse_args()
-    selected = args.modes or list(MODES)
-    if unknown := [mode for mode in selected if mode not in MODES]:
-        parser.error(f"unknown mode: {', '.join(unknown)}")
     public = ROOT / "build/crates/tapirscan"
     with prepared_package(public, refresh=public.exists()):
-        for mode in selected:
-            build(mode, public, args.output)
+        build(public, args.output)

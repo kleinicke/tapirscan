@@ -1,6 +1,20 @@
 # Release notes
 
-## Unreleased
+## 1.3.0 — unreleased
+
+- C, C++ and Java are now recommended bindings with the same scanner, options
+  and result model as Rust, Python and JavaScript. Native ABI 5 uses one
+  `tapirscan_` prefix, scanner and scan option structs, typed barcodes with all
+  payload metadata, typed undecoded regions and a best index. One native library
+  now contains all four effort modes. This is a breaking change for C, C++ and
+  Java; see [API migration](docs/API_MIGRATION.md). Python, JavaScript and Rust
+  are unaffected.
+
+- Format constants for C, C++ and Java are generated from `config/formats.json`.
+  Rust adds `Format::ALL`.
+
+- Python wheels bundle one native library and no longer pick up stale libraries
+  from reused build directories.
 
 - Improve experimental Turbo Retail and Common1D recovery with bounded evidence
   confirmation and guarded empty-scan retries. Preserve nearby equal-payload

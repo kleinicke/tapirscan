@@ -1,18 +1,10 @@
 // CLI used by the cross-language parity suite; not an additional node:test case.
+// usage: mode width height channels stride pixels [debug formats [extendedBudget]]
+// Prints the same typed JSON as the C++, Java and Rust scan_raw examples.
 import { readFile } from "node:fs/promises";
 import { Scanner } from "../dist/index.js";
-const [
-  mode,
-  width,
-  height,
-  channels,
-  stride,
-  file,
-  multiple,
-  includeRegions,
-  formats,
-  finishCandidates,
-] = process.argv.slice(2);
+const [mode, width, height, channels, stride, file, debug, formats, extendedBudget] =
+  process.argv.slice(2);
 const scanner = await Scanner.create({
   mode,
   ...(formats ? { formats: formats.split(",") } : {}),
@@ -30,33 +22,25 @@ try {
       channels: +channels,
       stride: +stride,
     },
-    {
-      debug: true,
-      extendedBudget: finishCandidates === "1",
-    },
+    { debug: debug === "1", extendedBudget: extendedBudget === "1" },
   );
-  // The native ABI still supports single selection; compare it with JS .best.
-  const raw = structuredClone(result.debug);
-  if (multiple === "0") {
-    raw.multiple = false;
-    const best = result.best;
-    raw.scan.barcodes = best
-      ? [
-          raw.scan.barcodes.find(
-            (b) =>
-              b.text === best.text &&
-              b.format === best.format &&
-              JSON.stringify(b.polygon) === JSON.stringify(best.polygon),
-          ),
-        ]
-      : [];
-  }
-  if (includeRegions !== "1") {
-    for (const key of ["localization", "recovery", "detailRegions", "searchWindows"])
-      delete raw[key];
-    raw.scan = { barcodes: raw.scan.barcodes, unfinished: raw.scan.unfinished };
-  }
-  console.log(JSON.stringify(raw));
+  const best = result.best === undefined ? null : result.barcodes.indexOf(result.best);
+  console.log(
+    JSON.stringify({
+      mode: result.mode,
+      unfinished: result.unfinished,
+      best,
+      barcodes: result.barcodes.map(({ text, format, support, polygon }) => ({
+        text,
+        format,
+        support,
+        polygon,
+      })),
+      undecoded: result.undecoded.map(({ format, polygon }) => ({ format, polygon })),
+      // Drop the JS-only regions view so the raw engine JSON is comparable.
+      debug: result.debug ? (({ regions: _, ...raw }) => raw)(result.debug) : null,
+    }),
+  );
 } finally {
   scanner.dispose();
 }

@@ -471,10 +471,7 @@ def artifacts(config: dict[str, Any], label: str) -> dict[str, object]:
             else ".so"
         )
         prefix = "" if sys.platform == "win32" else "lib"
-        files = [
-            root / f"{prefix}tapirscan_{mode.replace('-', '_')}{suffix}"
-            for mode in config["modes"]
-        ]
+        files = [root / f"{prefix}tapirscan{suffix}"]
     else:
         manifest = Path(config[label + "Wasm"])
         entries = json.loads(manifest.read_text())["modes"]

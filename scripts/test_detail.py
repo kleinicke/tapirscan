@@ -88,8 +88,7 @@ class Detail(unittest.TestCase):
                                 width * 4,
                                 path,
                                 1,
-                                1,
-                            )
+                            )["debug"]
                             self.assertEqual(
                                 normalized_reads(native), normalized_reads(wasm)
                             )

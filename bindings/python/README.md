@@ -5,7 +5,7 @@ Scan Pillow images, NumPy arrays and PyTorch tensors with `tapirscan.scan(image)
 
 ## Installation
 
-Python 3.10+ is required. Platform wheels bundle all four native modes.
+Python 3.10+ is required. Platform wheels bundle the native library with all four modes.
 Install from [PyPI](https://pypi.org/project/tapirscan/) with `pip install tapirscan`.
 
 ## Quick start
@@ -97,20 +97,20 @@ override the constructor selection for that call only; `None` inherits it.
 
 ## All options
 
-| Option              | Where                     | Default           | Meaning                                                                                                                                                                         |
-| ------------------- | ------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `image`             | Scan                      | Required          | Pillow image, NumPy array, PyTorch tensor, or `PixelImage`. Encoded bytes and filenames must be decoded first.                                                                  |
-| `mode`              | Creation / one-shot       | `"medium"`        | `"low"`, `"medium"`, `"high"`, `"very-high"`: select EAN13/UPCA, Common1D and QR Code search effort.                                                                            |
-| `formats`           | Creation / scan           | retail            | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty list/tuple of exact identifiers. On a scanner, `None` inherits its selection. |
-| `ean_add_on_policy` | Creation / one-shot       | `"Ignore"`        | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                                          |
-| `extended_budget`   | Scan / one-shot           | `False`           | Allow extra reader work for any format. Exact budgets may evolve.                                                                                                               |
-| `debug`             | Scan                      | `False`           | Include typed search evidence and raw diagnostics. Decoded polygons are always available.                                                                                       |
-| `layout`            | Scan, arrays/tensors only | `"auto"`          | `"HW"`, `"HWC"`, `"CHW"`; specify when channel position is ambiguous.                                                                                                           |
-| `value_range`       | Scan, arrays/tensors only | `"auto"`          | `"0_1"` or `"0_255"`. Auto uses [0,1] for all floats and [0,255] for integers, independently of image contents. Byte-unit floats require `"0_255"`.                             |
-| `color_order`       | Scan, arrays/tensors only | `"RGB"`           | Optional `"BGR"` for OpenCV BGR/BGRA pixels; alpha is preserved and ignored by decoding. Grayscale is unchanged.                                                                |
-| `library_dir`       | Creation / one-shot       | Bundled libraries | Path/string for custom native builds. Lookup: explicit path, then `TAPIRSCAN_LIBRARY_DIR`, then wheel libraries. The working directory is never searched implicitly.            |
+| Option              | Where                     | Default         | Meaning                                                                                                                                                                         |
+| ------------------- | ------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image`             | Scan                      | Required        | Pillow image, NumPy array, PyTorch tensor, or `PixelImage`. Encoded bytes and filenames must be decoded first.                                                                  |
+| `mode`              | Creation / one-shot       | `"medium"`      | `"low"`, `"medium"`, `"high"`, `"very-high"`: select EAN13/UPCA, Common1D and QR Code search effort.                                                                            |
+| `formats`           | Creation / scan           | retail          | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty list/tuple of exact identifiers. On a scanner, `None` inherits its selection. |
+| `ean_add_on_policy` | Creation / one-shot       | `"Ignore"`      | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                                          |
+| `extended_budget`   | Scan / one-shot           | `False`         | Allow extra reader work for any format. Exact budgets may evolve.                                                                                                               |
+| `debug`             | Scan                      | `False`         | Include typed search evidence and raw diagnostics. Decoded polygons are always available.                                                                                       |
+| `layout`            | Scan, arrays/tensors only | `"auto"`        | `"HW"`, `"HWC"`, `"CHW"`; specify when channel position is ambiguous.                                                                                                           |
+| `value_range`       | Scan, arrays/tensors only | `"auto"`        | `"0_1"` or `"0_255"`. Auto uses [0,1] for all floats and [0,255] for integers, independently of image contents. Byte-unit floats require `"0_255"`.                             |
+| `color_order`       | Scan, arrays/tensors only | `"RGB"`         | Optional `"BGR"` for OpenCV BGR/BGRA pixels; alpha is preserved and ignored by decoding. Grayscale is unchanged.                                                                |
+| `library_dir`       | Creation / one-shot       | Bundled library | Path/string for custom native builds. Lookup: explicit path, then `TAPIRSCAN_LIBRARY_DIR`, then the wheel's library. The working directory is never searched implicitly.        |
 
-Custom native libraries must implement ABI 4. Scanner creation reports ABI
+Custom native libraries must implement ABI 5. Scanner creation reports ABI
 mismatches with version details and rebuild instructions.
 
 All scans return all decoded instances, including spatially separate copies of the
