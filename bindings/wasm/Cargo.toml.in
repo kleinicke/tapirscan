@@ -26,3 +26,5 @@ strip = "symbols"
 lto = true
 codegen-units = 1
 opt-level = 3
+# wasm-opt -O3/-Oz kept results identical but changed speed by under 1% and gzip
+# size by under 2%; not worth an extra pinned build tool.

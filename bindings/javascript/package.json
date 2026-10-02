@@ -8,27 +8,27 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./wasm/low.wasm": "./wasm/low-experimental-turbo-api-20261001.wasm",
-    "./wasm/medium.wasm": "./wasm/medium-experimental-turbo-api-20261001.wasm",
-    "./wasm/high.wasm": "./wasm/high-experimental-turbo-api-20261001.wasm",
-    "./wasm/very-high.wasm": "./wasm/very-high-experimental-turbo-api-20261001.wasm",
-    "./wasm/experimental-turbo2.wasm": "./wasm/experimental-turbo2-api-20261001.wasm",
-    "./wasm/experimental-turbo4.wasm": "./wasm/experimental-turbo4-api-20261001.wasm",
-    "./wasm/experimental-turbo8.wasm": "./wasm/experimental-turbo8-api-20261001.wasm",
-    "./wasm/experimental-turbo16.wasm": "./wasm/experimental-turbo16-api-20261001.wasm"
+    "./wasm/low.wasm": "./wasm/low-quality-cleanup-20261002.wasm",
+    "./wasm/medium.wasm": "./wasm/medium-quality-cleanup-20261002.wasm",
+    "./wasm/high.wasm": "./wasm/high-quality-cleanup-20261002.wasm",
+    "./wasm/very-high.wasm": "./wasm/very-high-quality-cleanup-20261002.wasm",
+    "./wasm/experimental-turbo2.wasm": "./wasm/experimental-turbo2-quality-cleanup-20261002.wasm",
+    "./wasm/experimental-turbo4.wasm": "./wasm/experimental-turbo4-quality-cleanup-20261002.wasm",
+    "./wasm/experimental-turbo8.wasm": "./wasm/experimental-turbo8-quality-cleanup-20261002.wasm",
+    "./wasm/experimental-turbo16.wasm": "./wasm/experimental-turbo16-quality-cleanup-20261002.wasm"
   },
   "files": [
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-experimental-turbo-api-20261001.wasm",
-    "wasm/medium-experimental-turbo-api-20261001.wasm",
-    "wasm/high-experimental-turbo-api-20261001.wasm",
-    "wasm/very-high-experimental-turbo-api-20261001.wasm",
-    "wasm/experimental-turbo2-api-20261001.wasm",
-    "wasm/experimental-turbo4-api-20261001.wasm",
-    "wasm/experimental-turbo8-api-20261001.wasm",
-    "wasm/experimental-turbo16-api-20261001.wasm"
+    "wasm/low-quality-cleanup-20261002.wasm",
+    "wasm/medium-quality-cleanup-20261002.wasm",
+    "wasm/high-quality-cleanup-20261002.wasm",
+    "wasm/very-high-quality-cleanup-20261002.wasm",
+    "wasm/experimental-turbo2-quality-cleanup-20261002.wasm",
+    "wasm/experimental-turbo4-quality-cleanup-20261002.wasm",
+    "wasm/experimental-turbo8-quality-cleanup-20261002.wasm",
+    "wasm/experimental-turbo16-quality-cleanup-20261002.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

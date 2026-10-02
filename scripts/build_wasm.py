@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import TypedDict
 
 from build_turbo import environment as turbo_environment
 from prepare_rust import prepared_package, sync_tree, write_changed
@@ -123,13 +124,22 @@ def arguments() -> argparse.Namespace:
     return args
 
 
+class Variant(TypedDict):
+    """One built WASM asset as recorded in an identity manifest."""
+
+    mode: str
+    file: str
+    sha256: str
+    bytes: int
+
+
 def build_variant(
     mode: str,
     identity: str,
     destination: Path,
     env: dict[str, str],
     expected_hash: str | None,
-) -> dict:
+) -> Variant:
     """Compile one isolated stable mode or experimental preset."""
     env["CARGO_TARGET_DIR"] = str(ROOT / "build/wasm-target" / identity)
     out = ROOT / "build/wasm" / identity
@@ -167,7 +177,7 @@ def build_variant(
         msg = f"WASM reproducibility mismatch: {mode}"
         raise SystemExit(msg)
     shutil.copy2(binary, destination)
-    result = {
+    result: Variant = {
         "mode": mode,
         "file": destination.name,
         "sha256": actual,
