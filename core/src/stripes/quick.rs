@@ -85,16 +85,17 @@ pub(super) fn detect(
     raster: &mut Raster,
     im: ImageView<'_>,
     dimension: f64,
+    recovery: bool,
 ) -> std::result::Result<Result, Error> {
     prepare(raster, im, dimension)?;
     let tw = raster.width.div_ceil(8);
     let groups = groups::collect_compact(raster);
     let mut proposals = Vec::new();
-    for queue in groups.items.iter().take(groups.base_count.min(64)) {
+    let proposal = |queue: &[usize]| {
         let axis = super::angle(queue, &raster.tiles);
         let b = bounds(queue, axis, tw);
         if b.u1 - b.u0 < 16. || b.v1 - b.v0 < 6. || (b.u1 - b.u0) / (b.v1 - b.v0) > 40. {
-            continue;
+            return None;
         }
         let (c, s) = (axis.cos(), axis.sin());
         let point = |u: f64, v: f64| {
@@ -103,7 +104,7 @@ pub(super) fn detect(
                 (u * s + v * c) * usize_f64(im.height) / usize_f64(raster.height),
             ]
         };
-        proposals.push(Proposal {
+        Some(Proposal {
             polygon: [
                 point(b.u0, b.v0),
                 point(b.u1, b.v0),
@@ -111,10 +112,33 @@ pub(super) fn detect(
                 point(b.u0, b.v1),
             ],
             score: 0.75,
-        });
+        })
+    };
+    for queue in groups.items.iter().take(groups.base_count.min(64)) {
+        if let Some(p) = proposal(queue) {
+            proposals.push(p);
+        }
     }
     let omitted = proposals.len().saturating_sub(24);
     proposals.truncate(24);
+    if recovery && proposals.len() == 24 {
+        let initial = proposals.len();
+        for queue in groups
+            .items
+            .iter()
+            .skip(groups.originals)
+            .take(groups.merged_count)
+        {
+            if let Some(p) = proposal(queue) {
+                if !proposals.iter().any(|old| old.polygon == p.polygon) {
+                    proposals.push(p);
+                }
+            }
+            if proposals.len() > initial {
+                break;
+            }
+        }
+    }
     Ok(Result {
         proposals,
         omitted,

@@ -232,7 +232,18 @@ impl Detector {
         im: ImageView<'_>,
         dimension: f64,
     ) -> std::result::Result<Result, Error> {
-        quick::detect(&mut self.raster, im, dimension.clamp(64., 768.))
+        quick::detect(&mut self.raster, im, dimension.clamp(64., 768.), false)
+    }
+    /// Sparse proposals plus at most one omitted merged group for an empty-scan retry.
+    /// The original first 24 proposals and their order are preserved.
+    /// # Errors
+    /// Rejects unsupported image dimensions.
+    pub fn detect_sparse_with_recovery(
+        &mut self,
+        im: ImageView<'_>,
+        dimension: f64,
+    ) -> std::result::Result<Result, Error> {
+        quick::detect(&mut self.raster, im, dimension.clamp(64., 768.), true)
     }
     /// Detect the supplementary grid after the primary pass.
     /// # Errors

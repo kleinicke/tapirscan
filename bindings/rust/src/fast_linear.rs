@@ -151,13 +151,25 @@ pub(crate) fn scan(
         image.stride,
     )?;
     let localized = if TIER != 0 {
-        scanner.localizer.detect_sparse(im, WORKING_DIMENSION)?
+        if matches!(TIER, 2 | 4 | 8) {
+            scanner
+                .localizer
+                .detect_sparse_with_recovery(im, WORKING_DIMENSION)?
+        } else {
+            scanner.localizer.detect_sparse(im, WORKING_DIMENSION)?
+        }
     } else {
         scanner.localizer.detect_fast(im, WORKING_DIMENSION)?
     };
     let mut proposals = localized.proposals;
+    let additional = if TIER != 0 && proposals.len() > 24 {
+        proposals.split_off(24)
+    } else {
+        Vec::new()
+    };
     let local_count = proposals.len();
     proposals.extend(full_frame_proposals(image));
+    proposals.extend(additional);
     let mut reads = Vec::new();
     let mut refined_reads = Vec::new();
     let mut unread = Vec::new();
@@ -168,7 +180,8 @@ pub(crate) fn scan(
     let mut dense_budget = 131_072;
     let mut dense_lines = 0;
     let mut rescue_axes = false;
-    for (index, proposal) in proposals.iter().enumerate() {
+    let mut recovery_seed = None;
+    for (index, proposal) in proposals.iter().take(local_count + 2).enumerate() {
         if index == local_count {
             rescue_axes = reads.is_empty() && refined_reads.is_empty();
         }
@@ -201,9 +214,17 @@ pub(crate) fn scan(
             lines += 1;
         }
         continuity_budget = candidate.remaining;
-        let refined_lines = if matches!(TIER, 8 | 16) && proposal.score == 0. {
-            0
-        } else {
+        let refined_lines = {
+            if matches!(TIER, 8 | 16) && proposal.score == 0. {
+                // Keep initial observations for every requested format. The new
+                // confirmation work excludes unchecksummed Code39 fragments.
+                candidate.mask &= linear::EAN13
+                    | linear::EAN8
+                    | linear::UPCA
+                    | linear::UPCE
+                    | linear::CODE128
+                    | linear::ITF;
+            }
             candidate.refine(
                 &mut scanner.fast_profiles,
                 &mut refinement_budget,
@@ -213,6 +234,52 @@ pub(crate) fn scan(
             )
         };
         lines += refined_lines;
+        if TIER != 0
+            && recovery_seed.is_none()
+            && proposal.score > 0.
+            && !candidate.observations.is_empty()
+        {
+            let top = point(q, 0.5, 0.);
+            let bottom = point(q, 0.5, 1.);
+            let height = (bottom[0] - top[0]).hypot(bottom[1] - top[1]);
+            for o in &candidate.observations {
+                let delta = 0.018_f64.max(0.6 * o.min_span / height);
+                if o.read.support == 1
+                    && o.original_rows != 0
+                    && delta <= 0.07
+                    && o.anchor >= delta
+                    && o.anchor + delta <= 1.
+                    && matches!(o.read.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE")
+                {
+                    recovery_seed = Some((
+                        q,
+                        o.anchor,
+                        delta,
+                        o.read.text.clone(),
+                        o.read.format.clone(),
+                        o.left,
+                        o.right,
+                    ));
+                    break;
+                }
+            }
+        }
+        if matches!(TIER, 8 | 16) && proposal.score == 0. && refined_lines > 0 {
+            candidate.observations.retain(|o| {
+                // Ineligible observations cannot become outputs, so they need no
+                // independent source-template comparison.
+                let required = if o.dense { 4 } else { 3 };
+                if o.read.support < required {
+                    return false;
+                }
+                retail_recovery_agrees(
+                    image,
+                    quad(q, o.left, o.right, o.first, o.last),
+                    &o.read,
+                    &mut scanner.fast_profiles,
+                )
+            });
+        }
         let before = reads.len() + refined_reads.len();
         candidate.append_confirmed(refined_lines > 0, &mut reads, &mut refined_reads);
         if options.include_regions
@@ -226,7 +293,13 @@ pub(crate) fn scan(
     let (border_reads, border_lines) = if matches!(TIER, 8 | 16) {
         (Vec::new(), 0)
     } else {
-        border_discovery(scanner, image, im, &proposals[proposals.len() - 2..], mask)
+        border_discovery(
+            scanner,
+            image,
+            im,
+            &proposals[local_count..local_count + 2],
+            mask,
+        )
     };
     reads.extend(border_reads);
     lines += border_lines;
@@ -234,6 +307,56 @@ pub(crate) fn scan(
         let (additional, regions) = crate::formats::fast_additional(scanner, image, options, mask)?;
         reads.extend(additional);
         unread.extend(regions);
+    }
+    if reads.is_empty() && matches!(TIER, 2 | 4 | 8) {
+        for proposal in proposals.iter().skip(local_count + 2).take(1) {
+            let mut candidate = Candidate {
+                image,
+                im,
+                quad: proposal.polygon,
+                dense: false,
+                restored: false,
+                profile: SourceProfile::Gray(0.),
+                localized: true,
+                mask: mask & crate::format_registry::LINEAR_MASK,
+                remaining: continuity_budget,
+                observations: Vec::new(),
+                row_positions: Vec::new(),
+            };
+            for (row, &v) in ROWS.iter().enumerate() {
+                sample_line(&mut candidate, &mut scanner.fast_profiles, row, v);
+                lines += 1;
+            }
+            let refined = if TIER == 2 {
+                0
+            } else {
+                candidate.refine(
+                    &mut scanner.fast_profiles,
+                    &mut refinement_budget,
+                    &mut refinement_lines,
+                    &mut dense_budget,
+                    &mut dense_lines,
+                )
+            };
+            lines += refined;
+            if TIER == 2 {
+                // A busy-frame merged proposal needs broad original-row evidence;
+                // close retries alone can split a glared label into two reads.
+                candidate
+                    .observations
+                    .retain(|o| o.original_rows.count_ones() >= 4);
+            }
+            let before = reads.len();
+            let mut recovered = Vec::new();
+            candidate.append_confirmed(refined > 0, &mut reads, &mut recovered);
+            reads.extend(recovered);
+            reads.retain(|read| {
+                retail_recovery_agrees(image, read.polygon, read, &mut scanner.fast_profiles)
+            });
+            if options.include_regions && reads.len() == before {
+                unread.push(Region::unknown(proposal.polygon));
+            }
+        }
     }
     if TIER == 0 && reads.is_empty() && mask & 15 != 0 {
         let mut recovered = Vec::new();
@@ -292,18 +415,84 @@ pub(crate) fn scan(
             reads.extend(recovered);
         }
     }
+    if reads.is_empty() && TIER != 0 {
+        if let Some((q, anchor, delta, text, format, left, right)) = recovery_seed {
+            let mut candidate = Candidate {
+                image,
+                im,
+                quad: q,
+                dense: false,
+                restored: false,
+                profile: SourceProfile::Gray(1.5),
+                localized: true,
+                mask: mask & 15,
+                remaining: 32768,
+                observations: Vec::new(),
+                row_positions: Vec::new(),
+            };
+            for (row, v) in [anchor - delta, anchor, anchor + delta]
+                .into_iter()
+                .enumerate()
+            {
+                sample_line(&mut candidate, &mut scanner.fast_profiles, row, v);
+                lines += 1;
+            }
+            candidate.observations.retain(|o| {
+                o.read.text == text
+                    && o.read.format == format
+                    && (o.left - left).abs() < 0.06
+                    && (o.right - right).abs() < 0.06
+                    && o.read.support >= 3
+            });
+            let mut recovered = Vec::new();
+            candidate.append_confirmed(false, &mut recovered, &mut Vec::new());
+            for read in recovered {
+                if retail_recovery_agrees(image, read.polygon, &read, &mut scanner.fast_profiles) {
+                    reads.push(read);
+                }
+            }
+        }
+    }
     let reads = finalize_reads(reads, &mut unread, image, mask, options.multiple);
     let raw = options.retain_diagnostics.then(|| {
+        let mut local_proposals = proposals[..local_count].to_vec();
+        local_proposals.extend_from_slice(&proposals[local_count + 2..]);
         diagnostics(
             image,
             options,
-            &proposals[..local_count],
+            &local_proposals,
             localized.limited,
             lines,
             &unread,
         )
     });
     crate::formats::typed_result(reads, unread, true, localized.limited, raw)
+}
+
+// Additional retail recovery must agree with source pixels independently of
+// its decoding thresholds. An inconclusive check rejects only this optional read.
+#[cfg(feature = "low")]
+fn retail_recovery_agrees(
+    image: Image<'_>,
+    polygon: Quad,
+    read: &Read,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> bool {
+    if !matches!(read.format.as_str(), "EAN13" | "UPCA") {
+        return true;
+    }
+    let text = if read.format == "UPCA" {
+        format!("0{}", read.text)
+    } else {
+        read.text.clone()
+    };
+    let bytes = text.as_bytes();
+    if bytes.len() != 13 || !bytes.iter().all(u8::is_ascii_digit) {
+        return false;
+    }
+    let digits = std::array::from_fn(|i| bytes[i] - b'0');
+    crate::pipeline::recovered_ean_source_agreement(image, polygon, &digits)
+        && !crate::pipeline::source_contradiction(image, polygon, digits, sampler).unwrap_or(true)
 }
 
 #[cfg(feature = "low")]

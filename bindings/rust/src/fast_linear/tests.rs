@@ -79,6 +79,46 @@ fn source_density_and_axis_retry_preserve_clean_retail_values() {
 }
 
 #[test]
+fn axis_confirmation_preserves_two_nearby_equal_ean8_symbols() {
+    let bits = b"1010001011010111101111010110111010101001110111001010001001011100101";
+    let (width, height) = (340, 220);
+    let mut pixels = vec![255; width * height];
+    for top in [20, 120] {
+        for y in top..top + 80 {
+            for (i, bit) in bits.iter().enumerate() {
+                if *bit == b'1' {
+                    pixels[y * width + 36 + i * 4..y * width + 40 + i * 4].fill(0);
+                }
+            }
+        }
+    }
+    let image = Image {
+        data: &pixels,
+        width,
+        height,
+        channels: 1,
+        stride: width,
+    };
+    for mask in [4, 15, 127] {
+        let result = scan(&mut Scanner::default(), image, ScanOptions::default(), mask).unwrap();
+        assert_eq!(result.barcodes.len(), 2, "tier={TIER}, mask={mask}");
+        assert!(result
+            .barcodes
+            .iter()
+            .all(|r| r.text == "96385074" && r.format.as_str() == "EAN8"));
+        let mut centers: Vec<_> = result
+            .barcodes
+            .iter()
+            .map(|r| r.polygon.iter().map(|p| p[1]).sum::<f64>() / 4.)
+            .collect();
+        centers.sort_by(f64::total_cmp);
+        assert!((20.0..100.0).contains(&centers[0]));
+        assert!((120.0..200.0).contains(&centers[1]));
+        assert!(result.unfinished);
+    }
+}
+
+#[test]
 fn short_clean_bars_keep_three_rows_and_do_not_invent_itf() {
     if TIER != 16 {
         return;

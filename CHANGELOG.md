@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Improve experimental Turbo Retail and Common1D recovery with bounded evidence
+  confirmation and guarded empty-scan retries. Preserve nearby equal-payload
+  labels, source coordinates and explicit unfinished results. Public Low retains
+  its existing policy.
+
 - JavaScript: add `experimentalTurbo: 2 | 4 | 8 | 16` as an alternative to stable
   effort selection, with matching WASM exports and preset validation. Targets
   faster 1D scanning (including Retail), not 2D speedups; numbers are not speed

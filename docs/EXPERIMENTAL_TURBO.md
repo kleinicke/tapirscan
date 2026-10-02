@@ -43,8 +43,9 @@ quality or the Common1D speed ratio on every format.
 
 The tiers reduce the localization grid, sampling rows and recovery work. Their
 numbers are experimental Common1D speed targets, not guarantees on a particular
-image or multipliers for 2D decoding. Even clean nearby symbols can be missed at aggressive presets; a retained
-Turbo16 EAN8-only control misses two symbols that lower presets read.
+image or multipliers for 2D decoding. Bounded axis confirmation preserves the two nearby equal EAN8 labels in the
+regression control, including at Turbo16. Aggressive presets still leave
+unexamined candidates and can miss other clean nearby symbols.
 Small modules, blur, damage, distortion,
 difficult lighting and crowded scenes can lose reads relative to Medium. There
 is no reference-decoder or neural fallback. The source image is never assumed to
@@ -54,6 +55,22 @@ Every fast linear Turbo result reports `unfinished: true`. Source-coordinate
 geometry, undecoded candidates and support ranking remain available. Add-on
 policies other than Ignore and extended linear budgets retain the ordinary
 pipeline. The public API and release assets are separate from demo labels.
+
+## Bounded linear confirmation
+
+Turbo8 and Turbo16 can confirm weak whole-image axis observations for Retail,
+Code128 and ITF using their existing finite refinement budgets. Code39 keeps its
+original axis policy. The two nearby equal EAN8 labels in the regression control
+remain separate physical results, including at Turbo16.
+
+When the ordinary scan finds no reads, Turbo2, Turbo4 and Turbo8 can examine one
+previously omitted merged stripe proposal. Turbo2 requires four distinct rows
+from the initial sampling grid for that proposal. Numbered presets can also retry
+one weak Retail observation with bounded contrast profiles, requiring the same
+payload and position on three source rows. Optional EAN13 and UPC-A recovery must
+pass source-template agreement and contradiction checks. These paths retain the
+physical continuity rules and never assume that an image contains only one label.
+Public Low keeps its existing policy.
 
 ## Matrix fast path
 
@@ -79,7 +96,8 @@ on photographs. A 768-pixel resolution cap was rejected after substantial losses
 Reproducible sources, native/WASM identities, paired quality and performance
 measurements, rejected shortcuts and Medium transfer ideas live in the sibling
 experiment workspace under `common1d-turbo-tiers-20260925`,
-`common1d-turbo16-32-20260925` and `turbo-2d-integration-20260925`.
+`common1d-turbo16-32-20260925`, `turbo-2d-integration-20260925` and
+`turbo-quality-20261002`.
 These are development datasets, not unseen holdouts or phone performance claims.
 
 ## Beyond Common
