@@ -1,7 +1,7 @@
-//! Native ABI 7. Handles are registry IDs, never dereferenced pointers.
+//! Native ABI 6. Handles are registry IDs, never dereferenced pointers.
 //! Caller-owned pointer ranges must be valid, correctly aligned and nonoverlapping.
 #[cfg(not(target_pointer_width = "64"))]
-compile_error!("Native ABI 7 currently supports 64-bit targets only");
+compile_error!("Native ABI 6 currently supports 64-bit targets only");
 use std::{
     collections::HashMap,
     ffi::{c_char, CString},
@@ -13,7 +13,7 @@ use tapirscan_api::{
     ScannerOptions, UndecodedRegion,
 };
 
-const ABI_VERSION: u32 = 7;
+const ABI_VERSION: u32 = 6;
 const ARG: i32 = 1;
 const HANDLE: i32 = 2;
 const BUFFER: i32 = 3;

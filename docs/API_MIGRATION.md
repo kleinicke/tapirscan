@@ -9,7 +9,7 @@ If a caller uses timing, work status, unread regions or diagnostic evidence,
 replace `scan` with `inspect`, remove the debug option, and rename the report's
 `debug` field to `diagnostics`. Rust also exposes `inspect_with_options`.
 
-Native ABI 7 removes the debug field from `tapirscan_scan_options`, adds
+The unreleased 1.3.0 API retains native ABI 6. It removes the debug field from `tapirscan_scan_options`, adds
 `tapirscan_inspect` and `tapirscan_result_count`, and makes summary/unread-region
 accessors inspection-only. Rebuild native consumers together. WASM ABI 2 makes ordinary wire results barcode-only. The host also accepts
 historical ABI 1 assets for frozen demo comparisons.
@@ -17,7 +17,7 @@ historical ABI 1 assets for frozen demo comparisons.
 ## 1.3.0: C, C++ and Java
 
 C, C++ and Java now use the same scanner, options and result model as Rust,
-Python and JavaScript. Native ABI 5 replaces ABI 4, and one library
+Python and JavaScript. Native ABI 6 replaces ABI 4, and one library
 (`libtapirscan.so`, `.dylib` or `tapirscan.dll`) contains all four effort modes.
 Rebuild applications against the new header; there are no deprecated aliases.
 Python, JavaScript and Rust applications are unaffected, and scan results of
@@ -94,7 +94,7 @@ Rust `scan(image)` now supplies default scan options automatically. Use
 `scan_with_options(image, options)` for overrides on free functions or scanners.
 The support-based convenience selection is named `best` in all three APIs.
 
-## Native ABI 7 refinements
+## Native ABI 6 refinements
 
 Rebuild the shared library and every native consumer together. Scanner creation
 and scanning now accept a final optional `tapirscan_error *` for caller-owned
@@ -103,10 +103,9 @@ UTF-8 error details (pass `NULL` to discard). Initialize C scanner options with
 
 `tapirscan_summary` no longer contains `json_length`. Call
 `tapirscan_result_json_length(result, &length)` before copying JSON. Typed result
-access does not serialize JSON. Compact schema-2 output is constructed from typed
-results and adds `undecoded` geometry; engine-only barcode evidence such as axis,
-candidate indices and reader error remains in debug output. Python also avoids
-engine diagnostics unless requested. Rust exposes `localization_limited` to
+access does not serialize JSON. Ordinary scan JSON is a barcode array. Inspection returns schema-2 JSON with
+unread geometry and engine evidence. Python also avoids engine diagnostics
+during ordinary scans. Rust exposes `localization_limited` to
 preserve the separate localization flag across native serialization.
 
 C++ rejects temporary vectors in image factories and rejects empty/unknown format

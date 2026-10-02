@@ -4,7 +4,7 @@ This is the 1.3.0 API revision. See [migration](API_MIGRATION.md).
 Every binding exposes `scan` returning a barcode list and `inspect` returning a
 `ScanResult` with work status, unread regions, timing and diagnostics. The public Rust
 `Scanner` owns the pipeline in every binding. JavaScript uses a thin WASM
-adapter; native ABI 7 connects C, C++, Python and Java to the same API.
+adapter; native ABI 6 connects C, C++, Python and Java to the same API.
 One-shot calls clean up automatically; reusable scanners amortize initialization.
 Rust uses `scan(image)` for defaults and `scan_with_options(image, options)` for
 overrides; Python uses keyword arguments and JavaScript an options object. All return independent results, including empty results.

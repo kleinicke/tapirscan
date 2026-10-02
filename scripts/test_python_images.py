@@ -49,7 +49,7 @@ class Images(unittest.TestCase):
         """Reject older libraries at initialization with actionable version details."""
         with patch("tapirscan.c.CDLL") as load:
             load.return_value.tapirscan_abi_version.return_value = 4
-            with self.assertRaisesRegex(RuntimeError, "expected 7, got 4.*Rebuild"):
+            with self.assertRaisesRegex(RuntimeError, "expected 6, got 4.*Rebuild"):
                 Scanner(library_dir=LIBS)
             load.return_value.tapirscan_scanner_create.assert_not_called()
             load.return_value.tapirscan_result_json_length.assert_not_called()

@@ -16,9 +16,9 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 
-/** Native ABI 7 entry points from tapirscan.h, loaded once per JVM. */
+/** Native ABI 6 entry points from tapirscan.h, loaded once per JVM. */
 final class Native {
-    static final int ABI_VERSION = 7;
+    static final int ABI_VERSION = 6;
     static final MemoryLayout IMAGE = MemoryLayout.structLayout(
             ADDRESS.withName("data"), JAVA_LONG.withName("length"),
             JAVA_LONG.withName("width"), JAVA_LONG.withName("height"),

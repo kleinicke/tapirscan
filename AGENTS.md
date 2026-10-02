@@ -33,7 +33,8 @@ synchronized release versions. Follow the compatibility policy in
 [CONTRIBUTING.md](CONTRIBUTING.md#api-stability) and [API design](docs/API_DESIGN.md).
 
 - Follow `docs/QUALITY.md`; format a coherent batch before running relevant checks.
-- C, C++, Python and Java share native ABI 7: one library containing every mode.
+- C, C++, Python and Java share native ABI 6: one library containing every mode.
+  Version 1.3.0 and ABI 6 are unreleased; keep ABI 6 while refining this release.
   ABI changes need cross-language parity and installation tests; preserve
   ownership and error behavior.
 - Keep research datasets, private labels, model weights and generated build outputs

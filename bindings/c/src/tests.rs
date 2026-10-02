@@ -104,7 +104,7 @@ fn layouts_match_the_header() {
     assert_eq!(std::mem::size_of::<ResultInfoC>(), 56);
     assert_eq!(std::mem::size_of::<BarcodeC>(), 136);
     assert_eq!(std::mem::size_of::<RegionC>(), 72);
-    assert_eq!(tapirscan_abi_version(), 7);
+    assert_eq!(tapirscan_abi_version(), 6);
 }
 
 #[test]

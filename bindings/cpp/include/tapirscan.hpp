@@ -15,7 +15,7 @@
 #include <vector>
 
 namespace tapirscan {
-static_assert(sizeof(void*) == 8, "Native ABI 7 requires a 64-bit target");
+static_assert(sizeof(void*) == 8, "Native ABI 6 requires a 64-bit target");
 
 /// A native failure. `code` is the C status.
 class Error : public std::runtime_error {

@@ -32,8 +32,8 @@
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/api-simple-results-20261002.json",
-  "apiWasm": "provenance/wasm-api-simple-results-20261002.json",
+  "runtimeRevision": "provenance/api-simple-results-abi6-20261002.json",
+  "apiWasm": "provenance/wasm-api-simple-results-abi6-20261002.json",
   "sourceRoot": "core/src",
   "experimentalTurbo": [
     {

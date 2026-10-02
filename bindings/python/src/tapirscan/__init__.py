@@ -72,7 +72,7 @@ __all__ = [
     "retail_formats",
     "scan",
 ]
-ABI_VERSION = 7
+ABI_VERSION = 6
 MAX_IMAGE_BYTES = 128 * 1024 * 1024
 _MODES = ("low", "medium", "high", "very-high")
 _ADDON_POLICIES = ("Ignore", "Read", "Require")
@@ -87,7 +87,7 @@ class ScannerError(RuntimeError):
         super().__init__(f"{message} (code {code})")
 
 
-# Native ABI 7 structures from bindings/c/include/tapirscan.h.
+# Native ABI 6 structures from bindings/c/include/tapirscan.h.
 class _ScannerOptions(c.Structure):
     _fields_ = [
         ("mode", c.c_uint32),

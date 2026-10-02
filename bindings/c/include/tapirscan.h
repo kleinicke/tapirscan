@@ -5,7 +5,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Tapirscan native ABI 7: one library containing all four effort modes.
+/* Tapirscan native ABI 6: one library containing all four effort modes.
 
    Create a scanner once, scan any number of images, read the owned result,
    then destroy the result and the scanner. Calls are thread-safe; scans on one
@@ -13,7 +13,7 @@ extern "C" {
    reference valid, aligned, nonoverlapping caller memory. Status failures never
    unwind through C; invalid raw memory and out-of-memory are outside that
    guarantee. At most 1024 scanners and 1024 results may be alive at once. */
-#define TAPIRSCAN_ABI_VERSION 7u
+#define TAPIRSCAN_ABI_VERSION 6u
 
 typedef uint64_t tapirscan_scanner;
 typedef uint64_t tapirscan_result;
