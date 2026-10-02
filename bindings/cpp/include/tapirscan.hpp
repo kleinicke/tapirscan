@@ -171,7 +171,7 @@ struct Barcode {
     std::string text;
     Format format = Format::Ean13;
     Quad polygon{};
-    /// Uncalibrated, reader-specific evidence; used by `ScanResult::best`.
+    /// Uncalibrated, reader-specific evidence; used by `best`.
     std::uint64_t support = 0;
     /// Original decoded bytes where the reader reports them.
     std::optional<std::vector<std::uint8_t>> payload_bytes;
@@ -183,6 +183,18 @@ struct Barcode {
     /// Enclosing integer pixel bounds as {left, top, width, height}.
     std::array<double, 4> rect() const;
 };
+
+/// Highest support, keeping the first read on ties; null when empty. Works on
+/// `scan` output and inspection results alike. Support is uncalibrated evidence,
+/// so select by format, payload or position when the application knows them.
+inline const Barcode* best(const std::vector<Barcode>& barcodes) {
+    const Barcode* winner = nullptr;
+    for (const auto& barcode : barcodes)
+        if (!winner || barcode.support > winner->support) winner = &barcode;
+    return winner;
+}
+/// Rejected: the pointer would dangle once the temporary vector is destroyed.
+const Barcode* best(const std::vector<Barcode>&&) = delete;
 
 /// A localized region without an accepted decode; format is empty when unknown.
 struct UndecodedRegion {
@@ -204,13 +216,9 @@ struct ScanResult {
     /// Unstable engine diagnostics JSON from inspection.
     std::string diagnostics;
 
-    /// Highest support, keeping the first read on ties; null when empty.
-    const Barcode* best() const {
-        const Barcode* winner = nullptr;
-        for (const auto& barcode : barcodes)
-            if (!winner || barcode.support > winner->support) winner = &barcode;
-        return winner;
-    }
+    /// See `tapirscan::best`. Temporaries are rejected to avoid dangling pointers.
+    const Barcode* best() const& { return tapirscan::best(barcodes); }
+    const Barcode* best() const&& = delete;
     /// Decoded text of every barcode, in scanner order.
     std::vector<std::string> values() const {
         std::vector<std::string> values;

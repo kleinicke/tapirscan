@@ -84,9 +84,12 @@ options never change scanner configuration.
 
 `ScanResult` exposes `barcodes`, `undecoded`, `image_size`, `mode`, `elapsed`
 (`Duration`), `unfinished`, `localization_limited` and `diagnostics`. Iterate by reference or consume
-it to move barcodes. `values()` borrows text. `best()` borrows the
-largest-support read, keeping first-read ties. Support is reader-specific and
-not comparable confidence across formats or efforts.
+it to move barcodes. `values()` borrows text. `tapirscan::best(&barcodes)`
+borrows the largest-support read of any barcode slice, such as `scan` output,
+keeping first-read ties; `ScanResult::best()` is the same for inspection results.
+Support is reader-specific and not comparable confidence across formats or
+efforts. `Barcode` implements serde `Serialize` and `Deserialize` with the shared
+schema names, omitting absent optional metadata.
 
 `Barcode` contains `text`, `format`, `polygon`, `support` and optional payload metadata. `rect()` returns
 `[left, top, width, height]` enclosing integer pixel bounds. Coordinates refer to

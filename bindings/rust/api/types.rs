@@ -4,7 +4,7 @@ use crate::{
     },
     Format, Image,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{fmt, time::Duration};
 
 /// Nonempty format selection with presets and composable individual formats.
@@ -145,7 +145,9 @@ pub struct ScanOptions {
 pub type Quad = [[f64; 2]; 4];
 
 /// Decoded barcode instance. Equal values at distinct locations remain separate.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+///
+/// Serde uses the shared barcode schema; absent optional metadata is omitted.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct Barcode {
     /// Decoded text, excluding the separately reported retail supplement.
     pub text: String,
@@ -153,22 +155,30 @@ pub struct Barcode {
     pub format: Format,
     /// Four points in source-image pixel coordinates.
     pub polygon: Quad,
-    /// Uncalibrated, reader-specific evidence; used by [`ScanResult::best`].
+    /// Uncalibrated, reader-specific evidence; used by [`best`].
     pub support: u64,
     /// Original decoded data bytes where supported, not UTF-8 re-encoded text.
-    #[serde(default, rename = "bytes")]
+    #[serde(default, rename = "bytes", skip_serializing_if = "Option::is_none")]
     pub payload_bytes: Option<Vec<u8>>,
     /// Readable two/five-digit retail supplement, or `None` if absent/not requested.
-    #[serde(default, rename = "eanAddOn")]
+    #[serde(default, rename = "eanAddOn", skip_serializing_if = "Option::is_none")]
     pub ean_add_on: Option<String>,
     /// Whether the reader identified GS1 semantics; None means unavailable metadata.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gs1: Option<bool>,
     /// Whether the symbol marks reader initialization; None when unreported.
-    #[serde(default, rename = "readerInitialization")]
+    #[serde(
+        default,
+        rename = "readerInitialization",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reader_initialization: Option<bool>,
     /// Multipart sequence metadata where supported; no automatic assembly is performed.
-    #[serde(default, rename = "structuredAppend")]
+    #[serde(
+        default,
+        rename = "structuredAppend",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub structured_append: Option<StructuredAppend>,
 }
 impl Barcode {
@@ -200,7 +210,7 @@ impl Barcode {
     }
 }
 /// Structured-append metadata. Index is one-based; callers assemble sequences.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct StructuredAppend {
     /// One-based position in the sequence.
     pub index: usize,
@@ -252,14 +262,10 @@ impl ScanResult {
         self.barcodes.iter()
     }
 
-    /// Highest support, preserving the first read on ties. All reads remain available.
+    /// Highest support, preserving the first read on ties; see [`best`].
     #[must_use]
     pub fn best(&self) -> Option<&Barcode> {
-        self.barcodes
-            .iter()
-            .enumerate()
-            .max_by_key(|(i, b)| (b.support, std::cmp::Reverse(*i)))
-            .map(|(_, b)| b)
+        best(&self.barcodes)
     }
     /// Borrow decoded text without allocating a second collection.
     #[must_use]
@@ -287,6 +293,20 @@ impl ScanResult {
             diagnostics,
         }
     }
+}
+
+/// Highest support, preserving the first read on ties; `None` when empty.
+///
+/// Works on [`scan`](crate::scan) output and inspection results alike. Support is
+/// uncalibrated reader evidence: select by format, payload or position when the
+/// application knows what it needs.
+#[must_use]
+pub fn best(barcodes: &[Barcode]) -> Option<&Barcode> {
+    barcodes
+        .iter()
+        .enumerate()
+        .max_by_key(|(i, b)| (b.support, std::cmp::Reverse(*i)))
+        .map(|(_, b)| b)
 }
 
 impl<'a> IntoIterator for &'a ScanResult {

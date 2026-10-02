@@ -25,10 +25,10 @@ final class Native {
             JAVA_INT.withName("channels"), MemoryLayout.paddingLayout(4), JAVA_LONG.withName("stride"));
     static final MemoryLayout SUMMARY = MemoryLayout.structLayout(
             JAVA_LONG.withName("barcodeCount"), JAVA_LONG.withName("undecodedCount"),
-            JAVA_LONG.withName("bestIndex"), JAVA_LONG.withName("width"), JAVA_LONG.withName("height"),
+            JAVA_LONG.withName("width"), JAVA_LONG.withName("height"),
             JAVA_DOUBLE.withName("elapsedMs"), JAVA_INT.withName("mode"), JAVA_INT.withName("unfinished"));
-    static final MemoryLayout POLYGON = MemoryLayout.sequenceLayout(4,
-            MemoryLayout.structLayout(JAVA_DOUBLE.withName("x"), JAVA_DOUBLE.withName("y")));
+    static final MemoryLayout POINT = MemoryLayout.structLayout(JAVA_DOUBLE.withName("x"), JAVA_DOUBLE.withName("y"));
+    static final MemoryLayout POLYGON = MemoryLayout.sequenceLayout(4, POINT);
     static final MemoryLayout BARCODE = MemoryLayout.structLayout(
             POLYGON.withName("polygon"), JAVA_LONG.withName("support"), JAVA_INT.withName("format"),
             JAVA_INT.withName("gs1"), JAVA_INT.withName("readerInitialization"), JAVA_INT.withName("parity"),

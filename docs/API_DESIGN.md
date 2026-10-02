@@ -30,8 +30,9 @@ C uses owned result handles for both operations. Count/barcode/copy accessors wo
 for either; summary and unread-region accessors require inspection. JSON is lazy:
 ordinary results serialize to a barcode array, inspection to a schema-2 report.
 
-`values` is a convenience projection of decoded text. `best` selects the largest reader-specific support,
-keeping first-read ties. It is not a most-reliable selection across formats or
+`values` is a convenience projection of decoded text. `best(barcodes)` selects the largest reader-specific support
+from any barcode list, including ordinary scan output, keeping first-read ties;
+`ScanResult.best` applies the same rule to inspection results. It is not a most-reliable selection across formats or
 efforts and does not change scan work. Applications should select by the format,
 payload or position they need. Support remains uncalibrated evidence.
 

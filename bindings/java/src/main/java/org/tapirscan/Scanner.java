@@ -8,6 +8,7 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 import java.lang.foreign.Arena;
+import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.MemorySegment;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -22,7 +23,6 @@ import java.util.OptionalInt;
  */
 public final class Scanner implements AutoCloseable {
     private static final int TEXT = 0, PAYLOAD_BYTES = 1, EAN_ADD_ON = 2, STRUCTURED_APPEND_ID = 3;
-    private static final long MAX_BYTES = 128L * 1024 * 1024;
     private final Native lib = Native.get();
     private final ScannerOptions options;
     private long handle;
@@ -36,9 +36,9 @@ public final class Scanner implements AutoCloseable {
         this.options = Objects.requireNonNull(options);
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment config = arena.allocate(Native.SCANNER_OPTIONS);
-            config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "mode"), options.mode().ordinal());
+            config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "mode"), options.mode().code());
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "formats"), Format.mask(options.formats()));
-            config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "addonPolicy"), options.eanAddOnPolicy().ordinal());
+            config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "addonPolicy"), options.eanAddOnPolicy().code());
             MemorySegment out = arena.allocate(JAVA_LONG);
             MemorySegment error = arena.allocate(Native.ERROR);
             lib.check(Native.call(lib.create, config, out, error), error);
@@ -73,10 +73,11 @@ public final class Scanner implements AutoCloseable {
         Objects.requireNonNull(image);
         Objects.requireNonNull(scan);
         if (handle == 0) throw new IllegalStateException("Scanner is closed");
-        int length = Math.toIntExact(Math.min(image.data().length, MAX_BYTES));
+        long length = image.addressedBytes();
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment pixels = arena.allocate(Math.max(length, 1));
-            pixels.copyFrom(MemorySegment.ofArray(image.data()).asSlice(0, length));
+            // Native code cannot read the Java heap: copy only the addressed bytes.
+            MemorySegment pixels = image.pixels().isNative() ? image.pixels()
+                    : arena.allocate(Math.max(length, 1)).copyFrom(image.pixels().asSlice(0, length));
             MemorySegment input = arena.allocate(Native.IMAGE);
             input.set(ADDRESS, offset(Native.IMAGE, "data"), pixels);
             input.set(JAVA_LONG, offset(Native.IMAGE, "length"), length);
@@ -116,7 +117,7 @@ public final class Scanner implements AutoCloseable {
             barcodes.add(new Barcode(
                     text(arena, result, i, TEXT, value.get(JAVA_LONG, offset(Native.BARCODE, "textLength"))).orElseThrow(),
                     Format.fromBit(value.get(JAVA_INT, offset(Native.BARCODE, "format"))),
-                    polygon(value),
+                    polygon(value, Native.BARCODE),
                     value.get(JAVA_LONG, offset(Native.BARCODE, "support")),
                     bytes(arena, result, i, PAYLOAD_BYTES, value.get(JAVA_LONG, offset(Native.BARCODE, "payloadLength"))),
                     text(arena, result, i, EAN_ADD_ON, value.get(JAVA_LONG, offset(Native.BARCODE, "addonLength"))),
@@ -138,7 +139,7 @@ public final class Scanner implements AutoCloseable {
             lib.check(Native.call(lib.undecoded, result, i, region));
             int format = region.get(JAVA_INT, offset(Native.REGION, "format"));
             undecoded.add(new UndecodedRegion(
-                    format == 0 ? Optional.empty() : Optional.of(Format.fromBit(format)), polygon(region)));
+                    format == 0 ? Optional.empty() : Optional.of(Format.fromBit(format)), polygon(region, Native.REGION)));
         }
         String json;
         {
@@ -151,7 +152,7 @@ public final class Scanner implements AutoCloseable {
         }
         return new ScanResult(barcodes, undecoded,
                 Math.toIntExact(summary.get(JAVA_LONG, offset(Native.SUMMARY, "width"))), Math.toIntExact(summary.get(JAVA_LONG, offset(Native.SUMMARY, "height"))),
-                Mode.values()[summary.get(JAVA_INT, offset(Native.SUMMARY, "mode"))], summary.get(JAVA_DOUBLE, offset(Native.SUMMARY, "elapsedMs")),
+                Mode.fromCode(summary.get(JAVA_INT, offset(Native.SUMMARY, "mode"))), summary.get(JAVA_DOUBLE, offset(Native.SUMMARY, "elapsedMs")),
                 summary.get(JAVA_INT, offset(Native.SUMMARY, "unfinished")) != 0, json);
     }
 
@@ -166,10 +167,13 @@ public final class Scanner implements AutoCloseable {
         return bytes(arena, result, index, field, length).map(b -> new String(b, StandardCharsets.UTF_8));
     }
 
-    private static List<Point> polygon(MemorySegment value) {
+    private static List<Point> polygon(MemorySegment value, MemoryLayout layout) {
+        long start = offset(layout, "polygon");
+        long x = offset(Native.POINT, "x"), y = offset(Native.POINT, "y");
         List<Point> points = new ArrayList<>(4);
         for (long p = 0; p < 4; p++) {
-            points.add(new Point(value.get(JAVA_DOUBLE, p * (Native.POLYGON.byteSize() / 4)), value.get(JAVA_DOUBLE, p * (Native.POLYGON.byteSize() / 4) + JAVA_DOUBLE.byteSize())));
+            long point = start + p * Native.POINT.byteSize();
+            points.add(new Point(value.get(JAVA_DOUBLE, point + x), value.get(JAVA_DOUBLE, point + y)));
         }
         return points;
     }

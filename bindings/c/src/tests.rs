@@ -101,7 +101,7 @@ unsafe fn json(result: u64) -> String {
 #[test]
 fn layouts_match_the_header() {
     assert_eq!(std::mem::size_of::<ImageC>(), 48);
-    assert_eq!(std::mem::size_of::<ResultInfoC>(), 56);
+    assert_eq!(std::mem::size_of::<ResultInfoC>(), 48);
     assert_eq!(std::mem::size_of::<BarcodeC>(), 136);
     assert_eq!(std::mem::size_of::<RegionC>(), 72);
     assert_eq!(tapirscan_abi_version(), 6);
@@ -118,7 +118,7 @@ fn decodes_with_typed_fields_and_owned_results() {
         assert_eq!(tapirscan_scanner_destroy(scanner), 0);
         assert_eq!(tapirscan_scanner_destroy(scanner), HANDLE);
         let summary = info(result);
-        assert_eq!((summary.barcode_count, summary.best_index), (1, 0));
+        assert_eq!(summary.barcode_count, 1);
         assert_eq!(
             (summary.width, summary.height, summary.mode),
             (width, height, 1)
@@ -295,7 +295,7 @@ fn rejects_invalid_images_and_scan_options() {
         assert_eq!(scan(scanner + 100, &valid, std::ptr::null()), (HANDLE, 0));
         let (status, result) = scan(scanner, &valid, std::ptr::null());
         assert_eq!(status, 0);
-        assert_eq!(info(result).best_index, -1);
+        assert_eq!(info(result).barcode_count, 0);
         assert_eq!(tapirscan_result_destroy(result), 0);
         assert_eq!(tapirscan_scanner_destroy(scanner), 0);
     }
@@ -451,4 +451,46 @@ fn barcode_json_preserves_optional_metadata() {
     assert_eq!(b["readerInitialization"], true);
     assert_eq!(b["eanAddOn"], "12");
     assert_eq!(b["structuredAppend"]["parity"], 7);
+}
+
+#[test]
+fn large_backing_buffers_scan_only_the_addressed_layout() {
+    // A crop view into a frame larger than the 128 MiB layout limit. Only the
+    // addressed rows count toward the limit, matching the Rust API.
+    let frame = vec![0_u8; (128 << 20) + 1];
+    let image = ImageC {
+        stride: 4096,
+        ..gray(&frame, 64, 64)
+    };
+    unsafe {
+        let scanner = create(std::ptr::null());
+        let (status, result) = scan(scanner, &image, std::ptr::null());
+        assert_eq!(status, 0);
+        assert_eq!(tapirscan_result_destroy(result), 0);
+        let mut error = ErrorC { message: [0; 512] };
+        let mut result = 9;
+        let oversized = ImageC {
+            width: 8192,
+            height: 8192,
+            stride: 0,
+            channels: 3,
+            ..image
+        };
+        assert_eq!(
+            tapirscan_scan(
+                scanner,
+                &raw const oversized,
+                std::ptr::null(),
+                &raw mut result,
+                &raw mut error
+            ),
+            ARG
+        );
+        assert_eq!(result, 0);
+        let message = CStr::from_ptr(error.message.as_ptr().cast())
+            .to_str()
+            .unwrap();
+        assert!(message.contains("megapixels"), "{message}");
+        assert_eq!(tapirscan_scanner_destroy(scanner), 0);
+    }
 }

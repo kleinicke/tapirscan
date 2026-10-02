@@ -89,8 +89,8 @@ result = tapirscan.inspect(image, mode="medium", formats=["EAN13"])
 
 # Reuse native initialization across images:
 with tapirscan.Scanner(mode="high", formats="1D") as scanner:
-    result = scanner.inspect(image)
-    best = result.best  # Barcode or None; all reads remain in result
+    barcodes = scanner.scan(image)
+    best = tapirscan.best(barcodes)  # Barcode or None; all reads remain in barcodes
 ```
 
 Signatures (all settings are optional):
@@ -128,8 +128,9 @@ Custom native libraries must implement ABI 6. Scanner creation reports ABI
 mismatches with version details and rebuild instructions.
 
 All scans return all decoded instances, including spatially separate copies of the
-same value. Use `result.best` for one highest-support read; this does not reduce
-scanning work. Support is a ranking heuristic, not a confidence probability.
+same value. Use `tapirscan.best(barcodes)` on any barcode list, or `result.best`
+on an inspection result, for one highest-support read, keeping the first on ties;
+this does not reduce scanning work. Support is a ranking heuristic, not a confidence probability.
 
 Formats and group exports: `Format`, `FormatSelection`, `retail_formats`,
 `common_formats`, `common_linear_formats`, `linear_formats`, `matrix_formats`. See [identifiers and reader limitations](../../docs/FORMATS.md).

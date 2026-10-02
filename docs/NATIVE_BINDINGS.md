@@ -10,8 +10,8 @@ the C++ `Format` enum and the Java `Format` enum.
 The ABI mirrors the Rust API: scanner options (mode, formats, supplement policy),
 a borrowed image, and per-call options (formats and extended budget).
 Ordinary scans expose an owned list of typed barcodes with payload metadata and
-positions. Inspection additionally exposes undecoded regions, the best index,
-image size, mode, timing and `unfinished`. Variable fields are copied into caller
+positions. Inspection additionally exposes undecoded regions, image size,
+mode, timing and `unfinished`. Variable fields are copied into caller
 buffers with explicit lengths, preserving embedded NUL bytes. Retail (mask 15)
 is the default selection; see [format coverage](FORMATS.md).
 
@@ -22,8 +22,9 @@ candidates and additional readers' `scan.regions`. Search windows
 represent attempted coverage, not an exhaustive-search guarantee. Support is
 uncalibrated and is not comparable between engines as confidence.
 
-Inputs are gray8, RGB8 or RGBA8 pixels, at least 3×3, at most 32 megapixels,
-and at most 128 MiB at the C boundary. Stride and byte length are explicit and
+Inputs are gray8, RGB8 or RGBA8 pixels, at least 3×3 and at most 32 megapixels,
+with an addressed layout of at most 128 MiB; the backing buffer may be larger.
+The Rust `Image` validation owns these rules for every native binding. Stride and byte length are explicit and
 checked; a zero stride means packed rows. RGB conversion ignores alpha. Python
 also supplies optional image adapters with their own documented conversion rules.
 

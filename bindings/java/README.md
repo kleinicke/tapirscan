@@ -40,9 +40,9 @@ ScannerOptions options = ScannerOptions.defaults()
         .withMode(Mode.HIGH)
         .withFormats(java.util.Set.of(Format.EAN13, Format.QR_CODE));
 try (Scanner scanner = new Scanner(options)) {
-    ScanResult result = scanner.inspect(Image.rgba(pixels, width, height),
+    var barcodes = scanner.scan(Image.rgba(pixels, width, height),
             ScanOptions.defaults().withExtendedBudget(true));
-    result.best().ifPresent(best -> System.out.println(best.text()));
+    Tapirscan.best(barcodes).ifPresent(best -> System.out.println(best.text()));
 }
 ```
 
@@ -71,10 +71,11 @@ see [API design](../../docs/API_DESIGN.md).
 ## Results
 
 `ScanResult` exposes `barcodes()`, `undecoded()`, `width()`, `height()`,
-`mode()`, `elapsedMs()`, `unfinished()` and optional `diagnostics()` JSON. `values()`
-returns decoded text; `best()` returns the largest-support read, keeping
-first-read ties. Support is reader-specific and not comparable confidence across
-formats.
+`mode()`, `elapsedMs()`, `unfinished()` and `diagnostics()` JSON. `values()`
+returns decoded text. `Tapirscan.best(barcodes)` returns the largest-support read
+of any barcode list, keeping first-read ties; `ScanResult.best()` is the same for
+inspection results. Support is reader-specific and not comparable confidence
+across formats.
 
 `Barcode` contains `text()`, `format()`, `polygon()` (four `Point`s in
 source-image pixels, top-left origin), `support()`, and optional
@@ -89,12 +90,18 @@ do not guarantee exhaustive coverage. Debug JSON schemas are unstable.
 
 ## Images
 
-`Image.gray`, `Image.rgb` and `Image.rgba` take a byte array, width and height;
-`.withStride(bytesPerRow)` describes padded rows. Alpha is ignored. Pixels are
-copied when scanning. Images are at least 3×3 and at most 32 megapixels; the
-array must cover `(height - 1) * stride + width * channels` bytes, at most
-128 MiB. Decode image files and convert BGR, ARGB, planar, float or 16-bit
-pixels before scanning.
+`Image.gray`, `Image.rgb` and `Image.rgba` take a byte array or a
+`MemorySegment`, width and height; `.withStride(bytesPerRow)` describes padded
+rows. Alpha is ignored. Images are at least 3×3 and at most 32 megapixels. The
+addressed layout, `(height - 1) * stride + width * channels` bytes, must fit in
+the pixels and in 128 MiB; a larger backing buffer, such as a frame around a
+crop, is accepted.
+
+Byte arrays are copied when scanning, limited to the addressed bytes. Native
+segments are read in place without a copy, which suits camera frames: wrap a
+direct `ByteBuffer` with `MemorySegment.ofBuffer(buffer)`. Keep a native segment
+alive and unchanged until the scan returns. Decode image files and convert BGR,
+ARGB, planar, float or 16-bit pixels before scanning.
 
 ## Building and loading the native library
 

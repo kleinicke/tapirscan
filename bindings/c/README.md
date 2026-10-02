@@ -94,10 +94,12 @@ more time and does not promise exhaustive decoding; see [API design](../../docs/
 
 ## Results
 
-`tapirscan_result_info` fills a `tapirscan_summary`: `barcode_count`,
-`undecoded_count`, `best_index` (highest support, first on ties; -1 when empty),
-`width`, `height`, `mode`, `elapsed_ms` and `unfinished`. Support is
-reader-specific evidence, not a probability or a cross-format confidence.
+`tapirscan_result_count` returns the number of decoded barcodes for either
+operation. For inspection results, `tapirscan_result_info` fills a
+`tapirscan_summary`: `barcode_count`, `undecoded_count`, `width`, `height`,
+`mode`, `elapsed_ms` and `unfinished`. `support` is reader-specific evidence,
+not a probability or a cross-format confidence; select barcodes by format,
+payload or position when the application knows them.
 
 `tapirscan_result_barcode` fills a `tapirscan_barcode` with the source-image
 `polygon`, `support`, `format` and the lengths of its variable fields. Copy a
@@ -112,25 +114,27 @@ proposal without an accepted decode; `format` is 0 when unknown. These can be
 false candidates or deferred work. An empty list and `unfinished` 0 do not
 guarantee exhaustive coverage.
 
-`tapirscan_result_copy_json` copies schema-2 JSON of the decoded results, plus
-unstable engine evidence from inspection. Destroy every result
+`tapirscan_result_copy_json` copies a JSON array of the decoded barcodes for
+scans, and the schema-2 report with unstable engine evidence for inspections.
+`tapirscan_result_json_length` serializes on first use. Destroy every result
 with `tapirscan_result_destroy` and every scanner with `tapirscan_scanner_destroy`.
 
 ## Images
 
 `tapirscan_image` describes gray8, RGB8 or RGBA8 pixels (`channels` 1, 3 or 4).
 Alpha is ignored. `stride` is bytes per row; 0 means `width * channels`. Images
-are at least 3×3, at most 32 megapixels, and `length` must cover
-`(height - 1) * stride + width * channels` bytes, at most 128 MiB. Pixels are
-borrowed only during the call. Decode image files and convert BGR, planar, float
+are at least 3×3 and at most 32 megapixels. `length` is the readable buffer
+size; the addressed layout, `(height - 1) * stride + width * channels` bytes,
+must fit in it and in 128 MiB. A larger backing buffer, such as a frame around
+a cropped view, is accepted. Pixels are borrowed only during the call. Decode image files and convert BGR, planar, float
 or 16-bit pixels before scanning.
 
 ## Threads and limits
 
 Calls are thread-safe. Scans on one scanner serialize; separate scanners run
 concurrently. Handles are checked IDs: a destroyed or unknown handle returns
-`TAPIRSCAN_INVALID_HANDLE`. At most 1024 scanners and 1024 results may be alive
-at once. Native panics never unwind into C. Invalid raw pointers remain the
+`TAPIRSCAN_INVALID_HANDLE`, and IDs are never reused. There is no fixed limit
+on live scanners or results; destroy each one. Native panics never unwind into C. Invalid raw pointers remain the
 caller's responsibility. The ABI targets 64-bit platforms; macOS arm64 is
 validated locally and Linux in CI.
 

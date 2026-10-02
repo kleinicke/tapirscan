@@ -314,8 +314,8 @@ call. Convert DOM image elements or encoded images to pixels before scanning.
 Results, including nested geometry and requested diagnostics, are immutable at
 runtime and in TypeScript. Use `structuredClone(result)` if you need a mutable
 copy. `barcodes` and `values` are empty when nothing is decoded; `undecoded` may still
-contain proposals. Use `result.best` for
-one read, or `undefined` when empty. All decoded instances remain available,
+contain proposals. Use `best(barcodes)` on `scan` output, or `result.best` on an
+inspection result, for one read, keeping the first on ties, or `undefined` when empty. All decoded instances remain available,
 including separate copies of the same value. Coordinates start at the
 top left, x rightward and y downward. Geometry is returned, not a cropped bitmap.
 Map coordinates back yourself if you resize/rotate before scanning. Support is a

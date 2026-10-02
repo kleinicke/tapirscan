@@ -1,5 +1,7 @@
 package org.tapirscan;
 
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -33,8 +35,8 @@ public final class Smoke {
         }
         Mode mode = Mode.valueOf(args[0].replace('-', '_').toUpperCase(Locale.ROOT));
         byte[] pixels = Files.readAllBytes(Path.of(args[5]));
-        Image image = new Image(pixels, Integer.parseInt(args[1]), Integer.parseInt(args[2]),
-                Integer.parseInt(args[3]), Integer.parseInt(args[4]));
+        Image image = new Image(MemorySegment.ofArray(pixels), Integer.parseInt(args[1]),
+                Integer.parseInt(args[2]), Integer.parseInt(args[3]), Integer.parseInt(args[4]));
         ScanOptions options = ScanOptions.defaults();
         if (args.length == 8) {
             int mask = Integer.parseInt(args[7]);
@@ -45,7 +47,15 @@ public final class Smoke {
         ScanResult result;
         try (scanner) {
             result = scanner.inspect(image, options);
-            if (!scanner.scan(image, options).equals(result.barcodes())) throw new AssertionError("Scan/inspect differ");
+            List<Barcode> barcodes = scanner.scan(image, options);
+            if (!barcodes.equals(result.barcodes())) throw new AssertionError("Scan/inspect differ");
+            if (!Tapirscan.best(barcodes).equals(result.best())) throw new AssertionError("best differs");
+            try (Arena arena = Arena.ofConfined()) {
+                // Native segments are scanned in place and must match the copied heap path.
+                MemorySegment direct = arena.allocate(pixels.length).copyFrom(image.pixels());
+                Image nativeImage = new Image(direct, image.width(), image.height(), image.channels(), image.stride());
+                if (!scanner.scan(nativeImage, options).equals(barcodes)) throw new AssertionError("Native input differs");
+            }
             try {
                 scanner.scan(Image.gray(new byte[1], image.width(), image.height()));
                 throw new AssertionError("Short input accepted");

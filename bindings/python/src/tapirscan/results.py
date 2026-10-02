@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from math import ceil, floor
 from typing import Any, Literal, NamedTuple, TypeAlias, cast, overload
@@ -183,6 +183,19 @@ class Diagnostics:
         return cast("dict[str, JSONValue]", json.loads(self._json))
 
 
+def best(barcodes: Iterable[Barcode]) -> Barcode | None:
+    """Return the highest-support barcode, keeping the first read on ties.
+
+    Works on scan() output and inspection results alike. Support is uncalibrated
+    evidence; select by format, payload or position when the application knows them.
+    """
+    winner: Barcode | None = None
+    for barcode in barcodes:
+        if winner is None or barcode.support > winner.support:
+            winner = barcode
+    return winner
+
+
 @dataclass(frozen=True)
 class ScanResult(Sequence[Barcode]):
     """Inspection report with decoded barcodes and optional engine evidence."""
@@ -343,14 +356,9 @@ def _from_json(raw: bytes, width: int, height: int) -> ScanResult:
             undecoded,
         )
     barcodes = tuple(_barcode(b) for b in frame["barcodes"])
-    best_index = max(
-        range(len(barcodes)),
-        key=lambda i: frame["barcodes"][i]["support"],
-        default=None,
-    )
     return ScanResult(
         barcodes,
-        barcodes[best_index] if best_index is not None else None,
+        best(barcodes),
         value["mode"],
         value["elapsedMs"],
         frame["unfinished"] or value["localizationLimited"],

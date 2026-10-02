@@ -134,7 +134,6 @@ interface PreparedImage {
 type WireBarcode = Barcode;
 interface WireResult {
   barcodes: WireBarcode[];
-  bestIndex: number | null;
   undecoded: { format?: Format | null; polygon: Quad }[];
   image: { width: number; height: number };
   mode: Mode;
@@ -230,11 +229,6 @@ function wireResult(value: unknown): WireResult {
     typeof value !== "object" ||
     !("barcodes" in value) ||
     !Array.isArray(value.barcodes) ||
-    !("bestIndex" in value) ||
-    (value.bestIndex !== null &&
-      (!Number.isInteger(value.bestIndex) ||
-        (value.bestIndex as number) < 0 ||
-        (value.bestIndex as number) >= value.barcodes.length)) ||
     !("undecoded" in value) ||
     !Array.isArray(value.undecoded) ||
     !("image" in value) ||
@@ -267,7 +261,7 @@ function publicResult(
   return freeze({
     barcodes,
     values: barcodes.map((b) => b.text),
-    best: raw.bestIndex === null ? undefined : barcodes[raw.bestIndex],
+    best: best(barcodes),
     image: raw.image,
     mode: raw.mode,
     ...(experimentalTurbo === undefined ? {} : { experimentalTurbo }),
@@ -404,6 +398,17 @@ export class Scanner {
   dispose(): void {
     this.host.dispose();
   }
+}
+
+/**
+ * Highest support, keeping the first read on ties; undefined when empty. Works on
+ * `scan` output and inspection results alike. Support is uncalibrated evidence, so
+ * select by format, payload or position when the application knows them.
+ */
+export function best(barcodes: readonly Barcode[]): Barcode | undefined {
+  let winner: Barcode | undefined;
+  for (const barcode of barcodes) if (!winner || barcode.support > winner.support) winner = barcode;
+  return winner;
 }
 
 /** Scan one image with automatic cleanup. Reuse Scanner for a stream of images. */

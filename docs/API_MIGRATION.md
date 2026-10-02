@@ -30,7 +30,7 @@ the stable modes are unchanged.
 | `barcode_capabilities`                                                       | Removed; `extended_budget` is always available                         |
 | `tapirscan_create`, `tapirscan_destroy`                                      | `tapirscan_scanner_create(options, &out)`, `tapirscan_scanner_destroy` |
 | `barcode_scan`, `barcode_scan_with_options`, `barcode_scan_formats`          | `tapirscan_scan(scanner, &image, options, &result)`                    |
-| `BARCODE_SINGLE`                                                             | `best_index` in the result summary                                     |
+| `BARCODE_SINGLE`                                                             | Select from the barcodes; C++ `best(barcodes)`, Java `Tapirscan.best`  |
 | `BARCODE_INCLUDE_REGIONS`                                                    | Typed `tapirscan_result_undecoded`; evidence via `inspect`             |
 | `BARCODE_READ_EAN_ADDON`, `BARCODE_REQUIRE_EAN_ADDON`                        | Scanner option `ean_add_on_policy`                                     |
 | `BARCODE_FINISH_CANDIDATES`                                                  | Scan option `extended_budget`                                          |
@@ -113,3 +113,17 @@ masks at construction. Keep the backing pixel buffer alive until scanning return
 C++ `best_index` and Java's `bestIndex` record component were removed; use `best()`.
 Java's `ScanResult` constructor no longer takes an index. Java barcode equality
 and hashing compare payload bytes by content.
+
+`tapirscan_summary` no longer contains `best_index`; it is 48 bytes. Select from
+the barcodes instead. Every binding now provides `best` over a plain barcode
+list, so ordinary scans no longer need inspection to pick one read: Rust
+`tapirscan::best(&barcodes)`, C++ `tapirscan::best(barcodes)`, Java
+`Tapirscan.best(barcodes)`, Python `tapirscan.best(barcodes)` and JavaScript
+`best(barcodes)`. `ScanResult.best` remains and uses the same rule. C++ `best`
+overloads reject temporaries, whose pointer would dangle.
+
+`TAPIRSCAN_CAPACITY` and the limit of 1024 live scanners and results are
+removed. `tapirscan_image.length` may now exceed 128 MiB: only the addressed
+layout must fit in 128 MiB, matching Rust. Java `Image` stores a `MemorySegment`
+(`pixels()` replaces `data()`); byte-array factories are unchanged, and native
+segments are scanned without a copy.

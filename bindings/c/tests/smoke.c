@@ -6,7 +6,7 @@
 int main(void) {
     /* The C compiler must agree with the Rust layouts. */
     assert(sizeof(tapirscan_image) == 48);
-    assert(sizeof(tapirscan_summary) == 56);
+    assert(sizeof(tapirscan_summary) == 48);
     assert(sizeof(tapirscan_barcode) == 136);
     assert(sizeof(tapirscan_region) == 72);
     assert(tapirscan_abi_version() == TAPIRSCAN_ABI_VERSION);
@@ -42,7 +42,7 @@ int main(void) {
     /* Results outlive their scanner. */
     tapirscan_summary info;
     assert(tapirscan_result_info(result, &info) == TAPIRSCAN_OK);
-    assert(info.barcode_count == 0 && info.best_index == -1);
+    assert(info.barcode_count == 0 && info.undecoded_count == 0);
     assert(info.mode == TAPIRSCAN_MODE_HIGH && info.width == 64 && info.height == 64);
     uint64_t length = 0;
     assert(tapirscan_result_json_length(result, &length) == TAPIRSCAN_OK);

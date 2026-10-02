@@ -18,9 +18,6 @@ const ARG: i32 = 1;
 const HANDLE: i32 = 2;
 const BUFFER: i32 = 3;
 const PANIC: i32 = 4;
-const CAPACITY: i32 = 5;
-const MAX_BYTES: u64 = 128 * 1024 * 1024;
-const MAX_HANDLES: usize = 1024;
 /// Length of an optional field that the reader did not report.
 const ABSENT: u64 = u64::MAX;
 
@@ -91,7 +88,6 @@ fn status_text(code: i32) -> &'static std::ffi::CStr {
         HANDLE => c"Invalid scanner or result handle; it may already have been destroyed",
         BUFFER => c"Result buffer is too small",
         PANIC => c"Internal scanner failure",
-        CAPACITY => c"Scanner resource capacity exceeded; destroy unused scanners and results",
         _ => c"Unknown scanner status",
     }
 }
@@ -127,7 +123,6 @@ pub struct PointC {
 pub struct ResultInfoC {
     pub barcode_count: u64,
     pub undecoded_count: u64,
-    pub best_index: i64,
     pub width: u64,
     pub height: u64,
     pub elapsed_ms: f64,
@@ -170,9 +165,10 @@ struct Registry {
     results: HashMap<u64, Arc<Output>>,
 }
 impl Registry {
-    fn id(&mut self) -> Result<u64, i32> {
-        self.next = self.next.checked_add(1).ok_or(CAPACITY)?;
-        Ok(self.next)
+    /// IDs are never reused, so stale handles cannot alias newer objects.
+    fn id(&mut self) -> u64 {
+        self.next += 1;
+        self.next
     }
 }
 static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
@@ -226,50 +222,18 @@ fn mode_id(mode: Mode) -> u32 {
 impl Output {
     fn json(&self) -> &[u8] {
         self.json.get_or_init(|| {
-            let raw = if let Some(report) = &self.report {
-                let mut raw = report
-                    .diagnostics
-                    .as_ref()
-                    .expect("inspection diagnostics")
-                    .raw
-                    .clone();
-                raw["elapsedMs"] = serde_json::json!(report.elapsed.as_secs_f64() * 1000.0);
-                raw["multiple"] = serde_json::json!(true);
-                raw
-            } else {
-                let barcodes: Vec<_> = self
-                    .barcodes
-                    .iter()
-                    .map(|b| {
-                        let mut value = serde_json::json!({
-                            "text": b.text, "format": b.format.as_str(),
-                            "polygon": b.polygon, "support": b.support,
-                        });
-                        if let Some(bytes) = &b.payload_bytes {
-                            value["bytes"] = serde_json::json!(bytes);
-                        }
-                        if let Some(addon) = &b.ean_add_on {
-                            value["eanAddOn"] = serde_json::json!(addon);
-                        }
-                        if let Some(gs1) = b.gs1 {
-                            value["gs1"] = serde_json::json!(gs1);
-                        }
-                        if let Some(init) = b.reader_initialization {
-                            value["readerInitialization"] = serde_json::json!(init);
-                        }
-                        if let Some(append) = &b.structured_append {
-                            value["structuredAppend"] = serde_json::json!({
-                                "index": append.index, "count": append.count,
-                                "id": append.id, "parity": append.parity,
-                            });
-                        }
-                        value
-                    })
-                    .collect();
-                serde_json::json!(barcodes)
+            // Neither value contains non-finite floats or fallible custom serializers.
+            let Some(report) = &self.report else {
+                return serde_json::to_vec(&self.barcodes).expect("barcode serialization");
             };
-            // JSON Values contain no non-finite floats or fallible custom serializers.
-            serde_json::to_vec(&raw).expect("JSON value serialization")
+            let mut raw = report
+                .diagnostics
+                .as_ref()
+                .expect("inspection diagnostics")
+                .raw
+                .clone();
+            raw["elapsedMs"] = serde_json::json!(report.elapsed.as_secs_f64() * 1000.0);
+            serde_json::to_vec(&raw).expect("report serialization")
         })
     }
 }
@@ -331,10 +295,7 @@ pub unsafe extern "C" fn tapirscan_scanner_create(
             },
         };
         let mut r = registry()?;
-        if r.scanners.len() >= MAX_HANDLES {
-            return Err(CAPACITY.into());
-        }
-        let id = r.id()?;
+        let id = r.id();
         r.scanners
             .insert(id, Arc::new(Mutex::new(Scanner::new(options))));
         *out = id;
@@ -384,6 +345,38 @@ pub unsafe extern "C" fn tapirscan_inspect(
     scan(scanner, image, options, out, error, true)
 }
 
+/// Borrow the bytes the layout addresses. [`Image`] validation owns every
+/// layout rule, so C callers get the same limits and messages as Rust.
+/// # Safety
+/// `image.data` must be readable for `image.length` bytes.
+unsafe fn borrow_image(image: &ImageC) -> Result<Image<'_>, Failure> {
+    if image.data.is_null() {
+        return Err(invalid("pixel pointer is null"));
+    }
+    let channels = match image.channels {
+        1 | 3 | 4 => image.channels as usize,
+        _ => return Err(invalid("channels must be 1, 3 or 4")),
+    };
+    let (width, height) = (index(image.width)?, index(image.height)?);
+    let row = width.saturating_mul(channels);
+    let stride = match image.stride {
+        0 => row,
+        stride => index(stride)?,
+    };
+    // Saturation only matters for layouts that validation rejects anyway.
+    let addressed = height
+        .saturating_sub(1)
+        .saturating_mul(stride)
+        .saturating_add(row);
+    let data = std::slice::from_raw_parts(image.data, addressed.min(index(image.length)?));
+    let pixels = match channels {
+        1 => Image::gray(data, width, height),
+        3 => Image::rgb(data, width, height),
+        _ => Image::rgba(data, width, height),
+    };
+    Ok(pixels.with_stride(stride))
+}
+
 unsafe fn scan(
     scanner: u64,
     image: *const ImageC,
@@ -411,44 +404,8 @@ unsafe fn scan(
             0 => None,
             bits => Some(Formats::try_from(bits).map_err(Failure::from)?),
         };
-        if image.data.is_null() {
-            return Err(invalid("pixel pointer is null"));
-        }
-        if image.length > MAX_BYTES {
-            return Err(invalid("pixel buffer exceeds 128 MiB"));
-        }
-        if image.width < 3 || image.height < 3 {
-            return Err(invalid("dimensions must be at least 3x3"));
-        }
-        if ![1, 3, 4].contains(&image.channels) {
-            return Err(invalid("channels must be 1, 3 or 4"));
-        }
-        let row = image
-            .width
-            .checked_mul(u64::from(image.channels))
-            .ok_or(ARG)?;
-        let stride = if image.stride == 0 { row } else { image.stride };
-        let required = (image.height - 1)
-            .checked_mul(stride)
-            .and_then(|n| n.checked_add(row))
-            .ok_or(ARG)?;
-        if stride < row {
-            return Err(invalid("stride is smaller than a pixel row"));
-        }
-        if required > image.length || required > MAX_BYTES {
-            return Err(invalid(
-                "buffer is too short or exceeds the 128 MiB layout limit",
-            ));
-        }
+        let pixels = borrow_image(image)?;
         let scanner = registry()?.scanners.get(&scanner).cloned().ok_or(HANDLE)?;
-        let data = std::slice::from_raw_parts(image.data, index(required)?);
-        let (width, height) = (index(image.width)?, index(image.height)?);
-        let pixels = match image.channels {
-            1 => Image::gray(data, width, height),
-            3 => Image::rgb(data, width, height),
-            _ => Image::rgba(data, width, height),
-        }
-        .with_stride(index(stride)?);
         let mut scanner = scanner.lock().map_err(|_| PANIC)?;
         let options = ScanOptions {
             formats,
@@ -468,10 +425,7 @@ unsafe fn scan(
             )
         };
         let mut r = registry()?;
-        if r.results.len() >= MAX_HANDLES {
-            return Err(CAPACITY.into());
-        }
-        let id = r.id()?;
+        let id = r.id();
         r.results.insert(
             id,
             Arc::new(Output {
@@ -496,16 +450,9 @@ pub unsafe extern "C" fn tapirscan_result_info(result: u64, out: *mut ResultInfo
         *out = ResultInfoC::default();
         let output = output(result)?;
         let r = output.report.as_ref().ok_or(ARG)?;
-        let best = output
-            .barcodes
-            .iter()
-            .enumerate()
-            .max_by_key(|(i, b)| (b.support, std::cmp::Reverse(*i)))
-            .map(|(i, _)| i);
         *out = ResultInfoC {
             barcode_count: output.barcodes.len() as u64,
             undecoded_count: r.undecoded.len() as u64,
-            best_index: best.map_or(-1, |i| i64::try_from(i).unwrap_or(-1)),
             width: r.image_size[0] as u64,
             height: r.image_size[1] as u64,
             elapsed_ms: r.elapsed.as_secs_f64() * 1000.0,

@@ -24,13 +24,9 @@ public record ScanResult(
         undecoded = List.copyOf(undecoded);
     }
 
-    /** Highest support, keeping the first read on ties. */
+    /** Highest support, keeping the first read on ties; see {@link Tapirscan#best}. */
     public Optional<Barcode> best() {
-        Barcode winner = null;
-        for (Barcode barcode : barcodes) {
-            if (winner == null || barcode.support() > winner.support()) winner = barcode;
-        }
-        return Optional.ofNullable(winner);
+        return Tapirscan.best(barcodes);
     }
 
     /** Decoded text of every barcode, in scanner order. */

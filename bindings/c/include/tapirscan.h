@@ -12,7 +12,7 @@ extern "C" {
    scanner serialize. Results outlive their scanner. Pointer arguments must
    reference valid, aligned, nonoverlapping caller memory. Status failures never
    unwind through C; invalid raw memory and out-of-memory are outside that
-   guarantee. At most 1024 scanners and 1024 results may be alive at once. */
+   guarantee. Handle IDs are never reused. */
 #define TAPIRSCAN_ABI_VERSION 6u
 
 typedef uint64_t tapirscan_scanner;
@@ -23,8 +23,7 @@ typedef enum tapirscan_status {
     TAPIRSCAN_INVALID_ARGUMENT = 1,
     TAPIRSCAN_INVALID_HANDLE = 2,
     TAPIRSCAN_BUFFER_TOO_SMALL = 3,
-    TAPIRSCAN_INTERNAL_ERROR = 4,
-    TAPIRSCAN_CAPACITY = 5
+    TAPIRSCAN_INTERNAL_ERROR = 4
 } tapirscan_status;
 
 typedef enum tapirscan_mode {
@@ -57,8 +56,11 @@ typedef struct tapirscan_scanner_options {
    Use one per concurrent call. NULL discards details; the status is unchanged. */
 typedef struct tapirscan_error { char message[512]; } tapirscan_error;
 
-/* Gray8, RGB8 or RGBA8 pixels (alpha ignored), at least 3x3 and at most 128 MiB.
-   stride is the distance between rows in bytes; 0 means width * channels. */
+/* Gray8, RGB8 or RGBA8 pixels (alpha ignored), at least 3x3 and 32 megapixels.
+   stride is the distance between rows in bytes; 0 means width * channels.
+   length is the readable buffer size. The addressed layout,
+   (height - 1) * stride + width * channels bytes, must fit in it and in 128 MiB;
+   a larger backing buffer, such as a frame around a crop, is fine. */
 typedef struct tapirscan_image {
     const uint8_t *data;
     uint64_t length;
@@ -81,7 +83,6 @@ typedef struct tapirscan_point { double x, y; } tapirscan_point;
 typedef struct tapirscan_summary {
     uint64_t barcode_count;
     uint64_t undecoded_count;
-    int64_t best_index;       /* highest support, first on ties; -1 when empty */
     uint64_t width, height;   /* supplied image size */
     double elapsed_ms;
     uint32_t mode;            /* tapirscan_mode */

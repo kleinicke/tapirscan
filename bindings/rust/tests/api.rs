@@ -260,3 +260,37 @@ fn metadata_absence_and_enclosing_pixel_bounds() {
     assert_eq!(known.gs1, Some(false));
     assert_eq!(known.reader_initialization, Some(true));
 }
+
+#[test]
+fn best_selects_from_plain_scan_output() {
+    let (pixels, width, height) = fixture(true);
+    let image = Image::gray(&pixels, width, height);
+    let mut barcodes = tapirscan::scan(image).unwrap();
+    let inspected = tapirscan::inspect(image).unwrap();
+    assert_eq!(tapirscan::best(&barcodes), inspected.best());
+    assert!(tapirscan::best(&[]).is_none());
+    barcodes[0].support = 7;
+    barcodes[1].support = 7;
+    // Ties keep the first read.
+    assert!(std::ptr::eq(
+        tapirscan::best(&barcodes).unwrap(),
+        &raw const barcodes[0]
+    ));
+    barcodes[1].support = 8;
+    assert!(std::ptr::eq(
+        tapirscan::best(&barcodes).unwrap(),
+        &raw const barcodes[1]
+    ));
+}
+
+#[test]
+fn barcode_serialization_round_trips_and_omits_absent_metadata() {
+    let json = serde_json::json!({
+        "text": "example", "format": "QRCode", "support": 1,
+        "polygon": [[1.0, 2.0], [5.0, 2.0], [5.0, 9.0], [1.0, 9.0]],
+        "bytes": [0, 255], "gs1": false,
+        "structuredAppend": {"index": 1, "count": 2, "id": null, "parity": 7}
+    });
+    let barcode: tapirscan::Barcode = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&barcode).unwrap(), json);
+}

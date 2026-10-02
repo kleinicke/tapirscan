@@ -9,6 +9,7 @@ def consumer(image: ImageInput, scanner: barcode.Scanner) -> None:
     """Verify accepted API types and intentional static error cases."""
     assert_type(scanner.scan(image), list[Barcode])
     assert_type(barcode.scan(image), list[Barcode])
+    assert_type(barcode.best(scanner.scan(image)), Barcode | None)
     result = barcode.inspect(image, ean_add_on_policy="Read")
     assert_type(scanner.ean_add_on_policy, barcode.EanAddOnPolicy)
     assert_type(result, ScanResult)

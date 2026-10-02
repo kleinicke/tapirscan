@@ -43,8 +43,8 @@ tapirscan::Scanner scanner(options);
 
 tapirscan::ScanOptions scan;
 scan.extended_budget = true;
-auto result = scanner.inspect(tapirscan::Image::rgba(pixels, width, height), scan);
-if (const auto* best = result.best()) std::cout << best->text << '\n';
+const auto barcodes = scanner.scan(tapirscan::Image::rgba(pixels, width, height), scan);
+if (const auto* best = tapirscan::best(barcodes)) std::cout << best->text << '\n';
 ```
 
 Reuse a scanner across images; it is move-only and its destructor releases it.
@@ -73,8 +73,10 @@ see [API design](../../docs/API_DESIGN.md).
 
 `ScanResult` exposes `barcodes`, `undecoded`, `width`, `height`, `mode`,
 `elapsed_ms`, `unfinished` and `diagnostics` JSON. `values()` returns decoded
-text; `best()` points at the largest-support read, keeping first-read ties, or is
-null. Support is reader-specific and not comparable confidence across formats.
+text. `tapirscan::best(barcodes)` points at the largest-support read of any
+barcode vector, keeping first-read ties, or is null; `ScanResult::best()` is the
+same for inspection results. Both reject temporaries, whose pointer would
+dangle. Support is reader-specific and not comparable confidence across formats.
 
 `Barcode` contains `text`, `format`, `polygon` (four `Point`s in source-image
 pixels, top-left origin), `support`, and optional `payload_bytes`, `ean_add_on`,
@@ -91,8 +93,9 @@ not guarantee exhaustive coverage. Debug JSON schemas are unstable.
 `Image::gray`, `Image::rgb` and `Image::rgba` take a `std::vector<std::uint8_t>`
 or a pointer and length, plus width and height; `.with_stride(bytes_per_row)`
 describes padded rows. Alpha is ignored. Keep the backing buffer alive and do not reallocate it until the scan call
-returns. Image factories reject temporary vectors. Images are at least 3×3 and at most 32 megapixels; the buffer must
-cover `(height - 1) * stride + width * channels` bytes, at most 128 MiB. Decode
+returns. Image factories reject temporary vectors. Images are at least 3×3 and at most 32 megapixels. The addressed
+layout, `(height - 1) * stride + width * channels` bytes, must fit in the buffer and in 128 MiB; a larger backing
+buffer, such as a frame around a crop, is accepted. Decode
 image files and convert BGR, planar, float or 16-bit pixels before scanning.
 
 ## Building and installing
@@ -124,5 +127,5 @@ See the [full license texts](https://tapirscan.f-kleinicke.de/license/).
 Third-party components retain their own licenses and notices.
 
 `Formats::from_bits` rejects empty or unknown bits with `std::invalid_argument`.
-`best()` derives its selection from the current barcode vector, including after
-caller edits; ties retain the first barcode. Native errors include per-call details.
+`best` derives its selection from the current barcode vector, including after
+caller edits. Native errors include per-call details.

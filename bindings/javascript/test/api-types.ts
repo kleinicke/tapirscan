@@ -1,5 +1,6 @@
 // Compile-time consumer contract. This function is never executed.
 import {
+  best as bestOf,
   scan,
   Scanner,
   type Barcode,
@@ -18,6 +19,8 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
   });
   try {
     const barcodes: readonly Barcode[] = scanner.scan(image);
+    const first: Barcode | undefined = bestOf(barcodes);
+    console.log(first?.text);
     // @ts-expect-error Ordinary scans have no report envelope.
     console.log(barcodes.barcodes);
     // @ts-expect-error Inspection is a separate operation.

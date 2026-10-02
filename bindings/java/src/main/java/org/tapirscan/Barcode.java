@@ -8,7 +8,7 @@ import java.util.Optional;
 /**
  * A decoded physical instance. Equal values at distinct locations remain separate.
  *
- * @param support uncalibrated, reader-specific evidence used by {@link ScanResult#best()}
+ * @param support uncalibrated, reader-specific evidence used by {@link Tapirscan#best}
  * @param payloadBytes original decoded bytes where the reader reports them
  */
 public record Barcode(

@@ -6,6 +6,12 @@
 - C gains an explicit scanner-options initializer. C++ rejects temporary image buffers and invalid format masks, and derives `best()` from current barcodes.
 - Java uses named native layouts and payload-content equality; Java and C++ remove redundant best-index state.
 - Ordinary native/Python scans no longer retain engine diagnostics. See `docs/API_MIGRATION.md` for signature changes.
+- Every binding adds `best(barcodes)` for plain scan output; `ScanResult.best` uses the same rule. The C summary drops
+  `best_index`, and C++ `best` rejects temporaries.
+- C accepts backing buffers larger than 128 MiB when the addressed layout fits, matching Rust, and drops the
+  1024-handle limit and `TAPIRSCAN_CAPACITY`. Java scans native `MemorySegment` pixels in place and copies only
+  the addressed bytes of arrays.
+- Rust `Barcode` implements serde `Serialize`; the C ABI serializes barcode JSON from it.
 
 - C, C++ and Java are now recommended bindings with the same scanner, options
   and result model as Rust, Python and JavaScript. Native ABI 6 uses one

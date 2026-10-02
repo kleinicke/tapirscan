@@ -298,7 +298,9 @@ class Images(unittest.TestCase):
         with Scanner(library_dir=LIBS) as scanner:
             result = scanner.scan(image)
             self.assertIs(type(result), list)
-            self.assertEqual(result, list(scanner.inspect(image).barcodes))
+            report = scanner.inspect(image)
+            self.assertEqual(result, list(report.barcodes))
+            self.assertEqual(barcode.best(result), report.best)
             self.assertEqual(
                 scanner.scan(PixelImage(bytes([255]) * len(RAW), width=W, height=H)), []
             )
@@ -520,7 +522,6 @@ class Images(unittest.TestCase):
                 (2, "handle"),
                 (3, "buffer is too small"),
                 (4, "Internal scanner"),
-                (5, "capacity exceeded"),
                 (99, "Unknown scanner status"),
             ):
                 with self.subTest(code=code):

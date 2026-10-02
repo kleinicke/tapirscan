@@ -5,7 +5,14 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Scanner, scan, retailFormats, commonFormats, commonLinearFormats } from "../dist/index.js";
+import {
+  Scanner,
+  best,
+  scan,
+  retailFormats,
+  commonFormats,
+  commonLinearFormats,
+} from "../dist/index.js";
 const wasmFile = (mode) =>
   basename(fileURLToPath(import.meta.resolve(`tapirscan/wasm/${mode}.wasm`)));
 const loadWasm = async (url) => {
@@ -326,7 +333,6 @@ test("public results preserve semantic metadata independently of diagnostics", a
           rect: { left: 0, top: 0, width: 10, height: 10 },
         },
       ],
-      bestIndex: 0,
       undecoded: [],
       image: { width: 480, height: 180 },
       mode: "medium",
@@ -357,6 +363,13 @@ test("public results preserve semantic metadata independently of diagnostics", a
   }
 });
 
+test("best selects the first highest-support read from any barcode list", () => {
+  const read = (text, support) => ({ text, support });
+  assert.equal(best([]), undefined);
+  const list = [read("a", 2), read("b", 5), read("c", 5)];
+  assert.equal(best(list), list[1]);
+});
+
 test("inspection reports localization limits", async () => {
   const scanner = await Scanner.create({ mode: "low", formats: "EAN13" });
   try {
@@ -367,7 +380,6 @@ test("inspection reports localization limits", async () => {
     ]) {
       scanner.host.scan = (_image, flags) => ({
         barcodes: [],
-        bestIndex: null,
         undecoded: [],
         image: { width: 480, height: 180 },
         mode: "low",
