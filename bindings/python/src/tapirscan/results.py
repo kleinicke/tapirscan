@@ -6,9 +6,12 @@ import json
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from math import ceil, floor
-from typing import Any, Literal, NamedTuple, TypeAlias, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeAlias, cast, overload
 
 from typing_extensions import override
+
+if TYPE_CHECKING:
+    from .formats import Format
 
 SCHEMA_VERSION = 2
 
@@ -56,7 +59,7 @@ class Barcode:
 
     text: str
     polygon: tuple[Point, ...]
-    format: str
+    format: Format
     support: int = 0
     gs1: bool | None = None
     reader_initialization: bool | None = None

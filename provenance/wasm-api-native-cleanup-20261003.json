@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "apiVersion": 2,
-  "sourceDigest": "1d63c7623ff08e495545f594e03fbcd6b17ac82e2c5907883ab6b1fdc5fd12ed",
+  "sourceDigest": "cb427186e1c6d8279c0c46fe9b6d783ca4ab5472857eb004b6e565de4f2bb3bf",
   "sourceFiles": {
     "bindings/rust/Cargo.lock": "382d94a1feeb3f1b3d9367aa5b302571e19924a0e239e3581651a891135e4594",
     "bindings/rust/Cargo.toml": "5e0825008eabf77629bf45ebfbe0d8ebf8d89cd79c0c79635b510d939b1759f4",
@@ -9,7 +9,7 @@
     "bindings/rust/api/lib.rs": "e767ab983a5d5539eab73794e997bde59fdadb97ad8971a779f6242cfe7eb6ec",
     "bindings/rust/api/pixels.rs": "8c7938acec68c80355b752294f89bb1eeb85d8f2493d1fe16bb8b545b96ccac9",
     "bindings/rust/api/timer.rs": "b27954265e72d1749468e3cbf66b71ca88fdf5b409da23767ac254e4317d9127",
-    "bindings/rust/api/types.rs": "23ad4dfc074ac3372134087c4549ecd110a855143f9dee05727ce1fe357883ea",
+    "bindings/rust/api/types.rs": "74c62bc7f3283d7ed86c4cb866cd5e4cc2334a0c95220979934c1cafa400b7cb",
     "bindings/rust/examples/scan_raw.rs": "fa85d4308b4f9b47509c14da5f2148ee6e58af38c3a480eaa46652b58822d8d4",
     "bindings/rust/src/detail.rs": "07f57ecc5a067fa90b3457ca3dabac70c24db3015085bb658bf3deaca96d50a2",
     "bindings/rust/src/effort.rs": "61f2511470037a7f55cb6ff3068b4f580ed643832ccc7e560c9efd23488acd85",

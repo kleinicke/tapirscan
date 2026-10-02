@@ -78,7 +78,8 @@ export interface Barcode {
   /** Payload bytes before character-set interpretation; absent when unavailable. */
   readonly payloadBytes?: readonly number[];
   readonly text: string;
-  readonly format: Format | "Unknown";
+  /** Decoded barcodes always have a known format; only undecoded regions report "Unknown". */
+  readonly format: Format;
   /** Reader-specific ranking evidence, not a probability or cross-reader confidence. */
   readonly support: number;
   readonly gs1?: boolean;

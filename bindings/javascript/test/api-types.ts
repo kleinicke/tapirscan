@@ -4,6 +4,7 @@ import {
   scan,
   Scanner,
   type Barcode,
+  type Format,
   type Image,
   type ScanResult,
   type ScannerOptions,
@@ -20,6 +21,9 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
   try {
     const barcodes: readonly Barcode[] = scanner.scan(image);
     const first: Barcode | undefined = bestOf(barcodes);
+    // Decoded barcodes always have a known format.
+    const format: Format | undefined = first?.format;
+    console.log(format);
     console.log(first?.text);
     // @ts-expect-error Ordinary scans have no report envelope.
     console.log(barcodes.barcodes);

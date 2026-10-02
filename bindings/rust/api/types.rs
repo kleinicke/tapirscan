@@ -245,7 +245,7 @@ pub struct ScanResult {
     pub undecoded: Vec<UndecodedRegion>,
     /// Supplied image dimensions as `[width, height]` in pixels.
     pub image_size: [usize; 2],
-    /// Effort mode. Scanner configuration defaults to [`Mode::Medium`].
+    /// Effort mode the scanner used.
     pub mode: Mode,
     /// Whole synchronous call time, including input validation and result conversion.
     pub elapsed: Duration,
