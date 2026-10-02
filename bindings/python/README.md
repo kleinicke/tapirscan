@@ -110,7 +110,7 @@ override the constructor selection for that call only; `None` inherits it.
 | `color_order`       | Scan, arrays/tensors only | `"RGB"`         | Optional `"BGR"` for OpenCV BGR/BGRA pixels; alpha is preserved and ignored by decoding. Grayscale is unchanged.                                                                |
 | `library_dir`       | Creation / one-shot       | Bundled library | Path/string for custom native builds. Lookup: explicit path, then `TAPIRSCAN_LIBRARY_DIR`, then the wheel's library. The working directory is never searched implicitly.        |
 
-Custom native libraries must implement ABI 5. Scanner creation reports ABI
+Custom native libraries must implement ABI 6. Scanner creation reports ABI
 mismatches with version details and rebuild instructions.
 
 All scans return all decoded instances, including spatially separate copies of the

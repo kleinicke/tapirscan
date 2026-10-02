@@ -15,13 +15,13 @@
 #include <vector>
 
 namespace tapirscan {
-static_assert(sizeof(void*) == 8, "Native ABI 5 requires a 64-bit target");
+static_assert(sizeof(void*) == 8, "Native ABI 6 requires a 64-bit target");
 
 /// A native failure. `code` is the C status.
 class Error : public std::runtime_error {
 public:
-    explicit Error(std::int32_t status)
-        : std::runtime_error(tapirscan_status_message(status)), code(status) {}
+    explicit Error(std::int32_t status, const char* message = nullptr)
+        : std::runtime_error(message && *message ? message : tapirscan_status_message(status)), code(status) {}
     std::int32_t code;
 };
 
@@ -60,10 +60,13 @@ inline std::string_view to_string(Mode mode) {
 /// Nonempty format selection. Combine formats and presets with `|`.
 class Formats {
     std::uint32_t bits_;
-    constexpr explicit Formats(std::uint32_t bits) : bits_(bits) {}
+    constexpr explicit Formats(std::uint32_t bits) : bits_(bits) {
+        if (bits == 0 || (bits & ~TAPIRSCAN_FORMATS_ALL) != 0)
+            throw std::invalid_argument("empty or unsupported format selection");
+    }
 
 public:
-    constexpr Formats(Format format) : bits_(static_cast<std::uint32_t>(format)) {}
+    constexpr Formats(Format format) : Formats(static_cast<std::uint32_t>(format)) {}
     /// EAN-13, UPC-A, EAN-8 and UPC-E.
     static constexpr Formats retail() { return Formats(TAPIRSCAN_FORMATS_RETAIL); }
     /// Retail formats plus Code 128, Code 39 and ITF.
@@ -76,7 +79,7 @@ public:
     static constexpr Formats matrix() { return Formats(TAPIRSCAN_FORMATS_MATRIX); }
     /// Every supported format. Formats outside Retail remain experimental.
     static constexpr Formats all() { return Formats(TAPIRSCAN_FORMATS_ALL); }
-    /// A native TAPIRSCAN_FORMAT_* mask. Empty or unknown bits fail when scanning.
+    /// A native TAPIRSCAN_FORMAT_* mask. Empty or unknown bits throw std::invalid_argument.
     static constexpr Formats from_bits(std::uint32_t bits) { return Formats(bits); }
 
     constexpr std::uint32_t bits() const { return bits_; }
@@ -96,8 +99,8 @@ struct ScannerOptions {
     EanAddOnPolicy ean_add_on_policy = EanAddOnPolicy::Ignore;
 };
 
-/// Borrowed gray8, RGB8 or RGBA8 pixels (alpha ignored). Pixels must outlive
-/// the scan call only. `stride` is bytes per row; 0 means tightly packed.
+/// Borrowed gray8, RGB8 or RGBA8 view (alpha ignored). Keep the backing buffer
+/// alive and do not reallocate it until the scan call returns. `stride` is bytes per row; 0 means tightly packed.
 struct Image {
     const std::uint8_t* data = nullptr;
     std::size_t length = 0;
@@ -130,6 +133,9 @@ struct Image {
                       std::uint64_t height) {
         return rgba(pixels.data(), pixels.size(), width, height);
     }
+    static Image gray(const std::vector<std::uint8_t>&&, std::uint64_t, std::uint64_t) = delete;
+    static Image rgb(const std::vector<std::uint8_t>&&, std::uint64_t, std::uint64_t) = delete;
+    static Image rgba(const std::vector<std::uint8_t>&&, std::uint64_t, std::uint64_t) = delete;
     Image with_stride(std::uint64_t bytes) const {
         Image image = *this;
         image.stride = bytes;
@@ -199,10 +205,14 @@ struct ScanResult {
     bool unfinished = false;
     /// Engine diagnostics JSON, present only when `ScanOptions::debug` was set.
     std::optional<std::string> debug;
-    std::optional<std::size_t> best_index;
 
     /// Highest support, keeping the first read on ties; null when empty.
-    const Barcode* best() const { return best_index ? &barcodes[*best_index] : nullptr; }
+    const Barcode* best() const {
+        const Barcode* winner = nullptr;
+        for (const auto& barcode : barcodes)
+            if (!winner || barcode.support > winner->support) winner = &barcode;
+        return winner;
+    }
     /// Decoded text of every barcode, in scanner order.
     std::vector<std::string> values() const {
         std::vector<std::string> values;
@@ -256,7 +266,6 @@ public:
         result.mode = static_cast<Mode>(info.mode);
         result.elapsed_ms = info.elapsed_ms;
         result.unfinished = info.unfinished != 0;
-        if (info.best_index >= 0) result.best_index = static_cast<std::size_t>(info.best_index);
         result.barcodes.reserve(static_cast<std::size_t>(info.barcode_count));
         for (std::uint64_t i = 0; i < info.barcode_count; ++i) {
             tapirscan_barcode b{};
@@ -297,7 +306,9 @@ public:
             result.undecoded.push_back(region);
         }
         if (debug) {
-            std::string json(static_cast<std::size_t>(info.json_length) + 1, '\0');
+            std::uint64_t length = 0;
+            check(tapirscan_result_json_length(handle_, &length));
+            std::string json(static_cast<std::size_t>(length) + 1, '\0');
             check(tapirscan_result_copy_json(handle_, reinterpret_cast<std::uint8_t*>(json.data()),
                                              json.size()));
             json.pop_back();
@@ -337,7 +348,9 @@ public:
         const tapirscan_scanner_options native{static_cast<std::uint32_t>(options.mode),
                                                options.formats.bits(),
                                                static_cast<std::uint32_t>(options.ean_add_on_policy)};
-        detail::check(tapirscan_scanner_create(&native, &handle_));
+        tapirscan_error error{};
+        auto status = tapirscan_scanner_create(&native, &handle_, &error);
+        if (status != TAPIRSCAN_OK) throw Error(status, error.message);
     }
     ~Scanner() {
         if (handle_) tapirscan_scanner_destroy(handle_);
@@ -366,7 +379,9 @@ public:
                                             options.debug ? 1u : 0u,
                                             options.extended_budget ? 1u : 0u};
         tapirscan_result result = 0;
-        detail::check(tapirscan_scan(handle_, &native_image, &native, &result));
+        tapirscan_error error{};
+        auto status = tapirscan_scan(handle_, &native_image, &native, &result, &error);
+        if (status != TAPIRSCAN_OK) throw Error(status, error.message);
         return detail::Result(result).read(options.debug);
     }
 };

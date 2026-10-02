@@ -272,6 +272,11 @@ def _barcode(value: dict[str, Any]) -> Barcode:
 
 def _undecoded(value: dict[str, Any]) -> tuple[UndecodedRegion, ...]:
     """Keep undecoded source geometry separate from decoded results."""
+    if "undecoded" in value:
+        return tuple(
+            UndecodedRegion(_polygon(r["polygon"]), r["format"])
+            for r in value["undecoded"]
+        )
     frame = value["scan"]
     if "regions" in frame:
         return tuple(

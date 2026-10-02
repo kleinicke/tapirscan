@@ -79,3 +79,24 @@ using `extended_budget` / `extendedBudget`. There is no EAN/UPC format restricti
 Rust `scan(image)` now supplies default scan options automatically. Use
 `scan_with_options(image, options)` for overrides on free functions or scanners.
 The support-based convenience selection is named `best` in all three APIs.
+
+## Native ABI 6 refinements
+
+Rebuild the shared library and every native consumer together. Scanner creation
+and scanning now accept a final optional `tapirscan_error *` for caller-owned
+UTF-8 error details (pass `NULL` to discard). Initialize C scanner options with
+`TAPIRSCAN_SCANNER_OPTIONS_INIT`; zero initialization is only the per-scan default.
+
+`tapirscan_summary` no longer contains `json_length`. Call
+`tapirscan_result_json_length(result, &length)` before copying JSON. Typed result
+access does not serialize JSON. Compact schema-2 output is constructed from typed
+results and adds `undecoded` geometry; engine-only barcode evidence such as axis,
+candidate indices and reader error remains in debug output. Python also avoids
+engine diagnostics unless requested. Rust exposes `localization_limited` to
+preserve the separate localization flag across native serialization.
+
+C++ rejects temporary vectors in image factories and rejects empty/unknown format
+masks at construction. Keep the backing pixel buffer alive until scanning returns.
+C++ `best_index` and Java's `bestIndex` record component were removed; use `best()`.
+Java's `ScanResult` constructor no longer takes an index. Java barcode equality
+and hashing compare payload bytes by content.

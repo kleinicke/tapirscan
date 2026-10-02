@@ -5,7 +5,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Tapirscan native ABI 5: one library containing all four effort modes.
+/* Tapirscan native ABI 6: one library containing all four effort modes.
 
    Create a scanner once, scan any number of images, read the owned result,
    then destroy the result and the scanner. Calls are thread-safe; scans on one
@@ -13,7 +13,7 @@ extern "C" {
    reference valid, aligned, nonoverlapping caller memory. Status failures never
    unwind through C; invalid raw memory and out-of-memory are outside that
    guarantee. At most 1024 scanners and 1024 results may be alive at once. */
-#define TAPIRSCAN_ABI_VERSION 5u
+#define TAPIRSCAN_ABI_VERSION 6u
 
 typedef uint64_t tapirscan_scanner;
 typedef uint64_t tapirscan_result;
@@ -50,6 +50,12 @@ typedef struct tapirscan_scanner_options {
     uint32_t formats;           /* nonempty TAPIRSCAN_FORMAT_* mask */
     uint32_t ean_add_on_policy; /* tapirscan_ean_add_on_policy */
 } tapirscan_scanner_options;
+#define TAPIRSCAN_SCANNER_OPTIONS_INIT {TAPIRSCAN_MODE_MEDIUM, TAPIRSCAN_FORMATS_RETAIL, TAPIRSCAN_EAN_ADD_ON_IGNORE}
+
+/* Optional caller-owned output for create/scan. Cleared on success; on failure
+   holds NUL-terminated UTF-8, truncated at a character boundary if necessary.
+   Use one per concurrent call. NULL discards details; the status is unchanged. */
+typedef struct tapirscan_error { char message[512]; } tapirscan_error;
 
 /* Gray8, RGB8 or RGBA8 pixels (alpha ignored), at least 3x3 and at most 128 MiB.
    stride is the distance between rows in bytes; 0 means width * channels. */
@@ -77,7 +83,6 @@ typedef struct tapirscan_summary {
     uint64_t barcode_count;
     uint64_t undecoded_count;
     int64_t best_index;       /* highest support, first on ties; -1 when empty */
-    uint64_t json_length;     /* excludes the terminating NUL */
     uint64_t width, height;   /* supplied image size */
     double elapsed_ms;
     uint32_t mode;            /* tapirscan_mode */
@@ -122,13 +127,13 @@ uint32_t tapirscan_abi_version(void);
 const char *tapirscan_status_message(int32_t status);
 const char *tapirscan_format_name(uint32_t format);
 
-int32_t tapirscan_scanner_create(const tapirscan_scanner_options *options, tapirscan_scanner *out);
+int32_t tapirscan_scanner_create(const tapirscan_scanner_options *options, tapirscan_scanner *out, tapirscan_error *error);
 int32_t tapirscan_scanner_destroy(tapirscan_scanner scanner);
 
 /* Pixels are borrowed only for the call. No detection is a successful empty
    result. A call has no deadline; unfinished may remain true. */
 int32_t tapirscan_scan(tapirscan_scanner scanner, const tapirscan_image *image,
-    const tapirscan_scan_options *options, tapirscan_result *out);
+    const tapirscan_scan_options *options, tapirscan_result *out, tapirscan_error *error);
 
 int32_t tapirscan_result_info(tapirscan_result result, tapirscan_summary *out);
 int32_t tapirscan_result_barcode(tapirscan_result result, uint64_t index, tapirscan_barcode *out);
@@ -137,6 +142,8 @@ int32_t tapirscan_result_undecoded(tapirscan_result result, uint64_t index, tapi
    Embedded NUL bytes are preserved. Absent fields return INVALID_ARGUMENT. */
 int32_t tapirscan_result_copy(tapirscan_result result, uint64_t index, uint32_t field,
     uint8_t *out, uint64_t capacity);
+/* Serializes lazily; length excludes the terminating NUL. */
+int32_t tapirscan_result_json_length(tapirscan_result result, uint64_t *out);
 /* Schema-2 JSON: decoded results, plus engine evidence for debug scans. */
 int32_t tapirscan_result_copy_json(tapirscan_result result, uint8_t *out, uint64_t capacity);
 int32_t tapirscan_result_destroy(tapirscan_result result);

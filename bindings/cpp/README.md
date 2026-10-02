@@ -80,8 +80,8 @@ not guarantee exhaustive coverage. Debug JSON schemas are unstable.
 
 `Image::gray`, `Image::rgb` and `Image::rgba` take a `std::vector<std::uint8_t>`
 or a pointer and length, plus width and height; `.with_stride(bytes_per_row)`
-describes padded rows. Alpha is ignored. Pixels are borrowed only during the
-scan call. Images are at least 3×3 and at most 32 megapixels; the buffer must
+describes padded rows. Alpha is ignored. Keep the backing buffer alive and do not reallocate it until the scan call
+returns. Image factories reject temporary vectors. Images are at least 3×3 and at most 32 megapixels; the buffer must
 cover `(height - 1) * stride + width * channels` bytes, at most 128 MiB. Decode
 image files and convert BGR, planar, float or 16-bit pixels before scanning.
 
@@ -112,3 +112,7 @@ vcpkg recipes are not provided yet.
 Tapirscan is dual-licensed under **MIT OR Apache-2.0**, at your option.
 See the [full license texts](https://tapirscan.f-kleinicke.de/license/).
 Third-party components retain their own licenses and notices.
+
+`Formats::from_bits` rejects empty or unknown bits with `std::invalid_argument`.
+`best()` derives its selection from the current barcode vector, including after
+caller edits; ties retain the first barcode. Native errors include per-call details.

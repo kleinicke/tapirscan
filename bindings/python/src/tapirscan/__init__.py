@@ -69,7 +69,7 @@ __all__ = [
     "retail_formats",
     "scan",
 ]
-ABI_VERSION = 5
+ABI_VERSION = 6
 MAX_IMAGE_BYTES = 128 * 1024 * 1024
 _MODES = ("low", "medium", "high", "very-high")
 _ADDON_POLICIES = ("Ignore", "Read", "Require")
@@ -84,7 +84,7 @@ class ScannerError(RuntimeError):
         super().__init__(f"{message} (code {code})")
 
 
-# Native ABI 5 structures from bindings/c/include/tapirscan.h.
+# Native ABI 6 structures from bindings/c/include/tapirscan.h.
 class _ScannerOptions(c.Structure):
     _fields_ = [
         ("mode", c.c_uint32),
@@ -109,20 +109,6 @@ class _ScanOptions(c.Structure):
         ("formats", c.c_uint32),
         ("debug", c.c_uint32),
         ("extended_budget", c.c_uint32),
-    ]
-
-
-class _Info(c.Structure):
-    _fields_ = [
-        ("barcode_count", c.c_uint64),
-        ("undecoded_count", c.c_uint64),
-        ("best_index", c.c_int64),
-        ("json_length", c.c_uint64),
-        ("width", c.c_uint64),
-        ("height", c.c_uint64),
-        ("elapsed_ms", c.c_double),
-        ("mode", c.c_uint32),
-        ("unfinished", c.c_uint32),
     ]
 
 
@@ -235,26 +221,9 @@ class Scanner:
         u64 = c.c_uint64
         u32 = c.c_uint32
         ptr = c.POINTER
-        signatures = {
-            "tapirscan_abi_version": ([], u32),
-            "tapirscan_status_message": ([c.c_int32], c.c_char_p),
-            "tapirscan_scanner_create": (
-                [ptr(_ScannerOptions), ptr(u64)],
-                c.c_int32,
-            ),
-            "tapirscan_scanner_destroy": ([u64], c.c_int32),
-            "tapirscan_scan": (
-                [u64, ptr(_Image), ptr(_ScanOptions), ptr(u64)],
-                c.c_int32,
-            ),
-            "tapirscan_result_info": ([u64, ptr(_Info)], c.c_int32),
-            "tapirscan_result_copy_json": ([u64, c.c_void_p, u64], c.c_int32),
-            "tapirscan_result_destroy": ([u64], c.c_int32),
-        }
-        for name, (args, result) in signatures.items():
-            fn = getattr(self._lib, name)
-            fn.argtypes = args
-            fn.restype = result
+        # Check the version before resolving ABI-specific symbols.
+        self._lib.tapirscan_abi_version.argtypes = []
+        self._lib.tapirscan_abi_version.restype = u32
         actual_abi = self._lib.tapirscan_abi_version()
         if actual_abi != ABI_VERSION:
             msg = (
@@ -263,18 +232,41 @@ class Scanner:
                 "Rebuild the native library or reinstall a matching wheel."
             )
             raise RuntimeError(msg)
+        signatures = {
+            "tapirscan_status_message": ([c.c_int32], c.c_char_p),
+            "tapirscan_scanner_create": (
+                [ptr(_ScannerOptions), ptr(u64), c.c_void_p],
+                c.c_int32,
+            ),
+            "tapirscan_scanner_destroy": ([u64], c.c_int32),
+            "tapirscan_scan": (
+                [u64, ptr(_Image), ptr(_ScanOptions), ptr(u64), c.c_void_p],
+                c.c_int32,
+            ),
+            "tapirscan_result_json_length": ([u64, ptr(u64)], c.c_int32),
+            "tapirscan_result_copy_json": ([u64, c.c_void_p, u64], c.c_int32),
+            "tapirscan_result_destroy": ([u64], c.c_int32),
+        }
+        for name, (args, result) in signatures.items():
+            fn = getattr(self._lib, name)
+            fn.argtypes = args
+            fn.restype = result
         options = _ScannerOptions(
             _MODES.index(mode),
             format_mask(self._formats),
             _ADDON_POLICIES.index(ean_add_on_policy),
         )
+        error = c.create_string_buffer(512)
         self._check(
-            self._lib.tapirscan_scanner_create(c.byref(options), c.byref(self._handle))
+            self._lib.tapirscan_scanner_create(
+                c.byref(options), c.byref(self._handle), error
+            ),
+            error.value.decode(),
         )
 
-    def _check(self, code: int) -> None:
+    def _check(self, code: int, detail: str = "") -> None:
         if code:
-            message = self._lib.tapirscan_status_message(code).decode()
+            message = detail or self._lib.tapirscan_status_message(code).decode()
             raise ScannerError(code, message)
 
     @property
@@ -319,28 +311,34 @@ class Scanner:
             image, layout, value_range, color_order
         )
         pixels = _Image(c.addressof(data), len(data), width, height, channels, stride)
-        # Engine evidence is always requested: undecoded regions and the
-        # schema-2 JSON are derived from it, and `debug` only controls exposure.
-        options = _ScanOptions(mask, 1, int(extended_budget))
+        options = _ScanOptions(mask, int(debug), int(extended_budget))
         with self._lock:
             if not self._handle.value:
                 msg = "Scanner is closed"
                 raise RuntimeError(msg)
             result = c.c_uint64()
+            error = c.create_string_buffer(512)
             self._check(
                 self._lib.tapirscan_scan(
-                    self._handle, c.byref(pixels), c.byref(options), c.byref(result)
-                )
+                    self._handle,
+                    c.byref(pixels),
+                    c.byref(options),
+                    c.byref(result),
+                    error,
+                ),
+                error.value.decode(),
             )
             try:
-                info = _Info()
-                self._check(self._lib.tapirscan_result_info(result, c.byref(info)))
-                output = c.create_string_buffer(info.json_length + 1)
+                length = c.c_uint64()
+                self._check(
+                    self._lib.tapirscan_result_json_length(result, c.byref(length))
+                )
+                output = c.create_string_buffer(length.value + 1)
                 self._check(
                     self._lib.tapirscan_result_copy_json(result, output, len(output))
                 )
                 return _from_json(
-                    output.raw[: info.json_length], width, height, debug=debug
+                    output.raw[: length.value], width, height, debug=debug
                 )
             finally:
                 self._check(self._lib.tapirscan_result_destroy(result))

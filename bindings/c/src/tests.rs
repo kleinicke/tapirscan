@@ -56,13 +56,22 @@ fn gray(pixels: &[u8], width: u64, height: u64) -> ImageC {
 
 unsafe fn create(options: *const ScannerOptionsC) -> u64 {
     let mut scanner = 0;
-    assert_eq!(tapirscan_scanner_create(options, &raw mut scanner), 0);
+    assert_eq!(
+        tapirscan_scanner_create(options, &raw mut scanner, std::ptr::null_mut()),
+        0
+    );
     scanner
 }
 
 unsafe fn scan(scanner: u64, image: &ImageC, options: *const ScanOptionsC) -> (i32, u64) {
     let mut result = 99;
-    let status = tapirscan_scan(scanner, image, options, &raw mut result);
+    let status = tapirscan_scan(
+        scanner,
+        image,
+        options,
+        &raw mut result,
+        std::ptr::null_mut(),
+    );
     (status, result)
 }
 
@@ -73,7 +82,9 @@ unsafe fn info(result: u64) -> ResultInfoC {
 }
 
 unsafe fn json(result: u64) -> String {
-    let length = usize::try_from(info(result).json_length).unwrap();
+    let mut length = 0;
+    assert_eq!(tapirscan_result_json_length(result, &raw mut length), 0);
+    let length = usize::try_from(length).unwrap();
     let mut bytes = vec![0; length + 1];
     assert_eq!(
         tapirscan_result_copy_json(result, bytes.as_mut_ptr(), length as u64),
@@ -90,10 +101,10 @@ unsafe fn json(result: u64) -> String {
 #[test]
 fn layouts_match_the_header() {
     assert_eq!(std::mem::size_of::<ImageC>(), 48);
-    assert_eq!(std::mem::size_of::<ResultInfoC>(), 64);
+    assert_eq!(std::mem::size_of::<ResultInfoC>(), 56);
     assert_eq!(std::mem::size_of::<BarcodeC>(), 136);
     assert_eq!(std::mem::size_of::<RegionC>(), 72);
-    assert_eq!(tapirscan_abi_version(), 5);
+    assert_eq!(tapirscan_abi_version(), 6);
 }
 
 #[test]
@@ -186,11 +197,10 @@ fn options_select_mode_formats_and_diagnostics() {
 
 #[test]
 fn rejects_invalid_arguments_without_partial_output() {
-    let pixels = vec![255_u8; 64 * 64];
     unsafe {
         let mut scanner = 7;
         assert_eq!(
-            tapirscan_scanner_create(std::ptr::null(), std::ptr::null_mut()),
+            tapirscan_scanner_create(std::ptr::null(), std::ptr::null_mut(), std::ptr::null_mut()),
             ARG
         );
         for options in [
@@ -216,11 +226,22 @@ fn rejects_invalid_arguments_without_partial_output() {
             },
         ] {
             assert_eq!(
-                tapirscan_scanner_create(&raw const options, &raw mut scanner),
+                tapirscan_scanner_create(
+                    &raw const options,
+                    &raw mut scanner,
+                    std::ptr::null_mut()
+                ),
                 ARG
             );
             assert_eq!(scanner, 0);
         }
+    }
+}
+
+#[test]
+fn rejects_invalid_images_and_scan_options() {
+    let pixels = vec![255_u8; 64 * 64];
+    unsafe {
         let scanner = create(std::ptr::null());
         let valid = gray(&pixels, 64, 64);
         let invalid = [
@@ -269,7 +290,13 @@ fn rejects_invalid_arguments_without_partial_output() {
         }
         let mut result = 9;
         assert_eq!(
-            tapirscan_scan(scanner, std::ptr::null(), std::ptr::null(), &raw mut result),
+            tapirscan_scan(
+                scanner,
+                std::ptr::null(),
+                std::ptr::null(),
+                &raw mut result,
+                std::ptr::null_mut()
+            ),
             ARG
         );
         assert_eq!(result, 0);
@@ -305,3 +332,128 @@ const TAPIRSCAN_FORMAT_EAN13: u32 = Format::Ean13 as u32;
 const TAPIRSCAN_FORMAT_UPCA: u32 = Format::Upca as u32;
 const TAPIRSCAN_FORMAT_EAN8: u32 = Format::Ean8 as u32;
 const TAPIRSCAN_FORMAT_QR_CODE: u32 = Format::QrCode as u32;
+
+#[test]
+fn typed_scans_do_not_retain_diagnostics_or_serialize_json() {
+    let (pixels, width, height) = ean13("4006381333931");
+    unsafe {
+        let scanner = create(std::ptr::null());
+        let (status, result) = scan(scanner, &gray(&pixels, width, height), std::ptr::null());
+        assert_eq!(status, 0);
+        let output = output(result).unwrap();
+        assert!(output.result.debug.is_none());
+        assert!(output.json.get().is_none());
+        assert_eq!(info(result).barcode_count, 1);
+        assert!(output.json.get().is_none());
+        let compact: serde_json::Value = serde_json::from_str(&json(result)).unwrap();
+        assert_eq!(compact["scan"]["barcodes"][0]["text"], "4006381333931");
+        assert!(compact.get("localization").is_none());
+        assert!(output.json.get().is_some());
+        assert_eq!(tapirscan_result_destroy(result), 0);
+        assert_eq!(tapirscan_scanner_destroy(scanner), 0);
+    }
+}
+
+#[test]
+fn detailed_errors_are_per_call_and_cleared_on_success() {
+    unsafe {
+        let mut error = ErrorC { message: [0; 512] };
+        let mut scanner = 0;
+        let options = ScannerOptionsC {
+            mode: 1,
+            formats: 0,
+            ean_add_on_policy: 0,
+        };
+        assert_eq!(
+            tapirscan_scanner_create(&raw const options, &raw mut scanner, &raw mut error),
+            ARG
+        );
+        let original = error.message;
+        assert!(CStr::from_ptr(error.message.as_ptr().cast())
+            .to_str()
+            .unwrap()
+            .contains("format"));
+        std::thread::spawn(|| {
+            let mut separate = ErrorC { message: [0; 512] };
+            assert_eq!(
+                tapirscan_scanner_create(std::ptr::null(), std::ptr::null_mut(), &raw mut separate),
+                ARG
+            );
+        })
+        .join()
+        .unwrap();
+        assert_eq!(error.message, original);
+        assert_eq!(
+            tapirscan_scanner_create(std::ptr::null(), &raw mut scanner, &raw mut error),
+            0
+        );
+        assert!(error.message.iter().all(|b| *b == 0));
+        let pixels = [255; 9];
+        let image = gray(&pixels, 3, 3);
+        let mut result = 0;
+        assert_eq!(
+            tapirscan_scan(
+                scanner,
+                &raw const image,
+                std::ptr::null(),
+                &raw mut result,
+                &raw mut error
+            ),
+            0
+        );
+        assert_eq!(tapirscan_result_destroy(result), 0);
+        assert_eq!(tapirscan_scanner_destroy(scanner), 0);
+        assert_eq!(
+            detailed(&raw mut error, || Err(invalid(&"é".repeat(512)))),
+            ARG
+        );
+        let truncated = CStr::from_ptr(error.message.as_ptr().cast())
+            .to_str()
+            .unwrap();
+        assert_eq!(truncated.len(), 510);
+    }
+}
+
+#[test]
+fn compact_json_preserves_optional_metadata_and_undecoded_geometry() {
+    let pixels = [255; 9];
+    let mut result = Scanner::default().scan(Image::gray(&pixels, 3, 3)).unwrap();
+    result.barcodes.push(Barcode {
+        text: "a\0b".into(),
+        format: Format::QrCode,
+        polygon: [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]],
+        support: 3,
+        payload_bytes: Some(vec![0, 255]),
+        ean_add_on: Some("12".into()),
+        gs1: Some(false),
+        reader_initialization: Some(true),
+        structured_append: Some(tapirscan_api::StructuredAppend {
+            index: 1,
+            count: 2,
+            id: Some("id".into()),
+            parity: Some(7),
+        }),
+    });
+    result.undecoded.push(UndecodedRegion {
+        format: None,
+        polygon: result.barcodes[0].polygon,
+    });
+    result.localization_limited = true;
+    result.unfinished = true;
+    let output = Output {
+        result,
+        json: OnceLock::new(),
+    };
+    let json: serde_json::Value = serde_json::from_slice(output.json()).unwrap();
+    let b = &json["scan"]["barcodes"][0];
+    assert_eq!(b["text"], "a\0b");
+    assert_eq!(b["format"], "QRCode");
+    assert_eq!(b["bytes"], serde_json::json!([0, 255]));
+    assert_eq!(b["gs1"], false);
+    assert_eq!(b["readerInitialization"], true);
+    assert_eq!(b["eanAddOn"], "12");
+    assert_eq!(b["structuredAppend"]["parity"], 7);
+    assert_eq!(json["undecoded"][0]["format"], "Unknown");
+    assert_eq!(json["localizationLimited"], true);
+    assert_eq!(json["scan"]["unfinished"], true);
+}

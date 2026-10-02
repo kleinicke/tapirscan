@@ -1,6 +1,9 @@
 package org.tapirscan;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
+import static java.lang.foreign.ValueLayout.JAVA_DOUBLE;
+import static java.lang.foreign.MemoryLayout.PathElement.groupElement;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
@@ -8,21 +11,47 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.MemoryLayout;
 import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 
-/** Native ABI 5 entry points from tapirscan.h, loaded once per JVM. */
+/** Native ABI 6 entry points from tapirscan.h, loaded once per JVM. */
 final class Native {
-    static final int ABI_VERSION = 5;
-    // Struct sizes from tapirscan.h; offsets are documented where they are read.
-    static final long IMAGE = 48, SUMMARY = 64, BARCODE = 136, REGION = 72, OPTIONS = 12;
+    static final int ABI_VERSION = 6;
+    static final MemoryLayout IMAGE = MemoryLayout.structLayout(
+            ADDRESS.withName("data"), JAVA_LONG.withName("length"),
+            JAVA_LONG.withName("width"), JAVA_LONG.withName("height"),
+            JAVA_INT.withName("channels"), MemoryLayout.paddingLayout(4), JAVA_LONG.withName("stride"));
+    static final MemoryLayout SUMMARY = MemoryLayout.structLayout(
+            JAVA_LONG.withName("barcodeCount"), JAVA_LONG.withName("undecodedCount"),
+            JAVA_LONG.withName("bestIndex"), JAVA_LONG.withName("width"), JAVA_LONG.withName("height"),
+            JAVA_DOUBLE.withName("elapsedMs"), JAVA_INT.withName("mode"), JAVA_INT.withName("unfinished"));
+    static final MemoryLayout POLYGON = MemoryLayout.sequenceLayout(4,
+            MemoryLayout.structLayout(JAVA_DOUBLE.withName("x"), JAVA_DOUBLE.withName("y")));
+    static final MemoryLayout BARCODE = MemoryLayout.structLayout(
+            POLYGON.withName("polygon"), JAVA_LONG.withName("support"), JAVA_INT.withName("format"),
+            JAVA_INT.withName("gs1"), JAVA_INT.withName("readerInitialization"), JAVA_INT.withName("parity"),
+            JAVA_LONG.withName("appendIndex"), JAVA_LONG.withName("appendCount"),
+            JAVA_LONG.withName("textLength"), JAVA_LONG.withName("payloadLength"),
+            JAVA_LONG.withName("addonLength"), JAVA_LONG.withName("appendIdLength"));
+    static final MemoryLayout REGION = MemoryLayout.structLayout(
+            POLYGON.withName("polygon"), JAVA_INT.withName("format"), MemoryLayout.paddingLayout(4));
+    static final MemoryLayout SCANNER_OPTIONS = MemoryLayout.structLayout(
+            JAVA_INT.withName("mode"), JAVA_INT.withName("formats"), JAVA_INT.withName("addonPolicy"));
+    static final MemoryLayout SCAN_OPTIONS = MemoryLayout.structLayout(
+            JAVA_INT.withName("formats"), JAVA_INT.withName("debug"), JAVA_INT.withName("extendedBudget"));
+    static final MemoryLayout ERROR = MemoryLayout.sequenceLayout(512, JAVA_BYTE);
+
+    static long offset(MemoryLayout layout, String field) {
+        return layout.byteOffset(groupElement(field));
+    }
     static final long ABSENT = -1L;
 
     private static Native instance;
 
     final MethodHandle statusMessage, create, destroy, scan, info, barcode, undecoded, copy,
-            copyJson, destroyResult;
+            copyJson, jsonLength, destroyResult;
 
     static synchronized Native get() {
         if (instance == null) instance = new Native();
@@ -46,14 +75,15 @@ final class Native {
                     + abi + ". Rebuild the native library.");
         }
         statusMessage = bind(symbols, "tapirscan_status_message", FunctionDescriptor.of(ADDRESS, JAVA_INT));
-        create = bind(symbols, "tapirscan_scanner_create", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
+        create = bind(symbols, "tapirscan_scanner_create", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS));
         destroy = bind(symbols, "tapirscan_scanner_destroy", FunctionDescriptor.of(JAVA_INT, JAVA_LONG));
-        scan = bind(symbols, "tapirscan_scan", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS, ADDRESS, ADDRESS));
+        scan = bind(symbols, "tapirscan_scan", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS, ADDRESS, ADDRESS, ADDRESS));
         info = bind(symbols, "tapirscan_result_info", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS));
         barcode = bind(symbols, "tapirscan_result_barcode", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, ADDRESS));
         undecoded = bind(symbols, "tapirscan_result_undecoded", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, ADDRESS));
         copy = bind(symbols, "tapirscan_result_copy",
                 FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG));
+        jsonLength = bind(symbols, "tapirscan_result_json_length", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS));
         copyJson = bind(symbols, "tapirscan_result_copy_json", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS, JAVA_LONG));
         destroyResult = bind(symbols, "tapirscan_result_destroy", FunctionDescriptor.of(JAVA_INT, JAVA_LONG));
     }
@@ -79,8 +109,16 @@ final class Native {
     // Status messages are static NUL-terminated C strings.
     @SuppressWarnings("restricted")
     void check(Object status) {
+        check(status, MemorySegment.NULL);
+    }
+
+    @SuppressWarnings("restricted")
+    void check(Object status, MemorySegment error) {
         int code = (int) status;
         if (code != 0) {
+            if (!error.equals(MemorySegment.NULL) && error.get(JAVA_BYTE, 0) != 0) {
+                throw new ScannerException(code, error.getString(0));
+            }
             MemorySegment message = (MemorySegment) call(statusMessage, code);
             throw new ScannerException(code, message.reinterpret(Long.MAX_VALUE).getString(0));
         }

@@ -1,5 +1,7 @@
 package org.tapirscan;
 
+import java.util.Arrays;
+import java.util.Objects;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,6 +29,25 @@ public record Barcode(
     @Override
     public Optional<byte[]> payloadBytes() {
         return payloadBytes.map(byte[]::clone);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) return true;
+        if (!(other instanceof Barcode b)) return false;
+        return support == b.support && Objects.equals(text, b.text) && format == b.format
+                && polygon.equals(b.polygon)
+                && Arrays.equals(payloadBytes.orElse(null), b.payloadBytes.orElse(null))
+                && eanAddOn.equals(b.eanAddOn) && gs1.equals(b.gs1)
+                && readerInitialization.equals(b.readerInitialization)
+                && structuredAppend.equals(b.structuredAppend);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(text, format, polygon, support,
+                Arrays.hashCode(payloadBytes.orElse(null)), eanAddOn, gs1,
+                readerInitialization, structuredAppend);
     }
 
     /** Enclosing integer pixel bounds, from floor(minimum) to ceil(maximum). */

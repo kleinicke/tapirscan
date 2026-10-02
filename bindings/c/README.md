@@ -11,11 +11,11 @@ four effort modes.
 
 int scan_rgba(const uint8_t *pixels, uint64_t width, uint64_t height) {
     tapirscan_scanner scanner;
-    int status = tapirscan_scanner_create(NULL, &scanner); /* Medium, Retail */
+    int status = tapirscan_scanner_create(NULL, &scanner, NULL); /* Medium, Retail */
     if (status != TAPIRSCAN_OK) return status;
     tapirscan_image image = {pixels, width * height * 4, width, height, 4, 0};
     tapirscan_result result;
-    status = tapirscan_scan(scanner, &image, NULL, &result);
+    status = tapirscan_scan(scanner, &image, NULL, &result, NULL);
     if (status == TAPIRSCAN_OK) {
         tapirscan_summary summary;
         tapirscan_result_info(result, &summary);
@@ -39,7 +39,7 @@ int scan_rgba(const uint8_t *pixels, uint64_t width, uint64_t height) {
 }
 ```
 
-Every function returns a `tapirscan_status`; `tapirscan_status_message` describes
+Operations return a `tapirscan_status`; `tapirscan_status_message` describes
 it. No detection is a successful result with `barcode_count` 0. Results own their
 data and outlive their scanner. Equal payloads at distinct locations remain
 separate physical instances.
@@ -56,11 +56,11 @@ tapirscan_scanner_options options = {
     TAPIRSCAN_EAN_ADD_ON_IGNORE,
 };
 tapirscan_scanner scanner;
-tapirscan_scanner_create(&options, &scanner);
+tapirscan_scanner_create(&options, &scanner, NULL);
 
 tapirscan_scan_options scan = {0}; /* zero fields keep the defaults */
 scan.extended_budget = 1;
-tapirscan_scan(scanner, &image, &scan, &result);
+tapirscan_scan(scanner, &image, &scan, &result, NULL);
 ```
 
 | Scanner option      | Default                       | Choices                                      |
@@ -141,3 +141,12 @@ applications and the library together after an ABI change.
 Tapirscan is dual-licensed under **MIT OR Apache-2.0**, at your option.
 See the [full license texts](https://tapirscan.f-kleinicke.de/license/).
 Third-party components retain their own licenses and notices.
+
+Initialize mutable scanner configuration with `TAPIRSCAN_SCANNER_OPTIONS_INIT`.
+Unlike a zero-initialized per-scan struct, this selects Medium/Retail defaults.
+Pass a caller-owned `tapirscan_error` as the final create/scan argument for detailed
+errors. Its message is cleared on success and contains up to 511 UTF-8 bytes on
+failure; status codes remain authoritative. Use a separate error output per call.
+
+JSON is serialized lazily. Query `tapirscan_result_json_length(result, &length)`
+and allocate `length + 1` bytes before `tapirscan_result_copy_json`.

@@ -1,7 +1,7 @@
-//! Native ABI 5. Handles are registry IDs, never dereferenced pointers.
+//! Native ABI 6. Handles are registry IDs, never dereferenced pointers.
 //! Caller-owned pointer ranges must be valid, correctly aligned and nonoverlapping.
 #[cfg(not(target_pointer_width = "64"))]
-compile_error!("Native ABI 5 currently supports 64-bit targets only");
+compile_error!("Native ABI 6 currently supports 64-bit targets only");
 use std::{
     collections::HashMap,
     ffi::{c_char, CString},
@@ -13,7 +13,7 @@ use tapirscan_api::{
     ScannerOptions, UndecodedRegion,
 };
 
-const ABI_VERSION: u32 = 5;
+const ABI_VERSION: u32 = 6;
 const ARG: i32 = 1;
 const HANDLE: i32 = 2;
 const BUFFER: i32 = 3;
@@ -28,6 +28,73 @@ const FIELD_TEXT: u32 = 0;
 const FIELD_PAYLOAD_BYTES: u32 = 1;
 const FIELD_EAN_ADD_ON: u32 = 2;
 const FIELD_STRUCTURED_APPEND_ID: u32 = 3;
+
+/// Caller-owned, NUL-terminated UTF-8 diagnostic; long messages are truncated.
+#[repr(C)]
+pub struct ErrorC {
+    pub message: [u8; 512],
+}
+
+struct Failure {
+    code: i32,
+    message: String,
+}
+impl From<i32> for Failure {
+    fn from(code: i32) -> Self {
+        Self {
+            code,
+            message: status_text(code).to_string_lossy().into_owned(),
+        }
+    }
+}
+impl From<tapirscan_api::Error> for Failure {
+    fn from(error: tapirscan_api::Error) -> Self {
+        let code = if matches!(error, tapirscan_api::Error::Engine(_)) {
+            PANIC
+        } else {
+            ARG
+        };
+        Self {
+            code,
+            message: error.to_string(),
+        }
+    }
+}
+fn invalid(message: &str) -> Failure {
+    Failure {
+        code: ARG,
+        message: message.into(),
+    }
+}
+unsafe fn detailed(error: *mut ErrorC, f: impl FnOnce() -> Result<(), Failure>) -> i32 {
+    if let Some(error) = error.as_mut() {
+        error.message.fill(0);
+    }
+    let failure = match catch_unwind(AssertUnwindSafe(f)) {
+        Ok(Ok(())) => return 0,
+        Ok(Err(failure)) => failure,
+        Err(_) => Failure::from(PANIC),
+    };
+    if let Some(error) = error.as_mut() {
+        let mut length = failure.message.len().min(error.message.len() - 1);
+        while !failure.message.is_char_boundary(length) {
+            length -= 1;
+        }
+        error.message[..length].copy_from_slice(&failure.message.as_bytes()[..length]);
+    }
+    failure.code
+}
+fn status_text(code: i32) -> &'static std::ffi::CStr {
+    match code {
+        0 => c"Success",
+        ARG => c"Invalid scanner arguments or image parameters",
+        HANDLE => c"Invalid scanner or result handle; it may already have been destroyed",
+        BUFFER => c"Result buffer is too small",
+        PANIC => c"Internal scanner failure",
+        CAPACITY => c"Scanner resource capacity exceeded; destroy unused scanners and results",
+        _ => c"Unknown scanner status",
+    }
+}
 
 #[repr(C)]
 pub struct ScannerOptionsC {
@@ -62,7 +129,6 @@ pub struct ResultInfoC {
     pub barcode_count: u64,
     pub undecoded_count: u64,
     pub best_index: i64,
-    pub json_length: u64,
     pub width: u64,
     pub height: u64,
     pub elapsed_ms: f64,
@@ -94,7 +160,7 @@ pub struct RegionC {
 
 struct Output {
     result: ScanResult,
-    json: Vec<u8>,
+    json: OnceLock<Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -156,28 +222,52 @@ fn mode_id(mode: Mode) -> u32 {
     }
 }
 
-/// Serialize schema 2: the complete engine evidence for debug scans, otherwise
-/// the compact decoded result.
-fn result_json(result: &ScanResult, debug: bool) -> Result<Vec<u8>, i32> {
-    let mut raw = result.debug.as_ref().ok_or(PANIC)?.raw.clone();
-    raw["elapsedMs"] = serde_json::json!(result.elapsed.as_secs_f64() * 1000.0);
-    raw["multiple"] = serde_json::json!(true);
-    if !debug {
-        raw = serde_json::json!({
-            "schemaVersion": raw["schemaVersion"],
-            "mode": raw["mode"],
-            "multiple": raw["multiple"],
-            "elapsedMs": raw["elapsedMs"],
-            "localizationLimited": raw["localizationLimited"],
-            "scan": {
-                "unfinished": raw["scan"]["unfinished"],
-                "barcodes": raw["scan"]["barcodes"],
-            },
-        });
+/// JSON is built only for JSON consumers; typed access never serializes.
+impl Output {
+    fn json(&self) -> &[u8] {
+        self.json.get_or_init(|| {
+            let result = &self.result;
+            let mut raw = if let Some(debug) = &result.debug {
+                debug.raw.clone()
+            } else {
+                let barcodes: Vec<_> = result.barcodes.iter().map(|b| {
+                    let mut value = serde_json::json!({
+                        "text": b.text, "format": b.format.as_str(),
+                        "polygon": b.polygon, "support": b.support,
+                    });
+                    if let Some(bytes) = &b.payload_bytes { value["bytes"] = serde_json::json!(bytes); }
+                    if let Some(addon) = &b.ean_add_on { value["eanAddOn"] = serde_json::json!(addon); }
+                    if let Some(gs1) = b.gs1 { value["gs1"] = serde_json::json!(gs1); }
+                    if let Some(init) = b.reader_initialization { value["readerInitialization"] = serde_json::json!(init); }
+                    if let Some(append) = &b.structured_append {
+                        value["structuredAppend"] = serde_json::json!({
+                            "index": append.index, "count": append.count,
+                            "id": append.id, "parity": append.parity,
+                        });
+                    }
+                    value
+                }).collect();
+                serde_json::json!({
+                    "schemaVersion": 2, "mode": result.mode.as_str(),
+                    "localizationLimited": result.localization_limited,
+                    "scan": {"barcodes": barcodes, "unfinished": result.unfinished},
+                })
+            };
+            if result.debug.is_none() {
+                // Public undecoded geometry does not require engine diagnostics.
+                raw["undecoded"] = serde_json::json!(result.undecoded.iter().map(|r| {
+                    serde_json::json!({"format": r.format.map_or("Unknown", Format::as_str), "polygon": r.polygon})
+                }).collect::<Vec<_>>());
+            }
+            raw["elapsedMs"] = serde_json::json!(result.elapsed.as_secs_f64() * 1000.0);
+            raw["multiple"] = serde_json::json!(true);
+            // JSON Values contain no non-finite floats or fallible custom serializers.
+            serde_json::to_vec(&raw).expect("JSON value serialization")
+        })
     }
-    serde_json::to_vec(&raw).map_err(|_| PANIC)
 }
 
+/// Native ABI version expected by this library.
 #[no_mangle]
 pub extern "C" fn tapirscan_abi_version() -> u32 {
     ABI_VERSION
@@ -186,16 +276,7 @@ pub extern "C" fn tapirscan_abi_version() -> u32 {
 /// Static, NUL-terminated description of a status code.
 #[no_mangle]
 pub extern "C" fn tapirscan_status_message(status: i32) -> *const c_char {
-    let message: &'static [u8] = match status {
-        0 => b"Success\0",
-        ARG => b"Invalid scanner arguments or image parameters\0",
-        HANDLE => b"Invalid scanner or result handle; it may already have been destroyed\0",
-        BUFFER => b"Result buffer is too small\0",
-        PANIC => b"Internal scanner failure\0",
-        CAPACITY => b"Scanner resource capacity exceeded; destroy unused scanners and results\0",
-        _ => b"Unknown scanner status\0",
-    };
-    message.as_ptr().cast()
+    status_text(status).as_ptr()
 }
 
 /// Static, NUL-terminated name of one format bit, or null for anything else.
@@ -217,32 +298,34 @@ pub extern "C" fn tapirscan_format_name(format: u32) -> *const c_char {
 /// Null options select Medium, Retail formats and ignored EAN/UPC supplements.
 /// # Safety
 /// `options` must be null or readable; `out` must be null or writable for one `u64`.
+/// `error` must be null or writable for one `ErrorC`, disjoint from other arguments.
 #[no_mangle]
 pub unsafe extern "C" fn tapirscan_scanner_create(
     options: *const ScannerOptionsC,
     out: *mut u64,
+    error: *mut ErrorC,
 ) -> i32 {
-    boundary(|| {
+    detailed(error, || {
         if out.is_null() {
-            return Err(ARG);
+            return Err(invalid("output handle pointer is null"));
         }
         *out = 0;
         let options = match options.as_ref() {
             None => ScannerOptions::default(),
             Some(options) => ScannerOptions {
-                mode: mode_from(options.mode)?,
-                formats: Formats::try_from(options.formats).map_err(|_| ARG)?,
+                mode: mode_from(options.mode).map_err(|_| invalid("unknown scanner mode"))?,
+                formats: Formats::try_from(options.formats).map_err(Failure::from)?,
                 ean_add_on_policy: match options.ean_add_on_policy {
                     0 => EanAddOnPolicy::Ignore,
                     1 => EanAddOnPolicy::Read,
                     2 => EanAddOnPolicy::Require,
-                    _ => return Err(ARG),
+                    _ => return Err(invalid("unknown EAN add-on policy")),
                 },
             },
         };
         let mut r = registry()?;
         if r.scanners.len() >= MAX_HANDLES {
-            return Err(CAPACITY);
+            return Err(CAPACITY.into());
         }
         let id = r.id()?;
         r.scanners
@@ -268,35 +351,45 @@ pub extern "C" fn tapirscan_scanner_destroy(scanner: u64) -> i32 {
 /// # Safety
 /// `image` must be readable and its `data` readable for `length` bytes.
 /// `options` must be null or readable; `out` must be null or writable for one `u64`.
+/// `error` must be null or writable for one `ErrorC`, disjoint from other arguments.
 #[no_mangle]
 pub unsafe extern "C" fn tapirscan_scan(
     scanner: u64,
     image: *const ImageC,
     options: *const ScanOptionsC,
     out: *mut u64,
+    error: *mut ErrorC,
 ) -> i32 {
-    boundary(|| {
+    detailed(error, || {
         if out.is_null() {
-            return Err(ARG);
+            return Err(invalid("output handle pointer is null"));
         }
         *out = 0;
-        let image = image.as_ref().ok_or(ARG)?;
+        let image = image
+            .as_ref()
+            .ok_or_else(|| invalid("image pointer is null"))?;
         let (formats, debug, extended_budget) = match options.as_ref() {
             None => (0, false, false),
-            Some(o) if o.debug > 1 || o.extended_budget > 1 => return Err(ARG),
+            Some(o) if o.debug > 1 || o.extended_budget > 1 => {
+                return Err(invalid("debug and extended_budget must be 0 or 1"))
+            }
             Some(o) => (o.formats, o.debug == 1, o.extended_budget == 1),
         };
         let formats = match formats {
             0 => None,
-            bits => Some(Formats::try_from(bits).map_err(|_| ARG)?),
+            bits => Some(Formats::try_from(bits).map_err(Failure::from)?),
         };
-        if image.data.is_null()
-            || image.length > MAX_BYTES
-            || image.width < 3
-            || image.height < 3
-            || ![1, 3, 4].contains(&image.channels)
-        {
-            return Err(ARG);
+        if image.data.is_null() {
+            return Err(invalid("pixel pointer is null"));
+        }
+        if image.length > MAX_BYTES {
+            return Err(invalid("pixel buffer exceeds 128 MiB"));
+        }
+        if image.width < 3 || image.height < 3 {
+            return Err(invalid("dimensions must be at least 3x3"));
+        }
+        if ![1, 3, 4].contains(&image.channels) {
+            return Err(invalid("channels must be 1, 3 or 4"));
         }
         let row = image
             .width
@@ -307,8 +400,13 @@ pub unsafe extern "C" fn tapirscan_scan(
             .checked_mul(stride)
             .and_then(|n| n.checked_add(row))
             .ok_or(ARG)?;
-        if stride < row || required > image.length || required > MAX_BYTES {
-            return Err(ARG);
+        if stride < row {
+            return Err(invalid("stride is smaller than a pixel row"));
+        }
+        if required > image.length || required > MAX_BYTES {
+            return Err(invalid(
+                "buffer is too short or exceeds the 128 MiB layout limit",
+            ));
         }
         let scanner = registry()?.scanners.get(&scanner).cloned().ok_or(HANDLE)?;
         let data = std::slice::from_raw_parts(image.data, index(required)?);
@@ -319,7 +417,7 @@ pub unsafe extern "C" fn tapirscan_scan(
             _ => Image::rgba(data, width, height),
         }
         .with_stride(index(stride)?);
-        // Diagnostics are always retained: the compact JSON is derived from them.
+        // Engine diagnostics are retained only when requested.
         let result = scanner
             .lock()
             .map_err(|_| PANIC)?
@@ -327,25 +425,23 @@ pub unsafe extern "C" fn tapirscan_scan(
                 pixels,
                 ScanOptions {
                     formats,
-                    debug: true,
+                    debug,
                     extended_budget,
                 },
             )
-            .map_err(|error| match error {
-                tapirscan_api::Error::Engine(_) => PANIC,
-                _ => ARG,
-            })?;
-        let json = result_json(&result, debug)?;
-        let mut result = result;
-        if !debug {
-            result.debug = None;
-        }
+            .map_err(Failure::from)?;
         let mut r = registry()?;
         if r.results.len() >= MAX_HANDLES {
-            return Err(CAPACITY);
+            return Err(CAPACITY.into());
         }
         let id = r.id()?;
-        r.results.insert(id, Arc::new(Output { result, json }));
+        r.results.insert(
+            id,
+            Arc::new(Output {
+                result,
+                json: OnceLock::new(),
+            }),
+        );
         *out = id;
         Ok(())
     })
@@ -369,7 +465,6 @@ pub unsafe extern "C" fn tapirscan_result_info(result: u64, out: *mut ResultInfo
             barcode_count: r.barcodes.len() as u64,
             undecoded_count: r.undecoded.len() as u64,
             best_index: best.map_or(-1, |i| i64::try_from(i).unwrap_or(-1)),
-            json_length: output.json.len() as u64,
             width: r.image_size[0] as u64,
             height: r.image_size[1] as u64,
             elapsed_ms: r.elapsed.as_secs_f64() * 1000.0,
@@ -484,6 +579,18 @@ pub unsafe extern "C" fn tapirscan_result_copy(
     })
 }
 
+/// Return the JSON byte length (excluding NUL), serializing once on demand.
+/// # Safety
+/// `out` must be null or writable and aligned for one u64.
+#[no_mangle]
+pub unsafe extern "C" fn tapirscan_result_json_length(result: u64, out: *mut u64) -> i32 {
+    boundary(|| {
+        let out = out.as_mut().ok_or(ARG)?;
+        *out = output(result)?.json().len() as u64;
+        Ok(())
+    })
+}
+
 /// UTF-8 schema-2 JSON plus a NUL terminator; capacity must exceed `json_length`.
 /// # Safety
 /// `out` must be null or writable for `capacity` bytes.
@@ -493,7 +600,7 @@ pub unsafe extern "C" fn tapirscan_result_copy_json(
     out: *mut u8,
     capacity: u64,
 ) -> i32 {
-    boundary(|| copy_bytes(&output(result)?.json, out, capacity))
+    boundary(|| copy_bytes(output(result)?.json(), out, capacity))
 }
 
 #[no_mangle]

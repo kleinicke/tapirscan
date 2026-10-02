@@ -3,13 +3,13 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-native-api-1.3-20261002",
+      "tag": "low-native-api-polish-20261002",
       "fitLimit": 0,
       "maxLocalizedProposals": 32
     },
     {
       "mode": "medium",
-      "tag": "medium-native-api-1.3-20261002",
+      "tag": "medium-native-api-polish-20261002",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
       "directions": 1,
@@ -17,7 +17,7 @@
     },
     {
       "mode": "high",
-      "tag": "high-native-api-1.3-20261002",
+      "tag": "high-native-api-polish-20261002",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
       "directions": 2,
@@ -25,32 +25,32 @@
     },
     {
       "mode": "very-high",
-      "tag": "very-high-native-api-1.3-20261002",
+      "tag": "very-high-native-api-polish-20261002",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
       "directions": 2,
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/native-api-1.3-20261002.json",
-  "apiWasm": "provenance/wasm-native-api-1.3-20261002.json",
+  "runtimeRevision": "provenance/native-api-polish-20261002.json",
+  "apiWasm": "provenance/wasm-native-api-polish-20261002.json",
   "sourceRoot": "core/src",
   "experimentalTurbo": [
     {
       "preset": 2,
-      "tag": "experimental-turbo2-native-api-1.3-20261002"
+      "tag": "experimental-turbo2-native-api-polish-20261002"
     },
     {
       "preset": 4,
-      "tag": "experimental-turbo4-native-api-1.3-20261002"
+      "tag": "experimental-turbo4-native-api-polish-20261002"
     },
     {
       "preset": 8,
-      "tag": "experimental-turbo8-native-api-1.3-20261002"
+      "tag": "experimental-turbo8-native-api-polish-20261002"
     },
     {
       "preset": 16,
-      "tag": "experimental-turbo16-native-api-1.3-20261002"
+      "tag": "experimental-turbo16-native-api-polish-20261002"
     }
   ]
 }

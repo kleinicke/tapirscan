@@ -4,7 +4,7 @@ The release is validated with reproducible mode builds, native/WASM parity,
 public API tests and clean package installations. These checks establish behavior
 on the tested inputs; they do not establish exhaustive decoding or general accuracy.
 
-The native bindings share ABI 5. Python tests cover pixel inputs, float ranges,
+The native bindings share ABI 6. Python tests cover pixel inputs, float ranges,
 layouts, optional BGR conversion, tensor ownership, serialization, diagnostics,
 error handling and resource lifetime. JavaScript tests cover typed results,
 format subsets, optional supplement policies, WASM loading and resource lifetime.

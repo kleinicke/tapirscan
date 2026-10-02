@@ -243,6 +243,8 @@ pub struct ScanResult {
     pub elapsed: Duration,
     /// Reported work limits. False does not guarantee exhaustive scanning.
     pub unfinished: bool,
+    /// Localization reported a work limit, independently of reader deferrals.
+    pub localization_limited: bool,
     /// Present only when [`ScanOptions::debug`] was true for this call.
     pub debug: Option<Diagnostics>,
 }
@@ -283,6 +285,7 @@ impl ScanResult {
             mode,
             elapsed,
             unfinished,
+            localization_limited: engine.localization_limited,
             debug,
         }
     }

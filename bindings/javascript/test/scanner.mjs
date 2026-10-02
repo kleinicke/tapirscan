@@ -47,13 +47,26 @@ for (const mode of ["low", "medium", "high", "very-high"]) {
       const raw = join(temp, "image.gray");
       await writeFile(raw, image.data);
       const binary = fileURLToPath(
-        new URL(`../../../build/${mode}/cargo-target/release/examples/scan_raw`, import.meta.url),
+        new URL("../../../build/native-target/release/examples/scan_raw", import.meta.url),
       );
       const native = JSON.parse(
-        execFileSync(binary, [String(image.width), String(image.height), raw], {
-          encoding: "utf8",
-        }),
-      );
+        execFileSync(
+          binary,
+          [
+            mode,
+            String(image.width),
+            String(image.height),
+            "1",
+            String(image.width),
+            raw,
+            "1",
+            "1",
+          ],
+          {
+            encoding: "utf8",
+          },
+        ),
+      ).debug.scan;
       assert.deepEqual(native.barcodes, result.debug.scan.barcodes);
       assert.equal(native.unfinished, result.debug.scan.unfinished);
       assert.equal(native.candidates.length, result.debug.scan.candidates.length);

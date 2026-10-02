@@ -70,7 +70,7 @@ options never change scanner configuration.
 ## Results
 
 `ScanResult` exposes `barcodes`, `undecoded`, `image_size`, `mode`, `elapsed`
-(`Duration`), `unfinished` and optional `debug`. Iterate by reference or consume
+(`Duration`), `unfinished`, `localization_limited` and optional `debug`. Iterate by reference or consume
 it to move barcodes. `values()` borrows text. `best()` borrows the
 largest-support read, keeping first-read ties. Support is reader-specific and
 not comparable confidence across formats or efforts.

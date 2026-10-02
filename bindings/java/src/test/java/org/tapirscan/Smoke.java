@@ -64,7 +64,7 @@ public final class Smoke {
         StringBuilder out = new StringBuilder();
         out.append("{\"mode\":").append(quoted(result.mode().toString()))
                 .append(",\"unfinished\":").append(result.unfinished())
-                .append(",\"best\":").append(result.bestIndex().isPresent() ? result.bestIndex().getAsInt() : "null")
+                .append(",\"best\":").append(result.best().isPresent() ? result.barcodes().indexOf(result.best().orElseThrow()) : "null")
                 .append(",\"barcodes\":[");
         for (int i = 0; i < result.barcodes().size(); i++) {
             Barcode b = result.barcodes().get(i);

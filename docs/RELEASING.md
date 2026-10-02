@@ -2,7 +2,7 @@
 
 This checkout prepares **1.3.0**, which makes C, C++ and Java recommended bindings
 with the same scanner, options and result model as Rust, Python and JavaScript.
-One native library (ABI 5) now contains all four effort modes. The release also
+One native library (ABI 6) now contains all four effort modes. The release also
 includes the bounded Turbo quality improvements and the restructured engine;
 scan results of the stable modes are unchanged from 1.2.2.
 See [API migration](API_MIGRATION.md) for the C, C++ and Java changes.

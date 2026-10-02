@@ -7,6 +7,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from build_native import library_name
+
 from build import ROOT
 
 VERSION = json.loads((ROOT / "bindings/javascript/package.json").read_text())["version"]
@@ -59,6 +61,18 @@ if __name__ == "__main__":
             "-d",
             str(tests),
             *map(str, sources),
+        ],
+        check=True,
+    )
+
+    subprocess.run(
+        [
+            tool("java"),
+            "--enable-native-access=ALL-UNNAMED",
+            f"-Dtapirscan.library={ROOT / 'build/native' / library_name()}",
+            "-cp",
+            os.pathsep.join([str(classes), str(tests)]),
+            "org.tapirscan.ApiTest",
         ],
         check=True,
     )

@@ -53,6 +53,7 @@ if (selected("native")) {
   for (const [compiler, standard, source] of [
     [process.env.CC ?? "clang", "c11", "bindings/c/tests/smoke.c"],
     [process.env.CXX ?? "clang++", "c++17", "bindings/cpp/examples/scan_raw.cpp"],
+    [process.env.CXX ?? "clang++", "c++17", "bindings/cpp/tests/api.cpp"],
   ])
     run(compiler, [
       `-std=${standard}`,

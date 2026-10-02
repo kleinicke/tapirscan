@@ -2,13 +2,18 @@
 
 ## 1.3.0 — unreleased
 
+- Native ABI 6 adds caller-owned error details and lazy JSON access; rebuild native consumers together.
+- C gains an explicit scanner-options initializer. C++ rejects temporary image buffers and invalid format masks, and derives `best()` from current barcodes.
+- Java uses named native layouts and payload-content equality; Java and C++ remove redundant best-index state.
+- Ordinary native/Python scans no longer retain engine diagnostics. See `docs/API_MIGRATION.md` for signature changes.
+
 - C, C++ and Java are now recommended bindings with the same scanner, options
-  and result model as Rust, Python and JavaScript. Native ABI 5 uses one
+  and result model as Rust, Python and JavaScript. Native ABI 6 uses one
   `tapirscan_` prefix, scanner and scan option structs, typed barcodes with all
   payload metadata, typed undecoded regions and a best index. One native library
   now contains all four effort modes. This is a breaking change for C, C++ and
   Java; see [API migration](docs/API_MIGRATION.md). Python, JavaScript and Rust
-  are unaffected.
+  keep their scan signatures.
 
 - Format constants for C, C++ and Java are generated from `config/formats.json`.
   Rust adds `Format::ALL`.

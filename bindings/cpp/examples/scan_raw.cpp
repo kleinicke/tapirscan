@@ -66,7 +66,7 @@ int main(int argc, char** argv) {
 
         std::cout << "{\"mode\":" << json_string(tapirscan::to_string(result.mode))
                   << ",\"unfinished\":" << (result.unfinished ? "true" : "false") << ",\"best\":";
-        if (result.best()) std::cout << *result.best_index; else std::cout << "null";
+        if (result.best()) std::cout << (result.best() - result.barcodes.data()); else std::cout << "null";
         std::cout << ",\"barcodes\":[";
         for (std::size_t i = 0; i < result.barcodes.size(); ++i) {
             const auto& b = result.barcodes[i];

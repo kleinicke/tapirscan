@@ -1,6 +1,6 @@
 # Native bindings and result contract
 
-C, C++, Python and Java share the public Rust `Scanner` through native ABI 5.
+C, C++, Python and Java share the public Rust `Scanner` through native ABI 6.
 One shared library, built with `python3 scripts/build_native.py`, contains all
 four effort modes; every binding selects the mode when it creates a scanner.
 The header is [`tapirscan.h`](../bindings/c/include/tapirscan.h). Format bits and
@@ -16,6 +16,8 @@ NUL bytes. Retail (mask 15) is the default selection; see [format coverage](FORM
 
 JSON schema 2 remains available through `tapirscan_result_copy_json`. It preserves
 mode, multiple, elapsedMs, localizationLimited, scan.barcodes and scan.unfinished.
+Compact output also includes typed `undecoded` geometry. JSON is serialized only
+when its length or bytes are requested. Ordinary scans retain no engine diagnostics.
 Debug scans add EAN localization proposals, omitted/work-limited metadata, search
 windows, candidates and the additional readers' `scan.regions`. Search windows
 represent attempted coverage, not an exhaustive-search guarantee. Support is
