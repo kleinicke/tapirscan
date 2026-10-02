@@ -32,11 +32,11 @@ for (const preset of [2, 4, 8, 16]) {
         }
       }
       assert.deepEqual(scanner.scan(ean8(), { formats: "EAN8" }).values, ["96385074"]);
-      // Retained native/WASM limitation: Turbo16 misses this crowded EAN8-only scene.
-      assert.deepEqual(
-        scanner.scan(ean8(2, 20), { formats: "EAN8" }).values,
-        preset === 16 ? [] : ["96385074", "96385074"],
-      );
+      // Equal values on two physical labels must remain two results at every preset.
+      assert.deepEqual(scanner.scan(ean8(2, 20), { formats: "EAN8" }).values, [
+        "96385074",
+        "96385074",
+      ]);
       assert.deepEqual(scanner.scan(ean8(1, 1, "96385075"), { formats: "EAN8" }).values, []);
       assert.deepEqual(scanner.scan(image, { formats: "QRCode" }).values, []);
       assert.deepEqual(scanner.scan(image).values, [text]);
