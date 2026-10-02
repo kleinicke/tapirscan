@@ -1,7 +1,7 @@
 //! Versioned serialization for the independent owned WASM boundary.
 #![forbid(unsafe_code)]
 use crate::{
-    experiment::{Candidate, Work},
+    candidate_scanner::{Candidate, Work},
     frame, scan,
 };
 fn text(d: [u8; 13]) -> String {

@@ -1,9 +1,7 @@
 //! Physical-symbol overlap and conservative pending-coverage geometry.
 use super::Quad;
 
-pub(super) fn cross(a: [f64; 2], b: [f64; 2], p: [f64; 2]) -> f64 {
-    (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
-}
+pub(super) use crate::geometry::cross;
 
 pub(super) fn signed_area(p: &[[f64; 2]]) -> f64 {
     p.iter()

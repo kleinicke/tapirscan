@@ -1,7 +1,7 @@
 //! Conditional source conditioning and original-preserving physical reconciliation.
 //! No expected text, labels, reference decoders or replacement of the normal arm.
 use crate::{
-    experiment::{AssociationBudget, Work},
+    candidate_scanner::{AssociationBudget, Work},
     frame::{Barcode, Frame},
     multi_scan::Policy,
     sampling::ImageView,
@@ -273,7 +273,7 @@ pub fn merge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{experiment::Detection, frame::ReconciliationWork, scan::Quad};
+    use crate::{candidate_scanner::Detection, frame::ReconciliationWork, scan::Quad};
     fn q(x: f64, y: f64, w: f64, h: f64) -> Quad {
         [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
     }
@@ -402,7 +402,7 @@ mod tests {
         let with_candidate = |q| {
             let mut f = frame(&[q], 1);
             f.barcodes[0].candidate_indices = vec![0];
-            f.candidates.push(crate::experiment::Candidate {
+            f.candidates.push(crate::candidate_scanner::Candidate {
                 index: 0,
                 coverage: q,
                 observations: vec![],

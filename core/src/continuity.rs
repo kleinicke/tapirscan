@@ -1,6 +1,7 @@
 //! Conservative image evidence between two EAN read bands. This does not decode
 //! text or prove global identity. Call only for equal independently decoded values.
 #![forbid(unsafe_code)]
+use crate::geometry::distance;
 use crate::sampling::{Error, ImageView};
 use crate::scan::Quad;
 type Point = [f64; 2];
@@ -8,9 +9,6 @@ const N: usize = 285;
 const MAX_STEPS: usize = 512;
 fn lerp(a: Point, b: Point, t: f64) -> Point {
     [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
-}
-fn distance(a: Point, b: Point) -> f64 {
-    (a[0] - b[0]).hypot(a[1] - b[1])
 }
 fn line(q: Quad, axis: usize) -> [Point; 2] {
     if axis == 0 {

@@ -18,7 +18,7 @@ impl Collector {
         done: &[bool],
         work: &mut Work,
         budget: &mut AssociationBudget,
-    ) -> Vec<crate::experiment::Detection> {
+    ) -> Vec<crate::candidate_scanner::Detection> {
         let mut order: Vec<usize> = (0..done.len())
             .filter(|&i| !done[i] && self.group_calls[i] > 0)
             .collect();
@@ -61,7 +61,7 @@ impl Collector {
                 break;
             }
         }
-        let mut sampler = crate::experiment::CandidateScanner::default();
+        let mut sampler = crate::candidate_scanner::CandidateScanner::default();
         let mut found = Vec::new();
         let mut raw = Vec::new();
         for (q, source) in boxes {
@@ -178,7 +178,7 @@ impl Collector {
             let Ok(m) = crate::scan::transform(q) else {
                 continue;
             };
-            found.extend(crate::experiment::assemble_many_budget_options(
+            found.extend(crate::candidate_scanner::assemble_many_budget_options(
                 im,
                 m.0,
                 &self.groups[group].1,

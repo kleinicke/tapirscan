@@ -67,8 +67,8 @@ options; it does not load an encoded image file.
 | --------------------------------------- | ---------------------------------------------------------------------- |
 | `barcode_abi_version`, `barcode_mode`   | Inspect ABI and selected mode.                                         |
 | `tapirscan_create`, `tapirscan_destroy` | Allocate/free a scanner handle.                                        |
-| `barcode_scan`                          | EAN13, multiple results, no diagnostics.                               |
-| `barcode_scan_with_options`             | EAN13 with output flags.                                               |
+| `barcode_scan`                          | Retail formats, multiple results, no diagnostics.                      |
+| `barcode_scan_with_options`             | Retail formats with output flags.                                      |
 | `barcode_scan_formats`                  | Output flags plus an explicit nonzero format mask.                     |
 | `barcode_result_info`                   | Read count, JSON length and completion flags.                          |
 | `barcode_result_read`                   | Read a zero-based barcode's polygon, support, UTF-8 length and format. |

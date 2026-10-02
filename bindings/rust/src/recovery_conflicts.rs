@@ -1,5 +1,6 @@
 //! Extra admission proof for Very High's larger unchecked recovery allowance.
 use crate::{
+    geometry::lerp,
     read::{Read, Region},
     Image, ImageView, Quad,
 };
@@ -65,10 +66,6 @@ fn filter(
         }
     }
     (accepted, pending)
-}
-
-fn lerp(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
-    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
 }
 
 fn confirms(

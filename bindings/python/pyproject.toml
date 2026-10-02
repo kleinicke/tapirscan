@@ -26,7 +26,7 @@ dev = ["ruff==0.16.7", "mypy==2.3.1", "ty==0.0.80", "typing_extensions>=4.2"]
 [tool.setuptools.packages.find]
 where = ["src"]
 [tool.setuptools.package-data]
-tapirscan = ["py.typed", "THIRD_PARTY_NOTICES.md", "_native/*.so", "_native/*.dylib", "_native/*.dll"]
+tapirscan = ["py.typed", "_native/*.so", "_native/*.dylib", "_native/*.dll"]
 
 [tool.mypy]
 python_version = "3.10"

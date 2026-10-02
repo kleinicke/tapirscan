@@ -20,3 +20,4 @@ mode-very-high = []
 [profile.release]
 # Unwinding is caught at the C boundary; the pinned WASM builds remain unchanged.
 panic = "unwind"
+# Fat LTO with one codegen unit measured 2-4% slower here than the defaults.

@@ -28,7 +28,7 @@ print(result.values)
 ```
 
 This example assumes an 8-bit grayscale or RGB image. Defaults are Medium effort
-and EAN-13. No intermediate file or explicit scanner object is needed.
+and the retail formats (EAN13, UPCA, EAN8, UPCE). No intermediate file or explicit scanner object is needed.
 
 **JPEG, with optional settings:**
 

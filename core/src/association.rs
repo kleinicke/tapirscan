@@ -1,10 +1,8 @@
 //! Spatial evidence association. Convex polygon overlap and explicit scanner lines.
 #![forbid(unsafe_code)]
+use crate::geometry::cross;
 use crate::sampling::Error;
 type Point = [f64; 2];
-fn cross(a: Point, b: Point, c: Point) -> f64 {
-    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-}
 fn area(p: &[Point]) -> f64 {
     (0..p.len())
         .map(|i| p[i][0] * p[(i + 1) % p.len()][1] - p[i][1] * p[(i + 1) % p.len()][0])

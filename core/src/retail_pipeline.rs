@@ -13,7 +13,7 @@
     clippy::type_complexity
 )]
 use crate::{
-    experiment::{AssociationBudget, Observation, Work},
+    candidate_scanner::{AssociationBudget, Observation, Work},
     multi_profile::{self, retail_short::ShortReads, Reads},
     sampling::ImageView,
     scan::Quad,
@@ -77,7 +77,7 @@ pub struct Collector {
     capped: bool,
 }
 pub struct RetailResult {
-    pub detections: Vec<crate::experiment::Detection>,
+    pub detections: Vec<crate::candidate_scanner::Detection>,
     pub unfinished: bool,
     pub diagnostics: Option<String>,
 }
@@ -380,7 +380,7 @@ impl Collector {
                 done.push(false);
                 continue;
             };
-            let found = crate::experiment::assemble_many_budget_options(
+            let found = crate::candidate_scanner::assemble_many_budget_options(
                 im,
                 m.0,
                 obs,
@@ -391,9 +391,12 @@ impl Collector {
             );
             done.push(!found.is_empty());
             for d in found {
-                if detections.iter().any(|a: &crate::experiment::Detection| {
-                    a.digits == d.digits && crate::frame::same_space(a.polygon, d.polygon)
-                }) {
+                if detections
+                    .iter()
+                    .any(|a: &crate::candidate_scanner::Detection| {
+                        a.digits == d.digits && crate::frame::same_space(a.polygon, d.polygon)
+                    })
+                {
                     continue;
                 }
                 detections.push(d);
@@ -443,7 +446,11 @@ impl Collector {
         }
     }
 
-    fn format_result(&self, detections: &[crate::experiment::Detection], work: &Work) -> String {
+    fn format_result(
+        &self,
+        detections: &[crate::candidate_scanner::Detection],
+        work: &Work,
+    ) -> String {
         let mut out = String::from("{\"barcodes\":[");
         for (i, d) in detections.iter().enumerate() {
             if i > 0 {

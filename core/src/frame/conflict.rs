@@ -141,7 +141,7 @@ pub(super) fn source_pair_winner(
         for fraction in [0.2, 0.5, 0.8] {
             let mut row = [0f64; 384];
             for (i, value) in row.iter_mut().enumerate() {
-                let Ok(p) = crate::experiment::point(
+                let Ok(p) = crate::candidate_scanner::point(
                     m.0,
                     0,
                     (crate::numeric::usize_f64(i) + 0.5) / 384.,
@@ -180,10 +180,10 @@ pub(super) fn source_conflict_winner(
     }
     let quad = broad.polygon;
     let thin_quad = thin.polygon;
-    let width = crate::experiment::distance(quad[0], quad[1]);
-    let tw = crate::experiment::distance(thin_quad[0], thin_quad[1]);
-    let height = crate::experiment::distance(quad[0], quad[3]);
-    let th = crate::experiment::distance(thin_quad[0], thin_quad[3]);
+    let width = crate::candidate_scanner::distance(quad[0], quad[1]);
+    let tw = crate::candidate_scanner::distance(thin_quad[0], thin_quad[1]);
+    let height = crate::candidate_scanner::distance(quad[0], quad[3]);
+    let th = crate::candidate_scanner::distance(thin_quad[0], thin_quad[3]);
     if width < 95.
         || width.min(tw) / width.max(tw) < 0.85
         || height < 4. * th.max(1.)
@@ -227,7 +227,7 @@ pub(super) fn source_conflict_winner(
     for fraction in [fraction - dy, fraction, fraction + dy] {
         let mut profile = [0f32; 512];
         for (i, value) in profile.iter_mut().enumerate() {
-            let Ok(a) = crate::experiment::point(
+            let Ok(a) = crate::candidate_scanner::point(
                 matrix.0,
                 0,
                 -0.15 + 1.3 * (crate::numeric::usize_f64(i) + 0.5) / 512.,

@@ -1,7 +1,7 @@
 //! Selective, bounded multirow recovery of unresolved small EAN-13 candidates.
 mod photo;
 use crate::{
-    experiment::{self, AssociationBudget, Candidate, Observation},
+    candidate_scanner::{self, AssociationBudget, Candidate, Observation},
     sampling::ImageView,
     scan,
 };
@@ -118,7 +118,7 @@ pub(crate) fn recover(
                 })
                 .collect();
             if let Ok(m) = scan::transform(q) {
-                let mut detections = experiment::assemble_many_budget_options(
+                let mut detections = candidate_scanner::assemble_many_budget_options(
                     image,
                     m.0,
                     &observations,
@@ -144,8 +144,8 @@ pub(crate) fn recover(
 mod tests {
     use super::*;
     use crate::{
+        candidate_scanner::Work,
         ean,
-        experiment::Work,
         numeric::{f64_u8, f64_usize},
     };
 

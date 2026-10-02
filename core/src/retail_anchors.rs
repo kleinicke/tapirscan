@@ -14,7 +14,7 @@ impl Collector {
         done: &[bool],
         work: &mut Work,
         budget: &mut AssociationBudget,
-    ) -> Vec<crate::experiment::Detection> {
+    ) -> Vec<crate::candidate_scanner::Detection> {
         let mut seeds = Vec::new();
         for (i, (q, rows)) in self.groups.iter().enumerate().take(done.len()) {
             if done[i] {
@@ -36,7 +36,7 @@ impl Collector {
                 seeds.push((i, *q, row.axis, row.fraction));
             }
         }
-        let mut sampler = crate::experiment::CandidateScanner::default();
+        let mut sampler = crate::candidate_scanner::CandidateScanner::default();
         let mut raw = Vec::new();
         let mut found = Vec::new();
         let mut spent = 0usize;
@@ -92,7 +92,7 @@ impl Collector {
             let Ok(m) = crate::scan::transform(q) else {
                 continue;
             };
-            found.extend(crate::experiment::assemble_many_budget_options(
+            found.extend(crate::candidate_scanner::assemble_many_budget_options(
                 im,
                 m.0,
                 &self.groups[i].1,

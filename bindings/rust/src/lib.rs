@@ -22,11 +22,7 @@ mod result;
 mod short_crop;
 mod timer;
 pub use barcode_research_core::region_scan::{Error, ImageView, RegionScanner, ScanResult};
-pub use barcode_research_core::{
-    frame::{Barcode, Frame},
-    oriented::Proposal,
-    scan::Quad,
-};
+pub use barcode_research_core::{frame::Barcode, oriented::Proposal, scan::Quad};
 
 #[derive(Clone, Copy)]
 pub struct Image<'a> {
@@ -78,6 +74,10 @@ impl Default for ScanOptions {
 }
 pub struct Result {
     proposals: Vec<Proposal>,
+    #[cfg_attr(
+        feature = "low",
+        expect(dead_code, reason = "Low has no short-code crop recovery to read them")
+    )]
     short_fragments: Option<Vec<Proposal>>,
     localization_omitted: usize,
     localization_work_limited: bool,
@@ -87,13 +87,11 @@ pub struct Result {
     recovery: Option<read::Recovery>,
     retail: Vec<read::Read>,
 }
-/// Detailed region evidence is exposed only when requested before scanning.
+/// Detailed region evidence, inspected by the engine's own tests.
+#[cfg(test)]
 pub struct Regions<'a> {
     pub proposals: &'a [Proposal],
-    pub omitted: usize,
-    pub work_limited: bool,
-    pub search_window: Quad,
-    pub frame: &'a Frame,
+    pub frame: &'a barcode_research_core::frame::Frame,
 }
 #[derive(Default)]
 pub struct Scanner {
@@ -112,13 +110,6 @@ pub struct Scanner {
     recovery: recovery_core::region_scan::RegionScanner,
 }
 impl Scanner {
-    /// Scan all visible EAN-13 candidates.
-    ///
-    /// # Errors
-    /// Returns an error for invalid image geometry, layout, or scanner work parameters.
-    pub fn scan(&mut self, image: Image<'_>) -> std::result::Result<Result, Error> {
-        self.scan_with_options(image, ScanOptions::default())
-    }
     /// Scanning effort is independent of output options: every candidate is attempted.
     ///
     /// # Errors
@@ -149,24 +140,14 @@ impl Result {
         &self.scan.frame.barcodes
     }
     #[must_use]
-    pub fn best(&self) -> Option<&Barcode> {
-        self.scan.best()
-    }
-    #[must_use]
     pub fn unfinished(&self) -> bool {
         self.scan.frame.unfinished
     }
-    #[must_use]
-    pub fn localization_limited(&self) -> bool {
-        self.localization_work_limited
-    }
+    #[cfg(test)]
     #[must_use]
     pub fn regions(&self) -> Option<Regions<'_>> {
         self.options.include_regions.then_some(Regions {
             proposals: &self.proposals,
-            omitted: self.localization_omitted,
-            work_limited: self.localization_work_limited,
-            search_window: self.search_window,
             frame: &self.scan.frame,
         })
     }
@@ -174,6 +155,7 @@ impl Result {
     ///
     /// # Panics
     /// Panics if `mode` is not a supported effort mode, or elapsed time is negative/non-finite.
+    #[cfg(test)]
     #[must_use]
     pub fn to_json(&self, mode: &str, elapsed_ms: f64) -> String {
         serde_json::to_string(
@@ -219,7 +201,9 @@ mod tests {
             channels: 1,
             stride: 64,
         };
-        let compact = scanner.scan(image()).unwrap();
+        let compact = scanner
+            .scan_with_options(image(), ScanOptions::default())
+            .unwrap();
         assert!(compact.barcodes().is_empty());
         assert!(compact.regions().is_none());
         assert!(!compact.to_json("medium", 0.).contains("\"candidates\""));
@@ -239,19 +223,22 @@ mod tests {
         assert!(detailed.barcodes().is_empty());
         assert!(detailed.to_json("medium", 0.).contains("\"searchWindows\""));
         assert!(scanner
-            .scan(Image {
-                data: &[],
-                width: 64,
-                height: 64,
-                channels: 1,
-                stride: 64
-            })
+            .scan_with_options(
+                Image {
+                    data: &[],
+                    width: 64,
+                    height: 64,
+                    channels: 1,
+                    stride: 64
+                },
+                ScanOptions::default()
+            )
             .is_err());
     }
     #[test]
     fn single_selects_support_and_keeps_first_tie() {
         let make = |support, id| Barcode {
-            detection: barcode_research_core::experiment::Detection {
+            detection: barcode_research_core::candidate_scanner::Detection {
                 digits: [id; 13],
                 polygon: [[0., 0.]; 4],
                 support,

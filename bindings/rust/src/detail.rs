@@ -10,6 +10,7 @@ use crate::{Barcode, Error, Image, Proposal, Quad};
 use serde_json::{json, Value};
 
 type Point = [f64; 2];
+#[cfg(test)]
 fn pixel(im: Image<'_>, x: usize, y: usize, c: usize) -> f64 {
     let channel = if im.channels == 1 { 0 } else { c };
     if c == 3 {
@@ -554,7 +555,7 @@ pub fn recover(
                             additions.push(read.clone());
                         }
                         primary.push(Barcode {
-                            detection: barcode_research_core::experiment::Detection {
+                            detection: barcode_research_core::candidate_scanner::Detection {
                                 digits: d.digits,
                                 polygon: p,
                                 support: d.support,

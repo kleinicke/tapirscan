@@ -49,6 +49,10 @@ contains the private per-mode engine.
 `pipeline.rs` orders image preparation, localization, primary scanning, recovery
 and consolidation. Its stage helpers preserve proposal order, budgets and
 source-coordinate bookkeeping so experiments can change one stage at a time.
+`pipeline/restoration.rs` holds restored-contrast and threshold crop retries;
+`pipeline/source_evidence.rs` checks recovered reads against original pixels.
+`fast_linear.rs` is the bounded Low linear path; `fast_linear/recovery.rs` reuses
+its source profiles for Medium, High and Very High recovery.
 `result.rs` assembles optional diagnostic JSON after scanning.
 `detail.rs` owns source-detail recovery; `formats.rs` coordinates additional
 readers and supplement policies; `linear_duplicates.rs` reconciles physical reads.
@@ -110,9 +114,9 @@ See [the core guide](../core/README.md) for mode features and scratch ownership.
 | Stage                           | Main implementation                               | Preserve when testing another stage                  |
 | ------------------------------- | ------------------------------------------------- | ---------------------------------------------------- |
 | Candidate discovery             | `core/src/stripes.rs`, `shear.rs`                 | Source coordinates and omitted/work-limited signals  |
-| Profile sampling                | `core/src/experiment/sampling.rs`                 | Sampling order and numerical precision               |
-| Decoding and acceptance         | `core/src/experiment/decoding.rs`                 | Acceptance thresholds and observation evidence       |
-| Observation association         | `core/src/experiment/association.rs`              | Independent support and source continuity            |
+| Profile sampling                | `core/src/candidate_scanner/sampling.rs`          | Sampling order and numerical precision               |
+| Decoding and acceptance         | `core/src/candidate_scanner/decoding.rs`          | Acceptance thresholds and observation evidence       |
+| Observation association         | `core/src/candidate_scanner/association.rs`       | Independent support and source continuity            |
 | Retry planning and execution    | `core/src/multi_scan/plan.rs`, `multi_scan.rs`    | Defined path order, coverage proofs and budgets      |
 | Physical identity and conflicts | `core/src/frame/identity.rs`, `frame/conflict.rs` | Separate equal labels and conflicting values         |
 | Frame assembly                  | `core/src/frame.rs`                               | Stable geometry and unfinished work                  |

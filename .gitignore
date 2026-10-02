@@ -3,6 +3,9 @@
 **/node_modules
 /bindings/javascript/dist/
 /bindings/javascript/wasm/
+# Copied from multiformat/ by scripts/build_wasm.py and bindings/python/setup.py.
+/bindings/javascript/THIRD_PARTY_NOTICES.md
+/bindings/python/src/tapirscan/THIRD_PARTY_NOTICES.md
 __pycache__/
 *.pyc
 .DS_Store

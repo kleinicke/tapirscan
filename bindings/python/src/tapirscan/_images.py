@@ -138,7 +138,7 @@ def _numpy_bytes(
     layout: Layout,
     value_range: ValueRange,
     color_order: ColorOrder,
-) -> tuple[bytes, int, int, int]:
+) -> tuple[memoryview, int, int, int]:
     import numpy as np
 
     image = _numpy_layout(image, layout)
@@ -150,7 +150,8 @@ def _numpy_bytes(
     pixels = _numpy_pixels(image, value_range)
     if color_order == "BGR" and channels != 1:
         pixels = pixels[:, :, BGR_CHANNELS[channels]]
-    return np.ascontiguousarray(pixels).tobytes(), width, height, channels
+    # The scanner snapshots this view once; avoid an intermediate bytes copy.
+    return np.ascontiguousarray(pixels).data.cast("B"), width, height, channels
 
 
 def _numpy_pixels(

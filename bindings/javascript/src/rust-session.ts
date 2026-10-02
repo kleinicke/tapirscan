@@ -1,3 +1,6 @@
+// Stateless for complete inputs, so one decoder serves every scan.
+const outputDecoder = new TextDecoder();
+
 export class ScannerError extends Error {
   constructor(
     readonly code: string,
@@ -122,7 +125,7 @@ export class RustScannerSession {
     );
     let decoded: unknown;
     try {
-      decoded = JSON.parse(new TextDecoder().decode(output));
+      decoded = JSON.parse(outputDecoder.decode(output));
     } catch {
       throw new ScannerError("invalid_output", "Scanner returned invalid JSON");
     }

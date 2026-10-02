@@ -1,5 +1,5 @@
 //! Construct bounded retry plans independently of executing them.
-use super::{experiment, Candidate, Error, Policy, Quad, Segment, Work};
+use super::{candidate_scanner, Candidate, Error, Policy, Quad, Segment, Work};
 
 /// Breadth-first interval centers spread every short prefix across the extent.
 pub(super) fn spread_order(n: usize) -> Vec<usize> {
@@ -105,13 +105,13 @@ pub(super) fn scaled_plan_allowance(
     };
     let mut dimensions = [(0., 0., 0usize, 0usize); 2];
     for (axis, dimensions_entry) in dimensions.iter_mut().enumerate() {
-        let length = experiment::distance(
-            experiment::point(m, axis, 0., 0.5)?,
-            experiment::point(m, axis, 1., 0.5)?,
+        let length = candidate_scanner::distance(
+            candidate_scanner::point(m, axis, 0., 0.5)?,
+            candidate_scanner::point(m, axis, 1., 0.5)?,
         );
-        let cross = experiment::distance(
-            experiment::point(m, axis, 0.5, 0.)?,
-            experiment::point(m, axis, 0.5, 1.)?,
+        let cross = candidate_scanner::distance(
+            candidate_scanner::point(m, axis, 0.5, 0.)?,
+            candidate_scanner::point(m, axis, 0.5, 1.)?,
         );
         // Unread proposals need sub-row coverage even when their source height is small.
         // Preserve all existing candidate-first work and global/per-candidate caps.
@@ -326,16 +326,16 @@ pub(super) fn claimed_interval(
 
 pub(super) fn unresolved_plan(
     m: [f64; 9],
-    detections: &[experiment::Detection],
+    detections: &[candidate_scanner::Detection],
     limit: usize,
     work: &mut Work,
 ) -> Result<Vec<Segment>, Error> {
     let mut paths = Vec::new();
     let mut orders: [Vec<usize>; 2] = [vec![], vec![]];
     for (axis, orders_entry) in orders.iter_mut().enumerate() {
-        let cross = experiment::distance(
-            experiment::point(m, axis, 0.5, 0.)?,
-            experiment::point(m, axis, 0.5, 1.)?,
+        let cross = candidate_scanner::distance(
+            candidate_scanner::point(m, axis, 0.5, 0.)?,
+            candidate_scanner::point(m, axis, 0.5, 1.)?,
         );
         let requested = crate::numeric::f64_usize((cross / 24.).ceil().max(5.));
         let rows = requested.min(128);
@@ -369,9 +369,9 @@ pub(super) fn unresolved_plan(
                 intervals.push((lo, 1.15));
             }
             for (lo, hi) in intervals {
-                let length = experiment::distance(
-                    experiment::point(m, axis, lo, fraction)?,
-                    experiment::point(m, axis, hi, fraction)?,
+                let length = candidate_scanner::distance(
+                    candidate_scanner::point(m, axis, lo, fraction)?,
+                    candidate_scanner::point(m, axis, hi, fraction)?,
                 );
                 // Below the existing 0.8sample/module gate no EAN can fit at
                 // source resolution. This is a sampling limit, not an instance cap.
@@ -410,9 +410,9 @@ pub(super) fn supported_scale_width_checked(
         .iter()
         .filter(|o| !o.ambiguous)
         .filter_map(|o| {
-            let a = experiment::point(matrix, o.axis, o.left, o.fraction).ok()?;
-            let b = experiment::point(matrix, o.axis, o.right, o.fraction).ok()?;
-            let width = experiment::distance(a, b);
+            let a = candidate_scanner::point(matrix, o.axis, o.left, o.fraction).ok()?;
+            let b = candidate_scanner::point(matrix, o.axis, o.right, o.fraction).ok()?;
+            let width = candidate_scanner::distance(a, b);
             (width.is_finite() && width > 0.).then_some((o, a, b, width))
         })
         .min_by(|a, b| a.3.total_cmp(&b.3))?;
@@ -424,7 +424,7 @@ pub(super) fn supported_scale_width_checked(
                 let a = quad[i];
                 let b = quad[(i + 1) % 4];
                 let cross = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
-                let tol = 2. * experiment::distance(a, b);
+                let tol = 2. * candidate_scanner::distance(a, b);
                 positive |= cross > tol;
                 negative |= cross < -tol;
             }

@@ -63,6 +63,7 @@ impl Read {
         }
     }
 
+    #[cfg(not(feature = "low"))]
     pub fn retail(digits: [u8; 13], polygon: Quad, support: usize) -> Self {
         let mut read = Self::primary(digits, polygon, support, 0, Vec::new());
         read.text = digits[5..].iter().map(|d| char::from(b'0' + d)).collect();

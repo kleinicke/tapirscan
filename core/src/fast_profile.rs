@@ -52,6 +52,8 @@ pub struct Sampler {
     source_cache_used: usize,
     source_cache: Vec<SourceCacheEntry>,
     values: Vec<f32>,
+    /// Reused copy of `values` for contrast hypotheses.
+    restore_scratch: Vec<f32>,
     positions: Vec<f64>,
     envelope: Vec<[f32; 4]>,
     widths: Vec<f32>,
@@ -329,7 +331,8 @@ impl Sampler {
     /// Restore a bounded profile contrast hypothesis without changing source positions.
     pub fn restore_contrast(&mut self, strength: f32) {
         self.cache_current = None;
-        let original = self.values.clone();
+        let mut original = std::mem::take(&mut self.restore_scratch);
+        original.clone_from(&self.values);
         let n = original.len();
         for i in 0..n {
             let blurred = (original[i.saturating_sub(2)]
@@ -340,15 +343,17 @@ impl Sampler {
                 / 16.;
             self.values[i] = (original[i] + strength * (original[i] - blurred)).clamp(0., 255.);
         }
+        self.restore_scratch = original;
     }
     /// Wider bounded contrast hypothesis for independently checked EAN recovery.
     pub fn restore_contrast_wide(&mut self, strength: f32) {
         self.cache_current = None;
-        let original = self.values.clone();
-        let n = original.len();
+        let n = self.values.len();
         if n == 0 {
             return;
         }
+        let mut original = std::mem::take(&mut self.restore_scratch);
+        original.clone_from(&self.values);
         let weights = [1., 4., 11., 21., 26., 21., 11., 4., 1.];
         for i in 0..n {
             let mut blurred = 0.;
@@ -358,6 +363,7 @@ impl Sampler {
             self.values[i] =
                 (original[i] + strength * (original[i] - blurred / 100.)).clamp(0., 255.);
         }
+        self.restore_scratch = original;
     }
     /// No threshold method can create transitions below eight gray levels.
     /// Stop as soon as contrast is proven; most useful profiles exit early.

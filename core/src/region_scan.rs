@@ -41,9 +41,9 @@ impl ScanResult {
 #[derive(Default)]
 pub struct RegionScanner {
     #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-    pub(crate) engine: crate::experiment::CandidateScanner,
+    pub(crate) engine: crate::candidate_scanner::CandidateScanner,
     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-    engine: crate::experiment::CandidateScanner,
+    engine: crate::candidate_scanner::CandidateScanner,
 }
 impl RegionScanner {
     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]

@@ -1,7 +1,7 @@
 //! Development-only invalid-checksum evidence in normalized run-width MSE units.
 //! Intensity/soft decoder losses are never numerically compared to these costs.
 use crate::{
-    experiment::{Observation, Work},
+    candidate_scanner::{Observation, Work},
     multi_profile::Reads,
     run_profile::Read,
 };
@@ -317,7 +317,9 @@ mod tests {
 }
 #[cfg(test)]
 mod image_tests {
-    use crate::{ean, experiment::CandidateScanner, multi_scan::Policy, sampling::ImageView};
+    use crate::{
+        candidate_scanner::CandidateScanner, ean, multi_scan::Policy, sampling::ImageView,
+    };
     #[test]
     fn clean_invalid_neighbor_never_removes_disjoint_equal_valid_instances() {
         let bad = [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 8];

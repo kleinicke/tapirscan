@@ -6,7 +6,7 @@ mod execution;
 mod plan;
 use crate::scanner_clock::Timer;
 use crate::{
-    experiment::{self, Candidate, CandidateScanner, Work},
+    candidate_scanner::{self, Candidate, CandidateScanner, Work},
     sampling::{Error, ImageView},
     scan::{self, Quad},
 };
@@ -87,7 +87,7 @@ use verified_coverage::{reuse_plan, verified_claims, ReuseBudget};
 // Equal text can denote separate physical barcodes. Only overlapping,
 // agreeing initial detections may share the easier-frame effort allocation.
 #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-fn multiple_initial<'a>(items: impl Iterator<Item = &'a experiment::Detection>) -> bool {
+fn multiple_initial<'a>(items: impl Iterator<Item = &'a candidate_scanner::Detection>) -> bool {
     let bounds = |q: Quad| {
         [
             q.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min),
@@ -152,9 +152,9 @@ impl CandidateScanner {
             error: false,
         };
         for &fraction in fractions {
-            let length = experiment::distance(
-                experiment::point(m.0, 0, -0.15, fraction)?,
-                experiment::point(m.0, 0, 1.15, fraction)?,
+            let length = candidate_scanner::distance(
+                candidate_scanner::point(m.0, 0, -0.15, fraction)?,
+                candidate_scanner::point(m.0, 0, 1.15, fraction)?,
             );
             let s = Segment {
                 axis: 0,
@@ -167,13 +167,13 @@ impl CandidateScanner {
             };
             self.retry_segment(im, m.0, s, &mut c, true, true, true);
         }
-        c.detections = experiment::assemble_many_budget(
+        c.detections = candidate_scanner::assemble_many_budget(
             im,
             m.0,
             &c.observations,
             &mut c.work,
             true,
-            &mut experiment::AssociationBudget::default(),
+            &mut candidate_scanner::AssociationBudget::default(),
         );
         Ok(c)
     }
@@ -460,12 +460,12 @@ mod tests {
         let q = [[0., 0.], [1000., 0.], [1000., 750.], [0., 750.]];
         let m = scan::transform(q).unwrap();
         let polygon = [
-            experiment::point(m.0, 0, 0.1, 0.2).unwrap(),
-            experiment::point(m.0, 0, 0.8, 0.2).unwrap(),
-            experiment::point(m.0, 0, 0.8, 0.6).unwrap(),
-            experiment::point(m.0, 0, 0.1, 0.6).unwrap(),
+            candidate_scanner::point(m.0, 0, 0.1, 0.2).unwrap(),
+            candidate_scanner::point(m.0, 0, 0.8, 0.2).unwrap(),
+            candidate_scanner::point(m.0, 0, 0.8, 0.6).unwrap(),
+            candidate_scanner::point(m.0, 0, 0.1, 0.6).unwrap(),
         ];
-        let d = experiment::Detection {
+        let d = candidate_scanner::Detection {
             digits: [0; 13],
             polygon,
             support: 3,
@@ -546,7 +546,7 @@ mod tests {
         let im = ImageView::new(&pixels, 500, 200, 1, 500).unwrap();
         let q = [[0., 0.], [500., 0.], [500., 200.], [0., 200.]];
         let mut ex = CandidateScanner::default();
-        let first = ex.scan(im, &[q], experiment::MULTI_FIXED);
+        let first = ex.scan(im, &[q], candidate_scanner::MULTI_FIXED);
         assert_eq!(first[0].detections.len(), 1);
         let p = Policy {
             max_association_checks: first[0].work.association_checks,
@@ -691,7 +691,7 @@ mod tests {
     fn unrelated_single_row_symbols_cannot_corroborate_scale() {
         let quad = [[0., 0.], [600., 0.], [600., 200.], [0., 200.]];
         let matrix = scan::transform(quad).unwrap().0;
-        let obs = |digits, left, right, fraction| experiment::Observation {
+        let obs = |digits, left, right, fraction| candidate_scanner::Observation {
             short_quiet: false,
             ambiguous: false,
             digits,
@@ -730,7 +730,7 @@ mod tests {
                 .count(),
             21
         );
-        candidate.detections.push(experiment::Detection {
+        candidate.detections.push(candidate_scanner::Detection {
             digits: a,
             polygon: [
                 [389.5, 129.5],
@@ -746,7 +746,7 @@ mod tests {
             None,
             "separate equal-value track cannot support smallest width"
         );
-        candidate.detections.push(experiment::Detection {
+        candidate.detections.push(candidate_scanner::Detection {
             digits: a,
             polygon: [[29.5, 49.5], [179.5, 49.5], [179.5, 69.5], [29.5, 69.5]],
             support: 3,
@@ -763,7 +763,7 @@ mod tests {
     fn unrelated_single_row_symbols_cannot_corroborate_scale() {
         let quad = [[0., 0.], [600., 0.], [600., 200.], [0., 200.]];
         let matrix = scan::transform(quad).unwrap().0;
-        let obs = |digits, left, right, fraction| experiment::Observation {
+        let obs = |digits, left, right, fraction| candidate_scanner::Observation {
             #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
             invalid_checksum: false,
             short_quiet: false,
@@ -804,7 +804,7 @@ mod tests {
                 .count(),
             21
         );
-        candidate.detections.push(experiment::Detection {
+        candidate.detections.push(candidate_scanner::Detection {
             digits: a,
             polygon: [
                 [389.5, 129.5],
@@ -820,7 +820,7 @@ mod tests {
             None,
             "separate equal-value track cannot support smallest width"
         );
-        candidate.detections.push(experiment::Detection {
+        candidate.detections.push(candidate_scanner::Detection {
             digits: a,
             polygon: [[29.5, 49.5], [179.5, 49.5], [179.5, 69.5], [29.5, 69.5]],
             support: 3,
@@ -837,7 +837,7 @@ mod tests {
     fn unrelated_single_row_symbols_cannot_corroborate_scale() {
         let quad = [[0., 0.], [600., 0.], [600., 200.], [0., 200.]];
         let matrix = scan::transform(quad).unwrap().0;
-        let obs = |digits, left, right, fraction| experiment::Observation {
+        let obs = |digits, left, right, fraction| candidate_scanner::Observation {
             #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
             invalid_checksum: false,
             short_quiet: false,
@@ -878,7 +878,7 @@ mod tests {
                 .count(),
             21
         );
-        candidate.detections.push(experiment::Detection {
+        candidate.detections.push(candidate_scanner::Detection {
             digits: a,
             polygon: [
                 [389.5, 129.5],
@@ -894,7 +894,7 @@ mod tests {
             None,
             "separate equal-value track cannot support smallest width"
         );
-        candidate.detections.push(experiment::Detection {
+        candidate.detections.push(candidate_scanner::Detection {
             digits: a,
             polygon: [[29.5, 49.5], [179.5, 49.5], [179.5, 69.5], [29.5, 69.5]],
             support: 3,
@@ -1321,7 +1321,7 @@ mod adaptive_multi_tests {
     use super::*;
     #[test]
     fn distinct_equal_text_regions_keep_full_effort() {
-        let a = experiment::Detection {
+        let a = candidate_scanner::Detection {
             digits: [1; 13],
             polygon: [[0., 0.], [200., 0.], [200., 50.], [0., 50.]],
             support: 4,

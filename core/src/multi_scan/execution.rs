@@ -7,15 +7,15 @@ use super::plan::{
     scaled_plan_density, supported_scale_width, supported_scale_width_checked, unresolved_plan,
 };
 use super::{
-    experiment, scan, Candidate, CandidateScanner, Error, ImageView, Policy, Quad, Segment, Timer,
-    Work,
+    candidate_scanner, scan, Candidate, CandidateScanner, Error, ImageView, Policy, Quad, Segment,
+    Timer, Work,
 };
 use super::{reuse_plan, verified_claims, ReuseBudget};
 
 type PreparedPlan = Option<([f64; 9], Vec<Segment>)>;
 pub(super) struct Execution {
     policy: Policy,
-    association: experiment::AssociationBudget,
+    association: candidate_scanner::AssociationBudget,
     reuse: ReuseBudget,
     used: usize,
 }
@@ -23,7 +23,7 @@ impl Execution {
     pub fn new(policy: Policy) -> Self {
         Self {
             policy,
-            association: experiment::AssociationBudget {
+            association: candidate_scanner::AssociationBudget {
                 checks_left: if policy.complete {
                     usize::MAX
                 } else {
@@ -164,7 +164,7 @@ impl CandidateScanner {
             run.used += used;
             if c.observations.len() != count {
                 if let Ok(m) = scan::transform(c.coverage) {
-                    c.detections = experiment::assemble_many_budget_options(
+                    c.detections = candidate_scanner::assemble_many_budget_options(
                         im,
                         m.0,
                         &c.observations,
@@ -181,13 +181,13 @@ impl CandidateScanner {
         &mut self,
         im: ImageView<'_>,
         candidates: &[Quad],
-        budget: &mut experiment::AssociationBudget,
+        budget: &mut candidate_scanner::AssociationBudget,
     ) -> Vec<Candidate> {
         #[cfg(feature = "mode-low")]
         let outputs = self.scan_with_budget_axes(
             im,
             candidates,
-            experiment::MULTI_FIXED.with_three_rows(),
+            candidate_scanner::MULTI_FIXED.with_three_rows(),
             budget,
             true,
         );
@@ -195,11 +195,11 @@ impl CandidateScanner {
         let outputs = self.scan_with_budget(
             im,
             candidates,
-            experiment::MULTI_FIXED.with_three_rows(),
+            candidate_scanner::MULTI_FIXED.with_three_rows(),
             budget,
         );
         #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-        let outputs = self.scan_with_budget(im, candidates, experiment::MULTI_FIXED, budget);
+        let outputs = self.scan_with_budget(im, candidates, candidate_scanner::MULTI_FIXED, budget);
 
         outputs
     }
@@ -406,12 +406,12 @@ impl CandidateScanner {
                             continue;
                         }
                         let Some((transform, _)) = plan else { continue };
-                        let mut probe = experiment::AssociationBudget {
+                        let mut probe = candidate_scanner::AssociationBudget {
                             checks_left: 2_000,
                             pixels_left: 131_072,
                         };
                         let mut work = Work::default();
-                        let reads = experiment::assemble_many_budget_options(
+                        let reads = candidate_scanner::assemble_many_budget_options(
                             im,
                             *transform,
                             &candidate.observations,
@@ -518,12 +518,12 @@ impl CandidateScanner {
                 let before = c.work.phase_rescue_paths;
                 for axis in 0..2 {
                     let (Ok(a), Ok(b)) = (
-                        experiment::point(*m, axis, 0., 0.5),
-                        experiment::point(*m, axis, 1., 0.5),
+                        candidate_scanner::point(*m, axis, 0., 0.5),
+                        candidate_scanner::point(*m, axis, 1., 0.5),
                     ) else {
                         continue;
                     };
-                    let width = experiment::distance(a, b);
+                    let width = candidate_scanner::distance(a, b);
                     if !(76. ..=384.).contains(&width) {
                         continue;
                     }
@@ -539,13 +539,13 @@ impl CandidateScanner {
                             let lo = -0.15 + delta;
                             let hi = 1.15 + delta;
                             let (Ok(a), Ok(b)) = (
-                                experiment::point(*m, axis, lo, fraction),
-                                experiment::point(*m, axis, hi, fraction),
+                                candidate_scanner::point(*m, axis, lo, fraction),
+                                candidate_scanner::point(*m, axis, hi, fraction),
                             ) else {
                                 c.error = true;
                                 continue;
                             };
-                            let length = experiment::distance(a, b);
+                            let length = candidate_scanner::distance(a, b);
                             let seg = Segment {
                                 axis,
                                 fraction,
@@ -571,7 +571,7 @@ impl CandidateScanner {
                     }
                 }
                 if c.work.phase_rescue_paths > before {
-                    c.detections = experiment::assemble_many_budget_options(
+                    c.detections = candidate_scanner::assemble_many_budget_options(
                         im,
                         *m,
                         &c.observations,
@@ -824,14 +824,14 @@ fn prepare_confirmation(
             anchors.sort_by(|a, b| a.cost.total_cmp(&b.cost));
             for o in anchors {
                 let (Ok(a), Ok(b), Ok(top), Ok(bottom)) = (
-                    experiment::point(*m, o.axis, o.left, o.fraction),
-                    experiment::point(*m, o.axis, o.right, o.fraction),
-                    experiment::point(*m, o.axis, 0.5, 0.),
-                    experiment::point(*m, o.axis, 0.5, 1.),
+                    candidate_scanner::point(*m, o.axis, o.left, o.fraction),
+                    candidate_scanner::point(*m, o.axis, o.right, o.fraction),
+                    candidate_scanner::point(*m, o.axis, 0.5, 0.),
+                    candidate_scanner::point(*m, o.axis, 0.5, 1.),
                 ) else {
                     continue;
                 };
-                let cross = experiment::distance(top, bottom);
+                let cross = candidate_scanner::distance(top, bottom);
                 if cross < 1. {
                     continue;
                 }
@@ -841,7 +841,7 @@ fn prepare_confirmation(
                 }
                 let lo = o.left - 0.15 * width;
                 let hi = o.right + 0.15 * width;
-                let length = experiment::distance(a, b) * 1.3;
+                let length = candidate_scanner::distance(a, b) * 1.3;
                 for delta in [-1., 1., -2., 2.] {
                     let fraction = o.fraction + delta / cross;
                     if !(0.0..=1.0).contains(&fraction) {
@@ -897,7 +897,7 @@ fn assemble(
         if let Some((m, _)) = p {
             if c.work.retry_paths > 0 {
                 let start = Timer::now();
-                let refined = experiment::assemble_many_budget_options(
+                let refined = candidate_scanner::assemble_many_budget_options(
                     im,
                     *m,
                     &c.observations,
@@ -922,9 +922,9 @@ fn assemble(
 fn discovery_segment(transform: [f64; 9], step: usize) -> Option<Segment> {
     let axis = step % 2;
     let fraction = 0.1 + 0.2 * crate::numeric::usize_f64(step / 2);
-    let a = experiment::point(transform, axis, -0.15, fraction).ok()?;
-    let b = experiment::point(transform, axis, 1.15, fraction).ok()?;
-    let length = experiment::distance(a, b);
+    let a = candidate_scanner::point(transform, axis, -0.15, fraction).ok()?;
+    let b = candidate_scanner::point(transform, axis, 1.15, fraction).ok()?;
+    let length = candidate_scanner::distance(a, b);
     Some(Segment {
         axis,
         fraction,
@@ -941,9 +941,9 @@ fn probe_discovery(
     im: ImageView<'_>,
     outputs: &mut [Candidate],
     policy: Policy,
-    budget: &mut experiment::AssociationBudget,
+    budget: &mut candidate_scanner::AssociationBudget,
     scaled: bool,
-) -> Vec<experiment::Detection> {
+) -> Vec<candidate_scanner::Detection> {
     // Decide effort only after every candidate has received fixed and
     // native discovery. Never return early on a successful read. Retain
     // all candidates and explicit pending work on lower-effort frames.
@@ -969,12 +969,12 @@ fn probe_discovery(
                 let checks = probe_checks.min(2_000);
 
                 let pixels = probe_pixels.min(32768);
-                let mut small = experiment::AssociationBudget {
+                let mut small = candidate_scanner::AssociationBudget {
                     checks_left: checks,
                     pixels_left: pixels,
                 };
                 let mut work = Work::default();
-                let reads = experiment::assemble_many_budget_options(
+                let reads = candidate_scanner::assemble_many_budget_options(
                     im,
                     m.0,
                     &c.observations,
@@ -1024,7 +1024,7 @@ mod tests {
                 index: 0,
                 coverage: quad,
                 observations: Vec::new(),
-                detections: vec![experiment::Detection {
+                detections: vec![candidate_scanner::Detection {
                     digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
                     polygon: quad,
                     support: 2,

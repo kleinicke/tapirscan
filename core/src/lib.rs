@@ -33,8 +33,9 @@ pub mod sampling;
 pub mod scan;
 
 // Selected find-all scanner and physical-instance reconciliation.
-pub mod experiment;
+pub mod candidate_scanner;
 pub mod frame;
+mod geometry;
 pub mod identity;
 
 pub(crate) mod invalid_visual;

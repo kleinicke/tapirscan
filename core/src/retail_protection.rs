@@ -47,7 +47,7 @@ impl Collector {
                     .all(|t| inside(*q, [a[0] + t * d[0], a[1] + t * d[1]]))
         })
     }
-    pub(super) fn protected_detection(&self, d: &crate::experiment::Detection) -> bool {
+    pub(super) fn protected_detection(&self, d: &crate::candidate_scanner::Detection) -> bool {
         let q = d.polygon;
         self.protected_segment(
             [0.5 * (q[0][0] + q[3][0]), 0.5 * (q[0][1] + q[3][1])],

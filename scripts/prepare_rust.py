@@ -17,6 +17,10 @@ from typing import cast
 
 from build import MODE_CONFIG, ROOT
 
+# Embedded copies of the core and multiformat crates keep their full library APIs;
+# each mode's engine uses only part of them. Engine modules are linted normally.
+LIBRARY_LINTS = "#[allow(dead_code, unused_imports)]"
+
 
 @dataclass
 class Module:
@@ -136,9 +140,9 @@ def assemble(destination: Path) -> None:
         gate = f"#[cfg(tapirscan_mode_{name})]"
         modules.extend(
             [
-                f"pub(crate) mod {core};"
+                f"{LIBRARY_LINTS}\npub(crate) mod {core};"
                 if name == "low"
-                else f"{gate}\npub(crate) mod {core};",
+                else f"{gate}\n{LIBRARY_LINTS}\npub(crate) mod {core};",
                 f"{gate}\npub(crate) mod {name};",
             ]
         )
@@ -150,7 +154,7 @@ def assemble(destination: Path) -> None:
             rewriter=rewriter,
         )
     )
-    modules.append("pub(crate) mod multiformat;")
+    modules.append(f"{LIBRARY_LINTS}\npub(crate) mod multiformat;")
     (generated / "mod.rs").write_text("\n".join(modules) + "\n")
     entries = [
         f'    ("{name}", {str(enabled).lower()}),'

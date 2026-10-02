@@ -17,7 +17,7 @@ class Boundary(unittest.TestCase):
             for name in (
                 "docs/EXPERIMENTAL_TURBO.md",
                 "core/src/subpixel.rs",
-                "core/src/experiment.rs",
+                "core/src/candidate_scanner.rs",
                 "core/src/lowres.rs",
             ):
                 path = root / name

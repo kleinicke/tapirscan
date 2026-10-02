@@ -1,7 +1,7 @@
 //! Image-evidence comparison for fragmented bands. No EAN tables or digits.
 #![forbid(unsafe_code)]
 use crate::{
-    experiment::{self, AssociationBudget, Work},
+    candidate_scanner::{self, AssociationBudget, Work},
     sampling::ImageView,
     scan::Quad,
 };
@@ -103,7 +103,7 @@ pub(crate) fn gap_edges(a: Quad, b: Quad) -> Option<(Edge, Edge)> {
             if along > wa.min(wb) * 0.05 || cross > wa.min(wb) * { 0.75 } || cross < 0.5 {
                 continue;
             }
-            let edge_distance = experiment::distance(ma, mb);
+            let edge_distance = candidate_scanner::distance(ma, mb);
             if edge_distance < distance {
                 distance = edge_distance;
                 best = Some((x, y));
@@ -124,7 +124,7 @@ pub(crate) fn barrier_between(a: [[f64; 2]; 2], b: [[f64; 2]; 2], p: [f64; 2]) -
     let t = ((p[0] - ma[0]) * direction[0] + (p[1] - ma[1]) * direction[1]) / length_squared;
     let along = ((p[0] - ma[0]) * direction[1] - (p[1] - ma[1]) * direction[0]).abs()
         / length_squared.sqrt();
-    t > 0. && t < 1. && along < experiment::distance(a[0], a[1]) * 0.4
+    t > 0. && t < 1. && along < candidate_scanner::distance(a[0], a[1]) * 0.4
 }
 fn row(
     im: ImageView<'_>,
@@ -188,7 +188,8 @@ pub(crate) fn connected(
     work: &mut Work,
 ) -> bool {
     let steps = crate::numeric::f64_usize(
-        (experiment::distance(a[0], b[0]).max(experiment::distance(a[1], b[1])) * 2.).ceil(),
+        (candidate_scanner::distance(a[0], b[0]).max(candidate_scanner::distance(a[1], b[1])) * 2.)
+            .ceil(),
     );
     if steps > 512 && (steps.saturating_add(1).saturating_mul(N) > budget.pixels_left) {
         work.continuity_capped_links += 1;
@@ -246,7 +247,8 @@ pub(crate) fn connected_cached(
     cache: &mut IdentityCache,
 ) -> bool {
     let steps = crate::numeric::f64_usize(
-        (experiment::distance(a[0], b[0]).max(experiment::distance(a[1], b[1])) * 2.).ceil(),
+        (candidate_scanner::distance(a[0], b[0]).max(candidate_scanner::distance(a[1], b[1])) * 2.)
+            .ceil(),
     );
     if steps > 512 && (steps.saturating_add(1).saturating_mul(N) > budget.pixels_left) {
         work.continuity_capped_links += 1;
@@ -368,7 +370,8 @@ fn connected_phase(
     }
     let Some((b, rb)) = best else { return false };
     let steps = crate::numeric::f64_usize(
-        (experiment::distance(a[0], b[0]).max(experiment::distance(a[1], b[1])) * 2.).ceil(),
+        (candidate_scanner::distance(a[0], b[0]).max(candidate_scanner::distance(a[1], b[1])) * 2.)
+            .ceil(),
     );
     if steps > 512 && (steps.saturating_sub(1).saturating_mul(384 * 5) > budget.pixels_left) {
         work.continuity_capped_links += 1;
@@ -426,7 +429,8 @@ fn connected_phase(
     }
     let Some((b, rb)) = best else { return false };
     let steps = crate::numeric::f64_usize(
-        (experiment::distance(a[0], b[0]).max(experiment::distance(a[1], b[1])) * 2.).ceil(),
+        (candidate_scanner::distance(a[0], b[0]).max(candidate_scanner::distance(a[1], b[1])) * 2.)
+            .ceil(),
     );
     if steps > 512 && (steps.saturating_sub(1).saturating_mul(384 * 5) > budget.pixels_left) {
         work.continuity_capped_links += 1;

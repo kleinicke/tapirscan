@@ -1,3 +1,12 @@
+pub(crate) fn lerp(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
+    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
+}
+
+/// `hypot` uses only magnitudes, so argument order does not change the result.
+pub(crate) fn distance(a: [f64; 2], b: [f64; 2]) -> f64 {
+    (a[0] - b[0]).hypot(a[1] - b[1])
+}
+
 fn signed_area(points: &[[f64; 2]]) -> f64 {
     if points.is_empty() {
         return 0.0;

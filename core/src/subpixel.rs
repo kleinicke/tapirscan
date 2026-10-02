@@ -4,7 +4,7 @@
 //! checksum validity alone never creates a detection.
 mod model;
 mod sequence;
-use crate::experiment::{Candidate, Observation};
+use crate::candidate_scanner::{Candidate, Observation};
 use crate::sampling::ImageView;
 use crate::scan::Quad;
 use model::Settings;
@@ -151,7 +151,7 @@ pub(crate) fn recover(image: ImageView<'_>, c: &mut Candidate, models_left: &mut
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::experiment::Work;
+    use crate::candidate_scanner::Work;
     const DIGITS: [u8; 13] = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
     // Independent supersampled rasterizer; the production decoder never sees bits.
     fn fixture(angle: f64, second: Option<[u8; 13]>) -> (Vec<u8>, Quad) {

@@ -30,10 +30,10 @@ there is only one maintained algorithm tree.
   grayscale pixels. The Rust facade selects QR-only reader groups and enforces
   the mode-specific frame retry limits. See [QR study](README.md).
 
-- `experiment.rs` owns candidate evidence and reusable scratch buffers and runs
-  the initial candidate pass. `experiment/sampling.rs` samples and normalizes
-  profiles; `experiment/decoding.rs` invokes decoders and records accepted or
-  conflicting observations; `experiment/association.rs` assembles observations
+- `candidate_scanner.rs` owns candidate evidence and reusable scratch buffers and runs
+  the initial candidate pass. `candidate_scanner/sampling.rs` samples and normalizes
+  profiles; `candidate_scanner/decoding.rs` invokes decoders and records accepted or
+  conflicting observations; `candidate_scanner/association.rs` assembles observations
   with source-continuity proofs and shared budgets.
 - `multi_scan/plan.rs` constructs retry paths. `multi_scan.rs` executes them in
   their defined order, enforces budgets and refreshes evidence-dependent effort.
@@ -103,8 +103,7 @@ pending-work accounting. New retry strategies should change planning without
 changing acceptance or reconciliation. Mode-specific numerical evaluation remains
 explicit where replacing square roots with `hypot` would alter exact results.
 
-The candidate-scanning state is named `CandidateScanner`; the `experiment`
-module path remains an internal historical name. Shared `Policy` defaults have
+The candidate-scanning state is `CandidateScanner` in `candidate_scanner.rs`. Shared `Policy` defaults have
 one initializer, with mode-only fields selected at compile time. Host refinement
 limits and recovery directions are listed in `bindings/rust/src/effort.rs`.
 Frame reconciliation names its remaining-budget, observation-ordering and
@@ -172,14 +171,13 @@ that unseen/occluded bars were recovered.
 This pass runs after decoding. It does not skip pending search candidates;
 that requires separately verified coverage in the search scheduler.
 
-The selected 2026-09-24 revision uses adaptive cross-section spacing for symbols
-at least 512 source pixels wide. Width/contrast measurements advance by up to
+Symbols at least 512 source pixels wide use adaptive cross-section spacing.
+Width/contrast measurements advance by up to
 six pixels while intervening ink is checked with interpolated half-pixel samples.
 Both outside tracks must finish before accepting a large-symbol envelope.
 Endpoint lookahead and illumination adaptation scale with bar width and physical
 advance. Smaller symbols keep the original half-pixel tracing policy. The shared
-262,144-sample budget is unchanged. See
-[the current selection and validation status](README.md).
+262,144-sample budget applies to both.
 
 ## Very High subpixel recovery
 
@@ -190,9 +188,9 @@ source continuity, association and frame reconciliation still apply. Low, Medium
 and High do not compile this path. It does not provide subpixel localization or a
 minimum-resolution guarantee, and does not apply to QR or Data Matrix.
 
-## EAN13 and Low Aztec recovery (28 September 2026)
+## EAN13 and Low Aztec recovery
 
-The selected runtime adds bounded source-profile evidence and exact profile reuse
+The runtime uses bounded source-profile evidence and exact profile reuse
 for EAN13. Medium default combined modes use the guarded source-region exception described
 below; High and Very High retain bounded region/threshold retries. Low uses a
 smaller Aztec gray-sampling budget. All retries preserve physical ownership checks.

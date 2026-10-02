@@ -2,19 +2,11 @@
 //! visual parity; it never selects a weaker valid alternative. No heap allocation.
 #![forbid(unsafe_code)]
 use crate::ean;
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 #[derive(Clone, Copy)]
 pub(crate) struct Digit {
     pub(crate) value: u8,
     pub(crate) cost: f32,
     pub(crate) gap: f32,
-}
-#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-#[derive(Clone, Copy)]
-struct Digit {
-    value: u8,
-    cost: f32,
-    gap: f32,
 }
 
 const fn pattern_table(side: u8) -> [[u8; 4]; 10] {
@@ -106,16 +98,7 @@ fn digit_from_errors(errors: &[[f32; 4]; 4], side: u8) -> Digit {
     }
 }
 
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 pub(crate) fn digit_pair(widths: &[f32]) -> [Digit; 2] {
-    let errors = digit_errors(widths);
-    [
-        digit_from_errors(&errors, b'L'),
-        digit_from_errors(&errors, b'G'),
-    ]
-}
-#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-fn digit_pair(widths: &[f32]) -> [Digit; 2] {
     let errors = digit_errors(widths);
     [
         digit_from_errors(&errors, b'L'),

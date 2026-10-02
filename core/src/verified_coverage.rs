@@ -1,7 +1,7 @@
 //! Optional conservative subtraction of already verified source-pixel bands.
 //! Claims never come from text-only identity or unsupported observations.
 use super::{
-    experiment, project_claim, projected_interval, scan, Candidate, Error, ImageView, Quad,
+    candidate_scanner, project_claim, projected_interval, scan, Candidate, Error, ImageView, Quad,
     Segment, Work,
 };
 #[cfg(test)]
@@ -85,8 +85,8 @@ pub(super) fn verified_claims(
                 }
             }
             let (Ok(a), Ok(b)) = (
-                experiment::point(m.0, o.axis, o.left, o.fraction),
-                experiment::point(m.0, o.axis, o.right, o.fraction),
+                candidate_scanner::point(m.0, o.axis, o.left, o.fraction),
+                candidate_scanner::point(m.0, o.axis, o.right, o.fraction),
             ) else {
                 return vec![];
             };
@@ -275,7 +275,8 @@ fn extend_claim(im: ImageView<'_>, quad: Quad, work: &mut Work, budget: &mut Reu
         work.extension_cache_hits += 1;
         return *out;
     }
-    let width = experiment::distance(quad[0], quad[1]).min(experiment::distance(quad[3], quad[2]));
+    let width = candidate_scanner::distance(quad[0], quad[1])
+        .min(candidate_scanner::distance(quad[3], quad[2]));
     let v = [
         (quad[3][0] - quad[0][0]) + (quad[2][0] - quad[1][0]),
         (quad[3][1] - quad[0][1]) + (quad[2][1] - quad[1][1]),
@@ -363,9 +364,9 @@ fn reuse_projected_segment(
     let mut pieces = Vec::new();
     let mut too_short = 0;
     for (lo, hi) in outside {
-        let length = experiment::distance(
-            experiment::point(m, s.axis, lo, s.fraction)?,
-            experiment::point(m, s.axis, hi, s.fraction)?,
+        let length = candidate_scanner::distance(
+            candidate_scanner::point(m, s.axis, lo, s.fraction)?,
+            candidate_scanner::point(m, s.axis, hi, s.fraction)?,
         );
         if length < 76. {
             too_short += 1;
@@ -426,7 +427,7 @@ mod reuse_tests {
     fn quad(x: f64, y: f64, w: f64, h: f64) -> Quad {
         [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
     }
-    fn candidate(q: Quad, d: Vec<experiment::Detection>) -> Candidate {
+    fn candidate(q: Quad, d: Vec<candidate_scanner::Detection>) -> Candidate {
         Candidate {
             index: 0,
             coverage: q,
@@ -437,8 +438,8 @@ mod reuse_tests {
             error: false,
         }
     }
-    fn detection(q: Quad, value: u8) -> experiment::Detection {
-        experiment::Detection {
+    fn detection(q: Quad, value: u8) -> candidate_scanner::Detection {
+        candidate_scanner::Detection {
             digits: [value; 13],
             polygon: q,
             support: 3,
@@ -540,7 +541,7 @@ mod reuse_tests {
             {
                 #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
                 {
-                    c.observations.push(experiment::Observation {
+                    c.observations.push(candidate_scanner::Observation {
                         short_quiet: false,
                         ambiguous,
                         digits: if ambiguous { [1; 13] } else { [2; 13] },
@@ -554,7 +555,7 @@ mod reuse_tests {
                 }
                 #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
                 {
-                    c.observations.push(experiment::Observation {
+                    c.observations.push(candidate_scanner::Observation {
                         #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
                         invalid_checksum: false,
                         short_quiet: false,
@@ -807,7 +808,7 @@ mod extension_tests {
             index: 0,
             coverage,
             observations: vec![],
-            detections: vec![experiment::Detection {
+            detections: vec![candidate_scanner::Detection {
                 digits: [1; 13],
                 polygon: q(),
                 support: 3,
@@ -826,7 +827,7 @@ mod extension_tests {
             {
                 #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
                 {
-                    c.observations.push(experiment::Observation {
+                    c.observations.push(candidate_scanner::Observation {
                         short_quiet: false,
                         ambiguous,
                         digits: if ambiguous { [1; 13] } else { [2; 13] },
@@ -840,7 +841,7 @@ mod extension_tests {
                 }
                 #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
                 {
-                    c.observations.push(experiment::Observation {
+                    c.observations.push(candidate_scanner::Observation {
                         #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
                         invalid_checksum: false,
                         short_quiet: false,
@@ -861,7 +862,7 @@ mod extension_tests {
             );
         }
         let mut c = make();
-        c.detections.push(experiment::Detection {
+        c.detections.push(candidate_scanner::Detection {
             digits: [2; 13],
             polygon: [[20., 75.], [400., 75.], [400., 76.], [20., 76.]],
             support: 3,

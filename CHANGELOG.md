@@ -8,6 +8,11 @@
   guarantees. Experimental options, presets and associated imports/properties
   may change in minor releases. Stable defaults remain unchanged.
 
+- Python avoids one full-image copy for contiguous NumPy input. Internal engine
+  cleanups; scan results are unchanged.
+
+- Documentation: Python and C default to the Retail formats, not EAN13 only.
+
 ## Unreleased: recovery preview
 
 - Bound Medium band recovery with a preliminary source-row probe; keep full

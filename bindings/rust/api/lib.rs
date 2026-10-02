@@ -1,8 +1,8 @@
 #![doc = include_str!("../README.md")]
 #![deny(missing_docs)]
 
-// Private snapshots retain entry points used by other language bindings.
-#[allow(dead_code, unused_imports, missing_docs)]
+// Internal engine; its items are documented in core/README.md, not rustdoc.
+#[allow(missing_docs)]
 #[path = "../generated/mod.rs"]
 mod engine;
 mod format;

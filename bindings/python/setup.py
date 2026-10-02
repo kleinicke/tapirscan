@@ -20,7 +20,7 @@ class NativeDistribution(Distribution):
 
 
 class BuildWithLibraries(build_py):
-    """Copy prebuilt, validated libraries into the installed package."""
+    """Copy prebuilt, validated libraries and license notices into the package."""
 
     def run(self) -> None:
         """Require and bundle every effort mode."""
@@ -36,7 +36,12 @@ class BuildWithLibraries(build_py):
             if sys.platform == "win32"
             else ("lib", ".dylib" if sys.platform == "darwin" else ".so")
         )
-        destination = Path(self.build_lib) / "tapirscan" / "_native"
+        package = Path(self.build_lib) / "tapirscan"
+        shutil.copy2(
+            Path(__file__).resolve().parents[2] / "multiformat/THIRD_PARTY_NOTICES.md",
+            package / "THIRD_PARTY_NOTICES.md",
+        )
+        destination = package / "_native"
         destination.mkdir(parents=True, exist_ok=True)
         for mode in ("low", "medium", "high", "very_high"):
             name = f"{prefix}tapirscan_{mode}{suffix}"
