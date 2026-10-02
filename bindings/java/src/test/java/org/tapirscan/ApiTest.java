@@ -24,11 +24,11 @@ public final class ApiTest {
         check(a.equals(b));
         check(!a.equals(barcode(new byte[]{1}, 5)));
         ScanResult result = new ScanResult(List.of(a, b), List.of(), 3, 3, Mode.MEDIUM,
-                0, false, Optional.empty());
+                0, false, "{}");
         check(result.best().orElseThrow() == a);
         check(Native.IMAGE.byteSize() == 48 && Native.SUMMARY.byteSize() == 56);
         check(Native.BARCODE.byteSize() == 136 && Native.REGION.byteSize() == 72);
-        check(Native.SCANNER_OPTIONS.byteSize() == 12 && Native.SCAN_OPTIONS.byteSize() == 12);
+        check(Native.SCANNER_OPTIONS.byteSize() == 12 && Native.SCAN_OPTIONS.byteSize() == 8);
         check(Native.offset(Native.IMAGE, "stride") == 40);
         check(Native.offset(Native.SUMMARY, "mode") == 48);
         check(Native.offset(Native.BARCODE, "appendIdLength") == 128);

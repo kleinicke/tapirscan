@@ -5,7 +5,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Tapirscan native ABI 6: one library containing all four effort modes.
+/* Tapirscan native ABI 7: one library containing all four effort modes.
 
    Create a scanner once, scan any number of images, read the owned result,
    then destroy the result and the scanner. Calls are thread-safe; scans on one
@@ -13,7 +13,7 @@ extern "C" {
    reference valid, aligned, nonoverlapping caller memory. Status failures never
    unwind through C; invalid raw memory and out-of-memory are outside that
    guarantee. At most 1024 scanners and 1024 results may be alive at once. */
-#define TAPIRSCAN_ABI_VERSION 6u
+#define TAPIRSCAN_ABI_VERSION 7u
 
 typedef uint64_t tapirscan_scanner;
 typedef uint64_t tapirscan_result;
@@ -72,7 +72,6 @@ typedef struct tapirscan_image {
    the scanner's formats, no diagnostics and the ordinary work budget. */
 typedef struct tapirscan_scan_options {
     uint32_t formats;         /* 0 or a nonempty TAPIRSCAN_FORMAT_* mask */
-    uint32_t debug;           /* 1 adds engine evidence to the result JSON */
     uint32_t extended_budget; /* 1 allows reader-specific extra work */
 } tapirscan_scan_options;
 
@@ -135,6 +134,11 @@ int32_t tapirscan_scanner_destroy(tapirscan_scanner scanner);
 int32_t tapirscan_scan(tapirscan_scanner scanner, const tapirscan_image *image,
     const tapirscan_scan_options *options, tapirscan_result *out, tapirscan_error *error);
 
+/* Inspection adds work status, unread regions and engine diagnostics. */
+int32_t tapirscan_inspect(tapirscan_scanner scanner, const tapirscan_image *image,
+    const tapirscan_scan_options *options, tapirscan_result *out, tapirscan_error *error);
+int32_t tapirscan_result_count(tapirscan_result result, uint64_t *out);
+/* info and undecoded require an inspection result; otherwise INVALID_ARGUMENT. */
 int32_t tapirscan_result_info(tapirscan_result result, tapirscan_summary *out);
 int32_t tapirscan_result_barcode(tapirscan_result result, uint64_t index, tapirscan_barcode *out);
 int32_t tapirscan_result_undecoded(tapirscan_result result, uint64_t index, tapirscan_region *out);
@@ -144,7 +148,7 @@ int32_t tapirscan_result_copy(tapirscan_result result, uint64_t index, uint32_t 
     uint8_t *out, uint64_t capacity);
 /* Serializes lazily; length excludes the terminating NUL. */
 int32_t tapirscan_result_json_length(tapirscan_result result, uint64_t *out);
-/* Schema-2 JSON: decoded results, plus engine evidence for debug scans. */
+/* scan: barcode JSON array. inspect: schema-2 engine report. */
 int32_t tapirscan_result_copy_json(tapirscan_result result, uint8_t *out, uint64_t capacity);
 int32_t tapirscan_result_destroy(tapirscan_result result);
 #ifdef __cplusplus

@@ -8,7 +8,7 @@ import java.util.Optional;
  *
  * @param undecoded localized but unread regions
  * @param unfinished the engine reported a work limit; false does not guarantee exhaustive scanning
- * @param debug engine diagnostics JSON, present only when {@link ScanOptions#debug()} was set
+ * @param diagnostics unstable engine diagnostics JSON from inspection
  */
 public record ScanResult(
         List<Barcode> barcodes,
@@ -18,7 +18,7 @@ public record ScanResult(
         Mode mode,
         double elapsedMs,
         boolean unfinished,
-        Optional<String> debug) {
+        String diagnostics) {
     public ScanResult {
         barcodes = List.copyOf(barcodes);
         undecoded = List.copyOf(undecoded);

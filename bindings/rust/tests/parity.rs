@@ -45,10 +45,9 @@ fn native_parity() {
             ][case.addons],
         });
         let result = scanner
-            .scan_with_options(
+            .inspect_with_options(
                 image,
                 ScanOptions {
-                    debug: true,
                     extended_budget: case.complete,
                     ..ScanOptions::default()
                 },
@@ -63,15 +62,8 @@ fn native_parity() {
                 },
             )
             .unwrap();
-        assert!(plain.debug.is_none());
-        assert_eq!(plain.unfinished, result.unfinished);
-        assert_eq!(plain.undecoded.len(), case.undecoded);
-        for (a, b) in plain.undecoded.iter().zip(&result.undecoded) {
-            assert_eq!(a.format, b.format);
-            assert_eq!(a.polygon, b.polygon);
-        }
-        assert_eq!(plain.barcodes, result.barcodes);
-        let debug = result.debug.as_ref().unwrap();
+        assert_eq!(plain, result.barcodes);
+        let debug = result.diagnostics.as_ref().unwrap();
         let mut actual = debug.raw.clone();
         let mut expected = case.expected.clone();
         remove_timings(&mut actual);

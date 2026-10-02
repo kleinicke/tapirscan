@@ -22,8 +22,8 @@ for mode in ('low', 'medium', 'high', 'very-high'):
             tapirscan.PixelImage(pixels, width=480, height=180),
             extended_budget=True,
         )
-        if result.values != [sys.argv[2]]:
-            raise AssertionError((mode, result.values))
+        if [b.text for b in result] != [sys.argv[2]]:
+            raise AssertionError((mode, result))
 print(json.dumps({'package': tapirscan.__file__, 'modes': 4, 'bundled': True}))
 """
 

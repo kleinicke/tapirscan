@@ -26,14 +26,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_stride(args[4].parse()?);
     let mut options = ScanOptions::default();
     if args.len() == 8 {
-        options.debug = args[6] == "1";
         options.formats = Some(Formats::try_from(args[7].parse::<u32>()?)?);
     }
     let mut scanner = Scanner::new(ScannerOptions {
         mode,
         ..ScannerOptions::default()
     });
-    let result = scanner.scan_with_options(image, options)?;
+    let result = scanner.inspect_with_options(image, options)?;
+    assert_eq!(scanner.scan_with_options(image, options)?, result.barcodes);
     let best = result
         .best()
         .and_then(|best| result.barcodes.iter().position(|b| std::ptr::eq(b, best)));
@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "format": r.format.map_or("Unknown", tapirscan::Format::as_str),
                 "polygon": r.polygon,
             })).collect::<Vec<_>>(),
-            "debug": result.debug.map(|debug| debug.raw),
+            "debug": if args.get(6).is_some_and(|v| v == "1") { result.diagnostics.map(|d| d.raw) } else { None },
         })
     );
     Ok(())

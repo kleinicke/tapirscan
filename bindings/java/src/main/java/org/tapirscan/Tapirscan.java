@@ -11,13 +11,23 @@ public final class Tapirscan {
     private Tapirscan() {}
 
     /** Scan with Medium effort and Retail formats. */
-    public static ScanResult scan(Image image) {
+    public static java.util.List<Barcode> scan(Image image) {
         return scan(image, ScannerOptions.defaults());
     }
 
-    public static ScanResult scan(Image image, ScannerOptions options) {
+    public static java.util.List<Barcode> scan(Image image, ScannerOptions options) {
         try (Scanner scanner = new Scanner(options)) {
             return scanner.scan(image);
+        }
+    }
+    /** Inspect with Medium effort and Retail formats. */
+    public static ScanResult inspect(Image image) {
+        return inspect(image, ScannerOptions.defaults());
+    }
+
+    public static ScanResult inspect(Image image, ScannerOptions options) {
+        try (Scanner scanner = new Scanner(options)) {
+            return scanner.inspect(image);
         }
     }
 }

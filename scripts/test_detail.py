@@ -68,7 +68,7 @@ class Detail(unittest.TestCase):
                         with self.subTest(mode=mode, image=fixture["name"]):
                             width, height = fixture["width"], fixture["height"]
                             path = destination / f"{fixture['name']}.rgba"
-                            native = scanner.scan(
+                            native = scanner.inspect(
                                 PixelImage(
                                     path.read_bytes(),
                                     width=width,
@@ -76,7 +76,6 @@ class Detail(unittest.TestCase):
                                     channels=4,
                                     stride=width * 4,
                                 ),
-                                debug=True,
                             ).to_raw_dict()
                             wasm = run(
                                 "node",

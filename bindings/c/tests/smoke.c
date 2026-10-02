@@ -28,8 +28,14 @@ int main(void) {
     assert(result == 0);
 
     image.length = sizeof(pixels);
-    tapirscan_scan_options debug = {0, 1, 0};
-    assert(tapirscan_scan(scanner, &image, &debug, &result, NULL) == TAPIRSCAN_OK);
+    assert(sizeof(tapirscan_scan_options) == 8);
+    assert(tapirscan_scan(scanner, &image, NULL, &result, NULL) == TAPIRSCAN_OK);
+    uint64_t count = 99;
+    assert(tapirscan_result_count(result, &count) == TAPIRSCAN_OK && count == 0);
+    tapirscan_summary unavailable;
+    assert(tapirscan_result_info(result, &unavailable) == TAPIRSCAN_INVALID_ARGUMENT);
+    assert(tapirscan_result_destroy(result) == TAPIRSCAN_OK);
+    assert(tapirscan_inspect(scanner, &image, NULL, &result, NULL) == TAPIRSCAN_OK);
     assert(tapirscan_scanner_destroy(scanner) == TAPIRSCAN_OK);
     assert(tapirscan_scanner_destroy(scanner) == TAPIRSCAN_INVALID_HANDLE);
 

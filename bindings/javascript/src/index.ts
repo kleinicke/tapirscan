@@ -36,8 +36,6 @@ export interface ScanOptions {
   extendedBudget?: boolean;
   /** Per-call subset of the formats configured at creation. */
   formats?: FormatSelection;
-  /** Include raw engine diagnostics. Public barcodes and unread geometry are always included. */
-  debug?: boolean;
 }
 interface RawDiagnostics {
   scan: { barcodes: RawDiagnosticBarcode[]; unfinished: boolean; candidates?: unknown[] };
@@ -108,7 +106,7 @@ export interface ScanResult {
   readonly elapsedMs: number;
   readonly unfinished: boolean;
   readonly undecoded: readonly UndecodedRegion[];
-  readonly debug?: Diagnostics;
+  readonly diagnostics: Diagnostics;
 }
 export type EanAddOnPolicy = "Ignore" | "Read" | "Require";
 export type ExperimentalTurbo = 2 | 4 | 8 | 16;
@@ -146,16 +144,16 @@ interface WireResult {
 }
 
 const modes: Record<Mode, { id: number; file: string }> = {
-  low: { id: 0, file: "low-native-api-polish-20261002.wasm" },
-  medium: { id: 1, file: "medium-native-api-polish-20261002.wasm" },
-  high: { id: 2, file: "high-native-api-polish-20261002.wasm" },
-  "very-high": { id: 3, file: "very-high-native-api-polish-20261002.wasm" },
+  low: { id: 0, file: "low-api-simple-results-20261002.wasm" },
+  medium: { id: 1, file: "medium-api-simple-results-20261002.wasm" },
+  high: { id: 2, file: "high-api-simple-results-20261002.wasm" },
+  "very-high": { id: 3, file: "very-high-api-simple-results-20261002.wasm" },
 };
 const turboFiles: Record<ExperimentalTurbo, string> = {
-  2: "experimental-turbo2-native-api-polish-20261002.wasm",
-  4: "experimental-turbo4-native-api-polish-20261002.wasm",
-  8: "experimental-turbo8-native-api-polish-20261002.wasm",
-  16: "experimental-turbo16-native-api-polish-20261002.wasm",
+  2: "experimental-turbo2-api-simple-results-20261002.wasm",
+  4: "experimental-turbo4-api-simple-results-20261002.wasm",
+  8: "experimental-turbo8-api-simple-results-20261002.wasm",
+  16: "experimental-turbo16-api-simple-results-20261002.wasm",
 };
 const addOnPolicies: Record<EanAddOnPolicy, number> = { Ignore: 0, Read: 1, Require: 2 };
 
@@ -253,17 +251,17 @@ function wireResult(value: unknown): WireResult {
 function publicResult(
   raw: WireResult,
   elapsedMs: number,
-  debug: boolean,
   experimentalTurbo?: ExperimentalTurbo,
 ): ScanResult {
+  if (!raw.debug) throw new ScannerError("invalid_output", "Scanner omitted requested diagnostics");
   const barcodes = raw.barcodes;
   const undecoded = raw.undecoded.map(({ format, polygon }) => ({
     format: format ?? ("Unknown" as const),
     polygon,
   }));
   const regions = {
-    proposals: raw.debug?.localization?.proposals ?? null,
-    searchWindows: raw.debug?.searchWindows ?? null,
+    proposals: raw.debug.localization?.proposals ?? null,
+    searchWindows: raw.debug.searchWindows ?? null,
     undecoded,
   };
   return freeze({
@@ -276,7 +274,7 @@ function publicResult(
     elapsedMs,
     unfinished: raw.unfinished,
     undecoded,
-    ...(debug && raw.debug ? { debug: { ...raw.debug, regions } } : {}),
+    diagnostics: { ...raw.debug, regions },
   });
 }
 
@@ -361,16 +359,34 @@ export class Scanner {
     return new Scanner(host, mode, formats, addOnPolicy, turbo);
   }
 
-  scan(inputImage: PixelImage, options: ScanOptions = {}): ScanResult {
+  /** Decode barcodes with positions. Use inspect() for diagnostic evidence. */
+  scan(inputImage: PixelImage, options: ScanOptions = {}): readonly Barcode[] {
+    const raw = this.run(inputImage, options, false);
+    if (
+      raw === null ||
+      typeof raw !== "object" ||
+      !("barcodes" in raw) ||
+      !Array.isArray(raw.barcodes)
+    )
+      throw new ScannerError("invalid_output", "Scanner returned an invalid barcode list");
+    return freeze(raw.barcodes as Barcode[]);
+  }
+
+  /** Inspect barcodes, unread regions, work status and engine diagnostics. */
+  inspect(inputImage: PixelImage, options: ScanOptions = {}): ScanResult {
+    const start = performance.now();
+    const raw = wireResult(this.run(inputImage, options, true));
+    return publicResult(raw, performance.now() - start, this.experimentalTurbo);
+  }
+
+  private run(inputImage: PixelImage, options: ScanOptions, inspect: boolean): unknown {
     const image = pixels(inputImage);
     const input: unknown = options;
     if (input === null || typeof input !== "object" || Array.isArray(input))
       throw new TypeError("Invalid scan options");
     for (const key of Object.keys(options))
-      if (!["debug", "formats", "extendedBudget"].includes(key))
+      if (!["formats", "extendedBudget"].includes(key))
         throw new TypeError(`Unknown scan option: ${key}`);
-    if (options.debug !== undefined && typeof options.debug !== "boolean")
-      throw new TypeError("debug must be a boolean");
     if (options.extendedBudget !== undefined && typeof options.extendedBudget !== "boolean")
       throw new TypeError("extendedBudget must be a boolean");
     if (this.experimentalTurbo !== undefined && options.extendedBudget === true)
@@ -380,16 +396,10 @@ export class Scanner {
       throw new TypeError(
         `Scan formats must be a subset of configured formats. Requested: ${formats.join(", ")}; configured: ${this.formats.join(", ")}`,
       );
-    const debug = options.debug ?? false;
-    const flags = (options.extendedBudget ? 1 : 0) | (debug ? 2 : 0);
-    const start = performance.now();
-    const raw = wireResult(
-      this.host.scan(image, flags, options.formats === undefined ? 0 : maskFor(formats)),
-    );
-    if (debug && !raw.debug)
-      throw new ScannerError("invalid_output", "Scanner omitted requested diagnostics");
-    return publicResult(raw, performance.now() - start, debug, this.experimentalTurbo);
+    const flags = (options.extendedBudget ? 1 : 0) | (inspect ? 2 : 0);
+    return this.host.scan(image, flags, options.formats === undefined ? 0 : maskFor(formats));
   }
+
   /** Release the WASM session. Repeated disposal is safe; scanning afterward fails. */
   dispose(): void {
     this.host.dispose();
@@ -400,16 +410,31 @@ export class Scanner {
 export async function scan(
   image: PixelImage,
   options: ScannerOptions & ScanOptions = {},
+): Promise<readonly Barcode[]> {
+  const input: unknown = options;
+  if (input === null || typeof input !== "object" || Array.isArray(input))
+    throw new TypeError("Invalid scan options");
+  const { extendedBudget, ...creation } = options;
+  const scanner = await Scanner.create(creation);
+  try {
+    return scanner.scan(image, { extendedBudget });
+  } finally {
+    scanner.dispose();
+  }
+}
+
+/** Inspect one image with automatic cleanup. */
+export async function inspect(
+  image: PixelImage,
+  options: ScannerOptions & ScanOptions = {},
 ): Promise<ScanResult> {
   const input: unknown = options;
   if (input === null || typeof input !== "object" || Array.isArray(input))
     throw new TypeError("Invalid scan options");
-  const { debug, extendedBudget, ...creation } = options;
-  if (debug !== undefined && typeof debug !== "boolean")
-    throw new TypeError("debug must be a boolean");
+  const { extendedBudget, ...creation } = options;
   const scanner = await Scanner.create(creation);
   try {
-    return scanner.scan(image, { debug, extendedBudget });
+    return scanner.inspect(image, { extendedBudget });
   } finally {
     scanner.dispose();
   }

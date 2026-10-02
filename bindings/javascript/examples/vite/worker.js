@@ -8,7 +8,7 @@ async function initialize() {
   const scanner = await Scanner.create({ loadWasm: async () => bytes });
   self.onmessage = ({ data: image }) => {
     try {
-      self.postMessage({ values: scanner.scan(image).values });
+      self.postMessage({ values: scanner.scan(image).map((b) => b.text) });
     } catch (error) {
       self.postMessage({ error: error.message });
     }

@@ -90,7 +90,7 @@ def check(package: Path) -> None:
                     ean_add_on_policy=policy,
                     library_dir=ROOT / "build/native",
                 ) as scanner:
-                    result = scanner.scan(
+                    result = scanner.inspect(
                         PixelImage(
                             Path(image["file"]).read_bytes(),
                             width=image["width"],
@@ -98,12 +98,11 @@ def check(package: Path) -> None:
                             channels=channels,
                             stride=stride,
                         ),
-                        debug=True,
                         extended_budget=complete,
                     )
                 expected = result.to_raw_dict()
                 del expected["elapsedMs"]
-                if result.debug is None or result.debug.regions is None:
+                if result.diagnostics is None or result.diagnostics.regions is None:
                     message = "Requested diagnostics missing"
                     raise AssertionError(message)
                 cases.append(
@@ -118,7 +117,7 @@ def check(package: Path) -> None:
                         "addons": policies.index(policy),
                         "complete": complete,
                         "expected": expected,
-                        "undecoded": len(result.debug.regions.undecoded),
+                        "undecoded": len(result.diagnostics.regions.undecoded),
                     }
                 )
     if not any(case["expected"].get("recovery", {}).get("additions") for case in cases):

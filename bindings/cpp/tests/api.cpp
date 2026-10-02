@@ -33,7 +33,7 @@ int main() {
     Pixels pixels(9, 255);
     tapirscan::Scanner scanner;
     auto image = tapirscan::Image::gray(pixels, 3, 3);
-    assert(scanner.scan(image).barcodes.empty());
+    assert(scanner.scan(image).empty());
     image.length = 1;
     try { (void)scanner.scan(image); assert(false); }
     catch (const tapirscan::Error& error) {

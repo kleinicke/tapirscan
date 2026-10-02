@@ -69,8 +69,11 @@ def check(manifest_path: Path, library_dir: str | None = None) -> list[dict[str,
                 library_dir=library_dir,
                 ean_add_on_policy=case.get("eanAddOnPolicy", "Ignore"),
             ) as scanner:
-                for debug in (False, True):
-                    result = scanner.scan(pixels, debug=debug)
+                for extended_budget in (False, True):
+                    result = scanner.inspect(
+                        pixels,
+                        extended_budget=extended_budget,
+                    )
                     check_geometry(result, case)
                     checks.assertCountEqual(
                         result.values,
@@ -102,21 +105,25 @@ def check(manifest_path: Path, library_dir: str | None = None) -> list[dict[str,
                             )
                         )
                     checks.assertCountEqual(actual, case["expected"], case["name"])
-                    checks.assertEqual(result.debug is not None, debug)
+                    checks.assertIsNotNone(result.diagnostics)
+                    checks.assertEqual(
+                        scanner.scan(pixels, extended_budget=extended_budget),
+                        list(result.barcodes),
+                    )
                     if case.get("expectUnread"):
                         checks.assertTrue(result.undecoded, case["name"])
-                    if debug and case.get("expectUnread"):
-                        checks.assertIsNotNone(result.debug)
+                    if case.get("expectUnread"):
+                        checks.assertIsNotNone(result.diagnostics)
                         if (
-                            result.debug is not None
-                            and result.debug.regions is not None
+                            result.diagnostics is not None
+                            and result.diagnostics.regions is not None
                         ):
                             checks.assertTrue(
-                                result.debug.regions.undecoded, case["name"]
+                                result.diagnostics.regions.undecoded, case["name"]
                             )
                         else:
                             checks.fail("Missing undecoded evidence")
-                    if not debug:
+                    if not extended_budget:
                         observations.append(
                             {
                                 "mode": mode,

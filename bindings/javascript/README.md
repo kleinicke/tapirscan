@@ -1,5 +1,18 @@
 # Tapirscan for JavaScript and TypeScript
 
+`scan(image)` returns a frozen array of barcodes. Each has `text`, `format`, and
+source-image `polygon` / `rect` coordinates. No detection returns `[]`.
+
+```js
+import { scan } from "tapirscan";
+const barcodes = await scan(image);
+for (const barcode of barcodes) console.log(barcode.text, barcode.polygon);
+```
+
+Use `scanner.scan(image)` when reusing a scanner. For unread regions, work status,
+timing and engine evidence, explicitly call `inspect(image)` or `scanner.inspect(image)`.
+The inspection examples and advanced options follow. There is no `debug` option.
+
 Scan image pixels in a browser or Node with the same Rust/WASM core.
 [Try the live demo](https://tapirscan.f-kleinicke.de) · [Quick start](#quick-start) · [WASM loading](#wasm-loading) · [Functions](#functions) · [All options](#all-options) · [Results](#results)
 
@@ -16,15 +29,15 @@ WebAssembly SIMD.
 Pass a canvas's `ImageData` directly:
 
 ```js
-import { scan } from "tapirscan";
+import { inspect } from "tapirscan";
 
 // Using an existing canvas and its 2D context:
 const image = context.getImageData(0, 0, canvas.width, canvas.height);
-const result = await scan(image);
+const result = await inspect(image);
 console.log(result.values); // e.g. ["4006381333931"]
 ```
 
-Defaults are Medium effort, retail formats, multiple results, and debug disabled.
+Defaults are Medium effort, retail formats, multiple results, and diagnostics available through inspection.
 `result.barcodes` also gives each read's text, format, polygon and rectangle.
 The helper creates and disposes a scanner automatically. Browser apps need to
 serve its [WASM assets](#wasm-loading); Node loads the packaged files automatically.
@@ -36,7 +49,7 @@ import { Scanner } from "tapirscan";
 
 const scanner = await Scanner.create({ mode: "high", formats: "1D" });
 try {
-  const result = scanner.scan(image);
+  const result = scanner.inspect(image);
   for (const barcode of result.barcodes) {
     console.log(barcode.text, barcode.format, barcode.polygon);
   }
@@ -47,7 +60,7 @@ try {
 
 Here `image` is the `ImageData` above. `formats: "1D"` enables all supported linear
 formats; readers outside the retail group remain experimental. Settings also work with the helper:
-`await scan(image, { mode: "high", formats: "1D" })`.
+`await inspect(image, { mode: "high", formats: "1D" })`.
 
 `formats: "retail"` selects EAN13, UPCA,
 EAN8 and UPCE. `"common1D"` adds Code128, Code39 and ITF; `"common"` adds
@@ -61,14 +74,14 @@ For faster **1D barcode scanning**, opt into a Turbo preset:
 ```js
 const scanner = await Scanner.create({ experimentalTurbo: 4, formats: "retail" });
 try {
-  const result = scanner.scan(image);
+  const result = scanner.inspect(image);
   console.log(result.values, result.experimentalTurbo); // Selected preset: 4
 } finally {
   scanner.dispose();
 }
 
 // The one-shot helper accepts the same selection:
-const result = await scan(image, { experimentalTurbo: 8 });
+const result = await inspect(image, { experimentalTurbo: 8 });
 ```
 
 Accepted values are **2, 4, 8 and 16**. These identify presets with historical
@@ -91,7 +104,7 @@ Fast linear scans report unfinished work; this does not invalidate decoded value
 
 Turbo requires the default `eanAddOnPolicy: "Ignore"` and rejects
 `extendedBudget: true`, because those options would bypass the fast linear path.
-Per-call format subsets and `debug` work normally.
+Per-call format subsets and inspection work normally.
 
 **API stability:** this option, its accepted presets and associated experimental
 asset imports may change or be removed in a minor release; patch releases retain
@@ -124,7 +137,7 @@ In Node, the default loader reads assets from the installed package. Decode your
 image with an image library first, then pass grayscale, RGB or RGBA bytes:
 
 ```js
-const result = await scan({ data: pixels, width, height, channels: 1, stride: width });
+const result = await inspect({ data: pixels, width, height, channels: 1, stride: width });
 ```
 
 Here `pixels` is a Uint8Array of decoded grayscale pixels. Image codecs are not
@@ -145,7 +158,7 @@ if (!response.ok) throw new Error(`WASM load failed: ${response.status}`);
 const bytes = await response.arrayBuffer();
 const scanner = await Scanner.create({ loadWasm: async () => bytes });
 try {
-  console.log(scanner.scan(image).values);
+  console.log(scanner.inspect(image).values);
 } finally {
   scanner.dispose();
 }
@@ -179,14 +192,14 @@ Then point the scanner at that directory:
 ```js
 const scanner = await Scanner.create({ wasmBaseUrl: "/tapirscan/" });
 try {
-  console.log(scanner.scan(image).values);
+  console.log(scanner.inspect(image).values);
 } finally {
   scanner.dispose();
 }
 ```
 
 The one-shot helper accepts the same option:
-`await scan(image, { wasmBaseUrl: "/tapirscan/" })`.
+`await inspect(image, { wasmBaseUrl: "/tapirscan/" })`.
 `wasmBaseUrl` accepts a string or URL, with or without a trailing slash. Relative
 URLs resolve against the page/worker URL in browsers and the package module in
 Node; use an absolute URL for an unambiguous location. For authenticated requests
@@ -225,17 +238,17 @@ HTTPS (localhost works for development).
 
 ## Functions
 
-| Function                            | Return type           | Behavior                                                                                                                  |
-| ----------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `scan(image, options = {})`         | `Promise<ScanResult>` | One image with automatic scanner creation and disposal, including on failure. Accepts creation and scan options together. |
-| `Scanner.create(options = {})`      | `Promise<Scanner>`    | Initialize a reusable scanner. Mode is fixed; formats define defaults and allowed per-call subsets.                       |
-| `scanner.scan(image, options = {})` | `ScanResult`          | Synchronously scan pixels. Accepts scan options only.                                                                     |
-| `scanner.dispose()`                 | `void`                | Release WASM sessions. Repeated disposal is safe; do not scan after disposal.                                             |
+| Function                               | Return type           | Behavior                                                                                                                  |
+| -------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `inspect(image, options = {})`         | `Promise<ScanResult>` | One image with automatic scanner creation and disposal, including on failure. Accepts creation and scan options together. |
+| `Scanner.create(options = {})`         | `Promise<Scanner>`    | Initialize a reusable scanner. Mode is fixed; formats define defaults and allowed per-call subsets.                       |
+| `scanner.inspect(image, options = {})` | `ScanResult`          | Synchronously scan pixels. Accepts scan options only.                                                                     |
+| `scanner.dispose()`                    | `void`                | Release WASM sessions. Repeated disposal is safe; do not scan after disposal.                                             |
 
 `image` is required for either scan function. All options are optional. Reuse a
 scanner for successive frames to avoid repeated initialization; create another
 to change effort or enable formats outside its configured selection. A per-call
-subset such as `scanner.scan(image, { formats: "EAN13" })` applies only to that
+subset such as `scanner.inspect(image, { formats: "EAN13" })` applies only to that
 call and does not change the default formats. Previously returned results survive disposal. `scanner.formats` exposes the frozen creation selection.
 
 ## All options
@@ -249,7 +262,6 @@ call and does not change the default formats. Previously returned results surviv
 | `loadWasm`          | Creation            | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`. Uses HTTP fetch in browsers and filesystem reads for Node file URLs.                                                        |
 | `eanAddOnPolicy`    | Creation / one-shot | `"Ignore"`             | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                            |
 | `extendedBudget`    | Scan / one-shot     | `false`                | Allow extra reader work for any format. Exact budgets may evolve.                                                                                                 |
-| `debug`             | Scan                | `false`                | Include search evidence under `result.debug`. Decoded polygons are always returned.                                                                               |
 
 Format presets cover supported symbologies. Exports `commonFormats`, `commonLinearFormats`, `linearFormats`, `matrixFormats`
 and `retailFormats` let you compose custom selections; `formatBits` provides their
@@ -287,7 +299,7 @@ call. Convert DOM image elements or encoded images to pixels before scanning.
 | `result.elapsedMs`             | `number`                                                       | Host scan time in milliseconds; excludes file loading and scanner initialization.                          |
 | `result.unfinished`            | `boolean`                                                      | Incomplete work; returned reads may still be useful.                                                       |
 | `result.undecoded`             | `readonly UndecodedRegion[]`                                   | Localized proposals without accepted decodes; always available.                                            |
-| `result.debug`                 | `Diagnostics \| undefined`                                     | Requested diagnostic evidence; absent by default.                                                          |
+| `result.diagnostics`           | `Diagnostics`                                                  | Engine evidence from inspection.                                                                           |
 | `barcode.payloadBytes`         | `readonly number[] \| undefined`                               | Original decoded matrix payload bytes when available; use `Uint8Array.from(...)` for an owned byte buffer. |
 | `barcode.text`                 | `string`                                                       | Decoded text.                                                                                              |
 | `barcode.format`               | `Format \| "Unknown"`                                          | Symbology identifier.                                                                                      |
@@ -319,7 +331,7 @@ checks still validate pixel buffers and dimensions.
 
 ## EAN/UPC supplements
 
-Set `eanAddOnPolicy: "Read"` when creating a scanner or calling one-shot `scan()`.
+Set `eanAddOnPolicy: "Read"` when creating a scanner or calling one-shot `inspect()`.
 The policy is fixed for that scanner; its default is `"Ignore"`.
 
 | Policy      | Behavior                                                                                         |
@@ -347,12 +359,12 @@ payload your application needs when that distinction matters. Checksums and cons
 checks reduce wrong reads but cannot guarantee that every returned decode is correct.
 
 Select EAN13/UPCA, Common1D and QR Code search effort with `mode: "low"` through `"very-high"` at creation.
-Other matrix readers use fixed effort. `result.unfinished` is available without debug and
+Other matrix readers use fixed effort. `result.unfinished` is available in inspection reports and
 combines reported decoding and localization limits. Returned reads are still usable.
 Candidate, retry and parsing caps are reported, including bounded searches that
 also returned reads. False does not promise exhaustive scanning. Exact budgets and interruptible timeouts are not public options.
 
-`debug: true` adds attempted search windows, localization proposals, candidate
+Inspection includes attempted search windows, localization proposals, candidate
 outcomes and engine traces. It is unnecessary for drawing decoded barcode locations.
 
 ### Switching between retail and QR scanning
@@ -361,8 +373,8 @@ outcomes and engine traces. It is unnecessary for drawing decoded barcode locati
 const scanner = await Scanner.create({ formats: "common" });
 try {
   console.log(scanner.formats);
-  const retail = scanner.scan(image, { formats: "retail" });
-  const qr = scanner.scan(image, { formats: "QRCode" });
+  const retail = scanner.inspect(image, { formats: "retail" });
+  const qr = scanner.inspect(image, { formats: "QRCode" });
 } finally {
   scanner.dispose();
 }
@@ -378,15 +390,15 @@ unchanged. The frozen number array is directly JSON-compatible.
 ## Diagnostics and errors
 
 ```js
-const result = scanner.scan(image, { debug: true });
-if (result.debug) {
-  console.log(result.debug.regions.proposals, result.debug.regions.searchWindows);
-  console.log(result.debug.regions.undecoded);
-  console.log(result.debug.scan.barcodes);
+const result = scanner.inspect(image, {});
+if (result.diagnostics) {
+  console.log(result.diagnostics.regions.proposals, result.diagnostics.regions.searchWindows);
+  console.log(result.diagnostics.regions.undecoded);
+  console.log(result.diagnostics.scan.barcodes);
 }
 ```
 
-`debug.regions` has a stable shape across creation formats: `proposals` and
+`diagnostics.regions` has a stable shape across creation formats: `proposals` and
 `searchWindows` contain evidence or null when unavailable, and `undecoded` contains
 unread source-image geometry as immutable `UndecodedRegion` objects (`format` hint
 and `polygon`, with no decoded text). Empty arrays mean available evidence with no entries.
@@ -396,7 +408,7 @@ Diagnostics also retain the raw schema-2 result: `scan` includes support and can
 evidence, and `localizationLimited` reports localization limits. Depending on the
 reader, `localization`, `searchWindows`, `recovery` and `detailRegions` may be
 present. GS1, reader initialization and structured append are available directly on
-barcodes without debug; raw metadata also retains these fields where supported.
+barcodes in inspection reports; raw metadata also retains these fields where supported.
 Candidate indices inside recovery crops are local to the crop and are not
 identifiers for tracking between frames.
 
@@ -407,7 +419,7 @@ promises on failure. Always dispose reusable scanners with `finally`.
 
 ## Extended work budget
 
-Use `scanner.scan(image, { extendedBudget: true })` to allow additional reader work. The default
+Use `scanner.inspect(image, { extendedBudget: true })` to allow additional reader work. The default
 is false. This option is valid for every format; the exact budgets and stages are
 implementation details that may evolve. Effort mode remains a separate setting.
 
@@ -419,7 +431,7 @@ engines must support the extended-work capability or report an error.
 
 ## Undecoded regions
 
-`result.undecoded` is always available, independently of `debug`. Each entry has
+`result.undecoded` is always available, in inspection reports. Each entry has
 a source-image polygon and a format hint. It is a localized proposal without an
 accepted decode, not proof of a real or permanently unreadable barcode. Entries
 can overlap or describe false candidates. An empty collection does not prove

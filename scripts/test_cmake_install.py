@@ -20,7 +20,7 @@ int main() {
         tapirscan::ScannerOptions options;
         options.mode = mode;
         const auto image = tapirscan::Image::gray(pixels, 64, 64);
-        const auto result = tapirscan::scan(image, options);
+        const auto result = tapirscan::inspect(image, options);
         if (!result.barcodes.empty()) return 1;
         std::cout << (mode == tapirscan::Mode::Low ? "" : ",") << '"'
                   << tapirscan::to_string(result.mode) << '"';

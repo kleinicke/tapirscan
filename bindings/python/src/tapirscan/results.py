@@ -185,11 +185,7 @@ class Diagnostics:
 
 @dataclass(frozen=True)
 class ScanResult(Sequence[Barcode]):
-    """Iterate/index barcodes directly; access evidence through attributes.
-
-    Empty results are false even when undecoded regions exist. ``debug is None``
-    means diagnostic evidence was not requested.
-    """
+    """Inspection report with decoded barcodes and optional engine evidence."""
 
     barcodes: tuple[Barcode, ...]
     best: Barcode | None
@@ -198,7 +194,7 @@ class ScanResult(Sequence[Barcode]):
     unfinished: bool
     undecoded: tuple[UndecodedRegion, ...]
     image: ImageSize
-    debug: Diagnostics | None
+    diagnostics: Diagnostics
     _json: bytes = field(repr=False, compare=False)
 
     @override
@@ -230,7 +226,7 @@ class ScanResult(Sequence[Barcode]):
     def as_dict(self) -> dict[str, JSONValue]:
         """Return independent JSON-compatible public results, excluding diagnostics.
 
-        Use debug.to_raw_dict() separately when engine evidence is needed.
+        Use diagnostics.to_raw_dict() separately when engine evidence is needed.
         """
         return {
             "barcodes": [barcode.as_dict() for barcode in self.barcodes],
@@ -300,7 +296,7 @@ def _undecoded(value: dict[str, Any]) -> tuple[UndecodedRegion, ...]:
     return tuple(unread)
 
 
-def _from_json(raw: bytes, width: int, height: int, *, debug: bool) -> ScanResult:
+def _from_json(raw: bytes, width: int, height: int) -> ScanResult:
     # Dynamic values are confined to this trusted, versioned native ABI boundary.
     value: dict[str, Any] = json.loads(raw)
     if value["schemaVersion"] != SCHEMA_VERSION or value["mode"] not in (
@@ -314,7 +310,7 @@ def _from_json(raw: bytes, width: int, height: int, *, debug: bool) -> ScanResul
     frame = value["scan"]
     undecoded = _undecoded(value)
     regions = None
-    if debug and ("localization" in value or "regions" in frame):
+    if "localization" in value or "regions" in frame:
         loc = value.get(
             "localization", {"proposals": [], "omitted": 0, "workLimited": False}
         )
@@ -372,8 +368,6 @@ def _from_json(raw: bytes, width: int, height: int, *, debug: bool) -> ScanResul
             ),
             value["localizationLimited"],
             raw,
-        )
-        if debug
-        else None,
+        ),
         raw,
     )

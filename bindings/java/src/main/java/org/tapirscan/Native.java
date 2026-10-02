@@ -16,9 +16,9 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 
-/** Native ABI 6 entry points from tapirscan.h, loaded once per JVM. */
+/** Native ABI 7 entry points from tapirscan.h, loaded once per JVM. */
 final class Native {
-    static final int ABI_VERSION = 6;
+    static final int ABI_VERSION = 7;
     static final MemoryLayout IMAGE = MemoryLayout.structLayout(
             ADDRESS.withName("data"), JAVA_LONG.withName("length"),
             JAVA_LONG.withName("width"), JAVA_LONG.withName("height"),
@@ -40,7 +40,7 @@ final class Native {
     static final MemoryLayout SCANNER_OPTIONS = MemoryLayout.structLayout(
             JAVA_INT.withName("mode"), JAVA_INT.withName("formats"), JAVA_INT.withName("addonPolicy"));
     static final MemoryLayout SCAN_OPTIONS = MemoryLayout.structLayout(
-            JAVA_INT.withName("formats"), JAVA_INT.withName("debug"), JAVA_INT.withName("extendedBudget"));
+            JAVA_INT.withName("formats"), JAVA_INT.withName("extendedBudget"));
     static final MemoryLayout ERROR = MemoryLayout.sequenceLayout(512, JAVA_BYTE);
 
     static long offset(MemoryLayout layout, String field) {
@@ -50,7 +50,7 @@ final class Native {
 
     private static Native instance;
 
-    final MethodHandle statusMessage, create, destroy, scan, info, barcode, undecoded, copy,
+    final MethodHandle statusMessage, create, destroy, scan, inspect, count, info, barcode, undecoded, copy,
             copyJson, jsonLength, destroyResult;
 
     static synchronized Native get() {
@@ -78,6 +78,8 @@ final class Native {
         create = bind(symbols, "tapirscan_scanner_create", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS));
         destroy = bind(symbols, "tapirscan_scanner_destroy", FunctionDescriptor.of(JAVA_INT, JAVA_LONG));
         scan = bind(symbols, "tapirscan_scan", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS, ADDRESS, ADDRESS, ADDRESS));
+        inspect = bind(symbols, "tapirscan_inspect", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS, ADDRESS, ADDRESS, ADDRESS));
+        count = bind(symbols, "tapirscan_result_count", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS));
         info = bind(symbols, "tapirscan_result_info", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS));
         barcode = bind(symbols, "tapirscan_result_barcode", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, ADDRESS));
         undecoded = bind(symbols, "tapirscan_result_undecoded", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, ADDRESS));

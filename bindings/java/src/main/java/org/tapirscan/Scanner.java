@@ -50,12 +50,26 @@ public final class Scanner implements AutoCloseable {
         return options;
     }
 
-    public ScanResult scan(Image image) {
+    public List<Barcode> scan(Image image) {
         return scan(image, ScanOptions.defaults());
     }
 
     /** Scan one image. No detection is a successful empty result. */
-    public synchronized ScanResult scan(Image image, ScanOptions scan) {
+    public List<Barcode> scan(Image image, ScanOptions scan) {
+        return run(image, scan, false, this::readBarcodes);
+    }
+
+    /** Inspect one image, including work status, unread regions and diagnostics. */
+    public ScanResult inspect(Image image) {
+        return inspect(image, ScanOptions.defaults());
+    }
+
+    public ScanResult inspect(Image image, ScanOptions scan) {
+        return run(image, scan, true, this::read);
+    }
+
+    private synchronized <T> T run(Image image, ScanOptions scan, boolean inspect,
+            java.util.function.BiFunction<Arena, Long, T> reader) {
         Objects.requireNonNull(image);
         Objects.requireNonNull(scan);
         if (handle == 0) throw new IllegalStateException("Scanner is closed");
@@ -72,24 +86,23 @@ public final class Scanner implements AutoCloseable {
             input.set(JAVA_LONG, offset(Native.IMAGE, "stride"), image.stride());
             MemorySegment settings = arena.allocate(Native.SCAN_OPTIONS);
             settings.set(JAVA_INT, offset(Native.SCAN_OPTIONS, "formats"), scan.formats().map(Format::mask).orElse(0));
-            settings.set(JAVA_INT, offset(Native.SCAN_OPTIONS, "debug"), scan.debug() ? 1 : 0);
             settings.set(JAVA_INT, offset(Native.SCAN_OPTIONS, "extendedBudget"), scan.extendedBudget() ? 1 : 0);
             MemorySegment out = arena.allocate(JAVA_LONG);
             MemorySegment error = arena.allocate(Native.ERROR);
-            lib.check(Native.call(lib.scan, handle, input, settings, out, error), error);
+            lib.check(Native.call(inspect ? lib.inspect : lib.scan, handle, input, settings, out, error), error);
             long result = out.get(JAVA_LONG, 0);
             try {
-                return read(arena, result, scan.debug());
+                return reader.apply(arena, result);
             } finally {
                 lib.check(Native.call(lib.destroyResult, result));
             }
         }
     }
 
-    private ScanResult read(Arena arena, long result, boolean debug) {
-        MemorySegment summary = arena.allocate(Native.SUMMARY);
-        lib.check(Native.call(lib.info, result, summary));
-        long count = summary.get(JAVA_LONG, offset(Native.SUMMARY, "barcodeCount")), regions = summary.get(JAVA_LONG, offset(Native.SUMMARY, "undecodedCount"));
+    private List<Barcode> readBarcodes(Arena arena, long result) {
+        MemorySegment countOut = arena.allocate(JAVA_LONG);
+        lib.check(Native.call(lib.count, result, countOut));
+        long count = countOut.get(JAVA_LONG, 0);
         List<Barcode> barcodes = new ArrayList<>();
         MemorySegment value = arena.allocate(Native.BARCODE);
         for (long i = 0; i < count; i++) {
@@ -111,6 +124,14 @@ public final class Scanner implements AutoCloseable {
                     tristate(value.get(JAVA_INT, offset(Native.BARCODE, "readerInitialization"))),
                     append));
         }
+        return List.copyOf(barcodes);
+    }
+
+    private ScanResult read(Arena arena, long result) {
+        List<Barcode> barcodes = readBarcodes(arena, result);
+        MemorySegment summary = arena.allocate(Native.SUMMARY);
+        lib.check(Native.call(lib.info, result, summary));
+        long regions = summary.get(JAVA_LONG, offset(Native.SUMMARY, "undecodedCount"));
         List<UndecodedRegion> undecoded = new ArrayList<>();
         MemorySegment region = arena.allocate(Native.REGION);
         for (long i = 0; i < regions; i++) {
@@ -119,14 +140,14 @@ public final class Scanner implements AutoCloseable {
             undecoded.add(new UndecodedRegion(
                     format == 0 ? Optional.empty() : Optional.of(Format.fromBit(format)), polygon(region)));
         }
-        Optional<String> json = Optional.empty();
-        if (debug) {
+        String json;
+        {
             MemorySegment length = arena.allocate(JAVA_LONG);
             lib.check(Native.call(lib.jsonLength, result, length));
             long jsonLength = length.get(JAVA_LONG, 0);
             MemorySegment bytes = arena.allocate(jsonLength + 1);
             lib.check(Native.call(lib.copyJson, result, bytes, jsonLength + 1));
-            json = Optional.of(new String(bytes.asSlice(0, jsonLength).toArray(JAVA_BYTE), StandardCharsets.UTF_8));
+            json = new String(bytes.asSlice(0, jsonLength).toArray(JAVA_BYTE), StandardCharsets.UTF_8);
         }
         return new ScanResult(barcodes, undecoded,
                 Math.toIntExact(summary.get(JAVA_LONG, offset(Native.SUMMARY, "width"))), Math.toIntExact(summary.get(JAVA_LONG, offset(Native.SUMMARY, "height"))),

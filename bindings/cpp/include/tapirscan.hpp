@@ -15,7 +15,7 @@
 #include <vector>
 
 namespace tapirscan {
-static_assert(sizeof(void*) == 8, "Native ABI 6 requires a 64-bit target");
+static_assert(sizeof(void*) == 8, "Native ABI 7 requires a 64-bit target");
 
 /// A native failure. `code` is the C status.
 class Error : public std::runtime_error {
@@ -147,8 +147,6 @@ struct Image {
 struct ScanOptions {
     /// Readers for this call; empty uses the scanner's formats.
     std::optional<Formats> formats;
-    /// Include unstable engine diagnostics as JSON in `ScanResult::debug`.
-    bool debug = false;
     /// Allow reader-specific extra work. It is not a deadline or exhaustive search.
     bool extended_budget = false;
 };
@@ -203,8 +201,8 @@ struct ScanResult {
     double elapsed_ms = 0;
     /// The engine reported a work limit. False does not guarantee exhaustive scanning.
     bool unfinished = false;
-    /// Engine diagnostics JSON, present only when `ScanOptions::debug` was set.
-    std::optional<std::string> debug;
+    /// Unstable engine diagnostics JSON from inspection.
+    std::string diagnostics;
 
     /// Highest support, keeping the first read on ties; null when empty.
     const Barcode* best() const {
@@ -257,17 +255,12 @@ public:
     Result(const Result&) = delete;
     Result& operator=(const Result&) = delete;
 
-    ScanResult read(bool debug) const {
-        tapirscan_summary info{};
-        check(tapirscan_result_info(handle_, &info));
-        ScanResult result;
-        result.width = info.width;
-        result.height = info.height;
-        result.mode = static_cast<Mode>(info.mode);
-        result.elapsed_ms = info.elapsed_ms;
-        result.unfinished = info.unfinished != 0;
-        result.barcodes.reserve(static_cast<std::size_t>(info.barcode_count));
-        for (std::uint64_t i = 0; i < info.barcode_count; ++i) {
+    std::vector<Barcode> barcodes() const {
+        std::uint64_t count = 0;
+        check(tapirscan_result_count(handle_, &count));
+        std::vector<Barcode> barcodes;
+        barcodes.reserve(static_cast<std::size_t>(count));
+        for (std::uint64_t i = 0; i < count; ++i) {
             tapirscan_barcode b{};
             check(tapirscan_result_barcode(handle_, i, &b));
             Barcode barcode;
@@ -294,8 +287,21 @@ public:
                 }
                 barcode.structured_append = std::move(append);
             }
-            result.barcodes.push_back(std::move(barcode));
+            barcodes.push_back(std::move(barcode));
         }
+        return barcodes;
+    }
+
+    ScanResult read() const {
+        tapirscan_summary info{};
+        check(tapirscan_result_info(handle_, &info));
+        ScanResult result;
+        result.barcodes = barcodes();
+        result.width = info.width;
+        result.height = info.height;
+        result.mode = static_cast<Mode>(info.mode);
+        result.elapsed_ms = info.elapsed_ms;
+        result.unfinished = info.unfinished != 0;
         result.undecoded.reserve(static_cast<std::size_t>(info.undecoded_count));
         for (std::uint64_t i = 0; i < info.undecoded_count; ++i) {
             tapirscan_region r{};
@@ -305,14 +311,14 @@ public:
             region.polygon = quad(r.polygon);
             result.undecoded.push_back(region);
         }
-        if (debug) {
+        {
             std::uint64_t length = 0;
             check(tapirscan_result_json_length(handle_, &length));
             std::string json(static_cast<std::size_t>(length) + 1, '\0');
             check(tapirscan_result_copy_json(handle_, reinterpret_cast<std::uint8_t*>(json.data()),
                                              json.size()));
             json.pop_back();
-            result.debug = std::move(json);
+            result.diagnostics = std::move(json);
         }
         return result;
     }
@@ -371,24 +377,37 @@ public:
     const ScannerOptions& options() const noexcept { return options_; }
 
     /// Scan one image. No detection is a successful empty result.
-    ScanResult scan(const Image& image, const ScanOptions& options = {}) const {
+    std::vector<Barcode> scan(const Image& image, const ScanOptions& options = {}) const {
+        return run(image, options, false).barcodes();
+    }
+
+    /// Inspect one image, including work status, unread regions and diagnostics.
+    ScanResult inspect(const Image& image, const ScanOptions& options = {}) const {
+        return run(image, options, true).read();
+    }
+
+private:
+    detail::Result run(const Image& image, const ScanOptions& options, bool inspect) const {
         if (!handle_) throw std::logic_error("Scanner was moved from");
         const tapirscan_image native_image{image.data,   image.length,   image.width,
                                            image.height, image.channels, image.stride};
         const tapirscan_scan_options native{options.formats ? options.formats->bits() : 0u,
-                                            options.debug ? 1u : 0u,
                                             options.extended_budget ? 1u : 0u};
         tapirscan_result result = 0;
         tapirscan_error error{};
-        auto status = tapirscan_scan(handle_, &native_image, &native, &result, &error);
+        auto status = (inspect ? tapirscan_inspect : tapirscan_scan)(handle_, &native_image, &native, &result, &error);
         if (status != TAPIRSCAN_OK) throw Error(status, error.message);
-        return detail::Result(result).read(options.debug);
+        return detail::Result(result);
     }
 };
 
 /// Scan one image with a temporary scanner. Reuse a `Scanner` for many images.
-inline ScanResult scan(const Image& image, const ScannerOptions& scanner = {},
+inline std::vector<Barcode> scan(const Image& image, const ScannerOptions& scanner = {},
                        const ScanOptions& options = {}) {
     return Scanner(scanner).scan(image, options);
+}
+/// Inspect one image with a temporary scanner.
+inline ScanResult inspect(const Image& image, const ScannerOptions& scanner = {}, const ScanOptions& options = {}) {
+    return Scanner(scanner).inspect(image, options);
 }
 }  // namespace tapirscan

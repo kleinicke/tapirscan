@@ -255,7 +255,7 @@ def main() -> None:
                 json.dumps(
                     {
                         "schema": 1,
-                        "apiVersion": 1,
+                        "apiVersion": 2,
                         "sourceDigest": digest,
                         "sourceFiles": inputs,
                         "modes": [records[mode] for mode in MODES if mode in records],

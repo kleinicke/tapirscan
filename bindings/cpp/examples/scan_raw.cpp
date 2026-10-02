@@ -58,11 +58,17 @@ int main(int argc, char** argv) {
         scanner_options.mode = mode(argv[1]);
         tapirscan::ScanOptions options;
         if (argc == 9) {
-            options.debug = std::string(argv[7]) == "1";
             options.formats = tapirscan::Formats::from_bits(static_cast<std::uint32_t>(std::stoul(argv[8])));
         }
         // Results own their data and survive the scanner.
-        const auto result = tapirscan::Scanner(scanner_options).scan(image, options);
+        tapirscan::Scanner scanner(scanner_options);
+        const auto result = scanner.inspect(image, options);
+        const auto barcodes = scanner.scan(image, options);
+        if (barcodes.size() != result.barcodes.size()) throw std::runtime_error("Scan/inspect count differs");
+        for (std::size_t i = 0; i < barcodes.size(); ++i) {
+            if (barcodes[i].text != result.barcodes[i].text || barcodes[i].format != result.barcodes[i].format || barcodes[i].rect() != result.barcodes[i].rect())
+                throw std::runtime_error("Scan/inspect barcode differs");
+        }
 
         std::cout << "{\"mode\":" << json_string(tapirscan::to_string(result.mode))
                   << ",\"unfinished\":" << (result.unfinished ? "true" : "false") << ",\"best\":";
@@ -81,7 +87,7 @@ int main(int argc, char** argv) {
                       << json_string(r.format ? tapirscan::to_string(*r.format) : "Unknown")
                       << ",\"polygon\":" << polygon(r.polygon) << '}';
         }
-        std::cout << "],\"debug\":" << result.debug.value_or("null") << "}\n";
+        std::cout << "],\"debug\":" << (argc > 7 && std::string(argv[7]) == "1" ? result.diagnostics : "null") << "}\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

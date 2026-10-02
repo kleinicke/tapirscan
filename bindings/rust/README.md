@@ -1,5 +1,19 @@
 # Tapirscan for Rust
 
+`scan(image)` returns `Result<Vec<Barcode>, Error>`: decoded text, format and
+source-image geometry, with an empty vector when nothing is decoded.
+Use `inspect(image)` for a `ScanResult` containing work status, unread regions,
+timing and diagnostics. Both have `_with_options` variants. There is no debug flag.
+
+```rust
+use tapirscan::Image;
+let pixels = [255; 64 * 64];
+for barcode in tapirscan::scan(Image::gray(&pixels, 64, 64))? {
+    println!("{} {:?}", barcode.text, barcode.polygon);
+}
+# Ok::<(), tapirscan::Error>(())
+```
+
 Scan decoded pixels and receive every accepted barcode, source-image geometry,
 undecoded proposals and reported work limits. Defaults are Medium effort and
 retail formats (EAN13, UPCA, EAN8 and UPCE).
@@ -7,7 +21,7 @@ retail formats (EAN13, UPCA, EAN8 and UPCE).
 ```rust
 use tapirscan::Image;
 let pixels = vec![255; 640 * 480];
-let result = tapirscan::scan(Image::gray(&pixels, 640, 480))?;
+let result = tapirscan::inspect(Image::gray(&pixels, 640, 480))?;
 for barcode in &result {
     println!("{} {:?} {:?}", barcode.text, barcode.format, barcode.polygon);
 }
@@ -28,14 +42,14 @@ let mut scanner = Scanner::new(ScannerOptions {
     ..ScannerOptions::default()
 });
 let pixels = vec![255; 320 * 240];
-let result = scanner.scan_with_options(Image::gray(&pixels, 320, 240), ScanOptions {
+let result = scanner.inspect_with_options(Image::gray(&pixels, 320, 240), ScanOptions {
     extended_budget: true,
     ..ScanOptions::default()
 })?;
 # Ok::<(), tapirscan::Error>(())
 ```
 
-`scan(image)` uses default per-image options; `scan_with_options(image, options)`
+`inspect(image)` uses default per-image options; `inspect_with_options(image, options)`
 sets overrides. Both forms are available as free functions and scanner methods.
 
 Reuse a scanner across frames; ordinary RAII releases resources. Scans borrow
@@ -57,7 +71,6 @@ one. Nonretail formats are unaffected.
 | Per-scan option   | Default | Meaning                                |
 | ----------------- | ------- | -------------------------------------- |
 | `formats`         | `None`  | Override readers for this call         |
-| `debug`           | `false` | Retain raw engine evidence             |
 | `extended_budget` | `false` | Allow extra reader work for any format |
 
 `extended_budget: true` allows additional reader work for any selected format.
@@ -70,7 +83,7 @@ options never change scanner configuration.
 ## Results
 
 `ScanResult` exposes `barcodes`, `undecoded`, `image_size`, `mode`, `elapsed`
-(`Duration`), `unfinished`, `localization_limited` and optional `debug`. Iterate by reference or consume
+(`Duration`), `unfinished`, `localization_limited` and `diagnostics`. Iterate by reference or consume
 it to move barcodes. `values()` borrows text. `best()` borrows the
 largest-support read, keeping first-read ties. Support is reader-specific and
 not comparable confidence across formats or efforts.
@@ -82,8 +95,7 @@ payload bytes, supplement text, structured append and optional GS1/initializatio
 flags. `None` flags mean unavailable, not false. Structured append indices are
 one-based; the caller assembles messages. Main geometry excludes supplements.
 
-`undecoded` contains localized proposals without accepted decodes, independently
-of debug. These can be false candidates, overlapping regions or deferred work.
+`undecoded` contains localized proposals without accepted decodes, in inspection reports. These can be false candidates, overlapping regions or deferred work.
 They do not prove a real barcode is unreadable. An empty list and `unfinished:
 false` do not guarantee exhaustive coverage. Debug raw schemas are unstable.
 

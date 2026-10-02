@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes as c
+import json
 import os
 import sys
 from contextlib import suppress
@@ -39,6 +40,7 @@ from .results import (
     StructuredAppend,
     UndecodedRegion,
     ValueRange,
+    _barcode,
     _from_json,
 )
 
@@ -64,12 +66,13 @@ __all__ = [
     "ValueRange",
     "common_formats",
     "common_linear_formats",
+    "inspect",
     "linear_formats",
     "matrix_formats",
     "retail_formats",
     "scan",
 ]
-ABI_VERSION = 6
+ABI_VERSION = 7
 MAX_IMAGE_BYTES = 128 * 1024 * 1024
 _MODES = ("low", "medium", "high", "very-high")
 _ADDON_POLICIES = ("Ignore", "Read", "Require")
@@ -84,7 +87,7 @@ class ScannerError(RuntimeError):
         super().__init__(f"{message} (code {code})")
 
 
-# Native ABI 6 structures from bindings/c/include/tapirscan.h.
+# Native ABI 7 structures from bindings/c/include/tapirscan.h.
 class _ScannerOptions(c.Structure):
     _fields_ = [
         ("mode", c.c_uint32),
@@ -107,7 +110,6 @@ class _Image(c.Structure):
 class _ScanOptions(c.Structure):
     _fields_ = [
         ("formats", c.c_uint32),
-        ("debug", c.c_uint32),
         ("extended_budget", c.c_uint32),
     ]
 
@@ -243,6 +245,10 @@ class Scanner:
                 [u64, ptr(_Image), ptr(_ScanOptions), ptr(u64), c.c_void_p],
                 c.c_int32,
             ),
+            "tapirscan_inspect": (
+                [u64, ptr(_Image), ptr(_ScanOptions), ptr(u64), c.c_void_p],
+                c.c_int32,
+            ),
             "tapirscan_result_json_length": ([u64, ptr(u64)], c.c_int32),
             "tapirscan_result_copy_json": ([u64, c.c_void_p, u64], c.c_int32),
             "tapirscan_result_destroy": ([u64], c.c_int32),
@@ -288,18 +294,58 @@ class Scanner:
         self,
         image: ImageInput,
         *,
-        debug: bool = False,
+        extended_budget: bool = False,
+        formats: FormatSelection | None = None,
+        layout: Layout = "auto",
+        value_range: ValueRange = "auto",
+        color_order: ColorOrder = "RGB",
+    ) -> list[Barcode]:
+        """Return decoded barcodes with source-image positions."""
+        raw, _, _ = self._run(
+            image,
+            inspect=False,
+            extended_budget=extended_budget,
+            formats=formats,
+            layout=layout,
+            value_range=value_range,
+            color_order=color_order,
+        )
+        return [_barcode(value) for value in json.loads(raw)]
+
+    def inspect(
+        self,
+        image: ImageInput,
+        *,
         extended_budget: bool = False,
         formats: FormatSelection | None = None,
         layout: Layout = "auto",
         value_range: ValueRange = "auto",
         color_order: ColorOrder = "RGB",
     ) -> ScanResult:
-        """Return decoded instances, undecoded proposals and reported work limits."""
+        """Inspect barcodes, unread regions, work status and engine diagnostics."""
+        raw, width, height = self._run(
+            image,
+            inspect=True,
+            extended_budget=extended_budget,
+            formats=formats,
+            layout=layout,
+            value_range=value_range,
+            color_order=color_order,
+        )
+        return _from_json(raw, width, height)
+
+    def _run(
+        self,
+        image: ImageInput,
+        *,
+        inspect: bool,
+        extended_budget: bool,
+        formats: FormatSelection | None,
+        layout: Layout,
+        value_range: ValueRange,
+        color_order: ColorOrder,
+    ) -> tuple[bytes, int, int]:
         mask = format_mask(self.formats if formats is None else formats)
-        if type(debug) is not bool:
-            msg = "debug must be a boolean"
-            raise TypeError(msg)
         if type(extended_budget) is not bool:
             msg = "extended_budget must be a boolean"
             raise TypeError(msg)
@@ -311,7 +357,7 @@ class Scanner:
             image, layout, value_range, color_order
         )
         pixels = _Image(c.addressof(data), len(data), width, height, channels, stride)
-        options = _ScanOptions(mask, int(debug), int(extended_budget))
+        options = _ScanOptions(mask, int(extended_budget))
         with self._lock:
             if not self._handle.value:
                 msg = "Scanner is closed"
@@ -319,7 +365,7 @@ class Scanner:
             result = c.c_uint64()
             error = c.create_string_buffer(512)
             self._check(
-                self._lib.tapirscan_scan(
+                (self._lib.tapirscan_inspect if inspect else self._lib.tapirscan_scan)(
                     self._handle,
                     c.byref(pixels),
                     c.byref(options),
@@ -337,9 +383,7 @@ class Scanner:
                 self._check(
                     self._lib.tapirscan_result_copy_json(result, output, len(output))
                 )
-                return _from_json(
-                    output.raw[: length.value], width, height, debug=debug
-                )
+                return output.raw[: length.value], width, height
             finally:
                 self._check(self._lib.tapirscan_result_destroy(result))
 
@@ -375,13 +419,12 @@ def scan(
     mode: Mode = "medium",
     ean_add_on_policy: EanAddOnPolicy = "Ignore",
     library_dir: str | os.PathLike[str] | None = None,
-    debug: bool = False,
     extended_budget: bool = False,
     formats: FormatSelection | None = None,
     layout: Layout = "auto",
     value_range: ValueRange = "auto",
     color_order: ColorOrder = "RGB",
-) -> ScanResult:
+) -> list[Barcode]:
     """Scan one image; create a Scanner to reuse its mode and supplement policy."""
     with Scanner(
         mode,
@@ -391,7 +434,34 @@ def scan(
     ) as scanner:
         return scanner.scan(
             image,
-            debug=debug,
+            extended_budget=extended_budget,
+            layout=layout,
+            value_range=value_range,
+            color_order=color_order,
+        )
+
+
+def inspect(
+    image: ImageInput,
+    *,
+    mode: Mode = "medium",
+    ean_add_on_policy: EanAddOnPolicy = "Ignore",
+    library_dir: str | os.PathLike[str] | None = None,
+    extended_budget: bool = False,
+    formats: FormatSelection | None = None,
+    layout: Layout = "auto",
+    value_range: ValueRange = "auto",
+    color_order: ColorOrder = "RGB",
+) -> ScanResult:
+    """Inspect one image, including work status and engine diagnostics."""
+    with Scanner(
+        mode,
+        formats=formats,
+        ean_add_on_policy=ean_add_on_policy,
+        library_dir=library_dir,
+    ) as scanner:
+        return scanner.inspect(
+            image,
             extended_budget=extended_budget,
             layout=layout,
             value_range=value_range,

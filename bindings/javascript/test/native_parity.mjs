@@ -14,7 +14,7 @@ const scanner = await Scanner.create({
   },
 });
 try {
-  const result = scanner.scan(
+  const result = scanner.inspect(
     {
       data: new Uint8Array(await readFile(file)),
       width: +width,
@@ -22,7 +22,7 @@ try {
       channels: +channels,
       stride: +stride,
     },
-    { debug: debug === "1", extendedBudget: extendedBudget === "1" },
+    { extendedBudget: extendedBudget === "1" },
   );
   const best = result.best === undefined ? null : result.barcodes.indexOf(result.best);
   console.log(
@@ -38,7 +38,7 @@ try {
       })),
       undecoded: result.undecoded.map(({ format, polygon }) => ({ format, polygon })),
       // Drop the JS-only regions view so the raw engine JSON is comparable.
-      debug: result.debug ? (({ regions: _, ...raw }) => raw)(result.debug) : null,
+      debug: debug === "1" ? (({ regions: _, ...raw }) => raw)(result.diagnostics) : null,
     }),
   );
 } finally {

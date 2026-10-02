@@ -49,7 +49,7 @@ async function measure(mode, scene) {
     for (let i = 0; i < count + 5; i++) {
       for (const policy of order(i)) {
         const start = performance.now();
-        const result = scanners[policy].scan(image);
+        const result = scanners[policy].inspect(image);
         const elapsed = performance.now() - start;
         assert.deepEqual(
           result.barcodes.map((b) => [b.text, b.eanAddOn ?? ""]).sort(),

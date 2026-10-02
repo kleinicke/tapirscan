@@ -1,6 +1,6 @@
 # Native bindings and result contract
 
-C, C++, Python and Java share the public Rust `Scanner` through native ABI 6.
+C, C++, Python and Java share the public Rust `Scanner` through native ABI 7.
 One shared library, built with `python3 scripts/build_native.py`, contains all
 four effort modes; every binding selects the mode when it creates a scanner.
 The header is [`tapirscan.h`](../bindings/c/include/tapirscan.h). Format bits and
@@ -8,18 +8,17 @@ presets are generated from `config/formats.json` into `tapirscan_formats.h`,
 the C++ `Format` enum and the Java `Format` enum.
 
 The ABI mirrors the Rust API: scanner options (mode, formats, supplement policy),
-a borrowed image, per-scan options (formats, debug, extended budget) and an owned
-result. Results expose typed barcodes with all payload metadata, undecoded
-regions, the best index, image size, mode, timing and `unfinished`. Variable
-fields are copied into caller buffers with explicit lengths, preserving embedded
-NUL bytes. Retail (mask 15) is the default selection; see [format coverage](FORMATS.md).
+a borrowed image, and per-call options (formats and extended budget).
+Ordinary scans expose an owned list of typed barcodes with payload metadata and
+positions. Inspection additionally exposes undecoded regions, the best index,
+image size, mode, timing and `unfinished`. Variable fields are copied into caller
+buffers with explicit lengths, preserving embedded NUL bytes. Retail (mask 15)
+is the default selection; see [format coverage](FORMATS.md).
 
-JSON schema 2 remains available through `tapirscan_result_copy_json`. It preserves
-mode, multiple, elapsedMs, localizationLimited, scan.barcodes and scan.unfinished.
-Compact output also includes typed `undecoded` geometry. JSON is serialized only
-when its length or bytes are requested. Ordinary scans retain no engine diagnostics.
-Debug scans add EAN localization proposals, omitted/work-limited metadata, search
-windows, candidates and the additional readers' `scan.regions`. Search windows
+JSON is serialized only when its length or bytes are requested. Scanning returns
+a barcode array and retains no engine diagnostics. Inspection returns schema-2
+JSON, including EAN localization proposals, work limits, search windows,
+candidates and additional readers' `scan.regions`. Search windows
 represent attempted coverage, not an exhaustive-search guarantee. Support is
 uncalibrated and is not comparable between engines as confidence.
 

@@ -39,12 +39,13 @@ public final class Smoke {
         if (args.length == 8) {
             int mask = Integer.parseInt(args[7]);
             Set<Format> formats = Set.copyOf(Format.ALL.stream().filter(f -> (mask & f.bit()) != 0).toList());
-            options = options.withDebug(args[6].equals("1")).withFormats(formats);
+            options = options.withFormats(formats);
         }
         Scanner scanner = new Scanner(ScannerOptions.defaults().withMode(mode));
         ScanResult result;
         try (scanner) {
-            result = scanner.scan(image, options);
+            result = scanner.inspect(image, options);
+            if (!scanner.scan(image, options).equals(result.barcodes())) throw new AssertionError("Scan/inspect differ");
             try {
                 scanner.scan(Image.gray(new byte[1], image.width(), image.height()));
                 throw new AssertionError("Short input accepted");
@@ -80,7 +81,7 @@ public final class Smoke {
                     .append(quoted(r.format().map(Format::toString).orElse("Unknown")))
                     .append(",\"polygon\":").append(polygon(r.polygon())).append('}');
         }
-        out.append("],\"debug\":").append(result.debug().orElse("null")).append('}');
+        out.append("],\"debug\":").append((args.length == 8 && args[6].equals("1") ? result.diagnostics() : "null")).append('}');
         System.out.println(out);
     }
 }

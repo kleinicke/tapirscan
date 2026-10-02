@@ -124,10 +124,10 @@ try {
       const checks = [];
       try {
         const pixels = image();
-        const pending = scanner.scan(pixels);
+        const pending = scanner.inspect(pixels);
         checks.push(pixels.data.byteLength === 0);
         try {
-          await scanner.scan(image());
+          await scanner.inspect(image());
           checks.push(false);
         } catch (error) {
           checks.push(error.message.includes("previous scan"));
@@ -137,13 +137,13 @@ try {
           JSON.stringify(result.values) === JSON.stringify(fixture.expected.map((b) => b.text)),
         );
         try {
-          await scanner.scan({ ...image(), width: 1 });
+          await scanner.inspect({ ...image(), width: 1 });
           checks.push(false);
         } catch {
           checks.push(true);
         }
-        checks.push((await scanner.scan(image())).values.length === fixture.expected.length);
-        const interrupted = scanner.scan(image());
+        checks.push((await scanner.inspect(image())).values.length === fixture.expected.length);
+        const interrupted = scanner.inspect(image());
         scanner.dispose();
         try {
           await interrupted;
@@ -152,7 +152,7 @@ try {
           checks.push(error.message.includes("disposed"));
         }
         try {
-          await scanner.scan(image());
+          await scanner.inspect(image());
           checks.push(false);
         } catch (error) {
           checks.push(error.message.includes("disposed"));

@@ -181,18 +181,24 @@ def scan_native(
 ) -> tuple[float, object]:
     """Time the public scan call, then normalize its result outside the measurement."""
     start = time.perf_counter_ns()
-    result = scanner.scan(
+    if debug:
+        report = scanner.inspect(
+            case["image"],
+            formats=cast("FormatSelection | None", formats),
+            extended_budget=extended,
+        )
+        elapsed = (time.perf_counter_ns() - start) / 1e6
+        return elapsed, clean(
+            {"public": report.as_dict(), "diagnostics": report.to_raw_dict()}
+        )
+    barcodes = scanner.scan(
         case["image"],
         formats=cast("FormatSelection | None", formats),
         extended_budget=extended,
-        debug=debug,
     )
     elapsed = (time.perf_counter_ns() - start) / 1e6
     return elapsed, clean(
-        {
-            "public": result.as_dict(),
-            "diagnostics": result.to_raw_dict() if debug else None,
-        }
+        {"public": [b.as_dict() for b in barcodes], "diagnostics": None}
     )
 
 
@@ -626,7 +632,7 @@ def main() -> None:
         "method": (
             "Exact ordered results and optional diagnostics, excluding timing fields. "
             "Timing uses preloaded images after parity, alternating paired order, "
-            "warm scans, debug false. Includes public binding conversion, excludes "
+            "warm barcode-list scans. Includes public binding conversion, excludes "
             "load/compile and image decoding. Runtime-specific measurements, "
             "not cross-runtime or general speed claims."
         ),

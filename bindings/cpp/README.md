@@ -1,5 +1,16 @@
 # Tapirscan for C++
 
+`scan(image)` returns `std::vector<Barcode>`, with decoded text, format and
+source-image polygons. An empty vector means no barcode was decoded.
+
+```cpp
+auto barcodes = tapirscan::scan(tapirscan::Image::gray(pixels, width, height));
+for (const auto& barcode : barcodes) std::cout << barcode.text << '\n';
+```
+
+Reuse `Scanner::scan` across images. Call `inspect` for a `ScanResult` with unread
+regions, work status, timing and diagnostics. There is no debug flag.
+
 Scan decoded pixels and receive every accepted barcode, source-image geometry,
 undecoded proposals and reported work limits. Defaults are Medium effort and
 retail formats (EAN13, UPCA, EAN8 and UPCE). The header-only C++17 wrapper uses
@@ -10,7 +21,7 @@ one shared library that contains all four effort modes.
 #include <iostream>
 
 std::vector<std::uint8_t> pixels(640 * 480, 255);
-auto result = tapirscan::scan(tapirscan::Image::gray(pixels, 640, 480));
+auto result = tapirscan::inspect(tapirscan::Image::gray(pixels, 640, 480));
 for (const auto& barcode : result.barcodes) {
     std::cout << barcode.text << ' ' << tapirscan::to_string(barcode.format) << '\n';
 }
@@ -32,13 +43,13 @@ tapirscan::Scanner scanner(options);
 
 tapirscan::ScanOptions scan;
 scan.extended_budget = true;
-auto result = scanner.scan(tapirscan::Image::rgba(pixels, width, height), scan);
+auto result = scanner.inspect(tapirscan::Image::rgba(pixels, width, height), scan);
 if (const auto* best = result.best()) std::cout << best->text << '\n';
 ```
 
 Reuse a scanner across images; it is move-only and its destructor releases it.
 Scans on one scanner serialize; separate scanners run concurrently.
-`tapirscan::scan(image, options)` creates a temporary scanner for one image.
+`tapirscan::inspect(image, options)` creates a temporary scanner for one image.
 
 | Scanner option      | Default                  | Choices                                     |
 | ------------------- | ------------------------ | ------------------------------------------- |
@@ -50,11 +61,10 @@ Presets: `Formats::retail()`, `common_1d()`, `common()`, `linear()`, `matrix()`
 and `all()`. Retail formats are supported; other readers remain experimental.
 See [format coverage](../../docs/FORMATS.md).
 
-| Per-scan option   | Default        | Meaning                                        |
-| ----------------- | -------------- | ---------------------------------------------- |
-| `formats`         | `std::nullopt` | Override readers for this call                 |
-| `debug`           | `false`        | Include engine evidence in `ScanResult::debug` |
-| `extended_budget` | `false`        | Allow extra reader work for any format         |
+| Per-scan option   | Default        | Meaning                                |
+| ----------------- | -------------- | -------------------------------------- |
+| `formats`         | `std::nullopt` | Override readers for this call         |
+| `extended_budget` | `false`        | Allow extra reader work for any format |
 
 `extended_budget` can cost more time and does not promise exhaustive decoding;
 see [API design](../../docs/API_DESIGN.md).
@@ -62,7 +72,7 @@ see [API design](../../docs/API_DESIGN.md).
 ## Results
 
 `ScanResult` exposes `barcodes`, `undecoded`, `width`, `height`, `mode`,
-`elapsed_ms`, `unfinished` and optional `debug` JSON. `values()` returns decoded
+`elapsed_ms`, `unfinished` and `diagnostics` JSON. `values()` returns decoded
 text; `best()` points at the largest-support read, keeping first-read ties, or is
 null. Support is reader-specific and not comparable confidence across formats.
 

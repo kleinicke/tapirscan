@@ -13,16 +13,16 @@ pub use format::Format;
 pub use pixels::Image;
 pub use types::*;
 
-/// Scan with default configuration and return decoded instances and work status.
+/// Scan with default configuration and return decoded barcodes with positions.
 ///
 /// # Errors
 /// Returns an error for invalid pixels or an engine failure.
-pub fn scan<'a>(image: impl Into<Image<'a>>) -> Result<ScanResult, Error> {
+pub fn scan<'a>(image: impl Into<Image<'a>>) -> Result<Vec<Barcode>, Error> {
     Scanner::default().scan(image)
 }
 
 /// Scan an image with default scanner configuration and per-image options.
-/// Returns all decoded instances, undecoded proposals and reported work limits.
+/// Returns all decoded instances with source-image positions.
 /// Reuse [`Scanner`] for successive images.
 ///
 /// # Errors
@@ -30,8 +30,25 @@ pub fn scan<'a>(image: impl Into<Image<'a>>) -> Result<ScanResult, Error> {
 pub fn scan_with_options<'a>(
     image: impl Into<Image<'a>>,
     options: ScanOptions,
-) -> Result<ScanResult, Error> {
+) -> Result<Vec<Barcode>, Error> {
     Scanner::default().scan_with_options(image, options)
+}
+
+/// Inspect with default scanner configuration and per-image options.
+/// # Errors
+/// Returns an error for invalid pixels or an engine failure.
+pub fn inspect_with_options<'a>(
+    image: impl Into<Image<'a>>,
+    options: ScanOptions,
+) -> Result<ScanResult, Error> {
+    Scanner::default().inspect_with_options(image, options)
+}
+
+/// Inspect with default configuration, including work status and diagnostics.
+/// # Errors
+/// Returns an error for invalid pixels or an engine failure.
+pub fn inspect<'a>(image: impl Into<Image<'a>>) -> Result<ScanResult, Error> {
+    Scanner::default().inspect(image)
 }
 
 /// Reusable scanner. Inputs are borrowed only during the call; results own their data.
@@ -96,15 +113,14 @@ impl Scanner {
     ///
     /// # Errors
     /// Returns an error for invalid pixels or an engine failure.
-    pub fn scan<'a>(&mut self, image: impl Into<Image<'a>>) -> Result<ScanResult, Error> {
+    pub fn scan<'a>(&mut self, image: impl Into<Image<'a>>) -> Result<Vec<Barcode>, Error> {
         self.scan_with_options(image, ScanOptions::default())
     }
 
-    /// Scan with per-image overrides, unread regions, timing and work status.
+    /// Scan with per-image overrides and return decoded barcodes.
     ///
-    /// Overrides apply only to this call. Raw diagnostics require `debug: true`;
-    /// unread geometry is always included. The call blocks without a wall-clock
-    /// timeout. False `unfinished` does not guarantee exhaustive scanning.
+    /// Overrides apply only to this call. Use [`Self::inspect`] for work status
+    /// and diagnostic evidence. The call has no wall-clock timeout.
     ///
     /// # Errors
     /// Rejects invalid pixels. Extended budgets are accepted for every format.
@@ -113,11 +129,35 @@ impl Scanner {
         &mut self,
         image: impl Into<Image<'a>>,
         options: ScanOptions,
-    ) -> Result<ScanResult, Error> {
-        self.run(image.into(), options)
+    ) -> Result<Vec<Barcode>, Error> {
+        self.run(image.into(), options, false)
+            .map(|result| result.barcodes)
     }
 
-    fn run(&mut self, image: Image<'_>, options: ScanOptions) -> Result<ScanResult, Error> {
+    /// Inspect one image, including unread regions, work status and engine diagnostics.
+    /// # Errors
+    /// Returns an error for invalid pixels or an engine failure.
+    pub fn inspect<'a>(&mut self, image: impl Into<Image<'a>>) -> Result<ScanResult, Error> {
+        self.inspect_with_options(image, ScanOptions::default())
+    }
+
+    /// Inspect with per-image overrides. Diagnostic schemas are unstable.
+    /// # Errors
+    /// Returns an error for invalid pixels or an engine failure.
+    pub fn inspect_with_options<'a>(
+        &mut self,
+        image: impl Into<Image<'a>>,
+        options: ScanOptions,
+    ) -> Result<ScanResult, Error> {
+        self.run(image.into(), options, true)
+    }
+
+    fn run(
+        &mut self,
+        image: Image<'_>,
+        options: ScanOptions,
+        diagnostics: bool,
+    ) -> Result<ScanResult, Error> {
         let start = timer::Timer::start();
         image.validate()?;
         let formats = options.formats.unwrap_or(self.options.formats);
@@ -136,7 +176,7 @@ impl Scanner {
                 let settings = selected::ScanOptions {
                     multiple: true,
                     include_regions: true,
-                    retain_diagnostics: options.debug,
+                    retain_diagnostics: diagnostics,
                     finish_candidates: options.extended_budget && formats.bits() & 3 != 0,
                 };
                 let policy = match addons {

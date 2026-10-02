@@ -54,7 +54,7 @@ self.onmessage = async ({
       key = next;
     }
     const started = performance.now();
-    const result = scanner.scan(
+    const result = scanner.inspect(
       {
         data: new Uint8Array(data.buffer),
         width: data.width,
@@ -62,10 +62,10 @@ self.onmessage = async ({
         channels: 4,
         stride: data.width * 4,
       },
-      { debug: true, extendedBudget: isTurbo ? false : (data.finishCandidates ?? false) },
+      { extendedBudget: isTurbo ? false : (data.finishCandidates ?? false) },
     );
     const scanMs = performance.now() - started;
-    const diagnostic = result.debug;
+    const diagnostic = result.diagnostics;
     if (!diagnostic) throw new Error("Scanner diagnostics are unavailable");
     const recovery = diagnostic.recovery as { proposals?: Region[] } | undefined;
     const proposals = diagnostic.localization?.proposals ?? [];

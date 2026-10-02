@@ -26,7 +26,7 @@ fn default_formats_are_retail() {
 }
 
 #[test]
-fn all_modes_preserve_instances_and_direct_debug_parity() {
+fn all_modes_preserve_instances_and_inspection_parity() {
     assert_eq!(BITS.len(), 95);
     for mode in [Mode::Low, Mode::Medium, Mode::High, Mode::VeryHigh] {
         let mut scanner = Scanner::new(ScannerOptions {
@@ -38,13 +38,14 @@ fn all_modes_preserve_instances_and_direct_debug_parity() {
             let image = Image::gray(&pixels, width, height);
             let result = scanner.scan(image).unwrap();
             assert_eq!(
-                result.values().collect::<Vec<_>>(),
+                result.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(),
                 vec![TEXT; if pair { 2 } else { 1 }],
                 "{mode:?}"
             );
-            assert_eq!(result.image_size, [width, height]);
-            assert_eq!(result.mode, mode);
-            assert!(result.debug.is_none());
+            let report = scanner.inspect(image).unwrap();
+            assert_eq!(report.image_size, [width, height]);
+            assert_eq!(report.mode, mode);
+            assert!(report.diagnostics.is_some());
             for complete in [false, true] {
                 let plain = scanner
                     .scan_with_options(
@@ -55,24 +56,17 @@ fn all_modes_preserve_instances_and_direct_debug_parity() {
                         },
                     )
                     .unwrap();
-                let debug = scanner
-                    .scan_with_options(
+                let report = scanner
+                    .inspect_with_options(
                         image,
                         ScanOptions {
-                            debug: true,
                             extended_budget: complete,
                             ..ScanOptions::default()
                         },
                     )
                     .unwrap();
-                assert_eq!(plain.unfinished, debug.unfinished);
-                assert_eq!(plain.undecoded.len(), debug.undecoded.len());
-                for (a, b) in plain.undecoded.iter().zip(&debug.undecoded) {
-                    assert_eq!(a.polygon, b.polygon);
-                    assert_eq!(a.format, b.format);
-                }
-                assert_eq!(plain.barcodes.len(), debug.barcodes.len());
-                for (a, b) in plain.barcodes.iter().zip(&debug) {
+                assert_eq!(plain, report.barcodes);
+                for (a, b) in plain.iter().zip(&report.barcodes) {
                     assert_eq!(a.text, b.text);
                     assert_eq!(a.format, b.format);
                     assert_eq!(a.polygon, b.polygon);
@@ -109,7 +103,12 @@ fn padded_rgb_rgba_and_rotated_pixels() {
         }
         .with_stride(stride);
         assert_eq!(
-            scanner.scan(image).unwrap().values().collect::<Vec<_>>(),
+            scanner
+                .scan(image)
+                .unwrap()
+                .iter()
+                .map(|b| b.text.as_str())
+                .collect::<Vec<_>>(),
             [TEXT]
         );
     }
@@ -123,7 +122,8 @@ fn padded_rgb_rgba_and_rotated_pixels() {
         scanner
             .scan_with_options(Image::gray(&rotated, height, width), ScanOptions::default())
             .unwrap()
-            .values()
+            .iter()
+            .map(|b| b.text.as_str())
             .collect::<Vec<_>>(),
         [TEXT]
     );
@@ -150,15 +150,13 @@ fn errors_do_not_poison_scanner_and_results_own_data() {
             ScanOptions {
                 formats: Some(Format::QrCode.into()),
                 extended_budget: true,
-                ..ScanOptions::default()
             }
         )
         .unwrap()
-        .barcodes
         .is_empty());
     let empty = scanner.scan(image).unwrap();
-    assert!(empty.best().is_none());
-    assert_eq!(empty.values().len(), 0);
+    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
     assert!(Formats::try_from(0).is_err());
     assert!(Formats::try_from(65536).is_err());
     let result = {
@@ -181,8 +179,11 @@ fn formats_and_supplement_policy_are_independent_of_effort() {
         ..ScannerOptions::default()
     });
     let result = scanner.scan(image).unwrap();
-    assert_eq!(result.values().collect::<Vec<_>>(), [TEXT]);
-    assert!(result.best().unwrap().ean_add_on.is_none());
+    assert_eq!(
+        result.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(),
+        [TEXT]
+    );
+    assert!(result.first().unwrap().ean_add_on.is_none());
     let qr = scanner
         .scan_with_options(
             image,
@@ -192,7 +193,7 @@ fn formats_and_supplement_policy_are_independent_of_effort() {
             },
         )
         .unwrap();
-    assert!(qr.barcodes.is_empty());
+    assert!(qr.is_empty());
     assert_eq!(scanner.options().formats, Formats::RETAIL);
     assert_eq!(
         (Format::Ean13 | Format::QrCode) | Format::Code128,
@@ -213,7 +214,8 @@ fn image_crate_buffers_work_without_pixel_copies() {
     assert_eq!(
         tapirscan::scan_with_options(&image, ScanOptions::default())
             .unwrap()
-            .values()
+            .iter()
+            .map(|b| b.text.as_str())
             .collect::<Vec<_>>(),
         [TEXT]
     );
@@ -225,14 +227,13 @@ fn one_shot_returns_owned_results_and_work_status() {
         let (pixels, width, height) = fixture(true);
         tapirscan::scan(Image::gray(&pixels, width, height)).unwrap()
     };
-    assert_eq!(result.barcodes.len(), 2);
-    assert_ne!(result.barcodes[0].polygon, result.barcodes[1].polygon);
-    assert_eq!(result.best().unwrap().text, TEXT);
+    assert_eq!(result.len(), 2);
+    assert_ne!(result[0].polygon, result[1].polygon);
+    assert_eq!(result.first().unwrap().text, TEXT);
     let blank = [255; 64 * 64];
     assert!(
         tapirscan::scan_with_options(Image::gray(&blank, 64, 64), ScanOptions::default())
             .unwrap()
-            .barcodes
             .is_empty()
     );
 }

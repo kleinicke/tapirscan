@@ -65,7 +65,7 @@ unsafe fn create(options: *const ScannerOptionsC) -> u64 {
 
 unsafe fn scan(scanner: u64, image: &ImageC, options: *const ScanOptionsC) -> (i32, u64) {
     let mut result = 99;
-    let status = tapirscan_scan(
+    let status = tapirscan_inspect(
         scanner,
         image,
         options,
@@ -104,7 +104,7 @@ fn layouts_match_the_header() {
     assert_eq!(std::mem::size_of::<ResultInfoC>(), 56);
     assert_eq!(std::mem::size_of::<BarcodeC>(), 136);
     assert_eq!(std::mem::size_of::<RegionC>(), 72);
-    assert_eq!(tapirscan_abi_version(), 6);
+    assert_eq!(tapirscan_abi_version(), 7);
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn decodes_with_typed_fields_and_owned_results() {
         }
         let compact = json(result);
         assert!(compact.contains("\"4006381333931\""));
-        assert!(!compact.contains("\"searchWindows\""));
+        assert!(compact.contains("\"scan\""));
         assert_eq!(tapirscan_result_destroy(result), 0);
         assert_eq!(tapirscan_result_destroy(result), HANDLE);
         let mut summary = ResultInfoC::default();
@@ -183,7 +183,6 @@ fn options_select_mode_formats_and_diagnostics() {
         assert_eq!(tapirscan_result_destroy(result), 0);
         let options = ScanOptionsC {
             formats: TAPIRSCAN_FORMAT_EAN13,
-            debug: 1,
             extended_budget: 1,
         };
         let (status, result) = scan(scanner, &image, &raw const options);
@@ -272,17 +271,10 @@ fn rejects_invalid_images_and_scan_options() {
         for options in [
             ScanOptionsC {
                 formats: 1 << 30,
-                debug: 0,
                 extended_budget: 0,
             },
             ScanOptionsC {
                 formats: 0,
-                debug: 2,
-                extended_budget: 0,
-            },
-            ScanOptionsC {
-                formats: 0,
-                debug: 0,
                 extended_budget: 2,
             },
         ] {
@@ -338,15 +330,26 @@ fn typed_scans_do_not_retain_diagnostics_or_serialize_json() {
     let (pixels, width, height) = ean13("4006381333931");
     unsafe {
         let scanner = create(std::ptr::null());
-        let (status, result) = scan(scanner, &gray(&pixels, width, height), std::ptr::null());
+        let mut result = 0;
+        let status = tapirscan_scan(
+            scanner,
+            &gray(&pixels, width, height),
+            std::ptr::null(),
+            &raw mut result,
+            std::ptr::null_mut(),
+        );
         assert_eq!(status, 0);
         let output = output(result).unwrap();
-        assert!(output.result.debug.is_none());
+        assert!(output.report.is_none());
         assert!(output.json.get().is_none());
-        assert_eq!(info(result).barcode_count, 1);
+        let mut count = 0;
+        assert_eq!(tapirscan_result_count(result, &raw mut count), 0);
+        assert_eq!(count, 1);
+        let mut summary = ResultInfoC::default();
+        assert_eq!(tapirscan_result_info(result, &raw mut summary), ARG);
         assert!(output.json.get().is_none());
         let compact: serde_json::Value = serde_json::from_str(&json(result)).unwrap();
-        assert_eq!(compact["scan"]["barcodes"][0]["text"], "4006381333931");
+        assert_eq!(compact[0]["text"], "4006381333931");
         assert!(compact.get("localization").is_none());
         assert!(output.json.get().is_some());
         assert_eq!(tapirscan_result_destroy(result), 0);
@@ -415,10 +418,10 @@ fn detailed_errors_are_per_call_and_cleared_on_success() {
 }
 
 #[test]
-fn compact_json_preserves_optional_metadata_and_undecoded_geometry() {
+fn barcode_json_preserves_optional_metadata() {
     let pixels = [255; 9];
     let mut result = Scanner::default().scan(Image::gray(&pixels, 3, 3)).unwrap();
-    result.barcodes.push(Barcode {
+    result.push(Barcode {
         text: "a\0b".into(),
         format: Format::QrCode,
         polygon: [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]],
@@ -434,18 +437,13 @@ fn compact_json_preserves_optional_metadata_and_undecoded_geometry() {
             parity: Some(7),
         }),
     });
-    result.undecoded.push(UndecodedRegion {
-        format: None,
-        polygon: result.barcodes[0].polygon,
-    });
-    result.localization_limited = true;
-    result.unfinished = true;
     let output = Output {
-        result,
+        barcodes: result,
+        report: None,
         json: OnceLock::new(),
     };
     let json: serde_json::Value = serde_json::from_slice(output.json()).unwrap();
-    let b = &json["scan"]["barcodes"][0];
+    let b = &json[0];
     assert_eq!(b["text"], "a\0b");
     assert_eq!(b["format"], "QRCode");
     assert_eq!(b["bytes"], serde_json::json!([0, 255]));
@@ -453,7 +451,4 @@ fn compact_json_preserves_optional_metadata_and_undecoded_geometry() {
     assert_eq!(b["readerInitialization"], true);
     assert_eq!(b["eanAddOn"], "12");
     assert_eq!(b["structuredAppend"]["parity"], 7);
-    assert_eq!(json["undecoded"][0]["format"], "Unknown");
-    assert_eq!(json["localizationLimited"], true);
-    assert_eq!(json["scan"]["unfinished"], true);
 }

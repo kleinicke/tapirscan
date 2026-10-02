@@ -23,7 +23,7 @@ from tapirscan import Barcode, PixelImage, Scanner
 from tapirscan._images import image_bytes
 from tapirscan.results import _from_json
 
-decode = barcode.scan
+decode = barcode.inspect
 
 LIBS = ROOT / "build/native"
 _, RAW, W, H, *_ = next(fixtures())
@@ -49,7 +49,7 @@ class Images(unittest.TestCase):
         """Reject older libraries at initialization with actionable version details."""
         with patch("tapirscan.c.CDLL") as load:
             load.return_value.tapirscan_abi_version.return_value = 4
-            with self.assertRaisesRegex(RuntimeError, "expected 6, got 4.*Rebuild"):
+            with self.assertRaisesRegex(RuntimeError, "expected 7, got 4.*Rebuild"):
                 Scanner(library_dir=LIBS)
             load.return_value.tapirscan_scanner_create.assert_not_called()
             load.return_value.tapirscan_result_json_length.assert_not_called()
@@ -60,16 +60,18 @@ class Images(unittest.TestCase):
         for mode in ("low", "medium", "high", "very-high"):
             with Scanner(mode, library_dir=LIBS) as scanner:
                 self.assertEqual(
-                    scanner.scan(image).values,
-                    scanner.scan(image, extended_budget=False).values,
+                    scanner.inspect(image).values,
+                    scanner.inspect(image, extended_budget=False).values,
                 )
                 self.assertEqual(
-                    scanner.scan(image, extended_budget=True).values, [TEXT]
+                    scanner.inspect(image, extended_budget=True).values, [TEXT]
                 )
                 with self.assertRaisesRegex(TypeError, "a boolean"):
-                    scanner.scan(image, extended_budget=1)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+                    scanner.inspect(image, extended_budget=1)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
                 self.assertEqual(
-                    scanner.scan(image, formats="QRCode", extended_budget=True).values,
+                    scanner.inspect(
+                        image, formats="QRCode", extended_budget=True
+                    ).values,
                     [],
                 )
         self.assertEqual(
@@ -118,9 +120,9 @@ class Images(unittest.TestCase):
         """Single identifiers work and per-call selections do not alter defaults."""
         image = PixelImage(RAW, width=W, height=H)
         with Scanner("low", formats="EAN13", library_dir=LIBS) as scanner:
-            self.assertEqual(scanner.scan(image).values, [TEXT])
-            self.assertEqual(scanner.scan(image, formats="QRCode").values, [])
-            self.assertEqual(scanner.scan(image).values, [TEXT])
+            self.assertEqual(scanner.inspect(image).values, [TEXT])
+            self.assertEqual(scanner.inspect(image, formats="QRCode").values, [])
+            self.assertEqual(scanner.inspect(image).values, [TEXT])
             with self.assertRaises(AttributeError):
                 scanner.mode = "high"  # ty: ignore[invalid-assignment]
             with self.assertRaises(AttributeError):
@@ -150,7 +152,7 @@ class Images(unittest.TestCase):
             with Scanner(formats=preset, library_dir=LIBS) as scanner:
                 self.assertEqual(scanner.formats, expected)
                 self.assertEqual(
-                    scanner.scan(PixelImage(RAW, width=W, height=H)).values, [TEXT]
+                    scanner.inspect(PixelImage(RAW, width=W, height=H)).values, [TEXT]
                 )
 
     def test_metadata_and_work_status(self) -> None:
@@ -171,22 +173,25 @@ class Images(unittest.TestCase):
                 "eanAddOn": "12",
             }
         )
-        for debug in (False, True):
-            result = _from_json(json.dumps(raw).encode(), W, H, debug=debug)
-            self.assertTrue(result.unfinished)
-            self.assertTrue(result[0].gs1)
-            self.assertFalse(result[0].reader_initialization)
-            self.assertEqual(result[0].ean_add_on, "12")
-            append = result[0].structured_append
-            self.assertIsNotNone(append)
-            if append is not None:
-                self.assertEqual(
-                    (append.index, append.count, append.id, append.parity),
-                    (1, 2, "group", 7),
-                )
-                with self.assertRaises(FrozenInstanceError):
-                    append.index = 2  # ty: ignore[invalid-assignment]
-            self.assertEqual(result.debug is not None, debug)
+        result = _from_json(
+            json.dumps(raw).encode(),
+            W,
+            H,
+        )
+        self.assertTrue(result.unfinished)
+        self.assertTrue(result[0].gs1)
+        self.assertFalse(result[0].reader_initialization)
+        self.assertEqual(result[0].ean_add_on, "12")
+        append = result[0].structured_append
+        self.assertIsNotNone(append)
+        if append is not None:
+            self.assertEqual(
+                (append.index, append.count, append.id, append.parity),
+                (1, 2, "group", 7),
+            )
+            with self.assertRaises(FrozenInstanceError):
+                append.index = 2  # ty: ignore[invalid-assignment]
+        self.assertIsNotNone(result.diagnostics)
 
     def test_numpy(self) -> None:
         """Verify numpy."""
@@ -233,8 +238,8 @@ class Images(unittest.TestCase):
         )
         image_bytes(np.zeros((3, 10, 4)), layout="CHW")
         with Scanner(formats="1D", library_dir=LIBS) as scanner:
-            self.assertEqual(scanner.scan(GRAY).values, [TEXT])
-            self.assertEqual(scanner.scan(GRAY, formats="2D").values, [])
+            self.assertEqual(scanner.inspect(GRAY).values, [TEXT])
+            self.assertEqual(scanner.inspect(GRAY, formats="2D").values, [])
 
     def test_tensor_layouts_and_dtypes(self) -> None:
         """Verify tensor layouts and dtypes."""
@@ -280,16 +285,30 @@ class Images(unittest.TestCase):
         self.assertEqual(len(decode(image, library_dir=LIBS)), 2)
         self.assertIsNotNone(decode(image, library_dir=LIBS).best)
         with Scanner(library_dir=LIBS) as scanner:
-            result = scanner.scan(
-                torch.from_numpy(np.asarray(image).copy()), debug=True
+            result = scanner.inspect(
+                torch.from_numpy(np.asarray(image).copy()),
             )
-        if result.debug is None or result.debug.regions is None:
+        if result.diagnostics is None or result.diagnostics.regions is None:
             self.fail("Region evidence was requested")
-        self.assertTrue(result.debug.regions.search_windows)
+        self.assertTrue(result.diagnostics.regions.search_windows)
+
+    def test_scan_returns_only_barcodes(self) -> None:
+        """Ordinary scans return an owned list, equal to inspection barcodes."""
+        image = PixelImage(RAW, width=W, height=H)
+        with Scanner(library_dir=LIBS) as scanner:
+            result = scanner.scan(image)
+            self.assertIs(type(result), list)
+            self.assertEqual(result, list(scanner.inspect(image).barcodes))
+            self.assertEqual(
+                scanner.scan(PixelImage(bytes([255]) * len(RAW), width=W, height=H)), []
+            )
+            with self.assertRaises(TypeError):
+                scanner.scan(image, debug=True)  # ty: ignore[unknown-argument]
+        self.assertEqual([b.text for b in result], [TEXT])
 
     def test_unified_result(self) -> None:
         """Verify unified result."""
-        result = barcode.scan(PixelImage(RAW, width=W, height=H), library_dir=LIBS)
+        result = barcode.inspect(PixelImage(RAW, width=W, height=H), library_dir=LIBS)
         self.assertEqual(result.values, [TEXT])
         self.assertEqual(result[0].text, TEXT)
         self.assertGreater(result[0].support, 0)
@@ -297,15 +316,16 @@ class Images(unittest.TestCase):
         self.assertEqual(tuple(result), result.barcodes)
         self.assertEqual(result[:1], result.barcodes[:1])
         self.assertEqual(result.best, result[0])
-        self.assertIsNone(result.debug)
+        self.assertIsNotNone(result.diagnostics)
         self.assertEqual(result.image, (W, H))
         self.assertEqual(result.unfinished, result.to_raw_dict()["scan"]["unfinished"])
-        details = barcode.scan(
-            PixelImage(RAW, width=W, height=H), library_dir=LIBS, debug=True
+        details = barcode.inspect(
+            PixelImage(RAW, width=W, height=H),
+            library_dir=LIBS,
         )
-        if details.debug is None:
+        if details.diagnostics is None:
             self.fail("Diagnostics were requested")
-        regions = details.debug.regions
+        regions = details.diagnostics.regions
         if regions is None:
             self.fail("Region evidence was requested")
         self.assertTrue(regions.proposals)
@@ -324,7 +344,7 @@ class Images(unittest.TestCase):
         exported = result.to_raw_dict()
         exported["scan"]["barcodes"].clear()
         self.assertEqual(result.values, [TEXT])
-        blank = barcode.scan(
+        blank = barcode.inspect(
             PixelImage(bytes([255]) * (W * H), width=W, height=H), library_dir=LIBS
         )
         self.assertFalse(blank)
@@ -366,9 +386,9 @@ class Images(unittest.TestCase):
             )
             self.assertTrue(tensor.requires_grad)
         with Scanner(library_dir=LIBS) as scanner:
-            self.assertEqual(scanner.scan(GRAY, color_order="BGR").values, [TEXT])
+            self.assertEqual(scanner.inspect(GRAY, color_order="BGR").values, [TEXT])
         self.assertEqual(
-            barcode.scan(GRAY, color_order="BGR", library_dir=LIBS).values, [TEXT]
+            barcode.inspect(GRAY, color_order="BGR", library_dir=LIBS).values, [TEXT]
         )
         with self.assertRaisesRegex(ValueError, "only"):
             image_bytes(Image.fromarray(GRAY), color_order="BGR")
@@ -378,7 +398,9 @@ class Images(unittest.TestCase):
     def test_public_serialization(self) -> None:
         """JSON export contains application fields and owns its nested collections."""
         with Scanner(library_dir=LIBS) as scanner:
-            result = scanner.scan(GRAY, debug=True)
+            result = scanner.inspect(
+                GRAY,
+            )
         exported = result.as_dict()
         self.assertEqual(json.loads(json.dumps(exported)), exported)
         self.assertNotIn("_json", exported)
@@ -413,10 +435,14 @@ class Images(unittest.TestCase):
             "support": 0,
         }
         value["scan"]["regions"] = [dict(read), unread]
-        result = _from_json(json.dumps(value).encode(), 80, 20, debug=True)
-        if result.debug is None or result.debug.regions is None:
+        result = _from_json(
+            json.dumps(value).encode(),
+            80,
+            20,
+        )
+        if result.diagnostics is None or result.diagnostics.regions is None:
             self.fail("Missing requested region evidence")
-        regions = result.debug.regions
+        regions = result.diagnostics.regions
         self.assertEqual(len(result), 1)
         self.assertEqual(len(regions.undecoded), 1)
         region = regions.undecoded[0]
@@ -444,11 +470,15 @@ class Images(unittest.TestCase):
                 }
             ]
         }
-        recovered = _from_json(json.dumps(value).encode(), 80, 20, debug=True)
-        if recovered.debug is None or recovered.debug.regions is None:
+        recovered = _from_json(
+            json.dumps(value).encode(),
+            80,
+            20,
+        )
+        if recovered.diagnostics is None or recovered.diagnostics.regions is None:
             self.fail("Missing recovery evidence")
         self.assertEqual(
-            [r.polygon for r in recovered.debug.regions.undecoded],
+            [r.polygon for r in recovered.diagnostics.regions.undecoded],
             [tuple(map(tuple, polygons[i])) for i in (1, 3)],
         )
 
@@ -464,7 +494,7 @@ class Images(unittest.TestCase):
                     self.subTest(input_type=type(image).__name__),
                     self.assertRaisesRegex(ValueError, "32 megapixel"),
                 ):
-                    scanner.scan(image)
+                    scanner.inspect(image)
             with (
                 Image.new("L", (3, 3)) as image,
                 patch.object(
@@ -476,11 +506,11 @@ class Images(unittest.TestCase):
                 patch.object(Image.Image, "convert") as convert,
             ):
                 with self.assertRaisesRegex(ValueError, "32 megapixel"):
-                    scanner.scan(image)
+                    scanner.inspect(image)
                 convert.assert_not_called()
             # The exact pixel-count boundary reaches storage validation.
             with self.assertRaisesRegex(ValueError, "buffer is too short"):
-                scanner.scan(PixelImage(b"", width=width, height=height - 1))
+                scanner.inspect(PixelImage(b"", width=width, height=height - 1))
 
     def test_native_error_messages(self) -> None:
         """Numeric native status remains available with the library's error text."""
@@ -528,7 +558,7 @@ class Images(unittest.TestCase):
                 PixelImage(RAW, width=W, height=H, stride=128 * 1024 * 1024),
             ):
                 with self.assertRaises(ValueError):
-                    scanner.scan(image)
+                    scanner.inspect(image)
             image = PixelImage(RAW, width=W, height=H)
             for options in (
                 {"multiple": False},
@@ -536,18 +566,18 @@ class Images(unittest.TestCase):
                 {"debug": 1},
             ):
                 with self.assertRaises(TypeError):
-                    scanner.scan(image, **options)  # ty: ignore[invalid-argument-type]
+                    scanner.inspect(image, **options)  # ty: ignore[invalid-argument-type]
             with self.assertRaises(TypeError):
-                scanner.scan((RAW, W, H))  # ty: ignore[invalid-argument-type]
+                scanner.inspect((RAW, W, H))  # ty: ignore[invalid-argument-type]
             for options in ({"layout": "HW"}, {"value_range": "0_255"}):
                 with self.assertRaises(ValueError):
-                    scanner.scan(image, **options)  # ty: ignore[invalid-argument-type]
+                    scanner.inspect(image, **options)  # ty: ignore[invalid-argument-type]
             for name in ("data", "type", "quality", "orientation"):
-                self.assertFalse(hasattr(scanner.scan(image)[0], name))
+                self.assertFalse(hasattr(scanner.inspect(image)[0], name))
             scanner.close()
             # Closure is checked before expensive conversion or validation.
             with self.assertRaisesRegex(RuntimeError, "closed"):
-                scanner.scan(PixelImage(b"", width=W, height=H))
+                scanner.inspect(PixelImage(b"", width=W, height=H))
 
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA hardware unavailable")
     def test_cuda(self) -> None:

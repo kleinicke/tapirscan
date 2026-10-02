@@ -82,10 +82,9 @@ async function scan(scanner, image, variant, debug) {
     return [elapsed, clean(result)];
   }
   const start = performance.now();
-  const result = scanner.scan(image.image, {
+  const result = scanner[debug ? "inspect" : "scan"](image.image, {
     formats: variant.formats,
     extendedBudget: variant.extendedBudget,
-    debug,
   });
   const elapsed = performance.now() - start;
   return [elapsed, clean(result)];

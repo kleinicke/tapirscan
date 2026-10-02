@@ -17,7 +17,12 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
     wasmBaseUrl: "/engines/",
   });
   try {
-    const result: ScanResult = scanner.scan(image, { debug: true });
+    const barcodes: readonly Barcode[] = scanner.scan(image);
+    // @ts-expect-error Ordinary scans have no report envelope.
+    console.log(barcodes.barcodes);
+    // @ts-expect-error Inspection is a separate operation.
+    scanner.scan(image, { debug: true });
+    const result: ScanResult = scanner.inspect(image, {});
     const best: Barcode | undefined = result.best;
     const values: readonly string[] = result.values;
     const formats = scanner.formats;
@@ -28,10 +33,10 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
     // @ts-expect-error Supplement policy is fixed at creation.
     scanner.eanAddOnPolicy = "Ignore";
     // @ts-expect-error No per-call supplement policy.
-    scanner.scan(image, { eanAddOnPolicy: "Require" });
+    scanner.inspect(image, { eanAddOnPolicy: "Require" });
     // @ts-expect-error Invalid supplement policy.
     await scan(image, { eanAddOnPolicy: "read" });
-    for (const region of result.debug?.regions.undecoded ?? []) {
+    for (const region of result.diagnostics.regions.undecoded) {
       // @ts-expect-error Undecoded regions have geometry, not decoded text.
       region.text = "decoded";
       // @ts-expect-error Region geometry is immutable.
@@ -44,18 +49,18 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
     }
     // @ts-expect-error Creation formats remain immutable.
     formats[0] = "QRCode";
-    await scan(imageData, { formats: ["EAN13"], debug: true });
+    await scan(imageData, { formats: ["EAN13"] });
     // @ts-expect-error Results are immutable, including nested coordinates.
     result.barcodes[0].polygon[0][0] = 0;
     // @ts-expect-error Derived values cannot drift through caller mutation.
     result.values[0] = "changed";
     // @ts-expect-error Select one read through result.best.
-    scanner.scan(image, { multiple: false });
+    scanner.inspect(image, { multiple: false });
     // @ts-expect-error There is one diagnostic option.
-    scanner.scan(image, { includeRegions: true });
-    scanner.scan(image, { formats: "EAN13", extendedBudget: true });
+    scanner.inspect(image, { includeRegions: true });
+    scanner.inspect(image, { formats: "EAN13", extendedBudget: true });
     // @ts-expect-error Continuation is a boolean.
-    scanner.scan(image, { extendedBudget: "yes" });
+    scanner.inspect(image, { extendedBudget: "yes" });
     const support: number | undefined = best?.support;
     const append: number | undefined = best?.structuredAppend?.index;
     if (best?.structuredAppend) {

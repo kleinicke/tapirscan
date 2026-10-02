@@ -109,7 +109,10 @@ class Bindings(unittest.TestCase):
                         )
                         for debug in (False, True):
                             with self.subTest(mode=mode, fixture=name, debug=debug):
-                                result = scanner.scan(image, debug=debug)
+                                result = scanner.inspect(image)
+                                self.assertEqual(
+                                    scanner.scan(image), list(result.barcodes)
+                                )
                                 self.assertEqual(result.values, [TEXT] * expected)
                                 reference = typed(result)
                                 raw = result.to_raw_dict()
@@ -135,7 +138,7 @@ class Bindings(unittest.TestCase):
                     for name, pixels, w, h, channels, stride, _ in fixtures():
                         with self.subTest(mode=mode, fixture=name):
                             path.write_bytes(pixels)
-                            native = scanner.scan(
+                            native = scanner.inspect(
                                 PixelImage(
                                     pixels,
                                     width=w,
@@ -166,7 +169,7 @@ class Bindings(unittest.TestCase):
         for mode in MODES:
             scanner = Scanner(mode, library_dir=LIBS)
             _, pixels, w, h, _c, _stride, _ = next(fixtures())
-            first = scanner.scan(PixelImage(pixels, width=w, height=h)).to_raw_dict()
+            first = scanner.inspect(PixelImage(pixels, width=w, height=h)).to_raw_dict()
             frozen = json.dumps(first)
             for options, data in [
                 ({"width": -1, "height": h}, pixels),
@@ -176,11 +179,11 @@ class Bindings(unittest.TestCase):
                 ({"width": w, "height": h}, pixels[:1]),
             ]:
                 with self.assertRaises(ValueError):
-                    scanner.scan(PixelImage(data, **options))
+                    scanner.inspect(PixelImage(data, **options))
             with self.assertRaises(ValueError):
-                scanner.scan(PixelImage(memoryview(pixels)[::2], width=w, height=h))
+                scanner.inspect(PixelImage(memoryview(pixels)[::2], width=w, height=h))
             self.assertEqual(
-                scanner.scan(
+                scanner.inspect(
                     PixelImage(bytes([255]) * len(pixels), width=w, height=h)
                 ).values,
                 [],
@@ -188,7 +191,7 @@ class Bindings(unittest.TestCase):
             scanner.close()
             scanner.close()
             with self.assertRaises(RuntimeError):
-                scanner.scan(PixelImage(pixels, width=w, height=h))
+                scanner.inspect(PixelImage(pixels, width=w, height=h))
             self.assertEqual(json.dumps(first), frozen)
         with self.assertRaises(ValueError):
             Scanner("typo", library_dir=LIBS)  # ty: ignore[invalid-argument-type]
@@ -203,7 +206,9 @@ class Bindings(unittest.TestCase):
         ):
             results = list(
                 pool.map(
-                    lambda scanner: scanner.scan(PixelImage(pixels, width=w, height=h)),
+                    lambda scanner: scanner.inspect(
+                        PixelImage(pixels, width=w, height=h)
+                    ),
                     [medium, high, medium, high],
                 )
             )

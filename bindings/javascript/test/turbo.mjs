@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { Scanner, scan } from "../dist/index.js";
+import { Scanner, inspect } from "../dist/index.js";
 import { fixture, ean8 } from "./fixtures.mjs";
 
 const fromAsset = (name) => async () => {
@@ -17,12 +17,12 @@ for (const preset of [2, 4, 8, 16]) {
     try {
       assert.equal(scanner.mode, "low");
       assert.equal(scanner.experimentalTurbo, preset);
-      result = scanner.scan(image, { debug: true });
+      result = scanner.inspect(image, {});
       assert.deepEqual(result.values, [text]);
       assert.equal(result.mode, "low");
       assert.equal(result.experimentalTurbo, preset);
       assert.equal(result.unfinished, true);
-      assert.ok(result.debug);
+      assert.ok(result.diagnostics);
       assert.ok(Object.isFrozen(result));
       for (const barcode of result.barcodes) {
         assert.equal(barcode.polygon.length, 4);
@@ -31,24 +31,24 @@ for (const preset of [2, 4, 8, 16]) {
           assert.ok(x >= 0 && x <= image.width && y >= 0 && y <= image.height);
         }
       }
-      assert.deepEqual(scanner.scan(ean8(), { formats: "EAN8" }).values, ["96385074"]);
+      assert.deepEqual(scanner.inspect(ean8(), { formats: "EAN8" }).values, ["96385074"]);
       // Equal values on two physical labels must remain two results at every preset.
-      assert.deepEqual(scanner.scan(ean8(2, 20), { formats: "EAN8" }).values, [
+      assert.deepEqual(scanner.inspect(ean8(2, 20), { formats: "EAN8" }).values, [
         "96385074",
         "96385074",
       ]);
-      assert.deepEqual(scanner.scan(ean8(1, 1, "96385075"), { formats: "EAN8" }).values, []);
-      assert.deepEqual(scanner.scan(image, { formats: "QRCode" }).values, []);
-      assert.deepEqual(scanner.scan(image).values, [text]);
-      assert.throws(() => scanner.scan(image, { extendedBudget: true }), /extendedBudget/);
-      assert.throws(() => scanner.scan(image, { experimentalTurbo: 2 }), /Unknown scan option/);
+      assert.deepEqual(scanner.inspect(ean8(1, 1, "96385075"), { formats: "EAN8" }).values, []);
+      assert.deepEqual(scanner.inspect(image, { formats: "QRCode" }).values, []);
+      assert.deepEqual(scanner.inspect(image).values, [text]);
+      assert.throws(() => scanner.inspect(image, { extendedBudget: true }), /extendedBudget/);
+      assert.throws(() => scanner.inspect(image, { experimentalTurbo: 2 }), /Unknown scan option/);
     } finally {
       scanner.dispose();
     }
     scanner.dispose();
     assert.deepEqual(result.values, [text]);
-    assert.throws(() => scanner.scan(image), /disposed/i);
-    const oneShot = await scan(image, {
+    assert.throws(() => scanner.inspect(image), /disposed/i);
+    const oneShot = await inspect(image, {
       experimentalTurbo: preset,
       loadWasm: fromAsset(`experimental-turbo${preset}`),
     });
@@ -86,7 +86,7 @@ test("custom WASM loading cannot silently select a different preset", async () =
 });
 
 test("stable defaults remain Medium without an experimental result field", async () => {
-  const result = await scan(fixture().image);
+  const result = await inspect(fixture().image);
   assert.equal(result.mode, "medium");
   assert.equal("experimentalTurbo" in result, false);
 });

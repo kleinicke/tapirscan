@@ -1,5 +1,16 @@
 # Tapirscan for C
 
+`tapirscan_scan` returns an owned barcode-list handle. Read its size using
+`tapirscan_result_count`, then each barcode with `tapirscan_result_barcode` and
+`tapirscan_result_copy`. Positions are always available in `polygon`.
+A successful result can have zero barcodes. Destroy it with `tapirscan_result_destroy`.
+
+Use `tapirscan_inspect` to retain unread regions, work status, timing and diagnostics.
+`tapirscan_result_info` and `tapirscan_result_undecoded` require an inspection result;
+they return `TAPIRSCAN_INVALID_ARGUMENT` for ordinary scan results.
+There is no debug flag. JSON access serializes lazily: a barcode array for scanning,
+and the schema-2 engine report for inspection.
+
 Scan decoded pixels and receive every accepted barcode, source-image geometry,
 undecoded proposals and reported work limits. Defaults are Medium effort and
 retail formats (EAN13, UPCA, EAN8 and UPCE). One shared library contains all
@@ -17,9 +28,9 @@ int scan_rgba(const uint8_t *pixels, uint64_t width, uint64_t height) {
     tapirscan_result result;
     status = tapirscan_scan(scanner, &image, NULL, &result, NULL);
     if (status == TAPIRSCAN_OK) {
-        tapirscan_summary summary;
-        tapirscan_result_info(result, &summary);
-        for (uint64_t i = 0; i < summary.barcode_count; i++) {
+        uint64_t count;
+        tapirscan_result_count(result, &count);
+        for (uint64_t i = 0; i < count; i++) {
             tapirscan_barcode barcode;
             char text[256];
             tapirscan_result_barcode(result, i, &barcode);
@@ -60,7 +71,7 @@ tapirscan_scanner_create(&options, &scanner, NULL);
 
 tapirscan_scan_options scan = {0}; /* zero fields keep the defaults */
 scan.extended_budget = 1;
-tapirscan_scan(scanner, &image, &scan, &result, NULL);
+tapirscan_inspect(scanner, &image, &scan, &result, NULL);
 ```
 
 | Scanner option      | Default                       | Choices                                      |
@@ -76,7 +87,6 @@ supported; other readers remain experimental. See [format coverage](../../docs/F
 | Per-scan option   | Default | Meaning                                      |
 | ----------------- | ------- | -------------------------------------------- |
 | `formats`         | `0`     | Override readers for this call; 0 keeps them |
-| `debug`           | `0`     | 1 adds engine evidence to the result JSON    |
 | `extended_budget` | `0`     | 1 allows extra reader work for any format    |
 
 `NULL` scan options equal a zero-initialized struct. `extended_budget` can cost
@@ -103,7 +113,7 @@ false candidates or deferred work. An empty list and `unfinished` 0 do not
 guarantee exhaustive coverage.
 
 `tapirscan_result_copy_json` copies schema-2 JSON of the decoded results, plus
-unstable engine evidence when the scan requested `debug`. Destroy every result
+unstable engine evidence from inspection. Destroy every result
 with `tapirscan_result_destroy` and every scanner with `tapirscan_scanner_destroy`.
 
 ## Images

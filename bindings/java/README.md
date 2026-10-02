@@ -1,5 +1,16 @@
 # Tapirscan for Java
 
+`scan(image)` returns an immutable `List<Barcode>` with decoded text, format
+and source-image polygons. An empty list means no barcode was decoded.
+
+```java
+var barcodes = Tapirscan.scan(Image.gray(pixels, width, height));
+for (var barcode : barcodes) System.out.println(barcode.text());
+```
+
+Reuse `Scanner.scan` across images. Call `inspect` for a `ScanResult` with unread
+regions, work status, timing and diagnostics. There is no debug flag.
+
 Scan decoded pixels and receive every accepted barcode, source-image geometry,
 undecoded proposals and reported work limits. Defaults are Medium effort and
 retail formats (EAN13, UPCA, EAN8 and UPCE). The dependency-free JDK 22+ binding
@@ -10,7 +21,7 @@ import org.tapirscan.*;
 
 byte[] pixels = new byte[640 * 480];
 java.util.Arrays.fill(pixels, (byte) 255);
-ScanResult result = Tapirscan.scan(Image.gray(pixels, 640, 480));
+ScanResult result = Tapirscan.inspect(Image.gray(pixels, 640, 480));
 for (Barcode barcode : result.barcodes()) {
     System.out.println(barcode.text() + " " + barcode.format() + " " + barcode.polygon());
 }
@@ -29,7 +40,7 @@ ScannerOptions options = ScannerOptions.defaults()
         .withMode(Mode.HIGH)
         .withFormats(java.util.Set.of(Format.EAN13, Format.QR_CODE));
 try (Scanner scanner = new Scanner(options)) {
-    ScanResult result = scanner.scan(Image.rgba(pixels, width, height),
+    ScanResult result = scanner.inspect(Image.rgba(pixels, width, height),
             ScanOptions.defaults().withExtendedBudget(true));
     result.best().ifPresent(best -> System.out.println(best.text()));
 }
@@ -37,7 +48,7 @@ try (Scanner scanner = new Scanner(options)) {
 
 Reuse a scanner across images and close it, or use try-with-resources. Scans on
 one scanner serialize; separate scanners run concurrently.
-`Tapirscan.scan(image, options)` uses a temporary scanner for one image.
+`Tapirscan.inspect(image, options)` uses a temporary scanner for one image.
 
 | Scanner option   | Default                 | Choices                                 |
 | ---------------- | ----------------------- | --------------------------------------- |
@@ -49,11 +60,10 @@ Presets: `Format.RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX` and `ALL`.
 Retail formats are supported; other readers remain experimental. See
 [format coverage](../../docs/FORMATS.md).
 
-| Per-scan option  | Default            | Meaning                                      |
-| ---------------- | ------------------ | -------------------------------------------- |
-| `formats`        | `Optional.empty()` | Override readers for this call               |
-| `debug`          | `false`            | Include engine evidence in `debug()` as JSON |
-| `extendedBudget` | `false`            | Allow extra reader work for any format       |
+| Per-scan option  | Default            | Meaning                                |
+| ---------------- | ------------------ | -------------------------------------- |
+| `formats`        | `Optional.empty()` | Override readers for this call         |
+| `extendedBudget` | `false`            | Allow extra reader work for any format |
 
 `extendedBudget` can cost more time and does not promise exhaustive decoding;
 see [API design](../../docs/API_DESIGN.md).
@@ -61,7 +71,7 @@ see [API design](../../docs/API_DESIGN.md).
 ## Results
 
 `ScanResult` exposes `barcodes()`, `undecoded()`, `width()`, `height()`,
-`mode()`, `elapsedMs()`, `unfinished()` and optional `debug()` JSON. `values()`
+`mode()`, `elapsedMs()`, `unfinished()` and optional `diagnostics()` JSON. `values()`
 returns decoded text; `best()` returns the largest-support read, keeping
 first-read ties. Support is reader-specific and not comparable confidence across
 formats.

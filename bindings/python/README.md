@@ -1,6 +1,21 @@
 # Tapirscan for Python
 
-Scan Pillow images, NumPy arrays and PyTorch tensors with `tapirscan.scan(image)`.
+`scan(image)` returns `list[Barcode]`. Each barcode has `text`, `format`, and
+source-image `polygon` / `rect` coordinates. No detection returns `[]`.
+
+```python
+import tapirscan
+
+barcodes = tapirscan.scan(image)
+for barcode in barcodes:
+    print(barcode.text, barcode.polygon)
+```
+
+Reuse `Scanner.scan(image)` for repeated calls. Use `inspect(image)` or
+`Scanner.inspect(image)` for timing, work status, unread regions and diagnostics.
+The advanced inspection examples follow. There is no `debug` argument.
+
+Scan Pillow images, NumPy arrays and PyTorch tensors with `tapirscan.inspect(image)`.
 [Try the live demo](https://tapirscan.f-kleinicke.de) · [Quick start](#quick-start) · [Functions](#functions) · [All options](#all-options) · [Results](#results-and-public-types)
 
 ## Installation
@@ -23,7 +38,7 @@ import tifffile
 import tapirscan
 
 pixels = tifffile.imread("label.tif", key=0)  # NumPy array: first TIFF page
-result = tapirscan.scan(pixels)
+result = tapirscan.inspect(pixels)
 print(result.values)
 ```
 
@@ -37,7 +52,7 @@ from PIL import Image
 import tapirscan
 
 with Image.open("label.jpg") as image:
-    result = tapirscan.scan(image, mode="high", formats="1D")
+    result = tapirscan.inspect(image, mode="high", formats="1D")
 
 for barcode in result:
     print(barcode.text, barcode.format, barcode.polygon)
@@ -58,7 +73,7 @@ import torch
 
 # Using the NumPy array from the TIFF example:
 tensor = torch.from_numpy(pixels)
-result = tapirscan.scan(tensor)
+result = tapirscan.inspect(tensor)
 print(result.values)
 ```
 
@@ -70,21 +85,21 @@ graph are unchanged. Barcode decoding runs on CPU.
 
 ```python
 # One image, with automatic cleanup:
-result = tapirscan.scan(image, mode="medium", formats=["EAN13"], debug=False)
+result = tapirscan.inspect(image, mode="medium", formats=["EAN13"])
 
 # Reuse native initialization across images:
 with tapirscan.Scanner(mode="high", formats="1D") as scanner:
-    result = scanner.scan(image)
+    result = scanner.inspect(image)
     best = result.best  # Barcode or None; all reads remain in result
 ```
 
 Signatures (all settings are optional):
 
 ```text
-scan(image, *, mode="medium", formats=None, ean_add_on_policy="Ignore", debug=False, extended_budget=False,
+inspect(image, *, mode="medium", formats=None, ean_add_on_policy="Ignore", extended_budget=False,
      layout="auto", value_range="auto", color_order="RGB", library_dir=None) -> ScanResult
 Scanner(mode="medium", *, formats=None, ean_add_on_policy="Ignore", library_dir=None)
-scanner.scan(image, *, debug=False, formats=None, extended_budget=False,
+scanner.inspect(image, *, formats=None, extended_budget=False,
              layout="auto", value_range="auto", color_order="RGB") -> ScanResult
 scanner.close()
 ```
@@ -104,7 +119,6 @@ override the constructor selection for that call only; `None` inherits it.
 | `formats`           | Creation / scan           | retail          | A single identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty list/tuple of exact identifiers. On a scanner, `None` inherits its selection. |
 | `ean_add_on_policy` | Creation / one-shot       | `"Ignore"`      | `"Ignore"`, `"Read"`, `"Require"`; optional EAN/UPC supplement policy.                                                                                                          |
 | `extended_budget`   | Scan / one-shot           | `False`         | Allow extra reader work for any format. Exact budgets may evolve.                                                                                                               |
-| `debug`             | Scan                      | `False`         | Include typed search evidence and raw diagnostics. Decoded polygons are always available.                                                                                       |
 | `layout`            | Scan, arrays/tensors only | `"auto"`        | `"HW"`, `"HWC"`, `"CHW"`; specify when channel position is ambiguous.                                                                                                           |
 | `value_range`       | Scan, arrays/tensors only | `"auto"`        | `"0_1"` or `"0_255"`. Auto uses [0,1] for all floats and [0,255] for integers, independently of image contents. Byte-unit floats require `"0_255"`.                             |
 | `color_order`       | Scan, arrays/tensors only | `"RGB"`         | Optional `"BGR"` for OpenCV BGR/BGRA pixels; alpha is preserved and ignored by decoding. Grayscale is unchanged.                                                                |
@@ -125,7 +139,7 @@ budgets, timeouts and confidence thresholds are not exposed as scan options.
 
 ## EAN/UPC supplements
 
-Set `ean_add_on_policy="Read"` in Python when creating a scanner or calling one-shot `scan()`.
+Set `ean_add_on_policy="Read"` in Python when creating a scanner or calling one-shot `inspect()`.
 The policy is fixed for that scanner; its default is `"Ignore"`.
 
 | Policy      | Behavior                                                                                         |
@@ -154,12 +168,12 @@ checks reduce wrong reads but cannot guarantee that every returned decode is cor
 
 Use `mode="low"` through `"very-high"` at creation to select EAN13/UPCA, Common1D and QR Code search
 effort. Other matrix readers use fixed effort. `result.unfinished` is available without
-debug and combines reported decoding and localization limits. Returned reads are
+and combines reported decoding and localization limits. Returned reads are
 still usable. Candidate, retry and parsing caps are reported, including bounded
 searches that also returned reads. False does not promise exhaustive scanning. Exact budgets and interruptible timeouts are not
 public options.
 
-`debug=True` adds attempted search windows, localization proposals, candidate
+Inspection includes attempted search windows, localization proposals, candidate
 outcomes and engine traces. It is unnecessary for drawing decoded barcode locations.
 
 Pillow `I`, `F` and `I;16*` images use byte-unit intensities in [0,255], matching
@@ -171,7 +185,7 @@ rather than silently clipped. Scale higher-bit-depth images explicitly; array/te
 
 ```python
 image = tapirscan.PixelImage(pixels, width=640, height=480, channels=3)
-result = tapirscan.scan(image)
+result = tapirscan.inspect(image)
 ```
 
 `pixels` contains decoded bytes, not a JPEG/PNG file. Dimensions and storage
@@ -212,7 +226,7 @@ import tapirscan
 image = cv2.imread("label.jpg")
 if image is None:
     raise ValueError("Could not load label.jpg")
-result = tapirscan.scan(image, color_order="BGR")
+result = tapirscan.inspect(image, color_order="BGR")
 ```
 
 OpenCV is not a dependency. Existing RGB, Pillow and grayscale calls need no new
@@ -235,9 +249,9 @@ check its truth value. Empty results are false.
 | `result.elapsed_ms`             | Native scanner time; excludes image conversion and result construction.                                         |
 | `result.unfinished`             | Incomplete scanning work; returned reads can still be useful.                                                   |
 | `result.undecoded`              | Localized proposals without accepted decodes; always available.                                                 |
-| `result.debug`                  | `Diagnostics`, or None when not requested.                                                                      |
+| `result.diagnostics`            | `Diagnostics`, from inspection.                                                                                 |
 | `result.as_dict()`              | Independent JSON-compatible application result, including decoded and undecoded geometry; excludes diagnostics. |
-| `result.to_raw_dict()`          | Independent native schema-2 JSON; may contain evidence even without public debug.                               |
+| `result.to_raw_dict()`          | Independent native schema-2 JSON; contains the inspection evidence.                                             |
 | `barcode.payload_bytes`         | Immutable decoded payload bytes before character-set interpretation, or None when unavailable.                  |
 | `barcode.text`, `.format`       | Decoded text and format identifier.                                                                             |
 | `barcode.polygon`               | Tuple of `Point(x, y)` source-image coordinates.                                                                |
@@ -265,8 +279,8 @@ print(json.dumps(payload))
 `as_dict()` uses public Python field names, polygon coordinate pairs and rectangle
 objects. Payload bytes become lists of integers (or null). Each call returns an
 independent nested dictionary; no private bytes or native-schema fields leak into
-it. `barcode.as_dict()` exports a single read. Export debug evidence separately
-with `result.debug.to_raw_dict()` when requested.
+it. `barcode.as_dict()` exports a single read. Export inspection evidence separately
+with `result.diagnostics.to_raw_dict()` when requested.
 
 `payload_bytes` is currently supplied by QR Code, Data Matrix, Aztec, PDF417 and
 MaxiCode readers. These are decoded data bytes, not error-correction codewords;
@@ -278,12 +292,12 @@ the readers' existing decoding behavior.
 ## Diagnostics
 
 ```python
-result = tapirscan.scan(image, debug=True)
-if result.debug is not None and result.debug.regions is not None:
-    print(result.debug.regions.proposals)
-    print(result.debug.regions.search_windows)
-    print(result.debug.regions.undecoded)
-    print(result.debug.regions.candidates)
+result = tapirscan.inspect(image)
+if result.diagnostics is not None and result.diagnostics.regions is not None:
+    print(result.diagnostics.regions.proposals)
+    print(result.diagnostics.regions.search_windows)
+    print(result.diagnostics.regions.undecoded)
+    print(result.diagnostics.regions.candidates)
 ```
 
 `regions.undecoded` contains immutable `UndecodedRegion` objects with `polygon`
@@ -296,7 +310,7 @@ an empty tuple means evidence was available but contained no entries.
 `Diagnostics` also exposes `barcodes` (support, axis, candidate indices in result
 order), `localization_limited` and `to_raw_dict()`. Region types are available in
 `tapirscan.results`. GS1, reader initialization and structured append are available directly on each
-barcode without `debug=True`; raw metadata is also retained in JSON. Evidence varies by reader. Candidate indices inside
+barcode during ordinary scanning; raw metadata is also retained in JSON. Evidence varies by reader. Candidate indices inside
 a recovery crop are local to that crop, not identifiers for tracking across frames.
 
 ## Errors
@@ -307,15 +321,15 @@ with a descriptive message and a numeric `.code` attribute. Native codes are:
 4 internal failure, and 5 resource capacity exceeded. For capacity errors, close
 unused scanners. Unknown codes retain their number. Scanning after close raises RuntimeError.
 
-`result.to_raw_dict()` and `result.debug.to_raw_dict()` return independent native
-schema-2 dictionaries. Raw results can include evidence even when `debug=False`,
+`result.to_raw_dict()` and `result.diagnostics.to_raw_dict()` return independent native
+schema-2 dictionaries. Inspection results include engine evidence,
 because public undecoded geometry uses that evidence. These are engine exports,
 not serialization of the
-public Python object. Support is available directly as `barcode.support` and in `result.debug.barcodes`.
+public Python object. Support is available directly as `barcode.support` and in `result.diagnostics.barcodes`.
 
 ## Extended work budget
 
-Use `scanner.scan(image, extended_budget=True)` to allow additional reader work. The default
+Use `scanner.inspect(image, extended_budget=True)` to allow additional reader work. The default
 is false. This option is valid for every format; the exact budgets and stages are
 implementation details that may evolve. Effort mode remains a separate setting.
 
@@ -327,7 +341,7 @@ engines must support the extended-work capability or report an error.
 
 ## Undecoded regions
 
-`result.undecoded` is always available, independently of `debug`. Each entry has
+`result.undecoded` is always available, in inspection reports. Each entry has
 a source-image polygon and a format hint. It is a localized proposal without an
 accepted decode, not proof of a real or permanently unreadable barcode. Entries
 can overlap or describe false candidates. An empty collection does not prove

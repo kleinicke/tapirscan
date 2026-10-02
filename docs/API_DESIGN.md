@@ -1,27 +1,34 @@
 # Public API design
 
 This is the 1.3.0 API revision. See [migration](API_MIGRATION.md).
-Every binding exposes one scan operation returning `ScanResult`. The public Rust
+Every binding exposes `scan` returning a barcode list and `inspect` returning a
+`ScanResult` with work status, unread regions, timing and diagnostics. The public Rust
 `Scanner` owns the pipeline in every binding. JavaScript uses a thin WASM
-adapter; native ABI 6 connects C, C++, Python and Java to the same API.
+adapter; native ABI 7 connects C, C++, Python and Java to the same API.
 One-shot calls clean up automatically; reusable scanners amortize initialization.
 Rust uses `scan(image)` for defaults and `scan_with_options(image, options)` for
 overrides; Python uses keyword arguments and JavaScript an options object. All return independent results, including empty results.
 
 ## Results
 
-- `barcodes`: accepted decoded physical instances, including separate copies of
-  the same payload. Text, format, source-image polygon and payload metadata remain
-  available without debugging.
-- `undecoded`: reported localized proposals without an accepted decode. These
-  may be false candidates, failed attempts or deferred work; they are not a list
-  of proven real barcodes. Entries may overlap. Empty does not prove coverage.
-- `unfinished`: the engine reported a work limit or deferral. Reads remain usable.
-  False does not promise every visible barcode was found.
-- Image dimensions, selected mode and scan timing. Rust uses `Duration`;
-  Python and JavaScript expose milliseconds.
-- `debug`: optional engine-specific evidence. It does not control whether public
-  decoded or undecoded geometry is returned. Raw schemas are not stable API.
+Ordinary scans return a list of decoded physical instances. Text, format,
+source-image polygon/rect and optional payload metadata are available on each
+barcode. Equal payloads at distinct locations remain separate. Empty lists are
+successful results. There is no public `debug` option and no result envelope to
+unwrap for everyday scanning.
+
+Inspection is explicit and returns `ScanResult`:
+
+- `barcodes`: the same decoded instances as scanning with the same options.
+- `undecoded`: localized proposals without accepted decodes. They can be false
+  candidates, failed attempts or deferred work, and may overlap.
+- `unfinished`: the engine reported a work limit. False does not promise exhaustive coverage.
+- Image dimensions, selected mode and scan timing.
+- `diagnostics`: unstable engine-specific evidence for advanced consumers.
+
+C uses owned result handles for both operations. Count/barcode/copy accessors work
+for either; summary and unread-region accessors require inspection. JSON is lazy:
+ordinary results serialize to a barcode array, inspection to a schema-2 report.
 
 `values` is a convenience projection of decoded text. `best` selects the largest reader-specific support,
 keeping first-read ties. It is not a most-reliable selection across formats or

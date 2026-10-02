@@ -39,8 +39,8 @@ export async function runApiChecks(Scanner, fixtures, options = {}) {
       });
       let result;
       try {
-        for (const debug of [false, true]) {
-          result = scanner.scan(
+        for (const extendedBudget of [false, true]) {
+          result = scanner.inspect(
             {
               data: new Uint8Array(fixture.data),
               width: fixture.width,
@@ -48,8 +48,7 @@ export async function runApiChecks(Scanner, fixtures, options = {}) {
               channels: 1,
             },
             {
-              debug,
-              extendedBudget: debug,
+              extendedBudget,
             },
           );
           checkGeometry(result, fixture);
@@ -94,11 +93,27 @@ export async function runApiChecks(Scanner, fixtures, options = {}) {
           const order = (a, b) =>
             a.text.localeCompare(b.text) || (a.eanAddOn ?? "").localeCompare(b.eanAddOn ?? "");
           equal(actual.sort(order), [...fixture.expected].sort(order), `${fixture.name}: metadata`);
-          check(Boolean(result.debug) === debug, "debug selection");
+          check(Boolean(result.diagnostics), "inspection evidence");
+          equal(
+            scanner.scan(
+              {
+                data: new Uint8Array(fixture.data),
+                width: fixture.width,
+                height: fixture.height,
+                channels: 1,
+              },
+              { extendedBudget },
+            ),
+            result.barcodes,
+            "scan/inspect parity",
+          );
           if (fixture.expectUnread) check(result.undecoded.length > 0, "public undecoded regions");
-          if (debug && fixture.expectUnread)
-            check(result.debug.regions.undecoded.length > 0, `${fixture.name}: unread evidence`);
-          if (!debug)
+          if (fixture.expectUnread)
+            check(
+              result.diagnostics.regions.undecoded.length > 0,
+              `${fixture.name}: unread evidence`,
+            );
+          if (!extendedBudget)
             observations.push({
               mode,
               name: fixture.name,

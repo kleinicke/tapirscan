@@ -13,7 +13,7 @@ const INTERNAL: i32 = 4;
 const CAPACITY: i32 = 5;
 const MAX_BYTES: usize = 128 * 1024 * 1024;
 const MAX_SCANNERS: usize = 1_024;
-const ABI_VERSION: u32 = 1;
+const ABI_VERSION: u32 = 2;
 
 const MODE_ID: u32 = if cfg!(feature = "mode-low") {
     0
@@ -260,16 +260,16 @@ pub extern "C" fn tapirscan_scan(handle: u32, flags: u32, format_mask: u32) -> i
             _ => return ARG,
         }
         .with_stride(spec.stride);
-        let result = session.scanner.scan_with_options(
-            image,
-            ScanOptions {
-                formats,
-                debug: flags & 2 != 0,
-                extended_budget: flags & 1 != 0,
-            },
-        );
+        let options = ScanOptions { formats, extended_budget: flags & 1 != 0 };
+        let result = if flags & 2 != 0 {
+            session.scanner.inspect_with_options(image, options).map(|report| wire_result(&report))
+        } else {
+            session.scanner.scan_with_options(image, options).map(|barcodes| {
+                serde_json::json!({"barcodes": barcodes.iter().map(wire_barcode).collect::<Vec<_>>()})
+            })
+        };
         match result {
-            Ok(result) => match serde_json::to_vec(&wire_result(&result)) {
+            Ok(result) => match serde_json::to_vec(&result) {
                 Ok(output) => {
                     session.output = output;
                     OK
@@ -314,7 +314,7 @@ fn wire_result(result: &ScanResult) -> serde_json::Value {
         "elapsedMs": result.elapsed.as_secs_f64() * 1000.0,
         "unfinished": result.unfinished,
     });
-    if let Some(debug) = &result.debug {
+    if let Some(debug) = &result.diagnostics {
         wire["debug"] = debug.raw.clone();
     }
     wire

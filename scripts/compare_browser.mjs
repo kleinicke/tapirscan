@@ -97,7 +97,11 @@ export async function browserComparison(config) {
                 ({ key, options }) => {
                   const scanner = globalThis.comparisonScanners.get(key);
                   const start = performance.now();
-                  const result = scanner.scan(globalThis.comparisonImage, options);
+                  const { debug, ...scanOptions } = options;
+                  const result = scanner[debug ? "inspect" : "scan"](
+                    globalThis.comparisonImage,
+                    scanOptions,
+                  );
                   return [performance.now() - start, result];
                 },
                 { key, options },

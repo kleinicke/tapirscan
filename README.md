@@ -75,15 +75,16 @@ import { scan } from "tapirscan";
 // Using an existing canvas and its 2D context:
 const image = context.getImageData(0, 0, canvas.width, canvas.height);
 const result = await scan(image);
-console.log(result.values); // Decoded strings, e.g. ["4006381333931"]
-for (const barcode of result.barcodes) {
+console.log(result.map((b) => b.text)); // Decoded strings, e.g. ["4006381333931"]
+for (const barcode of result) {
   console.log(barcode.text, barcode.format, barcode.polygon, barcode.rect);
 }
 ```
 
-`result.values` is a `string[]`; `result.barcodes` is a `Barcode[]` containing
+`result` is a read-only `Barcode[]` containing
 the text, format, four polygon corners, and enclosing rectangle for each read.
-Positions use input-image pixels. Both arrays are empty when nothing is decoded.
+Positions use input-image pixels. The array is empty when nothing is decoded.
+Use `inspect(image)` for work status, timing, unread regions and diagnostics.
 TypeScript infers these types from the package’s included declarations.
 
 Serve the package's WASM assets with your app. Bundler setup, Node loading, and
@@ -106,7 +107,7 @@ import tapirscan
 
 pixels = tifffile.imread("label.tif")  # NumPy array
 result = tapirscan.scan(pixels)
-print(result.values)
+print([b.text for b in result])
 ```
 
 This example assumes an 8-bit grayscale or RGB image. Defaults are Medium effort
@@ -136,7 +137,7 @@ import torch
 # Using the NumPy array from the TIFF example:
 tensor = torch.from_numpy(pixels)
 result = tapirscan.scan(tensor)
-print(result.values)
+print([b.text for b in result])
 ```
 
 GPU tensors and tensors with `requires_grad=True` work directly. Tapirscan

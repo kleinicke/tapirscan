@@ -137,8 +137,6 @@ impl Default for ScannerOptions {
 pub struct ScanOptions {
     /// Per-call reader override; `None` (default) uses the scanner configuration.
     pub formats: Option<Formats>,
-    /// Include raw engine diagnostics. Undecoded geometry is always included in scan results.
-    pub debug: bool,
     /// Allow reader-specific extra work; false by default. Valid for every format.
     /// Exact budgets may evolve; this does not guarantee exhaustive decoding.
     pub extended_budget: bool,
@@ -245,8 +243,8 @@ pub struct ScanResult {
     pub unfinished: bool,
     /// Localization reported a work limit, independently of reader deferrals.
     pub localization_limited: bool,
-    /// Present only when [`ScanOptions::debug`] was true for this call.
-    pub debug: Option<Diagnostics>,
+    /// Engine evidence returned by inspection; the schema is unstable.
+    pub diagnostics: Option<Diagnostics>,
 }
 impl ScanResult {
     /// Iterate over decoded instances without allocating.
@@ -277,7 +275,7 @@ impl ScanResult {
         let barcodes = engine.barcodes;
         let undecoded = engine.undecoded;
         let unfinished = engine.unfinished || engine.localization_limited;
-        let debug = engine.diagnostics.map(|raw| Diagnostics { raw });
+        let diagnostics = engine.diagnostics.map(|raw| Diagnostics { raw });
         Self {
             barcodes,
             undecoded,
@@ -286,7 +284,7 @@ impl ScanResult {
             elapsed,
             unfinished,
             localization_limited: engine.localization_limited,
-            debug,
+            diagnostics,
         }
     }
 }

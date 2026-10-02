@@ -8,27 +8,27 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./wasm/low.wasm": "./wasm/low-native-api-polish-20261002.wasm",
-    "./wasm/medium.wasm": "./wasm/medium-native-api-polish-20261002.wasm",
-    "./wasm/high.wasm": "./wasm/high-native-api-polish-20261002.wasm",
-    "./wasm/very-high.wasm": "./wasm/very-high-native-api-polish-20261002.wasm",
-    "./wasm/experimental-turbo2.wasm": "./wasm/experimental-turbo2-native-api-polish-20261002.wasm",
-    "./wasm/experimental-turbo4.wasm": "./wasm/experimental-turbo4-native-api-polish-20261002.wasm",
-    "./wasm/experimental-turbo8.wasm": "./wasm/experimental-turbo8-native-api-polish-20261002.wasm",
-    "./wasm/experimental-turbo16.wasm": "./wasm/experimental-turbo16-native-api-polish-20261002.wasm"
+    "./wasm/low.wasm": "./wasm/low-api-simple-results-20261002.wasm",
+    "./wasm/medium.wasm": "./wasm/medium-api-simple-results-20261002.wasm",
+    "./wasm/high.wasm": "./wasm/high-api-simple-results-20261002.wasm",
+    "./wasm/very-high.wasm": "./wasm/very-high-api-simple-results-20261002.wasm",
+    "./wasm/experimental-turbo2.wasm": "./wasm/experimental-turbo2-api-simple-results-20261002.wasm",
+    "./wasm/experimental-turbo4.wasm": "./wasm/experimental-turbo4-api-simple-results-20261002.wasm",
+    "./wasm/experimental-turbo8.wasm": "./wasm/experimental-turbo8-api-simple-results-20261002.wasm",
+    "./wasm/experimental-turbo16.wasm": "./wasm/experimental-turbo16-api-simple-results-20261002.wasm"
   },
   "files": [
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-native-api-polish-20261002.wasm",
-    "wasm/medium-native-api-polish-20261002.wasm",
-    "wasm/high-native-api-polish-20261002.wasm",
-    "wasm/very-high-native-api-polish-20261002.wasm",
-    "wasm/experimental-turbo2-native-api-polish-20261002.wasm",
-    "wasm/experimental-turbo4-native-api-polish-20261002.wasm",
-    "wasm/experimental-turbo8-native-api-polish-20261002.wasm",
-    "wasm/experimental-turbo16-native-api-polish-20261002.wasm"
+    "wasm/low-api-simple-results-20261002.wasm",
+    "wasm/medium-api-simple-results-20261002.wasm",
+    "wasm/high-api-simple-results-20261002.wasm",
+    "wasm/very-high-api-simple-results-20261002.wasm",
+    "wasm/experimental-turbo2-api-simple-results-20261002.wasm",
+    "wasm/experimental-turbo4-api-simple-results-20261002.wasm",
+    "wasm/experimental-turbo8-api-simple-results-20261002.wasm",
+    "wasm/experimental-turbo16-api-simple-results-20261002.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

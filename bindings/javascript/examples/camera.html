@@ -45,7 +45,7 @@
           const result = await scanner.scan(
             context.getImageData(0, 0, canvas.width, canvas.height),
           );
-          status.textContent = JSON.stringify(result.values);
+          status.textContent = JSON.stringify(result.map((b) => b.text));
           // Backpressure: capture only after the previous scan has completed.
           await new Promise(requestAnimationFrame);
         }

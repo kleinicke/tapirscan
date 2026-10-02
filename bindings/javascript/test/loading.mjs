@@ -9,7 +9,7 @@ const image = { data: new Uint8Array(100).fill(255), width: 10, height: 10, chan
 async function createAndDispose(wasmBaseUrl) {
   const scanner = await Scanner.create({ wasmBaseUrl });
   try {
-    assert.deepEqual(scanner.scan(image).values, []);
+    assert.deepEqual(scanner.inspect(image).values, []);
   } finally {
     scanner.dispose();
   }
@@ -25,7 +25,7 @@ test("stable exports resolve to a working scanner for each mode", async () => {
       },
     });
     try {
-      assert.deepEqual(scanner.scan(image).values, []);
+      assert.deepEqual(scanner.inspect(image).values, []);
     } finally {
       scanner.dispose();
     }
@@ -43,7 +43,7 @@ test("default loader shares concurrent and completed loads, with independent ses
   try {
     assert.equal(calls, 1);
     scanners[0].dispose();
-    assert.deepEqual(scanners[1].scan(image).values, []);
+    assert.deepEqual(scanners[1].inspect(image).values, []);
     await createAndDispose(options.wasmBaseUrl);
     assert.equal(calls, 1);
     await createAndDispose("https://cache.test/other/");

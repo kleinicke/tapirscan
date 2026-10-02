@@ -61,10 +61,9 @@ class Formats(unittest.TestCase):
                     self.subTest(mode=mode),
                     Scanner(mode, library_dir=LIBS) as scanner,
                 ):
-                    result = scanner.scan(
+                    result = scanner.inspect(
                         PixelImage(pixels, width=1000, height=700),
                         formats=["EAN13", "Code128", "QRCode"],
-                        debug=True,
                     )
                     self.assertCountEqual(
                         result.values, ["TAPIR123", "TAPIR123", "Tapir matrix"]
@@ -89,7 +88,7 @@ class Formats(unittest.TestCase):
                         ],
                     )
                     self.assertEqual(result.best, result[0])
-                    linear_only = scanner.scan(
+                    linear_only = scanner.inspect(
                         PixelImage(pixels, width=1000, height=700), formats=["Code128"]
                     )
                     self.assertEqual(linear_only.values, ["TAPIR123", "TAPIR123"])
@@ -134,7 +133,7 @@ class Formats(unittest.TestCase):
                     expected = None
                     for pixels, channels, stride in layouts:
                         with self.subTest(mode=mode, channels=channels, stride=stride):
-                            result = scanner.scan(
+                            result = scanner.inspect(
                                 PixelImage(
                                     pixels,
                                     width=width,
@@ -203,10 +202,9 @@ class Formats(unittest.TestCase):
                         self.subTest(format=fmt, mode=mode),
                         Scanner(mode, library_dir=LIBS) as scanner,
                     ):
-                        result = scanner.scan(
+                        result = scanner.inspect(
                             PixelImage(pixels, width=width, height=height),
                             formats=[fmt],
-                            debug=True,
                         )
                         self.assertEqual(result.values, [text])
                         self.assertEqual(result[0].format, fmt)
@@ -276,10 +274,10 @@ class Formats(unittest.TestCase):
                                 foreign["debug"]["scan"]["barcodes"],
                                 result.to_raw_dict()["scan"]["barcodes"],
                             )
-                        if result.debug is None:
+                        if result.diagnostics is None:
                             self.fail("Diagnostics were requested")
                         self.assertEqual(
-                            [b.support for b in result.debug.barcodes],
+                            [b.support for b in result.diagnostics.barcodes],
                             [b["support"] for b in js["debug"]["scan"]["barcodes"]],
                         )
                         for b, other in zip(
@@ -298,7 +296,7 @@ class Formats(unittest.TestCase):
                             result.unfinished, js["debug"]["scan"]["unfinished"]
                         )
                         with self.assertRaises(ValueError):
-                            scanner.scan(
+                            scanner.inspect(
                                 PixelImage(pixels, width=width, height=height),
                                 formats=[],
                             )
