@@ -52,6 +52,22 @@ pub(crate) fn recover_proposals_inverted(
     recover_proposals_variant(image, proposals, mask, sampler, SourceProfile::Inverted)
 }
 #[cfg(feature = "medium")]
+pub(crate) fn recover_proposals_highpass(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    strength: f32,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    recover_proposals_variant(
+        image,
+        proposals,
+        mask,
+        sampler,
+        SourceProfile::Highpass(strength),
+    )
+}
+#[cfg(feature = "medium")]
 pub(crate) fn recover_proposals_wide(
     image: Image<'_>,
     proposals: &[crate::Proposal],

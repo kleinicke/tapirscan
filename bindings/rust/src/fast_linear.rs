@@ -17,7 +17,9 @@ pub(crate) use recovery::{
     recover_proposals_inverted,
 };
 #[cfg(feature = "medium")]
-pub(crate) use recovery::{recover_proposals_band, recover_proposals_wide};
+pub(crate) use recovery::{
+    recover_proposals_band, recover_proposals_highpass, recover_proposals_wide,
+};
 
 // Build-only research selection, deliberately absent from every public API.
 // Cargo tracks this environment input; artifact manifests must record it.
@@ -72,6 +74,8 @@ const WORKING_DIMENSION: f64 = match TIER {
 };
 // Preserve small source modules; normalized caps bound work on large symbols.
 const DENSITY: f64 = 1.5;
+/// Source-pixel scale of the wide high-pass recovery hypothesis.
+const HIGHPASS_SIGMA: f64 = 4.;
 const SAMPLE_LIMIT: usize = match TIER {
     2 => 3072,
     4 | 8 | 16 => 2048,
@@ -654,6 +658,9 @@ enum SourceProfile {
     WideEan,
     #[cfg(feature = "medium")]
     BandEan(f64),
+    /// Wide high-pass hypothesis for blurred or ghosted photographs.
+    #[cfg(feature = "medium")]
+    Highpass(f32),
 }
 impl SourceProfile {
     fn band(profile: Self) -> Option<f64> {
@@ -678,6 +685,8 @@ impl SourceProfile {
             // narrow 2.25 kernel and its stricter source-line confirmation.
             #[cfg(feature = "medium")]
             Self::WideEan | Self::BandEan(_) => 2.25,
+            #[cfg(feature = "medium")]
+            Self::Highpass(strength) => strength,
             #[cfg(not(feature = "low"))]
             _ => 0.,
         }
@@ -697,7 +706,22 @@ impl SourceProfile {
             #[cfg(not(feature = "low"))]
             Self::Inverted => true,
             #[cfg(feature = "medium")]
-            Self::WideEan | Self::BandEan(_) => false,
+            Self::WideEan | Self::BandEan(_) | Self::Highpass(_) => false,
+        }
+    }
+    fn highpass(self) -> Option<f32> {
+        #[cfg(feature = "medium")]
+        {
+            if let Self::Highpass(strength) = self {
+                Some(strength)
+            } else {
+                None
+            }
+        }
+        #[cfg(not(feature = "medium"))]
+        {
+            let _ = self;
+            None
         }
     }
     fn wide(self) -> bool {
@@ -707,6 +731,8 @@ impl SourceProfile {
             Self::Color(_) | Self::Inverted => false,
             #[cfg(feature = "medium")]
             Self::WideEan | Self::BandEan(_) => true,
+            #[cfg(feature = "medium")]
+            Self::Highpass(_) => false,
         }
     }
 }
@@ -978,6 +1004,8 @@ fn sample_line_density(
         if method == 3 {
             if cfg!(feature = "medium") && candidate.profile.wide() {
                 sampler.restore_contrast_wide(1.5);
+            } else if let Some(strength) = candidate.profile.highpass() {
+                sampler.restore_highpass(HIGHPASS_SIGMA * DENSITY, strength);
             } else {
                 sampler.restore_contrast(candidate.profile.contrast());
             }

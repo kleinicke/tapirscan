@@ -5,12 +5,12 @@ use barcode_research_core::{frame::Barcode, multi_scan::Policy, shear, stripes};
 #[cfg(not(feature = "low"))]
 mod restoration;
 mod source_evidence;
-#[cfg(feature = "medium")]
-use restoration::recover_late_wide_crop;
 #[cfg(not(feature = "low"))]
 use restoration::recover_restored_regions;
 #[cfg(any(feature = "high", feature = "very-high"))]
 use restoration::recover_threshold_regions;
+#[cfg(feature = "medium")]
+use restoration::{recover_late_wide_crop, recover_wide_restored_regions};
 #[cfg(feature = "medium")]
 use source_evidence::independently_confirmed_ean_reads;
 #[cfg(any(feature = "medium", feature = "low"))]
@@ -175,6 +175,17 @@ fn scan_prepared_impl(
     }
     #[cfg(feature = "medium")]
     if allow_restoration && scan.frame.barcodes.is_empty() && retail.is_empty() {
+        recover_wide_restored_regions(
+            scanner,
+            image,
+            options,
+            coverage,
+            &localization.proposals,
+            &mut scan,
+        )?;
+    }
+    #[cfg(feature = "medium")]
+    if allow_restoration && scan.frame.barcodes.is_empty() && retail.is_empty() {
         recover_late_wide_crop(
             scanner,
             image,
@@ -274,6 +285,56 @@ fn admit_primary_reads(
     Ok(())
 }
 
+/// Unresolved primary proposals tried with the wide high-pass profile hypothesis.
+#[cfg(feature = "medium")]
+const HIGHPASS_PROPOSALS: usize = 8;
+
+/// Decode up to eight unresolved EAN-13/UPC-A proposals from wide high-pass
+/// profiles (blurred, ghosted or unevenly lit photographs). Restored reads need
+/// payload agreement with unmodified source rows, or five supporting rows, and
+/// must not be contradicted by the source.
+#[cfg(feature = "medium")]
+fn recover_highpass_proposals(
+    image: Image<'_>,
+    proposals: &[Proposal],
+    scan: &super::ScanResult,
+    protected: &[Barcode],
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> std::result::Result<Vec<super::read::Read>, Error> {
+    let selected: Vec<_> = proposals
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            scan.frame
+                .candidates
+                .get(*i)
+                .is_some_and(|c| c.detections.is_empty())
+                && !protected.iter().any(|b| {
+                    super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3
+                })
+        })
+        .map(|(_, p)| *p)
+        .take(HIGHPASS_PROPOSALS)
+        .collect();
+    let (reads, _) =
+        super::fast_linear::recover_proposals_highpass(image, &selected, 1, sampler, 1.5)?;
+    let mut accepted = Vec::new();
+    for r in reads {
+        let bytes = r.text.as_bytes();
+        if bytes.len() != 13 || !bytes.iter().all(u8::is_ascii_digit) {
+            continue;
+        }
+        let digits = std::array::from_fn(|i| bytes[i] - b'0');
+        if (r.support >= 5
+            || source_evidence::recovered_ean_source_agreement(image, r.polygon, &digits))
+            && !source_contradiction(image, r.polygon, digits, sampler)?
+        {
+            accepted.push(r);
+        }
+    }
+    Ok(accepted)
+}
+
 /// Retry bounded unresolved source proposals with independent row confirmation.
 /// Protect reconciled original ownership before adding a new physical read.
 #[cfg(feature = "medium")]
@@ -284,6 +345,7 @@ fn recover_primary_proposals(
     sampler: &mut barcode_research_core::fast_profile::Sampler,
 ) -> std::result::Result<(), Error> {
     let protected = protected_primary(image, &scan.frame.barcodes);
+    let all_proposals = proposals;
     let mut unresolved: Vec<_> = proposals
         .iter()
         .enumerate()
@@ -312,11 +374,16 @@ fn recover_primary_proposals(
         sampler,
         2,
     )?;
+    let highpass = recover_highpass_proposals(image, all_proposals, scan, &protected, sampler)?;
     admit_primary_reads(
         image,
         scan,
         protected,
-        extra.into_iter().chain(restored).chain(colored),
+        extra
+            .into_iter()
+            .chain(restored)
+            .chain(colored)
+            .chain(highpass),
     )?;
     if !scan.frame.barcodes.is_empty() {
         return Ok(());

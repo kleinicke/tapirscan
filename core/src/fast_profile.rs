@@ -365,6 +365,33 @@ impl Sampler {
         }
         self.restore_scratch = original;
     }
+    /// Wide high-pass hypothesis: subtract a Gaussian local mean of `sigma` samples.
+    /// Removes slow illumination and partially undoes ghosting; positions are unchanged.
+    pub fn restore_highpass(&mut self, sigma: f64, strength: f32) {
+        self.cache_current = None;
+        let n = self.values.len();
+        if n == 0 {
+            return;
+        }
+        let mut original = std::mem::take(&mut self.restore_scratch);
+        original.clone_from(&self.values);
+        let radius = crate::numeric::f64_usize((sigma * 3.).ceil()).max(1);
+        let mut weights = Vec::with_capacity(2 * radius + 1);
+        for k in 0..=2 * radius {
+            let d = usize_f64(k) - usize_f64(radius);
+            weights.push(f64_f32((-(d * d) / (2. * sigma * sigma)).exp()));
+        }
+        let total: f32 = weights.iter().sum();
+        for i in 0..n {
+            let mut blurred = 0.;
+            for (k, weight) in weights.iter().enumerate() {
+                blurred += original[(i + k).saturating_sub(radius).min(n - 1)] * weight;
+            }
+            self.values[i] =
+                (original[i] + strength * (original[i] - blurred / total)).clamp(0., 255.);
+        }
+        self.restore_scratch = original;
+    }
     /// No threshold method can create transitions below eight gray levels.
     /// Stop as soon as contrast is proven; most useful profiles exit early.
     #[must_use]
