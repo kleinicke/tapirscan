@@ -12,7 +12,7 @@ for (const [file, hash] of Object.entries(runtime.files)) {
 }
 if (typeof selection.apiWasm !== "string") throw Error("Missing public Rust WASM selection");
 const manifest = JSON.parse(await readFile(new URL(selection.apiWasm, root), "utf8"));
-if (manifest.schema !== 1 || manifest.apiVersion !== 1)
+if (manifest.schema !== 1 || manifest.apiVersion !== 2)
   throw Error("Unsupported public Rust WASM ABI");
 
 const sourceFiles = Object.entries(manifest.sourceFiles).sort(([a], [b]) =>

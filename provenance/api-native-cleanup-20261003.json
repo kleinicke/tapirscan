@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "baselineCommit": "21ba35066b5f791680fff2ceafcaeb77610561d5",
+  "baselineCommit": "3537256c6181115d10a272e8fc6f39952472e65e",
   "experiment": "api-native-cleanup-20261003",
   "description": "Refine the unshipped 1.3.0 native API within ABI 6: list-level best, addressed-layout image limits, no handle cap; scan results and WASM binaries unchanged.",
   "files": {
@@ -55,7 +55,7 @@
     "bindings/javascript/examples/vite/worker.js": "eae2de71b31c8397a8a1ff2c5c3cf7cf30557b1078da0602766a5a347cd486d9",
     "bindings/javascript/package-lock.json": "fdf9bb4f58f9547dd343d8d9dda3353007aa8055716b6dc9246a6cd422e132f4",
     "bindings/javascript/package.json": "b240f52126544b8dafd6f076be56278710d710c5cbf6091a3fa456e0ffdb6f41",
-    "bindings/javascript/scripts/verify-package.mjs": "b38a7fc0666b4f470b0b80205bbd78743298167a2019c1db7168d9e2222b435d",
+    "bindings/javascript/scripts/verify-package.mjs": "4ac0d2edcf1b49ba3922f5d23db8f53b04de4fea20eb609606046b2b48573973",
     "bindings/javascript/src/index.ts": "e92d88293e9ead4544074822db117fa848ff7888696f9d2b8121a6c7af8713a3",
     "bindings/javascript/src/multiformat/format-registry.ts": "f53541c385f58261b0c787217ad244b16412de0ad4af0dc300f594bfb1f4e68d",
     "bindings/javascript/src/multiformat/formats.ts": "68cd171ac60bd4e07a3b750075aad5f66b029f7b9beaa05b274deece43c19cd2",
