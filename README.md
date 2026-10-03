@@ -69,12 +69,13 @@ and downloadable packages, or [build locally](docs/DEVELOPMENT.md).
 npm install tapirscan
 ```
 
-```js
-import { scan } from "tapirscan";
+In a web app, `tapirscan/browser` scans files, `<img>`, `<video>` and canvases in
+a worker, with no WASM setup:
 
-// Using an existing canvas and its 2D context:
-const image = context.getImageData(0, 0, canvas.width, canvas.height);
-const result = await scan(image);
+```js
+import { scan } from "tapirscan/browser";
+
+const result = await scan(file); // e.g. a File from <input type="file">
 console.log(result.map((b) => b.text)); // Decoded strings, e.g. ["4006381333931"]
 for (const barcode of result) {
   console.log(barcode.text, barcode.format, barcode.polygon, barcode.rect);
@@ -84,12 +85,12 @@ for (const barcode of result) {
 `result` is a read-only `Barcode[]` containing
 the text, format, four polygon corners, and enclosing rectangle for each read.
 Positions use input-image pixels. The array is empty when nothing is decoded.
-Use `inspect(image)` for work status, timing, unread regions and diagnostics.
+Use `inspect` for work status, timing, unread regions and diagnostics.
 TypeScript infers these types from the package’s included declarations.
 
-Serve the package's WASM assets with your app. Bundler setup, Node loading, and
-worker examples are in the [JavaScript guide](bindings/javascript/README.md).
-Scanning is synchronous after initialization; use a worker for a responsive UI.
+Node and code that already has decoded pixels use the core `tapirscan` entry.
+Svelte, SvelteKit and Vite setup, camera scanning and Node loading are in the
+[JavaScript guide](bindings/javascript/README.md).
 
 ### Python
 

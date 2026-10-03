@@ -8,6 +8,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
     "./wasm/low.wasm": "./wasm/low-api-simple-results-20261002.wasm",
     "./wasm/medium.wasm": "./wasm/medium-api-simple-results-20261002.wasm",
     "./wasm/high.wasm": "./wasm/high-api-simple-results-20261002.wasm",
@@ -33,9 +37,11 @@
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",
     "test": "node --test test/scanner.mjs test/shared-retail.mjs test/loading.mjs test/turbo.mjs && tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext test/api-types.ts",
+    "test:browser": "node --test --test-timeout=120000 test/browser.mjs",
     "prepack": "npm run build && node scripts/verify-package.mjs"
   },
   "devDependencies": {
+    "playwright-core": "1.63.0",
     "typescript": "5.8.3"
   },
   "keywords": [

@@ -4,6 +4,7 @@ import {
   type Format,
   type FormatSelection,
 } from "./multiformat/formats.js";
+import { freeze, type ReadonlyDeep } from "./freeze.js";
 import { RustScannerSession, ScannerError } from "./rust-session.js";
 
 export {
@@ -43,7 +44,6 @@ interface RawDiagnostics {
   searchWindows?: { kind: string; polygon: number[][]; candidateIndex: number }[];
   [key: string]: unknown;
 }
-type ReadonlyDeep<T> = T extends object ? { readonly [K in keyof T]: ReadonlyDeep<T[K]> } : T;
 interface RawDiagnosticBarcode {
   text: string;
   format: Format | "Unknown";
@@ -190,11 +190,6 @@ function pixels(image: PixelImage): PreparedImage {
   };
 }
 
-function freeze<T extends object>(value: T): ReadonlyDeep<T> {
-  for (const child of Object.values(value))
-    if (child !== null && typeof child === "object") freeze(child);
-  return Object.freeze(value) as ReadonlyDeep<T>;
-}
 // Bound retained WASM bytes across stable modes, experimental presets and custom URLs.
 const wasmLoads = new Map<string, Promise<ArrayBuffer>>();
 function loadDefault(url: URL): Promise<ArrayBuffer> {

@@ -87,3 +87,31 @@ void Scanner.create({ experimentalTurbo: 3 });
 export interface ApplicationOptions extends ScannerOptions {
   label: string;
 }
+
+// tapirscan/browser: synchronous construction, promise results, browser sources.
+import {
+  scan as scanSource,
+  Scanner as BrowserScanner,
+  best as bestRead,
+  type Barcode as BrowserBarcode,
+  type ScanResult as BrowserResult,
+} from "../dist/browser.js";
+
+export async function browserConsumer(file: File, video: HTMLVideoElement, image: Image) {
+  const scanner = new BrowserScanner({ mode: "low", formats: "retail" });
+  try {
+    await scanner.ready;
+    const fromFile: readonly BrowserBarcode[] = await scanner.scan(file);
+    const fromVideo: BrowserResult = await scanner.inspect(video, { extendedBudget: true });
+    const fromPixels: readonly BrowserBarcode[] = await scanSource(image, { formats: "EAN13" });
+    // @ts-expect-error Results are frozen.
+    fromFile[0].text = "changed";
+    // @ts-expect-error Functions cannot reach the worker; use the core entry.
+    new BrowserScanner({ loadWasm: () => Promise.resolve(new ArrayBuffer(0)) });
+    // @ts-expect-error Scans need an image source.
+    await scanner.scan("photo.png");
+    return [bestRead(fromFile)?.text, fromVideo.values, fromPixels.length];
+  } finally {
+    scanner.dispose();
+  }
+}

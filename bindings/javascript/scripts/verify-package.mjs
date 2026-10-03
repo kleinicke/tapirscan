@@ -30,6 +30,7 @@ if (
 
 const source = await readFile(new URL("src/index.ts", pkg), "utf8");
 const compiled = await readFile(new URL("dist/index.js", pkg), "utf8");
+const worker = await readFile(new URL("dist/browser-worker.js", pkg), "utf8");
 const expectedModes = ["low", "medium", "high", "very-high"];
 if (
   !Array.isArray(manifest.modes) ||
@@ -57,6 +58,9 @@ for (const { mode, preset, file, sha256, bytes } of assets) {
   const name = preset === undefined ? mode : `experimental-turbo${preset}`;
   if (!source.includes(file) || !compiled.includes(file))
     throw Error(`Stale ${name} WASM selection`);
+  // tapirscan/browser needs literal URLs so bundlers emit the stable assets.
+  if (preset === undefined && !worker.includes(`new URL("../wasm/${file}", import.meta.url)`))
+    throw Error(`Stale ${name} WASM URL in the browser worker`);
   if (packageMetadata.exports[`./wasm/${name}.wasm`] !== `./wasm/${file}`)
     throw Error(`WASM export does not match its manifest: ${name}`);
   const binary = await readFile(new URL(`wasm/${file}`, pkg));
@@ -72,6 +76,10 @@ for (const { mode, preset, file, sha256, bytes } of assets) {
 for (const file of [
   "dist/index.d.ts",
   "dist/index.js",
+  "dist/browser.d.ts",
+  "dist/browser.js",
+  "dist/browser-worker.js",
+  "dist/freeze.js",
   "dist/rust-session.js",
   "THIRD_PARTY_NOTICES.md",
 ])

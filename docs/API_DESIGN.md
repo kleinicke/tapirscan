@@ -80,7 +80,10 @@ binding-native. No detection is a successful empty result, never an error.
 Python snapshots input and releases scanners with a context manager or `close`.
 Rust borrows pixels synchronously and uses RAII. JavaScript initializes
 asynchronously, scans synchronously and releases WASM sessions with `dispose`.
-Use a worker for browser responsiveness. Results survive scanner disposal.
+Use a worker for browser responsiveness: `tapirscan/browser` runs the same
+scanner in a bundled worker, accepts browser image sources (files, image, video
+and canvas elements, bitmaps), constructs synchronously and returns promises.
+Results survive scanner disposal.
 
 C exposes the same model through explicit structs and copy functions; C++ and
 Java wrap it with the names used here and return owned results. See

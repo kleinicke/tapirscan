@@ -51,6 +51,8 @@ jobs:
       - run: npm ci --prefix bindings/javascript
       - run: npm run build --prefix bindings/javascript
       - run: npm test --prefix bindings/javascript
+      - name: Test tapirscan/browser in Chrome
+        run: npm run test:browser --prefix bindings/javascript
       - name: Build and test C/C++
         shell: bash
         run: |

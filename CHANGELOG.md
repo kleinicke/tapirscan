@@ -12,6 +12,10 @@
   1024-handle limit and `TAPIRSCAN_CAPACITY`. Java scans native `MemorySegment` pixels in place and copies only
   the addressed bytes of arrays.
 - Rust `Barcode` implements serde `Serialize`; the C ABI serializes barcode JSON from it.
+- JavaScript adds `tapirscan/browser`: the same scanner in a bundled worker, scanning files, images, video
+  frames, canvases and bitmaps without WASM setup. `new Scanner()` is synchronous and safe during server
+  rendering. It replaces the hand-written worker client and worker examples.
+- JavaScript and Python type decoded barcode formats as `Format`; `npm pack` accepts WASM ABI 2 again.
 
 - C, C++ and Java are now recommended bindings with the same scanner, options
   and result model as Rust, Python and JavaScript. Native ABI 6 uses one

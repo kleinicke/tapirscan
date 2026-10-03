@@ -1,22 +1,15 @@
 # Tapirscan for JavaScript and TypeScript
 
-`scan(image)` returns a frozen array of barcodes. Each has `text`, `format`, and
-source-image `polygon` / `rect` coordinates. No detection returns `[]`.
+Scan barcodes in the browser or Node with the same Rust/WASM core. Results contain
+every decoded barcode with its `text`, `format` and source-image `polygon` / `rect`.
+No detection returns `[]`.
 
-```js
-import { scan } from "tapirscan";
-const barcodes = await scan(image);
-for (const barcode of barcodes) console.log(barcode.text, barcode.polygon);
-```
+- **`tapirscan/browser`** for web apps: scan files, `<img>`, `<video>`, canvases
+  or bitmaps in a bundled worker, with no WASM setup.
+- **`tapirscan`** (the core) for Node and decoded pixels, scanning synchronously
+  on the calling thread.
 
-Use `scanner.scan(image)` when reusing a scanner. For unread regions, work status,
-timing and engine evidence, explicitly call `inspect(image)` or `scanner.inspect(image)`.
-The inspection examples and advanced options follow. There is no `debug` option.
-
-Scan image pixels in a browser or Node with the same Rust/WASM core.
-[Try the live demo](https://tapirscan.f-kleinicke.de) · [Quick start](#quick-start) · [WASM loading](#wasm-loading) · [Functions](#functions) · [All options](#all-options) · [Results](#results)
-
-## Quick start
+[Try the live demo](https://tapirscan.f-kleinicke.de) · [Browser apps](#browser-apps-and-svelte) · [Core API](#core-api) · [WASM loading](#wasm-loading) · [All options](#all-options) · [Results](#results)
 
 ```sh
 npm install tapirscan
@@ -26,7 +19,94 @@ TypeScript declarations and WASM binaries are included in the
 [npm package](https://www.npmjs.com/package/tapirscan). Your runtime must support
 WebAssembly SIMD.
 
-Pass a canvas's `ImageData` directly:
+## Browser apps and Svelte
+
+```js
+import { scan } from "tapirscan/browser";
+
+const barcodes = await scan(file); // a File from <input type="file">
+console.log(barcodes.map((barcode) => barcode.text)); // e.g. ["4006381333931"]
+```
+
+Reuse a scanner for several images or camera frames. Construction is synchronous:
+the worker and WASM load in the background, so the first scan simply waits for them.
+
+```js
+import { Scanner } from "tapirscan/browser";
+
+const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
+const barcodes = await scanner.scan(video); // scans the current frame
+scanner.dispose(); // stops the worker
+```
+
+In Svelte 5 and SvelteKit:
+
+```svelte
+<script>
+  import { Scanner } from "tapirscan/browser";
+  import { onDestroy } from "svelte";
+
+  const scanner = new Scanner();
+  onDestroy(() => scanner.dispose());
+
+  let barcodes = $state.raw([]);
+  async function onchange(event) {
+    barcodes = await scanner.scan(event.currentTarget.files[0]);
+  }
+</script>
+
+<input type="file" accept="image/*" {onchange} />
+{#each barcodes as barcode}<p>{barcode.format}: {barcode.text}</p>{/each}
+```
+
+With Vite (including SvelteKit), add one line so the development server serves
+the worker and WASM files from the package. Production builds need nothing else;
+Vite and webpack bundle the worker and WASM files automatically.
+
+```js
+// vite.config.js
+import { sveltekit } from "@sveltejs/kit/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [sveltekit()],
+  optimizeDeps: { exclude: ["tapirscan"] },
+});
+```
+
+- **Sources:** a `File` or `Blob` (any image the browser decodes), `<img>`,
+  `<video>` (its current frame), `<canvas>`, `OffscreenCanvas`, `ImageBitmap`,
+  `VideoFrame`, `ImageData`, or decoded pixels as in the core API. Inputs are not
+  modified or transferred.
+- **Methods:** `scan` and `inspect` match the core API but return promises.
+  Concurrent calls are queued. For camera loops, await each scan before the next,
+  as in the [camera example](examples/camera.html).
+- **Options:** `mode`, `formats` and `eanAddOnPolicy` work as in the core;
+  `wasmBaseUrl` serves the WASM files from another directory. `extendedBudget` and
+  per-call `formats` are scan options. `loadWasm` and Turbo presets need the core.
+- **Lifecycle:** `scanner.ready` resolves once loaded, which is optional to await;
+  loading errors also reject every scan. During server rendering the constructor
+  does nothing, and scans reject. `dispose()` stops the worker and rejects queued
+  scans; results stay valid.
+- **Results and errors:** the same deeply frozen results as the core. Invalid
+  options and images reject with `TypeError`; scanner failures with `ScannerError`.
+- **Requirements:** module workers, `OffscreenCanvas` and WebAssembly SIMD:
+  Chrome 91, Firefox 114, Safari 16.4 or later. Images may have at most 32 megapixels.
+
+`best(barcodes)` and the result types are exported from `tapirscan/browser` too.
+
+## Core API
+
+```js
+import { scan } from "tapirscan";
+const barcodes = await scan(image);
+for (const barcode of barcodes) console.log(barcode.text, barcode.polygon);
+```
+
+Use `scanner.scan(image)` when reusing a scanner. For unread regions, work status,
+timing and engine evidence, explicitly call `inspect(image)` or `scanner.inspect(image)`.
+There is no `debug` option. The core scans decoded pixels; pass a canvas's
+`ImageData` directly:
 
 ```js
 import { inspect } from "tapirscan";
@@ -39,8 +119,8 @@ console.log(result.values); // e.g. ["4006381333931"]
 
 Defaults are Medium effort, retail formats, multiple results, and diagnostics available through inspection.
 `result.barcodes` also gives each read's text, format, polygon and rectangle.
-The helper creates and disposes a scanner automatically. Browser apps need to
-serve its [WASM assets](#wasm-loading); Node loads the packaged files automatically.
+The helper creates and disposes a scanner automatically. In browsers, the core
+needs its [WASM assets](#wasm-loading) served; Node loads the packaged files automatically.
 
 For more control or repeated images, reuse a scanner:
 
@@ -145,8 +225,9 @@ included; filenames, URLs and encoded JPEG/PNG bytes are not scan inputs.
 
 ### Vite and SvelteKit
 
-Import a stable WASM asset URL so Vite includes it in development and production
-builds, including apps deployed under a base path:
+[`tapirscan/browser`](#browser-apps-and-svelte) needs no WASM setup. To use the
+core directly, import a stable WASM asset URL so Vite includes it in development
+and production builds, including apps deployed under a base path:
 
 ```js
 import { Scanner } from "tapirscan";
@@ -168,13 +249,8 @@ The stable imports are `tapirscan/wasm/low.wasm`, `medium.wasm`, `high.wasm`
 and `very-high.wasm` (all under `tapirscan/wasm/`). Match the imported asset to
 `mode`; the example uses the default Medium. The package maps these imports to
 its current immutable binaries, so upgrades need no filename changes or manual
-copies. `?url` is Vite syntax, not part of the export name.
-
-In SvelteKit, initialize in browser code (for example, `onMount`) or inside your
-scan worker, rather than during server rendering. Dispose the scanner on teardown;
-if initialization finishes after teardown, dispose it immediately. Keep one scanner
-for camera frames. Import the asset inside the worker when scanning there.
-See the runnable [Vite example](examples/vite/README.md), which uses a worker.
+copies. `?url` is Vite syntax, not part of the export name. In SvelteKit, create
+core scanners in browser code such as `onMount`, not during server rendering.
 
 ### Other browser setups
 
@@ -219,22 +295,16 @@ are not needed in your app.
 
 ## Camera and worker use
 
-A standalone [worker client](examples/worker-client.mjs), [worker](examples/scan-worker.mjs)
-and [camera page](examples/camera.html) are included in the package. From this
-binding directory (or the installed package directory), run `python3 -m http.server`
-and open `/examples/camera.html` on localhost. The example handles initialization,
-frame ownership transfer, one frame in flight, errors and shutdown. It transfers
-pixel buffers; callers must not reuse the transferred buffer. Worker messages
-produce independent mutable result copies through structured cloning. Custom
-`loadWasm` functions must be configured inside the worker; functions cannot be sent
-in a message. Adjust the worker import and WASM asset path for your bundler.
+The core scans synchronously, so a long scan on the main thread blocks the page.
+[`tapirscan/browser`](#browser-apps-and-svelte) runs the core in a worker and
+handles initialization, frame capture, queueing and shutdown. The
+[camera example](examples/camera.html) scans a live camera with it: from this
+directory (or the installed package), run `python3 -m http.server` and open
+`/examples/camera.html` on localhost. Camera capture requires HTTPS; localhost
+works for development.
 
-Initialization is asynchronous; scanning is synchronous. For a responsive browser
-UI, initialize one scanner inside a Web Worker and transfer an owned frame buffer.
-Capture the next frame after the previous result arrives. Avoid racing scanner
-initialization or modifying pixels during scanning. The [demo worker](../../demo/src/lib/scan.worker.ts)
-shows a complete integration. Camera capture belongs to your app and requires
-HTTPS (localhost works for development).
+To manage your own worker instead, create one core scanner inside it and transfer
+owned frame buffers; `loadWasm` functions must be configured inside the worker.
 
 ## Functions
 
@@ -285,7 +355,8 @@ resize settings belong to the application.
 | `stride`          | `number`      | Bytes between row starts, at least width × channels. Optional; defaults to width × channels. Padding is allowed. |
 
 Input is limited to 32 megapixels and 128 MiB of addressed pixels. Keep the buffer stable during the
-call. Convert DOM image elements or encoded images to pixels before scanning.
+call. Convert DOM image elements or encoded images to pixels before scanning, or
+use [`tapirscan/browser`](#browser-apps-and-svelte), which accepts them directly.
 
 ## Results
 

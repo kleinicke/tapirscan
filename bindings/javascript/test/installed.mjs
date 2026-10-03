@@ -1,8 +1,7 @@
 // Usage: node test/installed.mjs package.tgz fixtures/manifest.json
-// TAPIRSCAN_PLAYWRIGHT_PATH points to an installed @playwright/test package.
+// Uses the installed Google Chrome through the playwright-core dev dependency.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createRequire } from "node:module";
 import { mkdtemp, realpath, readFile, writeFile, mkdir, cp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, extname, sep } from "node:path";
@@ -81,12 +80,7 @@ try {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
   });
-  const require = createRequire(import.meta.url);
-  assert.ok(
-    process.env.TAPIRSCAN_PLAYWRIGHT_PATH,
-    "Set TAPIRSCAN_PLAYWRIGHT_PATH to @playwright/test",
-  );
-  const { chromium } = require(resolve(process.env.TAPIRSCAN_PLAYWRIGHT_PATH));
+  const { chromium } = await import("playwright-core");
   browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${server.address().port}/app/`);
@@ -110,59 +104,43 @@ try {
     assert.deepEqual(observations, node.observations);
     browserRuns.push({ relocated, scans: observations.length * 2, wasmRequests: loaded.length });
   }
-  const workerChecks = await page.evaluate(
+  const browserChecks = await page.evaluate(
     async (fixture) => {
-      const { createScannerWorker } =
-        await import("/node_modules/tapirscan/examples/worker-client.mjs");
-      const scanner = await createScannerWorker({ mode: "low", formats: fixture.formats });
+      const { Scanner, scan } = await import("/node_modules/tapirscan/dist/browser.js");
       const image = () => ({
         data: new Uint8Array(fixture.data),
         width: fixture.width,
         height: fixture.height,
         channels: 1,
       });
+      const expected = JSON.stringify(fixture.expected.map((b) => b.text));
+      const texts = (barcodes) => JSON.stringify(barcodes.map((b) => b.text));
+      const rejects = async (promise, text) => {
+        try {
+          await promise;
+          return false;
+        } catch (error) {
+          return error.message.includes(text);
+        }
+      };
+      const scanner = new Scanner({ mode: "low", formats: fixture.formats });
       const checks = [];
       try {
         const pixels = image();
-        const pending = scanner.inspect(pixels);
-        checks.push(pixels.data.byteLength === 0);
-        try {
-          await scanner.inspect(image());
-          checks.push(false);
-        } catch (error) {
-          checks.push(error.message.includes("previous scan"));
-        }
-        const result = await pending;
+        // Concurrent calls queue; the caller's pixels are copied, not transferred.
+        const reads = await Promise.all([scanner.inspect(pixels), scanner.scan(image())]);
+        checks.push(pixels.data.byteLength > 0);
+        checks.push(JSON.stringify(reads[0].values) === expected && texts(reads[1]) === expected);
+        checks.push(await rejects(scanner.scan({ ...image(), width: 1 }), "Invalid image"));
+        checks.push(texts(await scanner.scan(image())) === expected);
         checks.push(
-          JSON.stringify(result.values) === JSON.stringify(fixture.expected.map((b) => b.text)),
+          texts(await scan(image(), { mode: "low", formats: fixture.formats })) === expected,
         );
-        try {
-          await scanner.inspect({ ...image(), width: 1 });
-          checks.push(false);
-        } catch {
-          checks.push(true);
-        }
-        checks.push((await scanner.inspect(image())).values.length === fixture.expected.length);
-        const interrupted = scanner.inspect(image());
+        const interrupted = scanner.scan(image());
         scanner.dispose();
-        try {
-          await interrupted;
-          checks.push(false);
-        } catch (error) {
-          checks.push(error.message.includes("disposed"));
-        }
-        try {
-          await scanner.inspect(image());
-          checks.push(false);
-        } catch (error) {
-          checks.push(error.message.includes("disposed"));
-        }
-        try {
-          await createScannerWorker({ mode: "invalid" });
-          checks.push(false);
-        } catch {
-          checks.push(true);
-        }
+        checks.push(await rejects(interrupted, "disposed"));
+        checks.push(await rejects(scanner.scan(image()), "disposed"));
+        checks.push(await rejects(new Scanner({ mode: "invalid" }).ready, "mode"));
         return checks;
       } finally {
         scanner.dispose();
@@ -171,10 +149,10 @@ try {
     fixtures.find((f) => f.expected.length > 0),
   );
   assert.ok(
-    workerChecks.every(Boolean),
-    "worker transfer, backpressure, error recovery and cleanup",
+    browserChecks.every(Boolean),
+    `tapirscan/browser from the installed package: ${JSON.stringify(browserChecks)}`,
   );
-  console.log(JSON.stringify({ node, browser: browserRuns, workerChecks: workerChecks.length }));
+  console.log(JSON.stringify({ node, browser: browserRuns, browserChecks: browserChecks.length }));
 } finally {
   await browser?.close();
   if (server) await new Promise((resolve) => server.close(resolve));
