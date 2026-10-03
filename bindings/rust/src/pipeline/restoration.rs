@@ -82,6 +82,7 @@ pub(super) fn recover_restored_regions(
     scan: &mut crate::ScanResult,
     retail_limited: bool,
 ) -> std::result::Result<(), Error> {
+    use barcode_research_core::numeric::usize_f64;
     if !scan
         .frame
         .candidates
@@ -116,93 +117,11 @@ pub(super) fn recover_restored_regions(
         .into_iter()
         .take(if retail_limited { 1 } else { 2 })
     {
-        let (_, _, w, h) = restoration_bounds(image, p.polygon);
+        let (x, y, w, h) = restoration_bounds(image, p.polygon);
         if w < 3 || h < 3 || w * h > remaining {
             continue;
         }
         remaining -= w * h;
-        rescan_restored_region(
-            scanner,
-            image,
-            options,
-            coverage,
-            p,
-            &protected,
-            scan,
-            restore_source_image,
-        )?;
-    }
-    Ok(())
-}
-
-/// Integer Gaussian, sigma four source pixels (`round(100 * exp(-k^2 / 32))`).
-#[cfg(feature = "medium")]
-const WIDE_RESTORATION_KERNEL: [u32; 25] = [
-    1, 2, 4, 8, 14, 22, 32, 46, 61, 75, 88, 97, 100, 97, 88, 75, 61, 46, 32, 22, 14, 8, 4, 2, 1,
-];
-
-#[cfg(feature = "medium")]
-fn restore_wide_source_image(image: Image<'_>) -> Vec<u8> {
-    restore_with_kernel(image, &WIDE_RESTORATION_KERNEL)
-}
-
-/// Wide-kernel (local-mean) restoration of the first unresolved proposal in an
-/// otherwise empty frame: blurred, ghosted or unevenly lit photographs.
-/// Runs after the established narrow restoration and before the late wide crop.
-#[cfg(feature = "medium")]
-pub(super) fn recover_wide_restored_regions(
-    scanner: &mut Scanner,
-    image: Image<'_>,
-    options: ScanOptions,
-    coverage: &[Quad],
-    proposals: &[Proposal],
-    scan: &mut crate::ScanResult,
-) -> std::result::Result<(), Error> {
-    let protected = protected_primary(image, &scan.frame.barcodes);
-    let unresolved = proposals.iter().enumerate().find(|(i, p)| {
-        scan.frame
-            .candidates
-            .get(*i)
-            .is_some_and(|c| c.detections.is_empty())
-            && !protected
-                .iter()
-                .chain(&scan.frame.barcodes)
-                .any(|b| crate::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3)
-    });
-    if let Some((_, p)) = unresolved {
-        let (_, _, w, h) = restoration_bounds(image, p.polygon);
-        if w >= 3 && h >= 3 && w * h <= 262_144 {
-            rescan_restored_region(
-                scanner,
-                image,
-                options,
-                coverage,
-                p,
-                &protected,
-                scan,
-                restore_wide_source_image,
-            )?;
-        }
-    }
-    Ok(())
-}
-
-/// Rescan one sharpened source crop; admit only source-consistent, separately owned reads.
-#[cfg(not(feature = "low"))]
-#[expect(clippy::too_many_arguments, reason = "One bounded crop rescan.")]
-fn rescan_restored_region(
-    scanner: &mut Scanner,
-    image: Image<'_>,
-    options: ScanOptions,
-    coverage: &[Quad],
-    p: &Proposal,
-    protected: &[barcode_research_core::frame::Barcode],
-    scan: &mut crate::ScanResult,
-    restore: fn(Image<'_>) -> Vec<u8>,
-) -> std::result::Result<(), Error> {
-    use barcode_research_core::numeric::usize_f64;
-    let (x, y, w, h) = restoration_bounds(image, p.polygon);
-    {
         let crop = Image {
             data: &image.data[y * image.stride + x * image.channels..],
             width: w,
@@ -210,7 +129,7 @@ fn rescan_restored_region(
             channels: image.channels,
             stride: image.stride,
         };
-        let pixels = restore(crop);
+        let pixels = restore_source_image(crop);
         let enhanced = Image {
             data: &pixels,
             width: w,

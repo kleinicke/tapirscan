@@ -74,8 +74,9 @@ const WORKING_DIMENSION: f64 = match TIER {
 };
 // Preserve small source modules; normalized caps bound work on large symbols.
 const DENSITY: f64 = 1.5;
-/// Source-pixel scale of the wide high-pass recovery hypothesis.
-const HIGHPASS_SIGMA: f64 = 4.;
+/// Running-box half-widths, in profile samples, of the high-pass local mean:
+/// boxes of 11, 13 and 11 samples, about a four-pixel Gaussian at `DENSITY`.
+const HIGHPASS_BOXES: [usize; 3] = [5, 6, 5];
 const SAMPLE_LIMIT: usize = match TIER {
     2 => 3072,
     4 | 8 | 16 => 2048,
@@ -1005,7 +1006,7 @@ fn sample_line_density(
             if cfg!(feature = "medium") && candidate.profile.wide() {
                 sampler.restore_contrast_wide(1.5);
             } else if let Some(strength) = candidate.profile.highpass() {
-                sampler.restore_highpass(HIGHPASS_SIGMA * DENSITY, strength);
+                sampler.restore_highpass(HIGHPASS_BOXES, strength);
             } else {
                 sampler.restore_contrast(candidate.profile.contrast());
             }

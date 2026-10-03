@@ -54,6 +54,9 @@ pub struct Sampler {
     values: Vec<f32>,
     /// Reused copy of `values` for contrast hypotheses.
     restore_scratch: Vec<f32>,
+    /// Reused local-mean buffers for the high-pass hypothesis.
+    highpass_scratch: Vec<f32>,
+    highpass_next: Vec<f32>,
     positions: Vec<f64>,
     envelope: Vec<[f32; 4]>,
     widths: Vec<f32>,
@@ -365,9 +368,10 @@ impl Sampler {
         }
         self.restore_scratch = original;
     }
-    /// Wide high-pass hypothesis: subtract a Gaussian local mean of `sigma` samples.
-    /// Removes slow illumination and partially undoes ghosting; positions are unchanged.
-    pub fn restore_highpass(&mut self, sigma: f64, strength: f32) {
+    /// Wide high-pass hypothesis: subtract a local mean (three edge-clamped running
+    /// boxes of the given half-widths, approximately Gaussian). Removes slow
+    /// illumination and partially undoes ghosting; positions are unchanged.
+    pub fn restore_highpass(&mut self, half_widths: [usize; 3], strength: f32) {
         self.cache_current = None;
         let n = self.values.len();
         if n == 0 {
@@ -375,22 +379,27 @@ impl Sampler {
         }
         let mut original = std::mem::take(&mut self.restore_scratch);
         original.clone_from(&self.values);
-        let radius = crate::numeric::f64_usize((sigma * 3.).ceil()).max(1);
-        let mut weights = Vec::with_capacity(2 * radius + 1);
-        for k in 0..=2 * radius {
-            let d = usize_f64(k) - usize_f64(radius);
-            weights.push(f64_f32((-(d * d) / (2. * sigma * sigma)).exp()));
-        }
-        let total: f32 = weights.iter().sum();
-        for i in 0..n {
-            let mut blurred = 0.;
-            for (k, weight) in weights.iter().enumerate() {
-                blurred += original[(i + k).saturating_sub(radius).min(n - 1)] * weight;
+        let mut blurred = std::mem::take(&mut self.highpass_scratch);
+        blurred.clone_from(&original);
+        let mut next = std::mem::take(&mut self.highpass_next);
+        next.resize(n, 0.);
+        for half in half_widths {
+            let at = |i: isize| blurred[i.clamp(0, n as isize - 1) as usize];
+            let width = (2 * half + 1) as f32;
+            let mut sum: f32 = (-(half as isize)..=half as isize).map(at).sum();
+            for i in 0..n {
+                next[i] = sum / width;
+                let i = i as isize;
+                sum += at(i + half as isize + 1) - at(i - half as isize);
             }
-            self.values[i] =
-                (original[i] + strength * (original[i] - blurred / total)).clamp(0., 255.);
+            std::mem::swap(&mut blurred, &mut next);
+        }
+        for i in 0..n {
+            self.values[i] = (original[i] + strength * (original[i] - blurred[i])).clamp(0., 255.);
         }
         self.restore_scratch = original;
+        self.highpass_scratch = blurred;
+        self.highpass_next = next;
     }
     /// No threshold method can create transitions below eight gray levels.
     /// Stop as soon as contrast is proven; most useful profiles exit early.
@@ -754,6 +763,36 @@ mod tests {
         assert_eq!(sampler.values, values);
         sampler.threshold(true);
         assert!(sampler.runs.len() <= 2);
+    }
+    #[test]
+    fn highpass_restoration_preserves_coordinates_and_removes_slow_shading() {
+        let pixels = [127; 300];
+        let mut sampler = Sampler::default();
+        sampler.sample(
+            ImageView::new(&pixels, 100, 3, 1, 100).unwrap(),
+            [0., 1.],
+            [99., 1.],
+        );
+        let positions = sampler.positions.clone();
+        let values = sampler.values.clone();
+        sampler.restore_highpass([5, 6, 5], 1.5);
+        assert_eq!(sampler.positions, positions);
+        assert_eq!(sampler.values, values);
+        // A linear ramp keeps its interior values: the local mean equals the sample.
+        let ramp: Vec<f32> = (0..64u8).map(|i| 64. + f32::from(i)).collect();
+        sampler.values.clone_from(&ramp);
+        sampler.restore_highpass([5, 6, 5], 1.5);
+        for i in 16..48 {
+            assert!((sampler.values[i] - ramp[i]).abs() < 1e-3);
+        }
+        // A dark bar on a shaded background is deepened relative to its surroundings.
+        let bar: Vec<f32> = (0..64u8)
+            .map(|i| if (28..36).contains(&i) { 90. } else { 150. })
+            .collect();
+        sampler.values.clone_from(&bar);
+        sampler.restore_highpass([5, 6, 5], 1.5);
+        assert!(sampler.values[32] < 90.);
+        assert!(sampler.values[2] >= 150.);
     }
     #[test]
     fn uniform_profiles_do_not_invent_bars() {

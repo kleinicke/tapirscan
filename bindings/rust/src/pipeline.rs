@@ -5,12 +5,12 @@ use barcode_research_core::{frame::Barcode, multi_scan::Policy, shear, stripes};
 #[cfg(not(feature = "low"))]
 mod restoration;
 mod source_evidence;
+#[cfg(feature = "medium")]
+use restoration::recover_late_wide_crop;
 #[cfg(not(feature = "low"))]
 use restoration::recover_restored_regions;
 #[cfg(any(feature = "high", feature = "very-high"))]
 use restoration::recover_threshold_regions;
-#[cfg(feature = "medium")]
-use restoration::{recover_late_wide_crop, recover_wide_restored_regions};
 #[cfg(feature = "medium")]
 use source_evidence::independently_confirmed_ean_reads;
 #[cfg(any(feature = "medium", feature = "low"))]
@@ -171,17 +171,6 @@ fn scan_prepared_impl(
             &localization.proposals,
             &mut scan,
             cfg!(feature = "medium") && shared_retail && !options.finish_candidates,
-        )?;
-    }
-    #[cfg(feature = "medium")]
-    if allow_restoration && scan.frame.barcodes.is_empty() && retail.is_empty() {
-        recover_wide_restored_regions(
-            scanner,
-            image,
-            options,
-            coverage,
-            &localization.proposals,
-            &mut scan,
         )?;
     }
     #[cfg(feature = "medium")]
