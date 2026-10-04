@@ -496,52 +496,84 @@ pub(super) fn recover_scaled_crop(
                 })
             })
             .collect();
-        let retry = scan_prepared_impl(
-            scanner,
-            reduced,
-            options,
-            &crop_coverage,
-            true,
-            false,
-            false,
-        )?;
-        scan.frame.unfinished |= retry.scan.frame.unfinished;
-        for mut read in retry.scan.frame.barcodes {
-            if read.detection.support < 3 {
-                continue;
-            }
-            for point in &mut read.detection.polygon {
-                point[0] = point[0] / factor + usize_f64(x);
-                point[1] = point[1] / factor + usize_f64(y);
-            }
-            if crate::geometry::overlap_quads(&read.detection.polygon, &p.polygon).0 < 0.3 {
-                continue;
-            }
-            if scan.frame.barcodes.iter().any(|old| {
-                old.detection.digits == read.detection.digits
-                    || crate::geometry::overlap_quads(
-                        &read.detection.polygon,
-                        &old.detection.polygon,
-                    )
-                    .0 > 0.
-            }) {
-                continue;
-            }
-            if !recovered_ean_source_agreement(
-                image,
-                read.detection.polygon,
-                &read.detection.digits,
-            ) || source_contradiction(
+        let crop = ReducedCrop {
+            x,
+            y,
+            factor,
+            proposal: p.polygon,
+            coverage: &crop_coverage,
+        };
+        // Sharpen once with the late-crop kernel when the plain reduction reads nothing.
+        if !admit_reduced_reads(scanner, image, options, &crop, reduced, scan)? {
+            let sharpened = restore_alternate_source_image(reduced);
+            let sharpened = Image {
+                data: &sharpened,
+                width: rw,
+                height: rh,
+                channels: 1,
+                stride: rw,
+            };
+            admit_reduced_reads(scanner, image, options, &crop, sharpened, scan)?;
+        }
+    }
+    Ok(())
+}
+
+/// Source placement of an area-reduced recovery crop.
+#[cfg(feature = "medium")]
+struct ReducedCrop<'a> {
+    x: usize,
+    y: usize,
+    factor: f64,
+    proposal: Quad,
+    coverage: &'a [Quad],
+}
+
+/// Scan one reduced crop and admit source-confirmed reads; true when any was added.
+#[cfg(feature = "medium")]
+fn admit_reduced_reads(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    options: ScanOptions,
+    crop: &ReducedCrop<'_>,
+    variant: Image<'_>,
+    scan: &mut crate::ScanResult,
+) -> std::result::Result<bool, Error> {
+    use barcode_research_core::numeric::usize_f64;
+    let retry = scan_prepared_impl(scanner, variant, options, crop.coverage, true, false, false)?;
+    scan.frame.unfinished |= retry.scan.frame.unfinished;
+    let mut accepted = false;
+    for mut read in retry.scan.frame.barcodes {
+        if read.detection.support < 3 {
+            continue;
+        }
+        for point in &mut read.detection.polygon {
+            point[0] = point[0] / crop.factor + usize_f64(crop.x);
+            point[1] = point[1] / crop.factor + usize_f64(crop.y);
+        }
+        if crate::geometry::overlap_quads(&read.detection.polygon, &crop.proposal).0 < 0.3 {
+            continue;
+        }
+        if scan.frame.barcodes.iter().any(|old| {
+            old.detection.digits == read.detection.digits
+                || crate::geometry::overlap_quads(&read.detection.polygon, &old.detection.polygon).0
+                    > 0.
+        }) {
+            continue;
+        }
+        if !recovered_ean_source_agreement(image, read.detection.polygon, &read.detection.digits)
+            || source_contradiction(
                 image,
                 read.detection.polygon,
                 read.detection.digits,
                 &mut scanner.fast_profiles,
-            )? {
-                continue;
-            }
-            read.candidate_indices.clear();
-            scan.frame.barcodes.push(read);
+            )?
+        {
+            continue;
         }
+        read.candidate_indices.clear();
+        scan.frame.barcodes.push(read);
+        accepted = true;
     }
-    Ok(())
+    Ok(accepted)
 }
