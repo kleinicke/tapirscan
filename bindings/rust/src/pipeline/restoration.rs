@@ -391,3 +391,157 @@ pub(super) fn recover_late_wide_crop(
     }
     Ok(())
 }
+
+/// Source pixels allowed in one reduced crop; equal to the restoration crop budget.
+#[cfg(feature = "medium")]
+const SCALED_CROP_PIXELS: usize = 131_072;
+
+/// Area-averaged grayscale reduction of a source crop by `factor` (< 1).
+#[cfg(feature = "medium")]
+fn reduce_gray(image: Image<'_>, factor: f64) -> (Vec<u8>, usize, usize) {
+    use barcode_research_core::numeric::{f64_usize, usize_f64};
+    let w = f64_usize((usize_f64(image.width) * factor).floor()).max(3);
+    let h = f64_usize((usize_f64(image.height) * factor).floor()).max(3);
+    let span = |o: usize, length: usize| {
+        let start = f64_usize((usize_f64(o) / factor).floor()).min(length - 1);
+        let end = f64_usize((usize_f64(o + 1) / factor).ceil()).clamp(start + 1, length);
+        start..end
+    };
+    let mut out = vec![0u8; w * h];
+    for (oy, row) in out.chunks_exact_mut(w).enumerate() {
+        let rows = span(oy, image.height);
+        for (ox, value) in row.iter_mut().enumerate() {
+            let columns = span(ox, image.width);
+            let mut sum = 0u32;
+            for line in image
+                .data
+                .chunks(image.stride)
+                .skip(rows.start)
+                .take(rows.len())
+            {
+                for x in columns.clone() {
+                    let p = &line[x * image.channels..];
+                    sum += if image.channels == 1 {
+                        u32::from(p[0])
+                    } else {
+                        (u32::from(p[0]) * 77 + u32::from(p[1]) * 150 + u32::from(p[2]) * 29) >> 8
+                    };
+                }
+            }
+            let count = u32::try_from(rows.len() * columns.len()).unwrap_or(u32::MAX);
+            *value = u8::try_from((sum + count / 2) / count).unwrap_or(u8::MAX);
+        }
+    }
+    (out, w, h)
+}
+
+/// Large unresolved symbols exceed the restoration crop budgets, and decoding a
+/// sharp proposal can fail at one sampling scale only. Rescan up to two such
+/// proposals with retail guard evidence (or blurred high-scoring stripes) from
+/// an area-reduced crop, keeping source agreement and contradiction checks.
+#[cfg(feature = "medium")]
+pub(super) fn recover_scaled_crop(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    options: ScanOptions,
+    coverage: &[Quad],
+    proposals: &[Proposal],
+    scan: &mut crate::ScanResult,
+) -> std::result::Result<(), Error> {
+    use barcode_research_core::numeric::usize_f64;
+    let mut candidates: Vec<_> = proposals
+        .iter()
+        .enumerate()
+        .filter(|(i, p)| {
+            scan.frame.candidates.get(*i).is_some_and(|c| {
+                c.detections.is_empty()
+                    && (c.work.guard_pass >= 1
+                        || (p.score >= 0.9 && c.work.forward_blur_windows >= 2))
+            }) && {
+                let (_, _, w, h) = restoration_bounds(image, p.polygon);
+                w * h > SCALED_CROP_PIXELS
+            }
+        })
+        .collect();
+    candidates.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
+    for (_, p) in candidates.into_iter().take(2) {
+        let (x, y, w, h) = restoration_bounds(image, p.polygon);
+        let factor = (usize_f64(SCALED_CROP_PIXELS) / usize_f64(w * h)).sqrt();
+        if factor < 0.2 {
+            continue;
+        }
+        let crop = Image {
+            data: &image.data[y * image.stride + x * image.channels..],
+            width: w,
+            height: h,
+            channels: image.channels,
+            stride: image.stride,
+        };
+        let (pixels, rw, rh) = reduce_gray(crop, factor);
+        let reduced = Image {
+            data: &pixels,
+            width: rw,
+            height: rh,
+            channels: 1,
+            stride: rw,
+        };
+        let crop_coverage: Vec<_> = coverage
+            .iter()
+            .map(|q| {
+                q.map(|v| {
+                    [
+                        (v[0] - usize_f64(x)) * factor,
+                        (v[1] - usize_f64(y)) * factor,
+                    ]
+                })
+            })
+            .collect();
+        let retry = scan_prepared_impl(
+            scanner,
+            reduced,
+            options,
+            &crop_coverage,
+            true,
+            false,
+            false,
+        )?;
+        scan.frame.unfinished |= retry.scan.frame.unfinished;
+        for mut read in retry.scan.frame.barcodes {
+            if read.detection.support < 3 {
+                continue;
+            }
+            for point in &mut read.detection.polygon {
+                point[0] = point[0] / factor + usize_f64(x);
+                point[1] = point[1] / factor + usize_f64(y);
+            }
+            if crate::geometry::overlap_quads(&read.detection.polygon, &p.polygon).0 < 0.3 {
+                continue;
+            }
+            if scan.frame.barcodes.iter().any(|old| {
+                old.detection.digits == read.detection.digits
+                    || crate::geometry::overlap_quads(
+                        &read.detection.polygon,
+                        &old.detection.polygon,
+                    )
+                    .0 > 0.
+            }) {
+                continue;
+            }
+            if !recovered_ean_source_agreement(
+                image,
+                read.detection.polygon,
+                &read.detection.digits,
+            ) || source_contradiction(
+                image,
+                read.detection.polygon,
+                read.detection.digits,
+                &mut scanner.fast_profiles,
+            )? {
+                continue;
+            }
+            read.candidate_indices.clear();
+            scan.frame.barcodes.push(read);
+        }
+    }
+    Ok(())
+}

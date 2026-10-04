@@ -384,13 +384,13 @@ impl Sampler {
         let mut next = std::mem::take(&mut self.highpass_next);
         next.resize(n, 0.);
         for half in half_widths {
-            let at = |i: isize| blurred[i.clamp(0, n as isize - 1) as usize];
-            let width = (2 * half + 1) as f32;
-            let mut sum: f32 = (-(half as isize)..=half as isize).map(at).sum();
-            for i in 0..n {
-                next[i] = sum / width;
-                let i = i as isize;
-                sum += at(i + half as isize + 1) - at(i - half as isize);
+            // `at(j)` reads sample `j - half`, clamped to the profile.
+            let at = |j: usize| blurred[j.saturating_sub(half).min(n - 1)];
+            let width = crate::numeric::usize_f32(2 * half + 1);
+            let mut sum: f32 = (0..=2 * half).map(at).sum();
+            for (i, mean) in next.iter_mut().enumerate() {
+                *mean = sum / width;
+                sum += at(i + 2 * half + 1) - at(i);
             }
             std::mem::swap(&mut blurred, &mut next);
         }
@@ -782,8 +782,8 @@ mod tests {
         let ramp: Vec<f32> = (0..64u8).map(|i| 64. + f32::from(i)).collect();
         sampler.values.clone_from(&ramp);
         sampler.restore_highpass([5, 6, 5], 1.5);
-        for i in 16..48 {
-            assert!((sampler.values[i] - ramp[i]).abs() < 1e-3);
+        for (value, expected) in sampler.values[16..48].iter().zip(&ramp[16..48]) {
+            assert!((value - expected).abs() < 1e-3);
         }
         // A dark bar on a shaded background is deepened relative to its surroundings.
         let bar: Vec<f32> = (0..64u8)

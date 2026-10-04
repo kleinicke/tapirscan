@@ -5,12 +5,12 @@ use barcode_research_core::{frame::Barcode, multi_scan::Policy, shear, stripes};
 #[cfg(not(feature = "low"))]
 mod restoration;
 mod source_evidence;
-#[cfg(feature = "medium")]
-use restoration::recover_late_wide_crop;
 #[cfg(not(feature = "low"))]
 use restoration::recover_restored_regions;
 #[cfg(any(feature = "high", feature = "very-high"))]
 use restoration::recover_threshold_regions;
+#[cfg(feature = "medium")]
+use restoration::{recover_late_wide_crop, recover_scaled_crop};
 #[cfg(feature = "medium")]
 use source_evidence::independently_confirmed_ean_reads;
 #[cfg(any(feature = "medium", feature = "low"))]
@@ -175,7 +175,7 @@ fn scan_prepared_impl(
     }
     #[cfg(feature = "medium")]
     if allow_restoration && scan.frame.barcodes.is_empty() && retail.is_empty() {
-        recover_late_wide_crop(
+        recover_unread_crops(
             scanner,
             image,
             options,
@@ -198,6 +198,24 @@ fn scan_prepared_impl(
         recovery,
         retail,
     })
+}
+
+/// Late Medium crop retries for frames without any read: a wide-restored crop,
+/// then area-reduced crops of large unresolved symbols.
+#[cfg(feature = "medium")]
+fn recover_unread_crops(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    options: ScanOptions,
+    coverage: &[Quad],
+    proposals: &[Proposal],
+    scan: &mut super::ScanResult,
+) -> std::result::Result<(), Error> {
+    recover_late_wide_crop(scanner, image, options, coverage, proposals, scan)?;
+    if scan.frame.barcodes.is_empty() {
+        recover_scaled_crop(scanner, image, options, coverage, proposals, scan)?;
+    }
+    Ok(())
 }
 
 #[cfg(not(feature = "low"))]
