@@ -155,16 +155,21 @@ pub(crate) fn scan(
         image.channels,
         image.stride,
     )?;
-    let localized = if TIER != 0 {
-        if matches!(TIER, 2 | 4 | 8) {
-            scanner
-                .localizer
-                .detect_sparse_with_recovery(im, WORKING_DIMENSION)?
-        } else {
-            scanner.localizer.detect_sparse(im, WORKING_DIMENSION)?
+    // Public Low localizes by bar-segment voting (one box per symbol, low-resolution safe);
+    // the retained Turbo tiers keep their sparse stripe detectors.
+    let localized = if TIER == 0 {
+        barcode_research_core::stripes::Result {
+            proposals: crate::pipeline::segment_voting::localize(image).proposals,
+            omitted: 0,
+            limited: false,
+            trace: [0; 13],
         }
+    } else if matches!(TIER, 2 | 4 | 8) {
+        scanner
+            .localizer
+            .detect_sparse_with_recovery(im, WORKING_DIMENSION)?
     } else {
-        scanner.localizer.detect_fast(im, WORKING_DIMENSION)?
+        scanner.localizer.detect_sparse(im, WORKING_DIMENSION)?
     };
     let mut proposals = localized.proposals;
     let additional = if TIER != 0 && proposals.len() > 24 {
@@ -367,14 +372,20 @@ pub(crate) fn scan(
         let mut recovered = Vec::new();
         let mut unused = Vec::new();
         let mut remaining = 32_768;
-        for proposal in proposals.iter().take(local_count.min(2)) {
+        // Contrast and wide high-pass hypotheses for the two strongest proposals.
+        let profiles = [SourceProfile::Gray(2.25), SourceProfile::Highpass(1.5)];
+        for (proposal, &profile) in proposals
+            .iter()
+            .take(local_count.min(2))
+            .flat_map(|p| profiles.iter().map(move |s| (p, s)))
+        {
             let mut candidate = Candidate {
                 image,
                 im,
                 quad: proposal.polygon,
                 dense: false,
                 restored: false,
-                profile: SourceProfile::Gray(2.25),
+                profile,
                 localized: true,
                 mask: mask & 15,
                 remaining,
@@ -660,7 +671,7 @@ enum SourceProfile {
     #[cfg(feature = "medium")]
     BandEan(f64),
     /// Wide high-pass hypothesis for blurred or ghosted photographs.
-    #[cfg(feature = "medium")]
+    #[cfg(any(feature = "low", feature = "medium"))]
     Highpass(f32),
 }
 impl SourceProfile {
@@ -686,7 +697,7 @@ impl SourceProfile {
             // narrow 2.25 kernel and its stricter source-line confirmation.
             #[cfg(feature = "medium")]
             Self::WideEan | Self::BandEan(_) => 2.25,
-            #[cfg(feature = "medium")]
+            #[cfg(any(feature = "low", feature = "medium"))]
             Self::Highpass(strength) => strength,
             #[cfg(not(feature = "low"))]
             _ => 0.,
@@ -707,11 +718,13 @@ impl SourceProfile {
             #[cfg(not(feature = "low"))]
             Self::Inverted => true,
             #[cfg(feature = "medium")]
-            Self::WideEan | Self::BandEan(_) | Self::Highpass(_) => false,
+            Self::WideEan | Self::BandEan(_) => false,
+            #[cfg(any(feature = "low", feature = "medium"))]
+            Self::Highpass(_) => false,
         }
     }
     fn highpass(self) -> Option<f32> {
-        #[cfg(feature = "medium")]
+        #[cfg(any(feature = "low", feature = "medium"))]
         {
             if let Self::Highpass(strength) = self {
                 Some(strength)
@@ -719,7 +732,7 @@ impl SourceProfile {
                 None
             }
         }
-        #[cfg(not(feature = "medium"))]
+        #[cfg(not(any(feature = "low", feature = "medium")))]
         {
             let _ = self;
             None
@@ -732,7 +745,7 @@ impl SourceProfile {
             Self::Color(_) | Self::Inverted => false,
             #[cfg(feature = "medium")]
             Self::WideEan | Self::BandEan(_) => true,
-            #[cfg(feature = "medium")]
+            #[cfg(any(feature = "low", feature = "medium"))]
             Self::Highpass(_) => false,
         }
     }

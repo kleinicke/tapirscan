@@ -4,8 +4,8 @@ use barcode_research_core::{frame::Barcode, multi_scan::Policy, shear, stripes};
 
 #[cfg(not(feature = "low"))]
 mod restoration;
-#[cfg(feature = "medium")]
-mod segment_voting;
+#[cfg(any(feature = "medium", feature = "low"))]
+pub(crate) mod segment_voting;
 mod source_evidence;
 #[cfg(not(feature = "low"))]
 use restoration::recover_restored_regions;

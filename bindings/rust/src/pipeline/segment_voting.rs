@@ -44,9 +44,10 @@ const ALTERNATIVE_SEGMENTS: usize = 10;
 const MERGE_GAP: f64 = 0.3;
 const MAX_PROPOSALS: usize = 24;
 
-pub(super) struct Localized {
+pub(crate) struct Localized {
     pub proposals: Vec<Proposal>,
     /// Alternative boxes per primary box, tried only for unread clusters.
+    #[cfg(feature = "medium")]
     pub alternatives: Vec<(Quad, Vec<Quad>)>,
 }
 
@@ -57,9 +58,9 @@ struct Segment {
     length: f64,
 }
 
-fn gray(image: Image<'_>) -> (Vec<f32>, usize, usize, f64) {
+fn gray(image: Image<'_>, work: f64) -> (Vec<f32>, usize, usize, f64) {
     let long = image.width.max(image.height) as f64;
-    let s = (WORK / long).min(1.);
+    let s = (work / long).min(1.);
     let w = ((image.width as f64 * s).round() as usize).max(3);
     let h = ((image.height as f64 * s).round() as usize).max(3);
     let lum = |x: usize, y: usize| -> f32 {
@@ -450,8 +451,11 @@ fn clusters(segs: &[Segment], w: usize, h: usize, s: f64) -> Localized {
     let mut out = merge_split(out, &mut alternatives);
     out.truncate(MAX_PROPOSALS);
     alternatives.retain(|(q, _)| out.iter().any(|(p, _)| p.polygon == *q));
+    #[cfg(not(feature = "medium"))]
+    let _ = alternatives;
     Localized {
         proposals: out.into_iter().map(|(p, _)| p).collect(),
+        #[cfg(feature = "medium")]
         alternatives,
     }
 }
@@ -532,12 +536,13 @@ fn merge_split(
     merged
 }
 
-pub(super) fn localize(image: Image<'_>) -> Localized {
-    let (g, w, h, s) = gray(image);
+pub(crate) fn localize(image: Image<'_>) -> Localized {
+    let (g, w, h, s) = gray(image, WORK);
     let segs = segments(&g, w, h);
     if segs.is_empty() {
         return Localized {
             proposals: Vec::new(),
+            #[cfg(feature = "medium")]
             alternatives: Vec::new(),
         };
     }
@@ -582,7 +587,9 @@ mod tests {
         let centre_x = q.iter().map(|p| p[0]).sum::<f64>() / 4.;
         let centre_y = q.iter().map(|p| p[1]).sum::<f64>() / 4.;
         assert!((150. ..250.).contains(&centre_x) && (80. ..120.).contains(&centre_y));
+        #[cfg(feature = "medium")]
         assert_eq!(found.alternatives.len(), 1);
+        #[cfg(feature = "medium")]
         assert_eq!(found.alternatives[0].1.len(), 5);
     }
 
@@ -590,6 +597,8 @@ mod tests {
     fn blank_images_have_no_proposals() {
         let data = vec![200u8; 64 * 48];
         let found = localize(image(&data, 64, 48));
-        assert!(found.proposals.is_empty() && found.alternatives.is_empty());
+        assert!(found.proposals.is_empty());
+        #[cfg(feature = "medium")]
+        assert!(found.alternatives.is_empty());
     }
 }
