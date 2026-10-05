@@ -4,6 +4,8 @@ use barcode_research_core::{frame::Barcode, multi_scan::Policy, shear, stripes};
 
 #[cfg(not(feature = "low"))]
 mod restoration;
+#[cfg(feature = "medium")]
+mod segment_voting;
 mod source_evidence;
 #[cfg(not(feature = "low"))]
 use restoration::recover_restored_regions;
@@ -19,6 +21,9 @@ pub(crate) use source_evidence::source_contradiction;
 
 struct Localization {
     proposals: Vec<Proposal>,
+    /// Medium: alternative boxes per segment-voting cluster, tried only while it stays unread.
+    #[cfg(feature = "medium")]
+    alternatives: Vec<(Quad, Vec<Quad>)>,
     short_fragments: Option<Vec<Proposal>>,
     omitted: usize,
     work_limited: bool,
@@ -85,6 +90,10 @@ fn scan_prepared(
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the ordered scan stages, including Medium segment-voting alternatives, together."
+)]
 fn scan_prepared_impl(
     scanner: &mut Scanner,
     image: Image<'_>,
@@ -109,6 +118,17 @@ fn scan_prepared_impl(
     let mut scan = scanner.regions.scan(im, &candidates, policy)?;
     #[cfg(feature = "medium")]
     let mut retail = finish_retail(&mut scan, &mut scanner.regions, im);
+    #[cfg(feature = "medium")]
+    scan_alternatives(
+        scanner,
+        image,
+        im,
+        options,
+        coverage,
+        &localization,
+        &mut scan,
+        &mut retail,
+    )?;
     #[cfg(not(feature = "medium"))]
     let mut retail = Vec::new();
     #[cfg(not(feature = "low"))]
@@ -186,6 +206,8 @@ fn scan_prepared_impl(
     }
     #[cfg(feature = "low")]
     let _ = allow_restoration;
+    #[cfg(feature = "medium")]
+    drop_short_ghosts(&scan, &mut retail);
     finish_primary(&mut scan, image, consolidate, options.multiple);
     Ok(Result {
         proposals: localization.proposals,
@@ -452,7 +474,19 @@ fn localize(
     image: Image<'_>,
     capture_short_fragments: bool,
 ) -> std::result::Result<Localization, Error> {
+    #[cfg(not(feature = "medium"))]
     let mut fragments = Vec::new();
+    // Medium localizes by bar-segment voting: one box per symbol, alternatives kept aside.
+    #[cfg(feature = "medium")]
+    let voted = segment_voting::localize(image);
+    #[cfg(feature = "medium")]
+    let found = stripes::Result {
+        proposals: voted.proposals,
+        omitted: 0,
+        limited: false,
+        trace: [0; 13],
+    };
+    #[cfg(not(feature = "medium"))]
     let found = if capture_short_fragments {
         use barcode_research_core::numeric::usize_f64;
         let scale = (768. / usize_f64(image.width.max(image.height))).min(1.);
@@ -482,6 +516,9 @@ fn localize(
     } else {
         detector.detect(im)?
     };
+    #[cfg(feature = "medium")]
+    let short_fragments = capture_short_fragments.then(Vec::new);
+    #[cfg(not(feature = "medium"))]
     let short_fragments =
         capture_short_fragments.then(|| fragments.into_iter().map(|(_, p)| p).collect());
     let count = found.proposals.len();
@@ -517,6 +554,8 @@ fn localize(
     let bottom = f64::from(u32::try_from(image.height - 1).map_err(|_| Error::Parameters)?);
     Ok(Localization {
         proposals,
+        #[cfg(feature = "medium")]
+        alternatives: voted.alternatives,
         short_fragments,
         omitted: found.omitted + count - examined + secondary_omitted,
         work_limited: found.limited
@@ -766,3 +805,126 @@ mod recovered_source_tests;
 
 #[cfg(all(test, any(feature = "medium", feature = "low")))]
 mod independent_source_rows_tests;
+
+/// Try alternative boxes of segment-voting clusters whose own box produced no read but whose
+/// candidate showed retail evidence (guard patterns or blurred-symbol windows). Reads from
+/// alternative geometry must not be contradicted by the source image.
+#[cfg(feature = "medium")]
+#[allow(clippy::too_many_arguments)] // one ordered pipeline transaction over shared scan state
+fn scan_alternatives(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    im: ImageView<'_>,
+    options: ScanOptions,
+    coverage: &[Quad],
+    localization: &Localization,
+    scan: &mut super::ScanResult,
+    retail: &mut Vec<super::read::Read>,
+) -> std::result::Result<(), Error> {
+    use barcode_research_core::numeric::usize_f64;
+    let (mx, my) = (usize_f64(image.width - 1), usize_f64(image.height - 1));
+    let mut quads = Vec::new();
+    for (primary, alternatives) in &localization.alternatives {
+        let evidence = localization
+            .proposals
+            .iter()
+            .position(|p| p.polygon == *primary)
+            .and_then(|i| scan.frame.candidates.get(i))
+            .is_some_and(|c| c.work.guard_pass > 0 || c.work.forward_blur_windows >= 2);
+        if !evidence {
+            continue;
+        }
+        let decoded = scan
+            .frame
+            .barcodes
+            .iter()
+            .any(|b| super::geometry::overlap_quads(&b.detection.polygon, primary).0 > 0.3)
+            || retail
+                .iter()
+                .any(|r| super::geometry::overlap_quads(&r.polygon, primary).0 > 0.3);
+        if decoded {
+            continue;
+        }
+        if let Some(r) = shear::refine(im, *primary) {
+            quads.push(r.polygon);
+        }
+        quads.extend(
+            alternatives
+                .iter()
+                .map(|q| q.map(|p| [p[0].clamp(0., mx), p[1].clamp(0., my)])),
+        );
+    }
+    quads.retain(|q| {
+        let a: f64 = (0..4)
+            .map(|k| q[k][0] * q[(k + 1) % 4][1] - q[(k + 1) % 4][0] * q[k][1])
+            .sum();
+        a.abs() > 16.
+    });
+    // Region scans track per-candidate retries in 64-bit masks.
+    quads.truncate(24);
+    if quads.is_empty() {
+        return Ok(());
+    }
+    let props: Vec<Proposal> = quads
+        .iter()
+        .map(|q| Proposal {
+            polygon: *q,
+            score: 0.9,
+        })
+        .collect();
+    let policy = scan_policy(image, &props, coverage, options);
+    let mut extra = scanner.regions.scan(im, &quads, policy)?;
+    let extra_retail = finish_retail(&mut extra, &mut scanner.regions, im);
+    for mut b in extra.frame.barcodes {
+        if source_contradiction(
+            image,
+            b.detection.polygon,
+            b.detection.digits,
+            &mut scanner.fast_profiles,
+        )? {
+            continue;
+        }
+        if !scan.frame.barcodes.iter().any(|o| {
+            o.detection.digits == b.detection.digits
+                && super::geometry::overlap_quads(&o.detection.polygon, &b.detection.polygon).0 > 0.
+        }) {
+            b.candidate_indices.clear();
+            scan.frame.barcodes.push(b);
+        }
+    }
+    for r in extra_retail {
+        if !retail.iter().any(|o| {
+            o.text == r.text && super::geometry::overlap_quads(&o.polygon, &r.polygon).0 > 0.
+        }) {
+            retail.push(r);
+        }
+    }
+    Ok(())
+}
+
+/// Drop UPC-E/EAN-8 reads centred inside an EAN-13/UPC-A read: part-symbol ghosts.
+#[cfg(feature = "medium")]
+fn drop_short_ghosts(scan: &super::ScanResult, retail: &mut Vec<super::read::Read>) {
+    let long: Vec<Quad> = scan
+        .frame
+        .barcodes
+        .iter()
+        .map(|b| b.detection.polygon)
+        .chain(
+            retail
+                .iter()
+                .filter(|r| matches!(r.format.as_str(), "EAN13" | "UPCA"))
+                .map(|r| r.polygon),
+        )
+        .collect();
+    retail.retain(|r| {
+        if !matches!(r.format.as_str(), "UPCE" | "EAN8") {
+            return true;
+        }
+        let c = [
+            r.polygon.iter().map(|p| p[0]).sum::<f64>() / 4.,
+            r.polygon.iter().map(|p| p[1]).sum::<f64>() / 4.,
+        ];
+        !long.iter().any(|q| super::formats::contains_point(c, q))
+    });
+}
