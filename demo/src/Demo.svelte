@@ -1095,7 +1095,7 @@
   <div class="heading">
     <a href={import.meta.env.BASE_URL} class="wordmark">▥ <span>Tapirscan</span></a>
     <div class="heading-links">
-      <span class="private">Images stay in your browser</span>
+      <span class="private">Your files stay on your device</span>
       <a class="github" href="https://github.com/kleinicke/tapirscan">
         <svg viewBox="0 0 16 16" aria-hidden="true"
           ><path
@@ -1492,6 +1492,10 @@
         </div>
       </div>
     </div>
+    <p class="hint">
+      Your files stay on your device. Images, PDFs and camera frames are processed in your browser
+      and never uploaded.
+    </p>
     {#if benchmarkEnabled}<Benchmark
         {source}
         {releaseVersion}
