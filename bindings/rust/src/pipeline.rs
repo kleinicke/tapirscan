@@ -2,6 +2,8 @@ use super::effort::SELECTED;
 use super::{Error, Image, ImageView, Proposal, Quad, Result, ScanOptions, Scanner};
 use barcode_research_core::{frame::Barcode, multi_scan::Policy, shear, stripes};
 
+#[cfg(feature = "medium")]
+mod deblur;
 #[cfg(not(feature = "low"))]
 mod restoration;
 #[cfg(any(feature = "medium", feature = "low"))]
@@ -231,6 +233,17 @@ fn scan_prepared_impl(
             image,
             options,
             coverage,
+            &localization.proposals,
+            &mut scan,
+        )?;
+    }
+    // Blurred but well localized symbols: deblurred upright crops of the strongest boxes.
+    #[cfg(feature = "medium")]
+    if allow_restoration && scan.frame.barcodes.is_empty() && retail.is_empty() {
+        deblur::recover_deblurred_crops(
+            scanner,
+            image,
+            options,
             &localization.proposals,
             &mut scan,
         )?;
