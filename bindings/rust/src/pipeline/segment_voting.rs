@@ -72,15 +72,36 @@ fn gray(image: Image<'_>, work: f64) -> (Vec<f32>, usize, usize, f64) {
         }
     };
     let mut g = vec![0f32; w * h];
+    if s >= 1. {
+        for y in 0..h {
+            for x in 0..w {
+                g[y * w + x] = lum(x, y);
+            }
+        }
+        return (g, w, h, s);
+    }
+    // Average a 2 x 2 sample grid per working cell: single point samples alias bars whose
+    // modules shrink below one working pixel into short, misplaced segments. Four samples keep
+    // the cost bounded by the working raster rather than the source size.
+    let at = |o: usize, f: f64, n: usize| (((o as f64 + f) / s) as usize).min(n - 1);
+    let xs: Vec<[usize; 2]> = (0..w)
+        .map(|ox| [at(ox, 0.25, image.width), at(ox, 0.75, image.width)])
+        .collect();
+    let channels = image.channels;
+    let luma = |row: &[u8], x: usize| -> u32 {
+        let p = &row[x * channels..];
+        if channels == 1 {
+            256 * u32::from(p[0])
+        } else {
+            77 * u32::from(p[0]) + 150 * u32::from(p[1]) + 29 * u32::from(p[2])
+        }
+    };
     for oy in 0..h {
-        let fy = ((oy as f64 + 0.5) / s) as usize;
-        for ox in 0..w {
-            let fx = ((ox as f64 + 0.5) / s) as usize;
-            g[oy * w + ox] = if s >= 1. {
-                lum(ox, oy)
-            } else {
-                lum(fx.min(image.width - 1), fy.min(image.height - 1))
-            };
+        let r0 = &image.data[at(oy, 0.25, image.height) * image.stride..];
+        let r1 = &image.data[at(oy, 0.75, image.height) * image.stride..];
+        for (v, &[x0, x1]) in g[oy * w..(oy + 1) * w].iter_mut().zip(&xs) {
+            let sum = luma(r0, x0) + luma(r0, x1) + luma(r1, x0) + luma(r1, x1);
+            *v = sum as f32 / 1024.;
         }
     }
     (g, w, h, s)
