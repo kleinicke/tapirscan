@@ -14,10 +14,11 @@ Tapirscan’s AI-developed algorithm finds barcode regions, estimates their orie
 and samples across the bars, including diagonally. It is built for photos and camera frames where a
 clean horizontal or vertical scanline may be hard to find.
 
-**EAN-13, UPC-A, EAN-8 and UPC-E are supported** through the retail group.
-Retail formats (EAN13, UPCA, EAN8 and UPCE) are enabled by default. Four effort modes let you choose how much work to
-spend on a frame. Formats outside the retail group, including QR Code, remain
-**experimental and opt-in**.
+**Supports linear and 2D barcodes**, including EAN/UPC, Code 128, QR Code,
+Data Matrix, PDF417 and Aztec. Retail formats (EAN13, UPCA, EAN8 and UPCE) are
+enabled by default; select additional formats as needed. Four effort modes let
+you choose how much work to spend on a frame. See [format coverage](docs/FORMATS.md)
+for all supported formats and variants.
 
 - **Find multiple symbols.** Return decoded values and positions in the original image.
 - **Keep useful evidence.** Inspect localized regions even when decoding fails.
@@ -128,7 +129,7 @@ for barcode in result:
 ```
 
 `formats="1D"` enables all supported linear formats; `"2D"` and `"all"` are also
-available. The retail formats (EAN13, UPCA, EAN8 and UPCE) are supported; formats outside this group remain experimental.
+available. See [format coverage](docs/FORMATS.md) for supported formats and variants.
 
 **PyTorch tensor:**
 
@@ -190,7 +191,7 @@ See the [architecture guide](docs/ARCHITECTURE.md) for implementation details.
 The supported retail group includes EAN-13, UPC-A, EAN-8 and UPC-E. Select
 `formats="retail"` in Python or `formats: "retail"` in JavaScript to enable all
 four; Rust provides `Formats::RETAIL`. Retail formats are enabled by default, and
-UPC-A uses the same optical path. Opt-in experimental readers outside this group
+UPC-A uses the same optical path. Additional supported readers
 include Code 128, Code 39, Code 93, ITF, Codabar, DataBar,
 DataBar Expanded, QR Code, Data Matrix, PDF417, Aztec, and MaxiCode.
 
@@ -231,8 +232,8 @@ and refined the evaluation process.
 
 ## Project status
 
-This is a young library with supported EAN-13, UPC-A, EAN-8 and UPC-E scanning.
-Formats outside the retail group remain experimental. macOS arm64 has been exercised locally; the release workflows must pass
+Tapirscan supports the linear and 2D formats listed in [format coverage](docs/FORMATS.md).
+Turbo presets remain experimental. macOS arm64 has been exercised locally; the release workflows must pass
 for each additional platform before its artifacts are published. No general
 claim of superiority over ZXing or ZBar is made without a reproducible paired
 benchmark.

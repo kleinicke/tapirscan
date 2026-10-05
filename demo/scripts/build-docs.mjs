@@ -80,7 +80,7 @@ await writeFile(
     "",
     "> Barcode scanning for browser, Node.js and native applications. Multiple symbols, original-image geometry, four effort modes; MIT OR Apache-2.0.",
     "",
-    "Retail formats are supported; other readers remain experimental. The demo next builds may be newer than the published packages. Consult the release page before selecting a version.",
+    "Tapirscan supports linear and 2D barcode formats, with Retail enabled by default. See the format guide for variants and limitations. Turbo presets remain experimental. The demo next builds may be newer than the published packages. Consult the release page before selecting a version.",
     "",
     "## Documentation",
     "",

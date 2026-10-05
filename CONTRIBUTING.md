@@ -45,8 +45,7 @@ may add compatible capabilities; patch versions fix bugs. Version 1.2.1 explicit
 selection to retail; callers needing EAN13-only behavior should select it explicitly.
 
 Decoder improvements can change reads, geometry, ordering and runtime on a given
-image. Those outputs are not bit-for-bit compatibility promises. Experimental
-format coverage describes decoding maturity, not permission to break the API.
+image. Those outputs are not bit-for-bit compatibility promises. Supported format variants and limitations are documented in [format coverage](docs/FORMATS.md).
 The JavaScript `experimentalTurbo` option, its preset values, corresponding
 `experimentalTurbo` scanner/result properties and `wasm/experimental-turbo*.wasm`
 imports are explicitly exempt from minor-version compatibility: they may change

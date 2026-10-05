@@ -77,7 +77,7 @@ public:
     static constexpr Formats linear() { return Formats(TAPIRSCAN_FORMATS_LINEAR); }
     /// QR Code, Data Matrix, PDF417, Aztec and MaxiCode.
     static constexpr Formats matrix() { return Formats(TAPIRSCAN_FORMATS_MATRIX); }
-    /// Every supported format. Formats outside Retail remain experimental.
+    /// Every supported format.
     static constexpr Formats all() { return Formats(TAPIRSCAN_FORMATS_ALL); }
     /// A native TAPIRSCAN_FORMAT_* mask. Empty or unknown bits throw std::invalid_argument.
     static constexpr Formats from_bits(std::uint32_t bits) { return Formats(bits); }

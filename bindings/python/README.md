@@ -59,7 +59,7 @@ for barcode in result:
 ```
 
 `formats="1D"` enables all supported linear formats; `"2D"` and `"all"` are also
-available. The retail formats (EAN13, UPCA, EAN8 and UPCE) are supported; formats outside this group remain experimental.
+available. See [format coverage](../../docs/FORMATS.md) for supported formats and variants.
 
 `formats="retail"` selects EAN13, UPCA,
 EAN8 and UPCE. `"common1D"` adds Code128, Code39 and ITF; `"common"` adds
@@ -134,7 +134,7 @@ this does not reduce scanning work. Support is a ranking heuristic, not a confid
 
 Formats and group exports: `Format`, `FormatSelection`, `retail_formats`,
 `common_formats`, `common_linear_formats`, `linear_formats`, `matrix_formats`. See [identifiers and reader limitations](../../docs/FORMATS.md).
-Retail formats (EAN13, UPCA, EAN8 and UPCE) are supported. Other readers remain experimental. Modes tune EAN13/UPCA, Common1D and QR Code; other matrix readers use fixed effort.
+Retail formats (EAN13, UPCA, EAN8 and UPCE) are enabled by default; select additional supported formats as needed. Modes tune EAN13/UPCA, Common1D and QR Code; other matrix readers use fixed effort.
 ROI, resizing, rotation and camera acquisition belong to the caller. Exact work
 budgets, timeouts and confidence thresholds are not exposed as scan options.
 

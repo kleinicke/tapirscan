@@ -45,7 +45,7 @@ Never commit credentials or paste authentication tokens into issues or chat.
 1. Run the [development build](DEVELOPMENT.md) and
    [validation checks](VALIDATION.md) at the intended release commit.
 2. Verify the [mode manifest](../provenance/modes.json), source hashes, package
-   versions, README examples and changelog. Treat the full retail group as supported; keep formats outside it experimental.
+   versions, README examples and changelog. Describe implemented formats as supported, retain documented variant limitations, and label Turbo presets experimental.
 3. Pack npm from `bindings/javascript`. Its `prepack` step rebuilds TypeScript
    and rejects stale mode selections, missing recovery files, or incorrect WASMs.
 4. Build Python wheels with the native library. Install each artifact in
@@ -123,7 +123,7 @@ five platform wheels and no source distribution. Each release number is final;
 use a new patch version for subsequent corrections.
 
 Create the GitHub release with the changelog, actual platform support, demo link,
-and experimental format limitations. Verify fresh `npm install tapirscan` and
+and documented format limitations. Verify fresh `npm install tapirscan` and
 `pip install tapirscan` installations after publishing. Maven/vcpkg/Conan publication is outside the initial npm/PyPI launch.
 Rust publication is handled separately below.
 

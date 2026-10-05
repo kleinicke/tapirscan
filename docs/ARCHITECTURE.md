@@ -69,8 +69,8 @@ workspace retains those cases and outcomes; the library retains API unit tests.
 
 ## Additional formats
 
-`multiformat/` contains the supported EAN8/UPCE readers and experimental readers
-for formats outside the retail group. Readers run only when selected; each
+`multiformat/` contains the EAN8/UPCE readers and additional supported linear and
+2D readers. Readers run only when selected; each
 mode-specific WASM includes all readers. EAN-13 and UPC-A retain the selected
 primary effort mode. Common1D uses effort 0/1/2/2 and QR Code uses 0/1/2/3
 for Low/Medium/High/Very High; other matrix readers use effort 1.
@@ -92,7 +92,7 @@ from an EAN-13 result.
 | `bindings/rust/`                          | Public Scanner API and shared private pipeline             |
 | `bindings/wasm/`                          | Thin WebAssembly adapter over the Rust API                 |
 | `bindings/c/`, `cpp/`, `python/`, `java/` | Native language interfaces                                 |
-| `multiformat/`                            | Pinned EAN8/UPCE and experimental nonretail readers        |
+| `multiformat/`                            | Pinned EAN8/UPCE and additional linear/2D readers          |
 | `demo/`                                   | Camera/photo app with independent comparison workers       |
 | `scripts/`                                | Reproduction, packaging and regression checks              |
 

@@ -63,7 +63,7 @@ configuration. `Scanner::default()` needs no configuration.
 | `ean_add_on_policy` | `EanAddOnPolicy::Ignore` | `Ignore`, `Read`, `Require`                 |
 
 Presets: `Formats::RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX`, `ALL`.
-Retail formats (EAN13, UPCA, EAN8 and UPCE) are supported. Other readers remain experimental. Effort tunes EAN13/UPCA, common linear and
+Retail formats (EAN13, UPCA, EAN8 and UPCE) are enabled by default; select additional supported formats as needed. Effort tunes EAN13/UPCA, common linear and
 QR readers; other matrix readers retain fixed effort. `Read` preserves the main
 barcode without a readable supplement; `Require` filters retail reads without
 one. Nonretail formats are unaffected.

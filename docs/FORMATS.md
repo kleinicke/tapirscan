@@ -1,7 +1,7 @@
 # Format coverage
 
-**The retail group—EAN13, UPCA, EAN8 and UPCE—is supported, not experimental.**
-Formats outside this group remain experimental. Retail is the default selection. Additional formats are explicitly selected at scanner
+Tapirscan supports the linear and 2D formats listed below. The retail group—
+EAN13, UPCA, EAN8 and UPCE—is enabled by default. Additional formats are explicitly selected at scanner
 creation in JavaScript and Python. Python also allows per-scan overrides;
 JavaScript accepts per-scan subsets of the creation selection.
 Rust and the native ABI select formats per scan. Python and JavaScript accept
@@ -36,11 +36,11 @@ The supported public identifiers and native bits are:
 | UPCA            |      2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected |
 | EAN8            |      4 | Supported retail reader                                          |
 | UPCE            |      8 | Supported retail reader                                          |
-| Code128         |     16 | Experimental, including GS1 metadata                             |
+| Code128         |     16 | Supported, including GS1 metadata                                |
 | Code39          |     32 | Standard characters; no automatic full-ASCII expansion           |
-| ITF             |     64 | Experimental                                                     |
-| Codabar         |    128 | Experimental                                                     |
-| Code93          |    256 | Experimental                                                     |
+| ITF             |     64 | Supported                                                        |
+| Codabar         |    128 | Supported                                                        |
+| Code93          |    256 | Supported                                                        |
 | QRCode          |    512 | Model 2; no Micro QR, Model 1 or rMQR                            |
 | DataMatrix      |   1024 | ECC200 and DMRE                                                  |
 | PDF417          |   2048 | Normal/Compact; no Micro PDF417 or Macro/structured append       |
@@ -83,5 +83,5 @@ inherited from the promoted experiment, not release performance guarantees.
 Python and JavaScript optionally expose two- and five-digit EAN/UPC supplements
 through the creation policy `Ignore` (default), `Read` or `Require`. EAN8
 supplements are a nonstandard extension.
-The experimental localized-linear strategy remains internal; public scanning
+The localized-linear strategy remains internal; public scanning
 uses the full-frame strategy.

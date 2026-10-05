@@ -82,7 +82,7 @@ tapirscan_inspect(scanner, &image, &scan, &result, NULL);
 
 Presets: `TAPIRSCAN_FORMATS_RETAIL`, `_COMMON_1D`, `_COMMON`, `_LINEAR`, `_MATRIX`
 and `_ALL`, from the generated `tapirscan_formats.h`. Retail formats are
-supported; other readers remain experimental. See [format coverage](../../docs/FORMATS.md).
+enabled by default; additional formats are supported when selected. See [format coverage](../../docs/FORMATS.md).
 
 | Per-scan option   | Default | Meaning                                      |
 | ----------------- | ------- | -------------------------------------------- |

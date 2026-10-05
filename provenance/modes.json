@@ -32,8 +32,8 @@
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/api-native-cleanup-20261003.json",
-  "apiWasm": "provenance/wasm-api-native-cleanup-20261003.json",
+  "runtimeRevision": "provenance/format-support-20261005.json",
+  "apiWasm": "provenance/wasm-format-support-20261005.json",
   "sourceRoot": "core/src",
   "experimentalTurbo": [
     {

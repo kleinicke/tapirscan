@@ -10,7 +10,7 @@ Start with developers building product lookup, inventory, document-processing an
 
 The initial objective is five independent developers trying their own images and two concrete integration conversations. These are campaign targets, not forecasts. Record reproducible failures and successful integrations alongside traffic and stars.
 
-The supported launch claims are orientation-aware scanning, multiple symbols, source-image geometry, four effort modes, local processing, a choice of MIT or Apache-2.0 licenses, and JavaScript/Python packages. Be explicit that EAN-13, UPC-A, EAN-8 and UPC-E are supported; formats outside this retail group remain experimental.
+The supported launch claims are orientation-aware scanning, multiple symbols, source-image geometry, four effort modes, local processing, a choice of MIT or Apache-2.0 licenses, and JavaScript/Python packages. Describe supported linear and 2D formats with a link to the format-coverage guide for variants and limitations. Reserve the experimental label for Turbo presets.
 
 “Much more reliable than ZXing/ZBar” needs a public paired comparison of the released versions. The development observations in [the blog](../BLOG_POST.md) and integration checks are not that comparison. We can launch now using the demo and concrete examples, then publish stronger quantified results when the evidence exists. Follow [the benchmark protocol](BENCHMARKS.md), including wrong reads and runtime as well as successful reads.
 
@@ -67,7 +67,7 @@ Write the submission discussion and replies yourself. HN's current [guidelines](
 
 - Motivation: visible barcodes that existing readers missed in your tests.
 - Mechanism: explicit orientation estimation and sampling across the bars.
-- Scope: EAN-13, UPC-A, EAN-8 and UPC-E supported; other formats experimental; local execution.
+- Scope: Supported linear and 2D formats; retail defaults; local execution; experimental Turbo presets.
 - Your role: goals, evaluation, label checking, experiments and phone testing; disclose the agent's implementation role.
 - Evidence: development observations versus a public release benchmark; explain that distinction directly.
 - Useful feedback: image dimensions, expected value, selected formats, effort mode, device/browser, and a shareable reproduction.
@@ -112,7 +112,7 @@ Suggested title: Tapirscan: orientation-aware barcode scanning for Python
 
 Link: https://github.com/kleinicke/tapirscan
 
-Description: Tapirscan is a dual MIT/Apache-2.0-licensed barcode scanning library with a Rust core and native Python wheels. It accepts Pillow images, NumPy arrays and PyTorch tensors, and returns decoded symbols with source-image positions. EAN-13, UPC-A, EAN-8 and UPC-E are supported; other formats remain experimental. A browser demo provides an installation-free comparison with ZXing and ZBar: https://tapirscan.f-kleinicke.de
+Description: Tapirscan is a dual MIT/Apache-2.0-licensed barcode scanning library with a Rust core and native Python wheels. It accepts Pillow images, NumPy arrays and PyTorch tensors, and returns decoded symbols with source-image positions. Supported formats include EAN/UPC, Code 128, QR Code, Data Matrix, PDF417 and Aztec. A browser demo provides an installation-free comparison with ZXing and ZBar: https://tapirscan.f-kleinicke.de
 
 ## Additional distribution worth doing
 

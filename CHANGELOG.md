@@ -2,6 +2,9 @@
 
 ## 1.3.0 — unreleased
 
+- Describe implemented barcode formats as supported, with documented variant limitations.
+  Reserve the experimental label for Turbo presets; decoder behavior is unchanged.
+
 - Native ABI 6 adds caller-owned error details and lazy JSON access; rebuild native consumers together.
 - C gains an explicit scanner-options initializer. C++ rejects temporary image buffers and invalid format masks, and derives `best()` from current barcodes.
 - Java uses named native layouts and payload-content equality; Java and C++ remove redundant best-index state.

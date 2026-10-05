@@ -58,7 +58,7 @@ Scans on one scanner serialize; separate scanners run concurrently.
 | `ean_add_on_policy` | `EanAddOnPolicy::Ignore` | `Ignore`, `Read`, `Require`                 |
 
 Presets: `Formats::retail()`, `common_1d()`, `common()`, `linear()`, `matrix()`
-and `all()`. Retail formats are supported; other readers remain experimental.
+and `all()`. Retail formats are enabled by default; additional formats are supported when selected.
 See [format coverage](../../docs/FORMATS.md).
 
 | Per-scan option   | Default        | Meaning                                |

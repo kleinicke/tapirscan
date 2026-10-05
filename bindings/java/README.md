@@ -57,7 +57,7 @@ one scanner serialize; separate scanners run concurrently.
 | `eanAddOnPolicy` | `EanAddOnPolicy.IGNORE` | `IGNORE`, `READ`, `REQUIRE`             |
 
 Presets: `Format.RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX` and `ALL`.
-Retail formats are supported; other readers remain experimental. See
+Retail formats are enabled by default; additional formats are supported when selected. See
 [format coverage](../../docs/FORMATS.md).
 
 | Per-scan option  | Default            | Meaning                                |

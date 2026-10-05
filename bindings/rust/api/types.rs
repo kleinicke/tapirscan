@@ -28,7 +28,7 @@ impl Formats {
     pub const LINEAR: Self = Self(LINEAR_MASK);
     /// QR Code, Data Matrix, PDF417, Aztec and `MaxiCode`.
     pub const MATRIX: Self = Self(MATRIX_MASK);
-    /// Every supported format. Additional formats remain experimental.
+    /// Every supported format.
     pub const ALL: Self = Self(ALL_FORMATS_MASK);
 }
 impl TryFrom<u32> for Formats {

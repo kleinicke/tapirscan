@@ -139,7 +139,7 @@ try {
 ```
 
 Here `image` is the `ImageData` above. `formats: "1D"` enables all supported linear
-formats; readers outside the retail group remain experimental. Settings also work with the helper:
+formats; see [format coverage](../../docs/FORMATS.md) for supported variants. Settings also work with the helper:
 `await inspect(image, { mode: "high", formats: "1D" })`.
 
 `formats: "retail"` selects EAN13, UPCA,
@@ -172,8 +172,7 @@ The acceleration targets linear formats, including all four Retail formats and
 Code128, Code39 and ITF. **These presets do not provide corresponding 2D speedups.**
 QR and other matrix formats remain usable when selected, but changing the Turbo
 number does not select a faster matrix-decoding tier. Mixed-format scanning still
-pays for the enabled 2D readers. Formats outside Retail remain experimental in
-coverage too. See [Turbo behavior and limitations](../../docs/EXPERIMENTAL_TURBO.md).
+pays for the enabled 2D readers. See [Turbo behavior and limitations](../../docs/EXPERIMENTAL_TURBO.md).
 
 Choose either `mode` or `experimentalTurbo`; supplying both is an error. Omitting
 both keeps the normal Medium default. The Turbo selection is fixed at creation;

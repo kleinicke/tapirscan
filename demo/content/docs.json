@@ -30,7 +30,7 @@
       },
       {
         "title": "For coding agents",
-        "text": "Use the documentation for your installed version. The next demo builds can be newer than the published packages. Formats outside Retail remain experimental. Use the Markdown exports for compact documentation; AGENTS.md describes repository development, not the public API.",
+        "text": "Use the documentation for your installed version. The next demo builds can be newer than the published packages. Supported linear and 2D formats are listed in the format guide; Turbo presets remain experimental. Use the Markdown exports for compact documentation; AGENTS.md describes repository development, not the public API.",
         "links": [
           ["Documentation index for agents", "/llms.txt"],
           ["GitHub repository", "https://github.com/kleinicke/tapirscan"]
@@ -107,7 +107,7 @@
       },
       {
         "title": "Troubleshooting",
-        "text": "If no wheel matches your platform, follow the native build instructions. Install only the optional image libraries you use. Keep supported Retail formats distinct from experimental readers when evaluating results.",
+        "text": "If no wheel matches your platform, follow the native build instructions. Install only the optional image libraries you use. Select the formats you need and check the format guide for supported variants and limitations.",
         "links": [
           [
             "Complete Python API guide",
@@ -122,11 +122,11 @@
   {
     "path": "formats",
     "title": "Barcode formats and scanning effort",
-    "description": "Supported and experimental Tapirscan formats, format presets and four effort modes.",
+    "description": "Supported Tapirscan barcode formats, format presets, variant limitations and four effort modes.",
     "sections": [
       {
-        "title": "Supported versus experimental",
-        "text": "EAN13, UPCA, EAN8 and UPCE are the supported Retail formats. Other implemented readers are experimental and opt-in. Inclusion in a preset does not guarantee every barcode of that format will decode."
+        "title": "Supported formats and variants",
+        "text": "Tapirscan supports linear and 2D barcode formats. EAN13, UPCA, EAN8 and UPCE are enabled by default; select additional formats as needed. Inclusion in a preset does not guarantee every barcode of that format will decode."
       },
       {
         "title": "Format presets",
