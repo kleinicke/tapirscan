@@ -2,6 +2,37 @@
   "default": "1.2.2+release-r2.20260925",
   "versions": [
     {
+      "version": "1.2.2+all-1d.20261005",
+      "label": "Next · All 1D formats share boxes; deblurring in every mode",
+      "sourceDigest": "a925de6f79b8db82ee8e35fbc0f8ee309187cd211f13852217acb203312fd27b",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-all-1d-20261005.wasm",
+          "sha256": "55d1228015d0a4a673ffe6b34fbb5481501b028dc5cebc101db8f1ac07bb52de",
+          "bytes": 1841524
+        },
+        {
+          "mode": "medium",
+          "file": "medium-all-1d-20261005.wasm",
+          "sha256": "a26f89ebbbde9517d69b1ee7b81f4d0eed28ad1b83fb5a8ba232583f8dc55653",
+          "bytes": 2448088
+        },
+        {
+          "mode": "high",
+          "file": "high-all-1d-20261005.wasm",
+          "sha256": "f03d27854e32420a1882bb2d4ed95739312cc276b568eed876ec9c4c76d5e7c5",
+          "bytes": 2284333
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-all-1d-20261005.wasm",
+          "sha256": "db660b5f3e69a01c28ffd25047b00afee829200d0bf47e8d09117e8ed4c638cb",
+          "bytes": 2371247
+        }
+      ]
+    },
+    {
       "version": "1.2.2+deblur.20261005",
       "label": "Next · Deblurred rescans, evidence-gated full frame",
       "sourceDigest": "d1ee139572953724e6c72c2fb4d86ab248055b3a19afd6cdf7bff0b0054bf02d",
