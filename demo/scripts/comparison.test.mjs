@@ -92,6 +92,7 @@ test("next scanners pin registered preview builds while standard names use the v
     undefined,
   );
   for (const [id, mode, label] of [
+    ["ts-low-next", "low", "TS-Low-next"],
     ["ts-med-next", "medium", "TS-Med-next"],
     ["ts-high-next", "high", "TS-High-next"],
     ["ts-vhigh-next", "very-high", "TS-VHigh-next"],

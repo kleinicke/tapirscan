@@ -19,6 +19,9 @@ export type ComparisonSpec = {
   releaseVersion?: string;
 };
 export type ComparisonEntry = ComparisonSpec & { result?: Result; error?: string };
+/** Engine registry version behind the TS-*-next readers; set by scripts/preview-engines.mjs. */
+const nextRelease = "1.2.2+segment-voting.20261005";
+
 export const comparisonOptions: ComparisonSpec[] = [
   { id: "turbo", label: "TS-Low", color: "#55ddc5", engine: "classical", version: "low" },
   { id: "turbo2", label: "TS-Turbo2", color: "#55cce0", engine: "turbo", version: "low" },
@@ -63,12 +66,20 @@ export const comparisonOptions: ComparisonSpec[] = [
     version: "very-high",
   },
   {
+    id: "ts-low-next",
+    label: "TS-Low-next",
+    color: "#b4f29c",
+    engine: "classical",
+    version: "low",
+    releaseVersion: nextRelease,
+  },
+  {
     id: "ts-med-next",
     label: "TS-Med-next",
     color: "#ff947d",
     engine: "classical",
     version: "medium",
-    releaseVersion: "1.2.2+segment-voting.20261005",
+    releaseVersion: nextRelease,
   },
   {
     id: "ts-high-next",
@@ -76,7 +87,7 @@ export const comparisonOptions: ComparisonSpec[] = [
     color: "#ffd08a",
     engine: "classical",
     version: "high",
-    releaseVersion: "1.2.2+segment-voting.20261005",
+    releaseVersion: nextRelease,
   },
   {
     id: "ts-vhigh-next",
@@ -84,7 +95,7 @@ export const comparisonOptions: ComparisonSpec[] = [
     color: "#ffa4d1",
     engine: "classical",
     version: "very-high",
-    releaseVersion: "1.2.2+segment-voting.20261005",
+    releaseVersion: nextRelease,
   },
 ];
 

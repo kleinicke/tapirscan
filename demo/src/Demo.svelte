@@ -205,6 +205,7 @@
     "nano",
     "quality",
     "veryhigh",
+    "ts-low-next",
     "ts-med-next",
     "ts-high-next",
     "ts-vhigh-next",
