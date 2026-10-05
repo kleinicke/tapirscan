@@ -198,9 +198,130 @@ pub fn decode_visual_evidence(widths: &[f32]) -> Option<Evidence> {
         gap,
     })
 }
+/// Module width when `widths` hold one decodable half symbol: a 3-run outer guard, `digits`
+/// 4-run digits (L or G read forwards, or a reversed half, whose patterns read as G) and the
+/// 5-run middle guard, with the full-symbol digit gates of [`decode_visual_evidence`].
+fn half_symbol_module(widths: &[f32], digits: usize) -> Option<f32> {
+    let modules = crate::numeric::usize_f32(3 + 7 * digits + 5);
+    let module = widths.iter().sum::<f32>() / modules;
+    if !module.is_finite() || module < 0.8 {
+        return None;
+    }
+    let middle = 3 + 4 * digits;
+    if (0..3)
+        .chain(middle..middle + 5)
+        .any(|i| (widths[i] / module - 1.).abs() > 0.65)
+    {
+        return None;
+    }
+    let mut total = 0.;
+    for j in 0..digits {
+        let w = &widths[3 + 4 * j..7 + 4 * j];
+        let scale = w.iter().sum::<f32>() / 7.;
+        if !(0.55 * module..=1.8 * module).contains(&scale)
+            || w.iter().any(|v| !(0.4..=4.6).contains(&(v / scale)))
+        {
+            return None;
+        }
+        let [l, g] = digit_pair(w);
+        let cost = l.cost.min(g.cost);
+        if cost > 0.35 {
+            return None;
+        }
+        total += cost;
+    }
+    (total / crate::numeric::usize_f32(digits) <= 0.12).then_some(module)
+}
+
+/// Samples missing past the high end of a profile whose runs `(start, end, black)` begin a
+/// retail symbol that the profile cuts off: a quiet zone, a start guard and one cleanly
+/// decoding half (6 digits for EAN-13/UPC-A, 4 for EAN-8) whose full symbol plus a short
+/// quiet zone would end beyond `n`. `None` without such evidence or when the symbol fits.
+fn missing_after(runs: &[(usize, usize, bool)], n: usize) -> Option<f32> {
+    let width = |r: &(usize, usize, bool)| crate::numeric::usize_f32(r.1 - r.0);
+    for (i, quiet) in runs.iter().enumerate() {
+        if quiet.2 || i + 1 >= runs.len() || width(quiet) < 4. * width(&runs[i + 1]) {
+            continue;
+        }
+        for (digits, symbol) in [(6, 95.), (4, 67.)] {
+            let need = 3 + 4 * digits + 5;
+            let Some(half) = runs.get(i + 1..i + 1 + need) else {
+                continue;
+            };
+            let widths: Vec<f32> = half.iter().map(width).collect();
+            let Some(module) = half_symbol_module(&widths, digits) else {
+                continue;
+            };
+            if width(quiet) < 5. * module && quiet.0 > 0 {
+                continue;
+            }
+            let end = crate::numeric::usize_f32(half[0].0) + (symbol + 5.) * module;
+            let missing = end - crate::numeric::usize_f32(n);
+            return (missing > 0.).then_some(missing);
+        }
+    }
+    None
+}
+
+/// Scan-axis extension for a retail symbol cut off by the sampled profile: `(true, samples)`
+/// extends past the high end, `(false, samples)` past the low end. Only a cleanly decoded half
+/// symbol with its outer guard and quiet zone counts as evidence; without it the search area
+/// stays unchanged.
+pub(crate) fn partial_extension(runs: &[(usize, usize, bool)], n: usize) -> Option<(bool, f32)> {
+    if let Some(missing) = missing_after(runs, n) {
+        return Some((true, missing));
+    }
+    let reversed: Vec<_> = runs
+        .iter()
+        .rev()
+        .map(|&(s, e, b)| (n - e, n - s, b))
+        .collect();
+    missing_after(&reversed, n).map(|missing| (false, missing))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Runs of `widths` (black first) after a quiet zone, cut off at sample `n`.
+    fn cut_runs(widths: &[f32], quiet: usize, n: usize) -> Vec<(usize, usize, bool)> {
+        let mut out = vec![(0, quiet, false)];
+        let mut at = quiet;
+        for (k, w) in widths.iter().enumerate() {
+            let end = (at + crate::numeric::f32_usize(*w)).min(n);
+            if at < end {
+                out.push((at, end, k % 2 == 0));
+            }
+            at = end;
+        }
+        if at < n {
+            out.push((at, n, false));
+        }
+        out
+    }
+
+    #[test]
+    fn partial_extension_needs_a_decoded_half_and_points_at_the_cut() {
+        let d = [4, 0, 0, 2, 5, 7, 5, 0, 7, 6, 9, 0, 5];
+        let w = runs(&d);
+        // Full symbol with quiet zones: nothing is cut, so no extension.
+        assert!(partial_extension(&cut_runs(&w, 40, 40 + 285 + 40), 365).is_none());
+        // Cut after the middle guard: extend past the high end by the missing modules.
+        let (high, missing) = partial_extension(&cut_runs(&w, 40, 40 + 160), 200).unwrap();
+        assert!(high && (125. ..150.).contains(&missing));
+        // Mirrored profile: the symbol continues below the low end.
+        let mirrored: Vec<_> = cut_runs(&w, 40, 200)
+            .iter()
+            .rev()
+            .map(|&(s, e, b)| (200 - e, 200 - s, b))
+            .collect();
+        assert!(!partial_extension(&mirrored, 200).unwrap().0);
+        // Cut inside the first half: too little decoded evidence to extend.
+        assert!(partial_extension(&cut_runs(&w, 40, 40 + 90), 130).is_none());
+        // Equal bars without digit structure never count as evidence.
+        assert!(partial_extension(&cut_runs(&[3.; 40], 40, 160), 160).is_none());
+    }
+
     #[expect(
         clippy::float_cmp,
         reason = "Encoded samples are binary and equal decoder costs are exact ambiguity ties; epsilon matching would change accepted identities."

@@ -100,6 +100,45 @@ fn continuous_bands_merge_but_separators_and_supplements_preserve_products() {
     assert_eq!(scan(&pixels, reads).len(), 2);
 }
 #[test]
+fn glare_across_the_bars_does_not_split_one_symbol() {
+    // Bars stay faintly visible under a wide glare band, unlike a printed separator.
+    let mut pixels = vec![255; 460 * 460];
+    for y in 20..420 {
+        for x in 60..252 {
+            let bar = (x - 60) / 3 % 3 == 0;
+            pixels[y * 460 + x] = match (bar, (190..220).contains(&y)) {
+                (true, false) => 20,
+                (false, false) => 220,
+                (true, true) => 200,
+                (false, true) => 250,
+            };
+        }
+    }
+    let read = |lo, hi| {
+        crate::read::Read::primary(
+            [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+            [[60., lo], [252., lo], [252., hi], [60., hi]],
+            7,
+            0,
+            vec![],
+        )
+    };
+    let image = Image {
+        data: &pixels,
+        width: 460,
+        height: 460,
+        channels: 1,
+        stride: 460,
+    };
+    let reads = merge_output(vec![read(60., 120.), read(300., 360.)], image);
+    assert_eq!(reads.len(), 1);
+    let ys: Vec<f64> = reads[0].polygon.iter().map(|p| p[1]).collect();
+    assert!(
+        ys.iter().any(|&y| y < 30.) && ys.iter().any(|&y| y > 410.),
+        "{ys:?}"
+    );
+}
+#[test]
 fn selected_code93_ownership_preserves_separate_equal_labels() {
     let mut pixels = vec![255; 320 * 160];
     for y in 10..150 {
@@ -329,6 +368,7 @@ fn footprints_arbitrate_different_payloads_only_on_connected_source_bars() {
                 channels: 1,
                 stride: 320,
             },
+            true,
         )
     };
     assert_eq!(scan(&pixels).len(), 1);

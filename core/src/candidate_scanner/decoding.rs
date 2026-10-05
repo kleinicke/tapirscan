@@ -221,6 +221,63 @@ impl CandidateScanner {
         self.collect_policy(axis, fraction, lo, hi, work, observations, false, false);
     }
 
+    /// Re-sample and decode the segment `lo..hi` once more, lengthened along the scan axis, when
+    /// its current profile shows a retail symbol cut off at one end: quiet zone, outer guard and
+    /// a cleanly decoding half. Without that evidence the search area stays unchanged. Returns
+    /// whether an extended segment was decoded.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Mirrors collect_policy plus the image and transform needed to re-sample the segment."
+    )]
+    pub(crate) fn extend_partial(
+        &mut self,
+        im: super::ImageView<'_>,
+        m: [f64; 9],
+        axis: usize,
+        fraction: f64,
+        lo: f64,
+        hi: f64,
+        work: &mut Work,
+        observations: &mut Vec<Observation>,
+        cleanup: bool,
+        guard_bias: bool,
+    ) -> bool {
+        let n = self.signal.len();
+        let mut runs = Vec::new();
+        if crate::multi_profile::sample_runs(&self.signal, 64, &mut runs).is_err() {
+            return false;
+        }
+        let Some((high, missing)) = run_ean::partial_extension(&runs, n) else {
+            return false;
+        };
+        let step = (hi - lo) / crate::numeric::usize_f64(n);
+        // A tenth more than the estimate absorbs module-width error; never more than doubling.
+        let extra = ((f64::from(missing) * 1.1 + 4.) * step).min(hi - lo);
+        let (lo, hi) = if high {
+            (lo, hi + extra)
+        } else {
+            (lo - extra, hi)
+        };
+        let samples = crate::numeric::f64_usize(((hi - lo) / step).round()).clamp(64, 4096);
+        if !matches!(
+            self.sample_segment(im, m, axis, fraction, lo, hi, samples, false, work),
+            Ok(true)
+        ) {
+            return false;
+        }
+        self.collect_policy(
+            axis,
+            fraction,
+            lo,
+            hi,
+            work,
+            observations,
+            cleanup,
+            guard_bias,
+        );
+        true
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "Coordinates, reversal and decoder switches are independent dimensions forwarded to the evidence collector."

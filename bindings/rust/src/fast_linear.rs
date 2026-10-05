@@ -558,7 +558,8 @@ fn keep_one_per_symbol(mut reads: Vec<Read>) -> Vec<Read> {
                 && (c[0] - c2[0]).hypot(c[1] - c2[1]) < 0.5 * l.max(long(&k.polygon))
                 && (crate::geometry::overlap_quads(&k.polygon, &r.polygon).0 > 0.
                     || short(&r.polygon) < 0.5 * short(&k.polygon)
-                    || short(&k.polygon) < 0.5 * short(&r.polygon))
+                    || short(&k.polygon) < 0.5 * short(&r.polygon)
+                    || crate::geometry::adjacent_strips(&k.polygon, &r.polygon))
         });
         if !duplicate {
             kept.push(r);

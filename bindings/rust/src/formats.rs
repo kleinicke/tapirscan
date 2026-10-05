@@ -398,7 +398,7 @@ impl Scanner {
         if options.include_regions {
             unread.extend(deferred_reads);
         }
-        reads = crate::linear_duplicates::merge(reads, image);
+        reads = crate::linear_duplicates::merge_output(reads, image);
         rank_reads(&mut reads);
         unfinished |= localization_limited;
         let raw = format_diagnostics(

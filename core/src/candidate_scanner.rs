@@ -448,6 +448,7 @@ impl CandidateScanner {
                             }
                         }
                         if config.decoder == DecoderMode::Many {
+                            let before = out.observations.len();
                             self.collect_many(
                                 axis,
                                 fraction,
@@ -456,6 +457,20 @@ impl CandidateScanner {
                                 &mut out.work,
                                 &mut out.observations,
                             );
+                            if out.observations.len() == before {
+                                self.extend_partial(
+                                    im,
+                                    m.0,
+                                    axis,
+                                    fraction,
+                                    -0.15,
+                                    1.15,
+                                    &mut out.work,
+                                    &mut out.observations,
+                                    false,
+                                    false,
+                                );
+                            }
                             continue;
                         }
                         let r = if config.decoder == DecoderMode::Profile {

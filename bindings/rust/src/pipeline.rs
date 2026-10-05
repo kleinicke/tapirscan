@@ -951,6 +951,7 @@ fn merge_cross_list_duplicates(scan: &super::ScanResult, retail: &mut Vec<super:
         super::geometry::overlap_quads(a, b).0 > 0.
             || short(a) < 0.5 * short(b)
             || short(b) < 0.5 * short(a)
+            || super::geometry::adjacent_strips(a, b)
     };
     let normalized = |t: &str| {
         if t.len() == 12 {

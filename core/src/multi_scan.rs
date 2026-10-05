@@ -218,6 +218,7 @@ impl CandidateScanner {
         ) {
             Ok(true) => {
                 normalized = true;
+                let before = c.observations.len();
                 self.collect_policy(
                     s.axis,
                     s.fraction,
@@ -228,6 +229,20 @@ impl CandidateScanner {
                     cleanup,
                     guard_bias,
                 );
+                if c.observations.len() == before {
+                    self.extend_partial(
+                        im,
+                        m,
+                        s.axis,
+                        s.fraction,
+                        s.lo,
+                        s.hi,
+                        &mut c.work,
+                        &mut c.observations,
+                        cleanup,
+                        guard_bias,
+                    );
+                }
             }
             Ok(false) => {
                 if s.unresolved && self.normalize_sparse_signal() {

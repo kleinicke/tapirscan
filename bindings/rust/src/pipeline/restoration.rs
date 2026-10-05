@@ -540,7 +540,16 @@ fn admit_reduced_reads(
     scan: &mut crate::ScanResult,
 ) -> std::result::Result<bool, Error> {
     use barcode_research_core::numeric::usize_f64;
-    let retry = scan_prepared_impl(scanner, variant, options, crop.coverage, true, false, false)?;
+    // Keep decoded geometry for source confirmation, as for restored crops.
+    let retry = scan_prepared_impl(
+        scanner,
+        variant,
+        options,
+        crop.coverage,
+        false,
+        false,
+        false,
+    )?;
     scan.frame.unfinished |= retry.scan.frame.unfinished;
     let mut accepted = false;
     for mut read in retry.scan.frame.barcodes {
