@@ -1,9 +1,9 @@
 {
-  "identity": "1004f335098083d297a727d5a44fee9f9e5b848da2426691802fcf1fd5f631c7",
+  "identity": "d0cfcaf78d41032735d4d1307ccaaf1b66c1f667839c0ef407b4eaa292063a50",
   "files": {
     "src/lib/benchmark.ts": "a30664f4f4bead5fa51909750a6a0e9d7614b644adee1502c71aa331a646eff2",
     "src/lib/scan.worker.ts": "f95a6c08fe2129aa84bf93ea958f35112ea25c58928e1a5918a04e42107f3a36",
-    "src/lib/scanner-versions.json": "6bd68c9c686c8e1d1a82c9e281075712f1db46f4fe08f0ad3c83deb0fada7ed6",
+    "src/lib/scanner-versions.json": "060f906acf66f561b8a09a1af4160cee78ca300f3cb0005eb4026420ad52992e",
     "src/lib/reference.worker.ts": "17577697a64510fff2f16a93e2cc8c7a137044113bd3be95e53bc303c9e1dfb2",
     "package.json": "58c166cf340de1f2360f607ee7e6a2a7c9a18aa7cc2deacb9f18da50f8f3e15e",
     "../bindings/javascript/dist/index.js": "957fae9b67ffadf6878929d24cdc37acfca47d9f80188305e47d9c16d712226c",
@@ -37,6 +37,7 @@
     "public/engines/high-release-1.2.2.wasm": "9a42e49a06e399ac63c7eb9b9a32e7015fefdf82427ace2740a0e21bfc9df97c",
     "public/engines/high-retail-runtime-20260929.wasm": "7bb2aa90e7bdf3b19291fee02262bf725ce9306936c067d56b536e17482086d5",
     "public/engines/high-segment-voting-20261005.wasm": "726d31d3d75dece3de6ccb264e6ae7b33b55ee1e5ef3a3b867841654dd8e9209",
+    "public/engines/high-segment-voting-2x2-20261005.wasm": "726d31d3d75dece3de6ccb264e6ae7b33b55ee1e5ef3a3b867841654dd8e9209",
     "public/engines/low-api-simple-results-20261002.wasm": "a76626584108fecf58315423496d897ea17e3f9ef67b0317e68fd74eb35dbba4",
     "public/engines/low-barcode-footprint-20260923.wasm": "f7bc094835503f47c52fb62e54e12473d13a5d71c5c0cfd2977fcd09cdfdf0a4",
     "public/engines/low-experiment-workflow-20260923.wasm": "6831f656c85b52e86740be2592f44313d5e0c67cb2b2f48795a7d1fa78d720ea",
@@ -53,6 +54,7 @@
     "public/engines/low-release-1.2.2.wasm": "70046670ad238bb22f037db65c16f10602d6e6526524f9ff1bdf4dcabfc6654a",
     "public/engines/low-retail-runtime-20260929.wasm": "c982e7ce5cd4ffd847e354e143fdb8f57acc86cbe0d5adff520f29f1ccb08c04",
     "public/engines/low-segment-voting-20261005.wasm": "307dc4c8d58ce5ff8a5f113e933b2144c0c23b6d8a6f71a681b6c9fdf4bada20",
+    "public/engines/low-segment-voting-2x2-20261005.wasm": "d721b2974ff728ffae46b5f7c4e60711b4af9c7ed75bc337f9746bb437273e5d",
     "public/engines/medium-api-simple-results-20261002.wasm": "e6f0841699b7535f466400629e1637ca8a5a0d4849b936a8470923ba56e8e09c",
     "public/engines/medium-barcode-footprint-20260923.wasm": "957e4f5d9c824943a89ee5a35cbcf6ff6c466ab60adfd5e285e8d802dfcd94f2",
     "public/engines/medium-experiment-workflow-20260923.wasm": "a1ed0f8e2d2673e0951633e1e8d83dfb193cc542ec6e04760e030b9ba8fe0ac2",
@@ -69,6 +71,7 @@
     "public/engines/medium-release-1.2.2.wasm": "88df5ba0309e57b42da7bcd12615a1b84912c21bf242a0ab00b6ed742854afb4",
     "public/engines/medium-retail-runtime-20260929.wasm": "e560f581c5e801b3d1b85d424fa52f5ffec135119d882a6a222901e74b9ae404",
     "public/engines/medium-segment-voting-20261005.wasm": "8674836f9b751ae41ddd4e28dca0c43a26d5be64da0e8c850de11ef0fd417f34",
+    "public/engines/medium-segment-voting-2x2-20261005.wasm": "22ff7278f2b42032c3c770a71e8ce4c96e0cc1e90a3b1ccda037c134fa0236c4",
     "public/engines/private-turbo-16-all-20260925-104ac2c41a26.wasm": "104ac2c41a2610818ced78256265d89c9770dd0a8f2f85e3dbf8b7ef4480025f",
     "public/engines/private-turbo-16-matrix-20260925-d367e8bfb487.wasm": "d367e8bfb4877115f5d3abf2350eb75aa87b332f8c75bbb01ad736a2812a6024",
     "public/engines/private-turbo-2-all-20260925-25fdd05a85e7.wasm": "25fdd05a85e7c7f449268f9403a8f78c1ebed85c754cff28deb86bb8f75e32e5",
@@ -95,6 +98,7 @@
     "public/engines/very-high-release-1.2.2.wasm": "007f42a9a0c3ea00792a3150e6c2cc8ac8329f09f7cf1e2781ef3e0d4a148fee",
     "public/engines/very-high-retail-runtime-20260929.wasm": "2e1c9508d60cbd2b23c9c6d24a8fe8413ffbb4a38875164189839e65b5351efd",
     "public/engines/very-high-segment-voting-20261005.wasm": "a4807e18b8333c5493fea4561e5107bcb73058b22c4ae7106877a36fb629dcfd",
+    "public/engines/very-high-segment-voting-2x2-20261005.wasm": "a4807e18b8333c5493fea4561e5107bcb73058b22c4ae7106877a36fb629dcfd",
     "public/engines/zbar.wasm": "438f95e4b5d122c4c2a8da2b72ad19faa4ba4e541f473dcae0371e4cfc8159ee",
     "public/engines/zxing_reader.wasm": "6a858c01e076bab3a1bd413e4f2cf5e5e45f819a0d9441d83c66993bc48ed38f"
   }

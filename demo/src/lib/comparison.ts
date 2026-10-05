@@ -20,7 +20,7 @@ export type ComparisonSpec = {
 };
 export type ComparisonEntry = ComparisonSpec & { result?: Result; error?: string };
 /** Engine registry version behind the TS-*-next readers; set by scripts/preview-engines.mjs. */
-const nextRelease = "1.2.2+segment-voting.20261005";
+const nextRelease = "1.2.2+segment-voting-2x2.20261005";
 
 export const comparisonOptions: ComparisonSpec[] = [
   { id: "turbo", label: "TS-Low", color: "#55ddc5", engine: "classical", version: "low" },
