@@ -2,6 +2,68 @@
   "default": "1.2.2+release-r2.20260925",
   "versions": [
     {
+      "version": "1.2.2+segment-voting.20261005",
+      "label": "Next \u00b7 Segment-voting localizer",
+      "sourceDigest": "1ffe80472f89358e5f7cde7fee4e06eee5fc0aa428064a17804be4124a474d19",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-segment-voting-20261005.wasm",
+          "sha256": "307dc4c8d58ce5ff8a5f113e933b2144c0c23b6d8a6f71a681b6c9fdf4bada20",
+          "bytes": 1841250
+        },
+        {
+          "mode": "medium",
+          "file": "medium-segment-voting-20261005.wasm",
+          "sha256": "8674836f9b751ae41ddd4e28dca0c43a26d5be64da0e8c850de11ef0fd417f34",
+          "bytes": 2424023
+        },
+        {
+          "mode": "high",
+          "file": "high-segment-voting-20261005.wasm",
+          "sha256": "726d31d3d75dece3de6ccb264e6ae7b33b55ee1e5ef3a3b867841654dd8e9209",
+          "bytes": 2266280
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-segment-voting-20261005.wasm",
+          "sha256": "a4807e18b8333c5493fea4561e5107bcb73058b22c4ae7106877a36fb629dcfd",
+          "bytes": 2351612
+        }
+      ]
+    },
+    {
+      "version": "1.3.0+format-support.20261005",
+      "label": "1.3.0 \u00b7 current API build",
+      "sourceDigest": "5ca57790c6d266c9c955b4a2d1f309bf77d06de97bd7c28c8f17b653083f1c8d",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-api-simple-results-20261002.wasm",
+          "sha256": "a76626584108fecf58315423496d897ea17e3f9ef67b0317e68fd74eb35dbba4",
+          "bytes": 1797325
+        },
+        {
+          "mode": "medium",
+          "file": "medium-api-simple-results-20261002.wasm",
+          "sha256": "e6f0841699b7535f466400629e1637ca8a5a0d4849b936a8470923ba56e8e09c",
+          "bytes": 2352691
+        },
+        {
+          "mode": "high",
+          "file": "high-api-simple-results-20261002.wasm",
+          "sha256": "8afb3d5123cefebddc94170f46e32b25db3e8b10374ecad4fb5509c3f1b7b86d",
+          "bytes": 2265012
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-api-simple-results-20261002.wasm",
+          "sha256": "39d3abf07f36a43472b1813780bd5a9c6b9ba1f1b8871f9b8d9e7979c5580405",
+          "bytes": 2350364
+        }
+      ]
+    },
+    {
       "version": "1.2.2+retail-runtime.20260929",
       "label": "Current \u00b7 Retail recovery improvements",
       "sourceDigest": "efdd6909650532d0dba81bf4121a65a1e83b48aa5e6423cbae20a3732e578dcb",

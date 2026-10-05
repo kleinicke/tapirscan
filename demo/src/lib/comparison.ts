@@ -68,7 +68,7 @@ export const comparisonOptions: ComparisonSpec[] = [
     color: "#ff947d",
     engine: "classical",
     version: "medium",
-    releaseVersion: "1.2.2+retail-runtime.20260929",
+    releaseVersion: "1.2.2+segment-voting.20261005",
   },
   {
     id: "ts-high-next",
@@ -76,7 +76,7 @@ export const comparisonOptions: ComparisonSpec[] = [
     color: "#ffd08a",
     engine: "classical",
     version: "high",
-    releaseVersion: "1.2.2+retail-runtime.20260929",
+    releaseVersion: "1.2.2+segment-voting.20261005",
   },
   {
     id: "ts-vhigh-next",
@@ -84,7 +84,7 @@ export const comparisonOptions: ComparisonSpec[] = [
     color: "#ffa4d1",
     engine: "classical",
     version: "very-high",
-    releaseVersion: "1.2.2+retail-runtime.20260929",
+    releaseVersion: "1.2.2+segment-voting.20261005",
   },
 ];
 

@@ -6,7 +6,7 @@ await import("./build-docs.mjs");
 const root = new URL("../../", import.meta.url);
 const selection = JSON.parse(await readFile(new URL("provenance/modes.json", root), "utf8"));
 const apiWasm = JSON.parse(await readFile(new URL(selection.apiWasm, root), "utf8"));
-if (apiWasm.schema !== 1 || apiWasm.apiVersion !== 1)
+if (apiWasm.schema !== 1 || ![1, 2].includes(apiWasm.apiVersion))
   throw Error("Unsupported Tapirscan WASM manifest");
 const versions = JSON.parse(
   await readFile(new URL("demo/src/lib/scanner-versions.json", root), "utf8"),
