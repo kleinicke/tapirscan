@@ -43,6 +43,10 @@ const ALTERNATIVE_SEGMENTS: usize = 10;
 /// Split clusters merge when less than this many box heights apart across the bars.
 const MERGE_GAP: f64 = 0.3;
 const MAX_PROPOSALS: usize = 24;
+/// Boxes below this share of the frame need this many voting segments: small clusters of a few
+/// parallel strokes are mostly text, while even an 8-digit symbol has about 40 bar edges.
+const SMALL_BOX: f64 = 0.03;
+const SMALL_MEMBERS: usize = 10;
 
 pub(crate) struct Localized {
     pub proposals: Vec<Proposal>,
@@ -473,6 +477,8 @@ fn clusters(segs: &[Segment], w: usize, h: usize, s: f64) -> Localized {
     out.truncate(MAX_PROPOSALS);
     let unions = fragment_unions(&out);
     out.extend(unions);
+    let frame = w as f64 * h as f64 / (s * s);
+    out.retain(|(p, n)| *n >= SMALL_MEMBERS || quad_area(&p.polygon) >= SMALL_BOX * frame);
     alternatives.retain(|(q, _)| out.iter().any(|(p, _)| p.polygon == *q));
     #[cfg(not(feature = "medium"))]
     let _ = alternatives;
@@ -557,6 +563,14 @@ fn merge_split(
     }
     merged.sort_by(|a, b| b.1.cmp(&a.1));
     merged
+}
+
+fn quad_area(q: &Quad) -> f64 {
+    (0..4)
+        .map(|k| q[k][0] * q[(k + 1) % 4][1] - q[(k + 1) % 4][0] * q[k][1])
+        .sum::<f64>()
+        .abs()
+        / 2.
 }
 
 /// Collinear fragments of one symbol (blur, damage, glare or an image border can split its
