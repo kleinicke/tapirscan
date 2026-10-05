@@ -401,8 +401,44 @@ pub(crate) fn scan(
             candidate.append_confirmed(false, &mut recovered, &mut unused);
         }
         recovered.retain(|read| read.support >= 4);
+        // Camera shake: undo a ghost on either side of the strongest box (EAN-13 only). Blur
+        // hides the source evidence, so five supporting rows may replace source agreement.
+        let mut ghosted = Vec::new();
+        if recovered.is_empty() && mask & 1 != 0 {
+            for backward in [false, true] {
+                if let Some(proposal) = proposals.first().filter(|_| local_count > 0) {
+                    let mut candidate = Candidate {
+                        image,
+                        im,
+                        quad: proposal.polygon,
+                        dense: false,
+                        restored: false,
+                        profile: SourceProfile::Deghost(backward),
+                        localized: true,
+                        mask: 1,
+                        remaining,
+                        observations: Vec::new(),
+                        row_positions: Vec::new(),
+                    };
+                    for (row, &v) in ROWS.iter().enumerate() {
+                        sample_line(&mut candidate, &mut scanner.fast_profiles, row, v);
+                        lines += 1;
+                    }
+                    remaining = candidate.remaining;
+                    candidate.append_confirmed(false, &mut ghosted, &mut unused);
+                }
+                if !ghosted.is_empty() {
+                    break;
+                }
+            }
+            ghosted.retain(|read| read.support >= 4);
+        }
         let mut accepted = Vec::new();
-        for r in recovered {
+        for (r, strong) in recovered
+            .into_iter()
+            .map(|r| (r, false))
+            .chain(ghosted.into_iter().map(|r| (r, true)))
+        {
             if matches!(r.format.as_str(), "EAN13" | "UPCA") {
                 let text = if r.text.len() == 12 {
                     format!("0{}", r.text)
@@ -414,7 +450,8 @@ pub(crate) fn scan(
                     continue;
                 }
                 let digits = std::array::from_fn(|i| bytes[i] - b'0');
-                if !crate::pipeline::recovered_ean_source_agreement(image, r.polygon, &digits)
+                if !((strong && r.support >= 5)
+                    || crate::pipeline::recovered_ean_source_agreement(image, r.polygon, &digits))
                     || crate::pipeline::source_contradiction(
                         image,
                         r.polygon,
@@ -713,7 +750,7 @@ enum SourceProfile {
     Highpass(f32),
     /// Ghosting hypothesis (camera shake): undo a half-strength copy about one EAN-13 module
     /// behind each sample, or ahead of it when `true`.
-    #[cfg(feature = "medium")]
+    #[cfg(any(feature = "low", feature = "medium"))]
     Deghost(bool),
 }
 impl SourceProfile {
@@ -742,7 +779,7 @@ impl SourceProfile {
             #[cfg(any(feature = "low", feature = "medium"))]
             Self::Highpass(strength) => strength,
             // Restored attempts and the single-format sampling density, as for high-pass.
-            #[cfg(feature = "medium")]
+            #[cfg(any(feature = "low", feature = "medium"))]
             Self::Deghost(_) => 1.,
             #[cfg(not(feature = "low"))]
             _ => 0.,
@@ -766,11 +803,11 @@ impl SourceProfile {
             Self::WideEan | Self::BandEan(_) => false,
             #[cfg(any(feature = "low", feature = "medium"))]
             Self::Highpass(_) => false,
-            #[cfg(feature = "medium")]
+            #[cfg(any(feature = "low", feature = "medium"))]
             Self::Deghost(_) => false,
         }
     }
-    #[cfg(feature = "medium")]
+    #[cfg(any(feature = "low", feature = "medium"))]
     fn deghost(self) -> Option<bool> {
         if let Self::Deghost(backward) = self {
             Some(backward)
@@ -802,7 +839,7 @@ impl SourceProfile {
             Self::WideEan | Self::BandEan(_) => true,
             #[cfg(any(feature = "low", feature = "medium"))]
             Self::Highpass(_) => false,
-            #[cfg(feature = "medium")]
+            #[cfg(any(feature = "low", feature = "medium"))]
             Self::Deghost(_) => false,
         }
     }
@@ -1073,9 +1110,9 @@ fn sample_line_density(
     for method in 0..methods {
         candidate.restored = method >= 3;
         if method == 3 {
-            #[cfg(feature = "medium")]
+            #[cfg(any(feature = "low", feature = "medium"))]
             let deghost = candidate.profile.deghost();
-            #[cfg(not(feature = "medium"))]
+            #[cfg(not(any(feature = "low", feature = "medium")))]
             let deghost: Option<bool> = None;
             if cfg!(feature = "medium") && candidate.profile.wide() {
                 sampler.restore_contrast_wide(1.5);
