@@ -519,7 +519,7 @@ fn finalize_reads(
     mask: u32,
     multiple: bool,
 ) -> Vec<Read> {
-    let mut reads = crate::linear_duplicates::merge_fast(reads, image);
+    let mut reads = keep_one_per_symbol(crate::linear_duplicates::merge_fast(reads, image));
     if mask & !127 != 0 {
         remove_decoded_regions(unread, &reads);
     }
@@ -529,6 +529,42 @@ fn finalize_reads(
         reads.truncate(1);
     }
     reads
+}
+
+/// One read per symbol: among nearby reads with the same format and payload (centres within half
+/// the longer read's long side), keep the best supported when the two overlap or one is a
+/// fragment (less than half the other's short side). Separate equal symbols stay apart.
+#[cfg(feature = "low")]
+fn keep_one_per_symbol(mut reads: Vec<Read>) -> Vec<Read> {
+    let centre = |q: &crate::Quad| {
+        [
+            q.iter().map(|p| p[0]).sum::<f64>() / 4.,
+            q.iter().map(|p| p[1]).sum::<f64>() / 4.,
+        ]
+    };
+    let side = |q: &crate::Quad, k: usize| {
+        (q[k][0] - q[(k + 1) % 4][0]).hypot(q[k][1] - q[(k + 1) % 4][1])
+    };
+    let long = |q: &crate::Quad| (0..4).map(|k| side(q, k)).fold(0., f64::max);
+    let short = |q: &crate::Quad| (0..4).map(|k| side(q, k)).fold(f64::INFINITY, f64::min);
+    reads.sort_by_key(|r| std::cmp::Reverse(r.support));
+    let mut kept: Vec<Read> = Vec::new();
+    for r in reads {
+        let (c, l) = (centre(&r.polygon), long(&r.polygon));
+        let duplicate = kept.iter().any(|k| {
+            let c2 = centre(&k.polygon);
+            k.text == r.text
+                && k.format == r.format
+                && (c[0] - c2[0]).hypot(c[1] - c2[1]) < 0.5 * l.max(long(&k.polygon))
+                && (crate::geometry::overlap_quads(&k.polygon, &r.polygon).0 > 0.
+                    || short(&r.polygon) < 0.5 * short(&k.polygon)
+                    || short(&k.polygon) < 0.5 * short(&r.polygon))
+        });
+        if !duplicate {
+            kept.push(r);
+        }
+    }
+    kept
 }
 
 #[cfg(feature = "low")]

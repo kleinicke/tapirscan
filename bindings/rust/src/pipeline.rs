@@ -933,7 +933,8 @@ fn drop_short_ghosts(scan: &super::ScanResult, retail: &mut Vec<super::read::Rea
 
 /// One read per symbol across the primary and retail lists: drop a retail read when a primary
 /// read or a better-supported retail read with the same payload (UPC-A as EAN-13) lies within
-/// half the longer read's long side.
+/// half the longer read's long side and the two overlap or one is a fragment (less than half the
+/// other's short side). Separate equal symbols stay apart.
 #[cfg(feature = "medium")]
 fn merge_cross_list_duplicates(scan: &super::ScanResult, retail: &mut Vec<super::read::Read>) {
     let centre = |q: &Quad| {
@@ -942,10 +943,14 @@ fn merge_cross_list_duplicates(scan: &super::ScanResult, retail: &mut Vec<super:
             q.iter().map(|p| p[1]).sum::<f64>() / 4.,
         ]
     };
-    let long = |q: &Quad| {
-        (0..4)
-            .map(|k| (q[k][0] - q[(k + 1) % 4][0]).hypot(q[k][1] - q[(k + 1) % 4][1]))
-            .fold(0., f64::max)
+    let side =
+        |q: &Quad, k: usize| (q[k][0] - q[(k + 1) % 4][0]).hypot(q[k][1] - q[(k + 1) % 4][1]);
+    let long = |q: &Quad| (0..4).map(|k| side(q, k)).fold(0., f64::max);
+    let short = |q: &Quad| (0..4).map(|k| side(q, k)).fold(f64::INFINITY, f64::min);
+    let same_symbol = |a: &Quad, b: &Quad| {
+        super::geometry::overlap_quads(a, b).0 > 0.
+            || short(a) < 0.5 * short(b)
+            || short(b) < 0.5 * short(a)
     };
     let normalized = |t: &str| {
         if t.len() == 12 {
@@ -954,7 +959,7 @@ fn merge_cross_list_duplicates(scan: &super::ScanResult, retail: &mut Vec<super:
             t.to_string()
         }
     };
-    let primary: Vec<(String, [f64; 2], f64)> = scan
+    let primary: Vec<(String, [f64; 2], f64, Quad)> = scan
         .frame
         .barcodes
         .iter()
@@ -969,6 +974,7 @@ fn merge_cross_list_duplicates(scan: &super::ScanResult, retail: &mut Vec<super:
                 text,
                 centre(&b.detection.polygon),
                 long(&b.detection.polygon),
+                b.detection.polygon,
             )
         })
         .collect();
@@ -980,12 +986,14 @@ fn merge_cross_list_duplicates(scan: &super::ScanResult, retail: &mut Vec<super:
         let text = normalized(&retail[i].text);
         let (c, l) = (centre(&retail[i].polygon), long(&retail[i].polygon));
         let near = |c2: [f64; 2], l2: f64| (c[0] - c2[0]).hypot(c[1] - c2[1]) < 0.5 * l.max(l2);
+        let q = retail[i].polygon;
         let duplicate = primary
             .iter()
-            .any(|(t, pc, pl)| *t == text && near(*pc, *pl))
+            .any(|(t, pc, pl, pq)| *t == text && near(*pc, *pl) && same_symbol(pq, &q))
             || kept.iter().any(|&k| {
                 normalized(&retail[k].text) == text
                     && near(centre(&retail[k].polygon), long(&retail[k].polygon))
+                    && same_symbol(&retail[k].polygon, &q)
             });
         if duplicate {
             keep[i] = false;
