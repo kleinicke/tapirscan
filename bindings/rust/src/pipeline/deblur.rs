@@ -1,4 +1,4 @@
-//! Deconvolved crop rescans for blurred EAN-13 symbols in Medium.
+//! Deconvolved crop rescans for blurred EAN-13 symbols (Medium and above).
 //!
 //! Motion during the exposure doubles the bars (ghosting) and defocus smears them. Both leave the
 //! symbol well localized but defeat every decoder pass. When a frame reads nothing, the strongest
@@ -296,6 +296,7 @@ pub(super) fn recover_deblurred_crops(
                 &[],
                 options,
             );
+            #[cfg(feature = "medium")]
             scanner.regions.retail_configure(1)?;
             let retry = scanner
                 .regions
