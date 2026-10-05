@@ -2,6 +2,37 @@
   "default": "1.2.2+release-r2.20260925",
   "versions": [
     {
+      "version": "1.2.2+area-growth.20261005",
+      "label": "Next · Area growth and scanline extension",
+      "sourceDigest": "4f334500fc4f3e137520c6ed07f0f1210ac233a86b50d2935dd7e4faa269949e",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-area-growth-20261005.wasm",
+          "sha256": "69c87a81a0318169cdb0961425dc68e6b5cebc8dc896f80f8606d04fadf5ed8c",
+          "bytes": 1835785
+        },
+        {
+          "mode": "medium",
+          "file": "medium-area-growth-20261005.wasm",
+          "sha256": "fb0aa71aceb783ad624d11d0e8b27c9c7101da1d65e290c249683df2ff40e929",
+          "bytes": 2421553
+        },
+        {
+          "mode": "high",
+          "file": "high-area-growth-20261005.wasm",
+          "sha256": "f60bbb974898cd2cf3fba3dc82866ddffa85561e1b6ccf88483f4267e69b33a4",
+          "bytes": 2262475
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-area-growth-20261005.wasm",
+          "sha256": "c00abf27fd1645f910fc8e894eadf4d765f0fb694c76e5fedb0c3df5c55aea2d",
+          "bytes": 2350252
+        }
+      ]
+    },
+    {
       "version": "1.2.2+segment-voting-2x2.20261005",
       "label": "Next · Segment voting, anti-aliased",
       "sourceDigest": "1e549d390433bfda96f78c653429c42b7423d97d0ff05c63f3bfbe5dd675b5ea",
