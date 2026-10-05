@@ -471,6 +471,8 @@ fn clusters(segs: &[Segment], w: usize, h: usize, s: f64) -> Localized {
     out.sort_by(|a, b| b.1.cmp(&a.1));
     let mut out = merge_split(out, &mut alternatives);
     out.truncate(MAX_PROPOSALS);
+    let unions = fragment_unions(&out);
+    out.extend(unions);
     alternatives.retain(|(q, _)| out.iter().any(|(p, _)| p.polygon == *q));
     #[cfg(not(feature = "medium"))]
     let _ = alternatives;
@@ -555,6 +557,92 @@ fn merge_split(
     }
     merged.sort_by(|a, b| b.1.cmp(&a.1));
     merged
+}
+
+/// Collinear fragments of one symbol (blur, damage, glare or an image border can split its
+/// bars into several clusters) also get their union box: scan axes within 10 degrees, offset
+/// across the bars below half a box height, and along the scan axis less than 30% of the longer
+/// box apart. The fragments stay as proposals, so two separate adjacent symbols keep their boxes.
+fn fragment_unions(out: &[(Proposal, usize)]) -> Vec<(Proposal, usize)> {
+    const CONSIDERED: usize = 12;
+    const UNIONS: usize = 4;
+    let frame = |q: &Quad| {
+        let (ux, uy) = (q[1][0] - q[0][0], q[1][1] - q[0][1]);
+        let width = ux.hypot(uy).max(1e-9);
+        let u = [ux / width, uy / width];
+        let n = [-u[1], u[0]];
+        let across = |p: [f64; 2]| (p[0] - q[0][0]) * n[0] + (p[1] - q[0][1]) * n[1];
+        let (lo, hi) = q
+            .iter()
+            .map(|&p| across(p))
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
+                (l.min(v), h.max(v))
+            });
+        (u, n, width, hi - lo)
+    };
+    let mut unions = Vec::new();
+    for i in 0..out.len().min(CONSIDERED) {
+        for j in i + 1..out.len().min(CONSIDERED) {
+            if unions.len() == UNIONS {
+                return unions;
+            }
+            let (a, b) = (out[i].0.polygon, out[j].0.polygon);
+            let (u, n, wa, ha) = frame(&a);
+            let (ub, _, wb, hb) = frame(&b);
+            if (u[0] * ub[1] - u[1] * ub[0]).abs() > 10_f64.to_radians().sin() {
+                continue;
+            }
+            let along = |p: [f64; 2]| (p[0] - a[0][0]) * u[0] + (p[1] - a[0][1]) * u[1];
+            let across = |p: [f64; 2]| (p[0] - a[0][0]) * n[0] + (p[1] - a[0][1]) * n[1];
+            let centre = |q: &Quad| {
+                [
+                    q.iter().map(|p| p[0]).sum::<f64>() / 4.,
+                    q.iter().map(|p| p[1]).sum::<f64>() / 4.,
+                ]
+            };
+            if (across(centre(&b)) - across(centre(&a))).abs() > 0.5 * ha.max(hb) {
+                continue;
+            }
+            let (b0, b1) = b
+                .iter()
+                .map(|&p| along(p))
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
+                    (l.min(v), h.max(v))
+                });
+            let (lo, hi) = (b0.min(0.), b1.max(wa));
+            // Disjoint along the axis by at most 30% of the longer box, and extending both.
+            if (b0 - wa).max(-b1) > 0.3 * wa.max(wb) || hi - lo < 1.1 * wa.max(b1 - b0) {
+                continue;
+            }
+            let (c0, c1) = a
+                .iter()
+                .chain(&b)
+                .map(|&p| across(p))
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(l, h), v| {
+                    (l.min(v), h.max(v))
+                });
+            let corner =
+                |t: f64, d: f64| [a[0][0] + t * u[0] + d * n[0], a[0][1] + t * u[1] + d * n[1]];
+            let mut polygon = [
+                corner(lo, c0),
+                corner(hi, c0),
+                corner(hi, c1),
+                corner(lo, c1),
+            ];
+            let area: f64 = (0..4)
+                .map(|k| {
+                    polygon[k][0] * polygon[(k + 1) % 4][1]
+                        - polygon[(k + 1) % 4][0] * polygon[k][1]
+                })
+                .sum();
+            if area < 0. {
+                polygon = [polygon[1], polygon[0], polygon[3], polygon[2]];
+            }
+            let score = 0.9 * out[i].0.score.min(out[j].0.score);
+            unions.push((Proposal { polygon, score }, out[i].1 + out[j].1));
+        }
+    }
+    unions
 }
 
 pub(crate) fn localize(image: Image<'_>) -> Localized {

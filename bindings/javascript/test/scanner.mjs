@@ -56,7 +56,9 @@ for (const mode of ["low", "medium", "high", "very-high"]) {
       assert.deepEqual(result.undecoded, result.diagnostics.regions.undecoded);
       assert.ok(result.diagnostics.scan.barcodes.some((b) => b.text === text));
       assert.ok(result.diagnostics.scan.barcodes.every((b) => b.text === text));
-      assert.equal(result.diagnostics.searchWindows.length, 1);
+      // Medium searches the full frame only on unread barcode evidence.
+      assert.ok(Array.isArray(result.diagnostics.searchWindows));
+      assert.ok(result.diagnostics.searchWindows.length <= 1);
       const raw = join(temp, "image.gray");
       await writeFile(raw, image.data);
       const binary = fileURLToPath(

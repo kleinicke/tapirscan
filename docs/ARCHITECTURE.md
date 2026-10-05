@@ -8,8 +8,10 @@ nor another barcode library are required at runtime.
 
 1. **Find candidate regions.** Stripe structure proposes barcode-like areas and
    orientations. Selected proposals receive geometric refinement.
-2. **Sample original pixels.** Oriented profiles follow each candidate's geometry;
-   a full-frame search is also retained.
+2. **Sample original pixels.** Oriented profiles follow each candidate's geometry.
+   Medium adds a full-frame search only when its candidates read nothing but show
+   barcode evidence; other modes always search the full frame. Inspection reports
+   a search window only when it was searched.
 3. **Attempt all primary candidates.** Cheap attempts precede bounded retries.
    Source evidence decides where the new modes permit additional retry work.
 4. **Recover small details.** Medium, High and Very high inspect up to two source

@@ -106,7 +106,16 @@ fn scan_prepared_impl(
     let im = checked_image(image)?;
     let localization = localize(&mut scanner.localizer, im, image, shared_retail)?;
     let mut candidates: Vec<_> = localization.proposals.iter().map(|p| p.polygon).collect();
-    candidates.push(localization.search_window);
+    // Medium scans the full-frame window of a whole image only when its boxes read nothing but
+    // show evidence (below). Crop rescans are small and always scan theirs.
+    let window_first = cfg!(not(feature = "medium")) || !allow_restoration;
+    if window_first {
+        candidates.push(localization.search_window);
+    }
+    #[cfg(feature = "medium")]
+    let mut window_scanned = window_first;
+    #[cfg(not(feature = "medium"))]
+    let window_scanned = window_first;
     let policy = scan_policy(image, &localization.proposals, coverage, options);
 
     #[cfg(feature = "medium")]
@@ -118,6 +127,28 @@ fn scan_prepared_impl(
     let mut scan = scanner.regions.scan(im, &candidates, policy)?;
     #[cfg(feature = "medium")]
     let mut retail = finish_retail(&mut scan, &mut scanner.regions, im);
+    // A frame whose boxes read nothing but show retail evidence (guard patterns or blurred
+    // symbol windows) is rescanned jointly with the full-frame window, as before.
+    #[cfg(feature = "medium")]
+    if allow_restoration
+        && scan.frame.barcodes.is_empty()
+        && retail.is_empty()
+        && scan
+            .frame
+            .candidates
+            .iter()
+            .any(|c| c.work.guard_pass > 0 || c.work.forward_blur_windows >= 2)
+    {
+        window_scanned = true;
+        candidates.push(localization.search_window);
+        let policy = scan_policy(image, &localization.proposals, coverage, options);
+        // Retail evidence accumulates per scan; start the joint rescan from a clean state.
+        scanner
+            .regions
+            .retail_configure(if shared_retail { 15 } else { 1 })?;
+        scan = scanner.regions.scan(im, &candidates, policy)?;
+        retail = finish_retail(&mut scan, &mut scanner.regions, im);
+    }
     #[cfg(feature = "medium")]
     scan_alternatives(
         scanner,
@@ -216,7 +247,7 @@ fn scan_prepared_impl(
         short_fragments: localization.short_fragments,
         localization_omitted: localization.omitted,
         localization_work_limited: localization.work_limited,
-        search_window: localization.search_window,
+        search_window: window_scanned.then_some(localization.search_window),
         scan,
         options,
         recovery,

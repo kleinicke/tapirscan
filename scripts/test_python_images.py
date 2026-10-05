@@ -290,7 +290,8 @@ class Images(unittest.TestCase):
             )
         if result.diagnostics is None or result.diagnostics.regions is None:
             self.fail("Region evidence was requested")
-        self.assertTrue(result.diagnostics.regions.search_windows)
+        # Medium searches the full frame only on unread barcode evidence.
+        self.assertIsNotNone(result.diagnostics.regions.search_windows)
 
     def test_scan_returns_only_barcodes(self) -> None:
         """Ordinary scans return an owned list, equal to inspection barcodes."""
