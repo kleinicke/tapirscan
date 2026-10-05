@@ -2,6 +2,37 @@
   "default": "1.2.2+release-r2.20260925",
   "versions": [
     {
+      "version": "1.2.2+deblur.20261005",
+      "label": "Next · Deblurred rescans, evidence-gated full frame",
+      "sourceDigest": "d1ee139572953724e6c72c2fb4d86ab248055b3a19afd6cdf7bff0b0054bf02d",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-deblur-20261005.wasm",
+          "sha256": "2138838f459498b35c0a406c897a1a15f34585c49b434804430680ef8ab4690a",
+          "bytes": 1838316
+        },
+        {
+          "mode": "medium",
+          "file": "medium-deblur-20261005.wasm",
+          "sha256": "c77da62f145ec2838437d0bf3685e23938dc8242ef00eefad6fb610a2571504c",
+          "bytes": 2447861
+        },
+        {
+          "mode": "high",
+          "file": "high-deblur-20261005.wasm",
+          "sha256": "52f3ba46312036ad7b1574bb70522041ae079d3369ade344ccd8a8915da3474a",
+          "bytes": 2262881
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-deblur-20261005.wasm",
+          "sha256": "2cb95c5d16297812ee8aaeefe98988da07e9d63bf3c457d30bca68ee3d48d297",
+          "bytes": 2350470
+        }
+      ]
+    },
+    {
       "version": "1.2.2+area-growth.20261005",
       "label": "Next · Area growth and scanline extension",
       "sourceDigest": "4f334500fc4f3e137520c6ed07f0f1210ac233a86b50d2935dd7e4faa269949e",
