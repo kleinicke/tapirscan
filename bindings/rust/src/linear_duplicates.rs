@@ -740,11 +740,12 @@ impl<T> Read<T> {
                 self.format.as_str(),
                 "EAN13" | "UPCA" | "EAN8" | "UPCE" | "Code128" | "Code39" | "ITF"
             ) || (self.allow_code93 && self.format == "Code93")
-                || (crate::LOW_FAST_PATH
-                    && matches!(
-                        self.format.as_str(),
-                        "Codabar" | "Code93" | "DataBar" | "DataBarExpanded"
-                    )))
+                // Every mode localizes these from shared boxes as well as the full-image scan.
+                || matches!(
+                    self.format.as_str(),
+                    "Codabar" | "DataBar" | "DataBarExpanded"
+                )
+                || (crate::LOW_FAST_PATH && self.format == "Code93"))
     }
     fn same_symbol(&self, other: &Self) -> bool {
         self.text == other.text
