@@ -347,6 +347,10 @@ fn admit_primary_reads(
     Ok(())
 }
 
+/// Unresolved primary proposals with barcode evidence tried with the ghosting hypothesis.
+#[cfg(feature = "medium")]
+const DEGHOST_PROPOSALS: usize = 4;
+
 /// Unresolved primary proposals tried with the wide high-pass profile hypothesis.
 #[cfg(feature = "medium")]
 const HIGHPASS_PROPOSALS: usize = 8;
@@ -378,8 +382,31 @@ fn recover_highpass_proposals(
         .map(|(_, p)| *p)
         .take(HIGHPASS_PROPOSALS)
         .collect();
-    let (reads, _) =
+    let (mut reads, _) =
         super::fast_linear::recover_proposals_highpass(image, &selected, 1, sampler, 1.5)?;
+    // Camera shake doubles every bar; undo a ghost on either side for boxes with evidence.
+    if reads.is_empty() {
+        let shaken: Vec<_> = selected
+            .iter()
+            .filter(|p| {
+                proposals
+                    .iter()
+                    .position(|q| q.polygon == p.polygon)
+                    .and_then(|i| scan.frame.candidates.get(i))
+                    .is_some_and(|c| c.work.guard_pass > 0 || c.work.forward_blur_windows >= 2)
+            })
+            .take(DEGHOST_PROPOSALS)
+            .copied()
+            .collect();
+        for backward in [false, true] {
+            if reads.is_empty() && !shaken.is_empty() {
+                reads = super::fast_linear::recover_proposals_deghost(
+                    image, &shaken, 1, sampler, backward,
+                )?
+                .0;
+            }
+        }
+    }
     let mut accepted = Vec::new();
     for r in reads {
         let bytes = r.text.as_bytes();

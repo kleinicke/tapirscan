@@ -18,7 +18,8 @@ pub(crate) use recovery::{
 };
 #[cfg(feature = "medium")]
 pub(crate) use recovery::{
-    recover_proposals_band, recover_proposals_highpass, recover_proposals_wide,
+    recover_proposals_band, recover_proposals_deghost, recover_proposals_highpass,
+    recover_proposals_wide,
 };
 
 // Build-only research selection, deliberately absent from every public API.
@@ -710,6 +711,10 @@ enum SourceProfile {
     /// Wide high-pass hypothesis for blurred or ghosted photographs.
     #[cfg(any(feature = "low", feature = "medium"))]
     Highpass(f32),
+    /// Ghosting hypothesis (camera shake): undo a half-strength copy about one EAN-13 module
+    /// behind each sample, or ahead of it when `true`.
+    #[cfg(feature = "medium")]
+    Deghost(bool),
 }
 impl SourceProfile {
     fn band(profile: Self) -> Option<f64> {
@@ -736,6 +741,9 @@ impl SourceProfile {
             Self::WideEan | Self::BandEan(_) => 2.25,
             #[cfg(any(feature = "low", feature = "medium"))]
             Self::Highpass(strength) => strength,
+            // Restored attempts and the single-format sampling density, as for high-pass.
+            #[cfg(feature = "medium")]
+            Self::Deghost(_) => 1.,
             #[cfg(not(feature = "low"))]
             _ => 0.,
         }
@@ -758,6 +766,16 @@ impl SourceProfile {
             Self::WideEan | Self::BandEan(_) => false,
             #[cfg(any(feature = "low", feature = "medium"))]
             Self::Highpass(_) => false,
+            #[cfg(feature = "medium")]
+            Self::Deghost(_) => false,
+        }
+    }
+    #[cfg(feature = "medium")]
+    fn deghost(self) -> Option<bool> {
+        if let Self::Deghost(backward) = self {
+            Some(backward)
+        } else {
+            None
         }
     }
     fn highpass(self) -> Option<f32> {
@@ -784,6 +802,8 @@ impl SourceProfile {
             Self::WideEan | Self::BandEan(_) => true,
             #[cfg(any(feature = "low", feature = "medium"))]
             Self::Highpass(_) => false,
+            #[cfg(feature = "medium")]
+            Self::Deghost(_) => false,
         }
     }
 }
@@ -1053,8 +1073,17 @@ fn sample_line_density(
     for method in 0..methods {
         candidate.restored = method >= 3;
         if method == 3 {
+            #[cfg(feature = "medium")]
+            let deghost = candidate.profile.deghost();
+            #[cfg(not(feature = "medium"))]
+            let deghost: Option<bool> = None;
             if cfg!(feature = "medium") && candidate.profile.wide() {
                 sampler.restore_contrast_wide(1.5);
+            } else if let Some(backward) = deghost {
+                // The profile spans 1.3 box lengths and an EAN-13 holds 95 modules. Boxes
+                // include some quiet zone, so 0.8 box modules approximate one symbol module
+                // (1.0 and 1.25 added little on the corpus).
+                sampler.restore_deghost(0.8 / (1.3 * 95.), 0.5, backward);
             } else if let Some(strength) = candidate.profile.highpass() {
                 sampler.restore_highpass(HIGHPASS_BOXES, strength);
             } else {

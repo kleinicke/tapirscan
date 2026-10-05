@@ -68,6 +68,22 @@ pub(crate) fn recover_proposals_highpass(
     )
 }
 #[cfg(feature = "medium")]
+pub(crate) fn recover_proposals_deghost(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    backward: bool,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    recover_proposals_variant(
+        image,
+        proposals,
+        mask,
+        sampler,
+        SourceProfile::Deghost(backward),
+    )
+}
+#[cfg(feature = "medium")]
 pub(crate) fn recover_proposals_wide(
     image: Image<'_>,
     proposals: &[crate::Proposal],

@@ -401,6 +401,30 @@ impl Sampler {
         self.highpass_scratch = blurred;
         self.highpass_next = next;
     }
+    /// Ghosting hypothesis: the profile is the sharp profile plus a copy shifted by `lag` (a
+    /// fraction of the profile length) with relative `amplitude` (camera shake during
+    /// exposure). Inverts that two-tap kernel exactly with a stable recursion, along the
+    /// profile or `backward` against it; positions are unchanged.
+    pub fn restore_deghost(&mut self, lag: f32, amplitude: f32, backward: bool) {
+        self.cache_current = None;
+        let n = self.values.len();
+        let lag = crate::numeric::f32_usize((lag * crate::numeric::usize_f32(n)).round().max(1.));
+        if n <= lag || !(0. ..1.).contains(&amplitude) {
+            return;
+        }
+        if backward {
+            self.values.reverse();
+        }
+        for i in lag..n {
+            self.values[i] = (1. + amplitude) * self.values[i] - amplitude * self.values[i - lag];
+        }
+        for value in &mut self.values {
+            *value = value.clamp(0., 255.);
+        }
+        if backward {
+            self.values.reverse();
+        }
+    }
     /// No threshold method can create transitions below eight gray levels.
     /// Stop as soon as contrast is proven; most useful profiles exit early.
     #[must_use]
@@ -793,6 +817,31 @@ mod tests {
         sampler.restore_highpass([5, 6, 5], 1.5);
         assert!(sampler.values[32] < 90.);
         assert!(sampler.values[2] >= 150.);
+    }
+    #[test]
+    fn deghost_inverts_a_shifted_copy_in_either_direction() {
+        let sharp: Vec<f32> = (0..80)
+            .map(|i| if (i / 4) % 3 == 0 { 40. } else { 200. })
+            .collect();
+        for backward in [false, true] {
+            // Ghost of amplitude 0.5, three samples behind (or ahead of) each value.
+            let mut ghosted = sharp.clone();
+            for i in 0..sharp.len() {
+                let j = if backward { i + 3 } else { i.wrapping_sub(3) };
+                let echo = sharp.get(j).copied().unwrap_or(sharp[i]);
+                ghosted[i] = (sharp[i] + 0.5 * echo) / 1.5;
+            }
+            let mut sampler = Sampler::default();
+            sampler.values.clone_from(&ghosted);
+            sampler.restore_deghost(3. / 80., 0.5, backward);
+            let interior = if backward { 0..70 } else { 10..80 };
+            for i in interior {
+                assert!(
+                    (sampler.values[i] - sharp[i]).abs() < 1e-3,
+                    "{backward} {i}"
+                );
+            }
+        }
     }
     #[test]
     fn uniform_profiles_do_not_invent_bars() {
