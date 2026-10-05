@@ -208,6 +208,8 @@ fn scan_prepared_impl(
     let _ = allow_restoration;
     #[cfg(feature = "medium")]
     drop_short_ghosts(&scan, &mut retail);
+    #[cfg(feature = "medium")]
+    merge_cross_list_duplicates(&scan, &mut retail);
     finish_primary(&mut scan, image, consolidate, options.multiple);
     Ok(Result {
         proposals: localization.proposals,
@@ -926,5 +928,74 @@ fn drop_short_ghosts(scan: &super::ScanResult, retail: &mut Vec<super::read::Rea
             r.polygon.iter().map(|p| p[1]).sum::<f64>() / 4.,
         ];
         !long.iter().any(|q| super::formats::contains_point(c, q))
+    });
+}
+
+/// One read per symbol across the primary and retail lists: drop a retail read when a primary
+/// read or a better-supported retail read with the same payload (UPC-A as EAN-13) lies within
+/// half the longer read's long side.
+#[cfg(feature = "medium")]
+fn merge_cross_list_duplicates(scan: &super::ScanResult, retail: &mut Vec<super::read::Read>) {
+    let centre = |q: &Quad| {
+        [
+            q.iter().map(|p| p[0]).sum::<f64>() / 4.,
+            q.iter().map(|p| p[1]).sum::<f64>() / 4.,
+        ]
+    };
+    let long = |q: &Quad| {
+        (0..4)
+            .map(|k| (q[k][0] - q[(k + 1) % 4][0]).hypot(q[k][1] - q[(k + 1) % 4][1]))
+            .fold(0., f64::max)
+    };
+    let normalized = |t: &str| {
+        if t.len() == 12 {
+            format!("0{t}")
+        } else {
+            t.to_string()
+        }
+    };
+    let primary: Vec<(String, [f64; 2], f64)> = scan
+        .frame
+        .barcodes
+        .iter()
+        .map(|b| {
+            let text = b
+                .detection
+                .digits
+                .iter()
+                .map(|d| char::from(b'0' + d))
+                .collect();
+            (
+                text,
+                centre(&b.detection.polygon),
+                long(&b.detection.polygon),
+            )
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..retail.len()).collect();
+    order.sort_by(|&a, &b| retail[b].support.cmp(&retail[a].support));
+    let mut keep = vec![true; retail.len()];
+    let mut kept: Vec<usize> = Vec::new();
+    for &i in &order {
+        let text = normalized(&retail[i].text);
+        let (c, l) = (centre(&retail[i].polygon), long(&retail[i].polygon));
+        let near = |c2: [f64; 2], l2: f64| (c[0] - c2[0]).hypot(c[1] - c2[1]) < 0.5 * l.max(l2);
+        let duplicate = primary
+            .iter()
+            .any(|(t, pc, pl)| *t == text && near(*pc, *pl))
+            || kept.iter().any(|&k| {
+                normalized(&retail[k].text) == text
+                    && near(centre(&retail[k].polygon), long(&retail[k].polygon))
+            });
+        if duplicate {
+            keep[i] = false;
+        } else {
+            kept.push(i);
+        }
+    }
+    let mut index = 0;
+    retail.retain(|_| {
+        index += 1;
+        keep[index - 1]
     });
 }
