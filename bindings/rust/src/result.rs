@@ -41,11 +41,16 @@ pub(crate) fn value(
             "omitted": result.localization_omitted,
             "workLimited": result.localization_work_limited,
         });
-        output["searchWindows"] = json!([{
-            "kind": "full_frame_search",
-            "polygon": result.search_window,
-            "candidateIndex": result.proposals.len(),
-        }]);
+        // Only a window that was actually searched is reported.
+        output["searchWindows"] = json!(result
+            .search_window
+            .iter()
+            .map(|polygon| json!({
+                "kind": "full_frame_search",
+                "polygon": polygon,
+                "candidateIndex": result.proposals.len(),
+            }))
+            .collect::<Vec<_>>());
         if let Some(recovery) = result
             .recovery
             .as_ref()

@@ -1,5 +1,6 @@
 //! Bounded source-pixel evidence for consolidating bands of one linear symbol.
 use crate::{geometry::distance, Image, Quad};
+mod area;
 mod footprint;
 
 fn midpoint(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
@@ -739,11 +740,12 @@ impl<T> Read<T> {
                 self.format.as_str(),
                 "EAN13" | "UPCA" | "EAN8" | "UPCE" | "Code128" | "Code39" | "ITF"
             ) || (self.allow_code93 && self.format == "Code93")
-                || (crate::LOW_FAST_PATH
-                    && matches!(
-                        self.format.as_str(),
-                        "Codabar" | "Code93" | "DataBar" | "DataBarExpanded"
-                    )))
+                // Every mode localizes these from shared boxes as well as the full-image scan.
+                || matches!(
+                    self.format.as_str(),
+                    "Codabar" | "DataBar" | "DataBarExpanded"
+                )
+                || (crate::LOW_FAST_PATH && self.format == "Code93"))
     }
     fn same_symbol(&self, other: &Self) -> bool {
         self.text == other.text
@@ -791,7 +793,9 @@ fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
                 if !read.same_symbol(other) {
                     continue;
                 }
-                if crate::geometry::overlap_quads(&other.polygon, &read.polygon).0 >= 0.65 {
+                if crate::geometry::overlap_quads(&other.polygon, &read.polygon).0 >= 0.65
+                    || crate::geometry::adjacent_strips(&other.polygon, &read.polygon)
+                {
                     merged = true;
                     break;
                 }
@@ -897,8 +901,9 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
         .collect()
 }
 
-fn complete_footprints<T>(reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
-    trace_footprints(reads, image, true, true, None)
+/// Suppress reads owned by grown symbol areas; `geometry` also replaces kept outlines with them.
+fn complete_footprints<T>(reads: Vec<Read<T>>, image: Image<'_>, geometry: bool) -> Vec<Read<T>> {
+    trace_footprints(reads, image, true, geometry, None, geometry)
 }
 
 fn trace_footprints<T>(
@@ -907,12 +912,14 @@ fn trace_footprints<T>(
     suppress_conflicts: bool,
     display_recovery: bool,
     minimum_aspect: Option<f64>,
+    geometry: bool,
 ) -> Vec<Read<T>> {
+    // Each grown area samples about 25-200 thousand budget units (4 per sample).
     let mut evidence = Evidence {
         image,
-        remaining: 262_144,
+        remaining: 2_097_152,
     };
-    let mut owners: Vec<(usize, footprint::Footprint)> = Vec::new();
+    let mut owners: Vec<(usize, area::Area)> = Vec::new();
     let mut measured = vec![false; reads.len()];
     let mut keep = vec![true; reads.len()];
     let mut order: Vec<usize> = (0..reads.len()).collect();
@@ -949,11 +956,33 @@ fn trace_footprints<T>(
             }
         }
         if keep[i] {
-            if let Some(owner) = footprint::measure(&mut evidence, reads[i].polygon) {
-                reads[i].polygon = owner.polygon;
-                reads[i].geometry_changed = true;
+            if let Some(grown) = area::grow(&mut evidence, reads[i].polygon) {
+                // An interruption such as glare can split one symbol into two grown areas.
+                let joined = owners.iter().position(|(j, owner)| {
+                    let (a, b) = (&reads[*j], &reads[i]);
+                    suppress_conflicts
+                        && a.same_symbol(b)
+                        && a.addon == b.addon
+                        && a.gs1 == b.gs1
+                        && a.reader_initialization == b.reader_initialization
+                        && owner.adjoins(&grown, &mut evidence)
+                });
+                if let Some(k) = joined {
+                    owners[k].1.absorb(&grown);
+                    let j = owners[k].0;
+                    if geometry {
+                        reads[j].polygon = owners[k].1.polygon;
+                    }
+                    keep[i] = false;
+                    continue;
+                }
+                // Intermediate merges keep decoded outlines: later admission samples along them.
+                if geometry {
+                    reads[i].polygon = grown.polygon;
+                    reads[i].geometry_changed = true;
+                }
                 if suppress_conflicts {
-                    owners.push((i, owner));
+                    owners.push((i, grown));
                 }
                 measured[i] = true;
             }
@@ -976,15 +1005,35 @@ fn trace_footprints<T>(
 }
 
 /// Reconcile typed evidence while preserving reader metadata and stable ties.
+/// Consolidate intermediate reads; decoded outlines stay unchanged.
+#[cfg(any(not(feature = "low"), test))]
 pub(crate) fn merge(reads: Vec<crate::read::Read>, image: Image<'_>) -> Vec<crate::read::Read> {
-    merge_selected(reads, image, false)
+    merge_reads(reads, image, false, false)
+}
+
+/// Consolidate the reads returned to the caller, with outlines grown to the symbol areas.
+pub(crate) fn merge_output(
+    reads: Vec<crate::read::Read>,
+    image: Image<'_>,
+) -> Vec<crate::read::Read> {
+    merge_reads(reads, image, false, true)
 }
 
 /// Extend source ownership proof for Code93 when a recovery path adds evidence.
+#[cfg(any(not(feature = "low"), test))]
 pub(crate) fn merge_selected(
     reads: Vec<crate::read::Read>,
     image: Image<'_>,
     allow_code93: bool,
+) -> Vec<crate::read::Read> {
+    merge_reads(reads, image, allow_code93, false)
+}
+
+fn merge_reads(
+    reads: Vec<crate::read::Read>,
+    image: Image<'_>,
+    allow_code93: bool,
+    geometry: bool,
 ) -> Vec<crate::read::Read> {
     let reads = reads
         .into_iter()
@@ -1001,7 +1050,7 @@ pub(crate) fn merge_selected(
             payload: value,
         })
         .collect();
-    complete_footprints(consolidate(reads, image), image)
+    complete_footprints(consolidate(reads, image), image, geometry)
         .into_iter()
         .map(|mut read| {
             read.payload.polygon = read.polygon;
@@ -1068,6 +1117,7 @@ pub(crate) fn merge_fast(
             ambiguous,
             option_env!("TAPIRSCAN_TURBO_LEGACY_OUTLINES").is_none(),
             (selective && !ambiguous).then_some(0.08),
+            true,
         )
     } else {
         // No ownership suppression occurs in the unambiguous footprint pass.
@@ -1112,7 +1162,7 @@ pub(crate) fn merge_primary(reads: &mut Vec<crate::Barcode>, image: Image<'_>) {
             payload: read,
         })
         .collect();
-    *reads = complete_footprints(consolidate(typed, image), image)
+    *reads = complete_footprints(consolidate(typed, image), image, true)
         .into_iter()
         .map(|mut read| {
             read.payload.detection.polygon = read.polygon;

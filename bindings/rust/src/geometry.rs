@@ -22,6 +22,40 @@ fn signed_area(points: &[[f64; 2]]) -> f64 {
         / 2.0
 }
 
+/// Whether two reads of one payload are adjacent strips of a single symbol: parallel scan axes
+/// (longest edges within 5 degrees), sharing at least half the shorter read along that axis and
+/// less than 5% of the longer read's length apart across the bars. Separately printed equal
+/// symbols sit further apart than that.
+pub(crate) fn adjacent_strips(a: &crate::Quad, b: &crate::Quad) -> bool {
+    let axis = |q: &crate::Quad| {
+        (0..4)
+            .map(|k| [q[(k + 1) % 4][0] - q[k][0], q[(k + 1) % 4][1] - q[k][1]])
+            .max_by(|x, y| x[0].hypot(x[1]).total_cmp(&y[0].hypot(y[1])))
+            .unwrap_or([0., 0.])
+    };
+    let (ea, eb) = (axis(a), axis(b));
+    let (la, lb) = (ea[0].hypot(ea[1]), eb[0].hypot(eb[1]));
+    if la < 1e-6
+        || lb < 1e-6
+        || (ea[0] * eb[1] - ea[1] * eb[0]).abs() / (la * lb) > 5_f64.to_radians().sin()
+    {
+        return false;
+    }
+    let (u, n) = ([ea[0] / la, ea[1] / la], [-ea[1] / la, ea[0] / la]);
+    let span = |q: &crate::Quad, d: [f64; 2]| {
+        q.iter()
+            .map(|p| p[0] * d[0] + p[1] * d[1])
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+                (lo.min(v), hi.max(v))
+            })
+    };
+    let ((a0, a1), (b0, b1)) = (span(a, u), span(b, u));
+    let shared = a1.min(b1) - a0.max(b0);
+    let ((c0, c1), (d0, d1)) = (span(a, n), span(b, n));
+    let gap = (d0 - c1).max(c0 - d1);
+    shared >= 0.5 * (a1 - a0).min(b1 - b0) && gap < 0.05 * la.max(lb)
+}
+
 /// Same convex clipping and 0.65 reconciliation basis as the research host.
 pub(crate) fn overlap_quads(first_quad: &crate::Quad, second_quad: &crate::Quad) -> (f64, f64) {
     let first_area = signed_area(first_quad).abs();

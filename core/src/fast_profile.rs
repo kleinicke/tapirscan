@@ -54,6 +54,9 @@ pub struct Sampler {
     values: Vec<f32>,
     /// Reused copy of `values` for contrast hypotheses.
     restore_scratch: Vec<f32>,
+    /// Reused local-mean buffers for the high-pass hypothesis.
+    highpass_scratch: Vec<f32>,
+    highpass_next: Vec<f32>,
     positions: Vec<f64>,
     envelope: Vec<[f32; 4]>,
     widths: Vec<f32>,
@@ -364,6 +367,63 @@ impl Sampler {
                 (original[i] + strength * (original[i] - blurred / 100.)).clamp(0., 255.);
         }
         self.restore_scratch = original;
+    }
+    /// Wide high-pass hypothesis: subtract a local mean (three edge-clamped running
+    /// boxes of the given half-widths, approximately Gaussian). Removes slow
+    /// illumination and partially undoes ghosting; positions are unchanged.
+    pub fn restore_highpass(&mut self, half_widths: [usize; 3], strength: f32) {
+        self.cache_current = None;
+        let n = self.values.len();
+        if n == 0 {
+            return;
+        }
+        let mut original = std::mem::take(&mut self.restore_scratch);
+        original.clone_from(&self.values);
+        let mut blurred = std::mem::take(&mut self.highpass_scratch);
+        blurred.clone_from(&original);
+        let mut next = std::mem::take(&mut self.highpass_next);
+        next.resize(n, 0.);
+        for half in half_widths {
+            // `at(j)` reads sample `j - half`, clamped to the profile.
+            let at = |j: usize| blurred[j.saturating_sub(half).min(n - 1)];
+            let width = crate::numeric::usize_f32(2 * half + 1);
+            let mut sum: f32 = (0..=2 * half).map(at).sum();
+            for (i, mean) in next.iter_mut().enumerate() {
+                *mean = sum / width;
+                sum += at(i + 2 * half + 1) - at(i);
+            }
+            std::mem::swap(&mut blurred, &mut next);
+        }
+        for i in 0..n {
+            self.values[i] = (original[i] + strength * (original[i] - blurred[i])).clamp(0., 255.);
+        }
+        self.restore_scratch = original;
+        self.highpass_scratch = blurred;
+        self.highpass_next = next;
+    }
+    /// Ghosting hypothesis: the profile is the sharp profile plus a copy shifted by `lag` (a
+    /// fraction of the profile length) with relative `amplitude` (camera shake during
+    /// exposure). Inverts that two-tap kernel exactly with a stable recursion, along the
+    /// profile or `backward` against it; positions are unchanged.
+    pub fn restore_deghost(&mut self, lag: f32, amplitude: f32, backward: bool) {
+        self.cache_current = None;
+        let n = self.values.len();
+        let lag = crate::numeric::f32_usize((lag * crate::numeric::usize_f32(n)).round().max(1.));
+        if n <= lag || !(0. ..1.).contains(&amplitude) {
+            return;
+        }
+        if backward {
+            self.values.reverse();
+        }
+        for i in lag..n {
+            self.values[i] = (1. + amplitude) * self.values[i] - amplitude * self.values[i - lag];
+        }
+        for value in &mut self.values {
+            *value = value.clamp(0., 255.);
+        }
+        if backward {
+            self.values.reverse();
+        }
     }
     /// No threshold method can create transitions below eight gray levels.
     /// Stop as soon as contrast is proven; most useful profiles exit early.
@@ -727,6 +787,61 @@ mod tests {
         assert_eq!(sampler.values, values);
         sampler.threshold(true);
         assert!(sampler.runs.len() <= 2);
+    }
+    #[test]
+    fn highpass_restoration_preserves_coordinates_and_removes_slow_shading() {
+        let pixels = [127; 300];
+        let mut sampler = Sampler::default();
+        sampler.sample(
+            ImageView::new(&pixels, 100, 3, 1, 100).unwrap(),
+            [0., 1.],
+            [99., 1.],
+        );
+        let positions = sampler.positions.clone();
+        let values = sampler.values.clone();
+        sampler.restore_highpass([5, 6, 5], 1.5);
+        assert_eq!(sampler.positions, positions);
+        assert_eq!(sampler.values, values);
+        // A linear ramp keeps its interior values: the local mean equals the sample.
+        let ramp: Vec<f32> = (0..64u8).map(|i| 64. + f32::from(i)).collect();
+        sampler.values.clone_from(&ramp);
+        sampler.restore_highpass([5, 6, 5], 1.5);
+        for (value, expected) in sampler.values[16..48].iter().zip(&ramp[16..48]) {
+            assert!((value - expected).abs() < 1e-3);
+        }
+        // A dark bar on a shaded background is deepened relative to its surroundings.
+        let bar: Vec<f32> = (0..64u8)
+            .map(|i| if (28..36).contains(&i) { 90. } else { 150. })
+            .collect();
+        sampler.values.clone_from(&bar);
+        sampler.restore_highpass([5, 6, 5], 1.5);
+        assert!(sampler.values[32] < 90.);
+        assert!(sampler.values[2] >= 150.);
+    }
+    #[test]
+    fn deghost_inverts_a_shifted_copy_in_either_direction() {
+        let sharp: Vec<f32> = (0..80)
+            .map(|i| if (i / 4) % 3 == 0 { 40. } else { 200. })
+            .collect();
+        for backward in [false, true] {
+            // Ghost of amplitude 0.5, three samples behind (or ahead of) each value.
+            let mut ghosted = sharp.clone();
+            for i in 0..sharp.len() {
+                let j = if backward { i + 3 } else { i.wrapping_sub(3) };
+                let echo = sharp.get(j).copied().unwrap_or(sharp[i]);
+                ghosted[i] = (sharp[i] + 0.5 * echo) / 1.5;
+            }
+            let mut sampler = Sampler::default();
+            sampler.values.clone_from(&ghosted);
+            sampler.restore_deghost(3. / 80., 0.5, backward);
+            let interior = if backward { 0..70 } else { 10..80 };
+            for i in interior {
+                assert!(
+                    (sampler.values[i] - sharp[i]).abs() < 1e-3,
+                    "{backward} {i}"
+                );
+            }
+        }
     }
     #[test]
     fn uniform_profiles_do_not_invent_bars() {

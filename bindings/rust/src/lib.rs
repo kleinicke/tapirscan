@@ -81,7 +81,8 @@ pub struct Result {
     short_fragments: Option<Vec<Proposal>>,
     localization_omitted: usize,
     localization_work_limited: bool,
-    search_window: Quad,
+    /// Full-frame search window, when it was scanned.
+    search_window: Option<Quad>,
     scan: ScanResult,
     options: ScanOptions,
     recovery: Option<read::Recovery>,
@@ -219,7 +220,14 @@ mod tests {
             )
             .unwrap();
         let regions = detailed.regions().unwrap();
-        assert_eq!(regions.frame.candidates.len(), regions.proposals.len() + 1);
+        // The full-frame window is a candidate exactly when it was searched, and only then
+        // reported. Medium searches it only on barcode evidence, which a blank frame lacks.
+        let window = usize::from(detailed.search_window.is_some());
+        assert_eq!(
+            regions.frame.candidates.len(),
+            regions.proposals.len() + window
+        );
+        assert_eq!(window, usize::from(!cfg!(feature = "medium")));
         assert!(detailed.barcodes().is_empty());
         assert!(detailed.to_json("medium", 0.).contains("\"searchWindows\""));
         assert!(scanner

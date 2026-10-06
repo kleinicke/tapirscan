@@ -76,11 +76,9 @@ impl Scanner {
                 // false extra read. The new rare-format recovery requires explicit
                 // selection; the established Medium readers keep their broad behavior.
                 let selected_rare = if matches!(mask, 8 | 16384) { mask } else { 0 };
-                let oriented_mask = if crate::MODE_ID == 1 {
-                    mask & 496 | selected_rare
-                } else {
-                    mask & 16
-                };
+                // Every non-retail linear format reuses the localized boxes; Low does the same in
+                // its fast path. DataBar and DataBar Expanded gained most (Low reads them best).
+                let oriented_mask = mask & (496 | 8192 | 16384) | selected_rare;
                 let (mut found, mut pending) = crate::fast_linear::recover_proposals(
                     image,
                     &proposals,
@@ -398,7 +396,7 @@ impl Scanner {
         if options.include_regions {
             unread.extend(deferred_reads);
         }
-        reads = crate::linear_duplicates::merge(reads, image);
+        reads = crate::linear_duplicates::merge_output(reads, image);
         rank_reads(&mut reads);
         unfinished |= localization_limited;
         let raw = format_diagnostics(

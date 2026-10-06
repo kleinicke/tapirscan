@@ -299,11 +299,13 @@ fn projection_angle(
     working_width: usize,
     working_height: usize,
 ) -> f64 {
+    #[cfg(feature = "mode-low")]
     let mut best = f64::NEG_INFINITY;
     let initial = angle;
     let offset =
         crate::numeric::usize_f64(working_width).hypot(crate::numeric::usize_f64(working_height));
     let mut bins = vec![0f32; crate::numeric::f64_usize((offset * 4.).ceil()) + 8];
+    #[cfg(feature = "mode-low")]
     let (mut clear_start, mut clear_end) = (0, 0);
 
     // Coarse-to-fine search over the same +/-5 degree envelope.
@@ -365,30 +367,51 @@ fn projection_angle(
         feature = "mode-high",
         feature = "mode-very-high"
     ))]
-    for step in -10..=10 {
-        let a = initial + f64::from(step) * std::f64::consts::PI / 360.;
-        let (cos_angle, sin_angle) = (a.cos(), a.sin());
-        bins[clear_start..clear_end].fill(0.);
-        let (mut lo, mut hi) = (bins.len(), 0);
-        for e in edges {
+    {
+        angle = exhaustive_angle(edges, initial, offset, &mut bins);
+    }
+    angle
+}
+
+/// Evaluate all 21 half-degree angles in one pass over the edges. Each angle keeps its own
+/// bins and the edge order of per-angle loops, so scores match a loop per angle bit for bit.
+#[cfg(any(
+    feature = "mode-medium",
+    feature = "mode-high",
+    feature = "mode-very-high"
+))]
+fn exhaustive_angle(edges: &[Edge], initial: f64, offset: f64, bins: &mut Vec<f32>) -> f64 {
+    let mut best = f64::NEG_INFINITY;
+    let mut angle = initial;
+    let len = bins.len();
+    let trig: Vec<(f64, f64, f64)> = (-10..=10)
+        .map(|step| {
+            let a = initial + f64::from(step) * std::f64::consts::PI / 360.;
+            (a, a.cos(), a.sin())
+        })
+        .collect();
+    bins.resize(len * trig.len(), 0.);
+    let mut bounds = vec![(len, 0usize); trig.len()];
+    for e in edges {
+        for ((row, (lo, hi)), &(_, cos_angle, sin_angle)) in
+            bins.chunks_exact_mut(len).zip(&mut bounds).zip(&trig)
+        {
             let p = (e.x * cos_angle + e.y * sin_angle + offset) * 2.;
             let neighbor_bounds = crate::numeric::f64_isize(p.floor());
             let f = p - crate::numeric::isize_f64(neighbor_bounds);
-            if neighbor_bounds >= 0 && ((neighbor_bounds).cast_unsigned() + 1) < bins.len() {
-                let neighbor_bounds = (neighbor_bounds).cast_unsigned();
-                lo = lo.min(neighbor_bounds);
-                hi = hi.max(neighbor_bounds + 2);
-                bins[neighbor_bounds] =
-                    crate::numeric::f64_f32(f64::from(bins[neighbor_bounds]) + e.weight * (1. - f));
-                bins[neighbor_bounds + 1] =
-                    crate::numeric::f64_f32(f64::from(bins[neighbor_bounds + 1]) + e.weight * f);
+            if neighbor_bounds >= 0 && (neighbor_bounds.cast_unsigned() + 1) < len {
+                let b = neighbor_bounds.cast_unsigned();
+                *lo = (*lo).min(b);
+                *hi = (*hi).max(b + 2);
+                row[b] = crate::numeric::f64_f32(f64::from(row[b]) + e.weight * (1. - f));
+                row[b + 1] = crate::numeric::f64_f32(f64::from(row[b + 1]) + e.weight * f);
             }
         }
-        clear_start = lo;
-        clear_end = hi;
+    }
+    for ((row, &(lo, hi)), &(a, _, _)) in bins.chunks_exact(len).zip(&bounds).zip(&trig) {
         let mut score = 0.;
-        for &neighbor_bounds in &bins[lo..hi] {
-            score += f64::from(neighbor_bounds) * f64::from(neighbor_bounds);
+        for &value in &row[lo..hi.max(lo)] {
+            score += f64::from(value) * f64::from(value);
         }
         if score > best {
             best = score;

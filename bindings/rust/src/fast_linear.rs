@@ -17,7 +17,10 @@ pub(crate) use recovery::{
     recover_proposals_inverted,
 };
 #[cfg(feature = "medium")]
-pub(crate) use recovery::{recover_proposals_band, recover_proposals_wide};
+pub(crate) use recovery::{
+    recover_proposals_band, recover_proposals_deghost, recover_proposals_highpass,
+    recover_proposals_wide,
+};
 
 // Build-only research selection, deliberately absent from every public API.
 // Cargo tracks this environment input; artifact manifests must record it.
@@ -72,6 +75,9 @@ const WORKING_DIMENSION: f64 = match TIER {
 };
 // Preserve small source modules; normalized caps bound work on large symbols.
 const DENSITY: f64 = 1.5;
+/// Running-box half-widths, in profile samples, of the high-pass local mean:
+/// boxes of 11, 13 and 11 samples, about a four-pixel Gaussian at `DENSITY`.
+const HIGHPASS_BOXES: [usize; 3] = [5, 6, 5];
 const SAMPLE_LIMIT: usize = match TIER {
     2 => 3072,
     4 | 8 | 16 => 2048,
@@ -150,16 +156,21 @@ pub(crate) fn scan(
         image.channels,
         image.stride,
     )?;
-    let localized = if TIER != 0 {
-        if matches!(TIER, 2 | 4 | 8) {
-            scanner
-                .localizer
-                .detect_sparse_with_recovery(im, WORKING_DIMENSION)?
-        } else {
-            scanner.localizer.detect_sparse(im, WORKING_DIMENSION)?
+    // Public Low localizes by bar-segment voting (one box per symbol, low-resolution safe);
+    // the retained Turbo tiers keep their sparse stripe detectors.
+    let localized = if TIER == 0 {
+        barcode_research_core::stripes::Result {
+            proposals: crate::pipeline::segment_voting::localize(image).proposals,
+            omitted: 0,
+            limited: false,
+            trace: [0; 13],
         }
+    } else if matches!(TIER, 2 | 4 | 8) {
+        scanner
+            .localizer
+            .detect_sparse_with_recovery(im, WORKING_DIMENSION)?
     } else {
-        scanner.localizer.detect_fast(im, WORKING_DIMENSION)?
+        scanner.localizer.detect_sparse(im, WORKING_DIMENSION)?
     };
     let mut proposals = localized.proposals;
     let additional = if TIER != 0 && proposals.len() > 24 {
@@ -362,14 +373,20 @@ pub(crate) fn scan(
         let mut recovered = Vec::new();
         let mut unused = Vec::new();
         let mut remaining = 32_768;
-        for proposal in proposals.iter().take(local_count.min(2)) {
+        // Contrast and wide high-pass hypotheses for the two strongest proposals.
+        let profiles = [SourceProfile::Gray(2.25), SourceProfile::Highpass(1.5)];
+        for (proposal, &profile) in proposals
+            .iter()
+            .take(local_count.min(2))
+            .flat_map(|p| profiles.iter().map(move |s| (p, s)))
+        {
             let mut candidate = Candidate {
                 image,
                 im,
                 quad: proposal.polygon,
                 dense: false,
                 restored: false,
-                profile: SourceProfile::Gray(2.25),
+                profile,
                 localized: true,
                 mask: mask & 15,
                 remaining,
@@ -384,8 +401,44 @@ pub(crate) fn scan(
             candidate.append_confirmed(false, &mut recovered, &mut unused);
         }
         recovered.retain(|read| read.support >= 4);
+        // Camera shake: undo a ghost on either side of the strongest box (EAN-13 only). Blur
+        // hides the source evidence, so five supporting rows may replace source agreement.
+        let mut ghosted = Vec::new();
+        if recovered.is_empty() && mask & 1 != 0 {
+            for backward in [false, true] {
+                if let Some(proposal) = proposals.first().filter(|_| local_count > 0) {
+                    let mut candidate = Candidate {
+                        image,
+                        im,
+                        quad: proposal.polygon,
+                        dense: false,
+                        restored: false,
+                        profile: SourceProfile::Deghost(backward),
+                        localized: true,
+                        mask: 1,
+                        remaining,
+                        observations: Vec::new(),
+                        row_positions: Vec::new(),
+                    };
+                    for (row, &v) in ROWS.iter().enumerate() {
+                        sample_line(&mut candidate, &mut scanner.fast_profiles, row, v);
+                        lines += 1;
+                    }
+                    remaining = candidate.remaining;
+                    candidate.append_confirmed(false, &mut ghosted, &mut unused);
+                }
+                if !ghosted.is_empty() {
+                    break;
+                }
+            }
+            ghosted.retain(|read| read.support >= 4);
+        }
         let mut accepted = Vec::new();
-        for r in recovered {
+        for (r, strong) in recovered
+            .into_iter()
+            .map(|r| (r, false))
+            .chain(ghosted.into_iter().map(|r| (r, true)))
+        {
             if matches!(r.format.as_str(), "EAN13" | "UPCA") {
                 let text = if r.text.len() == 12 {
                     format!("0{}", r.text)
@@ -397,7 +450,8 @@ pub(crate) fn scan(
                     continue;
                 }
                 let digits = std::array::from_fn(|i| bytes[i] - b'0');
-                if !crate::pipeline::recovered_ean_source_agreement(image, r.polygon, &digits)
+                if !((strong && r.support >= 5)
+                    || crate::pipeline::recovered_ean_source_agreement(image, r.polygon, &digits))
                     || crate::pipeline::source_contradiction(
                         image,
                         r.polygon,
@@ -503,7 +557,7 @@ fn finalize_reads(
     mask: u32,
     multiple: bool,
 ) -> Vec<Read> {
-    let mut reads = crate::linear_duplicates::merge_fast(reads, image);
+    let mut reads = keep_one_per_symbol(crate::linear_duplicates::merge_fast(reads, image));
     if mask & !127 != 0 {
         remove_decoded_regions(unread, &reads);
     }
@@ -513,6 +567,43 @@ fn finalize_reads(
         reads.truncate(1);
     }
     reads
+}
+
+/// One read per symbol: among nearby reads with the same format and payload (centres within half
+/// the longer read's long side), keep the best supported when the two overlap or one is a
+/// fragment (less than half the other's short side). Separate equal symbols stay apart.
+#[cfg(feature = "low")]
+fn keep_one_per_symbol(mut reads: Vec<Read>) -> Vec<Read> {
+    let centre = |q: &crate::Quad| {
+        [
+            q.iter().map(|p| p[0]).sum::<f64>() / 4.,
+            q.iter().map(|p| p[1]).sum::<f64>() / 4.,
+        ]
+    };
+    let side = |q: &crate::Quad, k: usize| {
+        (q[k][0] - q[(k + 1) % 4][0]).hypot(q[k][1] - q[(k + 1) % 4][1])
+    };
+    let long = |q: &crate::Quad| (0..4).map(|k| side(q, k)).fold(0., f64::max);
+    let short = |q: &crate::Quad| (0..4).map(|k| side(q, k)).fold(f64::INFINITY, f64::min);
+    reads.sort_by_key(|r| std::cmp::Reverse(r.support));
+    let mut kept: Vec<Read> = Vec::new();
+    for r in reads {
+        let (c, l) = (centre(&r.polygon), long(&r.polygon));
+        let duplicate = kept.iter().any(|k| {
+            let c2 = centre(&k.polygon);
+            k.text == r.text
+                && k.format == r.format
+                && (c[0] - c2[0]).hypot(c[1] - c2[1]) < 0.5 * l.max(long(&k.polygon))
+                && (crate::geometry::overlap_quads(&k.polygon, &r.polygon).0 > 0.
+                    || short(&r.polygon) < 0.5 * short(&k.polygon)
+                    || short(&k.polygon) < 0.5 * short(&r.polygon)
+                    || crate::geometry::adjacent_strips(&k.polygon, &r.polygon))
+        });
+        if !duplicate {
+            kept.push(r);
+        }
+    }
+    kept
 }
 
 #[cfg(feature = "low")]
@@ -654,6 +745,13 @@ enum SourceProfile {
     WideEan,
     #[cfg(feature = "medium")]
     BandEan(f64),
+    /// Wide high-pass hypothesis for blurred or ghosted photographs.
+    #[cfg(any(feature = "low", feature = "medium"))]
+    Highpass(f32),
+    /// Ghosting hypothesis (camera shake): undo a half-strength copy about one EAN-13 module
+    /// behind each sample, or ahead of it when `true`.
+    #[cfg(any(feature = "low", feature = "medium"))]
+    Deghost(bool),
 }
 impl SourceProfile {
     fn band(profile: Self) -> Option<f64> {
@@ -678,6 +776,11 @@ impl SourceProfile {
             // narrow 2.25 kernel and its stricter source-line confirmation.
             #[cfg(feature = "medium")]
             Self::WideEan | Self::BandEan(_) => 2.25,
+            #[cfg(any(feature = "low", feature = "medium"))]
+            Self::Highpass(strength) => strength,
+            // Restored attempts and the single-format sampling density, as for high-pass.
+            #[cfg(any(feature = "low", feature = "medium"))]
+            Self::Deghost(_) => 1.,
             #[cfg(not(feature = "low"))]
             _ => 0.,
         }
@@ -698,6 +801,33 @@ impl SourceProfile {
             Self::Inverted => true,
             #[cfg(feature = "medium")]
             Self::WideEan | Self::BandEan(_) => false,
+            #[cfg(any(feature = "low", feature = "medium"))]
+            Self::Highpass(_) => false,
+            #[cfg(any(feature = "low", feature = "medium"))]
+            Self::Deghost(_) => false,
+        }
+    }
+    #[cfg(any(feature = "low", feature = "medium"))]
+    fn deghost(self) -> Option<bool> {
+        if let Self::Deghost(backward) = self {
+            Some(backward)
+        } else {
+            None
+        }
+    }
+    fn highpass(self) -> Option<f32> {
+        #[cfg(any(feature = "low", feature = "medium"))]
+        {
+            if let Self::Highpass(strength) = self {
+                Some(strength)
+            } else {
+                None
+            }
+        }
+        #[cfg(not(any(feature = "low", feature = "medium")))]
+        {
+            let _ = self;
+            None
         }
     }
     fn wide(self) -> bool {
@@ -707,6 +837,10 @@ impl SourceProfile {
             Self::Color(_) | Self::Inverted => false,
             #[cfg(feature = "medium")]
             Self::WideEan | Self::BandEan(_) => true,
+            #[cfg(any(feature = "low", feature = "medium"))]
+            Self::Highpass(_) => false,
+            #[cfg(any(feature = "low", feature = "medium"))]
+            Self::Deghost(_) => false,
         }
     }
 }
@@ -976,8 +1110,19 @@ fn sample_line_density(
     for method in 0..methods {
         candidate.restored = method >= 3;
         if method == 3 {
+            #[cfg(any(feature = "low", feature = "medium"))]
+            let deghost = candidate.profile.deghost();
+            #[cfg(not(any(feature = "low", feature = "medium")))]
+            let deghost: Option<bool> = None;
             if cfg!(feature = "medium") && candidate.profile.wide() {
                 sampler.restore_contrast_wide(1.5);
+            } else if let Some(backward) = deghost {
+                // The profile spans 1.3 box lengths and an EAN-13 holds 95 modules. Boxes
+                // include some quiet zone, so 0.8 box modules approximate one symbol module
+                // (1.0 and 1.25 added little on the corpus).
+                sampler.restore_deghost(0.8 / (1.3 * 95.), 0.5, backward);
+            } else if let Some(strength) = candidate.profile.highpass() {
+                sampler.restore_highpass(HIGHPASS_BOXES, strength);
             } else {
                 sampler.restore_contrast(candidate.profile.contrast());
             }
