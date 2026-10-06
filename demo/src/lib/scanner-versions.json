@@ -2,6 +2,37 @@
   "default": "1.2.2+release-r2.20260925",
   "versions": [
     {
+      "version": "1.3.0+vote-sweep.20261006",
+      "label": "1.3.0 · High segment voting, targeted sweep",
+      "sourceDigest": "aab33a1934397e8aa030c5f0bb0e9bbe1993864c14d56c95cacfcf1a2ab6603c",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-vote-sweep-20261006.wasm",
+          "sha256": "31896cde3551b38f43409013f13643201a6fd18b5e7a5dedc4c9c9141bb3170a",
+          "bytes": 1841524
+        },
+        {
+          "mode": "medium",
+          "file": "medium-vote-sweep-20261006.wasm",
+          "sha256": "001273939b1f5441d4c6d1c0d320a5eacef79dd8bb409494a0c770e391d51328",
+          "bytes": 2448334
+        },
+        {
+          "mode": "high",
+          "file": "high-vote-sweep-20261006.wasm",
+          "sha256": "5ebfb3442e6192e1684e1a5a17be47f3fdd1785eb747888d2a7bb00b8c04466c",
+          "bytes": 2326268
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-vote-sweep-20261006.wasm",
+          "sha256": "9b85f8447493f8d6c721709bce37ebb8c8dec5dded9bb9ab5b7f9b5f6467072c",
+          "bytes": 2413128
+        }
+      ]
+    },
+    {
       "version": "1.3.0+all-1d.20261006",
       "label": "1.3.0 · current API build (all 1D)",
       "sourceDigest": "34d00bd14c433ce0fe22ebe963549ec6e0a2094cbf37687da2f5622e808d3fb7",

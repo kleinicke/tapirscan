@@ -10,6 +10,10 @@
   Medium adds a full-frame search only when an unread region shows decoding evidence.
   When other linear formats are selected, Medium's retail crop recovery decodes only the
   localized box and needs repeated guard evidence before a full-frame search.
+- High and Very High also localize linear barcodes by segment voting: more reads on retail,
+  other 1D formats and blurred video at equal or lower scan time.
+- Scans that select other linear formats sweep the whole image only for DataBar (and, in
+  High and Very High, EAN-8/UPC-E); localized recovery reads the rest, with fewer wrong reads.
 
 - Describe implemented barcode formats as supported, with documented variant limitations.
   Reserve the experimental label for Turbo presets; decoder behavior is unchanged.

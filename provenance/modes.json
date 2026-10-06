@@ -3,13 +3,13 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-all-1d-20261006",
+      "tag": "low-vote-sweep-20261006",
       "fitLimit": 0,
       "maxLocalizedProposals": 32
     },
     {
       "mode": "medium",
-      "tag": "medium-all-1d-20261006",
+      "tag": "medium-vote-sweep-20261006",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
       "directions": 1,
@@ -17,7 +17,7 @@
     },
     {
       "mode": "high",
-      "tag": "high-all-1d-20261006",
+      "tag": "high-vote-sweep-20261006",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
       "directions": 2,
@@ -25,32 +25,32 @@
     },
     {
       "mode": "very-high",
-      "tag": "very-high-all-1d-20261006",
+      "tag": "very-high-vote-sweep-20261006",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
       "directions": 2,
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/benchmark-rules-20261006.json",
-  "apiWasm": "provenance/wasm-all-1d-20261006.json",
+  "runtimeRevision": "provenance/vote-sweep-20261006.json",
+  "apiWasm": "provenance/wasm-vote-sweep-20261006.json",
   "sourceRoot": "core/src",
   "experimentalTurbo": [
     {
       "preset": 2,
-      "tag": "experimental-turbo2-all-1d-20261006"
+      "tag": "experimental-turbo2-vote-sweep-20261006"
     },
     {
       "preset": 4,
-      "tag": "experimental-turbo4-all-1d-20261006"
+      "tag": "experimental-turbo4-vote-sweep-20261006"
     },
     {
       "preset": 8,
-      "tag": "experimental-turbo8-all-1d-20261006"
+      "tag": "experimental-turbo8-vote-sweep-20261006"
     },
     {
       "preset": 16,
-      "tag": "experimental-turbo16-all-1d-20261006"
+      "tag": "experimental-turbo16-vote-sweep-20261006"
     }
   ]
 }
