@@ -6,7 +6,6 @@ use barcode_research_core::{frame::Barcode, multi_scan::Policy, shear, stripes};
 mod deblur;
 #[cfg(not(feature = "low"))]
 mod restoration;
-#[cfg(any(feature = "medium", feature = "low"))]
 pub(crate) mod segment_voting;
 mod source_evidence;
 #[cfg(not(feature = "low"))]
@@ -593,8 +592,24 @@ fn localize(
             fragments.sort_by_key(|(edges, _)| std::cmp::Reverse(*edges));
             fragments.truncate(4);
         })?
+    } else if cfg!(any(feature = "high", feature = "very-high")) {
+        stripes::Result {
+            proposals: Vec::new(),
+            omitted: 0,
+            limited: false,
+            trace: [0; 13],
+        }
     } else {
         detector.detect(im)?
+    };
+    // High and Very High also box symbols by segment voting; the stripe pass still supplies
+    // short-fragment hints and stripe evidence.
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    let found = stripes::Result {
+        proposals: segment_voting::localize(image).proposals,
+        omitted: 0,
+        limited: false,
+        trace: found.trace,
     };
     #[cfg(feature = "medium")]
     let short_fragments = capture_short_fragments.then(Vec::new);
