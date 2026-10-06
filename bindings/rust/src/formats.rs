@@ -341,7 +341,7 @@ impl Scanner {
             &mut self.additional_gray,
         )?;
         let primary = if shared_retail || mask & 3 != 0 {
-            Some(self.scan_with_coverage(image, full_options, &coverage, false, shared_retail)?)
+            Some(self.scan_primary(image, full_options, &coverage, shared_retail, mask)?)
         } else {
             None
         };
@@ -419,6 +419,32 @@ impl Scanner {
             }
         }
         typed_result(reads, unread, unfinished, localization_limited, raw)
+    }
+}
+
+impl Scanner {
+    /// Primary retail scan within a format selection. Medium notes whether other linear
+    /// formats share it, which bounds its retail crop recovery.
+    fn scan_primary(
+        &mut self,
+        image: Image<'_>,
+        options: ScanOptions,
+        coverage: &[crate::Quad],
+        shared_retail: bool,
+        mask: u32,
+    ) -> Result<crate::Result, Error> {
+        #[cfg(feature = "medium")]
+        {
+            self.shared_linear = mask & LINEAR_MASK & !15 != 0;
+        }
+        #[cfg(not(feature = "medium"))]
+        let _ = mask;
+        let primary = self.scan_with_coverage(image, options, coverage, false, shared_retail);
+        #[cfg(feature = "medium")]
+        {
+            self.shared_linear = false;
+        }
+        primary
     }
 }
 

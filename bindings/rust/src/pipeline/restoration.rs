@@ -5,6 +5,7 @@ use super::{
 };
 #[cfg(feature = "medium")]
 use super::{recovered_ean_source_agreement, scan_policy};
+use barcode_research_core::frame::Barcode;
 #[cfg(any(feature = "high", feature = "very-high"))]
 use barcode_research_core::multi_scan::Policy;
 
@@ -141,16 +142,11 @@ pub(super) fn recover_restored_regions(
             .iter()
             .map(|q| q.map(|v| [v[0] - usize_f64(x), v[1] - usize_f64(y)]))
             .collect();
-        let retry = scan_prepared_impl(
-            scanner,
-            enhanced,
-            options,
-            &crop_coverage,
-            true,
-            false,
-            false,
-        )?;
-        for mut read in retry.scan.frame.barcodes {
+        let local = p
+            .polygon
+            .map(|v| [v[0] - usize_f64(x), v[1] - usize_f64(y)]);
+        let (barcodes, _) = rescan_crop(scanner, enhanced, options, &crop_coverage, local, true)?;
+        for mut read in barcodes {
             if read.detection.support < 5 {
                 continue;
             }
@@ -180,6 +176,41 @@ pub(super) fn recover_restored_regions(
         }
     }
     Ok(())
+}
+
+/// Rescan a recovery crop; returns its reads and whether the rescan was unfinished.
+/// Retail-only scans relocalize the crop. When other linear formats share a Medium scan,
+/// their symbols trigger crop recovery too, so only the box itself (`local`) is decoded.
+#[cfg(not(feature = "low"))]
+fn rescan_crop(
+    scanner: &mut Scanner,
+    crop: Image<'_>,
+    options: ScanOptions,
+    coverage: &[Quad],
+    local: Quad,
+    consolidate: bool,
+) -> std::result::Result<(Vec<Barcode>, bool), Error> {
+    #[cfg(feature = "medium")]
+    if scanner.shared_linear {
+        let policy = scan_policy(
+            crop,
+            &[Proposal {
+                polygon: local,
+                score: 1.,
+            }],
+            coverage,
+            options,
+        );
+        scanner.regions.retail_configure(1)?;
+        let retry = scanner
+            .regions
+            .scan(checked_image(crop)?, &[local], policy)?;
+        return Ok((retry.frame.barcodes, retry.frame.unfinished));
+    }
+    #[cfg(not(feature = "medium"))]
+    let _ = local;
+    let retry = scan_prepared_impl(scanner, crop, options, coverage, consolidate, false, false)?;
+    Ok((retry.scan.frame.barcodes, retry.scan.frame.unfinished))
 }
 
 #[cfg(not(feature = "low"))]
@@ -541,18 +572,17 @@ fn admit_reduced_reads(
 ) -> std::result::Result<bool, Error> {
     use barcode_research_core::numeric::usize_f64;
     // Keep decoded geometry for source confirmation, as for restored crops.
-    let retry = scan_prepared_impl(
-        scanner,
-        variant,
-        options,
-        crop.coverage,
-        false,
-        false,
-        false,
-    )?;
-    scan.frame.unfinished |= retry.scan.frame.unfinished;
+    let local = crop.proposal.map(|v| {
+        [
+            (v[0] - usize_f64(crop.x)) * crop.factor,
+            (v[1] - usize_f64(crop.y)) * crop.factor,
+        ]
+    });
+    let (barcodes, unfinished) =
+        rescan_crop(scanner, variant, options, crop.coverage, local, false)?;
+    scan.frame.unfinished |= unfinished;
     let mut accepted = false;
-    for mut read in retry.scan.frame.barcodes {
+    for mut read in barcodes {
         if read.detection.support < 3 {
             continue;
         }
