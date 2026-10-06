@@ -67,3 +67,11 @@ The selected runtime also includes exact integer threefold recovery-crop interpo
 from experiment `82dfe65`, shared by Medium, High and Very High. Preserve its
 byte-equivalence tests and separate display geometry from physical ownership.
 See [crop optimization](core/README.md).
+
+## Reserved retail production-release benchmark
+
+`../tapirscan-datasets/datasets/release-benchmarks/retail-food-20261005/` is reserved for production releases as of 2026-10-05. Read its `AGENTS.md` and `training-exclusions.json` before selecting scanner inputs. **Never use its source hashes, product groups, aliases or derivatives for training, optimization, development experiments, or casual benchmarks**, even via older datasets or manifests. Only the expressly authorized initial reference baseline and authorized frozen production-release evaluations are permitted. Historical exposure is documented; do not call it an untouched holdout.
+
+## Required runtime for comparisons
+
+All benchmark scanner measurements must use the library's JavaScript API within installed Google Chrome, including WASM loaded by that API. Native Chrome uses its JavaScript BarcodeDetector API. Do not substitute Node, Python, native command-line or direct Rust timing. Record Chrome version, exact package/artifact identity and scan timing boundaries. Node may orchestrate Chrome; it must not perform the measured scanning. The initial reference and Turbo4 runs already meet this requirement.

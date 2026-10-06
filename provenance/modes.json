@@ -32,7 +32,7 @@
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/all-1d-20261006.json",
+  "runtimeRevision": "provenance/benchmark-rules-20261006.json",
   "apiWasm": "provenance/wasm-all-1d-20261006.json",
   "sourceRoot": "core/src",
   "experimentalTurbo": [
