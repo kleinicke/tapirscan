@@ -2,6 +2,37 @@
   "default": "1.2.2+release-r2.20260925",
   "versions": [
     {
+      "version": "1.3.0+all-1d.20261006",
+      "label": "1.3.0 · current API build (all 1D)",
+      "sourceDigest": "34d00bd14c433ce0fe22ebe963549ec6e0a2094cbf37687da2f5622e808d3fb7",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-all-1d-20261006.wasm",
+          "sha256": "010d21169dd18f7e0ee23e5f563ca3937bdbc43a7d6f40f2ee0724232aa02aa4",
+          "bytes": 1841524
+        },
+        {
+          "mode": "medium",
+          "file": "medium-all-1d-20261006.wasm",
+          "sha256": "70397849a4b1fb8a2c06293e47093dc35be4c01d0b8549605fa8bfe6ea27d135",
+          "bytes": 2448328
+        },
+        {
+          "mode": "high",
+          "file": "high-all-1d-20261006.wasm",
+          "sha256": "a94b1432a33ad10b05d14da4f3aec14747a2102e2ca307e2b5377495b949d9b4",
+          "bytes": 2284118
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-all-1d-20261006.wasm",
+          "sha256": "6e2876d4ce68cf838e41ccb994cc58165099b0dc2de3c4d9c44fd9362df95820",
+          "bytes": 2371022
+        }
+      ]
+    },
+    {
       "version": "1.2.2+all-1d.20261005",
       "label": "Next · All 1D formats share boxes; deblurring in every mode",
       "sourceDigest": "a925de6f79b8db82ee8e35fbc0f8ee309187cd211f13852217acb203312fd27b",
@@ -158,7 +189,7 @@
     },
     {
       "version": "1.3.0+format-support.20261005",
-      "label": "1.3.0 · current API build",
+      "label": "1.3.0 · format-support build",
       "sourceDigest": "5ca57790c6d266c9c955b4a2d1f309bf77d06de97bd7c28c8f17b653083f1c8d",
       "modes": [
         {
