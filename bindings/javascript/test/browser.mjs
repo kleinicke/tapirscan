@@ -117,6 +117,61 @@ test("a reusable scanner queues concurrent scans and freezes results", async () 
   assert.deepEqual(outcome.report, ["low", [text], "boolean", true]);
 });
 
+test("watch scans new video frames until stopped, and ends silently on disposal", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { canvas, tapirscan } = globalThis.fixture;
+    const scanner = new tapirscan.Scanner({ mode: "low" });
+    // A canvas stream is a real <video> source; repaint so it keeps producing frames.
+    const context = canvas.getContext("2d");
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    const repaint = setInterval(() => context.putImageData(pixels, 0, 0), 30);
+    const video = document.createElement("video");
+    video.muted = true;
+    video.srcObject = canvas.captureStream();
+    await video.play();
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const results = [];
+    const errors = [];
+    try {
+      const stop = scanner.watch(
+        video,
+        (barcodes) => results.push(barcodes.map((barcode) => barcode.text)),
+        (error) => errors.push(String(error)),
+      );
+      while (results.length < 3) await sleep(20);
+      stop();
+      const stoppedAt = results.length;
+      await sleep(300);
+      const afterStop = results.length - stoppedAt;
+      scanner.watch(
+        video,
+        (barcodes) => results.push(barcodes),
+        (error) => errors.push(String(error)),
+      );
+      await sleep(100);
+      scanner.dispose();
+      await sleep(300);
+      // A scanner that cannot load reports through onError instead of going quiet.
+      const broken = new tapirscan.Scanner({ wasmBaseUrl: "/missing/" });
+      const loadError = await Promise.race([
+        new Promise((resolve) => broken.watch(video, () => {}, resolve)),
+        sleep(10_000).then(() => "no error reported"),
+      ]);
+      broken.dispose();
+      return { first: results[0], afterStop, errors, loadError: String(loadError) };
+    } finally {
+      clearInterval(repaint);
+      video.srcObject.getTracks().forEach((track) => track.stop());
+      scanner.dispose();
+    }
+  });
+  const text = await page.evaluate(() => globalThis.fixture.text);
+  assert.deepEqual(outcome.first, [text]);
+  assert.equal(outcome.afterStop, 0);
+  assert.deepEqual(outcome.errors, []);
+  assert.match(outcome.loadError, /wasm|WASM|404|fetch/);
+});
+
 test("errors keep their types, and disposal rejects queued work", async () => {
   const outcome = await page.evaluate(async () => {
     const { canvas, tapirscan } = globalThis.fixture;

@@ -33,7 +33,9 @@
   the addressed bytes of arrays.
 - Rust `Barcode` implements serde `Serialize`; the C ABI serializes barcode JSON from it.
 - JavaScript adds `tapirscan/browser`: the same scanner in a bundled worker, scanning files, images, video
-  frames, canvases and bitmaps without WASM setup. `new Scanner()` is synchronous and safe during server
+  frames, canvases and bitmaps without WASM setup. `scanner.watch(video, onScan)` scans a camera or
+  other playing video continuously, each new frame at most once. Works with Next.js (Turbopack and
+  webpack) and Vite without configuration, apart from the Vite 6/7 development server. `new Scanner()` is synchronous and safe during server
   rendering. It replaces the hand-written worker client and worker examples.
 - JavaScript and Python type decoded barcode formats as `Format`; `npm pack` accepts WASM ABI 2 again.
 

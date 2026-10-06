@@ -18,10 +18,15 @@ test("Medium EAN8-only shares retail recovery and resets selection between scans
   const only = await Scanner.create({ formats: "EAN8" });
   try {
     assert.deepEqual(retail.inspect(ean8(1, 1, "96385075")).values, []);
-    for (const image of [ean8(), ean8(2, 1), ean8(2, 20)]) {
+    // Copies one pixel apart have continuous bars and read as one symbol.
+    for (const [image, count] of [
+      [ean8(), 1],
+      [ean8(2, 1), 1],
+      [ean8(2, 20), 2],
+    ]) {
       const all = retail.inspect(image);
       assert.ok(all.values.includes("96385074"));
-      assert.equal(all.values.length, image.height > 120 ? 2 : 1);
+      assert.equal(all.values.length, count);
       assert.deepEqual(reads(only.inspect(image)), reads(all));
       assert.deepEqual(reads(retail.inspect(image, { formats: "EAN8" })), reads(all));
       assert.deepEqual(retail.inspect(image, { formats: "EAN13" }).values, []);

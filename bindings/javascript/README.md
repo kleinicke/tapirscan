@@ -9,7 +9,7 @@ No detection returns `[]`.
 - **`tapirscan`** (the core) for Node and decoded pixels, scanning synchronously
   on the calling thread.
 
-[Try the live demo](https://tapirscan.f-kleinicke.de) · [Browser apps](#browser-apps-and-svelte) · [Core API](#core-api) · [WASM loading](#wasm-loading) · [All options](#all-options) · [Results](#results)
+[Try the live demo](https://tapirscan.f-kleinicke.de) · [Browser apps](#browser-apps-react-and-svelte) · [Core API](#core-api) · [WASM loading](#wasm-loading) · [All options](#all-options) · [Results](#results)
 
 ```sh
 npm install tapirscan
@@ -19,7 +19,7 @@ TypeScript declarations and WASM binaries are included in the
 [npm package](https://www.npmjs.com/package/tapirscan). Your runtime must support
 WebAssembly SIMD.
 
-## Browser apps and Svelte
+## Browser apps, React and Svelte
 
 ```js
 import { scan } from "tapirscan/browser";
@@ -35,8 +35,51 @@ the worker and WASM load in the background, so the first scan simply waits for t
 import { Scanner } from "tapirscan/browser";
 
 const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
-const barcodes = await scanner.scan(video); // scans the current frame
+const barcodes = await scanner.scan(image); // a file, <img>, canvas, video frame, ...
 scanner.dispose(); // stops the worker
+```
+
+**Camera:** `scanner.watch(video, onScan)` scans a playing `<video>` continuously:
+each new frame at most once and one scan at a time, so slow devices skip frames
+instead of falling behind. `onScan` receives every result, including `[]`. It returns
+a function that stops watching; `dispose()` also stops it. In React (add
+`"use client";` at the top in Next.js):
+
+```jsx
+import { useEffect, useRef, useState } from "react";
+import { Scanner } from "tapirscan/browser";
+
+export default function BarcodeScanner() {
+  const video = useRef(null);
+  const [barcodes, setBarcodes] = useState([]);
+
+  useEffect(() => {
+    const scanner = new Scanner();
+    const camera = navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    let mounted = true;
+    camera.then((stream) => {
+      if (!mounted) return; // React StrictMode mounts twice in development
+      video.current.srcObject = stream;
+      scanner.watch(video.current, setBarcodes);
+    });
+    return () => {
+      mounted = false;
+      scanner.dispose();
+      camera.then((stream) => stream.getTracks().forEach((track) => track.stop()));
+    };
+  }, []);
+
+  return (
+    <>
+      <video ref={video} autoPlay muted playsInline />
+      {barcodes.map((barcode, i) => (
+        <p key={i}>
+          {barcode.format}: {barcode.text}
+        </p>
+      ))}
+    </>
+  );
+}
 ```
 
 In Svelte 5 and SvelteKit:
@@ -59,17 +102,15 @@ In Svelte 5 and SvelteKit:
 {#each barcodes as barcode}<p>{barcode.format}: {barcode.text}</p>{/each}
 ```
 
-With Vite (including SvelteKit), add one line so the development server serves
-the worker and WASM files from the package. Production builds need nothing else;
-Vite and webpack bundle the worker and WASM files automatically.
+**Bundlers:** Next.js (Turbopack or webpack), Vite 8 and production builds bundle
+the worker and WASM files with no configuration. The Vite 6 and 7 development
+servers (including SvelteKit on them) need one line, or the scanner reports that
+its worker failed to start:
 
 ```js
 // vite.config.js
-import { sveltekit } from "@sveltejs/kit/vite";
-import { defineConfig } from "vite";
-
 export default defineConfig({
-  plugins: [sveltekit()],
+  // ...your plugins
   optimizeDeps: { exclude: ["tapirscan"] },
 });
 ```
@@ -79,8 +120,10 @@ export default defineConfig({
   `VideoFrame`, `ImageData`, or decoded pixels as in the core API. Inputs are not
   modified or transferred.
 - **Methods:** `scan` and `inspect` match the core API but return promises.
-  Concurrent calls are queued. For camera loops, await each scan before the next,
-  as in the [camera example](examples/camera.html).
+  Concurrent calls are queued. `watch(video, onScan, onError?)` scans a video;
+  frames the browser cannot capture are skipped, and other failures stop watching
+  and go to `onError` (by default reported as uncaught). See the
+  [camera example](examples/camera.html).
 - **Options:** `mode`, `formats` and `eanAddOnPolicy` work as in the core;
   `wasmBaseUrl` serves the WASM files from another directory. `extendedBudget` and
   per-call `formats` are scan options. `loadWasm` and Turbo presets need the core.
@@ -224,7 +267,7 @@ included; filenames, URLs and encoded JPEG/PNG bytes are not scan inputs.
 
 ### Vite and SvelteKit
 
-[`tapirscan/browser`](#browser-apps-and-svelte) needs no WASM setup. To use the
+[`tapirscan/browser`](#browser-apps-react-and-svelte) needs no WASM setup. To use the
 core directly, import a stable WASM asset URL so Vite includes it in development
 and production builds, including apps deployed under a base path:
 
@@ -295,7 +338,7 @@ are not needed in your app.
 ## Camera and worker use
 
 The core scans synchronously, so a long scan on the main thread blocks the page.
-[`tapirscan/browser`](#browser-apps-and-svelte) runs the core in a worker and
+[`tapirscan/browser`](#browser-apps-react-and-svelte) runs the core in a worker and
 handles initialization, frame capture, queueing and shutdown. The
 [camera example](examples/camera.html) scans a live camera with it: from this
 directory (or the installed package), run `python3 -m http.server` and open
@@ -355,7 +398,7 @@ resize settings belong to the application.
 
 Input is limited to 32 megapixels and 128 MiB of addressed pixels. Keep the buffer stable during the
 call. Convert DOM image elements or encoded images to pixels before scanning, or
-use [`tapirscan/browser`](#browser-apps-and-svelte), which accepts them directly.
+use [`tapirscan/browser`](#browser-apps-react-and-svelte), which accepts them directly.
 
 ## Results
 

@@ -13,42 +13,39 @@
     const status = document.querySelector("pre");
     const start = document.querySelector("#start");
     const stop = document.querySelector("#stop");
-    let running = false;
     let scanner;
     let stream;
+
     function shutdown() {
-      running = false;
       scanner?.dispose();
-      scanner = undefined;
       stream?.getTracks().forEach((track) => track.stop());
-      stream = undefined;
-      video.srcObject = null;
+      scanner = stream = video.srcObject = undefined;
+      start.disabled = false;
+      stop.disabled = true;
     }
+    function fail(error) {
+      status.textContent = error.message;
+      shutdown();
+    }
+
     start.onclick = async () => {
       start.disabled = true;
-      running = true;
+      // Loads in a worker while the camera starts.
+      scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
       try {
-        // Loads in a worker while the camera starts.
-        scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment" },
         });
-        if (!running) return;
-        video.srcObject = stream;
-        await video.play();
-        stop.disabled = false;
-        while (running) {
-          // Each call scans the frame shown when it starts; awaiting it avoids a backlog.
-          const barcodes = await scanner.scan(video);
-          status.textContent = JSON.stringify(barcodes.map((b) => b.text));
-        }
       } catch (error) {
-        if (running) status.textContent = error.message;
-      } finally {
-        shutdown();
-        start.disabled = false;
-        stop.disabled = true;
+        return fail(error);
       }
+      video.srcObject = stream;
+      stop.disabled = false;
+      scanner.watch(
+        video,
+        (barcodes) => (status.textContent = JSON.stringify(barcodes.map((b) => b.text))),
+        fail,
+      );
     };
     stop.onclick = shutdown;
     window.addEventListener("pagehide", shutdown);

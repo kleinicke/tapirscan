@@ -190,6 +190,15 @@ function pixels(image: PixelImage): PreparedImage {
   };
 }
 
+// The package's wasm/ directory. Bundlers (Turbopack, webpack, Vite) resolve
+// `new URL("literal", import.meta.url)` as a file and fail on a directory; browser
+// bundles load WASM through tapirscan/browser's static per-file URLs instead.
+function packagedWasm(): URL {
+  const url = new URL(import.meta.url);
+  url.pathname = url.pathname.replace(/[^/]*\/[^/]*$/, "wasm/");
+  return url;
+}
+
 // Bound retained WASM bytes across stable modes, experimental presets and custom URLs.
 const wasmLoads = new Map<string, Promise<ArrayBuffer>>();
 function loadDefault(url: URL): Promise<ArrayBuffer> {
@@ -329,7 +338,7 @@ export class Scanner {
       throw new TypeError("wasmBaseUrl must be a string or URL");
     const base =
       options.wasmBaseUrl === undefined
-        ? new URL(/* @vite-ignore */ "../wasm/", import.meta.url)
+        ? packagedWasm()
         : new URL(
             options.wasmBaseUrl,
             typeof location === "undefined" ? import.meta.url : location.href,

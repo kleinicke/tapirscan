@@ -32,7 +32,7 @@
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/retail-share-20261006.json",
+  "runtimeRevision": "provenance/video-watch-20261006.json",
   "apiWasm": "provenance/wasm-retail-share-20261006.json",
   "sourceRoot": "core/src",
   "experimentalTurbo": [

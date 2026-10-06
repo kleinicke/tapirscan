@@ -2,7 +2,7 @@
 """Select a validated scanner revision under a new, unused engine tag.
 
 Usage: promote_engines.py TAG --description TEXT
-           [--demo-version V --demo-label L] [--dry-run]
+           [--demo-version V --demo-label L] [--dry-run] [--snapshot-only]
 
 TAG is the shared suffix, for example ``all-1d-20261006``; engines become
 ``<mode>-TAG.wasm`` and ``experimental-turbo<n>-TAG.wasm``. The script refuses any
@@ -10,6 +10,8 @@ name already used by a recorded WASM manifest, the demo registry or a local asse
 renames the selection in provenance and the JavaScript package, records the WASM
 identities (``build_wasm.py --record``) and writes a runtime source snapshot. With
 ``--demo-version`` it also registers the build as the demo's next readers.
+``--snapshot-only`` records just a runtime source snapshot ``provenance/TAG.json``
+for documentation or JavaScript changes that leave the engines unchanged.
 Run the quality gate and commit afterwards.
 """
 
@@ -154,6 +156,21 @@ def register_demo(
     comparison.write_text(text)
 
 
+def record_snapshot(selection: dict[str, Any], tag: str, description: str) -> None:
+    """Select a runtime snapshot of the current sources; engines stay as recorded."""
+    target = ROOT / f"provenance/{tag}.json"
+    if target.exists():
+        msg = f"provenance file exists: provenance/{tag}.json"
+        raise SystemExit(msg)
+    previous = json.loads((ROOT / selection["runtimeRevision"]).read_text())
+    target.write_text(
+        json.dumps(runtime_snapshot(ROOT, previous, description), indent=2) + "\n"
+    )
+    selection["runtimeRevision"] = f"provenance/{tag}.json"
+    (ROOT / "provenance/modes.json").write_text(json.dumps(selection, indent=2) + "\n")
+    print(f"Recorded runtime snapshot provenance/{tag}.json")
+
+
 def main() -> None:
     """Rename, record and snapshot the selected engines under a new tag."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -162,6 +179,7 @@ def main() -> None:
     parser.add_argument("--demo-version")
     parser.add_argument("--demo-label")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--snapshot-only", action="store_true")
     args = parser.parse_args()
     if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*-20\d{6}", args.tag):
         parser.error("TAG must look like name-yyyymmdd (lowercase)")
@@ -170,6 +188,9 @@ def main() -> None:
 
     selection_path = ROOT / "provenance/modes.json"
     selection = json.loads(selection_path.read_text())
+    if args.snapshot_only:
+        record_snapshot(selection, args.tag, args.description)
+        return
     if problems := collisions(ROOT, selection, args.tag):
         raise SystemExit("\n".join(problems))
     old = current_suffix(selection)

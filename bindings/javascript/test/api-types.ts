@@ -110,6 +110,12 @@ export async function browserConsumer(file: File, video: HTMLVideoElement, image
     new BrowserScanner({ loadWasm: () => Promise.resolve(new ArrayBuffer(0)) });
     // @ts-expect-error Scans need an image source.
     await scanner.scan("photo.png");
+    const stop: () => void = scanner.watch(video, (barcodes: readonly BrowserBarcode[]) => {
+      console.log(barcodes.length);
+    });
+    stop();
+    // @ts-expect-error Watching needs a video element.
+    scanner.watch(file, () => undefined);
     return [bestRead(fromFile)?.text, fromVideo.values, fromPixels.length];
   } finally {
     scanner.dispose();

@@ -81,6 +81,7 @@ export class Scanner {
   readonly #pending = new Map<number, Pending>();
   #nextId = 0;
   #closed: Error | undefined;
+  #disposed = false;
 
   constructor(options: ScannerOptions = {}) {
     const input: unknown = options;
@@ -148,8 +149,52 @@ export class Scanner {
     return freeze((await this.#scan("inspect", source, options)) as ScanResult);
   }
 
+  /**
+   * Scan a playing `<video>` (such as a camera stream) continuously: each new frame
+   * at most once and one scan at a time, so slow devices skip frames instead of
+   * falling behind. `onScan` receives every result, including `[]`. Returns a
+   * function that stops watching; `dispose()` also stops it. Frames the browser
+   * cannot capture (a stopped or switching camera) are skipped. Any other failure
+   * stops watching and goes to `onError`, which by default reports it as uncaught.
+   */
+  watch(
+    video: HTMLVideoElement,
+    onScan: (barcodes: readonly Barcode[]) => void,
+    onError: (error: unknown) => void = reportError,
+  ): () => void {
+    let watching = true;
+    // Disposal ends watching silently; loading failures still reach onError.
+    const active = () => watching && !this.#disposed;
+    const nextFrame = () =>
+      new Promise<unknown>((resolve) => {
+        if (typeof video.requestVideoFrameCallback === "function")
+          video.requestVideoFrameCallback(resolve);
+        else requestAnimationFrame(resolve);
+      });
+    void (async () => {
+      while (active()) {
+        await nextFrame();
+        if (!active() || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) continue;
+        try {
+          const barcodes = await this.scan(video);
+          if (active()) onScan(barcodes);
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "InvalidStateError") continue;
+          if (active()) {
+            watching = false;
+            onError(error);
+          }
+        }
+      }
+    })();
+    return () => {
+      watching = false;
+    };
+  }
+
   /** Stop the worker and reject queued scans. Repeated disposal is safe. */
   dispose(): void {
+    this.#disposed = true;
     this.#close(new Error("Scanner was disposed"));
   }
 
