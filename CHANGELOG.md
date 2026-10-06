@@ -2,6 +2,15 @@
 
 ## 1.3.0 — unreleased
 
+- Linear barcodes are localized by anti-aliased segment voting in Low and Medium. Duplicate
+  reads of one physical barcode are merged by following its bars, for all 1D formats including
+  Codabar and DataBar. A partially decoded EAN/UPC scanline is extended before giving up.
+- Medium, High and Very High rescan the strongest unread barcode region with motion-ghost
+  and defocus deblurring, and Medium and Low try ghost removal on unread retail candidates.
+  Medium adds a full-frame search only when an unread region shows decoding evidence.
+  When other linear formats are selected, Medium's retail crop recovery decodes only the
+  localized box and needs repeated guard evidence before a full-frame search.
+
 - Describe implemented barcode formats as supported, with documented variant limitations.
   Reserve the experimental label for Turbo presets; decoder behavior is unchanged.
 

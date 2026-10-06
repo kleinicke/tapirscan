@@ -3,13 +3,13 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-api-simple-results-20261002",
+      "tag": "low-all-1d-20261005",
       "fitLimit": 0,
       "maxLocalizedProposals": 32
     },
     {
       "mode": "medium",
-      "tag": "medium-api-simple-results-20261002",
+      "tag": "medium-all-1d-20261005",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
       "directions": 1,
@@ -17,7 +17,7 @@
     },
     {
       "mode": "high",
-      "tag": "high-api-simple-results-20261002",
+      "tag": "high-all-1d-20261005",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
       "directions": 2,
@@ -25,32 +25,32 @@
     },
     {
       "mode": "very-high",
-      "tag": "very-high-api-simple-results-20261002",
+      "tag": "very-high-all-1d-20261005",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
       "directions": 2,
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/format-support-20261005.json",
-  "apiWasm": "provenance/wasm-format-support-20261005.json",
+  "runtimeRevision": "provenance/all-1d-20261005.json",
+  "apiWasm": "provenance/wasm-all-1d-20261005.json",
   "sourceRoot": "core/src",
   "experimentalTurbo": [
     {
       "preset": 2,
-      "tag": "experimental-turbo2-api-simple-results-20261002"
+      "tag": "experimental-turbo2-all-1d-20261005"
     },
     {
       "preset": 4,
-      "tag": "experimental-turbo4-api-simple-results-20261002"
+      "tag": "experimental-turbo4-all-1d-20261005"
     },
     {
       "preset": 8,
-      "tag": "experimental-turbo8-api-simple-results-20261002"
+      "tag": "experimental-turbo8-all-1d-20261005"
     },
     {
       "preset": 16,
-      "tag": "experimental-turbo16-api-simple-results-20261002"
+      "tag": "experimental-turbo16-all-1d-20261005"
     }
   ]
 }
