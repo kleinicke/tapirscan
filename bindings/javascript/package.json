@@ -12,27 +12,27 @@
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
     },
-    "./wasm/low.wasm": "./wasm/low-all-1d-20261005.wasm",
-    "./wasm/medium.wasm": "./wasm/medium-all-1d-20261005.wasm",
-    "./wasm/high.wasm": "./wasm/high-all-1d-20261005.wasm",
-    "./wasm/very-high.wasm": "./wasm/very-high-all-1d-20261005.wasm",
-    "./wasm/experimental-turbo2.wasm": "./wasm/experimental-turbo2-all-1d-20261005.wasm",
-    "./wasm/experimental-turbo4.wasm": "./wasm/experimental-turbo4-all-1d-20261005.wasm",
-    "./wasm/experimental-turbo8.wasm": "./wasm/experimental-turbo8-all-1d-20261005.wasm",
-    "./wasm/experimental-turbo16.wasm": "./wasm/experimental-turbo16-all-1d-20261005.wasm"
+    "./wasm/low.wasm": "./wasm/low-all-1d-20261006.wasm",
+    "./wasm/medium.wasm": "./wasm/medium-all-1d-20261006.wasm",
+    "./wasm/high.wasm": "./wasm/high-all-1d-20261006.wasm",
+    "./wasm/very-high.wasm": "./wasm/very-high-all-1d-20261006.wasm",
+    "./wasm/experimental-turbo2.wasm": "./wasm/experimental-turbo2-all-1d-20261006.wasm",
+    "./wasm/experimental-turbo4.wasm": "./wasm/experimental-turbo4-all-1d-20261006.wasm",
+    "./wasm/experimental-turbo8.wasm": "./wasm/experimental-turbo8-all-1d-20261006.wasm",
+    "./wasm/experimental-turbo16.wasm": "./wasm/experimental-turbo16-all-1d-20261006.wasm"
   },
   "files": [
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-all-1d-20261005.wasm",
-    "wasm/medium-all-1d-20261005.wasm",
-    "wasm/high-all-1d-20261005.wasm",
-    "wasm/very-high-all-1d-20261005.wasm",
-    "wasm/experimental-turbo2-all-1d-20261005.wasm",
-    "wasm/experimental-turbo4-all-1d-20261005.wasm",
-    "wasm/experimental-turbo8-all-1d-20261005.wasm",
-    "wasm/experimental-turbo16-all-1d-20261005.wasm"
+    "wasm/low-all-1d-20261006.wasm",
+    "wasm/medium-all-1d-20261006.wasm",
+    "wasm/high-all-1d-20261006.wasm",
+    "wasm/very-high-all-1d-20261006.wasm",
+    "wasm/experimental-turbo2-all-1d-20261006.wasm",
+    "wasm/experimental-turbo4-all-1d-20261006.wasm",
+    "wasm/experimental-turbo8-all-1d-20261006.wasm",
+    "wasm/experimental-turbo16-all-1d-20261006.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",
