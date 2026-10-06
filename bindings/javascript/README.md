@@ -39,11 +39,20 @@ const barcodes = await scanner.scan(image); // a file, <img>, canvas, video fram
 scanner.dispose(); // stops the worker
 ```
 
-**Camera:** `scanner.watch(video, onScan)` scans a playing `<video>` continuously:
-each new frame at most once and one scan at a time, so slow devices skip frames
-instead of falling behind. `onScan` receives every result, including `[]`. It returns
-a function that stops watching; `dispose()` also stops it. In React (add
-`"use client";` at the top in Next.js):
+**Camera:** scan a playing `<video>` in a loop. Waiting for the next frame scans
+each frame at most once, and awaiting each scan means slow devices skip frames
+instead of falling behind:
+
+```js
+while (running) {
+  await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
+  const barcodes = await scanner.scan(video);
+  // ...show barcodes (often [])
+}
+```
+
+`dispose()` rejects the scan in progress with "Scanner was disposed". In React
+(add `"use client";` at the top in Next.js):
 
 ```jsx
 import { useEffect, useRef, useState } from "react";
@@ -54,16 +63,23 @@ export default function BarcodeScanner() {
   const [barcodes, setBarcodes] = useState([]);
 
   useEffect(() => {
+    const element = video.current;
     const scanner = new Scanner();
     const camera = navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-    let mounted = true;
-    camera.then((stream) => {
-      if (!mounted) return; // React StrictMode mounts twice in development
-      video.current.srcObject = stream;
-      scanner.watch(video.current, setBarcodes);
-    });
+    let running = true; // React StrictMode mounts twice in development
+    camera
+      .then(async (stream) => {
+        if (!running) return;
+        element.srcObject = stream;
+        while (running) {
+          await new Promise((resolve) => element.requestVideoFrameCallback(resolve));
+          const found = await scanner.scan(element);
+          if (running) setBarcodes(found);
+        }
+      })
+      .catch((error) => running && console.error(error));
     return () => {
-      mounted = false;
+      running = false;
       scanner.dispose();
       camera.then((stream) => stream.getTracks().forEach((track) => track.stop()));
     };
@@ -120,10 +136,8 @@ export default defineConfig({
   `VideoFrame`, `ImageData`, or decoded pixels as in the core API. Inputs are not
   modified or transferred.
 - **Methods:** `scan` and `inspect` match the core API but return promises.
-  Concurrent calls are queued. `watch(video, onScan, onError?)` scans a video;
-  frames the browser cannot capture are skipped, and other failures stop watching
-  and go to `onError` (by default reported as uncaught). See the
-  [camera example](examples/camera.html).
+  Concurrent calls are queued. For camera loops, await each scan before the next,
+  as in the [camera example](examples/camera.html).
 - **Options:** `mode`, `formats` and `eanAddOnPolicy` work as in the core;
   `wasmBaseUrl` serves the WASM files from another directory. `extendedBudget` and
   per-call `formats` are scan options. `loadWasm` and Turbo presets need the core.
