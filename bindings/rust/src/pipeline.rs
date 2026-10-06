@@ -130,16 +130,19 @@ fn scan_prepared_impl(
     #[cfg(feature = "medium")]
     let mut retail = finish_retail(&mut scan, &mut scanner.regions, im);
     // A frame whose boxes read nothing but show retail evidence (guard patterns or blurred
-    // symbol windows) is rescanned jointly with the full-frame window, as before.
+    // symbol windows) is rescanned jointly with the full-frame window, as before. Other
+    // linear symbols sharing the scan show stray guards, so they need repeated guard passes.
     #[cfg(feature = "medium")]
     if allow_restoration
         && scan.frame.barcodes.is_empty()
         && retail.is_empty()
-        && scan
-            .frame
-            .candidates
-            .iter()
-            .any(|c| c.work.guard_pass > 0 || c.work.forward_blur_windows >= 2)
+        && scan.frame.candidates.iter().any(|c| {
+            if scanner.shared_linear {
+                c.work.guard_pass >= 4
+            } else {
+                c.work.guard_pass > 0 || c.work.forward_blur_windows >= 2
+            }
+        })
     {
         window_scanned = true;
         candidates.push(localization.search_window);
