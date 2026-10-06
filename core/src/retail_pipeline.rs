@@ -32,7 +32,7 @@ mod peaks;
 mod roi;
 #[cfg(feature = "mode-low")]
 const ANCHORS: bool = false;
-#[cfg(feature = "mode-medium")]
+#[cfg(not(feature = "mode-low"))]
 const ANCHORS: bool = true;
 const LATE_ANCHORS: bool = true;
 const CACHE_MODE: u8 = 0;
@@ -42,7 +42,7 @@ const SCRATCH: bool = true;
 const ROW_REUSE: bool = true;
 #[cfg(feature = "mode-low")]
 const ROI_LIMIT: usize = 0;
-#[cfg(feature = "mode-medium")]
+#[cfg(not(feature = "mode-low"))]
 const ROI_LIMIT: usize = 3;
 const ROI_MODE: u8 = 2;
 const ROI_ROWS: usize = 10;
@@ -324,6 +324,8 @@ impl Collector {
             digits[0] = 10 + r.format as u8;
             digits[5..].copy_from_slice(&r.digits);
             let o = Observation {
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                invalid_checksum: false,
                 digits,
                 axis,
                 fraction: f,
@@ -355,6 +357,8 @@ impl Collector {
                 break;
             }
             rows.push(Observation {
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                invalid_checksum: false,
                 digits: [0; 13],
                 axis,
                 fraction: f,

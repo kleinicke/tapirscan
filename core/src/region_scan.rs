@@ -40,10 +40,7 @@ impl ScanResult {
 }
 #[derive(Default)]
 pub struct RegionScanner {
-    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     pub(crate) engine: crate::candidate_scanner::CandidateScanner,
-    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-    engine: crate::candidate_scanner::CandidateScanner,
 }
 impl RegionScanner {
     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
@@ -62,7 +59,6 @@ impl RegionScanner {
         result
     }
 
-    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     /// Configure shared retail evidence; bit 1 keeps the primary reader enabled.
     /// # Errors
     /// Rejects unsupported family bits.
@@ -77,7 +73,6 @@ impl RegionScanner {
         self.engine.retail.reset();
         Ok(())
     }
-    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     pub fn retail_finish_typed(
         &mut self,
         image: ImageView<'_>,

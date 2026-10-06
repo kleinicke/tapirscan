@@ -5,10 +5,7 @@ const MAX_EXAMINED: usize = 8192;
 #[derive(Default)]
 pub(crate) struct ExtremaScratch {
     extrema: Vec<(usize, bool)>,
-    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     pub(crate) runs: Vec<(f64, f64, bool)>,
-    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-    runs: Vec<(f64, f64, bool)>,
     pub attempted: bool,
     pub examined: usize,
     pub capped: bool,

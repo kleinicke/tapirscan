@@ -312,7 +312,6 @@ pub struct CandidateScanner {
     pub(crate) threshold_recovery: bool,
     #[cfg(not(feature = "mode-low"))]
     profile_cache: [Option<CachedProfile>; 2],
-    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     pub(crate) retail: crate::retail_pipeline::Collector,
 
     blur_rejected_intervals: Vec<(f64, f64)>,
@@ -358,7 +357,6 @@ impl CandidateScanner {
             .iter()
             .enumerate()
             .map(|(index, &coverage)| {
-                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
                 self.retail.coverage(coverage);
                 let start = Timer::now();
                 let mut out = Candidate {

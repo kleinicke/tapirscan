@@ -16,7 +16,6 @@ use restoration::recover_threshold_regions;
 use restoration::{recover_late_wide_crop, recover_scaled_crop};
 #[cfg(feature = "medium")]
 use source_evidence::independently_confirmed_ean_reads;
-#[cfg(any(feature = "medium", feature = "low"))]
 pub(crate) use source_evidence::recovered_ean_source_agreement;
 pub(crate) use source_evidence::source_contradiction;
 
@@ -119,14 +118,14 @@ fn scan_prepared_impl(
     let window_scanned = window_first;
     let policy = scan_policy(image, &localization.proposals, coverage, options);
 
-    #[cfg(feature = "medium")]
+    #[cfg(not(feature = "low"))]
     scanner
         .regions
         .retail_configure(if shared_retail { 15 } else { 1 })?;
-    #[cfg(not(feature = "medium"))]
+    #[cfg(feature = "low")]
     let _ = shared_retail;
     let mut scan = scanner.regions.scan(im, &candidates, policy)?;
-    #[cfg(feature = "medium")]
+    #[cfg(not(feature = "low"))]
     let mut retail = finish_retail(&mut scan, &mut scanner.regions, im);
     // A frame whose boxes read nothing but show retail evidence (guard patterns or blurred
     // symbol windows) is rescanned jointly with the full-frame window, as before. Other
@@ -164,7 +163,7 @@ fn scan_prepared_impl(
         &mut scan,
         &mut retail,
     )?;
-    #[cfg(not(feature = "medium"))]
+    #[cfg(feature = "low")]
     let mut retail = Vec::new();
     #[cfg(not(feature = "low"))]
     let recovery = recover(
@@ -253,12 +252,15 @@ fn scan_prepared_impl(
             &localization.proposals,
             &mut scan,
         )?;
+        if scan.frame.barcodes.is_empty() {
+            recover_downscaled(scanner, image, options, coverage, &mut scan)?;
+        }
     }
     #[cfg(feature = "low")]
     let _ = allow_restoration;
-    #[cfg(feature = "medium")]
+    #[cfg(not(feature = "low"))]
     drop_short_ghosts(&scan, &mut retail);
-    #[cfg(feature = "medium")]
+    #[cfg(not(feature = "low"))]
     merge_cross_list_duplicates(&scan, &mut retail);
     finish_primary(&mut scan, image, consolidate, options.multiple);
     Ok(Result {
@@ -288,6 +290,76 @@ fn recover_unread_crops(
     recover_late_wide_crop(scanner, image, options, coverage, proposals, scan)?;
     if scan.frame.barcodes.is_empty() {
         recover_scaled_crop(scanner, image, options, coverage, proposals, scan)?;
+    }
+    Ok(())
+}
+
+/// Large frames whose boxes read nothing but show retail evidence: decoding can fail at one
+/// sampling scale only, so rescan the whole frame reduced to the localizer raster and keep
+/// source-confirmed EAN-13/UPC-A reads.
+#[cfg(not(feature = "low"))]
+fn recover_downscaled(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    options: ScanOptions,
+    coverage: &[Quad],
+    scan: &mut super::ScanResult,
+) -> std::result::Result<(), Error> {
+    use barcode_research_core::numeric::usize_f64;
+    let long = image.width.max(image.height);
+    if long < 1600
+        || !scan
+            .frame
+            .candidates
+            .iter()
+            .any(|c| c.work.guard_pass > 0 || c.work.forward_blur_windows >= 2)
+    {
+        return Ok(());
+    }
+    let factor = 768. / usize_f64(long);
+    let (pixels, w, h) = restoration::reduce_gray(image, factor);
+    let reduced = Image {
+        data: &pixels,
+        width: w,
+        height: h,
+        channels: 1,
+        stride: w,
+    };
+    let scaled: Vec<Quad> = coverage
+        .iter()
+        .map(|q| q.map(|v| [v[0] * factor, v[1] * factor]))
+        .collect();
+    let retry = scan_prepared_impl(scanner, reduced, options, &scaled, false, false, false)?;
+    scan.frame.unfinished |= retry.scan.frame.unfinished;
+    for mut read in retry.scan.frame.barcodes {
+        if read.detection.support < 3 {
+            continue;
+        }
+        read.detection.polygon = read
+            .detection
+            .polygon
+            .map(|p| [p[0] / factor, p[1] / factor]);
+        if scan
+            .frame
+            .barcodes
+            .iter()
+            .any(|old| old.detection.digits == read.detection.digits)
+            || !recovered_ean_source_agreement(
+                image,
+                read.detection.polygon,
+                &read.detection.digits,
+            )
+            || source_contradiction(
+                image,
+                read.detection.polygon,
+                read.detection.digits,
+                &mut scanner.fast_profiles,
+            )?
+        {
+            continue;
+        }
+        read.candidate_indices.clear();
+        scan.frame.barcodes.push(read);
     }
     Ok(())
 }
@@ -592,7 +664,7 @@ fn localize(
             fragments.sort_by_key(|(edges, _)| std::cmp::Reverse(*edges));
             fragments.truncate(4);
         })?
-    } else if cfg!(any(feature = "high", feature = "very-high")) {
+    } else if cfg!(any(feature = "high", feature = "very-high")) && !tiny_stripes(image) {
         stripes::Result {
             proposals: Vec::new(),
             omitted: 0,
@@ -602,15 +674,8 @@ fn localize(
     } else {
         detector.detect(im)?
     };
-    // High and Very High also box symbols by segment voting; the stripe pass still supplies
-    // short-fragment hints and stripe evidence.
     #[cfg(any(feature = "high", feature = "very-high"))]
-    let found = stripes::Result {
-        proposals: segment_voting::localize(image).proposals,
-        omitted: 0,
-        limited: false,
-        trace: found.trace,
-    };
+    let found = high_boxes(found, image);
     #[cfg(feature = "medium")]
     let short_fragments = capture_short_fragments.then(Vec::new);
     #[cfg(not(feature = "medium"))]
@@ -659,6 +724,39 @@ fn localize(
             || secondary_omitted > 0,
         search_window: [[0., 0.], [right, 0.], [right, bottom], [0., bottom]],
     })
+}
+
+/// High and Very High also box symbols by segment voting; the stripe pass still supplies
+/// short-fragment hints and stripe evidence, and boxes for tiny frames.
+#[cfg(any(feature = "high", feature = "very-high"))]
+fn high_boxes(mut found: stripes::Result, image: Image<'_>) -> stripes::Result {
+    if tiny_stripes(image) {
+        // Voting has few segments on tiny frames; keep distinct stripe boxes after its boxes.
+        let mut proposals = segment_voting::localize(image).proposals;
+        for p in std::mem::take(&mut found.proposals) {
+            if !proposals
+                .iter()
+                .any(|q| super::geometry::overlap_quads(&p.polygon, &q.polygon).0 >= 0.9)
+            {
+                proposals.push(p);
+            }
+        }
+        proposals.truncate(SELECTED.proposal_limit - SELECTED.fit_limit - 12);
+        stripes::Result { proposals, ..found }
+    } else {
+        stripes::Result {
+            proposals: segment_voting::localize(image).proposals,
+            omitted: 0,
+            limited: false,
+            trace: found.trace,
+        }
+    }
+}
+
+/// Frames below half the voting raster also run the stripe localizer in High and Very High.
+#[cfg(not(feature = "medium"))]
+fn tiny_stripes(image: Image<'_>) -> bool {
+    image.width.max(image.height) < 384
 }
 
 fn add_secondary_proposals(
@@ -722,7 +820,7 @@ fn scan_policy(
     }
 }
 
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 fn finish_retail(
     scan: &mut super::ScanResult,
     regions: &mut super::RegionScanner,
@@ -998,7 +1096,7 @@ fn scan_alternatives(
 }
 
 /// Drop UPC-E/EAN-8 reads centred inside an EAN-13/UPC-A read: part-symbol ghosts.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 fn drop_short_ghosts(scan: &super::ScanResult, retail: &mut Vec<super::read::Read>) {
     let long: Vec<Quad> = scan
         .frame
@@ -1028,7 +1126,7 @@ fn drop_short_ghosts(scan: &super::ScanResult, retail: &mut Vec<super::read::Rea
 /// read or a better-supported retail read with the same payload (UPC-A as EAN-13) lies within
 /// half the longer read's long side and the two overlap or one is a fragment (less than half the
 /// other's short side). Separate equal symbols stay apart.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 fn merge_cross_list_duplicates(scan: &super::ScanResult, retail: &mut Vec<super::read::Read>) {
     let centre = |q: &Quad| {
         [

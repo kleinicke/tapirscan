@@ -60,12 +60,7 @@ fn digit_errors(widths: &[f32]) -> [[f32; 4]; 4] {
         std::array::from_fn(|w| (normalized[i] - crate::numeric::usize_f32(w + 1)).powi(2))
     })
 }
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 pub(crate) fn digit(widths: &[f32], side: u8) -> Digit {
-    digit_from_errors(&digit_errors(widths), side)
-}
-#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-fn digit(widths: &[f32], side: u8) -> Digit {
     digit_from_errors(&digit_errors(widths), side)
 }
 

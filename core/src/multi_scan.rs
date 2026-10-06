@@ -194,10 +194,7 @@ impl CandidateScanner {
         #[cfg(all(feature = "diagnostic-tile-events", not(target_arch = "wasm32")))]
         let observation_start = c.observations.len();
         let start = Timer::now();
-        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-        {
-            self.retail.coverage(c.coverage);
-        }
+        self.retail.coverage(c.coverage);
         c.work.paths += 1;
         c.work.retry_paths += 1;
         c.work.capped_paths += usize::from(s.sample_cap);
