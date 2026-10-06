@@ -44,7 +44,6 @@ pub mod multi_profile;
 pub mod multi_scan;
 pub mod region_json;
 pub mod region_scan;
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 pub(crate) mod retail_pipeline;
 mod scanner_clock;
 pub mod shear;

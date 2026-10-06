@@ -83,7 +83,6 @@ pub(crate) fn source_contradiction(
     Ok(false)
 }
 
-#[cfg(any(feature = "medium", feature = "low"))]
 pub(super) fn raw_source_normalize(values: &mut [f64; 256]) -> f64 {
     use barcode_research_core::numeric::usize_f64;
     const N: usize = 256;
@@ -106,7 +105,6 @@ pub(super) fn raw_source_normalize(values: &mut [f64; 256]) -> f64 {
     norm
 }
 
-#[cfg(any(feature = "medium", feature = "low"))]
 pub(super) fn raw_source_profiles(image: Image<'_>, q: Quad) -> Vec<([f64; 256], f64)> {
     use barcode_research_core::numeric::{f64_usize, usize_f64};
     let gray = |x: usize, y: usize| {
@@ -155,7 +153,6 @@ pub(super) fn raw_source_profiles(image: Image<'_>, q: Quad) -> Vec<([f64; 256],
 
 // Optional recovery acceptance only: test the claimed payload against unmodified
 // source luminance. Never repair digits or change existing decoder acceptance.
-#[cfg(any(feature = "medium", feature = "low"))]
 pub(crate) fn recovered_ean_source_agreement(image: Image<'_>, q: Quad, digits: &[u8; 13]) -> bool {
     use barcode_research_core::numeric::{f64_isize, f64_usize, isize_f64, usize_f64};
     let profiles = raw_source_profiles(image, q);
@@ -278,7 +275,6 @@ pub(super) fn independently_confirmed_ean_reads(
     Ok(accepted)
 }
 
-#[cfg(any(feature = "medium", feature = "low"))]
 pub(super) fn separated_source_rows_agree(best: &[f64; 3], height: f64) -> bool {
     use barcode_research_core::numeric::usize_f64;
     (0..3).any(|i| {

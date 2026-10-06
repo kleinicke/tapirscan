@@ -428,8 +428,8 @@ pub(super) fn recover_late_wide_crop(
 const SCALED_CROP_PIXELS: usize = 131_072;
 
 /// Area-averaged grayscale reduction of a source crop by `factor` (< 1).
-#[cfg(feature = "medium")]
-fn reduce_gray(image: Image<'_>, factor: f64) -> (Vec<u8>, usize, usize) {
+#[cfg(not(feature = "low"))]
+pub(super) fn reduce_gray(image: Image<'_>, factor: f64) -> (Vec<u8>, usize, usize) {
     use barcode_research_core::numeric::{f64_usize, usize_f64};
     let w = f64_usize((usize_f64(image.width) * factor).floor()).max(3);
     let h = f64_usize((usize_f64(image.height) * factor).floor()).max(3);

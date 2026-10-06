@@ -371,12 +371,7 @@ mod weak_tests;
 pub(crate) fn decode_runs(runs: &[(usize, usize, bool)], max_symbols: usize) -> Reads {
     decode_positions(runs, max_symbols, false)
 }
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 pub(crate) trait Position: Copy {
-    fn value(self) -> f64;
-}
-#[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-trait Position: Copy {
     fn value(self) -> f64;
 }
 impl Position for usize {
@@ -679,7 +674,6 @@ mod extrema_runs;
 pub(crate) use extrema_runs::{decode_extrema, decode_extrema_validated, ExtremaScratch};
 #[cfg(test)]
 mod folded_boundary_tests;
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 /// Research adapter: original EAN13 decisions and evidence remain intact.
 /// Short layouts consume the same extracted runs, with a separate output cap.
 #[derive(Default)]
@@ -687,12 +681,10 @@ pub struct RetailScratch {
     primary: LocalRuns,
     starts: Vec<usize>,
 }
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 pub struct RetailReads {
     pub ean13: Reads,
     pub short: retail_short::ShortReads,
 }
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 /// # Errors
 /// Rejects invalid profile geometry or unsupported family masks.
 pub fn decode_retail_profile(
@@ -716,7 +708,6 @@ pub fn decode_retail_profile(
     );
     Ok(RetailReads { ean13, short })
 }
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 /// Baseline access to the original local-profile stage and its scratch reuse.
 /// # Errors
 /// Rejects invalid profile geometry or unsupported family masks.
@@ -728,7 +719,6 @@ pub fn decode_legacy_local(
 ) -> Result<Reads, Error> {
     decode_local_variants(p, max_symbols, guard_bias, &mut scratch.primary)
 }
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 pub(crate) fn short_from_existing(
     runs: &LocalRuns,
     mask: u32,
@@ -779,7 +769,6 @@ pub(crate) fn short_from_existing(
     }
     out
 }
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 pub(crate) fn short_from_extrema(
     scratch: &ExtremaScratch,
     mask: u32,
@@ -791,6 +780,5 @@ pub(crate) fn short_from_extrema(
         retail_short::decode_runs(&scratch.runs, mask, max_symbols, primary, out);
     }
 }
-#[cfg(any(feature = "mode-low", feature = "mode-medium"))]
 #[path = "retail_short.rs"]
 pub mod retail_short;

@@ -15,10 +15,7 @@ pub(crate) struct Scratch {
 
     envelope: Vec<[f32; 4]>,
 
-    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     pub(crate) runs: multi_profile::LocalRuns,
-    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-    runs: multi_profile::LocalRuns,
 }
 fn quartile_radius(histogram: &[usize; 44], run_count: usize) -> usize {
     let target = run_count / 4;

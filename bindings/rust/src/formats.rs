@@ -333,7 +333,7 @@ impl Scanner {
             ..options
         };
         let shared_retail =
-            crate::MODE_ID == 1 && addons == EanAddOnPolicy::Ignore && mask & 12 != 0;
+            crate::MODE_ID != 0 && addons == EanAddOnPolicy::Ignore && mask & 12 != 0;
         let (extras, coverage) = scan_additional(
             image,
             if shared_retail { mask & !12 } else { mask },
@@ -894,7 +894,7 @@ fn scan_additional(
     let swept = if crate::MODE_ID == 0 || addons != EanAddOnPolicy::Ignore {
         LINEAR_MASK
     } else {
-        DATABAR_SWEPT | if crate::MODE_ID == 1 { 0 } else { 4 | 8 }
+        DATABAR_SWEPT
     };
     let linear = enabled & LINEAR_MASK & swept;
     let matrix = enabled & !LINEAR_MASK;

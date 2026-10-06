@@ -431,12 +431,10 @@ impl CandidateScanner {
             }
         }
         let raw = crate::multi_profile::decode_runs(&self.runs, 64);
-        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         {
             self.retail
                 .raw(&self.runs, &raw, axis, fraction, lo, hi, self.signal.len());
         }
-        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         {
             if !cleanup || self.retail.peak_retry {
                 self.retail
@@ -575,7 +573,6 @@ impl CandidateScanner {
                 work.extrema_ambiguous += usize::from(e.ambiguous);
                 work.extrema_decoder_calls += e.decoder_calls;
             }
-            #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
             {
                 self.retail.local(
                     &self.local_scratch,
