@@ -14,6 +14,10 @@
   other 1D formats and blurred video at equal or lower scan time.
 - Scans that select other linear formats sweep the whole image only for DataBar (and, in
   High and Very High, EAN-8/UPC-E); localized recovery reads the rest, with fewer wrong reads.
+- High and Very High read EAN-8 and UPC-E in their retail scan, like Medium: more reads, fewer
+  wrong reads, faster retail scans.
+- Large frames that read nothing but show retail evidence are rescanned at reduced resolution,
+  and High and Very High add stripe-detector boxes on very small frames.
 
 - Describe implemented barcode formats as supported, with documented variant limitations.
   Reserve the experimental label for Turbo presets; decoder behavior is unchanged.
