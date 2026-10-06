@@ -865,6 +865,9 @@ pub(crate) fn fast_additional(
     Ok((reads, distinct_regions(unread)))
 }
 
+/// GS1 `DataBar` and `DataBar` Expanded: linear formats only the whole-image sweep reads.
+const DATABAR_SWEPT: u32 = 8192 | 16384;
+
 /// Run the linear reader before primary discovery so strong reads can guide deep retries.
 #[expect(
     clippy::too_many_lines,
@@ -884,7 +887,16 @@ fn scan_additional(
     if enabled == 0 {
         return Ok((Vec::new(), Vec::new()));
     }
-    let linear = enabled & LINEAR_MASK;
+    // Localized linear recovery reads the other linear formats inside segment-voting boxes. The
+    // whole-image sweep stays for DataBar (stacked rows) and, outside Medium's shared retail
+    // scan, EAN-8 and UPC-E; for the rest it only added wrong reads and time. Low and EAN
+    // add-on reading keep the full sweep.
+    let swept = if crate::MODE_ID == 0 || addons != EanAddOnPolicy::Ignore {
+        LINEAR_MASK
+    } else {
+        DATABAR_SWEPT | if crate::MODE_ID == 1 { 0 } else { 4 | 8 }
+    };
+    let linear = enabled & LINEAR_MASK & swept;
     let matrix = enabled & !LINEAR_MASK;
     // ITF needs the original angle coverage even with localized profile recovery.
     let preserved = if crate::MODE_ID == 1 && addons == EanAddOnPolicy::Ignore {
