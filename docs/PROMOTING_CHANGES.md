@@ -20,6 +20,12 @@ dataset workspace. See [repository boundaries](RESEARCH_BOUNDARY.md).
 4. Format and run relevant core, public Rust, native/WASM and binding checks.
    Record a new runtime source snapshot and immutable WASM identities; select
    them in `provenance/modes.json`. Never overwrite an older artifact identity.
+   `scripts/promote_engines.py TAG --description TEXT` does this in one step and
+   refuses tags whose engine names are already recorded, registered in the demo
+   or present as local assets; `--demo-version` and `--demo-label` also select the
+   build as the demo's next readers. Time benchmarks on these recorded artifacts
+   (installed Chrome, JavaScript API); during iteration a small fixed subset of
+   only the changed modes is enough.
    Development builds use `verify_import.py --imports-only`; release checks also
    verify the selected runtime. Frozen decoder hashes remain enforced.
 5. Integrate the validated commit once and rebuild in the canonical checkout
