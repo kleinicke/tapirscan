@@ -5,7 +5,7 @@
 //! perspective and slightly bent labels), and a few dark probe bars are followed at half-pixel
 //! resolution between rows so a one-pixel separator ends the area exactly. The grown polygon
 //! decides which other reads lie on the same physical symbol.
-use super::{distance, line, Evidence};
+use super::{Evidence, distance, line};
 use crate::Quad;
 
 const SAMPLES: usize = 256;

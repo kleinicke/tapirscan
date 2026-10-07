@@ -3,9 +3,9 @@ use crate::format_registry::{
     ALL_FORMATS_MASK, EAN_ADDON_READ_FLAG, EAN_ADDON_REQUIRE_FLAG, LINEAR_MASK,
 };
 use crate::read::{Read, Region};
-use crate::{geometry::overlap_quads, Error, Image, ScanOptions, Scanner, MODE};
+use crate::{Error, Image, MODE, ScanOptions, Scanner, geometry::overlap_quads};
 use scanner_types::EngineScan;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Whether a retail barcode needs its adjacent two- or five-digit supplement.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

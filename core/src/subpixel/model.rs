@@ -30,11 +30,7 @@ fn normal_cdf(x: f64) -> f64 {
         * (0.319_381_530
             + t * (-0.356_563_782
                 + t * (1.781_477_937 + t * (-1.821_255_978 + t * 1.330_274_429))));
-    if x >= 0. {
-        1. - tail
-    } else {
-        tail
-    }
+    if x >= 0. { 1. - tail } else { tail }
 }
 fn blurred_cdf(t: f64, first: f64, second: f64, sigma: f64) -> f64 {
     if sigma <= 0. {

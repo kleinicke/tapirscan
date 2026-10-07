@@ -28,10 +28,14 @@ fn collect_exercises_reuse_without_altering_input_or_observation_shape() {
     assert!(work.redundant_decode_calls_avoided >= 2);
     assert!(work.accepted_paths > 0);
     assert_eq!(ex.signal, signal);
-    assert!(observations
-        .iter()
-        .any(|o| !o.ambiguous && o.digits == digits));
-    assert!(observations
-        .iter()
-        .all(|o| o.axis == 0 && o.fraction == 0.35));
+    assert!(
+        observations
+            .iter()
+            .any(|o| !o.ambiguous && o.digits == digits)
+    );
+    assert!(
+        observations
+            .iter()
+            .all(|o| o.axis == 0 && o.fraction == 0.35)
+    );
 }

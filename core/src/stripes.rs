@@ -375,11 +375,7 @@ mod reuse_tests {
             let pixels: Vec<u8> = (0..stride * height)
                 .map(|i| {
                     let value = u8::try_from((i * 37 + i / 17) % 256).unwrap();
-                    if dark {
-                        10 + value % 20
-                    } else {
-                        value
-                    }
+                    if dark { 10 + value % 20 } else { value }
                 })
                 .collect();
             let image = ImageView::new(&pixels, width, height, channels, stride).unwrap();

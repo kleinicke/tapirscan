@@ -1,7 +1,7 @@
 //! Matrix reader orchestration with shared baseline thresholds and bounded Aztec recovery.
 //! Reader order and non-Aztec policies mirror the pinned multiformat orchestrator.
 use barcode_multiformat::{
-    binarization, dm_detect, maxicode_detect, pdf417, qr_detect, regions, Detection, Scan,
+    Detection, Scan, binarization, dm_detect, maxicode_detect, pdf417, qr_detect, regions,
 };
 pub(crate) fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize) -> Scan {
     let mut regions = regions::Regions::default();

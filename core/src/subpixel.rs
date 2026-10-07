@@ -229,11 +229,13 @@ mod tests {
         let result = crate::region_scan::RegionScanner::default()
             .scan(image, &[q], crate::multi_scan::Policy::default())
             .unwrap();
-        assert!(result
-            .frame
-            .barcodes
-            .iter()
-            .any(|b| b.detection.digits == DIGITS));
+        assert!(
+            result
+                .frame
+                .barcodes
+                .iter()
+                .any(|b| b.detection.digits == DIGITS)
+        );
     }
     #[test]
     fn conflicting_bands_and_blank_images_are_not_reads() {

@@ -1,7 +1,7 @@
 //! Independent GS1 `DataBar Expanded` (single-row) decoder and GS1 bit parser.
 use crate::{
-    databar::{compositions, key, lookup_character, match_finder, Pattern},
-    linear::{pattern_error, Read},
+    databar::{Pattern, compositions, key, lookup_character, match_finder},
+    linear::{Read, pattern_error},
 };
 use std::fmt::Write as _;
 use std::sync::OnceLock;

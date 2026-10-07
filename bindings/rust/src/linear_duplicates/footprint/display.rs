@@ -1,5 +1,5 @@
 //! Bounded profile agreement for display geometry, never duplicate ownership.
-use super::{distance, line, point, project, Evidence};
+use super::{Evidence, distance, line, point, project};
 use crate::Quad;
 
 const SAMPLES: usize = 256;

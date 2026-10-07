@@ -75,12 +75,16 @@ fn weak_activated_reads_preserve_conflicts_and_separate_instances() {
     veto.rejected_intervals
         .push((ra.symbols[0].left, ra.symbols[0].right));
     veto.symbols.clear();
-    assert!(crate::transition::merge_reads(veto.clone(), ra.clone(), 64)
-        .symbols
-        .is_empty());
-    assert!(crate::transition::merge_reads(ra, veto, 64)
-        .symbols
-        .is_empty());
+    assert!(
+        crate::transition::merge_reads(veto.clone(), ra.clone(), 64)
+            .symbols
+            .is_empty()
+    );
+    assert!(
+        crate::transition::merge_reads(ra, veto, 64)
+            .symbols
+            .is_empty()
+    );
     for right in [a.clone(), b] {
         let mut both = a.clone();
         both.extend(right);

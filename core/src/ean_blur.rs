@@ -1,7 +1,7 @@
 //! Diagnostic finite forward model: blurred rectangular modules, no run count.
 //! Fixed Gaussian cell integrals at sigma .45/.65/.85 module units, radius two.
 //! Input is normalized module-center darkness; gain, bias and phase are not fit.
-use super::{bit, checksum, Digit, Result, PARITY};
+use super::{Digit, PARITY, Result, bit, checksum};
 pub const BLUR_SIGMAS: [f32; 3] = [0.45, 0.65, 0.85];
 const KERNELS: [[f32; 3]; 3] = [
     [0.733_479_5, 0.132_831_2, 0.000_429_046_5],
@@ -68,17 +68,9 @@ const fn pattern(model: usize, side: u8, d: usize, position: usize) -> f32 {
         // Every L/G digit starts0/ends1; R starts1/ends0. At the
         // adjacent guard boundaries the same outside bits are known exactly.
         let v = if i < 0 {
-            if side == b'R' {
-                0.
-            } else {
-                1.
-            }
+            if side == b'R' { 0. } else { 1. }
         } else if i > 6 {
-            if side == b'R' {
-                1.
-            } else {
-                0.
-            }
+            if side == b'R' { 1. } else { 0. }
         } else {
             bit(d, side, crate::numeric::i32_usize(i))
         };

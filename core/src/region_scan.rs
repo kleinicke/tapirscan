@@ -161,9 +161,11 @@ mod threshold_recovery_tests {
         let q = [[0., 0.], [63., 0.], [63., 31.], [0., 31.]];
         let mut scanner = RegionScanner::default();
         assert!(!scanner.engine.threshold_recovery);
-        assert!(scanner
-            .scan_threshold_recovery(image, &[q; 65], Policy::default())
-            .is_err());
+        assert!(
+            scanner
+                .scan_threshold_recovery(image, &[q; 65], Policy::default())
+                .is_err()
+        );
         assert!(!scanner.engine.threshold_recovery);
         let result = scanner
             .scan_threshold_recovery(image, &[q], Policy::default())

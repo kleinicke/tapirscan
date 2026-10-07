@@ -8,22 +8,14 @@ use crate::{
 // comparisons; the retained Turbo switch preserves its independent policy.
 fn minimum(a: f32, b: f32) -> f32 {
     if cfg!(feature = "mode-medium") || option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
-        if a < b {
-            a
-        } else {
-            b
-        }
+        if a < b { a } else { b }
     } else {
         a.min(b)
     }
 }
 fn maximum(a: f32, b: f32) -> f32 {
     if cfg!(feature = "mode-medium") || option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
-        if a > b {
-            a
-        } else {
-            b
-        }
+        if a > b { a } else { b }
     } else {
         a.max(b)
     }
@@ -236,15 +228,15 @@ impl Sampler {
             density.to_bits(),
             u64::try_from(limit).unwrap_or(u64::MAX),
         ];
-        if self.cache_active && self.cache_image == Some(cache_image) {
-            if let Some(index) = self.source_cache[..self.source_cache_used]
+        if self.cache_active
+            && self.cache_image == Some(cache_image)
+            && let Some(index) = self.source_cache[..self.source_cache_used]
                 .iter()
                 .position(|entry| entry.image == cache_image && entry.line == cache_line)
-            {
-                self.values.clone_from(&self.source_cache[index].values);
-                self.cache_current = Some(index);
-                return;
-            }
+        {
+            self.values.clone_from(&self.source_cache[index].values);
+            self.cache_current = Some(index);
+            return;
         }
         for &t in &self.positions {
             let x = start[0] + (end[0] - start[0]) * t;

@@ -1,6 +1,6 @@
 //! Source-gray sampling hypotheses around already localized matrix candidates.
 use barcode_multiformat::numeric::{f32_usize, usize_f32, usize_f64};
-use barcode_multiformat::{datamatrix, qr, qr_detect, Detection, Scan};
+use barcode_multiformat::{Detection, Scan, datamatrix, qr, qr_detect};
 use barcode_research_core::aztec_frontend::decoder as aztec;
 type Quad = [[f32; 2]; 4];
 
@@ -223,13 +223,12 @@ pub(crate) fn recover(
                                 reads.push(detection(read, q, mask, region.support));
                                 continue 'region;
                             }
-                            if mask == 4096 {
-                                if let Some((read, refined)) =
+                            if mask == 4096
+                                && let Some((read, refined)) =
                                     refine_aztec(pixels, width, height, q, cols, budget)
-                                {
-                                    reads.push(detection(read, refined, mask, region.support));
-                                    continue 'region;
-                                }
+                            {
+                                reads.push(detection(read, refined, mask, region.support));
+                                continue 'region;
                             }
                         } else {
                             hypotheses.push((error, cols, rows, bits, q));

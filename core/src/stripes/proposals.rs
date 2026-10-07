@@ -1,5 +1,5 @@
 //! Project grouped edges into ordered parent and band proposals.
-use super::{bounds, edge_weight, tensor_magnitude, Edge, GroupDiagnostic, ImageView, Proposal};
+use super::{Edge, GroupDiagnostic, ImageView, Proposal, bounds, edge_weight, tensor_magnitude};
 use super::{groups::Groups, raster::Raster, refinement::refine_band_angle};
 #[derive(Default)]
 pub(super) struct Fitted {

@@ -1,7 +1,7 @@
 //! Bounded two-finder recovery after the ordinary three-finder search finishes.
 //! No image labels, supplied dimensions or reference decoder are used.
-use super::{distance, homography, map, Finder};
-use crate::{qr, Detection};
+use super::{Finder, distance, homography, map};
+use crate::{Detection, qr};
 type Point = [f32; 2];
 
 fn fit(pairs: &[(Point, Point)], dimension: usize, target_scale: f32) -> Option<[f32; 8]> {

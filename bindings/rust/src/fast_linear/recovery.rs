@@ -1,11 +1,11 @@
 //! Source-profile recovery for localized regions in Medium, High and Very High:
 //! contrast, color and polarity variants, band probes, and bridge decoding that
 //! proves separate recovered bands belong to one physical symbol.
-use super::{point, sample_line, Candidate, SourceProfile, DENSITY, ROWS};
+use super::{Candidate, DENSITY, ROWS, SourceProfile, point, sample_line};
 use crate::{
+    Error, Image, ImageView, Quad,
     geometry::lerp,
     read::{Read, Region},
-    Error, Image, ImageView, Quad,
 };
 use barcode_multiformat::linear;
 use barcode_research_core::numeric::usize_f64;

@@ -101,10 +101,12 @@ fn axis_confirmation_preserves_two_nearby_equal_ean8_symbols() {
     for mask in [4, 15, 127] {
         let result = scan(&mut Scanner::default(), image, ScanOptions::default(), mask).unwrap();
         assert_eq!(result.barcodes.len(), 2, "tier={TIER}, mask={mask}");
-        assert!(result
-            .barcodes
-            .iter()
-            .all(|r| r.text == "96385074" && r.format.as_str() == "EAN8"));
+        assert!(
+            result
+                .barcodes
+                .iter()
+                .all(|r| r.text == "96385074" && r.format.as_str() == "EAN8")
+        );
         let mut centers: Vec<_> = result
             .barcodes
             .iter()
@@ -314,11 +316,7 @@ fn empty_scan_recovery_reads_blurred_small_ean13() {
         .map(|x| {
             let dark =
                 (padding..width - padding).contains(&x) && bits[(x - padding) / scale] == b'1';
-            if dark {
-                68.
-            } else {
-                188.
-            }
+            if dark { 68. } else { 188. }
         })
         .collect();
     let row: Vec<u8> = (0..width)

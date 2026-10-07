@@ -136,16 +136,18 @@ fn errors_do_not_poison_scanner_and_results_own_data() {
     }
     let white = [255; 64 * 64];
     let image = Image::gray(&white, 64, 64);
-    assert!(scanner
-        .scan_with_options(
-            image,
-            ScanOptions {
-                formats: Some(Format::QrCode.into()),
-            }
-        )
-        .unwrap()
-        .barcodes
-        .is_empty());
+    assert!(
+        scanner
+            .scan_with_options(
+                image,
+                ScanOptions {
+                    formats: Some(Format::QrCode.into()),
+                }
+            )
+            .unwrap()
+            .barcodes
+            .is_empty()
+    );
     let empty = scanner.scan(image).unwrap();
     assert!(empty.barcodes.is_empty());
     assert_eq!(empty.barcodes.len(), 0);

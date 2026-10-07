@@ -292,20 +292,22 @@ mod tests {
             (d[0] - d[1]).abs() < d[0].abs() * 0.2
         }));
         p.fill(255);
-        assert!(l
-            .detect(ImageView::new(&p, image_width, image_height, 1, image_width).unwrap())
-            .unwrap()
-            .is_empty());
+        assert!(
+            l.detect(ImageView::new(&p, image_width, image_height, 1, image_width).unwrap())
+                .unwrap()
+                .is_empty()
+        );
     }
     #[test]
     fn tiny_images_and_stride() {
         let mut l = Localizer::default();
         for (w, h) in [(1, 1), (2, 20), (20, 2)] {
             let p = vec![127; (w + 7) * h];
-            assert!(l
-                .detect(ImageView::new(&p, w, h, 1, w + 7).unwrap())
-                .unwrap()
-                .is_empty());
+            assert!(
+                l.detect(ImageView::new(&p, w, h, 1, w + 7).unwrap())
+                    .unwrap()
+                    .is_empty()
+            );
         }
     }
 }

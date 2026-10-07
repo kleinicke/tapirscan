@@ -1,8 +1,8 @@
 //! Extra admission proof for Very High's larger unchecked recovery allowance.
 use crate::{
+    Image, ImageView, Quad,
     geometry::lerp,
     read::{Read, Region},
-    Image, ImageView, Quad,
 };
 use barcode_research_core::{fast_profile::Sampler, numeric::usize_f64};
 

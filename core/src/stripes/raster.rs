@@ -170,11 +170,7 @@ impl Raster {
             let [a, bin_index] = [[0usize, 3], [1, 6], [4, 7], [2, 5]][(4 - (y + y / 2) % 4) % 4];
 
             let mut x = if sparse {
-                if a == 0 {
-                    bin_index
-                } else {
-                    a
-                }
+                if a == 0 { bin_index } else { a }
             } else {
                 1
             };

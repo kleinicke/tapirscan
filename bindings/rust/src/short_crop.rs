@@ -1,5 +1,5 @@
 //! Bounded short-code localization crops; all decoding uses original pixels.
-use crate::{geometry::overlap_quads, read::Read, Error, Image, Proposal, Quad};
+use crate::{Error, Image, Proposal, Quad, geometry::overlap_quads, read::Read};
 use barcode_research_core::{
     fast_profile::Sampler,
     numeric::{f64_usize, usize_f64},
@@ -161,7 +161,7 @@ fn crop_proposals(
 
 #[cfg(test)]
 mod tests {
-    use super::{crop_proposals, Detector, Image};
+    use super::{Detector, Image, crop_proposals};
     #[test]
     fn localization_honors_per_crop_and_remaining_pixel_limits() {
         let pixels = vec![255; 600 * 400];
@@ -176,9 +176,11 @@ mod tests {
         let mut detector = Detector::default();
         for budget in [0, 255, 256, 32_768, 65_536] {
             let mut remaining = budget;
-            assert!(crop_proposals(&mut detector, image, quad, &mut remaining)
-                .unwrap()
-                .is_empty());
+            assert!(
+                crop_proposals(&mut detector, image, quad, &mut remaining)
+                    .unwrap()
+                    .is_empty()
+            );
             assert!(remaining <= budget);
             assert!(budget - remaining <= 32_768);
             if budget < 256 {

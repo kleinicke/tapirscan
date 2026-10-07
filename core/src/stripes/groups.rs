@@ -1,6 +1,6 @@
 //! Ordered tile components, compatible merges and bounded growth.
 use super::raster::Raster;
-use super::{angle, bounds, distance, Tile};
+use super::{Tile, angle, bounds, distance};
 pub(super) struct Groups {
     pub items: Vec<Vec<usize>>,
     pub originals: usize,

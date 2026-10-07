@@ -1,6 +1,6 @@
 //! Bounded original-gray QR resampling around an existing qualified region.
 use barcode_multiformat::numeric::{f32_usize, usize_f32};
-use barcode_multiformat::{qr, qr_detect, Detection, Scan};
+use barcode_multiformat::{Detection, Scan, qr, qr_detect};
 type Quad = [[f32; 2]; 4];
 const BASE_OFFSETS: &[(f32, f32)] = &[(0., 0.), (-0.15, -0.15), (0.15, 0.15)];
 const HIGH_OFFSETS: &[(f32, f32)] = &[

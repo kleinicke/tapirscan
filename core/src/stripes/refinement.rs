@@ -1,9 +1,9 @@
 //! Source-pixel refinement and final bounded proposal assembly.
 #[cfg(all(test, feature = "mode-very-high"))]
 use super::raster::secondary_gray;
+use super::{Edge, ImageView, Proposal, Result, distance};
 #[cfg(test)]
 use super::{detect, detect_with_observer, edge_weight};
-use super::{distance, Edge, ImageView, Proposal, Result};
 use super::{groups::Groups, proposals::Fitted};
 pub(super) fn finish(im: ImageView<'_>, scale: f64, groups: Groups, fitted: Fitted) -> Result {
     let Groups {
@@ -1022,10 +1022,12 @@ mod tall_band_tests {
                 d[y * w + x] = 0;
             }
         }
-        assert!(detect(ImageView::new(&d, w, h, 1, w).unwrap())
-            .unwrap()
-            .proposals
-            .is_empty());
+        assert!(
+            detect(ImageView::new(&d, w, h, 1, w).unwrap())
+                .unwrap()
+                .proposals
+                .is_empty()
+        );
     }
 }
 #[cfg(test)]
@@ -1500,11 +1502,7 @@ mod quarter_lattice_tests {
                         .collect();
                     let [a, b] = [[0usize, 3], [1, 6], [4, 7], [2, 5]][(4 - (y + y / 2) % 4) % 4];
                     let mut x = if sparse {
-                        if a == 0 {
-                            b
-                        } else {
-                            a
-                        }
+                        if a == 0 { b } else { a }
                     } else {
                         1
                     };

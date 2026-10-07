@@ -1,5 +1,5 @@
 //! Component hull proposals with ECC200 border scoring and projective sampling.
-use crate::{datamatrix, qr_detect::map, Detection};
+use crate::{Detection, datamatrix, qr_detect::map};
 type Point = [f32; 2];
 fn cross(a: Point, b: Point, c: Point) -> f32 {
     (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
@@ -1192,10 +1192,10 @@ pub fn detect(
                             let Some(t) = rectangle_transform(size.w, size.h, expanded) else {
                                 continue;
                             };
-                            if let Some(score) = border(image, w, h, &t, size.w, size.h) {
-                                if score <= 0.2 {
-                                    hypotheses.push((score, *size, t, expanded));
-                                }
+                            if let Some(score) = border(image, w, h, &t, size.w, size.h)
+                                && score <= 0.2
+                            {
+                                hypotheses.push((score, *size, t, expanded));
                             }
                         }
                     }

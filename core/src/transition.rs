@@ -72,11 +72,11 @@ pub fn decode_cleaned(p: &[f32], max_symbols: usize) -> Result<(Reads, CleanupWo
     // Adjacent output runs can share polarity after two non-overlapping repairs.
     let mut merged: Vec<(usize, usize, bool)> = Vec::with_capacity(out.len());
     for r in out {
-        if let Some(last) = merged.last_mut() {
-            if last.2 == r.2 {
-                last.1 = r.1;
-                continue;
-            }
+        if let Some(last) = merged.last_mut()
+            && last.2 == r.2
+        {
+            last.1 = r.1;
+            continue;
         }
         merged.push(r);
     }
@@ -337,10 +337,12 @@ mod tests {
                 let mut noisy = p.clone();
                 let k = 12 * module + module / 2;
                 noisy[k] = 1. - noisy[k];
-                assert!(multi_profile::decode_many(&noisy, 64)
-                    .unwrap()
-                    .symbols
-                    .is_empty());
+                assert!(
+                    multi_profile::decode_many(&noisy, 64)
+                        .unwrap()
+                        .symbols
+                        .is_empty()
+                );
                 let (r, w) = decode_cleaned(&noisy, 64).unwrap();
                 assert_eq!(r.symbols.len(), 1);
                 assert_eq!(r.symbols[0].digits, [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7]);
@@ -365,10 +367,12 @@ mod tests {
         p[boundary - 1] = 1.;
         p[boundary] = 0.;
         p[boundary + 1] = 1.;
-        assert!(multi_profile::decode_many(&p, 64)
-            .unwrap()
-            .symbols
-            .is_empty());
+        assert!(
+            multi_profile::decode_many(&p, 64)
+                .unwrap()
+                .symbols
+                .is_empty()
+        );
         let (r, w) = decode_clustered(&p, 64).unwrap();
         assert_eq!(r.symbols.len(), 1);
         assert!(w.removed_runs >= 2);

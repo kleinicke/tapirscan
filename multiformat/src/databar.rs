@@ -1,7 +1,7 @@
 //! Independent GS1 `DataBar` Omnidirectional width/rank decoder.
 //! Standard group/finder tables are referenced from Zint's BSD-licensed encoder;
 //! composition enumeration and decoding here are project-owned.
-use crate::linear::{pattern_error, Read};
+use crate::linear::{Read, pattern_error};
 use std::sync::OnceLock;
 const FINDERS: [[u8; 5]; 9] = [
     [3, 8, 2, 1, 1],

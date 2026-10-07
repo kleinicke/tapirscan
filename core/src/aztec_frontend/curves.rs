@@ -1,7 +1,8 @@
 use super::decoder as aztec;
 use barcode_multiformat::{
+    Detection,
     numeric::{f32_usize, usize_f32, usize_f64},
-    qr_detect, Detection,
+    qr_detect,
 };
 /// Source pixels remain in the original image coordinate system.
 #[derive(Clone, Copy)]
@@ -314,15 +315,17 @@ mod tests {
         };
         let mut budget = 224;
         let mut limited = false;
-        assert!(sample(
-            input,
-            &seed.grid.t,
-            seed.grid.n,
-            hypothesis,
-            &mut budget,
-            &mut limited
-        )
-        .is_none());
+        assert!(
+            sample(
+                input,
+                &seed.grid.t,
+                seed.grid.n,
+                hypothesis,
+                &mut budget,
+                &mut limited
+            )
+            .is_none()
+        );
         assert!(limited);
         assert_eq!(budget, 224);
         budget = 225;

@@ -1,5 +1,5 @@
 //! Bullseye localization and independent Aztec grid sampling.
-use crate::{aztec, qr_detect, Detection};
+use crate::{Detection, aztec, qr_detect};
 mod center_index;
 #[derive(Clone)]
 struct Center {

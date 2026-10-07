@@ -7,7 +7,7 @@
 )]
 use crate::read::{Read, Recovery, Region};
 use crate::{Barcode, Error, Image, Proposal, Quad};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 type Point = [f64; 2];
 #[cfg(test)]

@@ -1,5 +1,5 @@
 //! Bounded source-pixel evidence for consolidating bands of one linear symbol.
-use crate::{geometry::distance, Image, Quad};
+use crate::{Image, Quad, geometry::distance};
 mod area;
 mod footprint;
 
@@ -854,8 +854,8 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
         let mut merged = false;
         if read.supported() {
             for other in &mut owned {
-                if read.same_symbol(other) {
-                    if let Some(polygon) = evidence
+                if read.same_symbol(other)
+                    && let Some(polygon) = evidence
                         .owned_bars(other.polygon, read.polygon, false)
                         .or_else(|| {
                             if matches!(crate::MODE_ID, 1..=3) {
@@ -864,12 +864,11 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
                                 None
                             }
                         })
-                    {
-                        other.polygon = polygon;
-                        other.geometry_changed = true;
-                        merged = true;
-                        break;
-                    }
+                {
+                    other.polygon = polygon;
+                    other.geometry_changed = true;
+                    merged = true;
+                    break;
                 }
             }
         }
@@ -955,46 +954,49 @@ fn trace_footprints<T>(
                 break;
             }
         }
-        if keep[i] {
-            if let Some(grown) = area::grow(&mut evidence, reads[i].polygon) {
-                // An interruption such as glare can split one symbol into two grown areas.
-                let joined = owners.iter().position(|(j, owner)| {
-                    let (a, b) = (&reads[*j], &reads[i]);
-                    suppress_conflicts
-                        && a.same_symbol(b)
-                        && a.addon == b.addon
-                        && a.gs1 == b.gs1
-                        && a.reader_initialization == b.reader_initialization
-                        && owner.adjoins(&grown, &mut evidence)
-                });
-                if let Some(k) = joined {
-                    owners[k].1.absorb(&grown);
-                    let j = owners[k].0;
-                    if geometry {
-                        reads[j].polygon = owners[k].1.polygon;
-                    }
-                    keep[i] = false;
-                    continue;
-                }
-                // Intermediate merges keep decoded outlines: later admission samples along them.
+        if keep[i]
+            && let Some(grown) = area::grow(&mut evidence, reads[i].polygon)
+        {
+            // An interruption such as glare can split one symbol into two grown areas.
+            let joined = owners.iter().position(|(j, owner)| {
+                let (a, b) = (&reads[*j], &reads[i]);
+                suppress_conflicts
+                    && a.same_symbol(b)
+                    && a.addon == b.addon
+                    && a.gs1 == b.gs1
+                    && a.reader_initialization == b.reader_initialization
+                    && owner.adjoins(&grown, &mut evidence)
+            });
+            if let Some(k) = joined {
+                owners[k].1.absorb(&grown);
+                let j = owners[k].0;
                 if geometry {
-                    reads[i].polygon = grown.polygon;
-                    reads[i].geometry_changed = true;
+                    reads[j].polygon = owners[k].1.polygon;
                 }
-                if suppress_conflicts {
-                    owners.push((i, grown));
-                }
-                measured[i] = true;
+                keep[i] = false;
+                continue;
             }
+            // Intermediate merges keep decoded outlines: later admission samples along them.
+            if geometry {
+                reads[i].polygon = grown.polygon;
+                reads[i].geometry_changed = true;
+            }
+            if suppress_conflicts {
+                owners.push((i, grown));
+            }
+            measured[i] = true;
         }
     }
     // Display recovery follows strict ownership and never suppresses a read.
     for (index, read) in reads.iter_mut().enumerate() {
-        if display_recovery && keep[index] && !measured[index] && read.supported() {
-            if let Some(polygon) = footprint::display(&mut evidence, read.polygon) {
-                read.polygon = polygon;
-                read.geometry_changed = true;
-            }
+        if display_recovery
+            && keep[index]
+            && !measured[index]
+            && read.supported()
+            && let Some(polygon) = footprint::display(&mut evidence, read.polygon)
+        {
+            read.polygon = polygon;
+            read.geometry_changed = true;
         }
     }
     reads

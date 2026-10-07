@@ -1,5 +1,5 @@
 //! Bounded observed-prominence topology, no payload-guided edges or repairs.
-use super::{decode_positions, Error, Reads};
+use super::{Error, Reads, decode_positions};
 const PROMINENCE: f32 = 0.04;
 const MAX_EXAMINED: usize = 8192;
 #[derive(Default)]

@@ -35,11 +35,7 @@ pub(super) fn score(gray: &[u8], w: usize, h: usize, t: &[f32; 8], mode: usize) 
         }
     }
     let v = black / 49. - white / 32.;
-    if matches!(mode, 2 | 3 | 5 | 7) {
-        -v
-    } else {
-        v
-    }
+    if matches!(mode, 2 | 3 | 5 | 7) { -v } else { v }
 }
 pub(super) fn refine(
     gray: &[u8],

@@ -131,10 +131,12 @@ fn relative_edges_preserve_clean_instances_reverse_and_negatives() {
     }
     let mut bad = a;
     bad[12] = (bad[12] + 1) % 10;
-    assert!(decode_relative_edges(&signal(&[bad]), 64, true)
-        .unwrap()
-        .symbols
-        .is_empty());
+    assert!(
+        decode_relative_edges(&signal(&[bad]), 64, true)
+            .unwrap()
+            .symbols
+            .is_empty()
+    );
     for p in [
         vec![0.; 512],
         vec![1.; 512],
@@ -145,10 +147,12 @@ fn relative_edges_preserve_clean_instances_reverse_and_negatives() {
             .map(|i| crate::numeric::f64_f32(f64::from(i)) / 511.)
             .collect(),
     ] {
-        assert!(decode_relative_edges(&p, 64, true)
-            .unwrap()
-            .symbols
-            .is_empty());
+        assert!(
+            decode_relative_edges(&p, 64, true)
+                .unwrap()
+                .symbols
+                .is_empty()
+        );
     }
     assert!(decode_relative_edges(&[f32::NAN; 512], 64, true).is_err());
 }
@@ -179,15 +183,21 @@ fn short_quiet_is_observed_and_does_not_repair_symbols() {
         assert_eq!(decode_short_quiet(&r, 64, true).symbols[0].digits, d);
         let mut bad = d;
         bad[12] = (bad[12] + 1) % 10;
-        assert!(decode_short_quiet(&build(&bad, 20, false), 64, true)
-            .symbols
-            .is_empty());
-        assert!(decode_short_quiet(&build(&d, 12, false), 64, true)
-            .symbols
-            .is_empty());
-        assert!(decode_short_quiet(&build(&d, 20, true), 64, true)
-            .symbols
-            .is_empty());
+        assert!(
+            decode_short_quiet(&build(&bad, 20, false), 64, true)
+                .symbols
+                .is_empty()
+        );
+        assert!(
+            decode_short_quiet(&build(&d, 12, false), 64, true)
+                .symbols
+                .is_empty()
+        );
+        assert!(
+            decode_short_quiet(&build(&d, 20, true), 64, true)
+                .symbols
+                .is_empty()
+        );
     }
 }
 fn digits(prefix: [u8; 12]) -> [u8; 13] {

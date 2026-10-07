@@ -645,10 +645,12 @@ fn source_association_budget_is_shared_across_candidates() {
     {
         #[cfg(feature = "mode-low")]
         {
-            assert!(frame
-                .candidates
-                .iter()
-                .all(|c| matches!(c.work.paths, 3 | 6)));
+            assert!(
+                frame
+                    .candidates
+                    .iter()
+                    .all(|c| matches!(c.work.paths, 3 | 6))
+            );
         }
         #[cfg(feature = "mode-medium")]
         {
@@ -677,10 +679,12 @@ fn source_association_budget_is_shared_across_candidates() {
             + frame.reconciliation.comparisons
             <= 1000
     );
-    assert!(frame
-        .candidates
-        .iter()
-        .any(|c| c.work.association_truncated > 0));
+    assert!(
+        frame
+            .candidates
+            .iter()
+            .any(|c| c.work.association_truncated > 0)
+    );
 }
 #[test]
 fn geometry_and_conflicting_text() {

@@ -1,6 +1,6 @@
 //! Bullseye localization and independent Aztec grid sampling.
 use crate::qr_frontend::binarization;
-use barcode_multiformat::{qr_detect, Detection};
+use barcode_multiformat::{Detection, qr_detect};
 use decoder as aztec;
 mod center_index;
 mod curves;

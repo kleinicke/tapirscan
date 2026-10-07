@@ -2,8 +2,8 @@
 //! Version bit placement/BCH polynomial verified against Nayuki's MIT encoder:
 //! <https://github.com/nayuki/QR-Code-generator/blob/master/rust/src/lib.rs>
 //! This only proposes grids; the project-owned QR payload/ECC decoder validates them.
-use super::{distance, map, sample, Finder};
-use barcode_multiformat::{qr, Detection};
+use super::{Finder, distance, map, sample};
+use barcode_multiformat::{Detection, qr};
 
 const fn version_word(version: u32) -> u32 {
     let mut remainder = version << 12;
@@ -371,8 +371,7 @@ fn recover_one(
     let approximate = frame(quad, 0, false, 3.);
     if let Some(moment_quad) =
         super::ring::ring_square_quad(image, w, h, [approximate[4], approximate[5]], approximate)
-    {
-        if let Some(read) = recover_geometry(
+        && let Some(read) = recover_geometry(
             image,
             w,
             h,
@@ -383,19 +382,19 @@ fn recover_one(
             limited,
             alignments,
             true,
-        ) {
-            return Some(read);
-        }
+        )
+    {
+        return Some(read);
     }
     if *attempts >= 64 {
         return None;
     }
-    if let Some(outer) = outer_quad(image, w, h, finder) {
-        if let Some(read) = recover_geometry(
+    if let Some(outer) = outer_quad(image, w, h, finder)
+        && let Some(read) = recover_geometry(
             image, w, h, finder, outer, 7., attempts, limited, alignments, true,
-        ) {
-            return Some(read);
-        }
+        )
+    {
+        return Some(read);
     }
     if *attempts >= 64 {
         return None;

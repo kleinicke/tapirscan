@@ -18,7 +18,15 @@ pub struct Conditioning {
 }
 impl Conditioning {
     pub fn json(&self) -> String {
-        format!("{{\"sampledPixels\":{},\"eligibleTiles\":{},\"tiles\":{},\"globalSpan\":{},\"global\":{},\"changedPixels\":{}}}",self.sampled_pixels,self.eligible_tiles,self.tiles,self.global_span,self.global,self.changed_pixels)
+        format!(
+            "{{\"sampledPixels\":{},\"eligibleTiles\":{},\"tiles\":{},\"globalSpan\":{},\"global\":{},\"changedPixels\":{}}}",
+            self.sampled_pixels,
+            self.eligible_tiles,
+            self.tiles,
+            self.global_span,
+            self.global,
+            self.changed_pixels
+        )
     }
 }
 fn bounds(h: &[usize; 256]) -> (usize, usize) {
@@ -192,7 +200,16 @@ pub struct MergeWork {
 }
 impl MergeWork {
     pub fn json(&self) -> String {
-        format!("{{\"comparisons\":{},\"redundant\":{},\"conflicting\":{},\"ambiguous\":{},\"added\":{},\"sourcePixels\":{},\"truncated\":{}}}",self.comparisons,self.redundant,self.conflicting,self.ambiguous,self.added,self.source_pixels,self.truncated)
+        format!(
+            "{{\"comparisons\":{},\"redundant\":{},\"conflicting\":{},\"ambiguous\":{},\"added\":{},\"sourcePixels\":{},\"truncated\":{}}}",
+            self.comparisons,
+            self.redundant,
+            self.conflicting,
+            self.ambiguous,
+            self.added,
+            self.source_pixels,
+            self.truncated
+        )
     }
 }
 /// No transitive grouping: each rescue output is compared with all original
@@ -340,17 +357,9 @@ mod tests {
         for y in 0..h {
             for x in 0..w {
                 data[y * w + x] = if x < 256 {
-                    if x % 8 < 4 {
-                        0
-                    } else {
-                        255
-                    }
+                    if x % 8 < 4 { 0 } else { 255 }
                 } else {
-                    if x % 8 < 4 {
-                        4
-                    } else {
-                        24
-                    }
+                    if x % 8 < 4 { 4 } else { 24 }
                 };
             }
         }
@@ -365,13 +374,17 @@ mod tests {
             seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
             *v = ((seed >> 24) % 25) as u8;
         }
-        assert!(condition(ImageView::new(&data, w, h, 1, w).unwrap())
-            .0
-            .is_none());
+        assert!(
+            condition(ImageView::new(&data, w, h, 1, w).unwrap())
+                .0
+                .is_none()
+        );
         data.fill(10);
-        assert!(condition(ImageView::new(&data, w, h, 1, w).unwrap())
-            .0
-            .is_none());
+        assert!(
+            condition(ImageView::new(&data, w, h, 1, w).unwrap())
+                .0
+                .is_none()
+        );
     }
     #[test]
     fn close_equal_text_blank_gap_remains_two() {

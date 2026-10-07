@@ -1,11 +1,11 @@
 //! Public Low oriented linear fast path. Deliberately bounded, always reports deferred work.
+#[cfg(feature = "low")]
+use crate::{Error, ScanOptions, Scanner, read::Region};
 use crate::{
+    Image, ImageView, Quad,
     geometry::lerp,
     read::{Read, ReaderPayload},
-    Image, ImageView, Quad,
 };
-#[cfg(feature = "low")]
-use crate::{read::Region, Error, ScanOptions, Scanner};
 use barcode_multiformat::linear;
 use barcode_research_core::numeric::usize_f64;
 
@@ -471,41 +471,42 @@ pub(crate) fn scan(
             reads.extend(recovered);
         }
     }
-    if reads.is_empty() && TIER != 0 {
-        if let Some((q, anchor, delta, text, format, left, right)) = recovery_seed {
-            let mut candidate = Candidate {
-                image,
-                im,
-                quad: q,
-                dense: false,
-                restored: false,
-                profile: SourceProfile::Gray(1.5),
-                localized: true,
-                mask: mask & 15,
-                remaining: 32768,
-                observations: Vec::new(),
-                row_positions: Vec::new(),
-            };
-            for (row, v) in [anchor - delta, anchor, anchor + delta]
-                .into_iter()
-                .enumerate()
-            {
-                sample_line(&mut candidate, &mut scanner.fast_profiles, row, v);
-                lines += 1;
-            }
-            candidate.observations.retain(|o| {
-                o.read.text == text
-                    && o.read.format == format
-                    && (o.left - left).abs() < 0.06
-                    && (o.right - right).abs() < 0.06
-                    && o.read.support >= 3
-            });
-            let mut recovered = Vec::new();
-            candidate.append_confirmed(false, &mut recovered, &mut Vec::new());
-            for read in recovered {
-                if retail_recovery_agrees(image, read.polygon, &read, &mut scanner.fast_profiles) {
-                    reads.push(read);
-                }
+    if reads.is_empty()
+        && TIER != 0
+        && let Some((q, anchor, delta, text, format, left, right)) = recovery_seed
+    {
+        let mut candidate = Candidate {
+            image,
+            im,
+            quad: q,
+            dense: false,
+            restored: false,
+            profile: SourceProfile::Gray(1.5),
+            localized: true,
+            mask: mask & 15,
+            remaining: 32768,
+            observations: Vec::new(),
+            row_positions: Vec::new(),
+        };
+        for (row, v) in [anchor - delta, anchor, anchor + delta]
+            .into_iter()
+            .enumerate()
+        {
+            sample_line(&mut candidate, &mut scanner.fast_profiles, row, v);
+            lines += 1;
+        }
+        candidate.observations.retain(|o| {
+            o.read.text == text
+                && o.read.format == format
+                && (o.left - left).abs() < 0.06
+                && (o.right - right).abs() < 0.06
+                && o.read.support >= 3
+        });
+        let mut recovered = Vec::new();
+        candidate.append_confirmed(false, &mut recovered, &mut Vec::new());
+        for read in recovered {
+            if retail_recovery_agrees(image, read.polygon, &read, &mut scanner.fast_profiles) {
+                reads.push(read);
             }
         }
     }

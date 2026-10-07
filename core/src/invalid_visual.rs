@@ -218,17 +218,19 @@ mod tests {
         assert_eq!(v[0].right, 95.);
         assert!(vetoes(&[bad, disjoint]).is_empty());
         assert!(vetoes(&[bad, weak, evidence(true, 0., 95., 0.02)]).is_empty());
-        assert!(vetoes(&[
-            RunVisual {
-                read: Read {
-                    gap: 0.09,
-                    ..bad.read
+        assert!(
+            vetoes(&[
+                RunVisual {
+                    read: Read {
+                        gap: 0.09,
+                        ..bad.read
+                    },
+                    ..bad
                 },
-                ..bad
-            },
-            weak
-        ])
-        .is_empty());
+                weak
+            ])
+            .is_empty()
+        );
         assert!(vetoes(&[evidence(false, 0., 95., 0.061), weak]).is_empty());
     }
     #[test]

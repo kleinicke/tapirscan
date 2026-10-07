@@ -1,5 +1,5 @@
 //! Independent original-pixel evidence that confirms or contradicts recovered reads.
-use super::{checked_image, Error, Image, Quad};
+use super::{Error, Image, Quad, checked_image};
 
 pub(crate) fn source_contradiction(
     image: Image<'_>,
@@ -58,10 +58,10 @@ pub(crate) fn source_contradiction(
                         continue;
                     }
                     if let Some(e) = barcode_research_core::run_ean::decode_visual_evidence(widths)
+                        && e.digits != expected
+                        && !row.contains(&e.digits)
                     {
-                        if e.digits != expected && !row.contains(&e.digits) {
-                            row.push(e.digits);
-                        }
+                        row.push(e.digits);
                     }
                 }
                 if reverse {

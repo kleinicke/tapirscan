@@ -39,10 +39,11 @@ fn export_attribute(group: &proc_macro2::Group) -> bool {
     if tokens.len() == 1 && ident(tokens.first(), "no_mangle") {
         return true;
     }
-    if tokens.len() == 2 && ident(tokens.first(), "unsafe") {
-        if let TokenTree::Group(inner) = &tokens[1] {
-            return export_attribute(inner);
-        }
+    if tokens.len() == 2
+        && ident(tokens.first(), "unsafe")
+        && let TokenTree::Group(inner) = &tokens[1]
+    {
+        return export_attribute(inner);
     }
     false
 }
@@ -58,17 +59,17 @@ impl Rewriter<'_> {
         let mut index = 0;
         while index < tokens.len() {
             let token = &tokens[index];
-            if punct(Some(token), '#') {
-                if let Some(TokenTree::Group(group)) = tokens.get(index + 1) {
-                    if group.delimiter() == Delimiter::Bracket && export_attribute(group) {
-                        edits.push(Edit {
-                            range: token.span().byte_range().start..group.span().byte_range().end,
-                            replacement: String::new(),
-                        });
-                        index += 2;
-                        continue;
-                    }
-                }
+            if punct(Some(token), '#')
+                && let Some(TokenTree::Group(group)) = tokens.get(index + 1)
+                && group.delimiter() == Delimiter::Bracket
+                && export_attribute(group)
+            {
+                edits.push(Edit {
+                    range: token.span().byte_range().start..group.span().byte_range().end,
+                    replacement: String::new(),
+                });
+                index += 2;
+                continue;
             }
             if configuration && ident(Some(token), "feature") && punct(tokens.get(index + 1), '=') {
                 let literal = tokens.get(index + 2).ok_or("missing feature literal")?;
@@ -160,12 +161,11 @@ impl Rewriter<'_> {
                 let end = source[edit.range.end..]
                     .find('\n')
                     .map(|i| edit.range.end + i);
-                if let Some(end) = end {
-                    if source[start..edit.range.start].trim().is_empty()
-                        && source[edit.range.end..end].trim().is_empty()
-                    {
-                        edit.range = start..end + 1;
-                    }
+                if let Some(end) = end
+                    && source[start..edit.range.start].trim().is_empty()
+                    && source[edit.range.end..end].trim().is_empty()
+                {
+                    edit.range = start..end + 1;
                 }
             }
 
@@ -259,8 +259,13 @@ fn f() { let feature = "mode-low"; assert!(cfg!(feature = "mode-high")); crate::
     }
     #[test]
     fn removes_only_real_export_attributes_and_keeps_use_trees() {
-        let output = run("#[no_mangle] pub extern \"C\" fn f() {}\n#[unsafe(no_mangle)] fn g() {}\nuse {crate::a, decoder::{b,c}};");
-        assert_eq!(output.files["lib.rs"], " pub extern \"C\" fn f() {}\n fn g() {}\nuse {crate::engine::core_low::a, crate::engine::shared::{b,c}};");
+        let output = run(
+            "#[no_mangle] pub extern \"C\" fn f() {}\n#[unsafe(no_mangle)] fn g() {}\nuse {crate::a, decoder::{b,c}};",
+        );
+        assert_eq!(
+            output.files["lib.rs"],
+            " pub extern \"C\" fn f() {}\n fn g() {}\nuse {crate::engine::core_low::a, crate::engine::shared::{b,c}};"
+        );
     }
     #[test]
     fn removing_exports_preserves_adjacent_documentation() {

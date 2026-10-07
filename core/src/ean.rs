@@ -405,7 +405,7 @@ mod tests {
 
 #[path = "ean_blur.rs"]
 mod blurred;
-pub use blurred::{blurred_guard_possible, decode_blurred, BlurredResult, BLUR_SIGMAS};
+pub use blurred::{BLUR_SIGMAS, BlurredResult, blurred_guard_possible, decode_blurred};
 
 #[cfg(test)]
 mod module_error_reuse_tests {

@@ -431,8 +431,8 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
                 if count != 8 && i < 6 {
                     parity = (parity << 1) | u8::from(selected.1);
                 }
-                digits.push(selected.0 .0);
-                err += selected.0 .1;
+                digits.push(selected.0.0);
+                err += selected.0.1;
                 at += 4;
             }
             if !ok {
@@ -559,7 +559,7 @@ fn ean_addon(r: &[f32], base_end: usize, module: f32, gain: f32) -> Option<Strin
                 (None, Some(b)) => (b, true),
                 _ => break,
             };
-            digits.push(selected.0 .0 as usize);
+            digits.push(selected.0.0 as usize);
             parity = parity * 2 + usize::from(selected.1);
             at += 4;
             if i + 1 < count {
@@ -822,10 +822,10 @@ fn code39(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     if black_max >= black_min || white_max >= white_min {
         return None;
     }
-    if black_max.max(white_max) < black_min.min(white_min) {
-        if let Some(read) = code39_with_gain(r, s, 0., limited) {
-            return Some(read);
-        }
+    if black_max.max(white_max) < black_min.min(white_min)
+        && let Some(read) = code39_with_gain(r, s, 0., limited)
+    {
+        return Some(read);
     }
     let black = (start[0] + start[2] + start[8]) / 3.;
     let white = (start[3] + start[5] + start[7]) / 3.;
@@ -943,12 +943,11 @@ fn codabar_one(r: &[f32]) -> Option<(usize, f32)> {
     sorted.sort_by(f32::total_cmp);
     let mut best = None;
     for wides in [2, 3] {
-        if let Some((bits, e)) = wide_bits_sorted(r, &sorted, 7, wides) {
-            if let Some(i) = CODA.iter().position(|&p| u16::from(p) == bits) {
-                if best.is_none_or(|(_, old)| e < old) {
-                    best = Some((i, e));
-                }
-            }
+        if let Some((bits, e)) = wide_bits_sorted(r, &sorted, 7, wides)
+            && let Some(i) = CODA.iter().position(|&p| u16::from(p) == bits)
+            && best.is_none_or(|(_, old)| e < old)
+        {
+            best = Some((i, e));
         }
     }
     best
@@ -1251,8 +1250,8 @@ mod tests {
                     if count != 8 && i < 6 {
                         parity = (parity << 1) | u8::from(selected.1);
                     }
-                    digits.push(selected.0 .0);
-                    err += selected.0 .1;
+                    digits.push(selected.0.0);
+                    err += selected.0.1;
                     at += 4;
                 }
                 if !ok {
@@ -1385,12 +1384,11 @@ mod tests {
     fn codabar_one_reference(r: &[f32]) -> Option<(usize, f32)> {
         let mut best = None;
         for wides in [2, 3] {
-            if let Some((bits, e)) = wide_bits_reference(r, 7, wides) {
-                if let Some(i) = CODA.iter().position(|&p| u16::from(p) == bits) {
-                    if best.is_none_or(|(_, old)| e < old) {
-                        best = Some((i, e));
-                    }
-                }
+            if let Some((bits, e)) = wide_bits_reference(r, 7, wides)
+                && let Some(i) = CODA.iter().position(|&p| u16::from(p) == bits)
+                && best.is_none_or(|(_, old)| e < old)
+            {
+                best = Some((i, e));
             }
         }
         best
@@ -1536,23 +1534,27 @@ mod tests {
             (code128, CODE128, "Code128"),
             (code93, CODE93, "Code93"),
         ] {
-            assert!(decode(
-                &runs
-                    .iter()
-                    .map(|&r| crate::numeric::usize_f32(r))
-                    .collect::<Vec<_>>(),
-                false,
-                mask
-            )
-            .is_empty());
+            assert!(
+                decode(
+                    &runs
+                        .iter()
+                        .map(|&r| crate::numeric::usize_f32(r))
+                        .collect::<Vec<_>>(),
+                    false,
+                    mask
+                )
+                .is_empty()
+            );
             let (image, w, h) = checksum_scene(&runs);
             let result = crate::scan(&image, w, h, mask, 1);
             assert!(result.barcodes.is_empty(), "{format}");
             assert_eq!(result.regions.len(), 2, "{format}");
-            assert!(result
-                .regions
-                .iter()
-                .all(|r| r.format == format && r.text.is_empty()));
+            assert!(
+                result
+                    .regions
+                    .iter()
+                    .all(|r| r.format == format && r.text.is_empty())
+            );
         }
     }
     #[test]

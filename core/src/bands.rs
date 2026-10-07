@@ -5,7 +5,7 @@ use crate::{
     continuity::Continuity,
     profile,
     sampling::{Error, ImageView, Path, Sampler},
-    scan::{project, transform, PathEvidence, Quad, Read},
+    scan::{PathEvidence, Quad, Read, project, transform},
 };
 pub const PATHS: usize = 32;
 pub const MAX_READS: usize = 8;
@@ -166,7 +166,7 @@ impl BandScanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const BITS:&str="10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101";
+    const BITS: &str = "10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101";
     fn image(split: bool) -> Vec<u8> {
         let mut p = vec![255; 420 * 400];
         for x in 0..380 {
@@ -190,9 +190,10 @@ mod tests {
                 .scan(ImageView::new(&p, 420, 400, 1, 420).unwrap(), q)
                 .unwrap();
             assert_eq!(r.len(), count);
-            assert!(r
-                .iter()
-                .all(|r| r.digits == [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7]));
+            assert!(
+                r.iter()
+                    .all(|r| r.digits == [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7])
+            );
             assert_eq!(s.attempts(), 64);
             assert!(!s.truncated());
         }

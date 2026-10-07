@@ -1,5 +1,5 @@
 //! Construct bounded retry plans independently of executing them.
-use super::{candidate_scanner, Candidate, Error, Policy, Quad, Segment, Work};
+use super::{Candidate, Error, Policy, Quad, Segment, Work, candidate_scanner};
 
 /// Breadth-first interval centers spread every short prefix across the extent.
 pub(super) fn spread_order(n: usize) -> Vec<usize> {

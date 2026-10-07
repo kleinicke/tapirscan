@@ -3,7 +3,7 @@ license = "MIT OR Apache-2.0"
 authors = ["Florian Nick"]
 name = "tapirscan-native"
 version = "1.3.0"
-edition = "2021"
+edition = "2024"
 publish = false
 [lib]
 name = "tapirscan"

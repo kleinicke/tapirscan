@@ -239,56 +239,48 @@ fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy
                     && policy.source_identity
                     && d.digits == member.digits
                     && crossing_read_paths(d.polygon, member.polygon)
+                    && let Some(im) = im
                 {
-                    if let Some(im) = im {
-                        let ends = |q: Quad| {
-                            [
-                                [0.5 * (q[0][0] + q[3][0]), 0.5 * (q[0][1] + q[3][1])],
-                                [0.5 * (q[1][0] + q[2][0]), 0.5 * (q[1][1] + q[2][1])],
-                            ]
-                        };
-                        let a = ends(d.polygon);
-                        let mut b = ends(member.polygon);
-                        if (a[1][0] - a[0][0]) * (b[1][0] - b[0][0])
-                            + (a[1][1] - a[0][1]) * (b[1][1] - b[0][1])
-                            < 0.
+                    let ends = |q: Quad| {
+                        [
+                            [0.5 * (q[0][0] + q[3][0]), 0.5 * (q[0][1] + q[3][1])],
+                            [0.5 * (q[1][0] + q[2][0]), 0.5 * (q[1][1] + q[2][1])],
+                        ]
+                    };
+                    let a = ends(d.polygon);
+                    let mut b = ends(member.polygon);
+                    if (a[1][0] - a[0][0]) * (b[1][0] - b[0][0])
+                        + (a[1][1] - a[0][1]) * (b[1][1] - b[0][1])
+                        < 0.
+                    {
+                        b.reverse();
+                    }
+                    work.source_pairs += 1;
+                    {
+                        #[cfg(any(
+                            feature = "mode-low",
+                            feature = "mode-medium",
+                            feature = "mode-high"
+                        ))]
                         {
-                            b.reverse();
-                        }
-                        work.source_pairs += 1;
-                        {
-                            #[cfg(any(
-                                feature = "mode-low",
-                                feature = "mode-medium",
-                                feature = "mode-high"
-                            ))]
-                            {
-                                if same_text_identity(
-                                    im,
-                                    a,
-                                    b,
-                                    &mut budget,
-                                    &mut counter,
-                                    &mut work,
-                                ) {
-                                    overlap = true;
-                                    work.source_matches += 1;
-                                }
+                            if same_text_identity(im, a, b, &mut budget, &mut counter, &mut work) {
+                                overlap = true;
+                                work.source_matches += 1;
                             }
-                            #[cfg(feature = "mode-very-high")]
-                            {
-                                if same_text_identity(
-                                    im,
-                                    a,
-                                    b,
-                                    &mut budget,
-                                    &mut counter,
-                                    &mut work,
-                                    &mut identity_cache,
-                                ) {
-                                    overlap = true;
-                                    work.source_matches += 1;
-                                }
+                        }
+                        #[cfg(feature = "mode-very-high")]
+                        {
+                            if same_text_identity(
+                                im,
+                                a,
+                                b,
+                                &mut budget,
+                                &mut counter,
+                                &mut work,
+                                &mut identity_cache,
+                            ) {
+                                overlap = true;
+                                work.source_matches += 1;
                             }
                         }
                     }
@@ -304,97 +296,91 @@ fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy
                     let partial_overlap = intersection(d.polygon, member.polygon) > 0.;
                     let shared_coverage = ci != mi
                         && intersection(candidates[ci].coverage, candidates[mi].coverage) > 0.;
-                    if ci == mi || partial_overlap || shared_coverage {
-                        if let (Some(im), Some((a, b))) =
+                    if (ci == mi || partial_overlap || shared_coverage)
+                        && let (Some(im), Some((a, b))) =
                             (im, crate::identity::gap_edges(d.polygon, member.polygon))
+                    {
+                        let mut barrier = false;
+                        let mut contradiction = false;
+                        for source in [Some(ci), if ci == mi { None } else { Some(mi) }]
+                            .into_iter()
+                            .flatten()
                         {
-                            let mut barrier = false;
-                            let mut contradiction = false;
-                            for source in [Some(ci), if ci == mi { None } else { Some(mi) }]
-                                .into_iter()
-                                .flatten()
-                            {
-                                let Ok(m) = crate::scan::transform(candidates[source].coverage)
-                                else {
-                                    contradiction = true;
-                                    break;
-                                };
-                                let source_axis = if source == ci { d.axis } else { member.axis };
-                                for o in candidates[source].observations.iter().filter(|o| {
+                            let Ok(m) = crate::scan::transform(candidates[source].coverage) else {
+                                contradiction = true;
+                                break;
+                            };
+                            let source_axis = if source == ci { d.axis } else { member.axis };
+                            for o in candidates[source].observations.iter().filter(|o| {
+                                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                                {
                                     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                                    {
-                                        #[cfg(any(
-                                            feature = "mode-high",
-                                            feature = "mode-very-high"
-                                        ))]
-                                        if o.invalid_checksum {
-                                            return false;
-                                        }
+                                    if o.invalid_checksum {
+                                        return false;
                                     }
-                                    (o.ambiguous && o.axis == source_axis)
-                                        || (!o.ambiguous && o.digits != d.digits)
-                                }) {
-                                    if !budget.check(&mut counter) {
+                                }
+                                (o.ambiguous && o.axis == source_axis)
+                                    || (!o.ambiguous && o.digits != d.digits)
+                            }) {
+                                if !budget.check(&mut counter) {
+                                    break;
+                                }
+                                if let Ok(p) = crate::candidate_scanner::point(
+                                    m.0,
+                                    o.axis,
+                                    (o.left + o.right) * 0.5,
+                                    o.fraction,
+                                ) && crate::identity::barrier_between(a, b, p)
+                                {
+                                    if o.ambiguous {
+                                        barrier = true;
+                                    } else {
+                                        contradiction = true;
                                         break;
                                     }
-                                    if let Ok(p) = crate::candidate_scanner::point(
-                                        m.0,
-                                        o.axis,
-                                        (o.left + o.right) * 0.5,
-                                        o.fraction,
-                                    ) {
-                                        if crate::identity::barrier_between(a, b, p) {
-                                            if o.ambiguous {
-                                                barrier = true;
-                                            } else {
-                                                contradiction = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                                if contradiction || counter.association_truncated > 0 {
-                                    break;
                                 }
                             }
-                            if (barrier || partial_overlap || shared_coverage)
-                                && !contradiction
-                                && counter.association_truncated == 0
+                            if contradiction || counter.association_truncated > 0 {
+                                break;
+                            }
+                        }
+                        if (barrier || partial_overlap || shared_coverage)
+                            && !contradiction
+                            && counter.association_truncated == 0
+                        {
+                            work.source_pairs += 1;
                             {
-                                work.source_pairs += 1;
+                                #[cfg(any(
+                                    feature = "mode-low",
+                                    feature = "mode-medium",
+                                    feature = "mode-high"
+                                ))]
                                 {
-                                    #[cfg(any(
-                                        feature = "mode-low",
-                                        feature = "mode-medium",
-                                        feature = "mode-high"
-                                    ))]
-                                    {
-                                        if same_text_identity(
-                                            im,
-                                            a,
-                                            b,
-                                            &mut budget,
-                                            &mut counter,
-                                            &mut work,
-                                        ) {
-                                            overlap = true;
-                                            work.source_matches += 1;
-                                        }
+                                    if same_text_identity(
+                                        im,
+                                        a,
+                                        b,
+                                        &mut budget,
+                                        &mut counter,
+                                        &mut work,
+                                    ) {
+                                        overlap = true;
+                                        work.source_matches += 1;
                                     }
-                                    #[cfg(feature = "mode-very-high")]
-                                    {
-                                        if same_text_identity(
-                                            im,
-                                            a,
-                                            b,
-                                            &mut budget,
-                                            &mut counter,
-                                            &mut work,
-                                            &mut identity_cache,
-                                        ) {
-                                            overlap = true;
-                                            work.source_matches += 1;
-                                        }
+                                }
+                                #[cfg(feature = "mode-very-high")]
+                                {
+                                    if same_text_identity(
+                                        im,
+                                        a,
+                                        b,
+                                        &mut budget,
+                                        &mut counter,
+                                        &mut work,
+                                        &mut identity_cache,
+                                    ) {
+                                        overlap = true;
+                                        work.source_matches += 1;
                                     }
                                 }
                             }

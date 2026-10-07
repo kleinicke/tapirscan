@@ -56,10 +56,11 @@ fn scan_scaled_many_reaches_blur_and_retains_native_discovery() {
     assert!(c.work.forward_blur_calls > 0);
     assert!(c.work.forward_blur_windows > 0);
     assert!(c.work.forward_blur_accepted_windows > 0);
-    assert!(c
-        .observations
-        .iter()
-        .any(|o| !o.ambiguous && o.digits == digits));
+    assert!(
+        c.observations
+            .iter()
+            .any(|o| !o.ambiguous && o.digits == digits)
+    );
     assert!(c.detections.iter().all(|d| d.digits == digits));
     assert!(c.work.forward_blur_model_attempts <= c.work.forward_blur_calls * 24);
 }

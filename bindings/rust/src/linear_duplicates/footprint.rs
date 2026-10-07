@@ -1,5 +1,5 @@
 //! Display outlines for reads whose symbol area could not be grown. Never ownership evidence.
-use super::{distance, line, Evidence};
+use super::{Evidence, distance, line};
 use crate::Quad;
 
 fn point(origin: [f64; 2], u: [f64; 2], x: f64, y: f64) -> [f64; 2] {

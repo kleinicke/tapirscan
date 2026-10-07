@@ -15,8 +15,9 @@ fn explicit_window_matches_native_and_interior_for_both_axes() {
         (0, 0.5, 0., 1., 4097),
         (0, 0.5, f64::NAN, 1., 64),
     ] {
-        assert!(e
-            .diagnostic_segment(im, q, axis, f, lo, hi, n, false)
-            .is_err());
+        assert!(
+            e.diagnostic_segment(im, q, axis, f, lo, hi, n, false)
+                .is_err()
+        );
     }
 }

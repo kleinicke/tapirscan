@@ -82,7 +82,7 @@ struct Segment {
 #[path = "verified_coverage.rs"]
 mod verified_coverage;
 
-use verified_coverage::{reuse_plan, verified_claims, ReuseBudget};
+use verified_coverage::{ReuseBudget, reuse_plan, verified_claims};
 
 // Equal text can denote separate physical barcodes. Only overlapping,
 // agreeing initial detections may share the easier-frame effort allocation.
@@ -177,6 +177,20 @@ impl CandidateScanner {
         );
         Ok(c)
     }
+    /// Collect observations along one retry segment with the selected policies.
+    fn collect_segment(&mut self, s: Segment, c: &mut Candidate, cleanup: bool, guard_bias: bool) {
+        self.collect_policy(
+            s.axis,
+            s.fraction,
+            s.lo,
+            s.hi,
+            &mut c.work,
+            &mut c.observations,
+            cleanup,
+            guard_bias,
+        );
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "A retry couples its path geometry, candidate accumulator and independent decoder policies."
@@ -199,9 +213,11 @@ impl CandidateScanner {
         c.work.retry_paths += 1;
         c.work.capped_paths += usize::from(s.sample_cap);
         c.work.unresolved_probe_paths += usize::from(s.unresolved);
-        let mut normalized = false;
         #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
-        eprintln!("{{\"retry\":true,\"axis\":{},\"fraction\":{},\"lo\":{},\"hi\":{},\"samples\":{},\"normalization\":\"global\"}}",s.axis,s.fraction,s.lo,s.hi,s.samples);
+        eprintln!(
+            "{{\"retry\":true,\"axis\":{},\"fraction\":{},\"lo\":{},\"hi\":{},\"samples\":{},\"normalization\":\"global\"}}",
+            s.axis, s.fraction, s.lo, s.hi, s.samples
+        );
         match self.sample_segment(
             im,
             m,
@@ -214,18 +230,8 @@ impl CandidateScanner {
             &mut c.work,
         ) {
             Ok(true) => {
-                normalized = true;
                 let before = c.observations.len();
-                self.collect_policy(
-                    s.axis,
-                    s.fraction,
-                    s.lo,
-                    s.hi,
-                    &mut c.work,
-                    &mut c.observations,
-                    cleanup,
-                    guard_bias,
-                );
+                self.collect_segment(s, c, cleanup, guard_bias);
                 if c.observations.len() == before {
                     self.extend_partial(
                         im,
@@ -243,18 +249,8 @@ impl CandidateScanner {
             }
             Ok(false) => {
                 if s.unresolved && self.normalize_sparse_signal() {
-                    normalized = true;
                     c.work.sparse_normalizations += 1;
-                    self.collect_policy(
-                        s.axis,
-                        s.fraction,
-                        s.lo,
-                        s.hi,
-                        &mut c.work,
-                        &mut c.observations,
-                        cleanup,
-                        guard_bias,
-                    );
+                    self.collect_segment(s, c, cleanup, guard_bias);
                 } else {
                     c.work.low_contrast += 1;
                 }
@@ -264,22 +260,29 @@ impl CandidateScanner {
         if interior && !c.error && self.normalize_interior(s.lo, s.hi, &mut c.work) {
             #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
             eprintln!("{{\"normalization\":\"interior\"}}");
-            normalized = true;
-            self.collect_policy(
-                s.axis,
-                s.fraction,
-                s.lo,
-                s.hi,
-                &mut c.work,
-                &mut c.observations,
-                cleanup,
-                guard_bias,
-            );
+            self.collect_segment(s, c, cleanup, guard_bias);
         }
 
-        let _ = normalized;
         #[cfg(all(feature = "diagnostic-tile-events", not(target_arch = "wasm32")))]
-        eprintln!("{{\"candidate\":{},\"retry\":{},\"axis\":{},\"fraction\":{},\"lo\":{},\"hi\":{},\"samples\":{},\"observations\":{:?},\"ambiguous\":{}}}",c.index,c.work.retry_paths,s.axis,s.fraction,s.lo,s.hi,s.samples,c.observations[observation_start..].iter().filter(|o|!o.ambiguous).map(|o|o.digits).collect::<Vec<_>>(),c.observations[observation_start..].iter().filter(|o|o.ambiguous).count());
+        eprintln!(
+            "{{\"candidate\":{},\"retry\":{},\"axis\":{},\"fraction\":{},\"lo\":{},\"hi\":{},\"samples\":{},\"observations\":{:?},\"ambiguous\":{}}}",
+            c.index,
+            c.work.retry_paths,
+            s.axis,
+            s.fraction,
+            s.lo,
+            s.hi,
+            s.samples,
+            c.observations[observation_start..]
+                .iter()
+                .filter(|o| !o.ambiguous)
+                .map(|o| o.digits)
+                .collect::<Vec<_>>(),
+            c.observations[observation_start..]
+                .iter()
+                .filter(|o| o.ambiguous)
+                .count()
+        );
         c.ms += start.ms();
     }
     /// # Errors
@@ -425,8 +428,8 @@ mod tests {
             }
         }
         assert!(ex.scan_all(im, &vec![q; 65], Policy::default()).is_err());
-        assert!(ex
-            .scan_all(
+        assert!(
+            ex.scan_all(
                 im,
                 &[q],
                 Policy {
@@ -434,7 +437,8 @@ mod tests {
                     ..Policy::default()
                 }
             )
-            .is_err());
+            .is_err()
+        );
     }
     #[test]
     fn observed_scale_reduces_work_without_exhausting_a_read_region() {
@@ -489,16 +493,19 @@ mod tests {
         assert!((interval.1 - 0.8).abs() < 1e-9);
         let mut work = Work::default();
         let p = unresolved_plan(m.0, &[d], 512, &mut work).unwrap();
-        assert!(p
-            .iter()
-            .any(|s| s.axis == 0 && s.fraction > 0.75 && s.lo == -0.15 && s.hi == 1.15));
-        assert!(p
-            .iter()
-            .any(|s| s.axis == 0 && s.fraction > 0.3 && s.fraction < 0.5 && s.lo >= 0.79));
-        assert!(p
-            .iter()
-            .filter(|s| s.axis == 0 && s.fraction > 0.3 && s.fraction < 0.5)
-            .all(|s| s.hi <= 0.11 || s.lo >= 0.79));
+        assert!(
+            p.iter()
+                .any(|s| s.axis == 0 && s.fraction > 0.75 && s.lo == -0.15 && s.hi == 1.15)
+        );
+        assert!(
+            p.iter()
+                .any(|s| s.axis == 0 && s.fraction > 0.3 && s.fraction < 0.5 && s.lo >= 0.79)
+        );
+        assert!(
+            p.iter()
+                .filter(|s| s.axis == 0 && s.fraction > 0.3 && s.fraction < 0.5)
+                .all(|s| s.hi <= 0.11 || s.lo >= 0.79)
+        );
     }
     #[test]
     fn capped_schedule_covers_the_whole_extent_and_both_axes() {
@@ -1264,14 +1271,16 @@ mod structural_retry_tests {
                 }
                 assert!(c.work.accepted_paths > 0);
                 assert_eq!(c.work.structural_retry_skipped, 0);
-                assert!(c
-                    .detections
-                    .iter()
-                    .any(|d| d.digits == a && d.polygon.iter().all(|p| p[0] < 500.)));
-                assert!(c
-                    .detections
-                    .iter()
-                    .any(|d| d.digits == second && d.polygon.iter().all(|p| p[0] > 500.)));
+                assert!(
+                    c.detections
+                        .iter()
+                        .any(|d| d.digits == a && d.polygon.iter().all(|p| p[0] < 500.))
+                );
+                assert!(
+                    c.detections
+                        .iter()
+                        .any(|d| d.digits == second && d.polygon.iter().all(|p| p[0] > 500.))
+                );
             }
         }
     }
@@ -1448,9 +1457,11 @@ mod candidate_retry_mask_tests {
                 },
             )
             .unwrap();
-        assert!(candidates[..63]
-            .iter()
-            .all(|c| c.work.discovery_paths == 10 && c.work.retry_paths == 10));
+        assert!(
+            candidates[..63]
+                .iter()
+                .all(|c| c.work.discovery_paths == 10 && c.work.retry_paths == 10)
+        );
         let control = engine
             .scan_scaled(image, &[quad], Policy::default())
             .unwrap();

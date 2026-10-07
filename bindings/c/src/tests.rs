@@ -57,7 +57,7 @@ fn gray(pixels: &[u8], width: u64, height: u64) -> ImageC {
 unsafe fn create(options: *const ScannerOptionsC) -> u64 {
     let mut scanner = 0;
     assert_eq!(
-        tapirscan_scanner_create(options, &raw mut scanner, std::ptr::null_mut()),
+        unsafe { tapirscan_scanner_create(options, &raw mut scanner, std::ptr::null_mut()) },
         0
     );
     scanner
@@ -65,33 +65,38 @@ unsafe fn create(options: *const ScannerOptionsC) -> u64 {
 
 unsafe fn scan(scanner: u64, image: &ImageC, options: *const ScanOptionsC) -> (i32, u64) {
     let mut result = 99;
-    let status = tapirscan_inspect(
-        scanner,
-        image,
-        options,
-        &raw mut result,
-        std::ptr::null_mut(),
-    );
+    let status = unsafe {
+        tapirscan_inspect(
+            scanner,
+            image,
+            options,
+            &raw mut result,
+            std::ptr::null_mut(),
+        )
+    };
     (status, result)
 }
 
 unsafe fn info(result: u64) -> ResultInfoC {
     let mut info = ResultInfoC::default();
-    assert_eq!(tapirscan_result_info(result, &raw mut info), 0);
+    assert_eq!(unsafe { tapirscan_result_info(result, &raw mut info) }, 0);
     info
 }
 
 unsafe fn json(result: u64) -> String {
     let mut length = 0;
-    assert_eq!(tapirscan_result_json_length(result, &raw mut length), 0);
+    assert_eq!(
+        unsafe { tapirscan_result_json_length(result, &raw mut length) },
+        0
+    );
     let length = usize::try_from(length).unwrap();
     let mut bytes = vec![0; length + 1];
     assert_eq!(
-        tapirscan_result_copy_json(result, bytes.as_mut_ptr(), length as u64),
+        unsafe { tapirscan_result_copy_json(result, bytes.as_mut_ptr(), length as u64) },
         BUFFER
     );
     assert_eq!(
-        tapirscan_result_copy_json(result, bytes.as_mut_ptr(), bytes.len() as u64),
+        unsafe { tapirscan_result_copy_json(result, bytes.as_mut_ptr(), bytes.len() as u64) },
         0
     );
     assert_eq!(bytes.pop(), Some(0));
@@ -131,10 +136,12 @@ fn decodes_with_typed_fields_and_owned_results() {
         assert_eq!(barcode.payload_bytes_length, ABSENT);
         assert_eq!(barcode.ean_add_on_length, ABSENT);
         assert_eq!(barcode.structured_append_count, 0);
-        assert!(barcode
-            .polygon
-            .iter()
-            .all(|p| p.x > 20.0 && p.x < f64::from(u32::try_from(width).unwrap())));
+        assert!(
+            barcode
+                .polygon
+                .iter()
+                .all(|p| p.x > 20.0 && p.x < f64::from(u32::try_from(width).unwrap()))
+        );
         assert_eq!(tapirscan_result_barcode(result, 1, &raw mut barcode), ARG);
         let mut text = [0_u8; 14];
         assert_eq!(
@@ -361,10 +368,12 @@ fn detailed_errors_are_per_call_and_cleared_on_success() {
             ARG
         );
         let original = error.message;
-        assert!(CStr::from_ptr(error.message.as_ptr().cast())
-            .to_str()
-            .unwrap()
-            .contains("format"));
+        assert!(
+            CStr::from_ptr(error.message.as_ptr().cast())
+                .to_str()
+                .unwrap()
+                .contains("format")
+        );
         std::thread::spawn(|| {
             let mut separate = ErrorC { message: [0; 512] };
             assert_eq!(
@@ -396,7 +405,7 @@ fn detailed_errors_are_per_call_and_cleared_on_success() {
         assert_eq!(tapirscan_result_destroy(result), 0);
         assert_eq!(tapirscan_scanner_destroy(scanner), 0);
         assert_eq!(
-            detailed(&raw mut error, || Err(invalid(&"é".repeat(512)))),
+            detailed(Some(&mut error), || Err(invalid(&"é".repeat(512)))),
             ARG
         );
         let truncated = CStr::from_ptr(error.message.as_ptr().cast())

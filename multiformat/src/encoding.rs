@@ -12,7 +12,7 @@ pub fn decode(bytes: &[u8], eci: Option<usize>) -> Option<String> {
                         u32::from(crate::encoding_tables::CP437[b as usize - 128])
                     })
                 })
-                .collect()
+                .collect();
         }
         Some(1 | 3 | 899) => return Some(bytes.iter().map(|&b| b as char).collect()),
         Some(4) => encoding_rs::ISO_8859_2,
@@ -40,7 +40,7 @@ pub fn decode(bytes: &[u8], eci: Option<usize>) -> Option<String> {
             return bytes
                 .iter()
                 .all(u8::is_ascii)
-                .then(|| bytes.iter().map(|&b| b as char).collect())
+                .then(|| bytes.iter().map(|&b| b as char).collect());
         }
         Some(28) => encoding_rs::BIG5,
         Some(29 | 31) => encoding_rs::GBK,

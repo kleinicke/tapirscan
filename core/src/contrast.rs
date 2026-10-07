@@ -122,8 +122,10 @@ mod tests {
         assert_eq!(got.digits, [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7]);
         let mut bad = *bits;
         bad[85..92].copy_from_slice(b"1001000");
-        assert!(crate::profile::decode(n.normalize(&make(&bad)).unwrap())
-            .unwrap()
-            .is_none());
+        assert!(
+            crate::profile::decode(n.normalize(&make(&bad)).unwrap())
+                .unwrap()
+                .is_none()
+        );
     }
 }

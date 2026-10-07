@@ -1,7 +1,7 @@
 //! Restored-contrast and threshold retries on bounded source crops.
 use super::{
-    checked_image, protected_primary, scan_prepared_impl, source_contradiction, Error, Image,
-    Proposal, Quad, ScanOptions, Scanner,
+    Error, Image, Proposal, Quad, ScanOptions, Scanner, checked_image, protected_primary,
+    scan_prepared_impl, source_contradiction,
 };
 #[cfg(feature = "medium")]
 use super::{recovered_ean_source_agreement, scan_policy};

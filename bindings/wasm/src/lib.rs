@@ -86,19 +86,19 @@ fn mutable_pointer(bytes: &mut [u8]) -> u32 {
 }
 
 /// Raw WASM adapter ABI version.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_abi_version() -> u32 {
     ABI_VERSION
 }
 
 /// Compiled effort mode: low=0, medium=1, high=2, very-high=3.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_mode() -> u32 {
     MODE_ID
 }
 
 /// Experimental Turbo preset compiled into this asset; zero for stable modes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_experimental_turbo() -> u32 {
     if MODE_ID != 0 {
         return 0;
@@ -113,7 +113,7 @@ pub extern "C" fn tapirscan_experimental_turbo() -> u32 {
 }
 
 /// Create a scanner. Returns zero for invalid configuration or capacity exhaustion.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_create(mode: u32, format_mask: u32, addon_policy: u32) -> u32 {
     if mode != MODE_ID {
         return 0;
@@ -149,7 +149,7 @@ pub extern "C" fn tapirscan_create(mode: u32, format_mask: u32, addon_policy: u3
 }
 
 /// Destroy a scanner and invalidate its input and output views.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_destroy(handle: u32) -> i32 {
     REGISTRY.with_borrow_mut(|registry| {
         if registry.sessions.remove(&handle).is_some() {
@@ -161,7 +161,7 @@ pub extern "C" fn tapirscan_destroy(handle: u32) -> i32 {
 }
 
 /// Allocate the validated pixel buffer. Its pointer is stable until the next prepare.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_prepare(
     handle: u32,
     width: u32,
@@ -206,7 +206,7 @@ pub extern "C" fn tapirscan_prepare(
 }
 
 /// Pointer to the prepared pixel buffer, or zero for an invalid/unprepared handle.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_input_ptr(handle: u32) -> u32 {
     REGISTRY.with_borrow_mut(|registry| {
         registry
@@ -218,7 +218,7 @@ pub extern "C" fn tapirscan_input_ptr(handle: u32) -> u32 {
 }
 
 /// Exact writable byte length returned by prepare.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_input_len(handle: u32) -> u32 {
     REGISTRY.with_borrow(|registry| {
         registry
@@ -232,7 +232,7 @@ pub extern "C" fn tapirscan_input_len(handle: u32) -> u32 {
 
 /// Scan flags: bit 1 requests the inspection report; other bits are rejected. Zero format mask uses
 /// the scanner's configured selection; a nonzero mask overrides it for this call.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_scan(handle: u32, flags: u32, format_mask: u32) -> i32 {
     if flags & !2 != 0 {
         return ARG;
@@ -362,7 +362,7 @@ fn wire_append(append: &StructuredAppend) -> serde_json::Value {
 }
 
 /// Pointer to the last JSON result/error, valid until the next scan or destroy.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_output_ptr(handle: u32) -> u32 {
     REGISTRY.with_borrow(|registry| {
         registry
@@ -373,7 +373,7 @@ pub extern "C" fn tapirscan_output_ptr(handle: u32) -> u32 {
 }
 
 /// Byte length of the last JSON result/error, excluding any terminator.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_output_len(handle: u32) -> u32 {
     REGISTRY.with_borrow(|registry| {
         registry

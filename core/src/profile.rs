@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn independent_runs_decode_both_directions_and_damaged_checksum_rejects() {
         // Independent EAN-13 run string for 5901234123457; no ean::encode use.
-        let bits="10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101";
+        let bits = "10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101";
         assert_eq!(bits.len(), 95);
         let mut p = [0.; LEN];
         for (i, v) in p.iter_mut().enumerate() {
@@ -411,7 +411,7 @@ mod precheck_tests {
 
     #[test]
     fn guard_rank_prune_preserves_reference_results_on_signal_families() {
-        let bits="10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101";
+        let bits = "10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101";
         let mut seed = 0x9e37_79b9_u32;
         for mode in 0..320 {
             let mut p = [0.; LEN];
@@ -502,9 +502,11 @@ mod forward_blur_tests {
         let mut invalid = digits;
         invalid[12] = 8;
         for sigma in [0.45, 0.65, 0.85] {
-            assert!(decode(&physical_profile(&invalid, sigma))
-                .unwrap()
-                .is_none());
+            assert!(
+                decode(&physical_profile(&invalid, sigma))
+                    .unwrap()
+                    .is_none()
+            );
         }
     }
     #[test]

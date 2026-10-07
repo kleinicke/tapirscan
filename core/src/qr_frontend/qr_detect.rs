@@ -2,7 +2,7 @@
 mod alignment_cached;
 mod curved;
 mod finder_index;
-use barcode_multiformat::{qr, Detection};
+use barcode_multiformat::{Detection, qr};
 mod partial;
 mod ring;
 mod single;
@@ -193,7 +193,7 @@ fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) ->
 }
 // Nearby triples bound dense-scene work without the cubic combinations of all
 // finders. Prefer compact, approximately orthogonal, similarly sized groups.
-fn local_triples(finders: &[Finder]) -> impl Iterator<Item = [usize; 3]> {
+fn local_triples(finders: &[Finder]) -> impl Iterator<Item = [usize; 3]> + use<> {
     let mut triples = Vec::new();
     for (a, finder) in finders.iter().enumerate() {
         let mut neighbors: Vec<_> = finders
@@ -827,10 +827,8 @@ fn detect_with_recovery(
                             })
                         });
                         any_valid |= fitted_valid;
-                        if fitted_valid {
-                            if let Some(t) = fitted {
-                                transforms.push(t);
-                            }
+                        if fitted_valid && let Some(t) = fitted {
+                            transforms.push(t);
                         }
                     }
                     if stage == 2 {

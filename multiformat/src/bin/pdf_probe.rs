@@ -1,5 +1,5 @@
 //! Native row/localization diagnostic using only our reader.
-use barcode_multiformat::{pdf417, pdf_localize};
+use barcode_multiformat::{pdf_localize, pdf417};
 use std::{env, fs};
 fn main() {
     let args: Vec<_> = env::args().collect();

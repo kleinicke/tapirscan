@@ -1,5 +1,5 @@
 //! Interpret sampled profiles and collect accepted observations.
-use super::{profile, run_ean, CandidateScanner, Observation, Timer, Work};
+use super::{CandidateScanner, Observation, Timer, Work, profile, run_ean};
 
 #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
 fn trace_reads(stage: &str, r: &crate::multi_profile::Reads) {
@@ -14,10 +14,7 @@ fn trace_reads(stage: &str, r: &crate::multi_profile::Reads) {
         );
     }
     for (left, right) in &r.rejected_intervals {
-        eprintln!(
-            "{{\"stage\":\"{}\",\"rejectedLeft\":{},\"rejectedRight\":{}}}",
-            stage, left, right
-        );
+        eprintln!("{{\"stage\":\"{stage}\",\"rejectedLeft\":{left},\"rejectedRight\":{right}}}");
     }
 }
 impl CandidateScanner {
@@ -30,16 +27,15 @@ impl CandidateScanner {
     ) {
         // Keep fixed512 and native profiles separate: sampling alternates between them.
         let slot = usize::from(self.signal.len() != 512);
-        if let Some(cache) = &self.profile_cache[slot] {
-            if cache.signal.len() == self.signal.len()
-                && cache
-                    .signal
-                    .iter()
-                    .zip(&self.signal)
-                    .all(|(a, b)| a.to_bits() == b.to_bits())
-            {
-                return (cache.result, cache.trace.clone());
-            }
+        if let Some(cache) = &self.profile_cache[slot]
+            && cache.signal.len() == self.signal.len()
+            && cache
+                .signal
+                .iter()
+                .zip(&self.signal)
+                .all(|(a, b)| a.to_bits() == b.to_bits())
+        {
+            return (cache.result, cache.trace.clone());
         }
         let result = if self.signal.len() == 512 {
             profile::decode_with_blur_trace(&self.signal)
@@ -333,7 +329,15 @@ impl CandidateScanner {
         let (start, mut run_visual, mut visual_capped, mut soft_reads) =
             (observations.len(), Vec::new(), false, Vec::new());
         #[cfg(all(feature = "diagnostic-retry-trace", not(target_arch = "wasm32")))]
-        eprintln!("{{\"collect\":true,\"axis\":{},\"fraction\":{},\"lo\":{},\"hi\":{},\"samples\":{},\"signal\":{:?}}}",axis,fraction,lo,hi,self.signal.len(),self.signal);
+        eprintln!(
+            "{{\"collect\":true,\"axis\":{},\"fraction\":{},\"lo\":{},\"hi\":{},\"samples\":{},\"signal\":{:?}}}",
+            axis,
+            fraction,
+            lo,
+            hi,
+            self.signal.len(),
+            self.signal
+        );
         crate::multi_profile::sample_runs(&self.signal, 64, &mut self.runs)
             .expect("validated sampled profile");
         #[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
@@ -673,26 +677,24 @@ impl CandidateScanner {
                 )) && (76..=384).contains(&self.signal.len())))
                 && reads.ambiguous_intervals == 0
                 && extra_profile_allowed
+                && let Some(p) = self.profile_decode(work)
             {
-                if let Some(p) = self.profile_decode(work) {
-                    soft_reads.push(p);
-                    let overlaps =
-                        |r: &crate::run_profile::Read| r.left < p.right && p.left < r.right;
-                    if reads
-                        .symbols
-                        .iter()
-                        .any(|r| overlaps(r) && r.digits != p.digits)
-                    {
-                        work.conflicts += 1;
-                        reads.rejected_intervals.push((p.left, p.right));
-                        reads.symbols.retain(|r| !overlaps(r));
-                    } else if !reads
-                        .symbols
-                        .iter()
-                        .any(|r| overlaps(r) && r.digits == p.digits)
-                    {
-                        reads.symbols.push(p);
-                    }
+                soft_reads.push(p);
+                let overlaps = |r: &crate::run_profile::Read| r.left < p.right && p.left < r.right;
+                if reads
+                    .symbols
+                    .iter()
+                    .any(|r| overlaps(r) && r.digits != p.digits)
+                {
+                    work.conflicts += 1;
+                    reads.rejected_intervals.push((p.left, p.right));
+                    reads.symbols.retain(|r| !overlaps(r));
+                } else if !reads
+                    .symbols
+                    .iter()
+                    .any(|r| overlaps(r) && r.digits == p.digits)
+                {
+                    reads.symbols.push(p);
                 }
             }
         }
@@ -729,26 +731,24 @@ impl CandidateScanner {
                 )) && (76..=1536).contains(&self.signal.len())))
                 && reads.ambiguous_intervals == 0
                 && extra_profile_allowed
+                && let Some(p) = self.profile_decode(work)
             {
-                if let Some(p) = self.profile_decode(work) {
-                    soft_reads.push(p);
-                    let overlaps =
-                        |r: &crate::run_profile::Read| r.left < p.right && p.left < r.right;
-                    if reads
-                        .symbols
-                        .iter()
-                        .any(|r| overlaps(r) && r.digits != p.digits)
-                    {
-                        work.conflicts += 1;
-                        reads.rejected_intervals.push((p.left, p.right));
-                        reads.symbols.retain(|r| !overlaps(r));
-                    } else if !reads
-                        .symbols
-                        .iter()
-                        .any(|r| overlaps(r) && r.digits == p.digits)
-                    {
-                        reads.symbols.push(p);
-                    }
+                soft_reads.push(p);
+                let overlaps = |r: &crate::run_profile::Read| r.left < p.right && p.left < r.right;
+                if reads
+                    .symbols
+                    .iter()
+                    .any(|r| overlaps(r) && r.digits != p.digits)
+                {
+                    work.conflicts += 1;
+                    reads.rejected_intervals.push((p.left, p.right));
+                    reads.symbols.retain(|r| !overlaps(r));
+                } else if !reads
+                    .symbols
+                    .iter()
+                    .any(|r| overlaps(r) && r.digits == p.digits)
+                {
+                    reads.symbols.push(p);
                 }
             }
         }

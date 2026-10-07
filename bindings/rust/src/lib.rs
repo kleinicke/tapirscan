@@ -233,18 +233,20 @@ mod tests {
         assert_eq!(window, usize::from(!cfg!(feature = "medium")));
         assert!(detailed.barcodes().is_empty());
         assert!(detailed.to_json("medium", 0.).contains("\"searchWindows\""));
-        assert!(scanner
-            .scan_with_options(
-                Image {
-                    data: &[],
-                    width: 64,
-                    height: 64,
-                    channels: 1,
-                    stride: 64
-                },
-                ScanOptions::default()
-            )
-            .is_err());
+        assert!(
+            scanner
+                .scan_with_options(
+                    Image {
+                        data: &[],
+                        width: 64,
+                        height: 64,
+                        channels: 1,
+                        stride: 64
+                    },
+                    ScanOptions::default()
+                )
+                .is_err()
+        );
     }
     #[test]
     fn single_selects_support_and_keeps_first_tie() {

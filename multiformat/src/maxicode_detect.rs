@@ -1,5 +1,5 @@
 //! `MaxiCode` circular finder localization and affine hexagonal-grid sampling.
-use crate::{maxicode, maxicode_tables::GRID, Detection};
+use crate::{Detection, maxicode, maxicode_tables::GRID};
 #[derive(Clone)]
 struct Center {
     x: f32,
@@ -206,10 +206,12 @@ fn point(t: &[f32; 6], x: f32, y: f32) -> [f32; 2] {
 }
 #[must_use]
 pub fn diagnostic_centers(bits: &[bool], w: usize, h: usize) -> serde_json::Value {
-    serde_json::json!(centers(bits, w, h)
-        .iter()
-        .map(|c| serde_json::json!({"x":c.x,"y":c.y,"sx":c.sx,"sy":c.sy,"support":c.support}))
-        .collect::<Vec<_>>())
+    serde_json::json!(
+        centers(bits, w, h)
+            .iter()
+            .map(|c| serde_json::json!({"x":c.x,"y":c.y,"sx":c.sx,"sy":c.sy,"support":c.support}))
+            .collect::<Vec<_>>()
+    )
 }
 fn cell(row: usize, col: usize) -> [f32; 2] {
     [

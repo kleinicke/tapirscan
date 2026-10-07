@@ -1,6 +1,6 @@
 //! Sparse original-pixel orientation hypotheses for private speed-tier research.
 //! This is localization only: source profiles still validate every payload.
-use super::{bounds, groups, raster::Raster, Error, ImageView, Proposal, Result, Tile};
+use super::{Error, ImageView, Proposal, Result, Tile, bounds, groups, raster::Raster};
 use crate::numeric::{f64_usize, usize_f64};
 
 fn gray(im: ImageView<'_>, x: usize, y: usize) -> f64 {
@@ -129,10 +129,10 @@ pub(super) fn detect(
             .skip(groups.originals)
             .take(groups.merged_count)
         {
-            if let Some(p) = proposal(queue) {
-                if !proposals.iter().any(|old| old.polygon == p.polygon) {
-                    proposals.push(p);
-                }
+            if let Some(p) = proposal(queue)
+                && !proposals.iter().any(|old| old.polygon == p.polygon)
+            {
+                proposals.push(p);
             }
             if proposals.len() > initial {
                 break;

@@ -1,4 +1,4 @@
-use super::{gray_image, Image};
+use super::{Image, gray_image};
 #[test]
 fn specialized_luminance_matches_scalar_pixels_and_short_final_rows() {
     for channels in [1, 3, 4] {

@@ -1,6 +1,6 @@
 //! Profile sampling and normalization. Scratch storage belongs to `CandidateScanner`.
 use super::{
-    distance, point, scan, CandidateScanner, Error, ImageView, Observation, Path, Quad, Timer, Work,
+    CandidateScanner, Error, ImageView, Observation, Path, Quad, Timer, Work, distance, point, scan,
 };
 
 pub(super) fn interior_bounds(n: usize, lo: f64, hi: f64) -> (usize, usize) {

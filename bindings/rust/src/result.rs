@@ -1,5 +1,5 @@
 use crate::{Error, Result as ScanResult};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Build the shared schema without serializing and reparsing the complete result.
 /// Detailed frame evidence remains owned by the pinned core serializer because its
@@ -42,15 +42,17 @@ pub(crate) fn value(
             "workLimited": result.localization_work_limited,
         });
         // Only a window that was actually searched is reported.
-        output["searchWindows"] = json!(result
-            .search_window
-            .iter()
-            .map(|polygon| json!({
-                "kind": "full_frame_search",
-                "polygon": polygon,
-                "candidateIndex": result.proposals.len(),
-            }))
-            .collect::<Vec<_>>());
+        output["searchWindows"] = json!(
+            result
+                .search_window
+                .iter()
+                .map(|polygon| json!({
+                    "kind": "full_frame_search",
+                    "polygon": polygon,
+                    "candidateIndex": result.proposals.len(),
+                }))
+                .collect::<Vec<_>>()
+        );
         if let Some(recovery) = result
             .recovery
             .as_ref()

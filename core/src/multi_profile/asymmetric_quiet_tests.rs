@@ -20,16 +20,22 @@ fn asymmetric_quiet_follows_reading_direction_and_keeps_checksum() {
             decode_short_quiet(&runs(d, 6, 3, reverse), 64, true).symbols[0].digits,
             d
         );
-        assert!(decode_short_quiet(&runs(d, 3, 6, reverse), 64, true)
-            .symbols
-            .is_empty());
-        assert!(decode_short_quiet(&runs(d, 6, 2, reverse), 64, true)
-            .symbols
-            .is_empty());
+        assert!(
+            decode_short_quiet(&runs(d, 3, 6, reverse), 64, true)
+                .symbols
+                .is_empty()
+        );
+        assert!(
+            decode_short_quiet(&runs(d, 6, 2, reverse), 64, true)
+                .symbols
+                .is_empty()
+        );
         let mut bad = d;
         bad[12] = 8;
-        assert!(decode_short_quiet(&runs(bad, 6, 3, reverse), 64, true)
-            .symbols
-            .is_empty());
+        assert!(
+            decode_short_quiet(&runs(bad, 6, 3, reverse), 64, true)
+                .symbols
+                .is_empty()
+        );
     }
 }

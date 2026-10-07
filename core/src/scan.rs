@@ -356,7 +356,7 @@ impl Scanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const BITS:&str="10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101";
+    const BITS: &str = "10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101";
     fn fixture() -> Vec<u8> {
         let mut image = vec![255; 1000 * 180];
         for x in 0..380 {
@@ -388,9 +388,10 @@ mod tests {
             assert_eq!(r.coverage, q[i]);
             assert_eq!(r.rank, i + 1);
             let p = r.read.unwrap().polygon;
-            assert!(p
-                .iter()
-                .all(|p| p[0] >= q[i][0][0] - 2. && p[0] <= q[i][1][0] + 2.));
+            assert!(
+                p.iter()
+                    .all(|p| p[0] >= q[i][0][0] - 2. && p[0] <= q[i][1][0] + 2.)
+            );
         }
         assert!(scanner.scan_regions(im, &[]).unwrap().is_empty());
         assert!(results[0].read.is_some());
@@ -405,9 +406,10 @@ mod tests {
         assert_eq!(results[0].error, Some(Error::Geometry));
         assert!(results[1].read.is_some());
         assert_eq!(results[1].rank, 1);
-        assert!(s
-            .scan_regions(im, &vec![valid; MAX_CANDIDATES + 1])
-            .is_err());
+        assert!(
+            s.scan_regions(im, &vec![valid; MAX_CANDIDATES + 1])
+                .is_err()
+        );
         assert!(s.results.is_empty());
         assert!(ImageView::new(&pixels[..100], 1000, 180, 1, 1000).is_err());
     }

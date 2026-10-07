@@ -1,10 +1,10 @@
 //! Independent `MaxiCode` module extraction, GF(64) correction and payload parser.
 //! The standard placement/character constants are attributed separately.
 use crate::{
+    StructuredAppend,
     maxicode_tables::{CHARS, GRID},
     qr::Payload,
     reed_binary::Field,
-    StructuredAppend,
 };
 
 #[must_use]

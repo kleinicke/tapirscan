@@ -6,8 +6,8 @@
 //! kernel hypotheses and rescanned for EAN-13/UPC-A only: short formats would decode the ghost
 //! patterns that deblurring leaves inside the bars.
 use super::{
-    checked_image, scan_policy, source_contradiction, Error, Image, Proposal, Quad, ScanOptions,
-    Scanner,
+    Error, Image, Proposal, Quad, ScanOptions, Scanner, checked_image, scan_policy,
+    source_contradiction,
 };
 use barcode_research_core::numeric::{f64_u8, f64_usize, usize_f64};
 

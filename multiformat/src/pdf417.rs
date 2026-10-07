@@ -1,5 +1,5 @@
 //! Independent PDF417 row reader, metadata voting and payload compaction.
-use crate::{pdf417_tables::CODES, reed_prime, Detection};
+use crate::{Detection, pdf417_tables::CODES, reed_prime};
 use std::{collections::BTreeMap, sync::OnceLock};
 
 // PDF417 codewords are 17-bit patterns with a fixed one at the MSB and zero
@@ -236,26 +236,25 @@ fn read_row_reuse(
             if at + 17 <= r.len()
                 && crate::linear::pattern_error(&r[at + 8..], &[7, 1, 1, 3, 1, 1, 1, 2, 1]) < 0.18
             {
-                if let Some((_, cluster)) = left_symbol.or(val) {
-                    if !values.is_empty()
-                        && left_symbol.is_none_or(|(_, c)| c == cluster)
-                        && val.is_none_or(|(_, c)| c == cluster)
-                    {
-                        out.push(Row {
-                            left: left_symbol.map(|(v, _)| v),
-                            right: val.map(|(v, _)| v),
-                            cluster,
-                            values: values
-                                .iter()
-                                .map(|&v: &Option<(usize, usize)>| {
-                                    v.and_then(|(v, c)| if c == cluster { Some(v) } else { None })
-                                })
-                                .collect(),
-                            x0: crate::numeric::usize_f32(offsets[s]),
-                            x1: crate::numeric::usize_f32(offsets[at + 17]),
-                            y,
-                        });
-                    }
+                if let Some((_, cluster)) = left_symbol.or(val)
+                    && !values.is_empty()
+                    && left_symbol.is_none_or(|(_, c)| c == cluster)
+                    && val.is_none_or(|(_, c)| c == cluster)
+                {
+                    out.push(Row {
+                        left: left_symbol.map(|(v, _)| v),
+                        right: val.map(|(v, _)| v),
+                        cluster,
+                        values: values
+                            .iter()
+                            .map(|&v: &Option<(usize, usize)>| {
+                                v.and_then(|(v, c)| if c == cluster { Some(v) } else { None })
+                            })
+                            .collect(),
+                        x0: crate::numeric::usize_f32(offsets[s]),
+                        x1: crate::numeric::usize_f32(offsets[at + 17]),
+                        y,
+                    });
                 }
                 break;
             }
@@ -266,21 +265,20 @@ fn read_row_reuse(
             if r[at + 8] >= module * 0.5
                 && r[at + 8] <= module * 1.8
                 && (at + 9 == r.len() || r[at + 9] >= module * 1.75)
+                && let Some((left, cluster)) = left_symbol
             {
-                if let Some((left, cluster)) = left_symbol {
-                    out.push(Row {
-                        left: Some(left),
-                        right: None,
-                        cluster,
-                        values: values
-                            .iter()
-                            .map(|v| v.and_then(|(value, c)| (c == cluster).then_some(value)))
-                            .collect(),
-                        x0: crate::numeric::usize_f32(offsets[s]),
-                        x1: crate::numeric::usize_f32(offsets[at + 9]),
-                        y,
-                    });
-                }
+                out.push(Row {
+                    left: Some(left),
+                    right: None,
+                    cluster,
+                    values: values
+                        .iter()
+                        .map(|v| v.and_then(|(value, c)| (c == cluster).then_some(value)))
+                        .collect(),
+                    x0: crate::numeric::usize_f32(offsets[s]),
+                    x1: crate::numeric::usize_f32(offsets[at + 9]),
+                    y,
+                });
             }
             at += 8;
         }
@@ -682,13 +680,8 @@ fn detect_axes(
                 let x1 = group.iter().map(|r| r.x1).fold(f32::NEG_INFINITY, f32::max);
                 let y0 = group.iter().map(|r| r.y).fold(f32::INFINITY, f32::min);
                 let y1 = group.iter().map(|r| r.y).fold(f32::NEG_INFINITY, f32::max);
-                let polygon = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(|p| {
-                    if vertical {
-                        [p[1], p[0]]
-                    } else {
-                        p
-                    }
-                });
+                let polygon = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+                    .map(|p| if vertical { [p[1], p[0]] } else { p });
                 if group.iter().any(|r| r.right.is_some()) || compact_region_valid(&group) {
                     regions.add("PDF417", polygon, 1., group.len());
                 }
@@ -698,13 +691,8 @@ fn detect_axes(
                     let x1 = group.iter().map(|r| r.x1).fold(f32::NEG_INFINITY, f32::max);
                     let y0 = group.iter().map(|r| r.y).fold(f32::INFINITY, f32::min);
                     let y1 = group.iter().map(|r| r.y).fold(f32::NEG_INFINITY, f32::max);
-                    let polygon = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(|p| {
-                        if vertical {
-                            [p[1], p[0]]
-                        } else {
-                            p
-                        }
-                    });
+                    let polygon = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
+                        .map(|p| if vertical { [p[1], p[0]] } else { p });
                     if !results.iter().any(|r| {
                         r.text == text
                             && (r.polygon[0][0] - polygon[0][0])

@@ -13,7 +13,44 @@ fn text(d: [u8; 13]) -> String {
     reason = "Serialize one complete work-counter record with mode-specific fields."
 )]
 fn work(w: &Work) -> String {
-    let s = format!("{{\"paths\":{},\"samples\":{},\"low_contrast\":{},\"run_windows\":{},\"quiet_pass\":{},\"guard_pass\":{},\"run_decoder_calls\":{},\"accepted_paths\":{},\"conflicts\":{},\"continuity_samples\":{},\"continuity_rejects\":{},\"capped_paths\":{},\"profile_boundary_pairs\":{},\"profile_digit_hypotheses\":{},\"truncated_paths\":{},\"retry_paths\":{},\"retry_paths_pending\":{},\"sampling_plan_capped\":{},\"discovery_paths\":{},\"scale_hint_used\":{},\"unresolved_probe_paths\":{},\"sparse_normalizations\":{},\"association_checks\":{},\"association_truncated\":{},\"continuity_capped_links\":{},\"retained_initial_detections\":{},\"cleanup_paths\":{},\"cleanup_examined\":{},\"cleanup_removed_runs\":{},\"cleanup_pixels\":{},\"interior_paths\":{},\"interior_values\":{},\"bias_paths\":{},\"bias_model_pass\":{},\"bias_guard_pass\":{}}}",w.paths,w.samples,w.low_contrast,w.windows,w.quiet_pass,w.guard_pass,w.decoder_calls,w.accepted_paths,w.conflicts,w.continuity_samples,w.continuity_rejects,w.capped_paths,w.profile_boundary_pairs,w.profile_digit_hypotheses,w.truncated_paths,w.retry_paths,w.retry_paths_pending,w.sampling_plan_capped,w.discovery_paths,w.scale_hint_used,w.unresolved_probe_paths,w.sparse_normalizations,w.association_checks,w.association_truncated,w.continuity_capped_links,w.retained_initial_detections,w.cleanup_paths,w.cleanup_examined,w.cleanup_removed_runs,w.cleanup_pixels,w.interior_paths,w.interior_values,w.bias_paths,w.bias_model_pass,w.bias_guard_pass);
+    let s = format!(
+        "{{\"paths\":{},\"samples\":{},\"low_contrast\":{},\"run_windows\":{},\"quiet_pass\":{},\"guard_pass\":{},\"run_decoder_calls\":{},\"accepted_paths\":{},\"conflicts\":{},\"continuity_samples\":{},\"continuity_rejects\":{},\"capped_paths\":{},\"profile_boundary_pairs\":{},\"profile_digit_hypotheses\":{},\"truncated_paths\":{},\"retry_paths\":{},\"retry_paths_pending\":{},\"sampling_plan_capped\":{},\"discovery_paths\":{},\"scale_hint_used\":{},\"unresolved_probe_paths\":{},\"sparse_normalizations\":{},\"association_checks\":{},\"association_truncated\":{},\"continuity_capped_links\":{},\"retained_initial_detections\":{},\"cleanup_paths\":{},\"cleanup_examined\":{},\"cleanup_removed_runs\":{},\"cleanup_pixels\":{},\"interior_paths\":{},\"interior_values\":{},\"bias_paths\":{},\"bias_model_pass\":{},\"bias_guard_pass\":{}}}",
+        w.paths,
+        w.samples,
+        w.low_contrast,
+        w.windows,
+        w.quiet_pass,
+        w.guard_pass,
+        w.decoder_calls,
+        w.accepted_paths,
+        w.conflicts,
+        w.continuity_samples,
+        w.continuity_rejects,
+        w.capped_paths,
+        w.profile_boundary_pairs,
+        w.profile_digit_hypotheses,
+        w.truncated_paths,
+        w.retry_paths,
+        w.retry_paths_pending,
+        w.sampling_plan_capped,
+        w.discovery_paths,
+        w.scale_hint_used,
+        w.unresolved_probe_paths,
+        w.sparse_normalizations,
+        w.association_checks,
+        w.association_truncated,
+        w.continuity_capped_links,
+        w.retained_initial_detections,
+        w.cleanup_paths,
+        w.cleanup_examined,
+        w.cleanup_removed_runs,
+        w.cleanup_pixels,
+        w.interior_paths,
+        w.interior_values,
+        w.bias_paths,
+        w.bias_model_pass,
+        w.bias_guard_pass
+    );
     #[cfg(feature = "mode-very-high")]
     let s = {
         use std::fmt::Write as _;
@@ -48,7 +85,15 @@ fn work(w: &Work) -> String {
         use std::fmt::Write as _;
         let mut s = s;
         s.pop();
-        let _ = write!(s, ",\"invalid_visual_seen\":{},\"invalid_veto_intervals\":{},\"invalid_veto_reads\":{},\"invalid_soft_conflicts\":{},\"invalid_veto_capped\":{}}}",w.invalid_visual_seen,w.invalid_veto_intervals,w.invalid_veto_reads,w.invalid_soft_conflicts,w.invalid_veto_capped);
+        let _ = write!(
+            s,
+            ",\"invalid_visual_seen\":{},\"invalid_veto_intervals\":{},\"invalid_veto_reads\":{},\"invalid_soft_conflicts\":{},\"invalid_veto_capped\":{}}}",
+            w.invalid_visual_seen,
+            w.invalid_veto_intervals,
+            w.invalid_veto_reads,
+            w.invalid_soft_conflicts,
+            w.invalid_veto_capped
+        );
         s
     };
 
@@ -68,7 +113,22 @@ fn work(w: &Work) -> String {
         use std::fmt::Write as _;
         let mut s = s;
         s.pop();
-        let _ = write!(s, ",\"extension_cache_hits\":{},\"extension_samples\":{},\"extension_claims\":{},\"extension_capped\":{},\"reuse_claims\":{},\"reuse_claims_rejected\":{},\"reuse_checks\":{},\"reuse_checks_capped\":{},\"reuse_paths_changed\":{},\"reuse_paths_removed\":{},\"reuse_paths_split\":{},\"reuse_short_pieces\":{}}}",w.extension_cache_hits,w.extension_samples,w.extension_claims,w.extension_capped,w.reuse_claims,w.reuse_claims_rejected,w.reuse_checks,w.reuse_checks_capped,w.reuse_paths_changed,w.reuse_paths_removed,w.reuse_paths_split,w.reuse_short_pieces);
+        let _ = write!(
+            s,
+            ",\"extension_cache_hits\":{},\"extension_samples\":{},\"extension_claims\":{},\"extension_capped\":{},\"reuse_claims\":{},\"reuse_claims_rejected\":{},\"reuse_checks\":{},\"reuse_checks_capped\":{},\"reuse_paths_changed\":{},\"reuse_paths_removed\":{},\"reuse_paths_split\":{},\"reuse_short_pieces\":{}}}",
+            w.extension_cache_hits,
+            w.extension_samples,
+            w.extension_claims,
+            w.extension_capped,
+            w.reuse_claims,
+            w.reuse_claims_rejected,
+            w.reuse_checks,
+            w.reuse_checks_capped,
+            w.reuse_paths_changed,
+            w.reuse_paths_removed,
+            w.reuse_paths_split,
+            w.reuse_short_pieces
+        );
         s
     };
 
@@ -76,7 +136,15 @@ fn work(w: &Work) -> String {
         use std::fmt::Write as _;
         let mut s = s;
         s.pop();
-        let _ = write!(s, ",\"forward_blur_calls\":{},\"forward_blur_windows\":{},\"forward_blur_model_attempts\":{},\"forward_blur_accepted_windows\":{},\"forward_blur_conflicts\":{}}}",w.forward_blur_calls,w.forward_blur_windows,w.forward_blur_model_attempts,w.forward_blur_accepted_windows,w.forward_blur_conflicts);
+        let _ = write!(
+            s,
+            ",\"forward_blur_calls\":{},\"forward_blur_windows\":{},\"forward_blur_model_attempts\":{},\"forward_blur_accepted_windows\":{},\"forward_blur_conflicts\":{}}}",
+            w.forward_blur_calls,
+            w.forward_blur_windows,
+            w.forward_blur_model_attempts,
+            w.forward_blur_accepted_windows,
+            w.forward_blur_conflicts
+        );
         s
     };
     #[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
@@ -108,7 +176,15 @@ fn work(w: &Work) -> String {
         use std::fmt::Write as _;
         let mut s = s;
         s.pop();
-        let _ = write!(s, ",\"extrema_calls\":{},\"extrema_examined\":{},\"extrema_capped\":{},\"extrema_ambiguous\":{},\"extrema_decoder_calls\":{}}}",w.extrema_calls,w.extrema_examined,w.extrema_capped,w.extrema_ambiguous,w.extrema_decoder_calls);
+        let _ = write!(
+            s,
+            ",\"extrema_calls\":{},\"extrema_examined\":{},\"extrema_capped\":{},\"extrema_ambiguous\":{},\"extrema_decoder_calls\":{}}}",
+            w.extrema_calls,
+            w.extrema_examined,
+            w.extrema_capped,
+            w.extrema_ambiguous,
+            w.extrema_decoder_calls
+        );
         s
     };
     #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
@@ -164,5 +240,24 @@ pub fn frame_json(frame: &frame::Frame) -> String {
 
     #[cfg(feature = "mode-very-high")]
     let optional = format!("{optional},\"source_cache_hits\":{}", w.source_cache_hits);
-    format!("{{\"unfinished\":{}{},\"reconciliation\":{{\"comparisons\":{},\"merged\":{},\"ambiguous\":{},\"conflicting\":{},\"pending_observations\":{},\"truncated\":{},\"source_pairs\":{},\"source_matches\":{},\"source_pixels\":{},\"source_capped\":{},\"pending_coverage_checks\":{},\"pending_quarantined\":{}{}}},\"barcodes\":[{}],\"candidates\":[{}]}}",frame.unfinished,trace,w.comparisons,w.merged,w.ambiguous,w.conflicting,w.pending_observations,w.truncated,w.source_pairs,w.source_matches,w.source_pixels,w.source_capped,w.pending_coverage_checks,w.pending_quarantined,optional,barcodes.join(","),candidate_json(&frame.candidates))
+    format!(
+        "{{\"unfinished\":{}{},\"reconciliation\":{{\"comparisons\":{},\"merged\":{},\"ambiguous\":{},\"conflicting\":{},\"pending_observations\":{},\"truncated\":{},\"source_pairs\":{},\"source_matches\":{},\"source_pixels\":{},\"source_capped\":{},\"pending_coverage_checks\":{},\"pending_quarantined\":{}{}}},\"barcodes\":[{}],\"candidates\":[{}]}}",
+        frame.unfinished,
+        trace,
+        w.comparisons,
+        w.merged,
+        w.ambiguous,
+        w.conflicting,
+        w.pending_observations,
+        w.truncated,
+        w.source_pairs,
+        w.source_matches,
+        w.source_pixels,
+        w.source_capped,
+        w.pending_coverage_checks,
+        w.pending_quarantined,
+        optional,
+        barcodes.join(","),
+        candidate_json(&frame.candidates)
+    )
 }

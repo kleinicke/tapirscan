@@ -4,8 +4,8 @@
 compile_error!("Native ABI 6 currently supports 64-bit targets only");
 use std::{
     collections::HashMap,
-    ffi::{c_char, CString},
-    panic::{catch_unwind, AssertUnwindSafe},
+    ffi::{CString, c_char},
+    panic::{AssertUnwindSafe, catch_unwind},
     sync::{Arc, Mutex, OnceLock},
 };
 use tapirscan_api::{
@@ -63,8 +63,8 @@ fn invalid(message: &str) -> Failure {
         message: message.into(),
     }
 }
-unsafe fn detailed(error: *mut ErrorC, f: impl FnOnce() -> Result<(), Failure>) -> i32 {
-    if let Some(error) = error.as_mut() {
+fn detailed(mut error: Option<&mut ErrorC>, f: impl FnOnce() -> Result<(), Failure>) -> i32 {
+    if let Some(error) = error.as_deref_mut() {
         error.message.fill(0);
     }
     let failure = match catch_unwind(AssertUnwindSafe(f)) {
@@ -72,7 +72,7 @@ unsafe fn detailed(error: *mut ErrorC, f: impl FnOnce() -> Result<(), Failure>) 
         Ok(Err(failure)) => failure,
         Err(_) => Failure::from(PANIC),
     };
-    if let Some(error) = error.as_mut() {
+    if let Some(error) = error {
         let mut length = failure.message.len().min(error.message.len() - 1);
         while !failure.message.is_char_boundary(length) {
             length -= 1;
@@ -237,19 +237,19 @@ impl Output {
 }
 
 /// Native ABI version expected by this library.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_abi_version() -> u32 {
     ABI_VERSION
 }
 
 /// Static, NUL-terminated description of a status code.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_status_message(status: i32) -> *const c_char {
     status_text(status).as_ptr()
 }
 
 /// Static, NUL-terminated name of one format bit, or null for anything else.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_format_name(format: u32) -> *const c_char {
     static NAMES: OnceLock<Vec<(u32, CString)>> = OnceLock::new();
     NAMES
@@ -268,18 +268,18 @@ pub extern "C" fn tapirscan_format_name(format: u32) -> *const c_char {
 /// # Safety
 /// `options` must be null or readable; `out` must be null or writable for one `u64`.
 /// `error` must be null or writable for one `ErrorC`, disjoint from other arguments.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapirscan_scanner_create(
     options: *const ScannerOptionsC,
     out: *mut u64,
     error: *mut ErrorC,
 ) -> i32 {
-    detailed(error, || {
+    detailed(unsafe { error.as_mut() }, || {
         if out.is_null() {
             return Err(invalid("output handle pointer is null"));
         }
-        *out = 0;
-        let options = match options.as_ref() {
+        unsafe { *out = 0 };
+        let options = match unsafe { options.as_ref() } {
             None => ScannerOptions::default(),
             Some(options) => ScannerOptions {
                 mode: mode_from(options.mode).map_err(|_| invalid("unknown scanner mode"))?,
@@ -296,12 +296,12 @@ pub unsafe extern "C" fn tapirscan_scanner_create(
         let id = r.id();
         r.scanners
             .insert(id, Arc::new(Mutex::new(Scanner::new(options))));
-        *out = id;
+        unsafe { *out = id };
         Ok(())
     })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_scanner_destroy(scanner: u64) -> i32 {
     boundary(|| {
         registry()?
@@ -318,7 +318,7 @@ pub extern "C" fn tapirscan_scanner_destroy(scanner: u64) -> i32 {
 /// `image` must be readable and its `data` readable for `length` bytes.
 /// `options` must be null or readable; `out` must be null or writable for one `u64`.
 /// `error` must be null or writable for one `ErrorC`, disjoint from other arguments.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapirscan_scan(
     scanner: u64,
     image: *const ImageC,
@@ -326,13 +326,13 @@ pub unsafe extern "C" fn tapirscan_scan(
     out: *mut u64,
     error: *mut ErrorC,
 ) -> i32 {
-    scan(scanner, image, options, out, error, false)
+    unsafe { scan(scanner, image, options, out, error, false) }
 }
 
 /// Inspect an image, retaining work status and diagnostic evidence.
 /// # Safety
 /// Same pointer requirements as [`tapirscan_scan`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapirscan_inspect(
     scanner: u64,
     image: *const ImageC,
@@ -340,7 +340,7 @@ pub unsafe extern "C" fn tapirscan_inspect(
     out: *mut u64,
     error: *mut ErrorC,
 ) -> i32 {
-    scan(scanner, image, options, out, error, true)
+    unsafe { scan(scanner, image, options, out, error, true) }
 }
 
 /// Borrow the bytes the layout addresses. [`Image`] validation owns every
@@ -366,7 +366,8 @@ unsafe fn borrow_image(image: &ImageC) -> Result<Image<'_>, Failure> {
         .saturating_sub(1)
         .saturating_mul(stride)
         .saturating_add(row);
-    let data = std::slice::from_raw_parts(image.data, addressed.min(index(image.length)?));
+    let data =
+        unsafe { std::slice::from_raw_parts(image.data, addressed.min(index(image.length)?)) };
     let pixels = match channels {
         1 => Image::gray(data, width, height),
         3 => Image::rgb(data, width, height),
@@ -383,19 +384,17 @@ unsafe fn scan(
     error: *mut ErrorC,
     inspect: bool,
 ) -> i32 {
-    detailed(error, || {
+    detailed(unsafe { error.as_mut() }, || {
         if out.is_null() {
             return Err(invalid("output handle pointer is null"));
         }
-        *out = 0;
-        let image = image
-            .as_ref()
-            .ok_or_else(|| invalid("image pointer is null"))?;
-        let formats = match options.as_ref().map_or(0, |o| o.formats) {
+        unsafe { *out = 0 };
+        let image = unsafe { image.as_ref() }.ok_or_else(|| invalid("image pointer is null"))?;
+        let formats = match unsafe { options.as_ref() }.map_or(0, |o| o.formats) {
             0 => None,
             bits => Some(Formats::try_from(bits).map_err(Failure::from)?),
         };
-        let pixels = borrow_image(image)?;
+        let pixels = unsafe { borrow_image(image) }?;
         let scanner = registry()?.scanners.get(&scanner).cloned().ok_or(HANDLE)?;
         let mut scanner = scanner.lock().map_err(|_| PANIC)?;
         let options = ScanOptions { formats };
@@ -423,23 +422,23 @@ unsafe fn scan(
                 json: OnceLock::new(),
             }),
         );
-        *out = id;
+        unsafe { *out = id };
         Ok(())
     })
 }
 
 /// # Safety
 /// `out` must be null or writable and aligned for one `tapirscan_summary`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapirscan_result_info(result: u64, out: *mut ResultInfoC) -> i32 {
     boundary(|| {
         if out.is_null() {
             return Err(ARG);
         }
-        *out = ResultInfoC::default();
+        unsafe { *out = ResultInfoC::default() };
         let output = output(result)?;
         let r = output.report.as_ref().ok_or(ARG)?;
-        *out = ResultInfoC {
+        let info = ResultInfoC {
             barcode_count: output.barcodes.len() as u64,
             undecoded_count: r.undecoded.len() as u64,
             width: r.image_size[0] as u64,
@@ -447,6 +446,7 @@ pub unsafe extern "C" fn tapirscan_result_info(result: u64, out: *mut ResultInfo
             elapsed_ms: r.elapsed.as_secs_f64() * 1000.0,
             mode: mode_id(r.mode),
         };
+        unsafe { *out = info };
         Ok(())
     })
 }
@@ -454,10 +454,11 @@ pub unsafe extern "C" fn tapirscan_result_info(result: u64, out: *mut ResultInfo
 /// Return the number of decoded barcodes for either operation.
 /// # Safety
 /// `out` must be null or writable and aligned for one u64.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapirscan_result_count(result: u64, out: *mut u64) -> i32 {
     boundary(|| {
-        *out.as_mut().ok_or(ARG)? = output(result)?.barcodes.len() as u64;
+        let out = unsafe { out.as_mut() }.ok_or(ARG)?;
+        *out = output(result)?.barcodes.len() as u64;
         Ok(())
     })
 }
@@ -482,7 +483,7 @@ fn barcode_c(b: &Barcode) -> BarcodeC {
 
 /// # Safety
 /// `out` must be null or writable and aligned for one `tapirscan_barcode`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapirscan_result_barcode(
     result: u64,
     position: u64,
@@ -492,17 +493,17 @@ pub unsafe extern "C" fn tapirscan_result_barcode(
         if out.is_null() {
             return Err(ARG);
         }
-        *out = BarcodeC::default();
+        unsafe { *out = BarcodeC::default() };
         let output = output(result)?;
         let barcode = output.barcodes.get(index(position)?).ok_or(ARG)?;
-        *out = barcode_c(barcode);
+        unsafe { *out = barcode_c(barcode) };
         Ok(())
     })
 }
 
 /// # Safety
 /// `out` must be null or writable and aligned for one `tapirscan_region`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapirscan_result_undecoded(
     result: u64,
     position: u64,
@@ -512,7 +513,7 @@ pub unsafe extern "C" fn tapirscan_result_undecoded(
         if out.is_null() {
             return Err(ARG);
         }
-        *out = RegionC::default();
+        unsafe { *out = RegionC::default() };
         let output = output(result)?;
         let region: &UndecodedRegion = output
             .report
@@ -521,10 +522,11 @@ pub unsafe extern "C" fn tapirscan_result_undecoded(
             .undecoded
             .get(index(position)?)
             .ok_or(ARG)?;
-        *out = RegionC {
+        let region = RegionC {
             polygon: polygon(&region.polygon),
             format: region.format.map_or(0, |f| f as u32),
         };
+        unsafe { *out = region };
         Ok(())
     })
 }
@@ -536,8 +538,10 @@ unsafe fn copy_bytes(value: &[u8], out: *mut u8, capacity: u64) -> Result<(), i3
     if capacity <= value.len() as u64 {
         return Err(BUFFER);
     }
-    std::ptr::copy_nonoverlapping(value.as_ptr(), out, value.len());
-    *out.add(value.len()) = 0;
+    unsafe {
+        std::ptr::copy_nonoverlapping(value.as_ptr(), out, value.len());
+        *out.add(value.len()) = 0;
+    }
     Ok(())
 }
 
@@ -545,7 +549,7 @@ unsafe fn copy_bytes(value: &[u8], out: *mut u8, capacity: u64) -> Result<(), i3
 /// bytes are preserved; use the reported length. Absent fields are rejected.
 /// # Safety
 /// `out` must be null or writable for `capacity` bytes, without overlap.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapirscan_result_copy(
     result: u64,
     position: u64,
@@ -568,17 +572,17 @@ pub unsafe extern "C" fn tapirscan_result_copy(
                 .as_bytes(),
             _ => return Err(ARG),
         };
-        copy_bytes(value, out, capacity)
+        unsafe { copy_bytes(value, out, capacity) }
     })
 }
 
 /// Return the JSON byte length (excluding NUL), serializing once on demand.
 /// # Safety
 /// `out` must be null or writable and aligned for one u64.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapirscan_result_json_length(result: u64, out: *mut u64) -> i32 {
     boundary(|| {
-        let out = out.as_mut().ok_or(ARG)?;
+        let out = unsafe { out.as_mut() }.ok_or(ARG)?;
         *out = output(result)?.json().len() as u64;
         Ok(())
     })
@@ -587,16 +591,19 @@ pub unsafe extern "C" fn tapirscan_result_json_length(result: u64, out: *mut u64
 /// UTF-8 schema-2 JSON plus a NUL terminator; capacity must exceed `json_length`.
 /// # Safety
 /// `out` must be null or writable for `capacity` bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapirscan_result_copy_json(
     result: u64,
     out: *mut u8,
     capacity: u64,
 ) -> i32 {
-    boundary(|| copy_bytes(output(result)?.json(), out, capacity))
+    boundary(|| {
+        let output = output(result)?;
+        unsafe { copy_bytes(output.json(), out, capacity) }
+    })
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_result_destroy(result: u64) -> i32 {
     boundary(|| {
         registry()?

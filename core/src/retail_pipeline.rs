@@ -14,7 +14,7 @@
 )]
 use crate::{
     candidate_scanner::{AssociationBudget, Observation, Work},
-    multi_profile::{self, retail_short::ShortReads, Reads},
+    multi_profile::{self, Reads, retail_short::ShortReads},
     sampling::ImageView,
     scan::Quad,
 };

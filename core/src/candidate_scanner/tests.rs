@@ -1,5 +1,5 @@
 use super::*;
-const BITS:&str="10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101";
+const BITS: &str = "10100010110100111011001100100110111101001110101010110011011011001000010101110010011101000100101";
 fn fixture(gap: usize) -> (Vec<u8>, Vec<Quad>) {
     let mut p = vec![255u8; 1000 * 240];
     for y in 10..230 {
@@ -356,54 +356,62 @@ fn permissive_single_row_is_opt_in_and_keeps_ambiguity_veto() {
     {
         #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         {
-            assert!(run(
-                &[Observation {
-                    ambiguous: true,
-                    ..o
-                }],
-                true
-            )
-            .is_empty());
+            assert!(
+                run(
+                    &[Observation {
+                        ambiguous: true,
+                        ..o
+                    }],
+                    true
+                )
+                .is_empty()
+            );
         }
         #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
         {
-            assert!(run(
-                &[Observation {
-                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                    invalid_checksum: false,
-                    ambiguous: true,
-                    ..o
-                }],
-                true
-            )
-            .is_empty());
+            assert!(
+                run(
+                    &[Observation {
+                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                        invalid_checksum: false,
+                        ambiguous: true,
+                        ..o
+                    }],
+                    true
+                )
+                .is_empty()
+            );
         }
     }
 
     {
         #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         {
-            assert!(run(
-                &[Observation {
-                    short_quiet: true,
-                    ..o
-                }],
-                true
-            )
-            .is_empty());
+            assert!(
+                run(
+                    &[Observation {
+                        short_quiet: true,
+                        ..o
+                    }],
+                    true
+                )
+                .is_empty()
+            );
         }
         #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
         {
-            assert!(run(
-                &[Observation {
-                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                    invalid_checksum: false,
-                    short_quiet: true,
-                    ..o
-                }],
-                true
-            )
-            .is_empty());
+            assert!(
+                run(
+                    &[Observation {
+                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                        invalid_checksum: false,
+                        short_quiet: true,
+                        ..o
+                    }],
+                    true
+                )
+                .is_empty()
+            );
         }
     }
 
@@ -411,103 +419,115 @@ fn permissive_single_row_is_opt_in_and_keeps_ambiguity_veto() {
         {
             #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
             {
-                assert!(run(
-                    &[
-                        o,
-                        Observation {
-                            fraction,
-                            ambiguous: true,
-                            ..o
-                        }
-                    ],
-                    true
-                )
-                .is_empty());
+                assert!(
+                    run(
+                        &[
+                            o,
+                            Observation {
+                                fraction,
+                                ambiguous: true,
+                                ..o
+                            }
+                        ],
+                        true
+                    )
+                    .is_empty()
+                );
             }
             #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
             {
-                assert!(run(
-                    &[
-                        o,
-                        Observation {
-                            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                            invalid_checksum: false,
-                            fraction,
-                            ambiguous: true,
-                            ..o
-                        }
-                    ],
-                    true
-                )
-                .is_empty());
+                assert!(
+                    run(
+                        &[
+                            o,
+                            Observation {
+                                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                                invalid_checksum: false,
+                                fraction,
+                                ambiguous: true,
+                                ..o
+                            }
+                        ],
+                        true
+                    )
+                    .is_empty()
+                );
             }
         }
 
         {
             #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
             {
-                assert!(run(
-                    &[
-                        o,
-                        Observation {
-                            fraction,
-                            digits: [4; 13],
-                            ..o
-                        }
-                    ],
-                    true
-                )
-                .is_empty());
+                assert!(
+                    run(
+                        &[
+                            o,
+                            Observation {
+                                fraction,
+                                digits: [4; 13],
+                                ..o
+                            }
+                        ],
+                        true
+                    )
+                    .is_empty()
+                );
             }
             #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
             {
-                assert!(run(
-                    &[
-                        o,
-                        Observation {
-                            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                            invalid_checksum: false,
-                            fraction,
-                            digits: [4; 13],
-                            ..o
-                        }
-                    ],
-                    true
-                )
-                .is_empty());
+                assert!(
+                    run(
+                        &[
+                            o,
+                            Observation {
+                                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                                invalid_checksum: false,
+                                fraction,
+                                digits: [4; 13],
+                                ..o
+                            }
+                        ],
+                        true
+                    )
+                    .is_empty()
+                );
             }
         }
     }
     {
         #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
         {
-            assert!(run(
-                &[
-                    o,
-                    Observation {
-                        digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
-                        ..o
-                    }
-                ],
-                true
-            )
-            .is_empty());
+            assert!(
+                run(
+                    &[
+                        o,
+                        Observation {
+                            digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+                            ..o
+                        }
+                    ],
+                    true
+                )
+                .is_empty()
+            );
         }
         #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
         {
-            assert!(run(
-                &[
-                    o,
-                    Observation {
-                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                        invalid_checksum: false,
-                        digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
-                        ..o
-                    }
-                ],
-                true
-            )
-            .is_empty());
+            assert!(
+                run(
+                    &[
+                        o,
+                        Observation {
+                            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                            invalid_checksum: false,
+                            digits: [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1],
+                            ..o
+                        }
+                    ],
+                    true
+                )
+                .is_empty()
+            );
         }
     }
 

@@ -577,14 +577,15 @@ mod tests {
         assert_eq!(&a, b);
         assert_eq!(b[0], 1.);
         assert_eq!(b[511], 0.);
-        assert!(s
-            .sample(
+        assert!(
+            s.sample(
                 ImageView::new(&[120; 4], 2, 2, 1, 2).unwrap(),
                 m,
                 Path::default()
             )
             .unwrap()
-            .is_none());
+            .is_none()
+        );
     }
 }
 

@@ -1,6 +1,6 @@
 //! Associate observations using source continuity, contradiction checks and a shared budget.
 use super::{
-    distance, point, scan, AssociationBudget, Detection, ImageView, Observation, Timer, Work,
+    AssociationBudget, Detection, ImageView, Observation, Timer, Work, distance, point, scan,
 };
 
 pub(super) fn connected(
@@ -30,9 +30,7 @@ pub(super) fn connected_budget(
     budget: Option<&mut AssociationBudget>,
     cache: &mut std::collections::HashMap<[u64; 5], Option<(usize, usize)>>,
 ) -> bool {
-    {
-        connected_density(im, matrix, a, b, work, budget, cache)
-    }
+    connected_density(im, matrix, a, b, work, budget, cache)
 }
 
 #[expect(
@@ -72,10 +70,10 @@ pub(super) fn connected_density(
             work.continuity_cache_hits += 1;
             return *value;
         }
-        if let Some(budget) = budget.as_deref_mut() {
-            if !budget.pixels(n, work) {
-                return None;
-            }
+        if let Some(budget) = budget.as_deref_mut()
+            && !budget.pixels(n, work)
+        {
+            return None;
         }
         let mut values = [0.; 192];
         let (mut lo, mut hi) = (255f64, 0f64);

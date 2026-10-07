@@ -353,12 +353,12 @@ fn weak_excursions(
             }
         }
         if let Some(out) = out.as_mut() {
-            if let Some(last) = out.last_mut() {
-                if last.2 == runs[i].2 {
-                    last.1 = runs[i].1;
-                    i += 1;
-                    continue;
-                }
+            if let Some(last) = out.last_mut()
+                && last.2 == runs[i].2
+            {
+                last.1 = runs[i].1;
+                i += 1;
+                continue;
             }
             out.push(runs[i]);
         }
@@ -671,7 +671,7 @@ mod redundant_exact_tests;
 #[path = "extrema_runs.rs"]
 mod extrema_runs;
 
-pub(crate) use extrema_runs::{decode_extrema, decode_extrema_validated, ExtremaScratch};
+pub(crate) use extrema_runs::{ExtremaScratch, decode_extrema, decode_extrema_validated};
 #[cfg(test)]
 mod folded_boundary_tests;
 /// Research adapter: original EAN13 decisions and evidence remain intact.

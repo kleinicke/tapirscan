@@ -1,8 +1,8 @@
 use crate::{
+    Format, Image,
     format::{
         ALL_FORMATS_MASK, COMMON_LINEAR_MASK, COMMON_MASK, LINEAR_MASK, MATRIX_MASK, RETAIL_MASK,
     },
-    Format, Image,
 };
 use serde::{Deserialize, Serialize};
 use std::{fmt, time::Duration};

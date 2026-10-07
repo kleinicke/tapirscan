@@ -7,10 +7,10 @@ use super::plan::{
     scaled_plan_density, supported_scale_width, supported_scale_width_checked, unresolved_plan,
 };
 use super::{
-    candidate_scanner, scan, Candidate, CandidateScanner, Error, ImageView, Policy, Quad, Segment,
-    Timer, Work,
+    Candidate, CandidateScanner, Error, ImageView, Policy, Quad, Segment, Timer, Work,
+    candidate_scanner, scan,
 };
-use super::{reuse_plan, verified_claims, ReuseBudget};
+use super::{ReuseBudget, reuse_plan, verified_claims};
 
 type PreparedPlan = Option<([f64; 9], Vec<Segment>)>;
 pub(super) struct Execution {
@@ -162,18 +162,18 @@ impl CandidateScanner {
             let used = before - budget;
             remaining -= used;
             run.used += used;
-            if c.observations.len() != count {
-                if let Ok(m) = scan::transform(c.coverage) {
-                    c.detections = candidate_scanner::assemble_many_budget_options(
-                        im,
-                        m.0,
-                        &c.observations,
-                        &mut c.work,
-                        true,
-                        &mut run.association,
-                        false,
-                    );
-                }
+            if c.observations.len() != count
+                && let Ok(m) = scan::transform(c.coverage)
+            {
+                c.detections = candidate_scanner::assemble_many_budget_options(
+                    im,
+                    m.0,
+                    &c.observations,
+                    &mut c.work,
+                    true,
+                    &mut run.association,
+                    false,
+                );
             }
         }
     }
@@ -894,27 +894,27 @@ fn assemble(
     let policy = run.policy;
     let budget = &mut run.association;
     for (c, p) in outputs.iter_mut().zip(plans) {
-        if let Some((m, _)) = p {
-            if c.work.retry_paths > 0 {
-                let start = Timer::now();
-                let refined = candidate_scanner::assemble_many_budget_options(
-                    im,
-                    *m,
-                    &c.observations,
-                    &mut c.work,
-                    true,
-                    budget,
-                    policy.allow_single_row,
-                );
-                if c.work.association_truncated > 0 && !c.detections.is_empty() {
-                    c.work.retained_initial_detections = c.detections.len();
-                } else {
-                    c.detections = refined;
-                }
-                // Frame reconciliation withholds every exhausted candidate,
-                // including these raw partial detections when initial was empty.
-                c.ms += start.ms();
+        if let Some((m, _)) = p
+            && c.work.retry_paths > 0
+        {
+            let start = Timer::now();
+            let refined = candidate_scanner::assemble_many_budget_options(
+                im,
+                *m,
+                &c.observations,
+                &mut c.work,
+                true,
+                budget,
+                policy.allow_single_row,
+            );
+            if c.work.association_truncated > 0 && !c.detections.is_empty() {
+                c.work.retained_initial_detections = c.detections.len();
+            } else {
+                c.detections = refined;
             }
+            // Frame reconciliation withholds every exhausted candidate,
+            // including these raw partial detections when initial was empty.
+            c.ms += start.ms();
         }
     }
 }

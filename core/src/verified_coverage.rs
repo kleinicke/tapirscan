@@ -1,8 +1,8 @@
 //! Optional conservative subtraction of already verified source-pixel bands.
 //! Claims never come from text-only identity or unsupported observations.
 use super::{
-    candidate_scanner, project_claim, projected_interval, scan, Candidate, Error, ImageView, Quad,
-    Segment, Work,
+    Candidate, Error, ImageView, Quad, Segment, Work, candidate_scanner, project_claim,
+    projected_interval, scan,
 };
 #[cfg(test)]
 use super::{CandidateScanner, Policy};
@@ -529,13 +529,15 @@ mod reuse_tests {
             candidate(q, vec![detection(band, 1)]),
             candidate(q, vec![detection(band, 2)]),
         ];
-        assert!(verified_claims(
-            &cs,
-            &mut budget(),
-            &mut Work::default(),
-            ImageView::new(&[255], 1, 1, 1, 1).unwrap()
-        )
-        .is_empty());
+        assert!(
+            verified_claims(
+                &cs,
+                &mut budget(),
+                &mut Work::default(),
+                ImageView::new(&[255], 1, 1, 1, 1).unwrap()
+            )
+            .is_empty()
+        );
         for ambiguous in [false, true] {
             let mut c = candidate(q, vec![detection(band, 1)]);
             {
@@ -571,13 +573,15 @@ mod reuse_tests {
                 }
             }
 
-            assert!(verified_claims(
-                &[c],
-                &mut budget(),
-                &mut Work::default(),
-                ImageView::new(&[255], 1, 1, 1, 1).unwrap()
-            )
-            .is_empty());
+            assert!(
+                verified_claims(
+                    &[c],
+                    &mut budget(),
+                    &mut Work::default(),
+                    ImageView::new(&[255], 1, 1, 1, 1).unwrap()
+                )
+                .is_empty()
+            );
         }
     }
     #[test]
@@ -676,14 +680,16 @@ mod reuse_tests {
                 {
                     assert_eq!(c.work.paths, c.work.retry_paths + 10);
                 }
-                assert!(c
-                    .detections
-                    .iter()
-                    .any(|d| d.digits == a && d.polygon.iter().all(|p| p[0] < 500.)));
-                assert!(c
-                    .detections
-                    .iter()
-                    .any(|d| d.digits == second && d.polygon.iter().all(|p| p[0] > 500.)));
+                assert!(
+                    c.detections
+                        .iter()
+                        .any(|d| d.digits == a && d.polygon.iter().all(|p| p[0] < 500.))
+                );
+                assert!(
+                    c.detections
+                        .iter()
+                        .any(|d| d.digits == second && d.polygon.iter().all(|p| p[0] > 500.))
+                );
             }
             assert!(
                 result
@@ -975,11 +981,16 @@ mod stacked_extension_regressions {
                     let q = g.quad(top, bottom);
                     let mut work = Work::default();
                     let out = extend_claim(im, q, &mut work, &mut budget());
-                    assert!(out.iter().all(|p|sign*g.rotated(*p)[1]>0.),
-                    "claim crossed gap: angle={} shear={} second={second:?}, original={q:?}, extended={out:?}",g.angle,g.shear);
-                    assert!(out.iter().all(|p| p
-                        .iter()
-                        .all(|v| *v >= 0. && *v < crate::numeric::usize_f64(SIZE))));
+                    assert!(
+                        out.iter().all(|p| sign * g.rotated(*p)[1] > 0.),
+                        "claim crossed gap: angle={} shear={} second={second:?}, original={q:?}, extended={out:?}",
+                        g.angle,
+                        g.shear
+                    );
+                    assert!(out.iter().all(|p| {
+                        p.iter()
+                            .all(|v| *v >= 0. && *v < crate::numeric::usize_f64(SIZE))
+                    }));
                     assert!(work.extension_samples <= 262_144);
                     // A no-op is safe but cannot satisfy this regression alone.
                     if g.angle == 0. {

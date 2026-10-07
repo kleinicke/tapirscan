@@ -121,7 +121,7 @@ export async function formatted(file, text) {
         "1.91.1",
         "rustfmt",
         "--edition",
-        "2021",
+        "2024",
         "--emit",
         "stdout",
         "--config",
