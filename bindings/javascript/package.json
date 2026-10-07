@@ -12,27 +12,27 @@
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
     },
-    "./wasm/low.wasm": "./wasm/low-retail-share-20261006.wasm",
-    "./wasm/medium.wasm": "./wasm/medium-retail-share-20261006.wasm",
-    "./wasm/high.wasm": "./wasm/high-retail-share-20261006.wasm",
-    "./wasm/very-high.wasm": "./wasm/very-high-retail-share-20261006.wasm",
-    "./wasm/experimental-turbo2.wasm": "./wasm/experimental-turbo2-retail-share-20261006.wasm",
-    "./wasm/experimental-turbo4.wasm": "./wasm/experimental-turbo4-retail-share-20261006.wasm",
-    "./wasm/experimental-turbo8.wasm": "./wasm/experimental-turbo8-retail-share-20261006.wasm",
-    "./wasm/experimental-turbo16.wasm": "./wasm/experimental-turbo16-retail-share-20261006.wasm"
+    "./wasm/low.wasm": "./wasm/low-empty-retry-20261007.wasm",
+    "./wasm/medium.wasm": "./wasm/medium-empty-retry-20261007.wasm",
+    "./wasm/high.wasm": "./wasm/high-empty-retry-20261007.wasm",
+    "./wasm/very-high.wasm": "./wasm/very-high-empty-retry-20261007.wasm",
+    "./wasm/experimental-turbo2.wasm": "./wasm/experimental-turbo2-empty-retry-20261007.wasm",
+    "./wasm/experimental-turbo4.wasm": "./wasm/experimental-turbo4-empty-retry-20261007.wasm",
+    "./wasm/experimental-turbo8.wasm": "./wasm/experimental-turbo8-empty-retry-20261007.wasm",
+    "./wasm/experimental-turbo16.wasm": "./wasm/experimental-turbo16-empty-retry-20261007.wasm"
   },
   "files": [
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-retail-share-20261006.wasm",
-    "wasm/medium-retail-share-20261006.wasm",
-    "wasm/high-retail-share-20261006.wasm",
-    "wasm/very-high-retail-share-20261006.wasm",
-    "wasm/experimental-turbo2-retail-share-20261006.wasm",
-    "wasm/experimental-turbo4-retail-share-20261006.wasm",
-    "wasm/experimental-turbo8-retail-share-20261006.wasm",
-    "wasm/experimental-turbo16-retail-share-20261006.wasm"
+    "wasm/low-empty-retry-20261007.wasm",
+    "wasm/medium-empty-retry-20261007.wasm",
+    "wasm/high-empty-retry-20261007.wasm",
+    "wasm/very-high-empty-retry-20261007.wasm",
+    "wasm/experimental-turbo2-empty-retry-20261007.wasm",
+    "wasm/experimental-turbo4-empty-retry-20261007.wasm",
+    "wasm/experimental-turbo8-empty-retry-20261007.wasm",
+    "wasm/experimental-turbo16-empty-retry-20261007.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

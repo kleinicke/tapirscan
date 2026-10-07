@@ -28,10 +28,10 @@ export type WorkerResponse =
 // Literal URLs let bundlers such as Vite and webpack emit these assets without
 // configuration. Keep the file names in sync with index.ts (verify-package checks).
 const wasm: Record<Mode, URL> = {
-  low: new URL("../wasm/low-retail-share-20261006.wasm", import.meta.url),
-  medium: new URL("../wasm/medium-retail-share-20261006.wasm", import.meta.url),
-  high: new URL("../wasm/high-retail-share-20261006.wasm", import.meta.url),
-  "very-high": new URL("../wasm/very-high-retail-share-20261006.wasm", import.meta.url),
+  low: new URL("../wasm/low-empty-retry-20261007.wasm", import.meta.url),
+  medium: new URL("../wasm/medium-empty-retry-20261007.wasm", import.meta.url),
+  high: new URL("../wasm/high-empty-retry-20261007.wasm", import.meta.url),
+  "very-high": new URL("../wasm/very-high-empty-retry-20261007.wasm", import.meta.url),
 };
 
 // Typed locally: the DOM and WebWorker libraries cannot share one compilation.

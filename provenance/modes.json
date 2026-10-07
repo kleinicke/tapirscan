@@ -3,13 +3,13 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-retail-share-20261006",
+      "tag": "low-empty-retry-20261007",
       "fitLimit": 0,
       "maxLocalizedProposals": 32
     },
     {
       "mode": "medium",
-      "tag": "medium-retail-share-20261006",
+      "tag": "medium-empty-retry-20261007",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
       "directions": 1,
@@ -17,7 +17,7 @@
     },
     {
       "mode": "high",
-      "tag": "high-retail-share-20261006",
+      "tag": "high-empty-retry-20261007",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
       "directions": 2,
@@ -25,32 +25,32 @@
     },
     {
       "mode": "very-high",
-      "tag": "very-high-retail-share-20261006",
+      "tag": "very-high-empty-retry-20261007",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
       "directions": 2,
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/camera-loop-docs-20261006.json",
-  "apiWasm": "provenance/wasm-retail-share-20261006.json",
+  "runtimeRevision": "provenance/empty-retry-20261007.json",
+  "apiWasm": "provenance/wasm-empty-retry-20261007.json",
   "sourceRoot": "core/src",
   "experimentalTurbo": [
     {
       "preset": 2,
-      "tag": "experimental-turbo2-retail-share-20261006"
+      "tag": "experimental-turbo2-empty-retry-20261007"
     },
     {
       "preset": 4,
-      "tag": "experimental-turbo4-retail-share-20261006"
+      "tag": "experimental-turbo4-empty-retry-20261007"
     },
     {
       "preset": 8,
-      "tag": "experimental-turbo8-retail-share-20261006"
+      "tag": "experimental-turbo8-empty-retry-20261007"
     },
     {
       "preset": 16,
-      "tag": "experimental-turbo16-retail-share-20261006"
+      "tag": "experimental-turbo16-empty-retry-20261007"
     }
   ]
 }

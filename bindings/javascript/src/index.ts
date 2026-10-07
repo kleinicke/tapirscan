@@ -144,16 +144,16 @@ interface WireResult {
 }
 
 const modes: Record<Mode, { id: number; file: string }> = {
-  low: { id: 0, file: "low-retail-share-20261006.wasm" },
-  medium: { id: 1, file: "medium-retail-share-20261006.wasm" },
-  high: { id: 2, file: "high-retail-share-20261006.wasm" },
-  "very-high": { id: 3, file: "very-high-retail-share-20261006.wasm" },
+  low: { id: 0, file: "low-empty-retry-20261007.wasm" },
+  medium: { id: 1, file: "medium-empty-retry-20261007.wasm" },
+  high: { id: 2, file: "high-empty-retry-20261007.wasm" },
+  "very-high": { id: 3, file: "very-high-empty-retry-20261007.wasm" },
 };
 const turboFiles: Record<ExperimentalTurbo, string> = {
-  2: "experimental-turbo2-retail-share-20261006.wasm",
-  4: "experimental-turbo4-retail-share-20261006.wasm",
-  8: "experimental-turbo8-retail-share-20261006.wasm",
-  16: "experimental-turbo16-retail-share-20261006.wasm",
+  2: "experimental-turbo2-empty-retry-20261007.wasm",
+  4: "experimental-turbo4-empty-retry-20261007.wasm",
+  8: "experimental-turbo8-empty-retry-20261007.wasm",
+  16: "experimental-turbo16-empty-retry-20261007.wasm",
 };
 const addOnPolicies: Record<EanAddOnPolicy, number> = { Ignore: 0, Read: 1, Require: 2 };
 
