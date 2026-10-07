@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Image adapters and unified typed API against the actual native scanner."""
 
+import ctypes
 import json
 import os
 import sys
 import unittest
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from typing import Any
 from unittest.mock import PropertyMock, patch
 
 import numpy as np
@@ -19,7 +21,7 @@ sys.path.insert(
     0, os.environ.get("BARCODE_PYTHON_PACKAGE", str(ROOT / "bindings/python/src"))
 )
 import tapirscan as barcode
-from tapirscan import Barcode, PixelImage, Scanner
+from tapirscan import Barcode, PixelImage, Scanner, StructuredAppend
 from tapirscan._images import image_bytes
 from tapirscan.results import _diagnostics
 
@@ -28,6 +30,50 @@ decode = barcode.inspect
 LIBS = ROOT / "build/native"
 _, RAW, W, H, *_ = next(fixtures())
 GRAY = np.frombuffer(RAW, dtype=np.uint8).reshape(H, W).copy()
+
+
+class _TypedResult:
+    """A fake native library serving one hand-made barcode through the typed ABI."""
+
+    def __init__(
+        self,
+        fields: tuple[bytes | None, ...],
+        gs1: int,
+        initialization: int,
+        parity: int,
+    ) -> None:
+        """Keep the field bytes (None = absent) and the flag values."""
+        self.fields, self.flags = fields, (gs1, initialization, parity)
+
+    def tapirscan_result_barcode(self, _result: int, _index: int, out: Any) -> int:  # noqa: ANN401
+        """Fill the struct behind a ctypes byref() argument."""
+        native = out._obj  # noqa: SLF001
+        native.format = barcode.formats.FORMAT_BITS["QRCode"]
+        gs1, initialization, parity = self.flags
+        native.gs1, native.reader_initialization = gs1, initialization
+        native.structured_append_parity = parity
+        native.structured_append_index, native.structured_append_count = 2, 3
+        absent = 2**64 - 1
+        (
+            native.text_length,
+            native.payload_bytes_length,
+            native.ean_add_on_length,
+            native.structured_append_id_length,
+        ) = [absent if f is None else len(f) for f in self.fields]
+        return 0
+
+    def tapirscan_result_copy(
+        self,
+        _result: int,
+        _index: int,
+        kind: int,
+        out: Any,  # noqa: ANN401
+        size: int,
+    ) -> int:
+        """Copy one field plus its NUL terminator."""
+        data = (self.fields[kind] or b"") + b"\x00"
+        ctypes.memmove(out, data, min(size, len(data)))
+        return 0
 
 
 class Images(unittest.TestCase):
@@ -416,6 +462,52 @@ class Images(unittest.TestCase):
         self.assertEqual(exported["best"], result.barcodes[0].as_dict())
         exported.clear()
         self.assertEqual(result.as_dict()["values"], [TEXT])
+
+    def test_scan_never_serializes_json(self) -> None:
+        """Ordinary scans read typed results; only inspect fetches the engine JSON."""
+        refuse = AssertionError("scan() requested JSON")
+        with Scanner(library_dir=LIBS) as scanner:
+            lib = scanner._lib  # noqa: SLF001
+            with (
+                patch.object(lib, "tapirscan_result_json_length", side_effect=refuse),
+                patch.object(lib, "tapirscan_result_copy_json", side_effect=refuse),
+            ):
+                self.assertEqual(
+                    scanner.scan(PixelImage(RAW, width=W, height=H)).values, [TEXT]
+                )
+
+    def test_typed_barcode_fields_keep_absence_and_bytes(self) -> None:
+        """Absent and empty fields stay distinct; embedded NUL bytes survive."""
+        cases = [
+            # text, payload, add-on, append ID; gs1, initialization, parity
+            ((b"a\x00b", None, b"", None), (-1, 0, -1)),
+            ((b"", b"\x00\xff", None, b"group"), (1, -1, 7)),
+        ]
+        for fields, (gs1, initialization, parity) in cases:
+            reader = Scanner.__new__(Scanner)
+            reader._lib = _TypedResult(fields, gs1, initialization, parity)  # noqa: SLF001  # ty: ignore[invalid-assignment]
+            read = reader._barcode(1, 0)  # noqa: SLF001
+            text, payload, add_on, append_id = fields
+            with self.subTest(text=text):
+                self.assertEqual(read.text, (text or b"").decode())
+                self.assertEqual(read.payload_bytes, payload)
+                self.assertEqual(
+                    read.ean_add_on, None if add_on is None else add_on.decode()
+                )
+                self.assertEqual(read.gs1, None if gs1 < 0 else bool(gs1))
+                self.assertEqual(
+                    read.reader_initialization,
+                    None if initialization < 0 else bool(initialization),
+                )
+                self.assertEqual(
+                    read.structured_append,
+                    StructuredAppend(
+                        2,
+                        3,
+                        None if append_id is None else append_id.decode(),
+                        None if parity < 0 else parity,
+                    ),
+                )
 
     def test_pillow_16_bit_modes(self) -> None:
         """Every documented I;16 variant scans as intensities in [0,255]."""

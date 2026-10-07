@@ -363,7 +363,7 @@ class Scanner:
         color_order: ColorOrder = "RGB",
     ) -> ScanResult:
         """Return decoded barcodes with source-image positions."""
-        result = self._run(
+        return self._run(
             image,
             inspect=False,
             formats=formats,
@@ -371,7 +371,6 @@ class Scanner:
             value_range=value_range,
             color_order=color_order,
         )
-        return ScanResult(result.barcodes)
 
     def inspect(
         self,
@@ -443,14 +442,9 @@ class Scanner:
             return ScanResult(barcodes)
         info = _Summary()
         self._check(self._lib.tapirscan_result_info(result, c.byref(info)))
-        undecoded = []
-        for i in range(info.undecoded_count):
-            region = _Region()
-            self._check(
-                self._lib.tapirscan_result_undecoded(result, i, c.byref(region))
-            )
-            name = _FORMAT_NAMES.get(region.format, "Unknown")
-            undecoded.append(UndecodedRegion(_points(region.polygon), name))
+        undecoded = tuple(
+            self._undecoded(result, i) for i in range(info.undecoded_count)
+        )
         length = c.c_uint64()
         self._check(self._lib.tapirscan_result_json_length(result, c.byref(length)))
         output = c.create_string_buffer(length.value + 1)
@@ -459,10 +453,18 @@ class Scanner:
             barcodes,
             cast("Mode", _MODES[info.mode]),
             info.elapsed_ms,
-            tuple(undecoded),
+            undecoded,
             ImageSize(info.width, info.height),
-            _diagnostics(output.raw[: length.value], tuple(undecoded)),
+            _diagnostics(output.raw[: length.value], undecoded),
         )
+
+    def _undecoded(self, result: int, index: int) -> UndecodedRegion:
+        region = _Region()
+        self._check(
+            self._lib.tapirscan_result_undecoded(result, index, c.byref(region))
+        )
+        name = _FORMAT_NAMES.get(region.format, "Unknown")
+        return UndecodedRegion(_points(region.polygon), name)
 
     def _barcode(self, result: int, index: int) -> Barcode:
         native = _Barcode()
