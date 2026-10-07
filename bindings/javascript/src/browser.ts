@@ -74,18 +74,22 @@ async function prepare(source: ImageSource): Promise<[WorkerSource, Transferable
       throw new TypeError("Expected a byte buffer");
     if (!("channels" in source) && !(source.data instanceof Uint8ClampedArray))
       throw new TypeError("Use ImageData or an explicit buffer with channels");
-    const data = new Uint8Array(source.data);
-    const snapshot =
-      "channels" in source
-        ? {
-            data,
-            width: source.width,
-            height: source.height,
-            channels: source.channels,
-            stride: source.stride,
-          }
-        : { data, width: source.width, height: source.height, channels: 4 as const };
-    return [snapshot, [data.buffer]];
+    const { width, height } = source;
+    const channels = "channels" in source ? source.channels : 4;
+    const stride = ("stride" in source ? source.stride : undefined) ?? width * channels;
+    const positive = (n: unknown) => Number.isSafeInteger(n) && (n as number) > 0;
+    if (![width, height, channels, stride].every(positive) || ![1, 3, 4].includes(channels))
+      throw new TypeError("width, height, channels and stride must be valid positive integers");
+    if (width < 3 || height < 3 || width * height > 32 * 1024 * 1024)
+      throw new TypeError(
+        `Images must be 3×3 to 32 megapixels, got ${String(width)}×${String(height)}`,
+      );
+    // Copy only the addressed rows, not the rest of a larger backing buffer.
+    const addressed = (height - 1) * stride + width * channels;
+    if (stride < width * channels || addressed > source.data.length)
+      throw new TypeError("The pixel buffer is smaller than its width, height and stride");
+    const data = new Uint8Array(source.data.subarray(0, addressed));
+    return [{ data, width, height, channels, stride }, [data.buffer]];
   }
   // A copy, so a caller's ImageBitmap stays usable after it is transferred.
   const bitmap = await createImageBitmap(source);
@@ -106,17 +110,12 @@ export class Scanner {
   readonly #pending = new Map<number, Pending>();
   #nextId = 0;
   #closed: Error | undefined;
-  /** Rejects on dispose or failure, so calls still preparing stop waiting at once. */
-  readonly #closing: Promise<never>;
-  #rejectClosing: (reason: Error) => void = () => undefined;
+  /** Rejecters of calls still waiting; each removes itself when its wait ends. */
+  readonly #waiting = new Set<(reason: Error) => void>();
   /** Settles once the previous call has been sent, keeping submissions in call order. */
   #submitted: Promise<void> = Promise.resolve();
 
   constructor(options: ScannerOptions = {}) {
-    this.#closing = new Promise<never>((_, reject) => {
-      this.#rejectClosing = reject;
-    });
-    this.#closing.catch(() => undefined);
     const input: unknown = options;
     if (input === null || typeof input !== "object" || Array.isArray(input))
       throw new TypeError("Invalid scanner options");
@@ -206,9 +205,9 @@ export class Scanner {
       submitted = resolve;
     });
     try {
-      const [prepared, transfer] = await Promise.race([preparing, this.#closing]);
-      await Promise.race([previous, this.#closing]);
-      await Promise.race([this.ready, this.#closing]);
+      const [prepared, transfer] = await this.#untilClosed(preparing);
+      await this.#untilClosed(previous);
+      await this.#untilClosed(this.ready);
       const result = this.#request({ type, source: prepared, options: scanOptions }, transfer);
       submitted();
       return await result;
@@ -222,6 +221,18 @@ export class Scanner {
         () => undefined,
       );
     }
+  }
+
+  /** Wait for `promise`, but reject at once on dispose. Leaves nothing behind. */
+  #untilClosed<T>(promise: Promise<T>): Promise<T> {
+    if (this.#closed) return Promise.reject(this.#closed);
+    return new Promise<T>((resolve, reject) => {
+      this.#waiting.add(reject);
+      promise
+        .then(resolve, reject)
+        .finally(() => this.#waiting.delete(reject))
+        .catch(() => undefined);
+    });
   }
 
   #request(message: DistributiveOmit<WorkerRequest, "id">, transfer: Transferable[]) {
@@ -244,7 +255,8 @@ export class Scanner {
   #close(reason: Error): void {
     if (this.#closed) return;
     this.#closed = reason;
-    this.#rejectClosing(reason);
+    for (const reject of this.#waiting) reject(reason);
+    this.#waiting.clear();
     this.#worker?.terminate();
     for (const pending of this.#pending.values()) pending.reject(reason);
     this.#pending.clear();

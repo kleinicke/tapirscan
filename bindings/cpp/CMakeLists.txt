@@ -8,7 +8,9 @@ if(NOT EXISTS "${TAPIRSCAN_NATIVE_DIR}/${TAPIRSCAN_NATIVE_NAME}")
   message(FATAL_ERROR "Build the native library first: python3 scripts/build_native.py")
 endif()
 add_library(tapirscan::native SHARED IMPORTED GLOBAL)
-set_target_properties(tapirscan::native PROPERTIES IMPORTED_LOCATION "${TAPIRSCAN_NATIVE_DIR}/${TAPIRSCAN_NATIVE_NAME}")
+set_target_properties(tapirscan::native PROPERTIES
+  IMPORTED_LOCATION "${TAPIRSCAN_NATIVE_DIR}/${TAPIRSCAN_NATIVE_NAME}"
+  INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../c/include")
 set(TAPIRSCAN_NATIVE_SONAME "${TAPIRSCAN_NATIVE_NAME}")
 if(APPLE)
   set(TAPIRSCAN_NATIVE_SONAME "@rpath/${TAPIRSCAN_NATIVE_NAME}")
@@ -37,7 +39,6 @@ if(TAPIRSCAN_BUILD_TESTS)
   target_link_libraries(cpp_api PRIVATE tapirscan::cpp)
   add_test(NAME cpp_api_contract COMMAND cpp_api)
   add_executable(c_smoke ../c/tests/smoke.c)
-  target_include_directories(c_smoke PRIVATE ../c/include)
   target_link_libraries(c_smoke PRIVATE tapirscan::native)
   # Assert-based tests must execute even in Release builds.
   if(MSVC)
@@ -61,4 +62,5 @@ write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/TapirscanConfigVer
 install(EXPORT TapirscanTargets NAMESPACE tapirscan:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Tapirscan)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/TapirscanConfig.cmake" "${CMAKE_CURRENT_BINARY_DIR}/TapirscanConfigVersion.cmake" DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Tapirscan)
 
-install(FILES ../../LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/tapirscan)
+install(FILES ../../LICENSE ../../multiformat/THIRD_PARTY_NOTICES.md
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/tapirscan)

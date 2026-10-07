@@ -157,8 +157,8 @@ work. See [usage and stability](bindings/javascript/README.md#experimental-turbo
 ## Results
 
 Every binding returns all decoded instances, including separate labels with the
-same value, with polygons in source-image coordinates. `result.best` selects the
-read with the highest reader-specific support. Support is a ranking heuristic,
+same value, with polygons in source-image coordinates. `result.best` (every
+binding except C) selects the read with the highest reader-specific support. Support is a ranking heuristic,
 not a probability; select by format or payload when your application knows what
 it expects. Wrong reads, duplicates and missed symbols remain possible.
 

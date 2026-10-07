@@ -458,3 +458,16 @@ test("one-shot accepts creation options", async () => {
     fixture().text,
   ]);
 });
+
+test("shared format presets cannot be changed by callers", async () => {
+  for (const preset of [retailFormats, commonLinearFormats, commonFormats]) {
+    assert.ok(Object.isFrozen(preset));
+    assert.throws(() => preset.push("QRCode"), TypeError);
+  }
+  const scanner = await Scanner.create();
+  try {
+    assert.deepEqual(scanner.formats, ["EAN13", "UPCA", "EAN8", "UPCE"]);
+  } finally {
+    scanner.dispose();
+  }
+});

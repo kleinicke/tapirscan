@@ -61,7 +61,7 @@ function status(code: number, operation: string): void {
 
 export class RustScannerSession {
   private constructor(
-    private readonly exports: RustExports,
+    private exports: RustExports | undefined,
     private handle: number,
   ) {}
 
@@ -140,13 +140,17 @@ export class RustScannerSession {
   }
 
   dispose(): void {
-    if (!this.handle) return;
-    status(this.exports.tapirscan_destroy(this.handle), "Scanner disposal");
+    if (!this.handle || !this.exports) return;
+    const exports = this.exports;
+    const handle = this.handle;
+    // WASM memory never shrinks: drop the instance so a retained scanner frees it.
+    this.exports = undefined;
     this.handle = 0;
+    status(exports.tapirscan_destroy(handle), "Scanner disposal");
   }
 
   private activeExports(): RustExports {
-    if (!this.handle) throw new ScannerError("disposed", "Scanner is disposed");
+    if (!this.handle || !this.exports) throw new ScannerError("disposed", "Scanner is disposed");
     return this.exports;
   }
 }

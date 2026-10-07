@@ -26,13 +26,16 @@ def tool(name: str) -> str:
 
 
 if __name__ == "__main__":
+    # Fresh directories, so classes deleted from the sources never reach the JAR.
     classes = ROOT / "build/java/classes"
-    classes.mkdir(parents=True, exist_ok=True)
+    tests = ROOT / "build/java/test-classes"
+    for stale in (classes, tests):
+        shutil.rmtree(stale, ignore_errors=True)
+    classes.mkdir(parents=True)
     metadata = classes / "META-INF"
     metadata.mkdir(exist_ok=True)
     shutil.copy2(ROOT / "LICENSE", metadata / "LICENSE")
-    tests = ROOT / "build/java/test-classes"
-    tests.mkdir(parents=True, exist_ok=True)
+    tests.mkdir(parents=True)
     sources = sorted((ROOT / "bindings/java/src/main/java").rglob("*.java"))
     subprocess.run(
         [tool("javac"), "--release", "22", "-d", str(classes), *map(str, sources)],

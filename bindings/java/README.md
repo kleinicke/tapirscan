@@ -105,7 +105,7 @@ alive and unchanged until the scan returns.
 python3 scripts/build_native.py
 python3 scripts/build_java.py
 java --enable-native-access=ALL-UNNAMED -Dtapirscan.library=build/native/libtapirscan.dylib \
-    -cp "build/java/*:." MyApp
+    -cp build/java/tapirscan-1.3.0.jar:. MyApp
 ```
 
 The library is located through the `tapirscan.library` system property (a

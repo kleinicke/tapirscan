@@ -234,10 +234,11 @@ Other formats stay readable when selected, but do not get faster, and mixed-form
 scans still pay for the enabled 2D readers. See
 [Turbo behavior and limitations](../../docs/EXPERIMENTAL_TURBO.md).
 
-`experimentalTurbo` and `mode` are mutually exclusive. `scanner.experimentalTurbo`
-and `inspect` results report the preset; a Turbo scanner has no effort mode, so
-`scanner.mode` is `undefined` and results omit `mode`. Turbo requires
-`eanAddOnPolicy: "ignore"`.
+`experimentalTurbo` and `mode` are mutually exclusive, and Turbo requires
+`eanAddOnPolicy: "ignore"`. A Turbo scanner has no effort mode: `inspect` results
+report `experimentalTurbo` and omit `mode`. The core scanner also exposes
+`scanner.experimentalTurbo` and leaves `scanner.mode` `undefined`; the browser
+`Scanner` has no configuration properties.
 
 **Stability:** this option, its presets and their asset imports may change or be
 removed in a minor release. Pin the exact package version if you rely on them.

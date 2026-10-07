@@ -14,6 +14,8 @@ geometry, ordering and runtime.
 (properties in JavaScript and Python; `values()` and `best()` in Rust, C++ and
 Java). Each barcode has its text, format, polygon and enclosing rectangle.
 `inspect` returns the same fields plus timing, unread regions and diagnostics.
+C reads the same barcodes through count and copy accessors, with polygons but
+no `best` or rectangle helper; see the [C guide](../bindings/c/README.md).
 
 ```js
 const result = await scan(image);

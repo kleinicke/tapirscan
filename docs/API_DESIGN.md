@@ -31,7 +31,7 @@ schema-2 engine report for inspections.
   different barcodes.
 - **Support is not confidence.** `support` is uncalibrated, reader-specific
   evidence. `best` returns the barcode with the largest support (first read wins
-  ties). It is a convenience, not a most-reliable selection across formats or
+  ties; C has no `best`). It is a convenience, not a most-reliable selection across formats or
   efforts, and it does not change scan work. Select by format, payload or
   position when that matters.
 - **Undecoded regions are hints.** They can be false candidates, failed attempts
