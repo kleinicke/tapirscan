@@ -109,10 +109,15 @@ returns. Size limits and conversion rules are in
 ```sh
 python3 scripts/build_native.py
 cmake -S bindings/cpp -B build/cpp
-cmake --build build/cpp
-ctest --test-dir build/cpp --output-on-failure
-cmake --install build/cpp --prefix /your/install/prefix
+cmake --build build/cpp --config Release
+ctest --test-dir build/cpp --output-on-failure -C Release
+cmake --install build/cpp --prefix /your/install/prefix --config Release
 ```
+
+`--config` and `-C` select the configuration for multi-configuration generators
+such as Visual Studio and are ignored elsewhere. On Windows the build copies
+`tapirscan.dll` next to the test executables; your own programs need it next to
+the executable or on `PATH`.
 
 `TAPIRSCAN_NATIVE_DIR` selects another library directory. The installed package
 is relocatable; consumers use:

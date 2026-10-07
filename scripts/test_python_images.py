@@ -5,6 +5,7 @@ import ctypes
 import json
 import os
 import sys
+import typing
 import unittest
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -507,6 +508,23 @@ class Images(unittest.TestCase):
                         None if append_id is None else append_id.decode(),
                         None if parity < 0 else parity,
                     ),
+                )
+
+    def test_runtime_type_hints(self) -> None:
+        """Result types resolve at runtime, for introspection and Pydantic."""
+        for kind in (Barcode, barcode.ScanResult, barcode.InspectionResult):
+            with self.subTest(kind=kind.__name__):
+                self.assertIn(
+                    "format" if kind is Barcode else "barcodes",
+                    typing.get_type_hints(kind),
+                )
+
+    def test_single_image_batch_of_gray_pixels(self) -> None:
+        """A (1, H, W) array or tensor with layout="HW" is one gray image."""
+        for image in (GRAY[None], torch.from_numpy(GRAY.copy())[None]):
+            with self.subTest(kind=type(image).__name__):
+                self.assertEqual(
+                    decode(image, layout="HW", library_dir=LIBS).values, [TEXT]
                 )
 
     def test_pillow_16_bit_modes(self) -> None:

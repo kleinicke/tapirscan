@@ -176,7 +176,8 @@ export class Scanner {
 
   /** Stop the worker and reject queued scans. Repeated disposal is safe. */
   dispose(): void {
-    this.#close(new Error("Scanner was disposed"));
+    // Same error as the core scanner, so one handler covers both entries.
+    this.#close(new ScannerError("disposed", "Scanner was disposed"));
   }
 
   async #scan(type: "scan" | "inspect", source: ImageSource, options: ScanOptions) {

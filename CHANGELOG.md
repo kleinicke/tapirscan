@@ -44,13 +44,15 @@ rebuild for ABI 6. See the [migration guide](docs/API_MIGRATION.md).
 
 ### Scanner behavior
 
-- More linear barcodes are found and boxed in all effort modes, with fewer
-  duplicate reads of the same label; separate labels with equal values stay
+- Linear barcodes are localized by bar-segment voting, and areas grown along the
+  bars merge duplicate reads of one label; separate labels with equal values stay
   separate.
-- Retail labels read better under low contrast, camera shake, defocus and small
-  print. High and Very High read more EAN-8 and UPC-E labels; Very High adds
-  subpixel recovery for small EAN-13 symbols.
-- QR Code and Aztec recover more difficult symbols.
+- New recovery passes target low contrast, camera shake, defocus and small print
+  on retail labels. High and Very High read EAN-8 and UPC-E in the retail scan;
+  Very High adds subpixel recovery for small EAN-13 symbols.
+- QR Code and Aztec add recovery passes for difficult symbols.
+- On the maintainer's development image sets these changes found more barcodes
+  with fewer duplicates; they are not a published benchmark.
 - Reads, geometry, ordering and latency can differ from 1.2.2. Higher effort
   does not guarantee more reads on every image.
 

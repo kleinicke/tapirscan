@@ -40,6 +40,7 @@ for barcode in result.barcodes:
 | `extended_budget` / `extendedBudget`        | Removed; it did not change results in Medium, High or Very High  |
 | Free `best(barcodes)` function              | `result.best`                                                    |
 | Iterating, indexing or `len` on a result    | `result.barcodes` (Python and Rust)                              |
+| Python `if result:` (false when empty)      | `if result.barcodes:`; a result object is always truthy          |
 | Supplement policy `"Ignore"`, `"Read"`, ... | Lowercase: `"ignore"`, `"read"`, `"require"` (JavaScript/Python) |
 | Python `report.to_raw_dict()`               | `report.diagnostics.to_raw_dict()`                               |
 | Python `ScannerError.code` as a number      | `.code` is a string shared with JavaScript; `.status` the number |

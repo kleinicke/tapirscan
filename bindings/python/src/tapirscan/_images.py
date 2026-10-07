@@ -108,8 +108,20 @@ def image_bytes(
     raise TypeError(msg)
 
 
+def _single_image_batch(shape: tuple[int, ...], layout: Layout) -> bool:
+    """Whether a leading axis of size one is a batch to drop.
+
+    A 4D input has one; so does (1, H, W) with layout="HW", a gray single-image batch.
+    """
+    if shape[:1] != (1,):
+        return False
+    return len(shape) == BATCH_DIMENSIONS or (
+        layout == "HW" and len(shape) == COLOR_DIMENSIONS
+    )
+
+
 def _numpy_layout(image: NDArray[np.generic], layout: Layout) -> NDArray[np.generic]:
-    if image.ndim == BATCH_DIMENSIONS and image.shape[0] == 1:
+    if _single_image_batch(tuple(image.shape), layout):
         image = image[0]
     if image.ndim == HW_DIMENSIONS:
         if layout not in ("auto", "HW"):
@@ -186,7 +198,7 @@ def _numpy_pixels(
 
 
 def _tensor_layout(image: Tensor, layout: Layout) -> Tensor:
-    if image.ndim == BATCH_DIMENSIONS and image.shape[0] == 1:
+    if _single_image_batch(tuple(image.shape), layout):
         image = image[0]
     if image.ndim == HW_DIMENSIONS:
         if layout not in ("auto", "HW"):

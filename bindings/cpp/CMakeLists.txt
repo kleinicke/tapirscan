@@ -49,6 +49,14 @@ if(TAPIRSCAN_BUILD_TESTS)
     target_compile_options(cpp_api PRIVATE -UNDEBUG)
   endif()
   add_test(NAME c_lifetime_and_buffers COMMAND c_smoke)
+  # Windows finds DLLs next to the executable; copy the native library there.
+  if(WIN32)
+    foreach(target scan_raw cpp_api c_smoke)
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${TAPIRSCAN_NATIVE_DIR}/${TAPIRSCAN_NATIVE_NAME}" "$<TARGET_FILE_DIR:${target}>")
+    endforeach()
+  endif()
 endif()
 install(TARGETS tapirscan_cpp EXPORT TapirscanTargets)
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

@@ -179,6 +179,9 @@ were verified by hand.
 - **Requirements:** module workers, `OffscreenCanvas` and WebAssembly SIMD:
   Chrome 91, Firefox 114, Safari 16.4 or later. The camera loop also needs
   `requestVideoFrameCallback`. Images may have at most 32 megapixels.
+- **Deployment size:** bundlers emit all eight WASM files (four modes and four
+  Turbo presets, 1.8–2.5 MB each, about 16 MB together), so any can be selected
+  without configuration. A page downloads only the one its scanner uses.
 
 The [camera example](examples/camera.html) is a complete page: from this
 directory (or the installed package), run `python3 -m http.server` and open

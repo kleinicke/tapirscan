@@ -68,6 +68,21 @@ test("one-shot scan reads files and every image source kind", async () => {
     await img.decode();
     const bitmap = await createImageBitmap(canvas);
     const context = canvas.getContext("2d");
+    const offscreen = new OffscreenCanvas(canvas.width, canvas.height);
+    offscreen.getContext("2d").drawImage(canvas, 0, 0);
+    const frame = new VideoFrame(canvas, { timestamp: 0 });
+    // A playing <video> fed by a live canvas stream, as a camera would feed it.
+    // A canvas stream only emits frames while the canvas is redrawn.
+    const live = document.createElement("canvas");
+    live.width = canvas.width;
+    live.height = canvas.height;
+    const redraw = setInterval(() => live.getContext("2d").drawImage(canvas, 0, 0), 30);
+    const video = document.createElement("video");
+    video.muted = true;
+    video.srcObject = live.captureStream(30);
+    document.body.append(video);
+    await video.play();
+    await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
     const sources = {
       blob,
       file: new File([blob], "code.png", { type: "image/png" }),
@@ -76,16 +91,24 @@ test("one-shot scan reads files and every image source kind", async () => {
       bitmap,
       imageData: context.getImageData(0, 0, canvas.width, canvas.height),
       pixels: image,
+      offscreen,
+      frame,
+      video,
     };
     const results = {};
     for (const [name, source] of Object.entries(sources))
       results[name] = (await scan(source)).values;
     // The caller's bitmap is copied before transfer, so it stays usable.
     results.bitmapUsable = bitmap.width === canvas.width;
+    frame.close();
+    clearInterval(redraw);
+    video.srcObject.getTracks().forEach((track) => track.stop());
+    video.remove();
     return results;
   });
   const expected = [await page.evaluate(() => globalThis.fixture.text)];
-  for (const name of ["blob", "file", "img", "canvas", "bitmap", "imageData", "pixels"])
+  const kinds = ["blob", "file", "img", "canvas", "bitmap", "imageData", "pixels"];
+  for (const name of [...kinds, "offscreen", "frame", "video"])
     assert.deepEqual(read[name], expected, name);
   assert.equal(read.bitmapUsable, true);
 });
@@ -157,8 +180,8 @@ test("errors keep their types, and disposal rejects queued work", async () => {
   assert.equal(outcome.tiny[0], "TypeError");
   assert.deepEqual(outcome.notImage, ["TypeError", "Expected an image source"]);
   assert.match(outcome.missingWasm.join(" "), /^Error .*404/);
-  assert.deepEqual(outcome.queued, ["Error", "Scanner was disposed"]);
-  assert.deepEqual(outcome.afterDispose, ["Error", "Scanner was disposed"]);
+  assert.deepEqual(outcome.queued, ["ScannerError", "Scanner was disposed"]);
+  assert.deepEqual(outcome.afterDispose, ["ScannerError", "Scanner was disposed"]);
   assert.equal(outcome.scannerErrorExported, true);
 });
 
@@ -314,10 +337,10 @@ test("disposal rejects scans that are still being prepared", async () => {
     scanner.dispose();
     return pending.then(
       () => "resolved",
-      (error) => error.message,
+      (error) => `${error.name} ${error.code} ${error.message}`,
     );
   });
-  assert.equal(message, "Scanner was disposed");
+  assert.equal(message, "ScannerError disposed Scanner was disposed");
 });
 
 test("transparent images scan as if shown on white", async () => {

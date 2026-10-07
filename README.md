@@ -146,8 +146,9 @@ accuracy ranking. **[Read the illustrated comparison and its sources](docs/COMPA
 Start with `medium`. Try `low` if scanning slows down your camera preview, or
 `high` and `very-high` when an image is difficult to read. Measure on your own
 images and devices: higher effort does not guarantee more reads on every image.
-Effort modes tune EAN/UPC, common linear formats and QR Code; other matrix readers
-use a fixed effort.
+Effort modes tune EAN/UPC, common linear formats, QR Code, Data Matrix and Aztec
+(see [effort levels](docs/FORMATS.md#effort-levels)); PDF417 and MaxiCode use a fixed
+effort.
 
 JavaScript also offers **experimental Turbo presets** for faster 1D scanning:
 `experimentalTurbo: 2 | 4 | 8 | 16`. They trade difficult-image recovery for less

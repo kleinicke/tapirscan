@@ -100,6 +100,7 @@ jobs:
           cargo +1.91.1 fetch --manifest-path build/crates/tapirscan/Cargo.toml
           cargo +1.91.1 test --offline --release --manifest-path build/crates/tapirscan/Cargo.toml
           cargo +1.91.1 test --offline --release --no-default-features --features mode-low,mode-medium,mode-high,mode-very-high --manifest-path build/crates/tapirscan/Cargo.toml
+          cargo +1.91.1 test --offline --release --no-default-features --features mode-medium --manifest-path build/crates/tapirscan/Cargo.toml
           cargo +1.91.1 clippy --offline --all-targets --manifest-path build/crates/tapirscan/Cargo.toml -- -D warnings -W clippy::all -W clippy::pedantic
           RUSTDOCFLAGS="-D warnings" cargo +1.91.1 doc --offline --no-deps --manifest-path build/crates/tapirscan/Cargo.toml
           python3 scripts/test_rust_package.py build/crates/tapirscan

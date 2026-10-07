@@ -29,13 +29,13 @@ pip install tapirscan
 
 ## Quick start
 
-Install the image libraries you use. For these examples:
-
-```sh
-pip install tapirscan tifffile pillow torch
-```
+Tapirscan has no image-library dependencies; install the ones your inputs need.
 
 ### TIFF with tifffile
+
+```sh
+pip install tapirscan tifffile
+```
 
 ```python
 import tifffile
@@ -50,6 +50,10 @@ This assumes an 8-bit grayscale or RGB image. Defaults are Medium effort and the
 retail formats (EAN13, UPCA, EAN8, UPCE).
 
 ### JPEG with Pillow
+
+```sh
+pip install tapirscan pillow
+```
 
 ```python
 from PIL import Image
@@ -68,6 +72,10 @@ DataMatrix; `"2D"` and `"all"` are also available. See
 [format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md).
 
 ### PyTorch tensors
+
+```sh
+pip install tapirscan torch
+```
 
 ```python
 import torch
@@ -123,8 +131,8 @@ that call only; `None` uses the scanner's selection.
 | `color_order`       | Scan, arrays/tensors only | `"RGB"`         | `"BGR"` for OpenCV BGR/BGRA pixels. Grayscale is unaffected.                                                           |
 | `library_dir`       | Creation / one-shot       | Bundled library | Directory of a custom native build. Lookup order: this argument, `TAPIRSCAN_LIBRARY_DIR`, then the wheel's library.    |
 
-Effort modes tune EAN/UPC, common linear formats and QR Code; other matrix readers
-use a fixed effort. Format group exports: `retail_formats`, `common_linear_formats`,
+Effort modes tune EAN/UPC, common linear formats, QR Code, Data Matrix and Aztec;
+PDF417 and MaxiCode use a fixed effort. Format group exports: `retail_formats`, `common_linear_formats`,
 `common_formats`, `linear_formats`, `matrix_formats`. Resizing, cropping, rotation
 and camera capture are up to the caller.
 

@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from math import ceil, floor
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeAlias, cast
+from typing import Any, Literal, NamedTuple, TypeAlias, cast
 
 from typing_extensions import override
 
-if TYPE_CHECKING:
-    from .formats import Format
+# Imported at runtime so typing.get_type_hints() and Pydantic can resolve fields.
+from .formats import Format  # noqa: TC001
 
 SCHEMA_VERSION = 2
 

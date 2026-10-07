@@ -51,13 +51,18 @@ The supported public identifiers and native bits are:
 | DataBarExpanded |  16384 | Expanded and Expanded Stacked                                    |
 | MaxiCode        | 131072 | Modes 2–6; affine finder localization                            |
 
+## Effort levels
+
 Effort levels select the following bounded searches:
 
-| Reader               | Low | Medium | High | Very High |
-| -------------------- | --- | ------ | ---- | --------- |
-| Common-linear        | 0   | 1      | 2    | 2         |
-| QR Code              | 0   | 1      | 2    | 3         |
-| Other matrix readers | 1   | 1      | 1    | 1         |
+| Reader        | Low | Medium | High | Very High |
+| ------------- | --- | ------ | ---- | --------- |
+| Common-linear | 0   | 1      | 2    | 2         |
+| QR Code       | 0   | 1      | 2    | 3         |
+
+Data Matrix and Aztec get an additional grid-recovery pass for localized symbols
+from Medium up, and Aztec uses smaller refinement budgets in Low. PDF417 and
+MaxiCode use the same effort in every mode.
 
 These are internal reader effort levels, not comparable work or confidence scores.
 QR High adds threshold/sharpen recovery; Very High also tries bounded curved-grid

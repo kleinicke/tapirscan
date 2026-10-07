@@ -25,10 +25,41 @@ fn default_formats_are_retail() {
     assert_eq!(ScannerOptions::default().formats, Formats::RETAIL);
 }
 
+/// Modes compiled into this test build: all four by default, fewer with
+/// `--no-default-features --features mode-...`.
+fn compiled_modes() -> Vec<Mode> {
+    [
+        (Mode::Low, cfg!(feature = "mode-low")),
+        (Mode::Medium, cfg!(feature = "mode-medium")),
+        (Mode::High, cfg!(feature = "mode-high")),
+        (Mode::VeryHigh, cfg!(feature = "mode-very-high")),
+    ]
+    .into_iter()
+    .filter_map(|(mode, compiled)| compiled.then_some(mode))
+    .collect()
+}
+
+#[test]
+fn modes_left_out_of_the_build_fail_clearly() {
+    let (pixels, width, height) = fixture(false);
+    for mode in [Mode::Low, Mode::Medium, Mode::High, Mode::VeryHigh] {
+        let result = Scanner::new(ScannerOptions {
+            mode,
+            ..ScannerOptions::default()
+        })
+        .scan(Image::gray(&pixels, width, height));
+        if compiled_modes().contains(&mode) {
+            assert!(result.is_ok(), "{mode:?}");
+        } else {
+            assert!(matches!(result, Err(Error::InvalidOptions(_))), "{mode:?}");
+        }
+    }
+}
+
 #[test]
 fn all_modes_preserve_instances_and_inspection_parity() {
     assert_eq!(BITS.len(), 95);
-    for mode in [Mode::Low, Mode::Medium, Mode::High, Mode::VeryHigh] {
+    for mode in compiled_modes() {
         let mut scanner = Scanner::new(ScannerOptions {
             mode,
             ..ScannerOptions::default()
