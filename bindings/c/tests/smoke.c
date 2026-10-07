@@ -28,7 +28,7 @@ int main(void) {
     assert(result == 0);
 
     image.length = sizeof(pixels);
-    assert(sizeof(tapirscan_scan_options) == 8);
+    assert(sizeof(tapirscan_scan_options) == 4);
     assert(tapirscan_scan(scanner, &image, NULL, &result, NULL) == TAPIRSCAN_OK);
     uint64_t count = 99;
     assert(tapirscan_result_count(result, &count) == TAPIRSCAN_OK && count == 0);

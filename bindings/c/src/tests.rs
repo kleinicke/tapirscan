@@ -183,7 +183,6 @@ fn options_select_mode_formats_and_diagnostics() {
         assert_eq!(tapirscan_result_destroy(result), 0);
         let options = ScanOptionsC {
             formats: TAPIRSCAN_FORMAT_EAN13,
-            extended_budget: 1,
         };
         let (status, result) = scan(scanner, &image, &raw const options);
         assert_eq!(status, 0);
@@ -268,18 +267,8 @@ fn rejects_invalid_images_and_scan_options() {
         for image in &invalid {
             assert_eq!(scan(scanner, image, std::ptr::null()), (ARG, 0));
         }
-        for options in [
-            ScanOptionsC {
-                formats: 1 << 30,
-                extended_budget: 0,
-            },
-            ScanOptionsC {
-                formats: 0,
-                extended_budget: 2,
-            },
-        ] {
-            assert_eq!(scan(scanner, &valid, &raw const options), (ARG, 0));
-        }
+        let options = ScanOptionsC { formats: 1 << 30 };
+        assert_eq!(scan(scanner, &valid, &raw const options), (ARG, 0));
         let mut result = 9;
         assert_eq!(
             tapirscan_scan(

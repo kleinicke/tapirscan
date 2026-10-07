@@ -89,9 +89,15 @@ def wheel_platform(wheel: Path, version: str) -> str:
     return matches.pop()
 
 
-def write_bundle(destination: Path, wheels: list[Path], tarball: Path) -> None:
+def write_bundle(
+    destination: Path, wheels: list[Path], tarball: Path, crate: Path
+) -> None:
     """Copy only the validated packages and record their checksums."""
-    for folder, artifacts in (("wheels", wheels), ("npm", [tarball])):
+    for folder, artifacts in (
+        ("wheels", wheels),
+        ("npm", [tarball]),
+        ("crates", [crate]),
+    ):
         (destination / folder).mkdir(parents=True)
         for artifact in artifacts:
             shutil.copy2(artifact, destination / folder / artifact.name)
@@ -130,8 +136,11 @@ def main() -> None:
         manifest = archive.extractfile("package/package.json")
         if manifest is None or json.load(manifest) != package:
             fail("npm package metadata does not match this commit")
-    write_bundle(destination, wheels, tarballs[0])
-    print(f"Prepared {version}: five tested platform wheels and one npm package")
+    crates = list((staging / "CI_RUN").rglob("*.crate"))
+    if len(crates) != 1 or crates[0].name != f"tapirscan-{version}.crate":
+        fail("Expected exactly one matching Rust crate")
+    write_bundle(destination, wheels, tarballs[0], crates[0])
+    print(f"Prepared {version}: five platform wheels, one npm package and one crate")
 
 
 if __name__ == "__main__":

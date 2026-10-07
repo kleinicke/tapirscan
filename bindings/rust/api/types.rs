@@ -135,9 +135,6 @@ impl Default for ScannerOptions {
 pub struct ScanOptions {
     /// Per-call reader override; `None` (default) uses the scanner configuration.
     pub formats: Option<Formats>,
-    /// Allow reader-specific extra work; false by default. Valid for every format.
-    /// Exact budgets may evolve; this does not guarantee exhaustive decoding.
-    pub extended_budget: bool,
 }
 /// Four source-image points, with x rightward and y downward from the top left.
 pub type Quad = [[f64; 2]; 4];
@@ -180,32 +177,39 @@ pub struct Barcode {
     pub structured_append: Option<StructuredAppend>,
 }
 impl Barcode {
-    /// Enclosing integer pixel bounds as [x, y, width, height].
+    /// Enclosing integer pixel bounds: floor of the minimum to ceil of the maximum.
     #[must_use]
-    pub fn rect(&self) -> [f64; 4] {
-        let bounds = self.polygon.iter().fold(
-            [
-                f64::INFINITY,
-                f64::INFINITY,
-                f64::NEG_INFINITY,
-                f64::NEG_INFINITY,
-            ],
-            |b, p| {
-                [
-                    b[0].min(p[0]),
-                    b[1].min(p[1]),
-                    b[2].max(p[0]),
-                    b[3].max(p[1]),
-                ]
-            },
-        );
-        [
-            bounds[0].floor(),
-            bounds[1].floor(),
-            bounds[2].ceil() - bounds[0].floor(),
-            bounds[3].ceil() - bounds[1].floor(),
-        ]
+    // Coordinates are finite and bounded by the 32-megapixel input limit, so they fit in i32.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn rect(&self) -> Rect {
+        let (mut left, mut top) = (f64::INFINITY, f64::INFINITY);
+        let (mut right, mut bottom) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for [x, y] in self.polygon {
+            left = left.min(x);
+            top = top.min(y);
+            right = right.max(x);
+            bottom = bottom.max(y);
+        }
+        let (left, top) = (left.floor() as i32, top.floor() as i32);
+        Rect {
+            left,
+            top,
+            width: right.ceil() as i32 - left,
+            height: bottom.ceil() as i32 - top,
+        }
     }
+}
+/// Enclosing integer pixel bounds of a barcode polygon.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq, Hash)]
+pub struct Rect {
+    /// Leftmost pixel column.
+    pub left: i32,
+    /// Topmost pixel row.
+    pub top: i32,
+    /// Width in pixels.
+    pub width: i32,
+    /// Height in pixels.
+    pub height: i32,
 }
 /// Structured-append metadata. Index is one-based; callers assemble sequences.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]

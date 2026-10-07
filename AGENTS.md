@@ -13,25 +13,25 @@ explicit work limits and support-based ranking. Do not silently introduce a
 neural model or reference-decoder fallback. Performance claims need reproducible
 paired evidence.
 
-`core/src` and `multiformat/` are maintained production source. Edit them directly in isolated
-experiment worktrees; select one `mode-*` feature or use `scripts/build.py MODE`.
+`core/src` and `multiformat/` are maintained production source: format and lint
+them like any other source. In isolated experiment worktrees, edit them
+directly. To select a mode, use one `mode-*` feature or `scripts/build.py MODE`.
 Read [the core guide](core/README.md) for stage boundaries and mode differences.
-Format and lint both like any other source. Research archives and unused prototypes belong in the
-separate experiment workspace; see [repository boundaries](docs/RESEARCH_BOUNDARY.md).
-Preserve all Turbo variants: they are intentionally retained for future API work.
+The four Turbo presets (2/4/8/16) are public experimental API; keep all four
+building and tested.
 
 Builds compile current production source; the package version and git commit are
 the release identity. `scripts/verify_sources.py` checks the repository boundary
-and generated formats. Follow [promotion](docs/PROMOTING_CHANGES.md) when
-integrating experimental algorithm changes.
+and generated formats. See [Changing the scanner](CONTRIBUTING.md#changing-the-scanner)
+for where experiments live and how a change is integrated.
 
 ## Changes and verification
 
-Implement the documented APIs and keep the language package versions
-synchronized. Follow the compatibility policy in
+Implement the documented APIs. `scripts/check_release.mjs` checks that all
+language packages carry the same version. Follow the compatibility policy in
 [CONTRIBUTING.md](CONTRIBUTING.md#api-stability) and [API design](docs/API_DESIGN.md).
 
-- Follow `docs/QUALITY.md`; format a coherent batch before running relevant checks.
+- Follow [quality checks](docs/QUALITY.md); format a coherent batch before running relevant checks.
 - C, C++, Python and Java share native ABI 6: one library containing every mode.
   ABI changes need cross-language parity and installation tests; preserve
   ownership and error behavior.
@@ -57,13 +57,13 @@ requirements belong in this file or the linked documentation.
 
 Keep display geometry separate from physical ownership: bounded barcode-profile
 agreement may widen a displayed outline but never changes ownership decisions.
-Recovery crops use exact integer interpolation; preserve its byte-equivalence
-tests. The demo's Turbo readers use the current build's `experimental-turbo*.wasm`.
+The demo's Turbo readers use the current build's `experimental-turbo*.wasm`.
 
-## Reserved retail production-release benchmark
+## Related repositories
 
-`../tapirscan-datasets/datasets/release-benchmarks/retail-food-20261005/` is reserved for production releases. Read its `AGENTS.md` and `training-exclusions.json` before selecting scanner inputs. **Never use its source hashes, product groups, aliases or derivatives for training, optimization, development experiments, or casual benchmarks**, even via older datasets or manifests. Only the expressly authorized initial reference baseline and authorized frozen production-release evaluations are permitted. Historical exposure is documented; do not call it an untouched holdout.
+- `../tapirscan-web`: demo and benchmarks. Reserved release-benchmark data may
+  only be used to evaluate a version after it has been released.
+- `../tapirscan-experiments`: scanner experiments and their evidence.
+- `../tapirscan-datasets`: shared data, labels and saved observations.
 
-## Required runtime for comparisons
-
-All benchmark scanner measurements must use the library's JavaScript API within installed Google Chrome, including WASM loaded by that API. Native Chrome uses its JavaScript BarcodeDetector API. Do not substitute Node, Python, native command-line or direct Rust timing. Record Chrome version, exact package/artifact identity and scan timing boundaries. Node may orchestrate Chrome; it must not perform the measured scanning.
+Read the relevant repository's `AGENTS.md` when working there.

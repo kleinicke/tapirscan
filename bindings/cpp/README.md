@@ -29,10 +29,17 @@ for (const auto& barcode : result.barcodes) {
 std::cout << result.undecoded.size() << " undecoded\n";
 ```
 
-If nothing is decoded, `barcodes` is empty. Invalid input and engine failures
-throw `tapirscan::Error`, whose `code` is the native status. Results are owned
-values and outlive the scanner. Equal payloads at distinct locations are
-reported as separate barcodes.
+If nothing is decoded, `barcodes` is empty. Results are owned values and outlive
+the scanner. Support, undecoded regions and duplicate payloads are described in
+[API design](../../docs/API_DESIGN.md).
+
+Exceptions:
+
+- `tapirscan::Error` (derived from `std::runtime_error`, with the native status
+  in `code`) for invalid images, options and engine failures.
+- `std::invalid_argument` from `Formats` for an empty or unsupported selection.
+- `std::runtime_error` when the native library's ABI differs from the header.
+- `std::logic_error` when a moved-from `Scanner` is used.
 
 ## Reuse and configuration
 
@@ -43,7 +50,7 @@ options.formats = tapirscan::Format::Ean13 | tapirscan::Format::QrCode;
 tapirscan::Scanner scanner(options);
 
 tapirscan::ScanOptions scan;
-scan.extended_budget = true;
+scan.formats = tapirscan::Formats(tapirscan::Format::QrCode); // this call only
 const auto result = scanner.scan(tapirscan::Image::rgba(pixels, width, height), scan);
 if (const auto* best = result.best()) std::cout << best->text << '\n';
 ```
@@ -61,23 +68,20 @@ scanner for one image.
 
 `Formats::from_bits` rejects empty or unknown bits with `std::invalid_argument`.
 
-Presets: `Formats::retail()`, `common_1d()`, `common()`, `linear()`, `matrix()`
-and `all()`. Retail formats are enabled by default; additional formats are supported when selected.
-See [format coverage](../../docs/FORMATS.md).
+Presets: `Formats::retail()`, `common_1d()`, `common()`, `linear()`,
+`matrix()` and `all()`. See [format coverage](../../docs/FORMATS.md).
 
-| Per-scan option   | Default        | Meaning                                |
-| ----------------- | -------------- | -------------------------------------- |
-| `formats`         | `std::nullopt` | Override readers for this call         |
-| `extended_budget` | `false`        | Allow extra reader work for any format |
+| Per-scan option | Default        | Meaning                                                |
+| --------------- | -------------- | ------------------------------------------------------ |
+| `formats`       | `std::nullopt` | Readers for this call, replacing the scanner's formats |
 
-`extended_budget` can cost more time and does not promise exhaustive decoding;
-see [API design](../../docs/API_DESIGN.md).
+Per-call options never change the scanner's configuration.
 
 ## Results
 
 `ScanResult` provides `barcodes`, `values()` and `best()`. `best()` returns a
 pointer to the barcode with the largest `support` (first read wins ties), or
-null when nothing was decoded. It is not callable on temporaries, whose pointer
+null when nothing was decoded. It is deleted for temporaries, whose pointer
 would dangle; bind the result to a variable first.
 
 `InspectionResult` has the same members plus `undecoded`, `width`, `height`,
@@ -86,25 +90,19 @@ would dangle; bind the result to a variable first.
 `Barcode` contains `text`, `format`, `polygon` (four `Point`s in source-image
 pixels, top-left origin), `support`, and optional `payload_bytes`, `ean_add_on`,
 `gs1`, `reader_initialization` and `structured_append`. An empty optional means
-the reader did not report it. `support` is reader-specific evidence, a ranking
-heuristic and not a confidence. `rect()` returns a `std::array<double, 4>` of
-`{left, top, width, height}`, the enclosing integer pixel bounds.
-`to_string(format)` gives names such as `"QRCode"`.
+the reader did not report it. `rect()` returns a `tapirscan::Rect` with
+`std::int32_t` `left`, `top`, `width` and `height`.
 
-`undecoded` contains localized regions without an accepted decode. These can be
-false candidates, and an empty list does not guarantee that every barcode was found.
+`to_string(format)` gives names such as `"QRCode"`.
 
 ## Images
 
 `Image::gray`, `Image::rgb` and `Image::rgba` take a `std::vector<std::uint8_t>`
 or a pointer and length, plus width and height; `.with_stride(bytes_per_row)`
-describes padded rows. Alpha is ignored. Keep the backing buffer alive and unchanged until the scan
-call returns; the factories reject temporary vectors. Images are at least 3×3
-and at most 32 megapixels. The addressed layout,
-`(height - 1) * stride + width * channels` bytes, must fit in the buffer and in
-128 MiB; a larger backing buffer, such as a frame around a crop, is accepted.
-Decode image files and convert BGR, planar, float or 16-bit pixels before
-scanning.
+describes padded rows. The vector factories reject temporaries. The pointer
+overloads do not copy: keep the buffer alive and unchanged until the scan call
+returns. Size limits and conversion rules are in
+[API design](../../docs/API_DESIGN.md#images).
 
 ## Building and installing
 
@@ -125,7 +123,7 @@ target_link_libraries(my_app PRIVATE tapirscan::cpp)
 ```
 
 The package also installs the C header for C consumers. The wrapper targets
-64-bit platforms. No Conan or vcpkg recipes are provided.
+64-bit platforms.
 
 ## License
 

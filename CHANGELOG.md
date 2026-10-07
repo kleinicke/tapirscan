@@ -12,6 +12,13 @@ rebuild for ABI 6. See the [migration guide](docs/API_MIGRATION.md).
   `best`. `inspect` adds timing, unread regions and diagnostics, replacing the
   `debug` option. The `unfinished` result flag is removed; it was set on nearly
   every scan and gave no useful signal.
+- The extended-budget scan option is removed: it did not change results in
+  Medium, High or Very High.
+- Supplement policies are lowercase like the modes: `"ignore"`, `"read"` and
+  `"require"`.
+- Per-call formats override the scanner's formats in every binding. Rectangles
+  are integers in every binding. Python and JavaScript errors share the same
+  `code` names.
 - The free `best()` function and direct iteration, indexing and `len` on Python
   and Rust results are removed; use `result.best` and `result.barcodes`.
 - JavaScript adds `tapirscan/browser`: scan files, images, video frames, canvases

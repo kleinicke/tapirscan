@@ -1,10 +1,9 @@
 // CLI used by the cross-language parity suite; not an additional node:test case.
-// usage: mode width height channels stride pixels [debug formats [extendedBudget]]
+// usage: mode width height channels stride pixels [debug formats]
 // Prints the same typed JSON as the C++, Java and Rust scan_raw examples.
 import { readFile } from "node:fs/promises";
 import { Scanner } from "../dist/index.js";
-const [mode, width, height, channels, stride, file, debug, formats, extendedBudget] =
-  process.argv.slice(2);
+const [mode, width, height, channels, stride, file, debug, formats] = process.argv.slice(2);
 const scanner = await Scanner.create({
   mode,
   ...(formats ? { formats: formats.split(",") } : {}),
@@ -14,16 +13,13 @@ const scanner = await Scanner.create({
   },
 });
 try {
-  const result = scanner.inspect(
-    {
-      data: new Uint8Array(await readFile(file)),
-      width: +width,
-      height: +height,
-      channels: +channels,
-      stride: +stride,
-    },
-    { extendedBudget: extendedBudget === "1" },
-  );
+  const result = scanner.inspect({
+    data: new Uint8Array(await readFile(file)),
+    width: +width,
+    height: +height,
+    channels: +channels,
+    stride: +stride,
+  });
   const best = result.best === undefined ? null : result.barcodes.indexOf(result.best);
   console.log(
     JSON.stringify({

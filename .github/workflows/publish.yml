@@ -14,7 +14,7 @@ on:
         description: Registry to publish to (none only prepares reviewed artifacts)
         default: none
         type: choice
-        options: [none, pypi, npm, both]
+        options: [none, pypi, npm, crates, all]
 permissions:
   contents: read
   actions: read
@@ -56,7 +56,7 @@ jobs:
           if-no-files-found: error
   pypi:
     needs: prepare
-    if: inputs.publish == 'pypi' || inputs.publish == 'both'
+    if: inputs.publish == 'pypi' || inputs.publish == 'all'
     runs-on: ubuntu-24.04
     environment: pypi
     permissions:
@@ -71,7 +71,7 @@ jobs:
           packages-dir: release/wheels/
   npm:
     needs: prepare
-    if: inputs.publish == 'npm' || inputs.publish == 'both'
+    if: inputs.publish == 'npm' || inputs.publish == 'all'
     runs-on: ubuntu-24.04
     environment: npm
     permissions:
@@ -88,3 +88,25 @@ jobs:
           name: release-bundle
           path: release
       - run: npm publish release/npm/tapirscan-*.tgz --access public
+  crates:
+    needs: prepare
+    if: inputs.publish == 'crates' || inputs.publish == 'all'
+    runs-on: ubuntu-24.04
+    environment: crates
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: release
+      - run: rustup toolchain install 1.91.1 --profile minimal
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: Publish the reviewed crate
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          mkdir crate
+          tar -xzf release/crates/tapirscan-*.crate -C crate --strip-components 1
+          cargo +1.91.1 publish --manifest-path crate/Cargo.toml

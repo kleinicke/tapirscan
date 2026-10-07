@@ -8,7 +8,7 @@ const manifest = process.argv[2];
 const count = Number(process.argv[3] ?? 25);
 assert.ok(Number.isInteger(count) && count > 0);
 const fixtures = JSON.parse(await readFile(manifest, "utf8"));
-const policies = ["Ignore", "Read", "Require"];
+const policies = ["ignore", "read", "require"];
 const scenes = ["EAN13-none", "EAN13-12", "EAN13-51234", "different-supplements"];
 function summary(samples) {
   const sorted = [...samples].sort((a, b) => a - b);

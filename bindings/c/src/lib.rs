@@ -110,7 +110,6 @@ pub struct ImageC {
 #[repr(C)]
 pub struct ScanOptionsC {
     pub formats: u32,
-    pub extended_budget: u32,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -392,24 +391,14 @@ unsafe fn scan(
         let image = image
             .as_ref()
             .ok_or_else(|| invalid("image pointer is null"))?;
-        let (formats, extended_budget) = match options.as_ref() {
-            None => (0, false),
-            Some(o) if o.extended_budget > 1 => {
-                return Err(invalid("extended_budget must be 0 or 1"))
-            }
-            Some(o) => (o.formats, o.extended_budget == 1),
-        };
-        let formats = match formats {
+        let formats = match options.as_ref().map_or(0, |o| o.formats) {
             0 => None,
             bits => Some(Formats::try_from(bits).map_err(Failure::from)?),
         };
         let pixels = borrow_image(image)?;
         let scanner = registry()?.scanners.get(&scanner).cloned().ok_or(HANDLE)?;
         let mut scanner = scanner.lock().map_err(|_| PANIC)?;
-        let options = ScanOptions {
-            formats,
-            extended_budget,
-        };
+        let options = ScanOptions { formats };
         let (barcodes, report) = if inspect {
             let mut report = scanner
                 .inspect_with_options(pixels, options)

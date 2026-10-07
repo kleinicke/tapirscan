@@ -40,7 +40,7 @@ final class Native {
     static final MemoryLayout SCANNER_OPTIONS = MemoryLayout.structLayout(
             JAVA_INT.withName("mode"), JAVA_INT.withName("formats"), JAVA_INT.withName("addonPolicy"));
     static final MemoryLayout SCAN_OPTIONS = MemoryLayout.structLayout(
-            JAVA_INT.withName("formats"), JAVA_INT.withName("extendedBudget"));
+            JAVA_INT.withName("formats"));
     static final MemoryLayout ERROR = MemoryLayout.sequenceLayout(512, JAVA_BYTE);
 
     static long offset(MemoryLayout layout, String field) {

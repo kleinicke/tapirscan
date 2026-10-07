@@ -1,7 +1,7 @@
 //! Optional cross-language corpus supplied by `scripts/test_rust_package.py`.
 use serde::Deserialize;
 use serde_json::Value;
-use tapirscan::{EanAddOnPolicy, Formats, Image, Mode, ScanOptions, Scanner, ScannerOptions};
+use tapirscan::{EanAddOnPolicy, Formats, Image, Mode, Scanner, ScannerOptions};
 
 #[derive(Deserialize)]
 struct Case {
@@ -13,7 +13,6 @@ struct Case {
     stride: usize,
     formats: u32,
     addons: usize,
-    complete: bool,
     expected: Value,
     undecoded: usize,
 }
@@ -44,24 +43,8 @@ fn native_parity() {
                 EanAddOnPolicy::Require,
             ][case.addons],
         });
-        let result = scanner
-            .inspect_with_options(
-                image,
-                ScanOptions {
-                    extended_budget: case.complete,
-                    ..ScanOptions::default()
-                },
-            )
-            .unwrap();
-        let plain = scanner
-            .scan_with_options(
-                image,
-                ScanOptions {
-                    extended_budget: case.complete,
-                    ..ScanOptions::default()
-                },
-            )
-            .unwrap();
+        let result = scanner.inspect(image).unwrap();
+        let plain = scanner.scan(image).unwrap();
         assert_eq!(plain.barcodes, result.barcodes);
         let debug = result.diagnostics.as_ref().unwrap();
         let mut actual = debug.raw.clone();

@@ -179,7 +179,7 @@ impl Scanner {
                     multiple: true,
                     include_regions: true,
                     retain_diagnostics: diagnostics,
-                    finish_candidates: options.extended_budget && formats.bits() & 3 != 0,
+                    finish_candidates: false,
                 };
                 let policy = match addons {
                     EanAddOnPolicy::Ignore => selected::formats::EanAddOnPolicy::Ignore,

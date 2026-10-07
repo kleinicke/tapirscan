@@ -87,7 +87,6 @@ public final class Scanner implements AutoCloseable {
             input.set(JAVA_LONG, offset(Native.IMAGE, "stride"), image.stride());
             MemorySegment settings = arena.allocate(Native.SCAN_OPTIONS);
             settings.set(JAVA_INT, offset(Native.SCAN_OPTIONS, "formats"), scan.formats().map(Format::mask).orElse(0));
-            settings.set(JAVA_INT, offset(Native.SCAN_OPTIONS, "extendedBudget"), scan.extendedBudget() ? 1 : 0);
             MemorySegment out = arena.allocate(JAVA_LONG);
             MemorySegment error = arena.allocate(Native.ERROR);
             lib.check(Native.call(inspect ? lib.inspect : lib.scan, handle, input, settings, out, error), error);

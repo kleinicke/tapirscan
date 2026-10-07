@@ -54,45 +54,20 @@ class Images(unittest.TestCase):
             load.return_value.tapirscan_scanner_create.assert_not_called()
             load.return_value.tapirscan_result_json_length.assert_not_called()
 
-    def test_finish_candidates(self) -> None:
-        """Continuation is opt-in and validates the selected reader."""
-        image = PixelImage(RAW, width=W, height=H)
-        for mode in ("low", "medium", "high", "very-high"):
-            with Scanner(mode, library_dir=LIBS) as scanner:
-                self.assertEqual(
-                    scanner.inspect(image).values,
-                    scanner.inspect(image, extended_budget=False).values,
-                )
-                self.assertEqual(
-                    scanner.inspect(image, extended_budget=True).values, [TEXT]
-                )
-                with self.assertRaisesRegex(TypeError, "a boolean"):
-                    scanner.inspect(image, extended_budget=1)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-                self.assertEqual(
-                    scanner.inspect(
-                        image, formats="QRCode", extended_budget=True
-                    ).values,
-                    [],
-                )
-        self.assertEqual(
-            decode(image, library_dir=LIBS, extended_budget=True).values,
-            [TEXT],
-        )
-
     def test_supplement_policy(self) -> None:
         """Policy is opt-in, creation-only and forwarded by one-shot scanning."""
         with Scanner(library_dir=LIBS) as scanner:
-            self.assertEqual(scanner.ean_add_on_policy, "Ignore")
+            self.assertEqual(scanner.ean_add_on_policy, "ignore")
         self.assertEqual(
             decode(
                 PixelImage(RAW, width=W, height=H),
                 library_dir=LIBS,
-                ean_add_on_policy="Require",
+                ean_add_on_policy="require",
             ).values,
             [],
         )
         with self.assertRaisesRegex(ValueError, "ean_add_on_policy"):
-            Scanner(ean_add_on_policy="read")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+            Scanner(ean_add_on_policy="Read")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
     def test_raw_and_pillow(self) -> None:
         """Verify raw and pillow."""
@@ -157,7 +132,9 @@ class Images(unittest.TestCase):
 
     def test_metadata_and_work_status(self) -> None:
         """Application metadata is visible without debug."""
-        raw = decode(PixelImage(RAW, width=W, height=H), library_dir=LIBS).to_raw_dict()
+        raw = decode(
+            PixelImage(RAW, width=W, height=H), library_dir=LIBS
+        ).diagnostics.to_raw_dict()
         raw["scan"]["barcodes"][0].update(
             {
                 "gs1": True,
@@ -192,7 +169,9 @@ class Images(unittest.TestCase):
 
     def test_search_window_evidence(self) -> None:
         """Preserve absent, empty and populated search evidence."""
-        raw = decode(PixelImage(RAW, width=W, height=H), library_dir=LIBS).to_raw_dict()
+        raw = decode(
+            PixelImage(RAW, width=W, height=H), library_dir=LIBS
+        ).diagnostics.to_raw_dict()
         window = {
             "kind": "full_frame_search",
             "polygon": [[0, 0], [W, 0], [W, H], [0, H]],
@@ -378,7 +357,7 @@ class Images(unittest.TestCase):
                 }
                 for window in regions.search_windows
             ],
-            details.to_raw_dict()["searchWindows"],
+            details.diagnostics.to_raw_dict()["searchWindows"],
         )
         self.assertTrue(any(c.detections for c in regions.candidates))
         for candidate in regions.candidates:
@@ -388,7 +367,7 @@ class Images(unittest.TestCase):
 
         with self.assertRaises(FrozenInstanceError):
             result.barcodes[0].text = "changed"  # ty: ignore[invalid-assignment]
-        exported = result.to_raw_dict()
+        exported = result.diagnostics.to_raw_dict()
         exported["scan"]["barcodes"].clear()
         self.assertEqual(result.values, [TEXT])
         blank = barcode.inspect(
@@ -560,22 +539,23 @@ class Images(unittest.TestCase):
                 scanner.inspect(PixelImage(b"", width=width, height=height - 1))
 
     def test_native_error_messages(self) -> None:
-        """Numeric native status remains available with the library's error text."""
+        """Errors carry a shared code name, the native status and its message."""
         with Scanner(library_dir=LIBS) as scanner:
-            for code, message in (
-                (1, "Invalid scanner arguments"),
-                (2, "handle"),
-                (3, "buffer is too small"),
-                (4, "Internal scanner"),
-                (99, "Unknown scanner status"),
+            for status, code, message in (
+                (1, "invalid_input", "Invalid scanner arguments"),
+                (2, "disposed", "handle"),
+                (3, "engine", "buffer is too small"),
+                (4, "engine", "Internal scanner"),
+                (99, "engine", "Unknown scanner status"),
             ):
-                with self.subTest(code=code):
+                with self.subTest(status=status):
                     with self.assertRaises(barcode.ScannerError) as raised:
-                        scanner._check(code)  # noqa: SLF001
+                        scanner._check(status)  # noqa: SLF001
                     self.assertIsInstance(raised.exception, RuntimeError)
                     self.assertEqual(raised.exception.code, code)
+                    self.assertEqual(raised.exception.status, status)
                     self.assertIn(message, str(raised.exception))
-                    self.assertIn(f"code {code}", str(raised.exception))
+                    self.assertIn(f"status {status}", str(raised.exception))
 
     def test_invalid(self) -> None:
         """Verify invalid."""

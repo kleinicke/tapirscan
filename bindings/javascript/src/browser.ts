@@ -44,7 +44,7 @@ export interface ScannerOptions {
   mode?: Mode;
   /** Formats to read; defaults to retail EAN/UPC. */
   formats?: FormatSelection;
-  /** EAN/UPC supplement policy; defaults to "Ignore". */
+  /** EAN/UPC supplement policy; defaults to "ignore". */
   eanAddOnPolicy?: EanAddOnPolicy;
   /** Serve the packaged WASM files from another directory, such as a CDN. */
   wasmBaseUrl?: string | URL;
@@ -192,14 +192,10 @@ export class Scanner {
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /** Scan one image with a temporary scanner. Reuse a Scanner for several images. */
-export async function scan(
-  source: ImageSource,
-  options: ScannerOptions & ScanOptions = {},
-): Promise<ScanResult> {
-  const { extendedBudget, ...creation } = options;
-  const scanner = new Scanner(creation);
+export async function scan(source: ImageSource, options: ScannerOptions = {}): Promise<ScanResult> {
+  const scanner = new Scanner(options);
   try {
-    return await scanner.scan(source, { extendedBudget });
+    return await scanner.scan(source);
   } finally {
     scanner.dispose();
   }
@@ -208,12 +204,11 @@ export async function scan(
 /** Inspect one image with a temporary scanner. */
 export async function inspect(
   source: ImageSource,
-  options: ScannerOptions & ScanOptions = {},
+  options: ScannerOptions = {},
 ): Promise<InspectionResult> {
-  const { extendedBudget, ...creation } = options;
-  const scanner = new Scanner(creation);
+  const scanner = new Scanner(options);
   try {
-    return await scanner.inspect(source, { extendedBudget });
+    return await scanner.inspect(source);
   } finally {
     scanner.dispose();
   }

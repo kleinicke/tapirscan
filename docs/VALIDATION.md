@@ -1,22 +1,13 @@
 # Validation
 
 The release is validated with reproducible mode builds, native/WASM parity,
-public API tests and clean package installations.
-
-The native bindings share ABI 6. Python tests cover pixel inputs, float ranges,
-layouts, optional BGR conversion, tensor ownership, serialization, diagnostics,
-error handling and resource lifetime. JavaScript tests cover typed results,
-format subsets, optional supplement policies, WASM loading and resource lifetime.
-The Rust API checks cover default `scan(image)`, explicit `scan_with_options`,
-owned results and cross-language parity. Exercise both extended-budget settings
-for every selected format.
-Installed-package checks also exercise browser workers and relocated assets.
+public API tests and clean package installations. The tests live in
+`scripts/test_*.py` and the binding test directories (`bindings/*/test*`). Static
+checks and their environment are in [quality checks](QUALITY.md).
 
 `test_bindings.py` compares native bindings exactly. Against WASM, only polygon
-coordinates allow an absolute difference of at most `1e-9` source-image pixels
-for floating-point roundoff, including polygons in diagnostics. Payloads, formats,
-support, ordering, counts, work status and all other evidence remain exact.
-Coordinates must be finite; the tolerance does not grow with image size.
+coordinates (including those in diagnostics) may differ, by at most `1e-9`
+source-image pixels of floating-point roundoff; all other output stays exact.
 
 ## Checks to run
 
@@ -28,9 +19,8 @@ Coordinates must be finite; the tolerance does not grow with image size.
 | Format integration       | `test_multiformat.py` with test-only `zxing-cpp` encoder         |
 | Python images or loading | `test_python_images.py`, installed-wheel smoke test              |
 | Native installation      | `test_cmake_install.py`; clean installed-wheel test              |
+| Browser parity           | `compare_scanners.py --backend browser`                          |
 | Maintained source        | `node tools/quality/release.mjs all`                             |
-
-The binding checks need built C++ examples and Java classes:
 
 ```sh
 cmake -S bindings/cpp -B build/cpp
@@ -39,13 +29,6 @@ ctest --test-dir build/cpp --output-on-failure
 python3 scripts/build_java.py
 python3 scripts/test_bindings.py
 python3 scripts/test_cmake_install.py
-```
-
-Install Pillow, NumPy and `zxing-cpp` for image/format checks, and PyTorch for tensor
-adapters. Reference encoders are test dependencies only. Set `QUALITY_PYTHON` to
-that environment and `JAVA_HOME` to your JDK for the maintained binding gate.
-
-```sh
 python3 scripts/test_python_images.py
 python3 scripts/test_multiformat.py
 python3 scripts/test_detail.py
@@ -54,16 +37,11 @@ pnpm --dir ../tapirscan-web/demo build
 pnpm --dir ../tapirscan-web/demo test
 ```
 
-The optional browser parity command is documented in
-[PROMOTING_CHANGES.md](PROMOTING_CHANGES.md). Generated test images are temporary.
-
-## What these checks do not claim
-
-These checks establish behavior on the tested inputs, not exhaustive decoding or
-general accuracy. Synthetic regression tests are not an independent accuracy
-holdout, and timing during builds or CI is not a performance benchmark. Browser and native interpolation can
-differ slightly across platforms. Consult [format limitations](FORMATS.md) and
-[benchmark methodology](BENCHMARKS.md) when deciding whether the library fits your use.
+Install Pillow, NumPy and `zxing-cpp` for image and format checks and PyTorch for
+tensor adapters; reference encoders are test dependencies only. Browser parity
+and paired timings are described in [comparing scanners](COMPARING_SCANNERS.md).
+Generated test images are temporary. These checks establish behavior on the tested inputs; for
+what they do not show, see [benchmarks](BENCHMARKS.md).
 
 ## Supplement policies
 
@@ -78,24 +56,14 @@ python3 scripts/test_supplements.py --encoder /path/to/zint --library-dir build/
 
 This generates fixtures, asserts independently specified payloads and physical
 geometry, and compares Python/JS metadata and coordinates across all modes and
-policies with diagnostics on/off. It covers missing, erased, two-/five-digit and
-different supplements on identical main payloads. Zint and Pillow are test-only
-dependencies.
-
-## Local development records
-
-Put machine-specific audit notes and measurement reports in `docs/internal/`,
-which is ignored by Git. Keep public API contracts, reproducible validation
-commands, benchmark methodology and algorithm descriptions in tracked files.
-Generated fixtures, binaries and timing samples belong in `build/`.
-
-To measure optional supplement overhead separately from correctness checks:
+policies with diagnostics on and off. It covers missing, erased, two-/five-digit and
+different supplements on identical main payloads. To measure supplement overhead
+separately from correctness (run sequentially, after builds finish):
 
 ```sh
 python3 scripts/benchmark_supplements.py build/supplement-fixtures/manifest.json
 node bindings/javascript/test/benchmark-supplements.mjs build/supplement-fixtures/manifest.json
 ```
 
-Run benchmarks sequentially after build activity finishes. They report warm-process
-creation and repeated-scan timings; they do not measure browser downloads or
-first-time compilation.
+These report warm-process creation and repeated-scan timings, not browser downloads
+or first-time compilation.

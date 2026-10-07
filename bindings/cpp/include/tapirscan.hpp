@@ -147,8 +147,6 @@ struct Image {
 struct ScanOptions {
     /// Readers for this call; empty uses the scanner's formats.
     std::optional<Formats> formats;
-    /// Allow reader-specific extra work. It is not a deadline or exhaustive search.
-    bool extended_budget = false;
 };
 
 /// Source-image pixels, origin top-left, x rightward and y downward.
@@ -157,6 +155,19 @@ struct Point {
     double y = 0;
 };
 using Quad = std::array<Point, 4>;
+
+/// Enclosing integer pixel bounds of a polygon.
+struct Rect {
+    std::int32_t left = 0;
+    std::int32_t top = 0;
+    std::int32_t width = 0;
+    std::int32_t height = 0;
+
+    friend bool operator==(const Rect& a, const Rect& b) {
+        return a.left == b.left && a.top == b.top && a.width == b.width && a.height == b.height;
+    }
+    friend bool operator!=(const Rect& a, const Rect& b) { return !(a == b); }
+};
 
 /// Multipart sequence metadata. The index is one-based.
 struct StructuredAppend {
@@ -180,8 +191,8 @@ struct Barcode {
     std::optional<bool> reader_initialization;
     std::optional<StructuredAppend> structured_append;
 
-    /// Enclosing integer pixel bounds as {left, top, width, height}.
-    std::array<double, 4> rect() const;
+    /// Enclosing integer pixel bounds: floor of the minimum to ceil of the maximum.
+    Rect rect() const;
 };
 
 namespace detail {
@@ -332,7 +343,7 @@ public:
 };
 }  // namespace detail
 
-inline std::array<double, 4> Barcode::rect() const {
+inline Rect Barcode::rect() const {
     double left = polygon[0].x, top = polygon[0].y, right = left, bottom = top;
     for (const auto& p : polygon) {
         left = p.x < left ? p.x : left;
@@ -340,8 +351,10 @@ inline std::array<double, 4> Barcode::rect() const {
         right = p.x > right ? p.x : right;
         bottom = p.y > bottom ? p.y : bottom;
     }
-    return {std::floor(left), std::floor(top), std::ceil(right) - std::floor(left),
-            std::ceil(bottom) - std::floor(top)};
+    const auto x = static_cast<std::int32_t>(std::floor(left));
+    const auto y = static_cast<std::int32_t>(std::floor(top));
+    return {x, y, static_cast<std::int32_t>(std::ceil(right)) - x,
+            static_cast<std::int32_t>(std::ceil(bottom)) - y};
 }
 
 /// A reusable scanner. Scans on one scanner serialize; separate scanners run
@@ -398,8 +411,7 @@ private:
         if (!handle_) throw std::logic_error("Scanner was moved from");
         const tapirscan_image native_image{image.data,   image.length,   image.width,
                                            image.height, image.channels, image.stride};
-        const tapirscan_scan_options native{options.formats ? options.formats->bits() : 0u,
-                                            options.extended_budget ? 1u : 0u};
+        const tapirscan_scan_options native{options.formats ? options.formats->bits() : 0u};
         tapirscan_result result = 0;
         tapirscan_error error{};
         auto status = (inspect ? tapirscan_inspect : tapirscan_scan)(handle_, &native_image, &native, &result, &error);

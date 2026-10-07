@@ -50,40 +50,21 @@ fn all_modes_preserve_instances_and_inspection_parity() {
             assert_eq!(report.image_size, [width, height]);
             assert_eq!(report.mode, mode);
             assert!(report.diagnostics.is_some());
-            for complete in [false, true] {
-                let plain = scanner
-                    .scan_with_options(
-                        image,
-                        ScanOptions {
-                            extended_budget: complete,
-                            ..ScanOptions::default()
-                        },
-                    )
-                    .unwrap();
-                let report = scanner
-                    .inspect_with_options(
-                        image,
-                        ScanOptions {
-                            extended_budget: complete,
-                            ..ScanOptions::default()
-                        },
-                    )
-                    .unwrap();
-                assert_eq!(plain.barcodes, report.barcodes);
-                assert_eq!(
-                    plain.values().collect::<Vec<_>>(),
-                    report.values().collect::<Vec<_>>()
-                );
-                assert_eq!(plain.best(), report.best());
-                for (a, b) in plain.barcodes.iter().zip(&report.barcodes) {
-                    assert_eq!(a.text, b.text);
-                    assert_eq!(a.format, b.format);
-                    assert_eq!(a.polygon, b.polygon);
-                    assert_eq!(a, b);
-                    assert_eq!(a.rect().map(f64::to_bits), b.rect().map(f64::to_bits));
-                    let [x, y, w, h] = a.rect();
-                    assert!(x >= 0. && y >= 0. && w > 0. && h > 0.);
-                }
+            let plain = scanner.scan(image).unwrap();
+            assert_eq!(plain.barcodes, report.barcodes);
+            assert_eq!(
+                plain.values().collect::<Vec<_>>(),
+                report.values().collect::<Vec<_>>()
+            );
+            assert_eq!(plain.best(), report.best());
+            for (a, b) in plain.barcodes.iter().zip(&report.barcodes) {
+                assert_eq!(a.text, b.text);
+                assert_eq!(a.format, b.format);
+                assert_eq!(a.polygon, b.polygon);
+                assert_eq!(a, b);
+                assert_eq!(a.rect(), b.rect());
+                let rect = a.rect();
+                assert!(rect.left >= 0 && rect.top >= 0 && rect.width > 0 && rect.height > 0);
             }
         }
     }
@@ -160,7 +141,6 @@ fn errors_do_not_poison_scanner_and_results_own_data() {
             image,
             ScanOptions {
                 formats: Some(Format::QrCode.into()),
-                extended_budget: true,
             }
         )
         .unwrap()
@@ -205,7 +185,6 @@ fn formats_and_supplement_policy_are_independent_of_effort() {
             image,
             ScanOptions {
                 formats: Some(Format::QrCode.into()),
-                ..ScanOptions::default()
             },
         )
         .unwrap();
@@ -266,8 +245,13 @@ fn metadata_absence_and_enclosing_pixel_bounds() {
     assert_eq!(barcode.gs1, None);
     assert_eq!(barcode.reader_initialization, None);
     assert_eq!(
-        barcode.rect().map(f64::to_bits),
-        [1.0_f64, 2.0, 5.0, 8.0].map(f64::to_bits)
+        barcode.rect(),
+        tapirscan::Rect {
+            left: 1,
+            top: 2,
+            width: 5,
+            height: 8
+        }
     );
     let known: tapirscan::Barcode = serde_json::from_value(serde_json::json!({
         "text": "example", "format": "QRCode", "support": 1,

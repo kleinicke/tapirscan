@@ -67,7 +67,7 @@ def check(package: Path) -> None:
         "PDF417": 2048,
         "MaxiCode": 131072,
     }
-    policies = ["Ignore", "Read", "Require"]
+    policies = ["ignore", "read", "require"]
     cases: list[dict[str, Any]] = []
     modes: list[Mode] = ["low", "medium", "high", "very-high"]
     for mode_index, mode in enumerate(modes):
@@ -78,48 +78,45 @@ def check(package: Path) -> None:
                 if isinstance(selected, list)
                 else bits[selected]
             )
-            policy = image.get("eanAddOnPolicy", "Ignore")
+            policy = image.get("eanAddOnPolicy", "ignore")
             channels, stride = (
                 image.get("channels", 1),
                 image.get("stride", image["width"]),
             )
-            for complete in [False, True]:
-                with Scanner(
-                    mode,
-                    formats=image["formats"],
-                    ean_add_on_policy=policy,
-                    library_dir=ROOT / "build/native",
-                ) as scanner:
-                    result = scanner.inspect(
-                        PixelImage(
-                            Path(image["file"]).read_bytes(),
-                            width=image["width"],
-                            height=image["height"],
-                            channels=channels,
-                            stride=stride,
-                        ),
-                        extended_budget=complete,
-                    )
-                expected = result.to_raw_dict()
-                del expected["elapsedMs"]
-                if result.diagnostics is None or result.diagnostics.regions is None:
-                    message = "Requested diagnostics missing"
-                    raise AssertionError(message)
-                cases.append(
-                    {
-                        "mode": mode_index,
-                        "pixels": image["file"],
-                        "width": image["width"],
-                        "height": image["height"],
-                        "channels": channels,
-                        "stride": stride,
-                        "formats": mask,
-                        "addons": policies.index(policy),
-                        "complete": complete,
-                        "expected": expected,
-                        "undecoded": len(result.diagnostics.regions.undecoded),
-                    }
+            with Scanner(
+                mode,
+                formats=image["formats"],
+                ean_add_on_policy=policy,
+                library_dir=ROOT / "build/native",
+            ) as scanner:
+                result = scanner.inspect(
+                    PixelImage(
+                        Path(image["file"]).read_bytes(),
+                        width=image["width"],
+                        height=image["height"],
+                        channels=channels,
+                        stride=stride,
+                    ),
                 )
+            expected = result.diagnostics.to_raw_dict()
+            del expected["elapsedMs"]
+            if result.diagnostics is None or result.diagnostics.regions is None:
+                message = "Requested diagnostics missing"
+                raise AssertionError(message)
+            cases.append(
+                {
+                    "mode": mode_index,
+                    "pixels": image["file"],
+                    "width": image["width"],
+                    "height": image["height"],
+                    "channels": channels,
+                    "stride": stride,
+                    "formats": mask,
+                    "addons": policies.index(policy),
+                    "expected": expected,
+                    "undecoded": len(result.diagnostics.regions.undecoded),
+                }
+            )
     if not any(case["expected"].get("recovery", {}).get("additions") for case in cases):
         message = "Corpus must exercise successful source-detail recovery"
         raise AssertionError(message)

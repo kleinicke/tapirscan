@@ -39,7 +39,7 @@ for (const preset of [2, 4, 8, 16]) {
       assert.deepEqual(scanner.inspect(ean8(1, 1, "96385075"), { formats: "EAN8" }).values, []);
       assert.deepEqual(scanner.inspect(image, { formats: "QRCode" }).values, []);
       assert.deepEqual(scanner.inspect(image).values, [text]);
-      assert.throws(() => scanner.inspect(image, { extendedBudget: true }), /extendedBudget/);
+      assert.throws(() => scanner.inspect(image, { extendedBudget: true }), /Unknown scan option/);
       assert.throws(() => scanner.inspect(image, { experimentalTurbo: 2 }), /Unknown scan option/);
     } finally {
       scanner.dispose();
@@ -66,10 +66,10 @@ test("invalid Turbo selections fail before loading", async () => {
   for (const mode of ["low", "medium", "high", "very-high"]) {
     await assert.rejects(Scanner.create({ mode, experimentalTurbo: 4, loadWasm }), /not both/);
   }
-  for (const eanAddOnPolicy of ["Read", "Require"]) {
+  for (const eanAddOnPolicy of ["read", "require"]) {
     await assert.rejects(
       Scanner.create({ experimentalTurbo: 4, eanAddOnPolicy, loadWasm }),
-      /Ignore/,
+      /"ignore"/,
     );
   }
 });

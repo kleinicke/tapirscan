@@ -18,9 +18,9 @@ autoexamples = true
 path = "api/lib.rs"
 
 [dependencies]
-serde = { version = "=1.0.228", features = ["derive"] }
-serde_json = { version = "=1.0.150", features = ["float_roundtrip"] }
-encoding_rs = "=0.8.35"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.150", features = ["float_roundtrip"] }
+encoding_rs = "0.8.35"
 image = { version = "0.25.10", default-features = false, optional = true }
 
 [features]

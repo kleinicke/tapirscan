@@ -104,7 +104,7 @@ def distribution(values: list[float]) -> dict[str, float]:
 
 
 def summaries(samples: list[dict[str, Any]]) -> dict[str, object]:
-    """Keep paired mode/format/budget groups separate."""
+    """Keep paired mode/format groups separate."""
     result: dict[str, object] = {}
     for group in sorted({str(row["group"]) for row in samples}):
         rows = [row for row in samples if row["group"] == group]
@@ -135,8 +135,8 @@ def load_case(row: dict[str, Any], index: int, root: Path) -> dict[str, Any]:
         width, height = row["width"], row["height"]
         channels = row.get("channels", 1)
         stride = row.get("stride", width * channels)
-    addon = row.get("eanAddOnPolicy", "Ignore")
-    if addon not in ("Ignore", "Read", "Require"):
+    addon = row.get("eanAddOnPolicy", "ignore")
+    if addon not in ("ignore", "read", "require"):
         msg = f"invalid supplement policy: {addon}"
         raise ValueError(msg)
     return {
@@ -155,19 +155,15 @@ def load_case(row: dict[str, Any], index: int, root: Path) -> dict[str, Any]:
     }
 
 
-def variants(
-    case: dict[str, Any], config: dict[str, Any]
-) -> list[tuple[str, object, bool]]:
+def variants(case: dict[str, Any], config: dict[str, Any]) -> list[tuple[str, object]]:
     """Explicit fixture formats override global image selections."""
     selections = [case["formats"]] if case["formats"] else config["formats"]
     return [
         (
             json.dumps(selection, separators=(",", ":")),
             None if selection == "retail" else selection,
-            budget == "extended",
         )
         for selection in selections
-        for budget in config["budgets"]
     ]
 
 
@@ -176,7 +172,6 @@ def scan_native(
     case: dict[str, Any],
     formats: object,
     *,
-    extended: bool,
     debug: bool,
 ) -> tuple[float, object]:
     """Time the public scan call, then normalize its result outside the measurement."""
@@ -185,16 +180,17 @@ def scan_native(
         report = scanner.inspect(
             case["image"],
             formats=cast("FormatSelection | None", formats),
-            extended_budget=extended,
         )
         elapsed = (time.perf_counter_ns() - start) / 1e6
         return elapsed, clean(
-            {"public": report.as_dict(), "diagnostics": report.to_raw_dict()}
+            {
+                "public": report.as_dict(),
+                "diagnostics": report.diagnostics.to_raw_dict(),
+            }
         )
     barcodes = scanner.scan(
         case["image"],
         formats=cast("FormatSelection | None", formats),
-        extended_budget=extended,
     )
     elapsed = (time.perf_counter_ns() - start) / 1e6
     return elapsed, clean(
@@ -250,22 +246,20 @@ class NativeComparison:
                 )
 
     def parity(self, case: dict[str, Any]) -> None:
-        """Compare each configured mode, format selection and budget on one image."""
+        """Compare each configured mode, format selection on one image."""
         for mode in self.config["modes"]:
             before, after = self.pair(mode, case["addon"])
-            for label, formats, extended in variants(case, self.config):
+            for label, formats in variants(case, self.config):
                 a = scan_native(
                     before,
                     case,
                     formats,
-                    extended=extended,
                     debug=self.config["diagnostics"],
                 )[1]
                 b = scan_native(
                     after,
                     case,
                     formats,
-                    extended=extended,
                     debug=self.config["diagnostics"],
                 )[1]
                 if self.results is not None:
@@ -276,7 +270,6 @@ class NativeComparison:
                                 "case": case["name"],
                                 "mode": mode,
                                 "selection": label,
-                                "extendedBudget": extended,
                                 "baseline": cast("dict[str, object]", a)["public"],
                                 "candidate": cast("dict[str, object]", b)["public"],
                             }
@@ -291,35 +284,31 @@ class NativeComparison:
                         "case": case["name"],
                         "mode": mode,
                         "selection": label,
-                        "extendedBudget": extended,
                         "phase": "parity",
                     },
                 )
 
     def warmup(self, mode: str) -> None:
-        """Exercise the same format and budget combinations before timing."""
+        """Exercise the same format combinations before timing."""
         for case in self.retained[: self.config["warmup"]]:
-            for _, formats, extended in variants(case, self.config):
+            for _, formats in variants(case, self.config):
                 for scanner in self.pair(mode, case["addon"]):
-                    scan_native(scanner, case, formats, extended=extended, debug=False)
+                    scan_native(scanner, case, formats, debug=False)
 
     def time_case(
         self, mode: str, case: dict[str, Any], repetition: int, index: int
     ) -> None:
         """Alternate paired order and verify timed results as well as elapsed time."""
         before, after = self.pair(mode, case["addon"])
-        for label, formats, extended in variants(case, self.config):
+        for label, formats in variants(case, self.config):
             order = [("baseline", before), ("candidate", after)]
             if (index + repetition) % 2:
                 order.reverse()
             measured = {
-                name: scan_native(
-                    scanner, case, formats, extended=extended, debug=False
-                )
+                name: scan_native(scanner, case, formats, debug=False)
                 for name, scanner in order
             }
-            budget = "extended" if extended else "default"
-            group = f"{mode}/{label}/{budget}/{case['addon']}"
+            group = f"{mode}/{label}/{case['addon']}"
             self.compare(
                 measured["baseline"][1],
                 measured["candidate"][1],
@@ -516,9 +505,6 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--modes", nargs="+", choices=MODES, default=list(MODES))
     parser.add_argument("--formats", nargs="+", default=["EAN13", "retail"])
     parser.add_argument(
-        "--budgets", nargs="+", choices=("default", "extended"), default=["default"]
-    )
-    parser.add_argument(
         "--diagnostics", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument("--timing-count", type=int, default=50)
@@ -569,7 +555,6 @@ def main() -> None:
         "datasetRoot": str(args.dataset_root.resolve()),
         "modes": args.modes,
         "formats": args.formats,
-        "budgets": args.budgets,
         "diagnostics": args.diagnostics,
         "timingCount": args.timing_count,
         "repeats": args.repeats,

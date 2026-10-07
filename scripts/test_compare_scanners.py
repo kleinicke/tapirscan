@@ -53,13 +53,13 @@ class ComparisonEvidence(unittest.TestCase):
             distribution([])
 
     def test_fixture_formats_override_image_presets(self) -> None:
-        """Explicit fixtures run once per budget, without duplicating preset loops."""
+        """Explicit fixtures run once per selection, not per preset."""
         self.assertEqual(
             variants(
                 {"formats": "QRCode"},
-                {"formats": ["EAN13", "retail"], "budgets": ["default", "extended"]},
+                {"formats": ["EAN13", "retail"]},
             ),
-            [('"QRCode"', "QRCode", False), ('"QRCode"', "QRCode", True)],
+            [('"QRCode"', "QRCode")],
         )
 
 

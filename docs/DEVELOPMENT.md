@@ -1,16 +1,23 @@
 # Build and develop Tapirscan
 
-Run commands from the repository root unless a section says otherwise. The first
-build needs network access for dependencies; compilation then runs offline.
-Allow at least 10 GiB of free disk space for the build tools' safety reserve,
-plus space for compiled modes.
+Run commands from the repository root. The first build needs network access for
+dependencies; compilation then runs offline.
+
+```sh
+node tools/quality/install.mjs        # quality tools and formatting hook
+python3 scripts/build_native.py       # native library with all four modes
+python3 scripts/build_wasm.py         # WASM files into bindings/javascript/wasm/
+npm ci --prefix bindings/javascript && npm run build --prefix bindings/javascript
+node tools/quality/all.mjs            # all static checks
+```
 
 ## Prerequisites
 
-- Rust **1.91.1**, including the `wasm32-unknown-unknown` target.
-- Python **3.10+**, Node **24**, and the `patch` command.
-- CMake and a C/C++ compiler for native examples.
-- JDK **22+** for Java; CI uses JDK 25.
+- Rust **1.91.1** with the `wasm32-unknown-unknown` target, Python **3.10+**, Node **24**.
+- CMake and a C/C++ compiler for native examples; JDK **22+** for Java (CI uses JDK 25).
+- `scripts/build.py` refuses to run with less than 10 GiB free disk space.
+- Environment for the quality gate (`QUALITY_PYTHON`, `JAVA_HOME`,
+  `.quality-tools/environment.json`): see [quality checks](QUALITY.md#environment).
 
 ```sh
 rustup toolchain install 1.91.1 --profile minimal --target wasm32-unknown-unknown
@@ -21,31 +28,47 @@ python3 scripts/verify_sources.py
 
 ## Build the library
 
-```sh
-python3 scripts/build_native.py
-python3 scripts/build_wasm.py
-npm ci --prefix bindings/javascript
-npm run build --prefix bindings/javascript
-npm test --prefix bindings/javascript
-```
-
-Both adapters build the prepared public Rust package. `build_wasm.py` compiles the
-four stable modes and four experimental JavaScript Turbo presets from the current
-source into `bindings/javascript/wasm/` as `low.wasm`, `medium.wasm`, `high.wasm`,
-`very-high.wasm` and `experimental-turbo{2,4,8,16}.wasm`. Mode settings live in
-`config/modes.json`; preset recipes come from `scripts/build_turbo.py`. The
-`wasm/build.json` manifest records a digest of the WASM source inputs, the file
-hashes and each preset's compile-time settings. A rebuild from unchanged source
-must reproduce the same hashes. `npm pack` refuses WASM files whose digest differs
-from the current source tree. Environment overrides remain development-only.
+`build_native.py` and `build_wasm.py` build the prepared public Rust package. The
+native library contains all four modes and ordinary Rust packages include them by
+default; each WASM file contains one. `build_wasm.py` writes `low.wasm`,
+`medium.wasm`, `high.wasm`, `very-high.wasm` and `experimental-turbo{2,4,8,16}.wasm`
+to `bindings/javascript/wasm/`. Mode settings live in `config/modes.json`; Turbo
+preset recipes come from `scripts/build_turbo.py`. The `wasm/build.json` manifest
+records a digest of the WASM source inputs (compiled sources, build tools and
+`config/modes.json`), the file hashes and each preset's compile-time settings. A
+rebuild from unchanged source reproduces the same hashes, and `npm pack` refuses
+WASM files whose digest differs from the source tree.
 
 `core/src` is directly editable production source. `python3 scripts/build.py MODE`
-runs its selected core tests without applying patches. Plain Cargo defaults to
-Medium; use `--no-default-features --features mode-low` for a different mode.
-See [core architecture and mode differences](../core/README.md).
+runs the selected core's tests. Plain Cargo defaults to Medium; use
+`--no-default-features --features mode-low` for another mode. See
+[core architecture and mode differences](../core/README.md).
 
-`verify_sources.py` checks the repository boundary and the generated format
-declarations. Experiments with scanner recipes belong in a separate experiment workspace, not in this repository.
+The public package is assembled under `build/crates/tapirscan` by
+`scripts/prepare_rust.py`; `--refresh` verifies the repository boundary and updates
+generated sources. Generated sources are build outputs, not a second implementation
+to edit. Native and WASM builds hold an exclusive lock on that package; a competing
+build fails with the lock path, and after an interruption you can remove the lock
+once its `owner` process has stopped.
+
+### Reproducible WASM builds
+
+`scripts/wasm_rustc.py` is a Cargo rustc wrapper that replaces path-dependent
+symbol metadata so WASM hashes agree between checkout paths; `scripts/test_wasm_rustc.py`
+tests it. Native builds use Cargo's standard compiler invocation.
+
+### Development builds
+
+```sh
+python3 scripts/build_wasm.py --development [medium]
+npm run build --prefix bindings/javascript
+```
+
+Development assets go to `build/wasm-development/assets/` with plain mode names and
+leave the package assets and `build.json` untouched. A mode argument builds only
+that mode; in a package build it records only files built from the current source,
+so `npm pack` fails until every file is rebuilt. `TAPIRSCAN_LOW_CLASSIC=1` with a
+`low` development build produces the core's Low Classic policy for comparisons.
 
 ## Install local packages
 
@@ -59,12 +82,11 @@ python3 -m pip wheel --no-deps --wheel-dir build/wheels bindings/python
 python3 -m pip install build/wheels/tapirscan-*.whl
 ```
 
-Python wheels include the native library, which contains every mode. In a source checkout, use `library_dir="build/native"` or `TAPIRSCAN_LIBRARY_DIR`. The wheel builder
-accepts `TAPIRSCAN_NATIVE_DIR` for a prebuilt directory and fails if a mode is missing.
-
-Linux release wheels must be built/repaired for the advertised manylinux baseline;
-a plain `linux_x86_64` development wheel is not the public PyPI artifact.
-See [release preparation](RELEASING.md).
+Python wheels include the native library. In a source checkout, use
+`library_dir="build/native"` or `TAPIRSCAN_LIBRARY_DIR`. The wheel builder accepts
+`TAPIRSCAN_NATIVE_DIR` for a prebuilt directory and fails if a mode is missing.
+Linux release wheels must be built for the advertised manylinux baseline; see
+[release preparation](RELEASING.md).
 
 ## Run the demo
 
@@ -72,7 +94,7 @@ The application lives in `../tapirscan-web/demo`; application changes belong in
 that repository.
 
 ```sh
-npm install --global pnpm@10.15.1
+corepack enable
 pnpm --dir ../tapirscan-web/demo install --frozen-lockfile
 pnpm --dir ../tapirscan-web/demo build
 pnpm --dir ../tapirscan-web/demo preview
@@ -87,88 +109,30 @@ the independent comparison engines. See [camera behavior and hosting](../../tapi
 
 ```sh
 python3 scripts/verify_sources.py
-node tools/quality/install.mjs
 node tools/quality/all.mjs
 ```
 
 The gate needs the demo dependencies, optional image libraries in `QUALITY_PYTHON`
-and a JDK in `JAVA_HOME`. You can save local tool paths in the ignored
-`.quality-tools/environment.json`. See [quality tools](QUALITY.md) and [validation](VALIDATION.md)
-for the focused tests, platform matrix, and reproduction commands.
-
-The public package is assembled under `build/crates/tapirscan` by
-`scripts/prepare_rust.py`. `--refresh` verifies the repository boundary and updates generated
-sources while preserving compilation caches. Each WASM artifact selects one mode through Cargo features. The C library
-contains all four modes; ordinary Rust packages include all modes by default.
-Generated sources are build outputs, not a second implementation to edit.
-
-Algorithm changes use ordinary diffs in `core/src`.
-Follow [PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); decoder changes in `multiformat/` follow the same steps.
+and a JDK in `JAVA_HOME`. See [quality checks](QUALITY.md) and
+[validation](VALIDATION.md) for the focused tests and reproduction commands.
+Scanner changes also follow [Changing the scanner](../CONTRIBUTING.md#changing-the-scanner).
 
 ## Maintained runtime boundaries
 
 The public Rust package lives in `bindings/rust/api`; `bindings/rust/src` is the
 internal per-mode engine assembled by the build scripts. Keep public result types
 in the API layer. The engine's `pipeline.rs` orders scanner stages, `detail.rs`
-handles crop recovery, `geometry.rs` owns overlap calculations, and `read.rs` holds typed reader evidence and `formats.rs` reconciles it. `result.rs`
-serializes optional diagnostics. Public results cross the API boundary as Rust
-types; scanning does not construct or parse JSON when diagnostics are disabled.
+handles crop recovery, `geometry.rs` owns overlap calculations, `read.rs` holds
+typed reader evidence and `formats.rs` reconciles it. `result.rs` serializes
+optional diagnostics. Public results cross the API boundary as Rust types; scanning
+does not construct or parse JSON when diagnostics are disabled.
 
 In JavaScript, `index.ts` exposes the API and `rust-session.ts` owns the WASM
-session. Keep scanner decisions in Rust so experiments apply to every binding.
+session. Keep scanner decisions in Rust so changes apply to every binding.
 
 Format names, native bits, ordered presets and reserved add-on flags are declared
 in `config/formats.json`. Run `python3 scripts/generate_formats.py` after changing
 it, then `python3 scripts/generate_formats.py --check`. Generated Rust and
 TypeScript declarations are checked in; `verify_sources.py` also checks for drift.
-Changing a format bit is an API/ABI change, not a routine registry edit. The pinned
-decoder implementation needs its own promotion when a format is added.
-
-## Reproducible WASM builds
-
-The WASM builder normalizes checkout, registry and Rust standard-library paths.
-`scripts/wasm_rustc.py` replaces Cargo's path-dependent symbol metadata with an
-identity derived from package name/version, crate name/type, target and active
-configuration. Different versions and feature sets stay distinct. The generated
-wrapper filename includes its source hash so Cargo invalidates its cache when the
-wrapper changes. Ordinary native builds retain Cargo's standard compiler invocation.
-
-The wrapper uses Cargo's documented [compiler wrapper interface](https://doc.rust-lang.org/cargo/reference/config.html#buildrustc-wrapper).
-WASM artifact hashes must agree between independent checkout paths.
-
-The WASM source digest in `build.json` covers compiled sources, build tools and
-`config/modes.json`; documentation and JavaScript host changes do not affect it.
-
-Use the [scanner comparison command](COMPARING_SCANNERS.md) to record native or WASM parity and paired timings between built checkouts.
-
-## Fast iteration and experimental WASM
-
-For the native library, which contains every mode, and its ABI tests:
-
-```sh
-python3 scripts/build_native.py
-```
-
-Package preparation updates changed generated files and removes obsolete modules,
-preserving timestamps for Cargo inputs that did not change. Source generation finishes in a
-temporary directory before updating the package, so a failed transformation leaves
-the existing package usable. Each mode has its own Cargo output directory so cached builds cannot pick up
-another mode’s same-named WASM or example executable. Native and WASM commands hold an exclusive package
-lock through their build. A competing command fails with the lock path; after an
-interruption, inspect its `owner` PID and remove the lock only after that process
-has stopped. Direct Cargo consumers must not overlap a package refresh.
-
-For scanner experiments:
-
-```sh
-python3 scripts/build_wasm.py --development
-npm run build --prefix bindings/javascript
-```
-
-Development assets live under `build/wasm-development/assets/` with plain mode
-names. Add a mode argument, such as `medium`, to build only that mode. Package
-assets and `build.json` are not modified by development builds. Passing a mode
-to a package build rebuilds just that mode and records only files built from the
-current source, so `npm pack` fails until every file is rebuilt.
-`TAPIRSCAN_LOW_CLASSIC=1 python3 scripts/build_wasm.py --development low` builds the
-core's Low Classic policy for comparisons; it is not part of the demo or package.
+Changing a format bit is an API/ABI change, not a routine registry edit. Adding a
+format also needs a reader in `multiformat/`.

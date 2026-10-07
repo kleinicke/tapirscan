@@ -147,7 +147,7 @@ class Bindings(unittest.TestCase):
                                 )
                                 self.assertEqual(result.values, [TEXT] * expected)
                                 reference = typed(result)
-                                raw = result.to_raw_dict()
+                                raw = result.diagnostics.to_raw_dict()
                                 for language, other in harnesses(
                                     mode, (w, h, c, stride, path), debug=debug
                                 ).items():
@@ -169,47 +169,14 @@ class Bindings(unittest.TestCase):
                                                 evidence[key], raw[key], (language, key)
                                             )
 
-    def test_extended_budget_parity(self) -> None:
-        """The extended budget preserves native/WASM reader parity."""
-        with tempfile.TemporaryDirectory(prefix="tapirscan-budget-") as temp:
-            path = Path(temp) / "pixels.raw"
-            for mode in MODES:
-                with Scanner(mode, formats="EAN13", library_dir=LIBS) as scanner:
-                    for name, pixels, w, h, channels, stride, _ in fixtures():
-                        with self.subTest(mode=mode, fixture=name):
-                            path.write_bytes(pixels)
-                            native = scanner.inspect(
-                                PixelImage(
-                                    pixels,
-                                    width=w,
-                                    height=h,
-                                    channels=channels,
-                                    stride=stride,
-                                ),
-                                extended_budget=True,
-                            )
-                            wasm = run(
-                                "node",
-                                ROOT / "bindings/javascript/test/native_parity.mjs",
-                                mode,
-                                w,
-                                h,
-                                channels,
-                                stride,
-                                path,
-                                0,
-                                "EAN13",
-                                1,
-                            )
-                            wasm.pop("debug")
-                            assert_wasm_parity(wasm, typed(native))
-
     def test_python_validation_and_lifetime(self) -> None:
         """Invalid input is rejected and results outlive their scanner."""
         for mode in MODES:
             scanner = Scanner(mode, library_dir=LIBS)
             _, pixels, w, h, _c, _stride, _ = next(fixtures())
-            first = scanner.inspect(PixelImage(pixels, width=w, height=h)).to_raw_dict()
+            first = scanner.inspect(
+                PixelImage(pixels, width=w, height=h)
+            ).diagnostics.to_raw_dict()
             frozen = json.dumps(first)
             for options, data in [
                 ({"width": -1, "height": h}, pixels),

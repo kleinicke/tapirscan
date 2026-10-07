@@ -1,5 +1,8 @@
 # Evaluating barcode readers
 
+This page holds the rules for fair comparisons. Performance numbers that are
+recorded or published also follow the [runtime rule](../AGENTS.md#required-runtime-for-recorded-performance-numbers).
+
 Start with the images your application actually receives. Evaluate decoded
 values and complete-frame success together with runtime; a fast incorrect result
 is not a successful scan.
@@ -31,16 +34,10 @@ establish autofocus behavior, motion tolerance, or battery use.
 
 ## What the repository validates
 
-The repository checks reproducible WASM builds, native/WASM output parity,
-generated small-barcode and rotation tests, and browser parity. These establish
-integration parity. They are **not** an independent accuracy benchmark or
+The repository checks ([validation](VALIDATION.md)) cover reproducible WASM builds,
+native/WASM output parity, generated small-barcode and rotation tests, and browser
+parity. These establish integration parity; synthetic regression tests and timing
+during builds or CI are **not** an independent accuracy benchmark or
 evidence that Tapirscan always beats ZXing/ZBar. Numbers from any cohort,
 including your own, describe that cohort and runtime only. Performance claims
 should link to a reproducible report that follows the protocol above.
-
-## Reporting a difficult image
-
-Include the input dimensions, effort mode, selected formats, runtime and expected
-value if known. Share an image only if you have permission to publish it; remove
-personal or confidential content first. A small reproducible example is more
-useful than a screenshot of an overlay alone.

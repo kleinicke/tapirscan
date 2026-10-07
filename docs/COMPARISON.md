@@ -86,7 +86,7 @@ localized-but-undecoded regions and incomplete-work information.
 
 Medium, High and Very High also run bounded source-detail recovery: select up
 to two texture seeds, enlarge a crop threefold, and try source-guided directions
-with the separately pinned Low decoder. Candidate indices stay local to their
+with the Low-effort decoder. Candidate indices stay local to their
 original frame or crop; transforms place the final polygons in source coordinates.
 
 This gives Tapirscan a way to pursue diagonal, small, or difficult barcode

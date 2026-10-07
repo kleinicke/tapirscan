@@ -141,16 +141,17 @@ export default defineConfig({
   modified or transferred.
 - **Methods:** `scan` and `inspect` work as in the core API but return promises.
   Concurrent calls are queued.
-- **Options:** `mode`, `formats` and `eanAddOnPolicy` work as in the core;
-  `wasmBaseUrl` serves the WASM files from another directory. `extendedBudget` and
-  per-call `formats` are scan options. `loadWasm` and Turbo presets need the core.
+- **Options:** `mode`, `formats` and `eanAddOnPolicy` work as in the core, and
+  `scan(image, { formats })` overrides the formats for one call. `wasmBaseUrl`
+  serves the WASM files from another directory. `loadWasm` and Turbo presets need
+  the core.
 - **Lifecycle:** `scanner.ready` resolves once loaded; awaiting it is optional,
   because loading errors also reject every scan. During server rendering the
   constructor does nothing and scans reject. `dispose()` stops the worker and
   rejects queued scans; returned results stay valid.
-- **Errors:** invalid constructor options throw; invalid scan arguments reject with
-  `TypeError`; engine failures reject with `ScannerError`. Browser image decoding
-  and loading can also fail.
+- **Errors:** unknown option names throw in the constructor; invalid option values
+  and scan arguments reject with `TypeError`; engine failures reject with
+  `ScannerError`. Browser image decoding and loading can also fail.
 - **Requirements:** module workers, `OffscreenCanvas` and WebAssembly SIMD:
   Chrome 91, Firefox 114, Safari 16.4 or later. The camera loop also needs
   `requestVideoFrameCallback`. Images may have at most 32 megapixels.
@@ -199,19 +200,18 @@ The core scans synchronously, so a long scan on the main thread blocks the page.
 Use `tapirscan/browser`, or create one core scanner inside your own worker and
 transfer frame buffers to it; configure `loadWasm` inside that worker.
 
-| Function                               | Returns                     | Behavior                                                                      |
-| -------------------------------------- | --------------------------- | ----------------------------------------------------------------------------- |
-| `scan(image, options = {})`            | `Promise<ScanResult>`       | One image; creates and disposes a scanner. Accepts creation and scan options. |
-| `inspect(image, options = {})`         | `Promise<InspectionResult>` | Like `scan`, with timing, unread regions and diagnostics.                     |
-| `Scanner.create(options = {})`         | `Promise<Scanner>`          | A reusable scanner. Mode is fixed; formats set defaults and allowed subsets.  |
-| `scanner.scan(image, options = {})`    | `ScanResult`                | Synchronous scan. Accepts scan options only.                                  |
-| `scanner.inspect(image, options = {})` | `InspectionResult`          | Synchronous inspection. Accepts scan options only.                            |
-| `scanner.dispose()`                    | `void`                      | Releases WASM memory. Repeated disposal is safe; do not scan after disposal.  |
+| Function                              | Returns                     | Behavior                                                                     |
+| ------------------------------------- | --------------------------- | ---------------------------------------------------------------------------- |
+| `scan(image, options = {})`           | `Promise<ScanResult>`       | One image; creates and disposes a scanner.                                   |
+| `inspect(image, options = {})`        | `Promise<InspectionResult>` | Like `scan`, with timing, unread regions and diagnostics.                    |
+| `Scanner.create(options = {})`        | `Promise<Scanner>`          | A reusable scanner with fixed mode, default formats and supplement policy.   |
+| `scanner.scan(image, { formats })`    | `ScanResult`                | Synchronous scan; `formats` optionally overrides the defaults for this call. |
+| `scanner.inspect(image, { formats })` | `InspectionResult`          | Synchronous inspection.                                                      |
+| `scanner.dispose()`                   | `void`                      | Releases WASM memory. Repeated disposal is safe; do not scan after disposal. |
 
-Create another scanner to change effort or enable formats outside its creation
-selection. A per-call subset such as `scanner.scan(image, { formats: "QRCode" })`
-applies only to that call; `scanner.formats` exposes the creation selection.
-Results stay valid after disposal.
+Create another scanner to change effort or the supplement policy. Per-call
+formats such as `scanner.scan(image, { formats: "QRCode" })` apply only to that
+call; `scanner.formats` exposes the defaults. Results stay valid after disposal.
 
 ## Experimental Turbo presets
 
@@ -238,8 +238,7 @@ scans still pay for the enabled 2D readers. See
 
 `experimentalTurbo` and `mode` are mutually exclusive. `scanner.experimentalTurbo`
 and `inspect` results report the preset; `scanner.mode` and `result.mode` report
-`"low"`. Turbo requires `eanAddOnPolicy: "Ignore"` and rejects
-`extendedBudget: true`.
+`"low"`. Turbo requires `eanAddOnPolicy: "ignore"`.
 
 **Stability:** this option, its presets and their asset imports may change or be
 removed in a minor release. Pin the exact package version if you rely on them.
@@ -309,20 +308,18 @@ custom loaders manage their own caching. Each scanner owns its own WASM instance
 
 ## All options
 
-| Option              | Where           | Default                | Meaning                                                                                                                                          |
-| ------------------- | --------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `mode`              | Creation        | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                                    |
-| `formats`           | Creation / scan | `"retail"`             | An identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call selections must be creation subsets. |
-| `eanAddOnPolicy`    | Creation        | `"Ignore"`             | `"Ignore"`, `"Read"`, `"Require"`; see [supplements](#eanupc-supplements).                                                                       |
-| `extendedBudget`    | Scan            | `false`                | Allow extra reader work on difficult images. Still bounded.                                                                                      |
-| `wasmBaseUrl`       | Creation        | Module-relative assets | Directory URL for the packaged WASM files.                                                                                                       |
-| `loadWasm`          | Creation        | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`.                                                                                                            |
-| `experimentalTurbo` | Creation        | Unset                  | **Experimental:** `2`, `4`, `8` or `16`. Mutually exclusive with `mode`.                                                                         |
+| Option              | Where           | Default                | Meaning                                                                                                                                    |
+| ------------------- | --------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mode`              | Creation        | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                              |
+| `formats`           | Creation / scan | `"retail"`             | An identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call formats override the defaults. |
+| `eanAddOnPolicy`    | Creation        | `"ignore"`             | `"ignore"`, `"read"`, `"require"`; see [supplements](#eanupc-supplements).                                                                 |
+| `wasmBaseUrl`       | Creation        | Module-relative assets | Directory URL for the packaged WASM files.                                                                                                 |
+| `loadWasm`          | Creation        | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`.                                                                                                      |
+| `experimentalTurbo` | Creation        | Unset                  | **Experimental:** `2`, `4`, `8` or `16`. Mutually exclusive with `mode`.                                                                   |
 
-One-shot `scan` and `inspect` accept creation and scan options together.
-
-`"retail"` selects EAN13, UPCA, EAN8 and UPCE. `"common1D"` adds Code128, Code39
-and ITF; `"common"` adds QRCode and DataMatrix. `"1D"` enables all linear formats.
+`"retail"` selects EAN13, UPCA, EAN8 and UPCE. `"common1D"` adds Code128,
+Code39 and ITF; `"common"` adds QRCode and DataMatrix. `"1D"` and `"2D"`
+enable all linear or all 2D formats.
 The exports `retailFormats`, `commonLinearFormats`, `commonFormats`,
 `linearFormats` and `matrixFormats` help compose custom selections. See
 [format coverage](../../docs/FORMATS.md) for identifiers and variants.
@@ -367,7 +364,7 @@ same fields plus the ones marked _inspect_.
 | `barcode.gs1`                  | `boolean \| undefined`                                         | GS1 indicator, when supplied by the reader.                                 |
 | `barcode.readerInitialization` | `boolean \| undefined`                                         | Reader initialization indicator; never executed.                            |
 | `barcode.structuredAppend`     | `StructuredAppend \| undefined`                                | Multipart metadata: one-based `index`, `count`, optional `id` and `parity`. |
-| `barcode.eanAddOn`             | `string \| undefined`                                          | EAN/UPC supplement, with `eanAddOnPolicy` `"Read"` or `"Require"`.          |
+| `barcode.eanAddOn`             | `string \| undefined`                                          | EAN/UPC supplement, with `eanAddOnPolicy` `"read"` or `"require"`.          |
 
 Separate labels with the same value stay separate entries. Results are deeply
 frozen; use `structuredClone(result)` for a mutable copy. `JSON.stringify(result)`
@@ -394,13 +391,13 @@ Set `eanAddOnPolicy` when creating a scanner or calling one-shot `scan` or `insp
 
 | Policy      | Behavior                                                                                         |
 | ----------- | ------------------------------------------------------------------------------------------------ |
-| `"Ignore"`  | Decode the main barcode without reading its supplement.                                          |
-| `"Read"`    | Try reading the two- or five-digit supplement; keep the main barcode if none is readable.        |
-| `"Require"` | Return an EAN/UPC barcode only when its supplement is readable. Other formats remain unaffected. |
+| `"ignore"`  | Decode the main barcode without reading its supplement.                                          |
+| `"read"`    | Try reading the two- or five-digit supplement; keep the main barcode if none is readable.        |
+| `"require"` | Return an EAN/UPC barcode only when its supplement is readable. Other formats remain unaffected. |
 
 The supplement appears in `barcode.eanAddOn`; `barcode.text` is the main payload,
 and `polygon` and `rect` describe the main barcode. Reading supplements adds
-decoding work. Retail reads rejected by `"Require"` appear in `result.undecoded`.
+decoding work. Retail reads rejected by `"require"` appear in `result.undecoded`.
 
 ## Undecoded regions
 
@@ -426,9 +423,10 @@ the crop, not identifiers for tracking between frames.
 ## Errors
 
 Invalid options throw `TypeError`. Engine and validation failures throw the
-exported `ScannerError` with `.code` and `.message`. Loader and fetch errors
-reject `Scanner.create` and the one-shot helpers. Dispose reusable scanners in
-`finally`.
+exported `ScannerError` with `.message` and a `.code` of `"invalid_input"`,
+`"disposed"`, `"engine"` or `"capacity"` (too many live scanners). Loader and
+fetch errors reject `Scanner.create` and the one-shot helpers. Dispose reusable
+scanners in `finally`.
 
 ## License
 

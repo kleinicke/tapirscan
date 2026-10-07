@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 SCHEMA_VERSION = 2
 
-EanAddOnPolicy: TypeAlias = Literal["Ignore", "Read", "Require"]
+EanAddOnPolicy: TypeAlias = Literal["ignore", "read", "require"]
 
 ColorOrder: TypeAlias = Literal["RGB", "BGR"]
 
@@ -223,7 +223,6 @@ class InspectionResult(ScanResult):
     undecoded: tuple[UndecodedRegion, ...]
     image: ImageSize
     diagnostics: Diagnostics
-    _json: bytes = field(repr=False, compare=False)
 
     @override
     def as_dict(self) -> dict[str, JSONValue]:
@@ -243,10 +242,6 @@ class InspectionResult(ScanResult):
                 for r in self.undecoded
             ],
         }
-
-    def to_raw_dict(self) -> dict[str, JSONValue]:
-        """Independent schema-2 JSON data, including all requested diagnostics."""
-        return cast("dict[str, JSONValue]", json.loads(self._json))
 
 
 def _polygon(points: list[list[float]]) -> tuple[Point, ...]:
@@ -363,5 +358,4 @@ def _from_json(raw: bytes, width: int, height: int) -> InspectionResult:
             ),
             raw,
         ),
-        raw,
     )

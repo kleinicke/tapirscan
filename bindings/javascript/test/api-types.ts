@@ -15,12 +15,13 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
   const scanner = await Scanner.create({
     mode: "high",
     formats: "1D",
-    eanAddOnPolicy: "Read",
+    eanAddOnPolicy: "read",
     wasmBaseUrl: "/engines/",
   });
   try {
     const scanResult: ScanResult = scanner.scan(image);
     const barcodes: readonly Barcode[] = scanResult.barcodes;
+    console.log(barcodes.length);
     const first: Barcode | undefined = scanResult.best;
     // Decoded barcodes always have a known format.
     const format: Format | undefined = first?.format;
@@ -39,11 +40,11 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
       region.text = "decoded";
     }
     // @ts-expect-error Supplement policy is fixed at creation.
-    scanner.eanAddOnPolicy = "Ignore";
+    scanner.eanAddOnPolicy = "ignore";
     // @ts-expect-error No per-call supplement policy.
-    scanner.inspect(image, { eanAddOnPolicy: "Require" });
+    scanner.inspect(image, { eanAddOnPolicy: "require" });
     // @ts-expect-error Invalid supplement policy.
-    await scan(image, { eanAddOnPolicy: "read" });
+    await scan(image, { eanAddOnPolicy: "Read" });
     for (const region of result.diagnostics.regions.undecoded) {
       // @ts-expect-error Undecoded regions have geometry, not decoded text.
       region.text = "decoded";
@@ -66,9 +67,9 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
     scanner.inspect(image, { multiple: false });
     // @ts-expect-error There is one diagnostic option.
     scanner.inspect(image, { includeRegions: true });
-    scanner.inspect(image, { formats: "EAN13", extendedBudget: true });
-    // @ts-expect-error Continuation is a boolean.
-    scanner.inspect(image, { extendedBudget: "yes" });
+    scanner.inspect(image, { formats: "EAN13" });
+    // @ts-expect-error Removed in 1.3.0.
+    scanner.inspect(image, { extendedBudget: true });
     const support: number | undefined = best?.support;
     const append: number | undefined = best?.structuredAppend?.index;
     if (best?.structuredAppend) {
@@ -102,7 +103,7 @@ export async function browserConsumer(file: File, video: HTMLVideoElement, image
   try {
     await scanner.ready;
     const fromFile: BrowserScanResult = await scanner.scan(file);
-    const fromVideo: BrowserResult = await scanner.inspect(video, { extendedBudget: true });
+    const fromVideo: BrowserResult = await scanner.inspect(video, { formats: "EAN13" });
     const fromPixels: BrowserScanResult = await scanSource(image, { formats: "EAN13" });
     // @ts-expect-error Results are frozen.
     fromFile.barcodes[0].text = "changed";

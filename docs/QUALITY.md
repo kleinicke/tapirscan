@@ -1,32 +1,38 @@
 # Shared formatting and checks
 
-## One-command quality check
+## Quality gate
 
 ```sh
+node tools/quality/install.mjs   # once per checkout
 node tools/quality/all.mjs
 ```
 
-This is also the CI quality gate on macOS and Linux. It checks repository-wide
-formatting (excluding protected snapshots), the repository boundary, maintained Rust
-and C ABI bindings in all four modes, JS/TS lint and package/consumer types, Python
-lint and types, C/C++/Java compiler warnings and quality-tool
-regression tests. It continues after failures, prints a final summary, and exits
-nonzero if any stage fails. Each run saves full logs in `.quality-cache/check-*/`;
-CI uploads them on failure. Checks do not rewrite source files.
+`all.mjs` is also the CI quality gate on macOS and Linux. It checks repository-wide
+formatting, the repository boundary (`scripts/verify_sources.py`), the maintained
+binding gates below, the core and multiformat Rust crates in all four modes, and the
+quality-tool tests. It continues after failures, prints a summary, and exits nonzero
+if any stage fails. Full logs go to `.quality-cache/check-*/`; checks never rewrite
+source. Runtime tests, package installation tests and scanner parity are separate
+CI steps (see [validation](VALIDATION.md)).
 
-Runtime tests, package installation tests and scanner parity remain separate CI
-steps; a passing static gate does not replace them.
+`node tools/quality/release.mjs all` (or `rust`, `js`, `python`, `native`) runs only
+the binding checks, without the formatting, source, core-crate and tool-test stages
+that `all.mjs` adds. It runs Clippy (all and pedantic, warnings as errors) on all
+four modes of the Rust facade and C ABI; strict ESLint and `tsc` for TypeScript; Ruff,
+ty and strict mypy for Python; clang with conversion and sign warnings as errors for
+C/C++; and `javac -Xlint:all -Werror` for Java (the restricted FFM calls have documented,
+method-local exceptions).
 
-### Local prerequisites
+## Environment
 
-Run `node tools/quality/install.mjs` and install the binding dependencies
-as described in [development](DEVELOPMENT.md). Use a Python 3.10–3.12 environment
-with `Pillow`, `numpy==2.2.6`, `torch`, `zxing-cpp` and `typing_extensions` installed.
-NumPy's version matches CI and provides stubs compatible with the Python 3.10 API
-target. Set `QUALITY_PYTHON` to that interpreter and `JAVA_HOME` to a JDK 22+.
-
-Alternatively, save your machine's paths once in the Git-ignored file
-`.quality-tools/environment.json`:
+- Rust 1.91.1 (rustfmt and Clippy), Node 24 (`.nvmrc`), Python 3.10-3.12, clang/clang++, a JDK 22+.
+- `QUALITY_PYTHON`: a Python environment with `Pillow`, `torch`, `zxing-cpp`,
+  `typing_extensions` and the NumPy version CI uses (see `.github/workflows/ci.yml`;
+  it provides stubs compatible with the Python 3.10 API target). Without it, `python3`
+  from PATH is used.
+- `JAVA_HOME`: the JDK for the Java checks.
+- Instead of environment variables, save both once in the Git-ignored
+  `.quality-tools/environment.json`; explicit variables override it:
 
 ```json
 {
@@ -35,49 +41,16 @@ Alternatively, save your machine's paths once in the Git-ignored file
 }
 ```
 
-Explicit environment variables override this file. Without a Python setting,
-the gate resolves `python3` on PATH to its executable path before calling ty.
-Missing dependencies or a missing JDK fail checks; they are never silently skipped.
+Missing dependencies or a missing JDK fail the checks; nothing is skipped silently.
 
-### Imported scanner checks
+## Formatting and focused checks
 
-The ordinary quality gate includes strict Clippy checks for the maintained core in all four
-production modes, and the multiformat crate.
-Frozen decoder imports remain excluded from automatic formatting. Production
-source changes use ordinary formatting and require [promotion validation](PROMOTING_CHANGES.md).
-
-## Tools and focused checks
-
-The repository pins Rust 1.91.1 rustfmt/Clippy and the exact JS tooling lockfile in `tools/quality/`.
-Prettier formats JS/TS/Svelte and ordinary JSON/CSS/Markdown/YAML. ESLint checks JS,
-with typescript-eslint strict type-aware rules for TS; `tsc` checks types. Retain
-the existing `svelte-check` command in each Svelte app. Ruff formats Python.
-
-Use Node 24 (the exact version is in `.nvmrc`), Python 3 and rustup.
-Install on a fresh checkout:
-
-```sh
-node tools/quality/install.mjs
-```
-
-This installs repo-local tools, synchronizes Claude Code/Codex hooks and installs
-an automatic staged-format Git hook, preserving an existing custom hooks path.
-VS Code settings enable format-on-save; install the recommended extensions.
-Restart agent sessions after changing hook configuration if they have not reloaded it.
-No Cursor configuration or background watcher is used.
-
-Agents format once after a coherent batch of edits, before relevant tests/checks.
-Re-read only affected sections if another edit is needed after formatting; do not
-reload whole files merely because a formatter ran. Do not run full JS
-lint for Rust-only work. Run the checks relevant to changed code and report failures.
-
-Claude Code and Codex `UserPromptSubmit` hooks record starting file hashes once.
-The read-only `Stop` hook checks formatting only for files changed during the turn.
-It does not rewrite files and requests at most one continuation to fix omissions,
-preventing repeated hook loops. An explicit command and the staged Git check remain
-necessary if a hook was unavailable or failures remain after its continuation.
-Editor format-on-save is enabled. There are no per-edit formatting hooks or
-background writers. Do not have two agents edit the same file concurrently.
+Prettier formats JS/TS/Svelte and ordinary JSON/CSS/Markdown/YAML, Ruff formats
+Python, and rustfmt formats Rust. `install.mjs` installs the repo-local tools and a
+Git hook that formats staged content; VS Code settings enable format-on-save.
+Claude Code and Codex hooks configured by `install.mjs` check formatting at the end
+of a turn; restart agent sessions after changing them. Format once after a coherent
+batch of edits, before running checks.
 
 ```sh
 node tools/quality/cli.mjs format path/to/edited-file.rs
@@ -87,48 +60,8 @@ node tools/quality/check.mjs rust
 node tools/quality/check.mjs js
 ```
 
-With no file arguments, format/check-format use tracked changes against HEAD.
-Use explicit files for untracked work. `--all` is an explicit repository-wide
-operation; automatic hooks never reformat the whole tree. Lint/check commands are
-read-only; no ESLint/Clippy semantic fixes run automatically. The Git hook formats
-staged content and updates the index atomically. It never
-stages working-tree content: fully staged files are aligned with the formatted
-index, while partially staged working files remain untouched. Those files may
-show formatting differences in their unstaged diff. Syntax errors or missing
-tools stop the commit; formatting-only differences are fixed automatically.
-Path-only commits (`git commit --only`) use a temporary index; Git can leave
-formatting differences in the regular index afterward. Prefer committing the
-staged selection normally. Immutable camera-demo vendor hosts are excluded.
-
-Fix lint findings with focused behavioral tests. Do not disable strict rules wholesale.
-The release Rust audit checks all targets for all four production core modes and the multiformat crate. Runtime parity is verified separately.
-
-## Protected files and promotion
-
-The formatter excludes generated assets. Maintained production source is formatted normally. Research-only source
-and dated experiment reports are rejected by `scripts/check_repository_boundary.py`,
-which also runs during source verification.
-
-Format the coherent edit batch, validate affected modes and bindings, then
-rebuild the WASM files before integration. Follow
-[PROMOTING_CHANGES.md](PROMOTING_CHANGES.md).
-
-Sources: [Claude Code hooks](https://code.claude.com/docs/en/hooks),
-[Codex hooks](https://learn.chatgpt.com/docs/hooks),
-[Prettier editor integration](https://prettier.io/docs/editors).
-
-## Maintained release binding gate
-
-Run `node tools/quality/release.mjs all` (or `rust`, `js`, `python`, `native`).
-Set `QUALITY_PYTHON` to the Python environment containing Pillow, NumPy and torch;
-set `JAVA_HOME` to a JDK 22+ installation. Install clang/clang++ for C/C++ checks.
-The gate checks all four compiled modes of the Rust facade and C ABI with Clippy
-all/pedantic and warnings as errors; TypeScript with strict ESLint and tsc; Python
-with Ruff ALL, ty and strict mypy; C/C++ with compiler conversion/sign warnings
-as errors; and Java with javac all warnings as errors. Java's restricted native
-FFM calls have documented, method-local exceptions; other warnings stay errors.
-
-Maintained core and multiformat Rust are checked by the regular gate;
-scanner parity and package installation checks remain separate runtime checks.
-
-The demo and benchmark have separate checks in `../../tapirscan-web/README.md`.
+Without file arguments, `format` and `check-format` use tracked changes against HEAD;
+pass explicit files for untracked work and `--all` for the whole repository.
+Lint and check commands are read-only. Frozen vendor files and generated assets are
+excluded from formatting. Fix lint findings with focused behavioral tests rather than
+disabling strict rules wholesale.

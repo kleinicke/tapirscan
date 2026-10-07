@@ -230,11 +230,11 @@ pub extern "C" fn tapirscan_input_len(handle: u32) -> u32 {
     })
 }
 
-/// Scan flags: bit 0 extended budget, bit 1 raw diagnostics. Zero format mask uses
+/// Scan flags: bit 1 requests the inspection report; other bits are rejected. Zero format mask uses
 /// the scanner's configured selection; a nonzero mask overrides it for this call.
 #[no_mangle]
 pub extern "C" fn tapirscan_scan(handle: u32, flags: u32, format_mask: u32) -> i32 {
-    if flags & !3 != 0 {
+    if flags & !2 != 0 {
         return ARG;
     }
     let formats = if format_mask == 0 {
@@ -260,7 +260,7 @@ pub extern "C" fn tapirscan_scan(handle: u32, flags: u32, format_mask: u32) -> i
             _ => return ARG,
         }
         .with_stride(spec.stride);
-        let options = ScanOptions { formats, extended_budget: flags & 1 != 0 };
+        let options = ScanOptions { formats };
         let result = if flags & 2 != 0 {
             session.scanner.inspect_with_options(image, options).map(|report| wire_result(&report))
         } else {
@@ -326,7 +326,7 @@ fn wire_barcode(barcode: &Barcode) -> serde_json::Value {
         "format": barcode.format.as_str(),
         "polygon": barcode.polygon,
         "support": barcode.support,
-        "rect": { "left": rect[0], "top": rect[1], "width": rect[2], "height": rect[3] },
+        "rect": rect,
     });
     let object = value.as_object_mut().expect("barcode JSON is an object");
     optional(object, "payloadBytes", barcode.payload_bytes.as_ref());

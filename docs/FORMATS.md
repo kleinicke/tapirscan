@@ -1,37 +1,40 @@
 # Format coverage
 
-Tapirscan supports the linear and 2D formats listed below. The retail group—
-EAN13, UPCA, EAN8 and UPCE—is enabled by default. Additional formats are explicitly selected at scanner
-creation in JavaScript and Python. Python also allows per-scan overrides;
-JavaScript accepts per-scan subsets of the creation selection.
-Rust and the native ABI select formats per scan. Python and JavaScript accept
-`"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"` and `"all"` presets for their supported formats, a single identifier,
-or explicit lists.
+Tapirscan supports the linear and 2D formats listed below. The retail group
+(EAN13, UPCA, EAN8 and UPCE) is the default selection. A scanner's formats are
+chosen at creation, and every binding can override them for a single call
+without changing the scanner. Python and JavaScript accept the presets below as
+strings, a single identifier, or explicit lists; native bindings use the
+constants listed here.
 
-| Preset       | Formats                              |
-| ------------ | ------------------------------------ |
-| `"retail"`   | EAN13, UPCA, EAN8, UPCE              |
-| `"common1D"` | Retail + Code128, Code39, ITF        |
-| `"common"`   | common1D + QRCode, DataMatrix        |
-| `"1D"`       | All supported linear formats         |
-| `"2D"`       | All supported matrix/stacked formats |
-| `"all"`      | All supported formats                |
+| Preset (Python, JS) | Formats                              |
+| ------------------- | ------------------------------------ |
+| `"retail"`          | EAN13, UPCA, EAN8, UPCE              |
+| `"common1D"`        | Retail + Code128, Code39, ITF        |
+| `"common"`          | common1D + QRCode, DataMatrix        |
+| `"1D"`              | All supported linear formats         |
+| `"2D"`              | All supported matrix/stacked formats |
+| `"all"`             | All supported formats                |
+
+Native names follow each language: Rust `Formats::COMMON_1D`, C
+`TAPIRSCAN_FORMATS_COMMON_1D`, C++ `Formats::common_1d()` and Java
+`Format.COMMON_1D`, with the same pattern for the other presets.
 
 Retail covers the EAN/UPC family, not every format used in retail (for example,
-DataBar requires an explicit selection or `"1D"`). Common is a convenience selection,
-not a coverage or accuracy guarantee. Retail is the default selection.
+DataBar needs an explicit selection or `"1D"`). Common is a convenience
+selection, not a coverage or accuracy guarantee.
 
 EAN13 and UPCA share the primary scan; selecting UPCA adds output normalization,
 not another image scan. Enabling more formats can add reader work. JavaScript
 loads one complete WASM scanner for the selected effort mode, not a separate
 module per format. Reuse a scanner across frames to amortize initialization.
-The selected mode tunes EAN13/UPCA, Common1D and QR Code.
+The selected mode tunes EAN13/UPCA, common1D and QR Code.
 
 The supported public identifiers and native bits are:
 
 | Identifier      |    Bit | Scope                                                            |
 | --------------- | -----: | ---------------------------------------------------------------- |
-| EAN13           |      1 | Pinned effort-mode scanner                                       |
+| EAN13           |      1 | Effort-mode scanner                                              |
 | UPCA            |      2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected |
 | EAN8            |      4 | Supported retail reader                                          |
 | UPCE            |      8 | Supported retail reader                                          |
@@ -52,7 +55,7 @@ Effort levels select the following bounded searches:
 
 | Reader               | Low | Medium | High | Very High |
 | -------------------- | --- | ------ | ---- | --------- |
-| Common1D             | 0   | 1      | 2    | 2         |
+| Common-linear        | 0   | 1      | 2    | 2         |
 | QR Code              | 0   | 1      | 2    | 3         |
 | Other matrix readers | 1   | 1      | 1    | 1         |
 
@@ -77,8 +80,8 @@ incomplete. Candidate, retry and parsing caps bound the search,
 which may still return valid reads. Fixed sampling strategies and
 unsupported format variants are not completeness guarantees. Scores are not calibrated probabilities.
 
-Python and JavaScript optionally expose two- and five-digit EAN/UPC supplements
-through the creation policy `Ignore` (default), `Read` or `Require`. EAN8
+Every binding optionally exposes two- and five-digit EAN/UPC supplements
+through the creation policy `ignore` (default), `read` or `require` (`Ignore`, `Read`, `Require` in native bindings). EAN8
 supplements are a nonstandard extension.
 The localized-linear strategy is internal; public scanning
 uses the full-frame strategy.

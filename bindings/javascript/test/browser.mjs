@@ -99,7 +99,7 @@ test("a reusable scanner queues concurrent scans and freezes results", async () 
         scanner.scan(image),
         scanner.scan(canvas),
       ]);
-      const report = await scanner.inspect(canvas, { formats: "EAN13", extendedBudget: true });
+      const report = await scanner.inspect(canvas, { formats: "EAN13" });
       return {
         texts: reads.map((result) => result.values),
         best: reads[0].best?.text,
@@ -134,7 +134,7 @@ test("errors keep their types, and disposal rejects queued work", async () => {
       unknownOption: await failure((async () => new Scanner({ loadWasm: () => {} }))()),
       badMode: await failure(new Scanner({ mode: "ultra" }).ready),
       badModeScan: await failure(new Scanner({ mode: "ultra" }).scan(canvas)),
-      notSubset: await failure(scanner.scan(canvas, { formats: "QRCode" })),
+      badFormat: await failure(scanner.scan(canvas, { formats: "QR" })),
       tiny: await failure(scanner.scan(new ImageData(2, 2))),
       notImage: await failure(scanner.scan(null)),
       missingWasm: await failure(new Scanner({ wasmBaseUrl: "/missing/" }).ready),
@@ -150,7 +150,7 @@ test("errors keep their types, and disposal rejects queued work", async () => {
   assert.match(outcome.unknownOption.join(" "), /^TypeError Unknown scanner option: loadWasm/);
   assert.equal(outcome.badMode[0], "TypeError");
   assert.deepEqual(outcome.badModeScan, outcome.badMode);
-  assert.match(outcome.notSubset.join(" "), /^TypeError .*subset/);
+  assert.match(outcome.badFormat.join(" "), /^TypeError Unsupported barcode format or preset: QR/);
   assert.equal(outcome.tiny[0], "TypeError");
   assert.deepEqual(outcome.notImage, ["TypeError", "Expected an image source"]);
   assert.match(outcome.missingWasm.join(" "), /^Error .*404/);

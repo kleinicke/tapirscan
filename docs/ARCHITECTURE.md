@@ -22,14 +22,13 @@ nor another barcode library are required at runtime.
    primary candidates, and recovery frames with explicit crop transforms.
 
 The effort modes change both compiled implementations and host budgets. They are
-not merely aliases for one function with different timeouts. Higher effort does
-not guarantee a strict superset of a lower mode's reads.
+not merely aliases for one function with different timeouts.
 
 ## One scanner, native and WebAssembly
 
 The public Rust `Scanner` in `bindings/rust/api` owns the complete pipeline.
 Native Rust callers use it directly. C, C++, Python and Java reach it through
-the C adapter. JavaScript loads one mode-specific WebAssembly module and calls
+the C adapter. JavaScript loads one WebAssembly module per mode and calls
 it through `bindings/wasm`; `rust-session.ts` manages its memory and lifetime.
 Scanning is synchronous after JavaScript initialization.
 
@@ -40,7 +39,7 @@ pixels and exposes immutable results.
 Grayscale, RGB and RGBA inputs support explicit strides; alpha is ignored.
 Positions refer to the pixels supplied by the caller, not an image before
 resizing. Crop-local candidate indices are never presented as primary indices.
-See [the native contract](NATIVE_BINDINGS.md) and [Python input rules](API_DESIGN.md).
+See [the native contract](NATIVE_BINDINGS.md) and [Python input rules](../bindings/python/README.md#array-and-tensor-inputs).
 
 ## Scanner pipeline boundaries
 
@@ -69,17 +68,15 @@ padded gray/RGB/RGBA inputs and compact versus detailed results.
 ## Additional formats
 
 `multiformat/` contains the EAN8/UPCE readers and additional supported linear and
-2D readers. Readers run only when selected; each
-mode-specific WASM includes all readers. EAN-13 and UPC-A retain the selected
+2D readers. Readers run only when selected; every build includes all readers. EAN-13 and UPC-A retain the selected
 primary effort mode. Common1D uses effort 0/1/2/2 and QR Code uses 0/1/2/3
 for Low/Medium/High/Very High; other matrix readers use effort 1.
 When mixed with EAN13/UPCA, confirmed Common1D coverage can defer deep EAN
 retries only for wholly contained proposals. Initial discovery and full-frame
 search remain enabled. Source-detail recovery skips seeds inside that coverage.
 
-These readers have different maturity and incomplete work-limit propagation in
-some paths. Consult [format coverage](FORMATS.md); do not infer QR reliability
-from an EAN-13 result.
+Reliability differs by format, so do not infer QR reliability from an EAN-13
+result; see [format coverage](FORMATS.md).
 
 ## Repository map
 
@@ -91,7 +88,7 @@ from an EAN-13 result.
 | `bindings/rust/`                          | Public Scanner API and shared private pipeline             |
 | `bindings/wasm/`                          | Thin WebAssembly adapter over the Rust API                 |
 | `bindings/c/`, `cpp/`, `python/`, `java/` | Native language interfaces                                 |
-| `multiformat/`                            | Pinned EAN8/UPCE and additional linear/2D readers          |
+| `multiformat/`                            | EAN8/UPCE and additional linear/2D readers                 |
 | `../tapirscan-web/demo/`                  | Camera/photo app with independent comparison workers       |
 | `scripts/`                                | Reproduction, packaging and regression checks              |
 
@@ -106,25 +103,8 @@ results to Tapirscan, and they are not dependencies of the distributed library.
 
 Edit `core/src`. Plain Cargo selects Medium;
 `python3 scripts/build.py MODE` runs a selected production core's tests.
-See [the core guide](../core/README.md) for mode features and scratch ownership.
-
-| Stage                           | Main implementation                               | Preserve when testing another stage                  |
-| ------------------------------- | ------------------------------------------------- | ---------------------------------------------------- |
-| Candidate discovery             | `core/src/stripes.rs`, `shear.rs`                 | Source coordinates and omitted/work-limited signals  |
-| Profile sampling                | `core/src/candidate_scanner/sampling.rs`          | Sampling order and numerical precision               |
-| Decoding and acceptance         | `core/src/candidate_scanner/decoding.rs`          | Acceptance thresholds and observation evidence       |
-| Observation association         | `core/src/candidate_scanner/association.rs`       | Independent support and source continuity            |
-| Retry planning and execution    | `core/src/multi_scan/plan.rs`, `multi_scan.rs`    | Defined path order, coverage proofs and budgets      |
-| Physical identity and conflicts | `core/src/frame/identity.rs`, `frame/conflict.rs` | Separate equal labels and conflicting values         |
-| Frame assembly                  | `core/src/frame.rs`                               | Stable geometry                                      |
-| Source-detail recovery          | `bindings/rust/src/detail.rs`                     | Effort policy and candidate namespaces               |
-| Release duplicate consolidation | `bindings/rust/src/linear_duplicates.rs`          | Supplement identity, ranking and shared pixel budget |
-
-Exact output parity establishes a behavior-preserving refactor; it does not
-establish accuracy or latency improvements.
-
-### Reader documentation
-
-`multiformat/README.md` documents the pinned reader import and its own wrapper.
-Use this guide and [development](DEVELOPMENT.md) for the shared Rust pipeline,
-the mode-specific WASM and current build commands.
+The [core guide](../core/README.md) lists the stage files, mode features and what
+each stage must preserve. Exact output parity establishes a behavior-preserving
+refactor; it does not establish accuracy or latency improvements. Decoder changes
+in `multiformat/` are tested as described in [its README](../multiformat/README.md);
+the shared pipeline, WASM builds and commands are in [development](DEVELOPMENT.md).

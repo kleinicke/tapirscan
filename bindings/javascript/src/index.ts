@@ -10,7 +10,6 @@ import { RustScannerSession, ScannerError } from "./rust-session.js";
 export {
   commonFormats,
   commonLinearFormats,
-  formatBits,
   linearFormats,
   matrixFormats,
   retailFormats,
@@ -33,9 +32,7 @@ export interface Image {
 }
 export type Mode = "low" | "medium" | "high" | "very-high";
 export interface ScanOptions {
-  /** Allow reader-specific extra work. Supported for every format; exact budgets may evolve. */
-  extendedBudget?: boolean;
-  /** Per-call subset of the formats configured at creation. */
+  /** Formats for this call only; defaults to the scanner's formats. */
   formats?: FormatSelection;
 }
 interface RawDiagnostics {
@@ -111,7 +108,7 @@ export interface InspectionResult extends ScanResult {
   readonly undecoded: readonly UndecodedRegion[];
   readonly diagnostics: Diagnostics;
 }
-export type EanAddOnPolicy = "Ignore" | "Read" | "Require";
+export type EanAddOnPolicy = "ignore" | "read" | "require";
 export type ExperimentalTurbo = 2 | 4 | 8 | 16;
 export interface ScannerOptions {
   mode?: Mode;
@@ -156,7 +153,7 @@ const turboFiles: Record<ExperimentalTurbo, string> = {
   8: "experimental-turbo8.wasm",
   16: "experimental-turbo16.wasm",
 };
-const addOnPolicies: Record<EanAddOnPolicy, number> = { Ignore: 0, Read: 1, Require: 2 };
+const addOnPolicies: Record<EanAddOnPolicy, number> = { ignore: 0, read: 1, require: 2 };
 
 function pixels(image: PixelImage): PreparedImage {
   const input: unknown = image;
@@ -287,7 +284,7 @@ export class Scanner {
   ) {
     Object.freeze(configuredFormats);
   }
-  /** Formats available for scanning, fixed at creation. */
+  /** Default formats, fixed at creation; individual scans may override them. */
   get formats(): readonly Format[] {
     return this.configuredFormats;
   }
@@ -317,15 +314,15 @@ export class Scanner {
         throw new TypeError("experimentalTurbo must be 2, 4, 8 or 16");
       if (options.mode !== undefined)
         throw new TypeError("Choose mode or experimentalTurbo, not both");
-      if (options.eanAddOnPolicy !== undefined && options.eanAddOnPolicy !== "Ignore")
-        throw new TypeError("experimentalTurbo requires eanAddOnPolicy: Ignore");
+      if (options.eanAddOnPolicy !== undefined && options.eanAddOnPolicy !== "ignore")
+        throw new TypeError('experimentalTurbo requires eanAddOnPolicy: "ignore"');
     }
     const mode = turbo === undefined ? (options.mode ?? "medium") : "low";
     if (!Object.hasOwn(modes, mode)) throw new TypeError("Unknown scanner mode");
     const formats = resolveFormats(options.formats);
-    const addOnPolicy = options.eanAddOnPolicy === undefined ? "Ignore" : options.eanAddOnPolicy;
+    const addOnPolicy = options.eanAddOnPolicy === undefined ? "ignore" : options.eanAddOnPolicy;
     if (!Object.hasOwn(addOnPolicies, addOnPolicy))
-      throw new TypeError("eanAddOnPolicy must be Ignore, Read or Require");
+      throw new TypeError('eanAddOnPolicy must be "ignore", "read" or "require"');
     if (options.loadWasm !== undefined && typeof options.loadWasm !== "function")
       throw new TypeError("loadWasm must be a function");
     if (
@@ -387,19 +384,9 @@ export class Scanner {
     if (input === null || typeof input !== "object" || Array.isArray(input))
       throw new TypeError("Invalid scan options");
     for (const key of Object.keys(options))
-      if (!["formats", "extendedBudget"].includes(key))
-        throw new TypeError(`Unknown scan option: ${key}`);
-    if (options.extendedBudget !== undefined && typeof options.extendedBudget !== "boolean")
-      throw new TypeError("extendedBudget must be a boolean");
-    if (this.experimentalTurbo !== undefined && options.extendedBudget === true)
-      throw new TypeError("experimentalTurbo cannot be combined with extendedBudget: true");
-    const formats = options.formats === undefined ? this.formats : resolveFormats(options.formats);
-    if (formats.some((format) => !this.formats.includes(format)))
-      throw new TypeError(
-        `Scan formats must be a subset of configured formats. Requested: ${formats.join(", ")}; configured: ${this.formats.join(", ")}`,
-      );
-    const flags = (options.extendedBudget ? 1 : 0) | (inspect ? 2 : 0);
-    return this.host.scan(image, flags, options.formats === undefined ? 0 : maskFor(formats));
+      if (key !== "formats") throw new TypeError(`Unknown scan option: ${key}`);
+    const mask = options.formats === undefined ? 0 : maskFor(resolveFormats(options.formats));
+    return this.host.scan(image, inspect ? 2 : 0, mask);
   }
 
   /** Release the WASM session. Repeated disposal is safe; scanning afterward fails. */
@@ -416,17 +403,10 @@ function bestOf(barcodes: readonly Barcode[]): Barcode | undefined {
 }
 
 /** Scan one image with automatic cleanup. Reuse Scanner for a stream of images. */
-export async function scan(
-  image: PixelImage,
-  options: ScannerOptions & ScanOptions = {},
-): Promise<ScanResult> {
-  const input: unknown = options;
-  if (input === null || typeof input !== "object" || Array.isArray(input))
-    throw new TypeError("Invalid scan options");
-  const { extendedBudget, ...creation } = options;
-  const scanner = await Scanner.create(creation);
+export async function scan(image: PixelImage, options: ScannerOptions = {}): Promise<ScanResult> {
+  const scanner = await Scanner.create(options);
   try {
-    return scanner.scan(image, { extendedBudget });
+    return scanner.scan(image);
   } finally {
     scanner.dispose();
   }
@@ -435,15 +415,11 @@ export async function scan(
 /** Inspect one image with automatic cleanup. */
 export async function inspect(
   image: PixelImage,
-  options: ScannerOptions & ScanOptions = {},
+  options: ScannerOptions = {},
 ): Promise<InspectionResult> {
-  const input: unknown = options;
-  if (input === null || typeof input !== "object" || Array.isArray(input))
-    throw new TypeError("Invalid scan options");
-  const { extendedBudget, ...creation } = options;
-  const scanner = await Scanner.create(creation);
+  const scanner = await Scanner.create(options);
   try {
-    return scanner.inspect(image, { extendedBudget });
+    return scanner.inspect(image);
   } finally {
     scanner.dispose();
   }

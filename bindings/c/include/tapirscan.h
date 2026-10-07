@@ -70,11 +70,9 @@ typedef struct tapirscan_image {
     uint64_t stride;
 } tapirscan_image;
 
-/* Per-scan overrides. NULL or a zero-initialized struct uses the defaults:
-   the scanner's formats, no diagnostics and the ordinary work budget. */
+/* Per-scan overrides. NULL or a zero-initialized struct uses the scanner's formats. */
 typedef struct tapirscan_scan_options {
-    uint32_t formats;         /* 0 or a nonempty TAPIRSCAN_FORMAT_* mask */
-    uint32_t extended_budget; /* 1 allows reader-specific extra work */
+    uint32_t formats; /* 0 or a nonempty TAPIRSCAN_FORMAT_* mask */
 } tapirscan_scan_options;
 
 /* Source-image pixels, origin top-left, x rightward and y downward. */

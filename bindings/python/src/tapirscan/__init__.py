@@ -77,16 +77,20 @@ __all__ = [
 ABI_VERSION = 6
 MAX_IMAGE_BYTES = 128 * 1024 * 1024
 _MODES = ("low", "medium", "high", "very-high")
-_ADDON_POLICIES = ("Ignore", "Read", "Require")
+_ADDON_POLICIES = ("ignore", "read", "require")
+
+
+_ERROR_CODES = {1: "invalid_input", 2: "disposed", 3: "engine", 4: "engine"}
 
 
 class ScannerError(RuntimeError):
-    """A native scanner failure with its numeric ABI status code."""
+    """A native scanner failure; `code` matches the JavaScript error codes."""
 
-    def __init__(self, code: int, message: str) -> None:
-        """Preserve the numeric status and explain the native failure."""
-        self.code = code
-        super().__init__(f"{message} (code {code})")
+    def __init__(self, status: int, message: str) -> None:
+        """Keep the native status and name its error code."""
+        self.status = status
+        self.code = _ERROR_CODES.get(status, "engine")
+        super().__init__(f"{message} (status {status})")
 
 
 # Native ABI 6 structures from bindings/c/include/tapirscan.h.
@@ -112,7 +116,6 @@ class _Image(c.Structure):
 class _ScanOptions(c.Structure):
     _fields_ = [
         ("formats", c.c_uint32),
-        ("extended_budget", c.c_uint32),
     ]
 
 
@@ -186,7 +189,7 @@ class Scanner:
         mode: Mode = "medium",
         *,
         formats: FormatSelection | None = None,
-        ean_add_on_policy: EanAddOnPolicy = "Ignore",
+        ean_add_on_policy: EanAddOnPolicy = "ignore",
         library_dir: str | os.PathLike[str] | None = None,
     ) -> None:
         """Initialize the scanner state or native error code."""
@@ -194,7 +197,7 @@ class Scanner:
             msg = "mode must be low, medium, high or very-high"
             raise ValueError(msg)
         if ean_add_on_policy not in _ADDON_POLICIES:
-            msg = "ean_add_on_policy must be Ignore, Read or Require"
+            msg = 'ean_add_on_policy must be "ignore", "read" or "require"'
             raise ValueError(msg)
         self._ean_add_on_policy = ean_add_on_policy
         self._formats = resolve_formats(formats)
@@ -296,7 +299,6 @@ class Scanner:
         self,
         image: ImageInput,
         *,
-        extended_budget: bool = False,
         formats: FormatSelection | None = None,
         layout: Layout = "auto",
         value_range: ValueRange = "auto",
@@ -306,7 +308,6 @@ class Scanner:
         raw, _, _ = self._run(
             image,
             inspect=False,
-            extended_budget=extended_budget,
             formats=formats,
             layout=layout,
             value_range=value_range,
@@ -318,7 +319,6 @@ class Scanner:
         self,
         image: ImageInput,
         *,
-        extended_budget: bool = False,
         formats: FormatSelection | None = None,
         layout: Layout = "auto",
         value_range: ValueRange = "auto",
@@ -328,7 +328,6 @@ class Scanner:
         raw, width, height = self._run(
             image,
             inspect=True,
-            extended_budget=extended_budget,
             formats=formats,
             layout=layout,
             value_range=value_range,
@@ -341,16 +340,12 @@ class Scanner:
         image: ImageInput,
         *,
         inspect: bool,
-        extended_budget: bool,
         formats: FormatSelection | None,
         layout: Layout,
         value_range: ValueRange,
         color_order: ColorOrder,
     ) -> tuple[bytes, int, int]:
         mask = format_mask(self.formats if formats is None else formats)
-        if type(extended_budget) is not bool:
-            msg = "extended_budget must be a boolean"
-            raise TypeError(msg)
         with self._lock:
             if not self._handle.value:
                 msg = "Scanner is closed"
@@ -359,7 +354,7 @@ class Scanner:
             image, layout, value_range, color_order
         )
         pixels = _Image(c.addressof(data), len(data), width, height, channels, stride)
-        options = _ScanOptions(mask, int(extended_budget))
+        options = _ScanOptions(mask)
         with self._lock:
             if not self._handle.value:
                 msg = "Scanner is closed"
@@ -419,9 +414,8 @@ def scan(
     image: ImageInput,
     *,
     mode: Mode = "medium",
-    ean_add_on_policy: EanAddOnPolicy = "Ignore",
+    ean_add_on_policy: EanAddOnPolicy = "ignore",
     library_dir: str | os.PathLike[str] | None = None,
-    extended_budget: bool = False,
     formats: FormatSelection | None = None,
     layout: Layout = "auto",
     value_range: ValueRange = "auto",
@@ -436,7 +430,6 @@ def scan(
     ) as scanner:
         return scanner.scan(
             image,
-            extended_budget=extended_budget,
             layout=layout,
             value_range=value_range,
             color_order=color_order,
@@ -447,9 +440,8 @@ def inspect(
     image: ImageInput,
     *,
     mode: Mode = "medium",
-    ean_add_on_policy: EanAddOnPolicy = "Ignore",
+    ean_add_on_policy: EanAddOnPolicy = "ignore",
     library_dir: str | os.PathLike[str] | None = None,
-    extended_budget: bool = False,
     formats: FormatSelection | None = None,
     layout: Layout = "auto",
     value_range: ValueRange = "auto",
@@ -464,7 +456,6 @@ def inspect(
     ) as scanner:
         return scanner.inspect(
             image,
-            extended_budget=extended_budget,
             layout=layout,
             value_range=value_range,
             color_order=color_order,

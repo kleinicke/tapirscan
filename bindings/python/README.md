@@ -97,10 +97,10 @@ Signatures (all settings are optional). `inspect` and `scanner.inspect` take the
 same arguments as their `scan` counterparts and return `InspectionResult`:
 
 ```text
-scan(image, *, mode="medium", formats=None, ean_add_on_policy="Ignore", extended_budget=False,
+scan(image, *, mode="medium", formats=None, ean_add_on_policy="ignore",
      layout="auto", value_range="auto", color_order="RGB", library_dir=None) -> ScanResult
-Scanner(mode="medium", *, formats=None, ean_add_on_policy="Ignore", library_dir=None)
-scanner.scan(image, *, formats=None, extended_budget=False,
+Scanner(mode="medium", *, formats=None, ean_add_on_policy="ignore", library_dir=None)
+scanner.scan(image, *, formats=None,
              layout="auto", value_range="auto", color_order="RGB") -> ScanResult
 scanner.close()
 ```
@@ -117,8 +117,7 @@ that call only; `None` uses the scanner's selection.
 | ------------------- | ------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `mode`              | Creation / one-shot       | `"medium"`      | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                          |
 | `formats`           | Creation / scan           | retail          | An identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty list/tuple of identifiers. |
-| `ean_add_on_policy` | Creation / one-shot       | `"Ignore"`      | `"Ignore"`, `"Read"`, `"Require"`; see [supplements](#eanupc-supplements).                                             |
-| `extended_budget`   | Scan / one-shot           | `False`         | Allow extra reader work on difficult images. Still bounded.                                                            |
+| `ean_add_on_policy` | Creation / one-shot       | `"ignore"`      | `"ignore"`, `"read"`, `"require"`; see [supplements](#eanupc-supplements).                                             |
 | `layout`            | Scan, arrays/tensors only | `"auto"`        | `"HW"`, `"HWC"`, `"CHW"`; specify when the channel position is ambiguous.                                              |
 | `value_range`       | Scan, arrays/tensors only | `"auto"`        | `"0_1"` or `"0_255"`. Auto uses [0,1] for floats and [0,255] for integers, independent of image contents.              |
 | `color_order`       | Scan, arrays/tensors only | `"RGB"`         | `"BGR"` for OpenCV BGR/BGRA pixels. Grayscale is unaffected.                                                           |
@@ -211,7 +210,7 @@ same fields plus the ones marked _inspect_. Results are immutable.
 | `barcode.gs1`                   | GS1 indicator, or None if not supplied by the reader.                      |
 | `barcode.reader_initialization` | Reader initialization indicator, or None; never executed.                  |
 | `barcode.structured_append`     | `StructuredAppend(index, count, id, parity)`, or None; index is one-based. |
-| `barcode.ean_add_on`            | EAN/UPC supplement, with `ean_add_on_policy` `"Read"` or `"Require"`.      |
+| `barcode.ean_add_on`            | EAN/UPC supplement, with `ean_add_on_policy` `"read"` or `"require"`.      |
 
 Separate labels with the same value stay separate entries. `barcode.as_dict()`
 exports a single read, and `json.dumps(result.as_dict())` works directly.
@@ -237,13 +236,13 @@ Set `ean_add_on_policy` when creating a scanner or calling one-shot `scan` or `i
 
 | Policy      | Behavior                                                                                         |
 | ----------- | ------------------------------------------------------------------------------------------------ |
-| `"Ignore"`  | Decode the main barcode without reading its supplement.                                          |
-| `"Read"`    | Try reading the two- or five-digit supplement; keep the main barcode if none is readable.        |
-| `"Require"` | Return an EAN/UPC barcode only when its supplement is readable. Other formats remain unaffected. |
+| `"ignore"`  | Decode the main barcode without reading its supplement.                                          |
+| `"read"`    | Try reading the two- or five-digit supplement; keep the main barcode if none is readable.        |
+| `"require"` | Return an EAN/UPC barcode only when its supplement is readable. Other formats remain unaffected. |
 
 The supplement appears in `barcode.ean_add_on`; `barcode.text` is the main payload,
 and `polygon` and `rect` describe the main barcode. Reading supplements adds
-decoding work. Retail reads rejected by `"Require"` appear in `result.undecoded`.
+decoding work. Retail reads rejected by `"require"` appear in `result.undecoded`.
 
 ## Undecoded regions
 
@@ -263,16 +262,16 @@ if regions is not None:
 
 `proposals` and `search_windows` are None when a reader does not expose them, and
 empty tuples when it found nothing. `report.diagnostics.barcodes` lists per-read
-evidence; region types are in `tapirscan.results`. `report.to_raw_dict()` returns
-the engine's own JSON evidence, whose fields vary by reader and may change between
+evidence; region types are in `tapirscan.results`. `report.diagnostics.to_raw_dict()`
+returns the engine's own JSON evidence, whose fields vary by reader and may change between
 releases. Candidate indices inside a recovery crop are local to that crop, not
 identifiers for tracking between frames.
 
 ## Errors
 
 Invalid input raises `ValueError` or `TypeError`. Native failures raise
-`ScannerError` with a message and a numeric `.code`: 1 invalid arguments,
-2 invalid or closed handle, 3 result buffer too small, 4 internal failure.
+`ScannerError` with a message, the native `.status` number and a `.code` shared
+with JavaScript: `"invalid_input"`, `"disposed"` or `"engine"`.
 Scanning after `close()` raises `RuntimeError`. A custom native library from
 `library_dir` must implement native ABI 6; mismatches are reported with
 rebuild instructions.

@@ -1,38 +1,32 @@
 # Adding a language binding
 
-Anyone can ask an AI coding assistant to scaffold a Tapirscan binding with a
-single prompt. The shared C ABI makes that practical: there is no need to port
-the decoding algorithm. Generated code needs compilation, ownership tests
-and decoding checks before it is ready for users.
+A binding wraps the shared C ABI; it does not port the decoder. Work through
+this checklist.
 
-Start with this prompt, replacing the language and target platforms:
+1. **C ABI.** Bind every function in
+   [`tapirscan.h`](../bindings/c/include/tapirscan.h), the signature source of
+   truth, and check `tapirscan_abi_version()` against `TAPIRSCAN_ABI_VERSION`
+   when loading the library.
+2. **Formats.** Do not hand-write format bits or presets. Add an output target to
+   `scripts/generate_formats.py` (it currently writes C, C++ and Java) so the
+   constants are generated from `config/formats.json`.
+3. **API shape.** Follow [API design](API_DESIGN.md) and the field names in
+   [native bindings](NATIVE_BINDINGS.md#result-fields): `scan` and `inspect`,
+   scanner options (mode, formats, supplement policy), per-call formats,
+   barcodes with source-image polygons, `values`, and undecoded regions for
+   inspection.
+4. **Ownership and errors.** Copy variable-length fields with explicit lengths
+   (embedded NUL bytes are valid), destroy every result and scanner exactly once
+   including on error paths, map non-zero statuses to the language's error type
+   while keeping the status code and the optional `tapirscan_error` message, and
+   keep pixels alive for the duration of each call.
+5. **Parity tests.** Add a `scan_raw` harness that prints the same JSON as
+   `bindings/cpp/examples/scan_raw.cpp` and register it in
+   `scripts/test_bindings.py`, plus checks for blank images, multiple symbols, padded strides, short buffers, invalid
+   dimensions, use after close and concurrent calls. See also
+   [validation](VALIDATION.md).
+6. **Packaging.** Document how the native library is found and test installed
+   packages on every advertised OS and architecture.
 
-> Create a Tapirscan binding for LANGUAGE on TARGET PLATFORMS using
-> bindings/c/include/tapirscan.h and docs/NATIVE_BINDINGS.md. Follow the current
-> Java and C++ wrappers for ownership and UTF-8 handling. Provide a simple scan
-> API following docs/API_DESIGN.md: decoded instances, undecoded proposals,
-> source-image polygons, with optional diagnostics and
-> format selection, extended budget and all four modes. Preserve native status
-> codes, explicit buffer lengths and result cleanup on errors. Include build
-> instructions, one minimal example and a scan_raw harness printing the same JSON
-> as bindings/cpp/examples/scan_raw.cpp, added to scripts/test_bindings.py. Do not claim it works until
-> those tests pass. Do not publish packages automatically.
-
-The [C header](../bindings/c/include/tapirscan.h) is the signature source of truth;
-[the ABI contract](NATIVE_BINDINGS.md) explains layout and ownership. Format
-constants come from `config/formats.json` via `scripts/generate_formats.py`. Use
-FFI to the native library for native languages, or the [JavaScript package](../bindings/javascript/README.md)
-for a JavaScript runtime. A Rust caller can use the [native Rust API](../bindings/rust/README.md).
-
-Before shipping, check:
-
-- Correct values and input-coordinate polygons against `scripts/test_bindings.py`
-  and `scripts/test_multiformat.py`, including blank images and multiple symbols.
-- UTF-8 length handling, including embedded NULs; no fixed-size payload truncation.
-- Scanner/result cleanup, use after close, repeated close and concurrent calls.
-- Invalid dimensions, padded row strides, short buffers and native error propagation.
-- Installed-package loading on every advertised OS/architecture.
-
-A wrapper can be short; distributing native libraries and validating platforms
-usually takes more work than generating its first version. Keep user documentation
-in one language-specific guide: quick usage first, full reference afterward.
+Keep user documentation in one language guide: quick usage first, reference
+afterward.

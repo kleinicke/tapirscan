@@ -39,7 +39,7 @@ def check_geometry(result: tapirscan.InspectionResult, case: dict[str, Any]) -> 
     if "geometry" not in case:
         return
     checks = unittest.TestCase()
-    reads = sorted(result, key=lambda read: read.rect.left)
+    reads = sorted(result.barcodes, key=lambda read: read.rect.left)
     checks.assertEqual(len(reads), len(case["geometry"]), case["name"])
     for read, expected in zip(reads, case["geometry"], strict=True):
         checks.assertEqual(read.ean_add_on, expected["eanAddOn"], case["name"])
@@ -67,77 +67,72 @@ def check(manifest_path: Path, library_dir: str | None = None) -> list[dict[str,
                 mode,
                 formats=case["formats"],
                 library_dir=library_dir,
-                ean_add_on_policy=case.get("eanAddOnPolicy", "Ignore"),
+                ean_add_on_policy=case.get("eanAddOnPolicy", "ignore"),
             ) as scanner:
-                for extended_budget in (False, True):
-                    result = scanner.inspect(
-                        pixels,
-                        extended_budget=extended_budget,
+                result = scanner.inspect(pixels)
+                check_geometry(result, case)
+                checks.assertCountEqual(
+                    result.values,
+                    [b["text"] for b in case["expected"]],
+                    (mode, case["name"]),
+                )
+                exported = result.as_dict()
+                checks.assertEqual(json.loads(json.dumps(exported)), exported)
+                checks.assertEqual(exported["values"], result.values)
+                actual = []
+                for read in result.barcodes:
+                    actual.append(metadata(read, case))
+                    checks.assertIn(
+                        read.format,
+                        [case["formats"]]
+                        if isinstance(case["formats"], str)
+                        else case["formats"],
                     )
-                    check_geometry(result, case)
-                    checks.assertCountEqual(
-                        result.values,
-                        [b["text"] for b in case["expected"]],
-                        (mode, case["name"]),
+                    checks.assertGreater(read.support, 0)
+                    checks.assertEqual(len(read.polygon), 4)
+                    checks.assertGreater(read.rect.width, 0)
+                    checks.assertGreater(read.rect.height, 0)
+                    checks.assertTrue(
+                        all(
+                            0 <= p.x <= case["width"] and 0 <= p.y <= case["height"]
+                            for p in read.polygon
+                        )
                     )
-                    exported = result.as_dict()
-                    checks.assertEqual(json.loads(json.dumps(exported)), exported)
-                    checks.assertEqual(exported["values"], result.values)
-                    actual = []
-                    for read in result.barcodes:
-                        actual.append(metadata(read, case))
-                        checks.assertIn(
-                            read.format,
-                            [case["formats"]]
-                            if isinstance(case["formats"], str)
-                            else case["formats"],
-                        )
-                        checks.assertGreater(read.support, 0)
-                        checks.assertEqual(len(read.polygon), 4)
-                        checks.assertGreater(read.rect.width, 0)
-                        checks.assertGreater(read.rect.height, 0)
-                        checks.assertTrue(
-                            all(
-                                0 <= p.x <= case["width"] and 0 <= p.y <= case["height"]
-                                for p in read.polygon
-                            )
-                        )
-                    checks.assertCountEqual(actual, case["expected"], case["name"])
+                checks.assertCountEqual(actual, case["expected"], case["name"])
+                checks.assertIsNotNone(result.diagnostics)
+                checks.assertEqual(
+                    scanner.scan(pixels).barcodes,
+                    result.barcodes,
+                )
+                if case.get("expectUnread"):
+                    checks.assertTrue(result.undecoded, case["name"])
+                if case.get("expectUnread"):
                     checks.assertIsNotNone(result.diagnostics)
-                    checks.assertEqual(
-                        scanner.scan(pixels, extended_budget=extended_budget).barcodes,
-                        result.barcodes,
-                    )
-                    if case.get("expectUnread"):
-                        checks.assertTrue(result.undecoded, case["name"])
-                    if case.get("expectUnread"):
-                        checks.assertIsNotNone(result.diagnostics)
-                        if (
-                            result.diagnostics is not None
-                            and result.diagnostics.regions is not None
-                        ):
-                            checks.assertTrue(
-                                result.diagnostics.regions.undecoded, case["name"]
-                            )
-                        else:
-                            checks.fail("Missing undecoded evidence")
-                    if not extended_budget:
-                        observations.append(
-                            {
-                                "mode": mode,
-                                "name": case["name"],
-                                "barcodes": [
-                                    {
-                                        "text": b.text,
-                                        "format": b.format,
-                                        "support": b.support,
-                                        "eanAddOn": b.ean_add_on,
-                                        "polygon": b.polygon,
-                                    }
-                                    for b in result.barcodes
-                                ],
-                            }
+                    if (
+                        result.diagnostics is not None
+                        and result.diagnostics.regions is not None
+                    ):
+                        checks.assertTrue(
+                            result.diagnostics.regions.undecoded, case["name"]
                         )
+                    else:
+                        checks.fail("Missing undecoded evidence")
+                observations.append(
+                    {
+                        "mode": mode,
+                        "name": case["name"],
+                        "barcodes": [
+                            {
+                                "text": b.text,
+                                "format": b.format,
+                                "support": b.support,
+                                "eanAddOn": b.ean_add_on,
+                                "polygon": b.polygon,
+                            }
+                            for b in result.barcodes
+                        ],
+                    }
+                )
             checks.assertCountEqual(
                 result.values, [b["text"] for b in case["expected"]]
             )

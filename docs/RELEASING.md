@@ -1,17 +1,9 @@
 # Releasing Tapirscan
 
-A release publishes the npm package, the Python wheels, the Rust crate and the
-demo. C, C++ and Java use the same scanner, options and result model as Rust,
-Python and JavaScript. One native library (ABI 6) contains all four effort modes.
-`scan` returns a lightweight values-and-locations result; `inspect` returns the
-detailed report. Link [API migration](API_MIGRATION.md) in the release notes.
-
-All release-owned manifests and artifact names use the release version. The demo is
-public at [tapirscan.f-kleinicke.de](https://tapirscan.f-kleinicke.de). Publishing the
-library, publishing a GitHub release, and updating the demo are separate actions.
-
-The license is **MIT OR Apache-2.0** (at the recipient’s option), copyright © 2026 **Florian Nick**. License files and
-author metadata are included in the release packages. Published API compatibility is governed by the [compatibility policy](../CONTRIBUTING.md#api-stability).
+The `publish.yml` workflow publishes the npm package, the Python wheels and the
+Rust crate from tested CI artifacts. The GitHub release and the demo update are
+separate steps. Link [API migration](API_MIGRATION.md) in the release notes when
+the API changes.
 
 ## Registry setup
 
@@ -30,14 +22,12 @@ project’s publishing settings:
 | Workflow filename | `publish.yml` |
 | Environment       | `pypi`        |
 
-The PyPI project exists. No API token is needed with trusted publishing.
-
-For npm, verify the GitHub trusted publisher in the package settings: owner `kleinicke`, repository `tapirscan`, workflow
-`publish.yml`, environment `npm`, with direct publishing allowed. The workflow can then publish without a stored npm token.
-
-Official setup: [PyPI pending publishers](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)
-and [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
-Never commit credentials or paste authentication tokens into issues or chat.
+npm and crates.io use the same trusted-publisher fields: owner `kleinicke`,
+repository `tapirscan`, workflow `publish.yml`, with environment `npm` for npm
+and `crates` for crates.io. Configure them in the
+[npm package settings](https://docs.npmjs.com/trusted-publishers/) and the
+[crates.io crate settings](https://crates.io/docs/trusted-publishing). No stored
+registry token is needed.
 
 ## Build the exact release
 
@@ -102,67 +92,33 @@ The separate `publish.yml` workflow publishes only when explicitly selected.
    It checks the source commit, workflow identity, versions, native libraries,
    and all five wheel platforms. It also checks Python distribution metadata and
    installs the npm tarball. Download the resulting `release-bundle` artifact:
-   it contains `npm/`, `wheels/`, and `SHA256SUMS`.
+   it contains `npm/`, `wheels/`, `crates/` and `SHA256SUMS`.
 3. Review this exact bundle, then tag the validated commit `vX.Y.Z` and push the
    tag. Run the publication workflow **from that tag**, supplying the same two
-   successful build run IDs. Select `pypi`, `npm`, or `both` once the corresponding
-   trusted publishers are configured. Jobs use the `pypi` and `npm` GitHub
-   environments. Publication from an unversioned branch is rejected.
-4. If trusted publishing is unavailable, an authenticated local session can publish
-   the reviewed npm artifact instead:
-
-```sh
-# From the downloaded release-bundle directory:
-npm login
-npm publish npm/tapirscan-X.Y.Z.tgz --access public
-```
-
-This publishes the already-tested tarball without rebuilding it. Use only the
-reviewed bundle; do not substitute local development wheels. PyPI uses
-five platform wheels and no source distribution. Each release number is final;
-corrections use a new patch version.
+   successful build run IDs, and select `all` (or `pypi`, `npm`, `crates` to
+   publish one registry). Publication from an unversioned branch is rejected.
+   Each release number is final; corrections use a new patch version.
 
 Create the GitHub release with the changelog, actual platform support, demo link,
-and documented format limitations. Verify fresh `npm install tapirscan` and
-`pip install tapirscan` installations after publishing. Maven, vcpkg and Conan publication are not part of this process.
-Rust publication is described below.
+and documented format limitations. After publishing, verify fresh installs with
+`npm install tapirscan`, `pip install tapirscan` and `cargo add tapirscan`.
 
 ## Rust crate
 
-The Rust crate uses the same version. Preparation packages all four exact
-mode recipes and the multiformat readers into one crate. Internal source copies
-are generated only for distribution; edit `bindings/rust/api` for the public API
-and keep scanner changes under the normal promotion procedure.
+The crate has the same version. CI assembles it with `scripts/prepare_rust.py`
+(one package containing all four modes and the format readers), tests and lints
+it, and uploads the packaged `.crate`, which `publish.yml` publishes. To check it
+locally:
 
 ```sh
-# Use a fresh destination each time. This verifies the repository boundary first.
-python3 scripts/prepare_rust.py build/crates/tapirscan
+python3 scripts/prepare_rust.py build/crates/tapirscan   # fresh destination
 cargo +1.91.1 test --release --manifest-path build/crates/tapirscan/Cargo.toml
-cargo +1.91.1 test --release --no-default-features --manifest-path build/crates/tapirscan/Cargo.toml
-cargo +1.91.1 clippy --all-targets --manifest-path build/crates/tapirscan/Cargo.toml -- -D warnings -W clippy::all -W clippy::pedantic
-# Requires built native libraries, Pillow, and the pinned test-only Zint encoder.
 python3 scripts/test_rust_package.py build/crates/tapirscan
-cargo +1.91.1 publish --dry-run --manifest-path build/crates/tapirscan/Cargo.toml
+cargo +1.91.1 package --manifest-path build/crates/tapirscan/Cargo.toml
 ```
 
-Inspect `target/package/tapirscan-X.Y.Z.crate` inside the prepared package. It must
-contain only Rust sources, manifests, license, README, tests, small text fixtures
-and provenance. No native binaries, private images, model weights, credentials or
-repository-relative dependencies belong in the archive. The generated build
-script only emits fixed private cfg flags; it never downloads or patches code.
-
-After the macOS/Linux CI checks pass on the release commit and publication is
-authorized, authenticate locally with `cargo login`, then publish that prepared
-source package:
-
-```sh
-cargo +1.91.1 publish --locked --manifest-path build/crates/tapirscan/Cargo.toml
-```
-
-Cargo credentials stay outside the repository. Verify a fresh consumer using
-`tapirscan = "X.Y.Z"` from crates.io after publication. Publication is permanent
-for a version; fixes need a new version. See the
-[Cargo publishing guide](https://doc.rust-lang.org/cargo/reference/publishing.html).
+The archive contains only Rust sources, manifests, license, README, tests, small
+text fixtures and provenance.
 
 ## Demo deployment
 

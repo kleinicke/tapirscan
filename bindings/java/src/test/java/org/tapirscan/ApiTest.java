@@ -29,15 +29,14 @@ public final class ApiTest {
         check(compact.values().equals(List.of("value", "value")));
         check(compact.best().orElseThrow() == a);
         check(new ScanResult(List.of()).best().isEmpty());
-        InspectionResult result = new InspectionResult(List.of(a, b), List.of(), 3, 3, Mode.MEDIUM,
-                0, false, "{}");
+        InspectionResult result = new InspectionResult(List.of(a, b), List.of(), 3, 3, Mode.MEDIUM, 0, "{}");
         check(result.best().orElseThrow() == a);
         Barcode stronger = barcode(new byte[]{2}, 6);
         check(new ScanResult(List.of(a, stronger, b)).best().orElseThrow() == stronger);
         check(new ScanResult(List.of()).best().isEmpty());
         check(Native.IMAGE.byteSize() == 48 && Native.SUMMARY.byteSize() == 48);
         check(Native.BARCODE.byteSize() == 136 && Native.REGION.byteSize() == 72);
-        check(Native.SCANNER_OPTIONS.byteSize() == 12 && Native.SCAN_OPTIONS.byteSize() == 8);
+        check(Native.SCANNER_OPTIONS.byteSize() == 12 && Native.SCAN_OPTIONS.byteSize() == 4);
         check(Native.offset(Native.IMAGE, "stride") == 40);
         check(Native.offset(Native.SUMMARY, "mode") == 40);
         for (Mode mode : Mode.values()) check(Mode.fromCode(mode.code()) == mode);

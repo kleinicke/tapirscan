@@ -28,12 +28,16 @@ export function resolveFormats(input?: readonly string[] | string): Format[] {
   if (input === "2D") return [...matrixFormats];
   if (input === "all") return [...linearFormats, ...matrixFormats];
   if (input === undefined) return [...retailFormats];
-  if (typeof input === "string" && Object.hasOwn(formatBits, input)) return [input as Format];
+  if (typeof input === "string") {
+    if (Object.hasOwn(formatBits, input)) return [input as Format];
+    throw new TypeError(`Unsupported barcode format or preset: ${input}`);
+  }
   if (!Array.isArray(input) || input.length === 0)
-    throw Error("Choose at least one barcode format.");
+    throw new TypeError("Choose at least one barcode format.");
   for (const value of input as readonly unknown[]) {
-    if (typeof value !== "string") throw Error("Barcode format must be a string.");
-    if (!Object.hasOwn(formatBits, value)) throw Error(`Unsupported barcode format: ${value}`);
+    if (typeof value !== "string") throw new TypeError("Barcode format must be a string.");
+    if (!Object.hasOwn(formatBits, value))
+      throw new TypeError(`Unsupported barcode format: ${value}`);
   }
   return [...new Set(input)] as Format[];
 }

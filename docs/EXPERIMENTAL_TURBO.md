@@ -1,9 +1,9 @@
 # Experimental Turbo presets
 
-JavaScript offers four experimental presets for faster 1D scanning:
-`experimentalTurbo: 2 | 4 | 8 | 16`. See the
-[JavaScript guide](../bindings/javascript/README.md#experimental-turbo-presets)
-for usage, WASM imports, option restrictions and the compatibility policy.
+JavaScript offers four experimental presets for faster linear scanning:
+`experimentalTurbo: 2 | 4 | 8 | 16`. This page describes their behavior and
+trade-offs; usage is in the
+[JavaScript guide](../bindings/javascript/README.md#experimental-turbo-presets).
 Other bindings do not offer the presets.
 
 ## What they speed up
@@ -26,8 +26,8 @@ can lose reads compared with Medium. Higher presets can also miss clean symbols
 placed close together. Results keep source-image geometry and multiple
 symbols, and equal labels at different positions stay separate results.
 
-Presets require `eanAddOnPolicy: "Ignore"` and reject `extendedBudget: true`.
-Use an effort mode when you need supplements or extended budgets.
+Presets require `eanAddOnPolicy: "ignore"`. Use an effort mode when you need
+supplements.
 
 Start with preset 2 and check detection on your own images before choosing a
 higher one.

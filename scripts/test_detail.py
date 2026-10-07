@@ -76,7 +76,7 @@ class Detail(unittest.TestCase):
                                     channels=4,
                                     stride=width * 4,
                                 ),
-                            ).to_raw_dict()
+                            ).diagnostics.to_raw_dict()
                             wasm = run(
                                 "node",
                                 ROOT / "bindings/javascript/test/native_parity.mjs",

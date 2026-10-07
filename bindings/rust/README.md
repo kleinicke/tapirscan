@@ -4,56 +4,52 @@
 source-image geometry. `result.values()` borrows decoded strings and
 `result.barcodes` holds the located reads. Use `inspect(image)` for an
 `InspectionResult` that adds unread regions, timing and diagnostics. Both have
-`_with_options` variants.
+`_with_options` variants. The crate requires Rust 1.91 (`rust-version = 1.91`).
 
 ```rust
 use tapirscan::Image;
-let pixels = [255; 64 * 64];
-for barcode in tapirscan::scan(Image::gray(&pixels, 64, 64))?.barcodes {
-    println!("{} {:?}", barcode.text, barcode.polygon);
+
+fn main() -> Result<(), tapirscan::Error> {
+    let pixels = vec![255; 640 * 480];
+    let result = tapirscan::scan(Image::gray(&pixels, 640, 480))?;
+    for barcode in &result.barcodes {
+        println!("{} {:?} {:?}", barcode.text, barcode.format, barcode.polygon);
+    }
+    Ok(())
 }
-# Ok::<(), tapirscan::Error>(())
 ```
 
-Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8 and UPCE).
-
-```rust
-use tapirscan::Image;
-let pixels = vec![255; 640 * 480];
-let result = tapirscan::inspect(Image::gray(&pixels, 640, 480))?;
-for barcode in &result.barcodes {
-    println!("{} {:?} {:?}", barcode.text, barcode.format, barcode.polygon);
-}
-println!("{} undecoded", result.undecoded.len());
-# Ok::<(), tapirscan::Error>(())
-```
-
-If nothing is decoded, `barcodes` is empty. Invalid input or engine failures are
-`Error` values. Results own their data and outlive the input and scanner. Equal
-payloads at distinct locations are reported as separate barcodes.
+Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8 and UPCE). If
+nothing is decoded, `barcodes` is empty. Invalid input or engine failures are
+`Error` values. Results own their data and outlive the input and scanner.
+Support, undecoded regions and image limits are described in
+[API design](../../docs/API_DESIGN.md).
 
 ## Reuse and configuration
 
 ```rust
 use tapirscan::{Format, Image, ScanOptions, Scanner, ScannerOptions};
-let mut scanner = Scanner::new(ScannerOptions {
-    formats: Format::Ean13 | Format::QrCode,
-    ..ScannerOptions::default()
-});
-let pixels = vec![255; 320 * 240];
-let result = scanner.inspect_with_options(Image::gray(&pixels, 320, 240), ScanOptions {
-    extended_budget: true,
-    ..ScanOptions::default()
-})?;
-# Ok::<(), tapirscan::Error>(())
+
+fn main() -> Result<(), tapirscan::Error> {
+    let mut scanner = Scanner::new(ScannerOptions {
+        formats: Format::Ean13 | Format::QrCode,
+        ..ScannerOptions::default()
+    });
+    let pixels = vec![255; 320 * 240];
+    let result = scanner.inspect_with_options(
+        Image::gray(&pixels, 320, 240),
+        ScanOptions { formats: Some(Format::QrCode.into()) },
+    )?;
+    println!("{} reads", result.barcodes.len());
+    Ok(())
+}
 ```
 
-`scan`/`inspect` use default per-call options; the `_with_options` forms take a
-`ScanOptions`. Both exist as free functions and as `Scanner` methods.
-
-Reuse a scanner across frames. Scans borrow pixels synchronously and have no
-timeout. `scanner.options()` returns the configuration; `Scanner::default()` uses
-the defaults.
+`Scanner::scan` and `inspect` take `&mut self`: a scanner serves one thread at a
+time, so create one scanner per thread. The free functions `scan` and `inspect`
+create a scanner for each call; reuse a `Scanner` across frames. Scans borrow
+pixels synchronously and have no timeout. `scanner.options()` returns the
+configuration and `Scanner::default()` uses the defaults.
 
 | Scanner option      | Default                  | Choices                                     |
 | ------------------- | ------------------------ | ------------------------------------------- |
@@ -61,43 +57,34 @@ the defaults.
 | `formats`           | `Formats::RETAIL`        | One format, combinations with `\|`, presets |
 | `ean_add_on_policy` | `EanAddOnPolicy::Ignore` | `Ignore`, `Read`, `Require`                 |
 
-Presets: `Formats::RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX`, `ALL`.
-Retail formats are enabled by default; select additional supported formats as
-needed. `Read` accepts a supplement when present; `Require` drops retail reads
-without one. Non-retail formats are unaffected.
+Presets: `Formats::RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX`, `ALL`
+(see [format coverage](../../docs/FORMATS.md)). `Read` accepts a supplement when
+present; `Require` drops retail reads without one. Non-retail formats are
+unaffected.
 
-| Per-scan option   | Default | Meaning                                |
-| ----------------- | ------- | -------------------------------------- |
-| `formats`         | `None`  | Override readers for this call         |
-| `extended_budget` | `false` | Allow extra reader work for any format |
+| Per-scan option | Default | Meaning                                                |
+| --------------- | ------- | ------------------------------------------------------ |
+| `formats`       | `None`  | Readers for this call, replacing the scanner's formats |
 
-`extended_budget: true` allows additional reader work for any selected format.
-It can cost more time and does not promise exhaustive decoding. Per-call
-options never change the scanner's configuration.
+Per-call options never change the scanner's configuration.
 
 ## Results
 
 `ScanResult` provides `barcodes`, `values()` and `best()`, which returns
-`Option<&Barcode>`: the read with the largest `support` (first read wins ties),
-`None` when nothing was decoded.
-
-`InspectionResult` has the same members plus `undecoded`, `image_size`, `mode`,
-`elapsed` (`Duration`) and `diagnostics` (`Option<Diagnostics>`, unstable JSON in
-`raw`).
-`Barcode` implements serde `Serialize` and `Deserialize`.
+`Option<&Barcode>`. `InspectionResult` has the same members plus `undecoded`,
+`image_size` (`[width, height]`), `mode`, `elapsed` (`Duration`) and
+`diagnostics` (`Option<Diagnostics>`, unstable JSON in `raw`).
 
 `Barcode` contains `text`, `format`, `polygon`, `support` and optional metadata
 (original payload bytes, supplement text, structured append, GS1 and
-reader-initialization flags). `support` is reader-specific evidence, a ranking
-heuristic and not a confidence. `rect()` returns `[left, top, width, height]`,
-the enclosing integer pixel bounds. Coordinates refer to the supplied image with
-a top-left origin. `None` flags mean unavailable, not false. Structured append
-indices are one-based; the caller assembles messages. Main geometry excludes
-supplements.
+reader-initialization flags). `rect()` returns a `Rect { left, top, width,
+height }` of `i32` pixel bounds. `None` flags mean unavailable, not false.
+Structured append indices are one-based; the caller assembles messages. Main
+geometry excludes supplements.
 
-`undecoded` contains localized regions without an accepted decode. These can be
-false candidates or overlap, and an empty list does not guarantee that every
-barcode was found.
+`Format`, `Barcode`, `StructuredAppend`, `Rect` and `ScanResult` implement serde
+`Serialize` and `Deserialize`; `UndecodedRegion` implements `Deserialize` only.
+`InspectionResult` is not serializable.
 
 ## Images
 
@@ -112,10 +99,8 @@ interleaved; alpha is ignored, including zero alpha. Composite transparency
 before scanning if needed. BGR, planar, float and 16-bit pixels need conversion.
 
 Construction borrows without validation; scanning validates before access.
-Dimensions are at least 3×3 and at most 32 megapixels. Stride is at least
-`width * channels`. The buffer must address `(height - 1) * stride + width *
-channels` bytes, at most 128 MiB; final-row padding is optional. Extra bytes are
-ignored. `Error` implements `std::error::Error` with `InvalidImage`,
+Size limits are in [API design](../../docs/API_DESIGN.md#images); final-row
+padding is optional and extra bytes are ignored. `Error` implements `std::error::Error` with `InvalidImage`,
 `InvalidOptions` and `Engine` variants.
 
 ## Build features and WebAssembly

@@ -150,10 +150,6 @@ images and devices: higher effort does not guarantee more reads on every image.
 Effort modes tune EAN/UPC, common linear formats and QR Code; other matrix readers
 use a fixed effort.
 
-For harder images you can also allow extra reader work per scan with
-`extended_budget=True` (Python), `extendedBudget: true` (JavaScript) or
-`extended_budget: true` (Rust, C, C++). It is still bounded, not an exhaustive search.
-
 JavaScript also offers **experimental Turbo presets** for faster 1D scanning:
 `experimentalTurbo: 2 | 4 | 8 | 16`. They trade difficult-image recovery for less
 work. See [usage and stability](bindings/javascript/README.md#experimental-turbo-presets).
@@ -186,8 +182,6 @@ not included in the npm package or Python wheels.
 Tapirscan’s scanner algorithm was written by GPT-6 Astra, guided by my goals,
 experiments, and hands-on testing. I directed the development, checked results,
 and refined the evaluation process.
-
-[Read the development story](BLOG_POST.md).
 
 ## Project status
 

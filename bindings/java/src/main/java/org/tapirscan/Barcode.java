@@ -60,7 +60,7 @@ public record Barcode(
             right = Math.max(right, p.x());
             bottom = Math.max(bottom, p.y());
         }
-        return new Rect(Math.floor(left), Math.floor(top),
-                Math.ceil(right) - Math.floor(left), Math.ceil(bottom) - Math.floor(top));
+        int x = (int) Math.floor(left), y = (int) Math.floor(top);
+        return new Rect(x, y, (int) Math.ceil(right) - x, (int) Math.ceil(bottom) - y);
     }
 }

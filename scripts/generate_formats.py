@@ -21,7 +21,11 @@ OUTPUTS = {
 }
 PRESETS = (
     ("retail", "RETAIL", "EAN-13, UPC-A, EAN-8 and UPC-E."),
-    ("common1D", "COMMON_1D", "Retail formats plus Code 128, Code 39 and ITF."),
+    (
+        "common1D",
+        "COMMON_1D",
+        "Retail formats plus Code 128, Code 39 and ITF.",
+    ),
     ("common", "COMMON", "Common linear formats plus QR Code and Data Matrix."),
     ("1D", "LINEAR", "All supported linear formats, including DataBar variants."),
     ("2D", "MATRIX", "QR Code, Data Matrix, PDF417, Aztec and MaxiCode."),

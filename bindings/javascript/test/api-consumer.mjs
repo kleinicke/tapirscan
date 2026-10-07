@@ -35,95 +35,83 @@ export async function runApiChecks(Scanner, fixtures, options = {}) {
         ...options,
         mode,
         formats: fixture.formats,
-        eanAddOnPolicy: fixture.eanAddOnPolicy ?? "Ignore",
+        eanAddOnPolicy: fixture.eanAddOnPolicy ?? "ignore",
       });
       let result;
       try {
-        for (const extendedBudget of [false, true]) {
-          result = scanner.inspect(
-            {
-              data: new Uint8Array(fixture.data),
-              width: fixture.width,
-              height: fixture.height,
-              channels: 1,
-            },
-            {
-              extendedBudget,
-            },
+        result = scanner.inspect({
+          data: new Uint8Array(fixture.data),
+          width: fixture.width,
+          height: fixture.height,
+          channels: 1,
+        });
+        checkGeometry(result, fixture);
+        equal(
+          [...result.values].sort(),
+          fixture.expected.map((b) => b.text).sort(),
+          `${mode}/${fixture.name}: payloads`,
+        );
+        const actual = result.barcodes.map((b) => {
+          check(
+            (Array.isArray(fixture.formats) ? fixture.formats : [fixture.formats]).includes(
+              b.format,
+            ) && b.support > 0,
+            "format and support",
           );
-          checkGeometry(result, fixture);
-          equal(
-            [...result.values].sort(),
-            fixture.expected.map((b) => b.text).sort(),
-            `${mode}/${fixture.name}: payloads`,
+          check(b.polygon.length === 4 && b.rect.width > 0 && b.rect.height > 0, "geometry");
+          check(
+            b.polygon.every(
+              ([x, y]) => x >= 0 && y >= 0 && x <= fixture.width && y <= fixture.height,
+            ),
+            "source coordinates",
           );
-          const actual = result.barcodes.map((b) => {
-            check(
-              (Array.isArray(fixture.formats) ? fixture.formats : [fixture.formats]).includes(
-                b.format,
-              ) && b.support > 0,
-              "format and support",
-            );
-            check(b.polygon.length === 4 && b.rect.width > 0 && b.rect.height > 0, "geometry");
-            check(
-              b.polygon.every(
-                ([x, y]) => x >= 0 && y >= 0 && x <= fixture.width && y <= fixture.height,
-              ),
-              "source coordinates",
-            );
-            check(Object.isFrozen(b) && Object.isFrozen(b.polygon), "immutable result");
-            if (b.payloadBytes) check(Object.isFrozen(b.payloadBytes), "immutable payload bytes");
-            if (b.structuredAppend)
-              check(Object.isFrozen(b.structuredAppend), "immutable metadata");
-            return {
-              text: b.text,
-              ...(fixture.expected.some((e) => "gs1" in e) ? { gs1: b.gs1 } : {}),
-              ...(fixture.expected.some((e) => "eanAddOn" in e)
-                ? { eanAddOn: b.eanAddOn ?? null }
-                : {}),
-              ...(fixture.expected.some((e) => "format" in e) ? { format: b.format } : {}),
-              ...(fixture.expected.some((e) => e.text === b.text && "payloadBytes" in e)
-                ? { payloadBytes: b.payloadBytes }
-                : {}),
-              ...(b.structuredAppend ? { structuredAppend: b.structuredAppend } : {}),
-            };
-          });
-          const order = (a, b) =>
-            a.text.localeCompare(b.text) || (a.eanAddOn ?? "").localeCompare(b.eanAddOn ?? "");
-          equal(actual.sort(order), [...fixture.expected].sort(order), `${fixture.name}: metadata`);
-          check(Boolean(result.diagnostics), "inspection evidence");
-          equal(
-            scanner.scan(
-              {
-                data: new Uint8Array(fixture.data),
-                width: fixture.width,
-                height: fixture.height,
-                channels: 1,
-              },
-              { extendedBudget },
-            ).barcodes,
-            result.barcodes,
-            "scan/inspect parity",
+          check(Object.isFrozen(b) && Object.isFrozen(b.polygon), "immutable result");
+          if (b.payloadBytes) check(Object.isFrozen(b.payloadBytes), "immutable payload bytes");
+          if (b.structuredAppend) check(Object.isFrozen(b.structuredAppend), "immutable metadata");
+          return {
+            text: b.text,
+            ...(fixture.expected.some((e) => "gs1" in e) ? { gs1: b.gs1 } : {}),
+            ...(fixture.expected.some((e) => "eanAddOn" in e)
+              ? { eanAddOn: b.eanAddOn ?? null }
+              : {}),
+            ...(fixture.expected.some((e) => "format" in e) ? { format: b.format } : {}),
+            ...(fixture.expected.some((e) => e.text === b.text && "payloadBytes" in e)
+              ? { payloadBytes: b.payloadBytes }
+              : {}),
+            ...(b.structuredAppend ? { structuredAppend: b.structuredAppend } : {}),
+          };
+        });
+        const order = (a, b) =>
+          a.text.localeCompare(b.text) || (a.eanAddOn ?? "").localeCompare(b.eanAddOn ?? "");
+        equal(actual.sort(order), [...fixture.expected].sort(order), `${fixture.name}: metadata`);
+        check(Boolean(result.diagnostics), "inspection evidence");
+        equal(
+          scanner.scan({
+            data: new Uint8Array(fixture.data),
+            width: fixture.width,
+            height: fixture.height,
+            channels: 1,
+          }).barcodes,
+          result.barcodes,
+          "scan/inspect parity",
+        );
+        if (fixture.expectUnread) check(result.undecoded.length > 0, "public undecoded regions");
+        if (fixture.expectUnread)
+          check(
+            result.diagnostics.regions.undecoded.length > 0,
+            `${fixture.name}: unread evidence`,
           );
-          if (fixture.expectUnread) check(result.undecoded.length > 0, "public undecoded regions");
-          if (fixture.expectUnread)
-            check(
-              result.diagnostics.regions.undecoded.length > 0,
-              `${fixture.name}: unread evidence`,
-            );
-          if (!extendedBudget)
-            observations.push({
-              mode,
-              name: fixture.name,
-              barcodes: result.barcodes.map(({ text, format, support, polygon, eanAddOn }) => ({
-                text,
-                format,
-                support,
-                eanAddOn: eanAddOn ?? null,
-                polygon,
-              })),
-            });
-        }
+        observations.push({
+          mode,
+          name: fixture.name,
+          barcodes: result.barcodes.map(({ text, format, support, polygon, eanAddOn }) => ({
+            text,
+            format,
+            support,
+            eanAddOn: eanAddOn ?? null,
+            polygon,
+          })),
+        });
       } finally {
         scanner.dispose();
       }

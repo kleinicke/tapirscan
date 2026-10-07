@@ -61,11 +61,11 @@ def pair_cases(
         offset += tile.width + 80
     (destination / f"{name}.raw").write_bytes(image.tobytes())
     fixtures = []
-    for policy in ("Ignore", "Read", "Require"):
+    for policy in ("ignore", "read", "require"):
         geometry = [
-            dict(item, eanAddOn=None if policy == "Ignore" else item["eanAddOn"])
+            dict(item, eanAddOn=None if policy == "ignore" else item["eanAddOn"])
             for item in locations
-            if policy != "Require" or item["eanAddOn"]
+            if policy != "require" or item["eanAddOn"]
         ]
         fixtures.append(
             {
@@ -117,14 +117,14 @@ def generate(destination: Path, encoder: str) -> Path:
             if fmt == "EAN13" and not suffix:
                 images["retail"] = image
             addon = suffix if suffix in ("12", "51234") else None
-            for policy in ("Ignore", "Read", "Require"):
+            for policy in ("ignore", "read", "require"):
                 expected = (
                     []
-                    if policy == "Require" and addon is None
+                    if policy == "require" and addon is None
                     else [
                         {
                             "text": text,
-                            "eanAddOn": addon if policy != "Ignore" else None,
+                            "eanAddOn": addon if policy != "ignore" else None,
                         }
                     ]
                 )
@@ -137,7 +137,7 @@ def generate(destination: Path, encoder: str) -> Path:
                         "formats": fmt,
                         "eanAddOnPolicy": policy,
                         "expected": expected,
-                        "expectUnread": policy == "Require" and addon is None,
+                        "expectUnread": policy == "require" and addon is None,
                         "geometry": [
                             {
                                 "left": bounds[0],
@@ -157,9 +157,9 @@ def generate(destination: Path, encoder: str) -> Path:
     mixed.paste(retail, (0, 0))
     mixed.paste(qr, (retail.width + 40, 0))
     (destination / "mixed.raw").write_bytes(mixed.tobytes())
-    for policy in ("Ignore", "Read", "Require"):
+    for policy in ("ignore", "read", "require"):
         expected = [{"text": "Keep this QR", "format": "QRCode", "eanAddOn": None}]
-        if policy != "Require":
+        if policy != "require":
             expected.append(
                 {"text": "4006381333931", "format": "EAN13", "eanAddOn": None}
             )

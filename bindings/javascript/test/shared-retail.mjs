@@ -31,10 +31,6 @@ test("Medium EAN8-only shares retail recovery and resets selection between scans
       assert.deepEqual(reads(retail.inspect(image, { formats: "EAN8" })), reads(all));
       assert.deepEqual(retail.inspect(image, { formats: "EAN13" }).values, []);
       assert.deepEqual(reads(retail.inspect(image)), reads(all));
-      assert.deepEqual(
-        reads(only.inspect(image, { extendedBudget: true })),
-        reads(retail.inspect(image, { formats: "EAN8", extendedBudget: true })),
-      );
     }
   } finally {
     only.dispose();

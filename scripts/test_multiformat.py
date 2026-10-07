@@ -167,7 +167,9 @@ class Formats(unittest.TestCase):
                                 len(js["debug"]["scan"]["barcodes"]),
                             )
                             for native, wasm in zip(
-                                result, js["debug"]["scan"]["barcodes"], strict=True
+                                result.barcodes,
+                                js["debug"]["scan"]["barcodes"],
+                                strict=True,
                             ):
                                 self.assertEqual(native.text, wasm["text"])
                                 self.assertEqual(native.support, wasm["support"])
@@ -268,13 +270,13 @@ class Formats(unittest.TestCase):
                         )
                         self.assertEqual(
                             rust["debug"]["scan"]["barcodes"],
-                            result.to_raw_dict()["scan"]["barcodes"],
+                            result.diagnostics.to_raw_dict()["scan"]["barcodes"],
                         )
                         for foreign in (cpp, java):
                             self.assertEqual(foreign["barcodes"][0]["text"], text)
                             self.assertEqual(
                                 foreign["debug"]["scan"]["barcodes"],
-                                result.to_raw_dict()["scan"]["barcodes"],
+                                result.diagnostics.to_raw_dict()["scan"]["barcodes"],
                             )
                         if result.diagnostics is None:
                             self.fail("Diagnostics were requested")
@@ -283,7 +285,9 @@ class Formats(unittest.TestCase):
                             [b["support"] for b in js["debug"]["scan"]["barcodes"]],
                         )
                         for b, other in zip(
-                            result, js["debug"]["scan"]["barcodes"], strict=True
+                            result.barcodes,
+                            js["debug"]["scan"]["barcodes"],
+                            strict=True,
                         ):
                             self.assertEqual(
                                 (b.text, b.format),

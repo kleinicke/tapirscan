@@ -32,9 +32,7 @@ for (const mode of ["low", "medium", "high", "very-high"]) {
       assert.throws(() => scanner.inspect(image, { includeRegions: "yes" }), TypeError);
       assert.throws(() => scanner.inspect(image, { unknown: true }), TypeError);
 
-      assert.deepEqual(scanner.inspect(image, { extendedBudget: false }).values, compact.values);
-      assert.deepEqual(scanner.inspect(image, { extendedBudget: true }).values, compact.values);
-      assert.throws(() => scanner.inspect(image, { extendedBudget: "yes" }), /a boolean/);
+      assert.throws(() => scanner.inspect(image, { extendedBudget: true }), /Unknown scan option/);
       const result = scanner.inspect(image, {});
       assert.deepEqual(compact.barcodes, result.barcodes);
       assert.equal(compact.best, compact.barcodes[0]);
@@ -256,14 +254,15 @@ test("UPC-A selection owns only one primary engine", async () => {
   }
 });
 
-test("per-call format subsets reuse engines and preserve defaults", async () => {
+test("per-call formats override the scanner defaults for one call", async () => {
   const scanner = await Scanner.create({ mode: "low", formats: ["EAN13", "QRCode"] });
   try {
     const { image, text } = fixture();
     assert.deepEqual(scanner.inspect(image, { formats: "EAN13" }).values, [text]);
     assert.deepEqual(scanner.inspect(image, { formats: "QRCode" }).values, []);
     assert.deepEqual(scanner.inspect(image).values, [text]);
-    assert.throws(() => scanner.inspect(image, { formats: "Code128" }), /subset/);
+    assert.deepEqual(scanner.inspect(image, { formats: "Code128" }).values, []);
+    assert.deepEqual(scanner.inspect(image, { formats: "retail" }).values, [text]);
     assert.throws(() => scanner.inspect(image, { formats: [] }), /format/i);
   } finally {
     scanner.dispose();
@@ -283,7 +282,9 @@ test("QR-only creation loads one complete engine", async () => {
   try {
     assert.deepEqual(loaded, [wasmFile("medium")]);
     assert.deepEqual(scanner.inspect(fixture().image).values, []);
-    assert.throws(() => scanner.inspect(fixture().image, { formats: "EAN13" }), /subset/);
+    assert.deepEqual(scanner.inspect(fixture().image, { formats: "EAN13" }).values, [
+      fixture().text,
+    ]);
   } finally {
     scanner.dispose();
   }
@@ -373,7 +374,7 @@ test("inspection reports localization limits", async () => {
   }
 });
 
-test("formats are public and immutable, with actionable subset errors", async () => {
+test("formats are public and immutable", async () => {
   const scanner = await Scanner.create({ mode: "low", formats: ["EAN13", "QRCode"] });
   try {
     assert.deepEqual(scanner.formats, ["EAN13", "QRCode"]);
@@ -381,10 +382,6 @@ test("formats are public and immutable, with actionable subset errors", async ()
     assert.throws(() => {
       scanner.formats = ["Code128"];
     }, TypeError);
-    assert.throws(
-      () => scanner.inspect(fixture().image, { formats: "Code128" }),
-      /Requested: Code128; configured: EAN13, QRCode/,
-    );
   } finally {
     scanner.dispose();
   }
@@ -419,7 +416,7 @@ test("EAN evidence stays available when creation enables additional formats", as
 
 test("supplement policy is opt-in, validated at creation and fixed for scans", async () => {
   const { image, text } = fixture();
-  for (const policy of ["Ignore", "Read", "Require"]) {
+  for (const policy of ["ignore", "read", "require"]) {
     const loaded = [];
     const scanner = await Scanner.create({
       mode: "low",
@@ -433,17 +430,17 @@ test("supplement policy is opt-in, validated at creation and fixed for scans", a
     try {
       assert.equal(scanner.eanAddOnPolicy, policy);
       assert.deepEqual(loaded, [wasmFile("low")]);
-      assert.deepEqual(scanner.inspect(image).values, policy === "Require" ? [] : [text]);
+      assert.deepEqual(scanner.inspect(image).values, policy === "require" ? [] : [text]);
       assert.throws(() => {
-        scanner.eanAddOnPolicy = "Read";
+        scanner.eanAddOnPolicy = "read";
       }, TypeError);
-      assert.throws(() => scanner.inspect(image, { eanAddOnPolicy: "Read" }), TypeError);
+      assert.throws(() => scanner.inspect(image, { eanAddOnPolicy: "read" }), TypeError);
     } finally {
       scanner.dispose();
     }
   }
-  assert.deepEqual((await scan(image, { eanAddOnPolicy: "Require" })).values, []);
-  for (const policy of [null, "read", true, 0, {}])
+  assert.deepEqual((await scan(image, { eanAddOnPolicy: "require" })).values, []);
+  for (const policy of [null, "Read", true, 0, {}])
     await assert.rejects(
       Scanner.create({
         eanAddOnPolicy: policy,
@@ -456,16 +453,8 @@ test("supplement policy is opt-in, validated at creation and fixed for scans", a
     );
 });
 
-test("extended budget accepts formats without the primary reader", async () => {
-  const scanner = await Scanner.create({ formats: "QRCode", loadWasm });
-  try {
-    assert.deepEqual(scanner.inspect(fixture().image, { extendedBudget: true }).values, []);
-  } finally {
-    scanner.dispose();
-  }
-});
-test("one-shot forwards continuation", async () => {
-  assert.deepEqual((await scan(fixture().image, { extendedBudget: true, loadWasm })).values, [
+test("one-shot accepts creation options", async () => {
+  assert.deepEqual((await scan(fixture().image, { mode: "high", loadWasm })).values, [
     fixture().text,
   ]);
 });

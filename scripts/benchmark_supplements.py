@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "bindings/python/src"))
 import tapirscan  # noqa: E402 - select the source checkout before import
 
 WARMUP = 5
-POLICIES: tuple[tapirscan.EanAddOnPolicy, ...] = ("Ignore", "Read", "Require")
+POLICIES: tuple[tapirscan.EanAddOnPolicy, ...] = ("ignore", "read", "require")
 SCENES = ("EAN13-none", "EAN13-12", "EAN13-51234", "different-supplements")
 
 
@@ -47,7 +47,7 @@ def measure(
     cases = {
         p: next(f for f in fixtures if f["name"] == f"{scene}-{p}") for p in POLICIES
     }
-    case = cases["Ignore"]
+    case = cases["ignore"]
     pixels = tapirscan.PixelImage(
         (root / case["file"]).read_bytes(), width=case["width"], height=case["height"]
     )

@@ -30,13 +30,10 @@ function clean(value) {
 }
 function variants(image) {
   const selections = image.formats ? [image.formats] : config.formats;
-  return selections.flatMap((selection) =>
-    config.budgets.map((budget) => ({
-      label: JSON.stringify(selection),
-      formats: selection === "retail" ? api.retailFormats : selection,
-      extendedBudget: budget === "extended",
-    })),
-  );
+  return selections.map((selection) => ({
+    label: JSON.stringify(selection),
+    formats: selection === "retail" ? api.retailFormats : selection,
+  }));
 }
 const browser =
   config.backend === "browser"
@@ -78,7 +75,6 @@ async function scan(scanner, image, variant, debug) {
   if (scanner.scanTimed) {
     const [elapsed, result] = await scanner.scanTimed(image.image, {
       formats: variant.formats,
-      extendedBudget: variant.extendedBudget,
       debug,
     });
     return [elapsed, clean(result)];
@@ -86,7 +82,6 @@ async function scan(scanner, image, variant, debug) {
   const start = performance.now();
   const result = scanner[debug ? "inspect" : "scan"](image.image, {
     formats: variant.formats,
-    extendedBudget: variant.extendedBudget,
   });
   const elapsed = performance.now() - start;
   return [elapsed, clean(result)];
@@ -134,7 +129,6 @@ try {
               case: image.name,
               mode,
               selection: variant.label,
-              extendedBudget: variant.extendedBudget,
               baseline: a,
               candidate: b,
             }) + "\n",
@@ -143,7 +137,6 @@ try {
           case: image.name,
           mode,
           selection: variant.label,
-          extendedBudget: variant.extendedBudget,
           phase: "parity",
         });
         comparisons++;
@@ -173,7 +166,7 @@ try {
           const measured = {};
           for (const [label, scanner] of order)
             measured[label] = await scan(scanner, image, variant, false);
-          const group = `${mode}/${variant.label}/${variant.extendedBudget ? "extended" : "default"}/${image.addon}`;
+          const group = `${mode}/${variant.label}/${image.addon}`;
           compare(measured.baseline[1], measured.candidate[1], {
             case: image.name,
             group,
