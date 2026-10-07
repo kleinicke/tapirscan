@@ -21,7 +21,7 @@ sys.path.insert(
 import tapirscan as barcode
 from tapirscan import Barcode, PixelImage, Scanner
 from tapirscan._images import image_bytes
-from tapirscan.results import _from_json
+from tapirscan.results import _diagnostics
 
 decode = barcode.inspect
 
@@ -130,42 +130,23 @@ class Images(unittest.TestCase):
                     scanner.inspect(PixelImage(RAW, width=W, height=H)).values, [TEXT]
                 )
 
-    def test_metadata_and_work_status(self) -> None:
-        """Application metadata is visible without debug."""
-        raw = decode(
-            PixelImage(RAW, width=W, height=H), library_dir=LIBS
-        ).diagnostics.to_raw_dict()
-        raw["scan"]["barcodes"][0].update(
-            {
-                "gs1": True,
-                "readerInitialization": False,
-                "structuredAppend": {
-                    "index": 1,
-                    "count": 2,
-                    "id": "group",
-                    "parity": 7,
-                },
-                "eanAddOn": "12",
-            }
+    def test_typed_results_match_engine_report(self) -> None:
+        """Public fields come from typed accessors and agree with the engine report."""
+        report = decode(PixelImage(RAW, width=W, height=H), library_dir=LIBS)
+        raw = report.diagnostics.to_raw_dict()
+        engine = raw["scan"]["barcodes"]
+        self.assertEqual([b.text for b in report.barcodes], [b["text"] for b in engine])
+        self.assertEqual(
+            [b.polygon for b in report.barcodes],
+            [tuple(map(tuple, b["polygon"])) for b in engine],
         )
-        result = _from_json(
-            json.dumps(raw).encode(),
-            W,
-            H,
-        )
-        self.assertTrue(result.barcodes[0].gs1)
-        self.assertFalse(result.barcodes[0].reader_initialization)
-        self.assertEqual(result.barcodes[0].ean_add_on, "12")
-        append = result.barcodes[0].structured_append
-        self.assertIsNotNone(append)
-        if append is not None:
-            self.assertEqual(
-                (append.index, append.count, append.id, append.parity),
-                (1, 2, "group", 7),
-            )
-            with self.assertRaises(FrozenInstanceError):
-                append.index = 2  # ty: ignore[invalid-assignment]
-        self.assertIsNotNone(result.diagnostics)
+        self.assertEqual((report.mode, report.image), (raw["mode"], (W, H)))
+        self.assertGreaterEqual(report.elapsed_ms, 0)
+        exported = report.as_dict()
+        self.assertEqual(exported["best"], report.barcodes[0].as_dict())
+        self.assertEqual(exported["values"], [TEXT])
+        with self.assertRaises(FrozenInstanceError):
+            report.barcodes[0].text = "changed"  # ty: ignore[invalid-assignment]
 
     def test_search_window_evidence(self) -> None:
         """Preserve absent, empty and populated search evidence."""
@@ -183,8 +164,7 @@ class Images(unittest.TestCase):
                     raw.pop("searchWindows", None)
                 else:
                     raw["searchWindows"] = windows
-                report = _from_json(json.dumps(raw).encode(), W, H)
-                regions = report.diagnostics.regions
+                regions = _diagnostics(json.dumps(raw).encode(), ()).regions
                 if regions is None:
                     self.fail("Region evidence was requested")
                 if windows is None:
@@ -438,75 +418,22 @@ class Images(unittest.TestCase):
         self.assertEqual(result.as_dict()["values"], [TEXT])
 
     def test_undecoded_region_types(self) -> None:
-        """Keep undecoded geometry separate, including empty decoded payloads."""
-        value = json.loads(
-            '{"schemaVersion":2,"mode":"low","elapsedMs":0,'
-            '"localizationLimited":false,"scan":{"unfinished":false,"barcodes":[]}}'
+        """Undecoded regions are engine geometry, shared with the diagnostics."""
+        square = tuple(
+            barcode.Point(x, y) for x, y in ((0, 0), (10, 0), (10, 10), (0, 10))
         )
-        polygons = [
-            [[x, 0], [x + 10, 0], [x + 10, 10], [x, 10]] for x in (0, 20, 40, 60)
-        ]
-        read = {
-            "text": "",
-            "format": "QRCode",
-            "polygon": polygons[0],
-            "support": 1,
-            "candidate_indices": [0],
-        }
-        value["scan"]["barcodes"] = [read]
-        unread = {
-            "text": "",
-            "format": "DataMatrix",
-            "polygon": polygons[1],
-            "support": 0,
-        }
-        value["scan"]["regions"] = [dict(read), unread]
-        result = _from_json(
-            json.dumps(value).encode(),
-            80,
-            20,
-        )
-        if result.diagnostics is None or result.diagnostics.regions is None:
-            self.fail("Missing requested region evidence")
-        regions = result.diagnostics.regions
-        self.assertEqual(len(result.barcodes), 1)
-        self.assertEqual(len(regions.undecoded), 1)
-        region = regions.undecoded[0]
-        self.assertIsInstance(region, barcode.UndecodedRegion)
+        region = barcode.UndecodedRegion(square, "DataMatrix")
         self.assertNotIsInstance(region, Barcode)
-        self.assertEqual(region.format, "DataMatrix")
-        self.assertEqual(region.polygon, tuple(map(tuple, polygons[1])))
         self.assertFalse(hasattr(region, "text"))
         self.assertFalse(hasattr(region, "payload_bytes"))
-        self.assertFalse(hasattr(regions, "additional"))
         with self.assertRaises(FrozenInstanceError):
             region.format = "Unknown"  # ty: ignore[invalid-assignment]
-        # Candidate IDs are local to each recovery crop.
-        del value["scan"]["regions"]
-        value["localization"] = {
-            "proposals": [{"polygon": p, "score": 1} for p in polygons[:2]],
-            "omitted": 0,
-            "workLimited": False,
-        }
-        value["recovery"] = {
-            "attempts": [
-                {
-                    "reads": [{"candidate_indices": [0]}],
-                    "proposals": [{"polygon": p} for p in polygons[2:]],
-                }
-            ]
-        }
-        recovered = _from_json(
-            json.dumps(value).encode(),
-            80,
-            20,
-        )
-        if recovered.diagnostics is None or recovered.diagnostics.regions is None:
-            self.fail("Missing recovery evidence")
-        self.assertEqual(
-            [r.polygon for r in recovered.diagnostics.regions.undecoded],
-            [tuple(map(tuple, polygons[i])) for i in (1, 3)],
-        )
+        with Scanner("high", formats="all", library_dir=LIBS) as scanner:
+            report = scanner.inspect(PixelImage(RAW, width=W, height=H))
+        regions = report.diagnostics.regions
+        if regions is None:
+            self.fail("Missing requested region evidence")
+        self.assertEqual(regions.undecoded, report.undecoded)
 
     def test_oversized_images_fail_before_conversion(self) -> None:
         """Check dimensions before copying buffers or converting optional inputs."""

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ctypes as c
-import json
 import os
 import sys
 from contextlib import suppress
@@ -15,6 +14,7 @@ from typing_extensions import Self
 
 from ._images import _size, image_bytes
 from .formats import (
+    FORMAT_BITS,
     Format,
     FormatSelection,
     common_formats,
@@ -41,8 +41,7 @@ from .results import (
     StructuredAppend,
     UndecodedRegion,
     ValueRange,
-    _barcode,
-    _from_json,
+    _diagnostics,
 )
 
 __all__ = [
@@ -117,6 +116,57 @@ class _ScanOptions(c.Structure):
     _fields_ = [
         ("formats", c.c_uint32),
     ]
+
+
+class _Point(c.Structure):
+    _fields_ = [("x", c.c_double), ("y", c.c_double)]
+
+
+class _Summary(c.Structure):
+    _fields_ = [
+        ("barcode_count", c.c_uint64),
+        ("undecoded_count", c.c_uint64),
+        ("width", c.c_uint64),
+        ("height", c.c_uint64),
+        ("elapsed_ms", c.c_double),
+        ("mode", c.c_uint32),
+    ]
+
+
+class _Barcode(c.Structure):
+    _fields_ = [
+        ("polygon", _Point * 4),
+        ("support", c.c_uint64),
+        ("format", c.c_uint32),
+        ("gs1", c.c_int32),
+        ("reader_initialization", c.c_int32),
+        ("structured_append_parity", c.c_int32),
+        ("structured_append_index", c.c_uint64),
+        ("structured_append_count", c.c_uint64),
+        ("text_length", c.c_uint64),
+        ("payload_bytes_length", c.c_uint64),
+        ("ean_add_on_length", c.c_uint64),
+        ("structured_append_id_length", c.c_uint64),
+    ]
+
+
+class _Region(c.Structure):
+    _fields_ = [("polygon", _Point * 4), ("format", c.c_uint32)]
+
+
+_ABSENT = 2**64 - 1
+_FORMAT_NAMES: dict[int, Format] = {
+    bit: cast("Format", name) for name, bit in FORMAT_BITS.items()
+}
+_TEXT, _PAYLOAD_BYTES, _EAN_ADD_ON, _STRUCTURED_APPEND_ID = range(4)
+
+
+def _points(polygon: c.Array[_Point]) -> tuple[Point, ...]:
+    return tuple(Point(p.x, p.y) for p in polygon)
+
+
+def _flag(value: int) -> bool | None:
+    return None if value < 0 else bool(value)
 
 
 def _integer(
@@ -254,6 +304,14 @@ class Scanner:
                 [u64, ptr(_Image), ptr(_ScanOptions), ptr(u64), c.c_void_p],
                 c.c_int32,
             ),
+            "tapirscan_result_count": ([u64, ptr(u64)], c.c_int32),
+            "tapirscan_result_info": ([u64, ptr(_Summary)], c.c_int32),
+            "tapirscan_result_barcode": ([u64, u64, ptr(_Barcode)], c.c_int32),
+            "tapirscan_result_undecoded": ([u64, u64, ptr(_Region)], c.c_int32),
+            "tapirscan_result_copy": (
+                [u64, u64, c.c_uint32, c.c_void_p, u64],
+                c.c_int32,
+            ),
             "tapirscan_result_json_length": ([u64, ptr(u64)], c.c_int32),
             "tapirscan_result_copy_json": ([u64, c.c_void_p, u64], c.c_int32),
             "tapirscan_result_destroy": ([u64], c.c_int32),
@@ -305,7 +363,7 @@ class Scanner:
         color_order: ColorOrder = "RGB",
     ) -> ScanResult:
         """Return decoded barcodes with source-image positions."""
-        raw, _, _ = self._run(
+        result = self._run(
             image,
             inspect=False,
             formats=formats,
@@ -313,7 +371,7 @@ class Scanner:
             value_range=value_range,
             color_order=color_order,
         )
-        return ScanResult(tuple(_barcode(value) for value in json.loads(raw)))
+        return ScanResult(result.barcodes)
 
     def inspect(
         self,
@@ -325,7 +383,7 @@ class Scanner:
         color_order: ColorOrder = "RGB",
     ) -> InspectionResult:
         """Inspect barcodes, unread regions, timing and engine diagnostics."""
-        raw, width, height = self._run(
+        result = self._run(
             image,
             inspect=True,
             formats=formats,
@@ -333,7 +391,7 @@ class Scanner:
             value_range=value_range,
             color_order=color_order,
         )
-        return _from_json(raw, width, height)
+        return cast("InspectionResult", result)
 
     def _run(
         self,
@@ -344,7 +402,7 @@ class Scanner:
         layout: Layout,
         value_range: ValueRange,
         color_order: ColorOrder,
-    ) -> tuple[bytes, int, int]:
+    ) -> ScanResult:
         mask = format_mask(self.formats if formats is None else formats)
         with self._lock:
             if not self._handle.value:
@@ -372,17 +430,78 @@ class Scanner:
                 error.value.decode(),
             )
             try:
-                length = c.c_uint64()
-                self._check(
-                    self._lib.tapirscan_result_json_length(result, c.byref(length))
-                )
-                output = c.create_string_buffer(length.value + 1)
-                self._check(
-                    self._lib.tapirscan_result_copy_json(result, output, len(output))
-                )
-                return output.raw[: length.value], width, height
+                return self._read(result.value, inspect=inspect)
             finally:
                 self._check(self._lib.tapirscan_result_destroy(result))
+
+    def _read(self, result: int, *, inspect: bool) -> ScanResult:
+        """Build public results from typed accessors; JSON only feeds diagnostics."""
+        count = c.c_uint64()
+        self._check(self._lib.tapirscan_result_count(result, c.byref(count)))
+        barcodes = tuple(self._barcode(result, i) for i in range(count.value))
+        if not inspect:
+            return ScanResult(barcodes)
+        info = _Summary()
+        self._check(self._lib.tapirscan_result_info(result, c.byref(info)))
+        undecoded = []
+        for i in range(info.undecoded_count):
+            region = _Region()
+            self._check(
+                self._lib.tapirscan_result_undecoded(result, i, c.byref(region))
+            )
+            name = _FORMAT_NAMES.get(region.format, "Unknown")
+            undecoded.append(UndecodedRegion(_points(region.polygon), name))
+        length = c.c_uint64()
+        self._check(self._lib.tapirscan_result_json_length(result, c.byref(length)))
+        output = c.create_string_buffer(length.value + 1)
+        self._check(self._lib.tapirscan_result_copy_json(result, output, len(output)))
+        return InspectionResult(
+            barcodes,
+            cast("Mode", _MODES[info.mode]),
+            info.elapsed_ms,
+            tuple(undecoded),
+            ImageSize(info.width, info.height),
+            _diagnostics(output.raw[: length.value], tuple(undecoded)),
+        )
+
+    def _barcode(self, result: int, index: int) -> Barcode:
+        native = _Barcode()
+        self._check(self._lib.tapirscan_result_barcode(result, index, c.byref(native)))
+
+        def field(kind: int, length: int) -> bytes | None:
+            if length == _ABSENT:
+                return None
+            buffer = c.create_string_buffer(length + 1)
+            self._check(
+                self._lib.tapirscan_result_copy(result, index, kind, buffer, length + 1)
+            )
+            return buffer.raw[:length]
+
+        text = field(_TEXT, native.text_length) or b""
+        add_on = field(_EAN_ADD_ON, native.ean_add_on_length)
+        append_id = field(_STRUCTURED_APPEND_ID, native.structured_append_id_length)
+        parity = native.structured_append_parity
+        append = (
+            StructuredAppend(
+                native.structured_append_index,
+                native.structured_append_count,
+                append_id.decode() if append_id is not None else None,
+                parity if parity >= 0 else None,
+            )
+            if native.structured_append_count
+            else None
+        )
+        return Barcode(
+            text.decode(),
+            _points(native.polygon),
+            _FORMAT_NAMES[native.format],
+            native.support,
+            _flag(native.gs1),
+            _flag(native.reader_initialization),
+            append,
+            add_on.decode() if add_on is not None else None,
+            field(_PAYLOAD_BYTES, native.payload_bytes_length),
+        )
 
     def close(self) -> None:
         """Release the native scanner handle; repeated calls are safe."""

@@ -263,49 +263,17 @@ def _barcode(value: dict[str, Any]) -> Barcode:
     )
 
 
-def _undecoded(value: dict[str, Any]) -> tuple[UndecodedRegion, ...]:
-    """Keep undecoded source geometry separate from decoded results."""
-    if "undecoded" in value:
-        return tuple(
-            UndecodedRegion(_polygon(r["polygon"]), r["format"])
-            for r in value["undecoded"]
-        )
-    frame = value["scan"]
-    if "regions" in frame:
-        return tuple(
-            UndecodedRegion(_polygon(r["polygon"]), r.get("format", "Unknown"))
-            for r in frame["regions"]
-            if r not in frame["barcodes"]
-        )
-    decoded = {i for b in frame["barcodes"] for i in b.get("candidate_indices", [])}
-    unread = [
-        UndecodedRegion(_polygon(p["polygon"]), "Unknown")
-        for i, p in enumerate(value.get("localization", {}).get("proposals", []))
-        if i not in decoded
-    ]
-    for attempt in value.get("recovery", {}).get("attempts", []):
-        accepted = {i for b in attempt["reads"] for i in b.get("candidate_indices", [])}
-        unread.extend(
-            UndecodedRegion(_polygon(p["polygon"]), "Unknown")
-            for i, p in enumerate(attempt["proposals"])
-            if i not in accepted
-        )
-    return tuple(unread)
+def _diagnostics(raw: bytes, undecoded: tuple[UndecodedRegion, ...]) -> Diagnostics:
+    """Build diagnostic evidence from the engine report.
 
-
-def _from_json(raw: bytes, width: int, height: int) -> InspectionResult:
-    # Dynamic values are confined to this trusted, versioned native ABI boundary.
+    Public result fields come from typed native accessors; this report only feeds
+    `diagnostics`, whose fields may change between releases.
+    """
     value: dict[str, Any] = json.loads(raw)
-    if value["schemaVersion"] != SCHEMA_VERSION or value["mode"] not in (
-        "low",
-        "medium",
-        "high",
-        "very-high",
-    ):
-        msg = "Unsupported native result schema or mode"
+    if value["schemaVersion"] != SCHEMA_VERSION:
+        msg = "Unsupported native diagnostic schema"
         raise RuntimeError(msg)
     frame = value["scan"]
-    undecoded = _undecoded(value)
     regions = None
     if "localization" in value or "regions" in frame:
         loc = value.get(
@@ -339,23 +307,15 @@ def _from_json(raw: bytes, width: int, height: int) -> InspectionResult:
             loc["workLimited"],
             undecoded,
         )
-    barcodes = tuple(_barcode(b) for b in frame["barcodes"])
-    return InspectionResult(
-        barcodes,
-        value["mode"],
-        value["elapsedMs"],
-        undecoded,
-        ImageSize(width, height),
-        Diagnostics(
-            regions,
-            tuple(
-                BarcodeEvidence(
-                    b["support"],
-                    b.get("axis", 0),
-                    tuple(b.get("candidate_indices", ())),
-                )
-                for b in frame["barcodes"]
-            ),
-            raw,
+    return Diagnostics(
+        regions,
+        tuple(
+            BarcodeEvidence(
+                b["support"],
+                b.get("axis", 0),
+                tuple(b.get("candidate_indices", ())),
+            )
+            for b in frame["barcodes"]
         ),
+        raw,
     )
