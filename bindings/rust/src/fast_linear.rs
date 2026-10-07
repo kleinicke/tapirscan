@@ -369,7 +369,9 @@ pub(crate) fn scan(
             }
         }
     }
-    if TIER == 0 && reads.is_empty() && mask & 15 != 0 {
+    // Turbo2 runs the same contrast and high-pass hypotheses on its strongest proposal
+    // only, without deghosting, to keep empty frames cheap.
+    if matches!(TIER, 0 | 2) && reads.is_empty() && mask & 15 != 0 {
         let mut recovered = Vec::new();
         let mut unused = Vec::new();
         let mut remaining = 32_768;
@@ -377,7 +379,7 @@ pub(crate) fn scan(
         let profiles = [SourceProfile::Gray(2.25), SourceProfile::Highpass(1.5)];
         for (proposal, &profile) in proposals
             .iter()
-            .take(local_count.min(2))
+            .take(local_count.min(if TIER == 0 { 2 } else { 1 }))
             .flat_map(|p| profiles.iter().map(move |s| (p, s)))
         {
             let mut candidate = Candidate {
@@ -404,7 +406,7 @@ pub(crate) fn scan(
         // Camera shake: undo a ghost on either side of the strongest box (EAN-13 only). Blur
         // hides the source evidence, so five supporting rows may replace source agreement.
         let mut ghosted = Vec::new();
-        if recovered.is_empty() && mask & 1 != 0 {
+        if TIER == 0 && recovered.is_empty() && mask & 1 != 0 {
             for backward in [false, true] {
                 if let Some(proposal) = proposals.first().filter(|_| local_count > 0) {
                     let mut candidate = Candidate {

@@ -70,7 +70,14 @@ one weak Retail observation with bounded contrast profiles, requiring the same
 payload and position on three source rows. Optional EAN13 and UPC-A recovery must
 pass source-template agreement and contradiction checks. These paths retain the
 physical continuity rules and never assume that an image contains only one label.
-Public Low keeps its existing policy.
+
+When a Retail scan reads nothing, Turbo2 also retries its strongest proposal with Low's
+contrast and high-pass profiles, under the same source-agreement and contradiction
+checks. Unlike Low it skips camera-shake deghosting and the second proposal, which
+keeps empty frames cheap. On the development timing subsets this added 15 of 1,170
+labeled Retail reads (833 to 848) without wrong reads, for +0.18 ms per Retail
+image and +0.31 ms per empty frame. Low's segment-voting localization was rejected
+for Turbo: it made Turbo2 about as slow as Low. See `turbo-review-20261006`.
 
 ## Matrix fast path
 
@@ -96,8 +103,8 @@ on photographs. A 768-pixel resolution cap was rejected after substantial losses
 Reproducible sources, native/WASM identities, paired quality and performance
 measurements, rejected shortcuts and Medium transfer ideas live in the sibling
 experiment workspace under `common1d-turbo-tiers-20260925`,
-`common1d-turbo16-32-20260925`, `turbo-2d-integration-20260925` and
-`turbo-quality-20261002`.
+`common1d-turbo16-32-20260925`, `turbo-2d-integration-20260925`,
+`turbo-quality-20261002` and `turbo-review-20261006`.
 These are development datasets, not unseen holdouts or phone performance claims.
 
 ## Beyond Common

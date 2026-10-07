@@ -300,3 +300,60 @@ fn observation_join_respects_single_pixel_separator() {
         &mut 100_000
     ));
 }
+
+/// A small-module EAN-13 (two pixels per module) blurred by 0.7 modules leaves no
+/// decodable ordinary row. Public Low and Turbo2 recover it on the strongest proposal
+/// with the contrast and high-pass hypotheses after an empty scan.
+#[test]
+// Blurred pixel values stay within 68..=188, so truncating them to u8 is exact enough.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn empty_scan_recovery_reads_blurred_small_ean13() {
+    // EAN-13 4002575076905: start, LGLLGG digits, centre, R digits, end.
+    let bits = b"10100011010100111001001101100010010001011100101010111001010001001010000111010011100101001110101";
+    let (scale, padding, sigma) = (2_usize, 40_usize, 1.4_f64);
+    let width = bits.len() * scale + 2 * padding;
+    let height = 120 + 2 * padding;
+    let sharp: Vec<f64> = (0..width)
+        .map(|x| {
+            let dark =
+                (padding..width - padding).contains(&x) && bits[(x - padding) / scale] == b'1';
+            if dark {
+                68.
+            } else {
+                188.
+            }
+        })
+        .collect();
+    let row: Vec<u8> = (0..width)
+        .map(|x| {
+            let (mut sum, mut weights) = (0., 0.);
+            for d in -5_i32..=5 {
+                let at = x.saturating_add_signed(d as isize).min(width - 1);
+                let weight = (-f64::from(d * d) / (2. * sigma * sigma)).exp();
+                sum += weight * sharp[at];
+                weights += weight;
+            }
+            (sum / weights) as u8
+        })
+        .collect();
+    let mut pixels = vec![188; width * height];
+    for y in padding..height - padding {
+        pixels[y * width..(y + 1) * width].copy_from_slice(&row);
+    }
+    let image = Image {
+        data: &pixels,
+        width,
+        height,
+        channels: 1,
+        stride: width,
+    };
+    let result = scan(&mut Scanner::default(), image, ScanOptions::default(), 15).unwrap();
+    let texts: Vec<_> = result
+        .barcodes
+        .iter()
+        .map(|read| read.text.as_str())
+        .collect();
+    if matches!(TIER, 0 | 2) {
+        assert_eq!(texts, ["4002575076905"], "tier={TIER}");
+    }
+}

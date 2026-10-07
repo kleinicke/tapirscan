@@ -18,6 +18,8 @@
   wrong reads, faster retail scans.
 - Large frames that read nothing but show retail evidence are rescanned at reduced resolution,
   and High and Very High add stripe-detector boxes on very small frames.
+- Experimental Turbo2 retries a retail scan that read nothing on its strongest box with
+  contrast and high-pass profiles, as Low does: more retail reads at a small cost on empty frames.
 
 - Describe implemented barcode formats as supported, with documented variant limitations.
   Reserve the experimental label for Turbo presets; decoder behavior is unchanged.
