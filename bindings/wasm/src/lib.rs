@@ -312,7 +312,6 @@ fn wire_result(result: &InspectionResult) -> serde_json::Value {
         "image": { "width": result.image_size[0], "height": result.image_size[1] },
         "mode": result.mode.as_str(),
         "elapsedMs": result.elapsed.as_secs_f64() * 1000.0,
-        "unfinished": result.unfinished,
     });
     if let Some(debug) = &result.diagnostics {
         wire["debug"] = debug.raw.clone();

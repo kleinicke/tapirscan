@@ -108,7 +108,6 @@ def typed(result: InspectionResult) -> dict[str, Any]:
     )
     return {
         "mode": result.mode,
-        "unfinished": result.unfinished,
         "best": best,
         "barcodes": [
             {
@@ -293,7 +292,7 @@ class WasmParityComparison(unittest.TestCase):
         for left, right in (
             ({"text": "123"}, {"text": "124"}),
             ({"support": 7}, {"support": 8}),
-            ({"unfinished": False}, {"unfinished": True}),
+            ({"mode": "low"}, {"mode": "high"}),
             ({"best": 0}, {"best": 1}),
             ({"score": 1.0}, {"score": 1.0 + 1e-12}),
             ({"barcodes": ["first", "second"]}, {"barcodes": ["second", "first"]}),

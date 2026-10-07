@@ -70,8 +70,6 @@ impl std::ops::BitOr for Formats {
 pub(crate) struct EngineScan {
     pub(crate) barcodes: Vec<Barcode>,
     pub(crate) undecoded: Vec<UndecodedRegion>,
-    pub(crate) unfinished: bool,
-    pub(crate) localization_limited: bool,
     pub(crate) diagnostics: Option<serde_json::Value>,
 }
 
@@ -155,7 +153,7 @@ pub struct Barcode {
     pub format: Format,
     /// Four points in source-image pixel coordinates.
     pub polygon: Quad,
-    /// Uncalibrated, reader-specific evidence; used by [`best`].
+    /// Uncalibrated, reader-specific evidence; used by `best()`.
     pub support: u64,
     /// Original decoded data bytes where supported, not UTF-8 re-encoded text.
     #[serde(default, rename = "bytes", skip_serializing_if = "Option::is_none")]
@@ -243,33 +241,15 @@ pub struct ScanResult {
     pub barcodes: Vec<Barcode>,
 }
 impl ScanResult {
-    /// Borrow decoded barcodes in scanner order.
-    pub fn iter(&self) -> std::slice::Iter<'_, Barcode> {
-        self.barcodes.iter()
-    }
     /// Borrow decoded text in scanner order, including repeated values.
     #[must_use]
     pub fn values(&self) -> impl ExactSizeIterator<Item = &str> {
         self.barcodes.iter().map(|barcode| barcode.text.as_str())
     }
-    /// Highest support, keeping the first tie; see [`best`].
+    /// Highest support, keeping the first tie.
     #[must_use]
     pub fn best(&self) -> Option<&Barcode> {
         best(&self.barcodes)
-    }
-}
-impl<'a> IntoIterator for &'a ScanResult {
-    type Item = &'a Barcode;
-    type IntoIter = std::slice::Iter<'a, Barcode>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.barcodes.iter()
-    }
-}
-impl IntoIterator for ScanResult {
-    type Item = Barcode;
-    type IntoIter = std::vec::IntoIter<Barcode>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.barcodes.into_iter()
     }
 }
 
@@ -286,20 +266,11 @@ pub struct InspectionResult {
     pub mode: Mode,
     /// Whole synchronous call time, including input validation and result conversion.
     pub elapsed: Duration,
-    /// Reported work limits. False does not guarantee exhaustive scanning.
-    pub unfinished: bool,
-    /// Localization reported a work limit, independently of reader deferrals.
-    pub localization_limited: bool,
     /// Engine evidence returned by inspection; the schema is unstable.
     pub diagnostics: Option<Diagnostics>,
 }
 impl InspectionResult {
-    /// Iterate over decoded instances without allocating.
-    pub fn iter(&self) -> std::slice::Iter<'_, Barcode> {
-        self.barcodes.iter()
-    }
-
-    /// Highest support, preserving the first read on ties; see [`best`].
+    /// Highest support, preserving the first read on ties.
     #[must_use]
     pub fn best(&self) -> Option<&Barcode> {
         best(&self.barcodes)
@@ -317,7 +288,6 @@ impl InspectionResult {
     ) -> Self {
         let barcodes = engine.barcodes;
         let undecoded = engine.undecoded;
-        let unfinished = engine.unfinished || engine.localization_limited;
         let diagnostics = engine.diagnostics.map(|raw| Diagnostics { raw });
         Self {
             barcodes,
@@ -325,20 +295,13 @@ impl InspectionResult {
             image_size: [image.width, image.height],
             mode,
             elapsed,
-            unfinished,
-            localization_limited: engine.localization_limited,
             diagnostics,
         }
     }
 }
 
 /// Highest support, preserving the first read on ties; `None` when empty.
-///
-/// Pass `result.barcodes` from either scanning or inspection. Support is
-/// uncalibrated reader evidence: select by format, payload or position when the
-/// application knows what it needs.
-#[must_use]
-pub fn best(barcodes: &[Barcode]) -> Option<&Barcode> {
+fn best(barcodes: &[Barcode]) -> Option<&Barcode> {
     barcodes
         .iter()
         .enumerate()
@@ -346,20 +309,6 @@ pub fn best(barcodes: &[Barcode]) -> Option<&Barcode> {
         .map(|(_, b)| b)
 }
 
-impl<'a> IntoIterator for &'a InspectionResult {
-    type Item = &'a Barcode;
-    type IntoIter = std::slice::Iter<'a, Barcode>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.barcodes.iter()
-    }
-}
-impl IntoIterator for InspectionResult {
-    type Item = Barcode;
-    type IntoIter = std::vec::IntoIter<Barcode>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.barcodes.into_iter()
-    }
-}
 /// Invalid caller input or a failed internal reader. No detection is a successful empty result.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {

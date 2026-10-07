@@ -5,14 +5,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  Scanner,
-  best,
-  scan,
-  retailFormats,
-  commonFormats,
-  commonLinearFormats,
-} from "../dist/index.js";
+import { Scanner, scan, retailFormats, commonFormats, commonLinearFormats } from "../dist/index.js";
 const wasmFile = (mode) =>
   basename(fileURLToPath(import.meta.resolve(`tapirscan/wasm/${mode}.wasm`)));
 const loadWasm = async (url) => {
@@ -323,7 +316,6 @@ test("public results preserve semantic metadata independently of diagnostics", a
       image: { width: 480, height: 180 },
       mode: "medium",
       elapsedMs: 0,
-      unfinished: true,
       ...(flags & 2 ? { debug: { scan: { barcodes: [], unfinished: true } } } : {}),
     });
     {
@@ -341,19 +333,11 @@ test("public results preserve semantic metadata independently of diagnostics", a
       assert.throws(() => {
         result.best.structuredAppend.index = 2;
       }, TypeError);
-      assert.equal(result.unfinished, true);
       assert.ok(result.diagnostics);
     }
   } finally {
     scanner.dispose();
   }
-});
-
-test("best selects the first highest-support read from any barcode list", () => {
-  const read = (text, support) => ({ text, support });
-  assert.equal(best([]), undefined);
-  const list = [read("a", 2), read("b", 5), read("c", 5)];
-  assert.equal(best(list), list[1]);
 });
 
 test("inspection reports localization limits", async () => {
@@ -370,7 +354,6 @@ test("inspection reports localization limits", async () => {
         image: { width: 480, height: 180 },
         mode: "low",
         elapsedMs: 0,
-        unfinished: workLimited || omitted > 0,
         ...(flags & 2
           ? {
               debug: {
@@ -382,7 +365,6 @@ test("inspection reports localization limits", async () => {
       });
       {
         const result = scanner.inspect(fixture().image);
-        assert.equal(result.unfinished, workLimited || omitted > 0);
         assert.ok(result.diagnostics);
       }
     }

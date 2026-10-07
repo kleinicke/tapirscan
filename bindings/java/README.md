@@ -9,13 +9,12 @@ var result = Tapirscan.scan(Image.gray(pixels, width, height));
 for (var barcode : result.barcodes()) System.out.println(barcode.text());
 ```
 
-Reuse `Scanner.scan` across images. Call `inspect` for an `InspectionResult` with unread
-regions, work status, timing and diagnostics. There is no debug flag.
+Reuse `Scanner.scan` across images. Call `inspect` for an `InspectionResult`
+with unread regions, timing and diagnostics.
 
-Both operations accept decoded pixels and return source-image barcode geometry.
-Inspection also includes undecoded proposals and reported work limits. Defaults are Medium effort and
-retail formats (EAN13, UPCA, EAN8 and UPCE). The dependency-free JDK 22+ binding
-uses one native library that contains all four effort modes.
+Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8 and UPCE). The
+dependency-free JDK 22+ binding uses one native library that contains all four
+effort modes.
 
 ```java
 import org.tapirscan.*;
@@ -26,15 +25,14 @@ InspectionResult result = Tapirscan.inspect(Image.gray(pixels, 640, 480));
 for (Barcode barcode : result.barcodes()) {
     System.out.println(barcode.text() + " " + barcode.format() + " " + barcode.polygon());
 }
-System.out.println(result.undecoded().size() + " undecoded; unfinished: " + result.unfinished());
+System.out.println(result.undecoded().size() + " undecoded");
 ```
 
-No detection is an empty `barcodes()` list. Java-side validation can throw
+If nothing is decoded, `barcodes()` is empty. Java-side validation can throw
 `IllegalArgumentException`; scanning after close throws `IllegalStateException`.
 Native validation and engine failures throw `ScannerException`, whose `code` is
-the native status. Results are
-immutable records that survive the scanner. Equal payloads at distinct
-locations remain separate physical instances.
+the native status. Results are immutable records that outlive the scanner. Equal
+payloads at distinct locations are reported as separate barcodes.
 
 ## Reuse and configuration
 
@@ -73,26 +71,24 @@ see [API design](../../docs/API_DESIGN.md).
 
 ## Results
 
-`ScanResult` provides decoded barcodes, `values()` and `best()`.
-No detections produce empty collections; `best()` returns the language’s empty value.
+`ScanResult` provides `barcodes()`, `values()` and `best()`. `best()` returns an
+`Optional<Barcode>` holding the read with the largest `support` (first read wins
+ties), empty when nothing was decoded.
 
-`InspectionResult` exposes `barcodes()`, `undecoded()`, `width()`, `height()`,
-`mode()`, `elapsedMs()`, `unfinished()` and `diagnostics()` JSON. `values()`
-returns decoded text. `Tapirscan.best(barcodes)` returns the largest-support read
-of any barcode list, keeping first-read ties; `InspectionResult.best()` is the same for
-inspection results. Support is reader-specific and not comparable confidence
-across formats.
+`InspectionResult` has the same methods plus `undecoded()`, `width()`,
+`height()`, `mode()`, `elapsedMs()` and `diagnostics()` (JSON text with an
+unstable schema).
 
 `Barcode` contains `text()`, `format()`, `polygon()` (four `Point`s in
 source-image pixels, top-left origin), `support()`, and optional
 `payloadBytes()`, `eanAddOn()`, `gs1()`, `readerInitialization()` and
 `structuredAppend()`. An empty optional means the reader did not report it.
-`rect()` returns enclosing integer pixel bounds. `Format.toString()` gives names
-such as `"QRCode"`.
+`support` is reader-specific evidence, a ranking heuristic and not a confidence.
+`rect()` returns a `Rect` of enclosing integer pixel bounds. `Format.toString()`
+gives names such as `"QRCode"`.
 
-`undecoded()` contains localized proposals without accepted decodes. These can
-be false candidates or deferred work; an empty list and `unfinished() == false`
-do not guarantee exhaustive coverage. Debug JSON schemas are unstable.
+`undecoded()` contains localized regions without an accepted decode. These can
+be false candidates, and an empty list does not guarantee that every barcode was found.
 
 ## Images
 
@@ -115,7 +111,7 @@ ARGB, planar, float or 16-bit pixels before scanning.
 python3 scripts/build_native.py
 python3 scripts/build_java.py
 java --enable-native-access=ALL-UNNAMED -Dtapirscan.library=build/native/libtapirscan.dylib \
-    -cp build/java/tapirscan-1.3.0.jar:. MyApp
+    -cp "build/java/*:." MyApp
 ```
 
 The library is located through the `tapirscan.library` system property (a

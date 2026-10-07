@@ -1,30 +1,39 @@
 # Raw WebAssembly adapter
 
-This crate is generated per effort mode and delegates scanning to the public
-`tapirscan::Scanner` API. It has no host imports. JavaScript owns timing and
-copies pixels into the adapter's prepared buffer before each synchronous scan.
+Most users should use the [JavaScript package](../javascript/README.md), which
+wraps this adapter. This page is a reference for calling the WebAssembly module
+directly. Each module is built for one effort mode and has no host imports. The
+host copies pixels into the module's input buffer, then runs a synchronous scan.
 
-ABI 2 exports `tapirscan_abi_version`, `tapirscan_mode`, `tapirscan_create`,
-`tapirscan_destroy`, `tapirscan_prepare`, `tapirscan_input_ptr`,
-`tapirscan_input_len`, `tapirscan_scan`, `tapirscan_output_ptr`, and
-`tapirscan_output_len`. Handles are checked registry IDs. A prepare allocates
-exactly `(height - 1) * stride + width * channels` bytes; its input view remains
-valid until the next prepare or destroy. Output is UTF-8 JSON and remains valid
-until the next scan or destroy.
+## Exports
 
-`tapirscan_create(mode, formats, addon)` returns zero for invalid options or a
-mode that does not match the loaded artifact. Add-on values are 0 Ignore, 1 Read,
-and 2 Require. `tapirscan_scan(handle, flags, formats)` uses flag bit 0 for an
-extended budget and bit 1 for raw diagnostics. A zero scan format mask keeps the
-creation default; a nonzero mask overrides it for that call. Status values match
-the native boundary where applicable: 0 success, 1 invalid argument, 2 invalid
-handle, 4 scanner/internal failure, and 5 capacity. Scan failures leave a JSON
-error object in the output buffer.
+| Export                                                         | Purpose                                                                                       |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `tapirscan_abi_version()`                                      | Adapter ABI version (2)                                                                       |
+| `tapirscan_mode()`                                             | Compiled effort: 0 Low, 1 Medium, 2 High, 3 Very high                                         |
+| `tapirscan_experimental_turbo()`                               | Turbo preset (2, 4, 8 or 16) compiled into a Low module, else 0                               |
+| `tapirscan_create(mode, formats, addon)`                       | Returns a scanner handle, or 0 for invalid options or a `mode` that differs from the module's |
+| `tapirscan_destroy(handle)`                                    | Releases the scanner                                                                          |
+| `tapirscan_prepare(handle, width, height, channels, stride)`   | Describes the image and allocates its input buffer                                            |
+| `tapirscan_input_ptr(handle)`, `tapirscan_input_len(handle)`   | Location and size of the input buffer                                                         |
+| `tapirscan_scan(handle, flags, formats)`                       | Scans the prepared image                                                                      |
+| `tapirscan_output_ptr(handle)`, `tapirscan_output_len(handle)` | Location and size of the UTF-8 JSON result                                                    |
 
-Ordinary success JSON contains only `barcodes`. Barcode entries include their
-computed `rect`; unavailable payload metadata is omitted. Inspection (flag bit 1)
-adds `bestIndex`, `undecoded`, `image`, `mode`, `elapsedMs`, `unfinished` and the
-raw engine value under the transport key `debug`. JavaScript exposes that evidence
-as `diagnostics` on the inspection report. Its public `scan` returns the barcode
-array directly. The JavaScript host also accepts historical ABI 1 assets, whose
-ordinary wire results contain the report envelope.
+`formats` is a format bit mask. `addon` is 0 Ignore, 1 Read or 2 Require. In
+`tapirscan_scan`, flag bit 0 enables the extended budget and bit 1 selects
+inspection; a nonzero `formats` overrides the creation formats for that call.
+
+`tapirscan_prepare` allocates exactly `(height - 1) * stride + width * channels`
+bytes. The input view stays valid until the next prepare or destroy, and the
+output until the next scan or destroy. Handles are checked IDs.
+
+## Results
+
+`tapirscan_scan` returns 0 on success, 1 for an invalid argument, 2 for an
+invalid handle, 4 for a scanner failure and 5 for exceeded capacity. On failure
+the output is a JSON object with an `error` message.
+
+An ordinary scan outputs `{"barcodes": [...]}`. Each entry includes its `rect`;
+unavailable metadata is omitted. An inspection also contains `bestIndex`,
+`undecoded`, `image`, `mode`, `elapsedMs` and the engine diagnostics under
+`debug`.

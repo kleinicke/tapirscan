@@ -22,7 +22,7 @@ for mode in ('low', 'medium', 'high', 'very-high'):
             tapirscan.PixelImage(pixels, width=480, height=180),
             extended_budget=True,
         )
-        if [b.text for b in result] != [sys.argv[2]]:
+        if [b.text for b in result.barcodes] != [sys.argv[2]]:
             raise AssertionError((mode, result))
 print(json.dumps({'package': tapirscan.__file__, 'modes': 4, 'bundled': True}))
 """

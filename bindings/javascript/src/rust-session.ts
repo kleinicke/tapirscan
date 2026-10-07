@@ -79,8 +79,7 @@ export class RustScannerSession {
     for (const name of exportNames)
       if (typeof exports[name] !== "function")
         throw new ScannerError("abi_shape", `Missing WASM export: ${name}`);
-    // ABI 1 assets remain usable for the demo’s pinned historical comparisons.
-    if (![1, 2].includes(exports.tapirscan_abi_version()))
+    if (exports.tapirscan_abi_version() !== 2)
       throw new ScannerError("abi_version", "Unsupported scanner ABI");
     if (exports.tapirscan_mode() !== mode)
       throw new ScannerError("abi_mode", "Scanner WASM mode does not match the requested mode");

@@ -10,7 +10,6 @@ sources/**
 datasets/**
 papers/**
 historical/**
-provenance/**
 rust/barcode-core/experiments/**
 bindings/javascript/src/host.ts
 benchmark/results/**

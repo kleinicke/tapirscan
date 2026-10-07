@@ -40,10 +40,10 @@ class Images(unittest.TestCase):
         for mode in ("low", "medium", "high", "very-high"):
             reads = decode(image, mode=mode, library_dir=LIBS, value_range=value_range)
             self.assertEqual(reads.values, [TEXT])
-            self.assertIsInstance(reads[0], Barcode)
-            self.assertEqual(reads[0].format, "EAN13")
-            self.assertGreater(reads[0].rect.width, 0)
-            self.assertEqual(len(reads[0].polygon), 4)
+            self.assertIsInstance(reads.barcodes[0], Barcode)
+            self.assertEqual(reads.barcodes[0].format, "EAN13")
+            self.assertGreater(reads.barcodes[0].rect.width, 0)
+            self.assertEqual(len(reads.barcodes[0].polygon), 4)
 
     def test_old_native_abi(self) -> None:
         """Reject older libraries at initialization with actionable version details."""
@@ -156,10 +156,8 @@ class Images(unittest.TestCase):
                 )
 
     def test_metadata_and_work_status(self) -> None:
-        """Application metadata and localization limits are visible without debug."""
+        """Application metadata is visible without debug."""
         raw = decode(PixelImage(RAW, width=W, height=H), library_dir=LIBS).to_raw_dict()
-        raw["localizationLimited"] = True
-        raw["scan"]["unfinished"] = False
         raw["scan"]["barcodes"][0].update(
             {
                 "gs1": True,
@@ -178,11 +176,10 @@ class Images(unittest.TestCase):
             W,
             H,
         )
-        self.assertTrue(result.unfinished)
-        self.assertTrue(result[0].gs1)
-        self.assertFalse(result[0].reader_initialization)
-        self.assertEqual(result[0].ean_add_on, "12")
-        append = result[0].structured_append
+        self.assertTrue(result.barcodes[0].gs1)
+        self.assertFalse(result.barcodes[0].reader_initialization)
+        self.assertEqual(result.barcodes[0].ean_add_on, "12")
+        append = result.barcodes[0].structured_append
         self.assertIsNotNone(append)
         if append is not None:
             self.assertEqual(
@@ -317,7 +314,7 @@ class Images(unittest.TestCase):
         """Verify options and regions."""
         _, raw, w, h, *_ = list(fixtures())[2]
         image = Image.frombytes("L", (w, h), raw)
-        self.assertEqual(len(decode(image, library_dir=LIBS)), 2)
+        self.assertEqual(len(decode(image, library_dir=LIBS).barcodes), 2)
         self.assertIsNotNone(decode(image, library_dir=LIBS).best)
         with Scanner(library_dir=LIBS) as scanner:
             result = scanner.inspect(
@@ -339,7 +336,6 @@ class Images(unittest.TestCase):
             report = scanner.inspect(image)
             self.assertEqual(result.barcodes, report.barcodes)
             self.assertEqual(result.best, report.best)
-            self.assertEqual(barcode.best(result), report.best)
             self.assertEqual(
                 scanner.scan(
                     PixelImage(bytes([255]) * len(RAW), width=W, height=H)
@@ -348,21 +344,18 @@ class Images(unittest.TestCase):
             )
             with self.assertRaises(TypeError):
                 scanner.scan(image, debug=True)  # ty: ignore[unknown-argument]
-        self.assertEqual([b.text for b in result], [TEXT])
+        self.assertEqual([b.text for b in result.barcodes], [TEXT])
 
     def test_unified_result(self) -> None:
         """Verify unified result."""
         result = barcode.inspect(PixelImage(RAW, width=W, height=H), library_dir=LIBS)
         self.assertEqual(result.values, [TEXT])
-        self.assertEqual(result[0].text, TEXT)
-        self.assertGreater(result[0].support, 0)
-        self.assertIsNone(result[0].structured_append)
-        self.assertEqual(tuple(result), result.barcodes)
-        self.assertEqual(result[:1], result.barcodes[:1])
-        self.assertEqual(result.best, result[0])
+        self.assertEqual(result.barcodes[0].text, TEXT)
+        self.assertGreater(result.barcodes[0].support, 0)
+        self.assertIsNone(result.barcodes[0].structured_append)
+        self.assertEqual(result.best, result.barcodes[0])
         self.assertIsNotNone(result.diagnostics)
         self.assertEqual(result.image, (W, H))
-        self.assertEqual(result.unfinished, result.to_raw_dict()["scan"]["unfinished"])
         details = barcode.inspect(
             PixelImage(RAW, width=W, height=H),
             library_dir=LIBS,
@@ -394,14 +387,14 @@ class Images(unittest.TestCase):
                 self.assertEqual(detection.text, TEXT)
 
         with self.assertRaises(FrozenInstanceError):
-            result[0].text = "changed"  # ty: ignore[invalid-assignment]
+            result.barcodes[0].text = "changed"  # ty: ignore[invalid-assignment]
         exported = result.to_raw_dict()
         exported["scan"]["barcodes"].clear()
         self.assertEqual(result.values, [TEXT])
         blank = barcode.inspect(
             PixelImage(bytes([255]) * (W * H), width=W, height=H), library_dir=LIBS
         )
-        self.assertFalse(blank)
+        self.assertEqual(blank.barcodes, ())
         self.assertEqual(blank.values, [])
         self.assertIsNone(blank.best)
 
@@ -461,7 +454,7 @@ class Images(unittest.TestCase):
         self.assertNotIn("scan", exported)
         self.assertNotIn("debug", exported)
         self.assertEqual(exported["image"], {"width": W, "height": H})
-        self.assertEqual(exported["best"], result[0].as_dict())
+        self.assertEqual(exported["best"], result.barcodes[0].as_dict())
         exported.clear()
         self.assertEqual(result.as_dict()["values"], [TEXT])
 
@@ -497,7 +490,7 @@ class Images(unittest.TestCase):
         if result.diagnostics is None or result.diagnostics.regions is None:
             self.fail("Missing requested region evidence")
         regions = result.diagnostics.regions
-        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result.barcodes), 1)
         self.assertEqual(len(regions.undecoded), 1)
         region = regions.undecoded[0]
         self.assertIsInstance(region, barcode.UndecodedRegion)
@@ -626,7 +619,7 @@ class Images(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     scanner.inspect(image, **options)  # ty: ignore[invalid-argument-type]
             for name in ("data", "type", "quality", "orientation"):
-                self.assertFalse(hasattr(scanner.inspect(image)[0], name))
+                self.assertFalse(hasattr(scanner.inspect(image).barcodes[0], name))
             scanner.close()
             # Closure is checked before expensive conversion or validation.
             with self.assertRaisesRegex(RuntimeError, "closed"):

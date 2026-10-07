@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, readdir, mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { releases } from "./releases.mjs";
 export const examples = [
   "synthetic-barcode.png",
   "pesto.jpg",
@@ -10,20 +11,21 @@ export const examples = [
 ];
 const root = new URL("../", import.meta.url);
 export async function benchmarkIdentity() {
+  // Saved reports measure the main release: its host and engine bytes.
+  const { version, alias } = releases().at(-1);
   const paths = [
     "src/lib/benchmark.ts",
     "src/lib/scan.worker.ts",
-    "src/lib/scanner-versions.json",
     "src/lib/reference.worker.ts",
     "package.json",
-    "../bindings/javascript/dist/index.js",
-    "../bindings/javascript/dist/rust-session.js",
-    "node_modules/tapirscan/dist/index.js",
-    "node_modules/tapirscan/dist/rust-session.js",
+    `node_modules/${alias}/dist/index.js`,
+    `node_modules/${alias}/dist/rust-session.js`,
     ...examples.map((name) => `public/images/${name}`),
-    ...(await readdir(new URL("public/engines/", root)))
+    ...(await readdir(new URL(`public/engines/${version}/`, root)))
       .sort()
-      .map((name) => `public/engines/${name}`),
+      .map((name) => `public/engines/${version}/${name}`),
+    "public/engines/zxing_reader.wasm",
+    "public/engines/zbar.wasm",
   ];
   const files = {};
   for (const path of paths)

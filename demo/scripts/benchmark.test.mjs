@@ -2,14 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { repeats, statistics } from "../src/lib/benchmark.ts";
 const region = (text) => ({ text, polygon: [] });
-test("statistics distinguish errors, no reads, repeated values and unfinished searches", () => {
+test("statistics distinguish errors, no reads, repeated values", () => {
   const scenes = [
     {
       observations: {
         medium: {
           regions: [region("123"), region("123"), region("456")],
           scanMs: 10,
-          unfinished: true,
         },
       },
     },
@@ -29,7 +28,6 @@ test("statistics distinguish errors, no reads, repeated values and unfinished se
     reads: 3,
     repeated: 1,
     extras: 1,
-    unfinished: 1,
     mean: 15,
     median: 15,
     p95: 20,

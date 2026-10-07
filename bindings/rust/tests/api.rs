@@ -38,7 +38,11 @@ fn all_modes_preserve_instances_and_inspection_parity() {
             let image = Image::gray(&pixels, width, height);
             let result = scanner.scan(image).unwrap();
             assert_eq!(
-                result.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(),
+                result
+                    .barcodes
+                    .iter()
+                    .map(|b| b.text.as_str())
+                    .collect::<Vec<_>>(),
                 vec![TEXT; if pair { 2 } else { 1 }],
                 "{mode:?}"
             );
@@ -71,7 +75,7 @@ fn all_modes_preserve_instances_and_inspection_parity() {
                     report.values().collect::<Vec<_>>()
                 );
                 assert_eq!(plain.best(), report.best());
-                for (a, b) in plain.iter().zip(&report.barcodes) {
+                for (a, b) in plain.barcodes.iter().zip(&report.barcodes) {
                     assert_eq!(a.text, b.text);
                     assert_eq!(a.format, b.format);
                     assert_eq!(a.polygon, b.polygon);
@@ -111,6 +115,7 @@ fn padded_rgb_rgba_and_rotated_pixels() {
             scanner
                 .scan(image)
                 .unwrap()
+                .barcodes
                 .iter()
                 .map(|b| b.text.as_str())
                 .collect::<Vec<_>>(),
@@ -127,6 +132,7 @@ fn padded_rgb_rgba_and_rotated_pixels() {
         scanner
             .scan_with_options(Image::gray(&rotated, height, width), ScanOptions::default())
             .unwrap()
+            .barcodes
             .iter()
             .map(|b| b.text.as_str())
             .collect::<Vec<_>>(),
@@ -172,7 +178,7 @@ fn errors_do_not_poison_scanner_and_results_own_data() {
             .unwrap()
     };
     drop(scanner);
-    assert_eq!(result.into_iter().next().unwrap().text, TEXT);
+    assert_eq!(result.barcodes.into_iter().next().unwrap().text, TEXT);
 }
 
 #[test]
@@ -186,7 +192,11 @@ fn formats_and_supplement_policy_are_independent_of_effort() {
     });
     let result = scanner.scan(image).unwrap();
     assert_eq!(
-        result.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(),
+        result
+            .barcodes
+            .iter()
+            .map(|b| b.text.as_str())
+            .collect::<Vec<_>>(),
         [TEXT]
     );
     assert!(result.barcodes.first().unwrap().ean_add_on.is_none());
@@ -220,6 +230,7 @@ fn image_crate_buffers_work_without_pixel_copies() {
     assert_eq!(
         tapirscan::scan_with_options(&image, ScanOptions::default())
             .unwrap()
+            .barcodes
             .iter()
             .map(|b| b.text.as_str())
             .collect::<Vec<_>>(),
@@ -269,25 +280,26 @@ fn metadata_absence_and_enclosing_pixel_bounds() {
 }
 
 #[test]
-fn best_selects_from_plain_scan_output() {
+fn best_selects_first_highest_support() {
     let (pixels, width, height) = fixture(true);
     let image = Image::gray(&pixels, width, height);
-    let mut barcodes = tapirscan::scan(image).unwrap().barcodes;
+    let mut result = tapirscan::scan(image).unwrap();
     let inspected = tapirscan::inspect(image).unwrap();
-    assert_eq!(tapirscan::best(&barcodes), inspected.best());
-    assert!(tapirscan::best(&[]).is_none());
-    barcodes[0].support = 7;
-    barcodes[1].support = 7;
+    assert_eq!(result.best(), inspected.best());
+    result.barcodes[0].support = 7;
+    result.barcodes[1].support = 7;
     // Ties keep the first read.
     assert!(std::ptr::eq(
-        tapirscan::best(&barcodes).unwrap(),
-        &raw const barcodes[0]
+        result.best().unwrap(),
+        &raw const result.barcodes[0]
     ));
-    barcodes[1].support = 8;
+    result.barcodes[1].support = 8;
     assert!(std::ptr::eq(
-        tapirscan::best(&barcodes).unwrap(),
-        &raw const barcodes[1]
+        result.best().unwrap(),
+        &raw const result.barcodes[1]
     ));
+    result.barcodes.clear();
+    assert!(result.best().is_none());
 }
 
 #[test]

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-const registry = JSON.parse(
-  await readFile(new URL("../src/lib/scanner-versions.json", import.meta.url), "utf8"),
-);
+import { mkdir } from "node:fs/promises";
+import { releases } from "./releases.mjs";
+
+const published = releases().map(({ version }) => version);
+const latest = published.at(-1);
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
@@ -20,62 +21,64 @@ try {
   const requests = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("request", (request) => {
-    if (request.url().endsWith(".wasm")) requests.push(request.url());
+    if (request.url().endsWith(".wasm")) requests.push(new URL(request.url()).pathname);
   });
   await page.goto(process.env.DEMO_TEST_URL || "http://127.0.0.1:5188/");
-  await page.getByText("More options", { exact: true }).click();
-  const selector = page.getByLabel("Tapirscan version");
-  assert.equal(await selector.inputValue(), registry.default);
-  await page.waitForFunction(() =>
-    document.querySelector('[data-scanner="fast"]')?.textContent.includes("4104420031326"),
-  );
-  await page.waitForFunction(
-    () => document.querySelector('.scan-results [role="status"]')?.textContent === "Scan complete",
-  );
-  assert.equal(await page.getByRole("button", { name: "Image benchmark +" }).count(), 0);
-  const referenceCalls = await page.evaluate(
-    () => window.scanCalls.filter((call) => call.engine !== "classical").length,
-  );
-  const referenceCards = await page
-    .locator('[data-scanner="zxing"], [data-scanner="zbar"]')
-    .allTextContents();
-  for (const { version, modes } of registry.versions.toReversed()) {
-    const asset = modes.find((entry) => entry.mode === "medium").file;
-    const loaded = page.waitForResponse(
-      (response) => response.url().endsWith(asset) && response.ok(),
+  const found = (id) => (arg) =>
+    page.waitForFunction(
+      ([scanner, text]) =>
+        document.querySelector(`[data-scanner="${scanner}"]`)?.textContent.includes(text),
+      [id, arg],
     );
-    await selector.selectOption(version);
-    await loaded;
-    await page.waitForFunction(() =>
-      document.querySelector('[data-scanner="fast"]')?.textContent.includes("4104420031326"),
-    );
-    assert.equal(await page.locator(".scan-results .error").count(), 0);
-    assert.equal(
-      await page.evaluate(
-        () => window.scanCalls.filter((call) => call.engine !== "classical").length,
+  await found("fast")("4104420031326");
+  assert.ok(requests.some((url) => url.endsWith(`/engines/${latest}/medium.wasm`)));
+  assert.ok(
+    !requests.some((url) => url.includes("/engines/next/")),
+    "The current build loads only when selected",
+  );
+
+  // The repository's current build is one checkbox away.
+  await page.getByText("More scanners", { exact: false }).first().click();
+  const loaded = page.waitForResponse(
+    (response) => response.url().endsWith("/engines/next/medium.wasm") && response.ok(),
+  );
+  await page.getByLabel("TS-Med-next").check();
+  await loaded;
+  await found("ts-med-next")("4104420031326");
+  assert.equal(await page.locator(".scan-results .error").count(), 0);
+  assert.deepEqual(
+    await page.evaluate(() => [
+      ...new Set(
+        window.scanCalls
+          .filter((call) => call.engine === "classical")
+          .map((call) => `${call.engine}:${call.releaseVersion}`),
       ),
-      referenceCalls,
-      "Changing Tapirscan version must not rerun reference readers",
+    ]),
+    [`classical:${latest}`, "classical:next"],
+  );
+
+  // Earlier published versions are tucked away and run from their own packages.
+  const previous = published.slice(0, -1);
+  assert.equal(await page.locator(".previous-releases").count(), previous.length ? 1 : 0);
+  for (const version of previous) {
+    await page.locator(".previous-releases summary").click();
+    const response = page.waitForResponse(
+      (reply) => reply.url().endsWith(`/engines/${version}/medium.wasm`) && reply.ok(),
     );
-    assert.deepEqual(
-      await page.locator('[data-scanner="zxing"], [data-scanner="zbar"]').allTextContents(),
-      referenceCards,
-    );
+    await page.getByLabel(`TS-Med ${version}`).check();
+    await response;
+    assert.equal(await page.locator(".scan-results .error").count(), 0);
   }
-  await page.getByRole("button", { name: "Show analyzed areas", exact: true }).click();
-  const counts = page.getByRole("region", { name: "Analyzed area counts" });
-  assert.match(await counts.innerText(), /\d+ proposed areas/);
-  assert.match(await counts.innerText(), /Fast-discarded area counts are not exposed/);
-  await counts.scrollIntoViewIfNeeded();
+
+  await mkdir("../build/demo-version-switch", { recursive: true });
   await page.screenshot({ path: "../build/demo-version-switch/desktop.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: "../build/demo-version-switch/mobile.png" });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: desktop/mobile version selector, real scans, switching back, version-specific WASM requests; no page errors.",
+    `PASS: main release ${latest}, on-demand next build, ${previous.length} earlier release(s); no page errors.`,
   );
-  console.log(requests.filter((url) => /medium-/.test(url)));
 } finally {
   await browser.close();
 }

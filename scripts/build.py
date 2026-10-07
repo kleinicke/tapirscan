@@ -10,8 +10,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MODE_CONFIG = json.loads((ROOT / "provenance/modes.json").read_text())["modes"]
-MODES = {m["mode"]: (m["mode"], m["tag"]) for m in MODE_CONFIG}
+_CONFIG = json.loads((ROOT / "config/modes.json").read_text())
+MODE_CONFIG = _CONFIG["modes"]
+MODES = tuple(m["mode"] for m in MODE_CONFIG)
+TURBO_PRESETS = tuple(_CONFIG["experimentalTurbo"])
 
 
 def wasm_flags() -> list[str]:
@@ -41,7 +43,7 @@ def main() -> None:
         msg = "need a 10 GiB free-space reserve before building"
         raise SystemExit(msg)
     subprocess.run(
-        [sys.executable, str(ROOT / "scripts/verify_import.py"), "--imports-only"],
+        [sys.executable, str(ROOT / "scripts/verify_sources.py")],
         check=True,
     )
     if args.prepare_only:

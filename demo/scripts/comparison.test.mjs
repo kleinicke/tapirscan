@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { comparisonOptions, visibleResults } from "../src/lib/comparison.ts";
+import {
+  comparisonOptions,
+  nextRelease,
+  previousReleaseOptions,
+  visibleResults,
+} from "../src/lib/comparison.ts";
+import { releasesFrom } from "./releases.mjs";
 test("partial completions retain slow readers and fixed order, but never another source", () => {
   const order = ["fast", "zxing", "zbar"];
   const slow = { id: "zbar", contentRevision: 1, viewRevision: 1, value: "old" };
@@ -82,15 +88,7 @@ test("basic ZXing readers disable recovery independently of enhanced readers", a
   ]);
 });
 
-test("next scanners pin registered preview builds while standard names use the version selector", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const registry = JSON.parse(
-    await readFile(new URL("../src/lib/scanner-versions.json", import.meta.url), "utf8"),
-  );
-  assert.equal(
-    registry.versions.find((entry) => entry.version === registry.default).preview,
-    undefined,
-  );
+test("main readers follow the latest release; next readers and Turbo use the current build", () => {
   for (const [id, mode, label] of [
     ["ts-low-next", "low", "TS-Low-next"],
     ["ts-med-next", "medium", "TS-Med-next"],
@@ -100,10 +98,42 @@ test("next scanners pin registered preview builds while standard names use the v
     const spec = comparisonOptions.find((entry) => entry.id === id);
     assert.equal(spec.label, label);
     assert.equal(spec.version, mode);
-    const release = registry.versions.find((entry) => entry.version === spec.releaseVersion);
-    assert.ok(release.modes.some((entry) => entry.mode === mode));
+    assert.equal(spec.releaseVersion, nextRelease);
   }
-  for (const id of ["fast", "quality", "veryhigh"]) {
+  for (const id of ["turbo2", "turbo4", "turbo8", "turbo16"])
+    assert.equal(comparisonOptions.find((entry) => entry.id === id).releaseVersion, nextRelease);
+  for (const id of ["turbo", "fast", "quality", "veryhigh"])
     assert.equal(comparisonOptions.find((entry) => entry.id === id).releaseVersion, undefined);
-  }
+  assert.equal(new Set(comparisonOptions.map((entry) => entry.id)).size, comparisonOptions.length);
+});
+
+test("earlier published versions get one reader per effort level", () => {
+  const previous = previousReleaseOptions(["1.2.1", "1.2.0"]);
+  assert.equal(previous.length, 8);
+  assert.deepEqual(
+    previous.filter((entry) => entry.releaseVersion === "1.2.1").map((entry) => entry.version),
+    ["low", "medium", "high", "very-high"],
+  );
+  const ids = previous.map((entry) => entry.id);
+  assert.equal(
+    new Set([...ids, ...comparisonOptions.map((entry) => entry.id)]).size,
+    8 + comparisonOptions.length,
+  );
+  assert.equal(previous[1].label, "TS-Med 1.2.1");
+});
+
+test("published versions derive from package.json aliases", () => {
+  assert.deepEqual(
+    releasesFrom({
+      "tapirscan-1-10-0": "npm:tapirscan@1.10.0",
+      "tapirscan-1-2-2": "npm:tapirscan@1.2.2",
+      tapirscan: "link:../bindings/javascript",
+      svelte: "^5.0.0",
+    }),
+    [
+      { version: "1.2.2", alias: "tapirscan-1-2-2" },
+      { version: "1.10.0", alias: "tapirscan-1-10-0" },
+    ],
+  );
+  assert.throws(() => releasesFrom({ "tapirscan-1-2-2": "npm:tapirscan@1.2.1" }), /must be/);
 });

@@ -127,7 +127,6 @@ pub struct ResultInfoC {
     pub height: u64,
     pub elapsed_ms: f64,
     pub mode: u32,
-    pub unfinished: u32,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -458,7 +457,6 @@ pub unsafe extern "C" fn tapirscan_result_info(result: u64, out: *mut ResultInfo
             height: r.image_size[1] as u64,
             elapsed_ms: r.elapsed.as_secs_f64() * 1000.0,
             mode: mode_id(r.mode),
-            unfinished: u32::from(r.unfinished),
         };
         Ok(())
     })

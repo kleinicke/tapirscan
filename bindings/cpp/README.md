@@ -9,13 +9,13 @@ auto result = tapirscan::scan(tapirscan::Image::gray(pixels, width, height));
 for (const auto& barcode : result.barcodes) std::cout << barcode.text << '\n';
 ```
 
-Reuse `Scanner::scan` across images. Call `inspect` for an `InspectionResult` with unread
-regions, work status, timing and diagnostics. There is no debug flag.
+Reuse `Scanner::scan` across images. Call `inspect` for an `InspectionResult`
+with unread regions, timing and diagnostics. The free functions `scan` and
+`inspect` take `(image, ScannerOptions, ScanOptions)`, with the options optional.
 
-Both operations accept decoded pixels and return source-image barcode geometry.
-Inspection also includes undecoded proposals and reported work limits. Defaults are Medium effort and
-retail formats (EAN13, UPCA, EAN8 and UPCE). The header-only C++17 wrapper uses
-one shared library that contains all four effort modes.
+Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8 and UPCE). The
+header-only C++17 wrapper uses one shared library that contains all four effort
+modes.
 
 ```cpp
 #include <tapirscan.hpp>
@@ -26,13 +26,13 @@ auto result = tapirscan::inspect(tapirscan::Image::gray(pixels, 640, 480));
 for (const auto& barcode : result.barcodes) {
     std::cout << barcode.text << ' ' << tapirscan::to_string(barcode.format) << '\n';
 }
-std::cout << result.undecoded.size() << " undecoded; unfinished: " << result.unfinished << '\n';
+std::cout << result.undecoded.size() << " undecoded\n";
 ```
 
-No detection is an empty `barcodes` vector. Invalid input and engine failures
+If nothing is decoded, `barcodes` is empty. Invalid input and engine failures
 throw `tapirscan::Error`, whose `code` is the native status. Results are owned
-values and survive the scanner. Equal payloads at distinct locations remain
-separate physical instances.
+values and outlive the scanner. Equal payloads at distinct locations are
+reported as separate barcodes.
 
 ## Reuse and configuration
 
@@ -44,13 +44,14 @@ tapirscan::Scanner scanner(options);
 
 tapirscan::ScanOptions scan;
 scan.extended_budget = true;
-const auto barcodes = scanner.scan(tapirscan::Image::rgba(pixels, width, height), scan);
-if (const auto* best = tapirscan::best(barcodes)) std::cout << best->text << '\n';
+const auto result = scanner.scan(tapirscan::Image::rgba(pixels, width, height), scan);
+if (const auto* best = result.best()) std::cout << best->text << '\n';
 ```
 
 Reuse a scanner across images; it is move-only and its destructor releases it.
 Scans on one scanner serialize; separate scanners run concurrently.
-`tapirscan::inspect(image, options)` creates a temporary scanner for one image.
+`tapirscan::inspect(image, scanner_options, scan_options)` creates a temporary
+scanner for one image.
 
 | Scanner option      | Default                  | Choices                                     |
 | ------------------- | ------------------------ | ------------------------------------------- |
@@ -74,35 +75,36 @@ see [API design](../../docs/API_DESIGN.md).
 
 ## Results
 
-`ScanResult` provides decoded barcodes, `values()` and `best()`.
-No detections produce empty collections; `best()` returns the language’s empty value.
+`ScanResult` provides `barcodes`, `values()` and `best()`. `best()` returns a
+pointer to the barcode with the largest `support` (first read wins ties), or
+null when nothing was decoded. It is not callable on temporaries, whose pointer
+would dangle; bind the result to a variable first.
 
-`InspectionResult` exposes `barcodes`, `undecoded`, `width`, `height`, `mode`,
-`elapsed_ms`, `unfinished` and `diagnostics` JSON. `values()` returns decoded
-text. `tapirscan::best(barcodes)` points at the largest-support read of any
-barcode vector, keeping first-read ties, or is null; `InspectionResult::best()` is the
-same for inspection results. Both reject temporaries, whose pointer would
-dangle. Support is reader-specific and not comparable confidence across formats.
+`InspectionResult` has the same members plus `undecoded`, `width`, `height`,
+`mode`, `elapsed_ms` and `diagnostics` (JSON text with an unstable schema).
 
 `Barcode` contains `text`, `format`, `polygon` (four `Point`s in source-image
 pixels, top-left origin), `support`, and optional `payload_bytes`, `ean_add_on`,
 `gs1`, `reader_initialization` and `structured_append`. An empty optional means
-the reader did not report it. `rect()` returns `{left, top, width, height}`
-enclosing integer pixel bounds. `to_string(format)` gives names such as `"QRCode"`.
+the reader did not report it. `support` is reader-specific evidence, a ranking
+heuristic and not a confidence. `rect()` returns a `std::array<double, 4>` of
+`{left, top, width, height}`, the enclosing integer pixel bounds.
+`to_string(format)` gives names such as `"QRCode"`.
 
-`undecoded` contains localized proposals without accepted decodes. These can be
-false candidates or deferred work; an empty list and `unfinished == false` do
-not guarantee exhaustive coverage. Debug JSON schemas are unstable.
+`undecoded` contains localized regions without an accepted decode. These can be
+false candidates, and an empty list does not guarantee that every barcode was found.
 
 ## Images
 
 `Image::gray`, `Image::rgb` and `Image::rgba` take a `std::vector<std::uint8_t>`
 or a pointer and length, plus width and height; `.with_stride(bytes_per_row)`
-describes padded rows. Alpha is ignored. Keep the backing buffer alive and do not reallocate it until the scan call
-returns. Image factories reject temporary vectors. Images are at least 3×3 and at most 32 megapixels. The addressed
-layout, `(height - 1) * stride + width * channels` bytes, must fit in the buffer and in 128 MiB; a larger backing
-buffer, such as a frame around a crop, is accepted. Decode
-image files and convert BGR, planar, float or 16-bit pixels before scanning.
+describes padded rows. Alpha is ignored. Keep the backing buffer alive and unchanged until the scan
+call returns; the factories reject temporary vectors. Images are at least 3×3
+and at most 32 megapixels. The addressed layout,
+`(height - 1) * stride + width * channels` bytes, must fit in the buffer and in
+128 MiB; a larger backing buffer, such as a frame around a crop, is accepted.
+Decode image files and convert BGR, planar, float or 16-bit pixels before
+scanning.
 
 ## Building and installing
 
@@ -123,8 +125,7 @@ target_link_libraries(my_app PRIVATE tapirscan::cpp)
 ```
 
 The package also installs the C header for C consumers. The wrapper targets
-64-bit platforms; macOS arm64 is validated locally and Linux in CI. Conan and
-vcpkg recipes are not provided yet.
+64-bit platforms. No Conan or vcpkg recipes are provided.
 
 ## License
 

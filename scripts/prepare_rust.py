@@ -279,11 +279,7 @@ def prepared_package(destination: Path, *, refresh: bool = False) -> Iterator[Pa
         if destination.exists() and not refresh:
             raise FileExistsError(destination)
         subprocess.run(
-            [
-                sys.executable,
-                str(ROOT / "scripts/verify_import.py"),
-                "--imports-only",
-            ],
+            [sys.executable, str(ROOT / "scripts/verify_sources.py")],
             check=True,
         )
         with tempfile.TemporaryDirectory(

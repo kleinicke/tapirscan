@@ -1,7 +1,6 @@
 # Production scanner core
 
-Edit `src/` directly. The build does not apply patches or select a historical
-feature combination. `Cargo.toml` exposes four mutually exclusive effort modes:
+Edit `src/` directly. `Cargo.toml` exposes four mutually exclusive effort modes:
 `mode-low`, `mode-medium` (default), `mode-high`, and `mode-very-high`.
 
 ```sh
@@ -21,14 +20,14 @@ there is only one maintained algorithm tree.
   source-gray refinement and sampling, and Rune confirmation. Its payload
   decoder reuses immutable error-correction fields. The facade's
   `matrix_frontend` shares the original threshold images and row runs with
-  other matrix readers. See [Aztec recovery](README.md).
+  other matrix readers.
 
 - `qr_frontend` owns ordinary QR finder search and bounded foreground-threshold
   recovery. Its separable alignment-coordinate tables preserve exact search
   order and budgets; QR payload/ECC and region ownership stay shared with the
   pinned multiformat reader. `qr_grid` resamples unresolved regions from original
   grayscale pixels. The Rust facade selects QR-only reader groups and enforces
-  the mode-specific frame retry limits. See [QR study](README.md).
+  the mode-specific frame retry limits.
 
 - `candidate_scanner.rs` owns candidate evidence and reusable scratch buffers and runs
   the initial candidate pass. `candidate_scanner/sampling.rs` samples and normalizes
@@ -42,7 +41,7 @@ there is only one maintained algorithm tree.
   fusing original pixels across height, calibrating active edges, and requiring
   distributed visual agreement before checksum acceptance. Medium requires prior
   guard evidence and rejects repeatedly invalid visual reads; higher modes use
-  larger bounded searches. See [low-resolution recovery](README.md).
+  larger bounded searches.
 - `frame/identity.rs` owns physical overlap and pending-coverage geometry.
   `frame/conflict.rs` proves identity and resolves competing values from pixels.
   `frame.rs` reconciles candidates and assembles the final frame.
@@ -52,37 +51,29 @@ there is only one maintained algorithm tree.
 Keep allocations reusable where the scanner already owns scratch. A new sampling
 method should return observations through the existing acceptance stage. A new
 retry strategy should produce `Segment` plans without changing acceptance or
-frame reconciliation. No plugin interface is needed for either experiment.
+frame reconciliation.
 
 ## Mode differences
 
-Public Low now selects the original Turbo fast path in the Rust facade; the core
-Low policy below remains its recovery implementation and the demo-only Low Classic
-policy. See [Low and Low Classic](../docs/LOW_MODES.md).
+Public Low uses the Turbo fast path in the Rust facade; the core Low policy below
+provides its recovery and the Low Classic development build.
 
-Low keeps its module-axis discovery shortcut, bounded retries and sparse stripe
-work. Medium retains evidence-dependent retry caps and shared short-retail work.
-High retains native-soft decoding and its existing retry policy. Very High also
-retains stronger identity/conflict checks and additional source/grid refinement.
-The image facade's fit limits remain 0/1/4/1, and source-detail recovery still
-uses the Low core. Mode-specific arithmetic is intentional: replacing `hypot`
-with an algebraically equivalent norm can change borderline source decisions.
+Low uses module-axis discovery, bounded retries and sparse stripe work. Medium
+adds evidence-dependent retry caps and shared short-retail work. High adds
+native-soft decoding and more retries. Very High adds stronger identity/conflict
+checks and additional source/grid refinement. The image facade's fit limits are
+0/1/4/1, and source-detail recovery uses the Low core. Mode-specific arithmetic
+is intentional: replacing `hypot` with an algebraically equivalent norm can
+change borderline source decisions.
 
-Common historical features are now ordinary code. Genuine differences use
-`mode-*` conditions; passive timing/tracing remain optional compile-time features.
-The previous feature graph and rejected alternatives are retained in the separate
-experiment archive. They are not production configuration options.
+Mode differences use `mode-*` conditions; passive timing and tracing are optional
+compile-time features, not configuration options.
 
 ## Source and provenance
 
-The maintained scanner lives in this tree. Development builds verify the frozen
-multiformat decoder inputs; release verification also checks the selected runtime
-snapshot. Archive reproduction, exploratory adapters and unused implementations
-belong in the separate experiment workspace, not the production build.
-
-Turbo tiers and Low Classic are intentionally retained for the demo and future
-API work. Their build settings and selected artifacts remain separate from the
-four public effort modes. See [repository boundaries](../docs/RESEARCH_BOUNDARY.md).
+The package version and git commit identify a build; WASM files carry a source
+digest in `build.json`. Turbo presets and Low Classic have their own build
+settings, separate from the four public effort modes. See [repository boundaries](../docs/RESEARCH_BOUNDARY.md).
 
 ## Localization and retry execution
 
@@ -126,7 +117,7 @@ as evidence of one physical barcode. Curved-band consolidation keeps a supported
 observed polygon instead of extrapolating an unverified full-symbol envelope.
 
 Bar tracing checks ink at half-pixel steps and looks for a light border at three
-bounded radii as projected bar widths change. The source-pixel budget is unchanged.
+bounded radii as projected bar widths change.
 Medium detail recovery also consults completed short-retail reads: a supported
 symbol with at least three source pixels per module can cover a seed through its
 observed polygon or the existing continuous-profile proof. Small and weak reads
@@ -137,26 +128,25 @@ Crossing decoded bands can prove shared ownership by following distributed sourc
 bars to the other decoding line. This avoids assuming equal fractional positions
 in two warped polygons refer to the same physical bar. At least six of eight
 sampled bars spanning 60% of the reading width must connect, with light borders
-along their paths. The earlier endpoint-directed trace remains a fallback for
-strong projective shear. The original consolidation pass retains its 32,768-pixel
-evidence limit and execution order. A separate ownership pass gets at most 32,768
+along their paths. An endpoint-directed trace is the fallback for strong
+projective shear. The consolidation pass has a 32,768-pixel evidence limit;
+a separate ownership pass gets at most 32,768
 additional samples, only for remaining ambiguous decoded results.
 
 A weak ITF interpretation (support at most two) can be discarded when a
 checksum-validated retail read has support at least three, the decoded polygons
 substantially overlap, and distributed source bars establish shared ownership.
-Overlap of search proposals alone never triggers this rule. Separate labels and
-stronger ITF reads retain their existing handling. With no competing retail read,
-ITF-only output is unchanged.
+Overlap of search proposals alone never triggers this rule. Separate labels,
+stronger ITF reads and ITF reads without a competing retail read are unaffected.
 
-After this original reconciliation, a bounded physical-footprint pass samples
+After reconciliation, a bounded physical-footprint pass samples
 12 distributed bars and follows them in both directions to visible endpoints.
 Local ink/paper contrast adapts slowly to illumination; interpolated half-step
 checks stop at light gaps. At least nine reliable tracks must span 80% of the
 reading width; uncertain individual tracks are omitted. Persistent sharp
 lighting changes cannot certify physical endpoints. Neighboring tracks must have coherent extents, so a
 seed band crossing two adjacent labels cannot silently enclose both as one.
-Unstable fits and exhausted work budgets retain the existing polygon.
+Unstable fits and exhausted work budgets keep the decoded polygon.
 
 A successful footprint supplies a four-corner approximation of the observed
 full bar area. Its tracked ink paths, never overlap of the enclosing quad, prove
@@ -176,7 +166,7 @@ Width/contrast measurements advance by up to
 six pixels while intervening ink is checked with interpolated half-pixel samples.
 Both outside tracks must finish before accepting a large-symbol envelope.
 Endpoint lookahead and illumination adaptation scale with bar width and physical
-advance. Smaller symbols keep the original half-pixel tracing policy. The shared
+advance. Smaller symbols use half-pixel tracing throughout. The shared
 262,144-sample budget applies to both.
 
 ## Very High subpixel recovery
@@ -202,7 +192,7 @@ hypotheses only when the frame has no established read. Each probe examines at
 most four existing proposals and requires agreement across source rows. Optional
 positive-contrast UPC-E recovery requires seven-module quiet runs, except at an
 actual image boundary. A proposal boundary inside the image is not an image edge.
-The primary decoder retains its existing acceptance policy. The quiet-space
+The quiet-space
 threshold is an empirical recovery safeguard, not a printing-conformance test.
 
 Medium can reuse up to four rejected narrow stripe groups from the original
@@ -218,8 +208,8 @@ reference scanner or prove that every alternative payload is impossible.
 
 In default Medium combined scans, an empty primary Retail result with sufficient
 existing guard evidence can trigger one source-region restoration, limited to
-262,144 source pixels. EAN-only and explicit-completion scans retain their
-previous two-region, 131,072-pixel policy. These are different bounded search
+262,144 source pixels. EAN-only and extended-budget scans restore up to two
+regions of at most 131,072 pixels. These are different bounded search
 policies; increasing effort does not guarantee that every individual result is
 retained. A matrix code already found in a Common frame can prevent the later
 optional empty-frame short-code probes. Ordinary multi-symbol scanning continues.
@@ -227,11 +217,11 @@ optional empty-frame short-code probes. Ordinary multi-symbol scanning continues
 Medium additionally averages three parallel source lines for bounded EAN
 recovery and revisits at most two deferred proposals. A seven-row preflight
 can stop an unpromising band retry. Probe observations are discarded; a plausible
-value triggers the unchanged full row sequence and independent source proof.
+value triggers the full row sequence and independent source proof.
 The probe restores threshold history and confirmation state before that pass. If the original-image
 pass still has no Retail result after its established recovery, it can try one
-alternate EAN crop, capped at 131,072 source pixels. This pass retains the earlier
-crop kernel and requires original-source agreement before admitting a result.
+alternate EAN crop, capped at 131,072 source pixels, and requires original-source
+agreement before admitting a result.
 
 For EAN8/UPC-E, Medium can relocalize at most two unresolved source regions
 when the image exceeds the primary 768-pixel working dimension,
@@ -255,8 +245,8 @@ Low adds one bounded Retail contrast pass when its normal fast path has no read,
 using at most two existing proposals and a bounded continuity-work budget. EAN13/UPC-A claims also
 need independent original-source agreement and no contradiction. Medium and Low
 can consult visual EAN8 evidence on optional source profiles, with observed quiet
-space and existing-owner checks. Private Turbo tiers retain their earlier routing.
-These new recovery passes are not added to High or Very High.
+space and existing-owner checks. High, Very High and the Turbo presets do not
+use these passes.
 
 Medium also tries the existing distributed-bar ownership proof in the reverse
 direction before retaining a duplicate interpretation. High and Very High can
@@ -264,14 +254,3 @@ reject an overlapping UPC-E fragment in favor of an EAN13/UPC-A read with suppor
 at least three and no weaker than the fragment. Both rules still require shared
 source-bar continuity; equal text or overlapping bounding boxes are insufficient.
 All modes skip source sampling when no requested linear formats remain active.
-
-Validation and failed alternatives are retained under the separate experiment
-repository's `retained/retail-native-recovery-20260929/` and
-`retained/retail-medium-low-20260929/` and
-`retained/retail-runtime-20260929/`. The development corpus
-mixes complete product photographs, capability fixtures and related variations;
-it is not an untouched holdout. Runtime measurements use paired installed-Chrome
-calls on declared Retail/Common1D/Common panels. See the retained report for
-per-format quality, mean/median latency, remaining reference advantages and
-limits of annotation coverage. No dataset or experiment dependency is needed by
-normal builds.

@@ -14,9 +14,9 @@ from typing import TypedDict
 from build_turbo import environment as turbo_environment
 from prepare_rust import prepared_package, sync_tree, write_changed
 
-from build import MODES, ROOT, wasm_flags
+from build import MODES, ROOT, TURBO_PRESETS, wasm_flags
 
-MANIFEST = ROOT / json.loads((ROOT / "provenance/modes.json").read_text())["apiWasm"]
+MANIFEST = ROOT / "bindings/javascript/wasm/build.json"
 PACKAGE = ROOT / "build/crates/tapirscan"
 
 
@@ -32,14 +32,11 @@ def source_paths(folder: Path) -> list[Path]:
 
 
 def source_files() -> dict[str, str]:
-    """Hash shared API, core and adapter inputs, independent of JS hosts."""
-    imported = json.loads((ROOT / "provenance/import.json").read_text())
-    selected = dict(imported["files"])
-    if revision := imported.get("releaseRevision"):
-        selected.update(json.loads((ROOT / revision).read_text())["targetHashes"])
-    paths = {name for name in selected if name.startswith("multiformat/")}
+    """Hash the Rust, build-script and configuration inputs of the WASM files."""
+    paths: set[str] = set()
     for folder in (
         "core/src",
+        "multiformat",
         "bindings/rust",
         "bindings/wasm",
         "tools/package-source",
@@ -57,11 +54,10 @@ def source_files() -> dict[str, str]:
             "scripts/build_turbo.py",
             "scripts/wasm_rustc.py",
             "config/formats.json",
+            # Mode order determines the adapters' mode IDs.
+            "config/modes.json",
         ]
     )
-    # modes.json selects output names and provenance records, not Rust source.
-    # Its runtimeRevision changes on documentation-only snapshots. The package
-    # verifier checks selected modes/presets against the built artifact records.
     return {
         name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
         for name in sorted(paths)
@@ -96,18 +92,13 @@ def build_environment(root: Path = ROOT) -> dict[str, str]:
 
 
 def arguments() -> argparse.Namespace:
-    """Separate private development builds from immutable release recording."""
+    """Separate ordinary package builds from private development builds."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("modes", nargs="*", metavar="MODE")
     parser.add_argument(
-        "--record",
-        action="store_true",
-        help="Record new artifact identities for a reviewed source revision",
-    )
-    parser.add_argument(
         "--development",
         action="store_true",
-        help="Build under build/ without modifying release identities",
+        help="Build the selected modes under build/wasm-development without a manifest",
     )
     args = parser.parse_args()
     if not args.development and any(
@@ -118,16 +109,13 @@ def arguments() -> argparse.Namespace:
         for key in os.environ
     ):
         parser.error("private policy overrides require --development")
-    if args.record and args.development:
-        parser.error("choose release recording or development assets")
-    args.modes = args.modes or list(MODES)
     if set(args.modes) - set(MODES):
         parser.error("modes must be low, medium, high or very-high")
     return args
 
 
 class Variant(TypedDict):
-    """One built WASM asset as recorded in an identity manifest."""
+    """One built WASM asset as recorded in the build manifest."""
 
     mode: str
     file: str
@@ -140,7 +128,7 @@ def build_variant(
     identity: str,
     destination: Path,
     env: dict[str, str],
-    expected_hash: str | None,
+    expected_hash: str | None = None,
 ) -> Variant:
     """Compile one isolated stable mode or experimental preset."""
     env["CARGO_TARGET_DIR"] = str(ROOT / "build/wasm-target" / identity)
@@ -189,83 +177,71 @@ def build_variant(
     return result
 
 
+def source_digest(inputs: dict[str, str]) -> str:
+    """Return the digest that the package verifier recomputes from the tree."""
+    return hashlib.sha256(
+        json.dumps(sorted(inputs.items()), separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 def main() -> None:
-    """Build and verify distribution assets; record new identities explicitly."""
+    """Build the package's WASM files and describe them in ``build.json``."""
     args = arguments()
-    manifest = (
-        ROOT / "build/wasm-development/manifest.json" if args.development else MANIFEST
-    )
-    record = args.record or args.development
     with prepared_package(PACKAGE, refresh=PACKAGE.exists()):
         inputs = source_files()
-        digest = hashlib.sha256(
-            json.dumps(sorted(inputs.items()), separators=(",", ":")).encode()
-        ).hexdigest()
-        previous = json.loads(manifest.read_text()) if manifest.exists() else {}
-        if not record and previous.get("sourceDigest") != digest:
-            msg = "WASM source identity changed; validate then use --record"
-            raise SystemExit(msg)
-        changed = previous.get("sourceDigest") not in (None, digest)
-        records = {entry["mode"]: entry for entry in previous.get("modes", [])}
-        if args.development and changed:
-            # Do not label other modes built from older source as current.
-            records = {}
+        digest = source_digest(inputs)
         env = build_environment()
-        assets = (
-            ROOT / "build/wasm-development/assets"
-            if args.development
-            else ROOT / "bindings/javascript/wasm"
-        )
-        assets.mkdir(parents=True, exist_ok=True)
-        for mode in args.modes:
-            filename = f"{mode}.wasm" if args.development else f"{MODES[mode][1]}.wasm"
-            records[mode] = build_variant(
-                mode,
-                mode,
-                assets / filename,
-                env.copy(),
-                None if record else records.get(mode, {}).get("sha256", ""),
+        if args.development:
+            assets = ROOT / "build/wasm-development/assets"
+            assets.mkdir(parents=True, exist_ok=True)
+            for mode in args.modes or MODES:
+                build_variant(mode, mode, assets / f"{mode}.wasm", env.copy())
+        else:
+            assets = MANIFEST.parent
+            assets.mkdir(parents=True, exist_ok=True)
+            previous = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
+            # Records for other source revisions would mislabel older binaries.
+            known = (
+                previous.get("files", {})
+                if previous.get("sourceDigest") == digest
+                else {}
             )
-        experimental = previous.get("experimentalTurbo", [])
-        if not args.development:
-            selection = json.loads((ROOT / "provenance/modes.json").read_text())
-            expected = {entry["preset"]: entry for entry in experimental}
-            experimental = []
-            for entry in selection["experimentalTurbo"]:
-                tier = entry["preset"]
+            files = dict(known)
+            targets = [(mode, mode, None) for mode in args.modes or MODES]
+            if not args.modes:
+                targets += [("low", f"turbo{p}", p) for p in TURBO_PRESETS]
+            for mode, identity, preset in targets:
+                name = mode if preset is None else f"experimental-turbo{preset}"
                 variant_env = env.copy()
-                policy = {
-                    key: value
-                    for key, value in turbo_environment(str(tier)).items()
-                    if key.startswith("TAPIRSCAN_")
-                }
-                variant_env.update(policy)
+                entry: dict[str, object] = {"mode": mode}
+                if preset is not None:
+                    policy = {
+                        key: value
+                        for key, value in turbo_environment(str(preset)).items()
+                        if key.startswith("TAPIRSCAN_")
+                    }
+                    variant_env.update(policy)
+                    entry = {"mode": mode, "preset": preset, "environment": policy}
                 result = build_variant(
-                    "low",
-                    f"turbo{tier}",
-                    assets / f"{entry['tag']}.wasm",
+                    mode,
+                    identity,
+                    assets / f"{name}.wasm",
                     variant_env,
-                    None if record else expected.get(tier, {}).get("sha256", ""),
+                    known.get(f"{name}.wasm", {}).get("sha256"),
                 )
-                experimental.append({**result, "preset": tier, "environment": policy})
-        if record:
-            if not args.development and changed and set(args.modes) != set(MODES):
-                msg = "Changed source requires rebuilding every mode before recording"
-                raise SystemExit(msg)
-            manifest.parent.mkdir(parents=True, exist_ok=True)
-            manifest.write_text(
+                files[f"{name}.wasm"] = {
+                    **entry,
+                    "sha256": result["sha256"],
+                    "bytes": result["bytes"],
+                }
+            MANIFEST.write_text(
                 json.dumps(
                     {
-                        "schema": 1,
-                        "apiVersion": 2,
+                        "schema": 2,
+                        "rustToolchain": "1.91.1",
                         "sourceDigest": digest,
                         "sourceFiles": inputs,
-                        "modes": [records[mode] for mode in MODES if mode in records],
-                        **(
-                            {"experimentalTurbo": experimental}
-                            if not args.development
-                            else {}
-                        ),
+                        "files": dict(sorted(files.items())),
                     },
                     indent=2,
                 )

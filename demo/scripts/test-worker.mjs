@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { releases } from "./releases.mjs";
 import { prepareZXingModule, writeBarcode } from "zxing-wasm/writer";
 import {
   retailFormats,
@@ -23,12 +24,9 @@ const selections = [
 ];
 
 const root = new URL("../../", import.meta.url);
-const turboPins = JSON.parse(await readFile(new URL("demo/src/lib/turbo.json", root), "utf8"));
-const experimentalEngines = ["turbo", ...turboPins.variants.map((entry) => entry.key)];
-const registry = JSON.parse(
-  await readFile(new URL("demo/src/lib/scanner-versions.json", root), "utf8"),
-);
-const releaseVersions = registry.versions.map((entry) => entry.version);
+const experimentalEngines = ["turbo2", "turbo4", "turbo8", "turbo16"];
+// Published npm versions plus the repository's current build.
+const releaseVersions = [...releases().map(({ version }) => version), "next"];
 const dist = new URL("demo/dist/", root);
 const worker = (await readdir(new URL("assets/", dist))).find((p) => p.startsWith("scan.worker-"));
 assert.ok(worker, "Build the demo before testing its worker");
@@ -141,7 +139,7 @@ for (const releaseVersion of [...releaseVersions.toReversed(), ...releaseVersion
 assert.equal(
   loaded.size,
   modes.length * releaseVersions.length,
-  "Every immutable version must be loaded",
+  "Every version must load its own engines",
 );
 console.log("Version switching and switching back passed for every effort");
 
@@ -198,7 +196,7 @@ for (const [format, text, formats] of [
       data: {
         engine,
         scannerVersion: "medium",
-        releaseVersion: "ignored-for-turbo",
+        releaseVersion: "next",
         width: w,
         height: h,
         buffer: pixels.slice().buffer,
@@ -209,7 +207,6 @@ for (const [format, text, formats] of [
     });
     const turboMessage = messages.at(-1);
     assert.ok(turboMessage.result, JSON.stringify(turboMessage));
-    assert.equal(turboMessage.result.unfinished, true);
     assert.equal(
       turboMessage.result.regions.some((region) => region.text === text),
       true,
@@ -226,6 +223,7 @@ for (const engine of experimentalEngines) {
       data: {
         engine,
         scannerVersion: "very-high",
+        releaseVersion: "next",
         formats,
         width: qrFixture.width,
         height: qrFixture.height,
@@ -242,16 +240,27 @@ for (const engine of experimentalEngines) {
     );
   }
 }
-for (const entry of [turboPins, ...turboPins.variants]) {
-  assert.ok(loaded.has(`engines/${entry.file}`), `${entry.label} must load its own pinned asset`);
+for (const engine of experimentalEngines) {
+  const file = `engines/next/experimental-${engine}.wasm`;
+  assert.ok(loaded.has(file), `${engine} must load ${file}`);
 }
 messages.length = 0;
 await context.self.onmessage({
-  data: { engine: "turbo-unknown", scannerVersion: "low", formats: commonFormats },
+  data: { releaseVersion: "0.0.0", scannerVersion: "low", formats: commonFormats },
 });
 assert.match(messages.at(-1).error, /Unknown Tapirscan/);
+messages.length = 0;
+await context.self.onmessage({
+  data: {
+    engine: "turbo2",
+    releaseVersion: releaseVersions[0],
+    scannerVersion: "low",
+    formats: commonFormats,
+  },
+});
+assert.match(messages.at(-1).error, /current build/);
 console.log(
-  "Turbo tiers: independent assets and QR-only, excluded QR, mixed format coverage passed",
+  "Turbo presets: current-build assets and QR-only, excluded QR, mixed format coverage passed",
 );
 
 const reference = (await readdir(new URL("assets/", dist))).find((p) =>
@@ -313,7 +322,6 @@ for (const engine of [
       assert.match(messages.at(-1).error, /unavailable/);
     } else {
       assert.equal(messages.at(-1).result.regions[0].text, qrFixture.text);
-      assert.equal(messages.at(-1).result.unfinished, true);
       messages.length = 0;
       await referenceContext.self.onmessage({
         data: {

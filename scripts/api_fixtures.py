@@ -30,7 +30,6 @@ def work_limit_fixtures(destination: Path) -> list[dict[str, Any]]:
             "height": 80,
             "formats": "Code128",
             "expected": [],
-            "unfinished": True,
         },
         {
             "name": "blank",
@@ -39,8 +38,6 @@ def work_limit_fixtures(destination: Path) -> list[dict[str, Any]]:
             "height": 60,
             "formats": "Code128",
             "expected": [],
-            # Linear search conservatively reports deferred work, even on blanks.
-            "unfinished": True,
         },
     ]
 

@@ -84,7 +84,7 @@ and samples profiles from the original pixels. It attempts every primary
 candidate's cheap pass before spending its retry budget. Results can retain
 localized-but-undecoded regions and incomplete-work information.
 
-Medium, High and Very high also run bounded source-detail recovery: select up
+Medium, High and Very High also run bounded source-detail recovery: select up
 to two texture seeds, enlarge a crop threefold, and try source-guided directions
 with the separately pinned Low decoder. Candidate indices stay local to their
 original frame or crop; transforms place the final polygons in source coordinates.

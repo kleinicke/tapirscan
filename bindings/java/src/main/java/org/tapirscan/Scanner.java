@@ -152,8 +152,7 @@ public final class Scanner implements AutoCloseable {
         }
         return new InspectionResult(barcodes, undecoded,
                 Math.toIntExact(summary.get(JAVA_LONG, offset(Native.SUMMARY, "width"))), Math.toIntExact(summary.get(JAVA_LONG, offset(Native.SUMMARY, "height"))),
-                Mode.fromCode(summary.get(JAVA_INT, offset(Native.SUMMARY, "mode"))), summary.get(JAVA_DOUBLE, offset(Native.SUMMARY, "elapsedMs")),
-                summary.get(JAVA_INT, offset(Native.SUMMARY, "unfinished")) != 0, json);
+                Mode.fromCode(summary.get(JAVA_INT, offset(Native.SUMMARY, "mode"))), summary.get(JAVA_DOUBLE, offset(Native.SUMMARY, "elapsedMs")), json);
     }
 
     private Optional<byte[]> bytes(Arena arena, long result, long index, int field, long length) {

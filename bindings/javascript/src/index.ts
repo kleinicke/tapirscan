@@ -108,7 +108,6 @@ export interface InspectionResult extends ScanResult {
   readonly experimentalTurbo?: ExperimentalTurbo;
   /** Whole synchronous WASM call time measured by the JavaScript host. */
   readonly elapsedMs: number;
-  readonly unfinished: boolean;
   readonly undecoded: readonly UndecodedRegion[];
   readonly diagnostics: Diagnostics;
 }
@@ -142,21 +141,20 @@ interface WireResult {
   image: { width: number; height: number };
   mode: Mode;
   elapsedMs: number;
-  unfinished: boolean;
   debug?: RawDiagnostics;
 }
 
 const modes: Record<Mode, { id: number; file: string }> = {
-  low: { id: 0, file: "low-scan-results-20261007.wasm" },
-  medium: { id: 1, file: "medium-scan-results-20261007.wasm" },
-  high: { id: 2, file: "high-scan-results-20261007.wasm" },
-  "very-high": { id: 3, file: "very-high-scan-results-20261007.wasm" },
+  low: { id: 0, file: "low.wasm" },
+  medium: { id: 1, file: "medium.wasm" },
+  high: { id: 2, file: "high.wasm" },
+  "very-high": { id: 3, file: "very-high.wasm" },
 };
 const turboFiles: Record<ExperimentalTurbo, string> = {
-  2: "experimental-turbo2-scan-results-20261007.wasm",
-  4: "experimental-turbo4-scan-results-20261007.wasm",
-  8: "experimental-turbo8-scan-results-20261007.wasm",
-  16: "experimental-turbo16-scan-results-20261007.wasm",
+  2: "experimental-turbo2.wasm",
+  4: "experimental-turbo4.wasm",
+  8: "experimental-turbo8.wasm",
+  16: "experimental-turbo16.wasm",
 };
 const addOnPolicies: Record<EanAddOnPolicy, number> = { Ignore: 0, Read: 1, Require: 2 };
 
@@ -243,9 +241,7 @@ function wireResult(value: unknown): WireResult {
     value.image === null ||
     typeof value.image !== "object" ||
     !("mode" in value) ||
-    !Object.hasOwn(modes, String(value.mode)) ||
-    !("unfinished" in value) ||
-    typeof value.unfinished !== "boolean"
+    !Object.hasOwn(modes, String(value.mode))
   )
     throw new ScannerError("invalid_output", "Scanner returned an invalid result");
   return value as WireResult;
@@ -269,12 +265,11 @@ function publicResult(
   return freeze({
     barcodes,
     values: barcodes.map((b) => b.text),
-    best: best(barcodes),
+    best: bestOf(barcodes),
     image: raw.image,
     mode: raw.mode,
     ...(experimentalTurbo === undefined ? {} : { experimentalTurbo }),
     elapsedMs,
-    unfinished: raw.unfinished,
     undecoded,
     diagnostics: { ...raw.debug, regions },
   });
@@ -375,7 +370,7 @@ export class Scanner {
     return freeze({
       barcodes,
       values: barcodes.map((barcode) => barcode.text),
-      best: best(barcodes),
+      best: bestOf(barcodes),
     });
   }
 
@@ -413,12 +408,8 @@ export class Scanner {
   }
 }
 
-/**
- * Highest support, keeping the first read on ties; undefined when empty. Works on
- * `scan` output and inspection results alike. Support is uncalibrated evidence, so
- * select by format, payload or position when the application knows them.
- */
-export function best(barcodes: readonly Barcode[]): Barcode | undefined {
+/** Highest support, keeping the first read on ties; undefined when empty. */
+function bestOf(barcodes: readonly Barcode[]): Barcode | undefined {
   let winner: Barcode | undefined;
   for (const barcode of barcodes) if (!winner || barcode.support > winner.support) winner = barcode;
   return winner;

@@ -26,7 +26,7 @@ final class Native {
     static final MemoryLayout SUMMARY = MemoryLayout.structLayout(
             JAVA_LONG.withName("barcodeCount"), JAVA_LONG.withName("undecodedCount"),
             JAVA_LONG.withName("width"), JAVA_LONG.withName("height"),
-            JAVA_DOUBLE.withName("elapsedMs"), JAVA_INT.withName("mode"), JAVA_INT.withName("unfinished"));
+            JAVA_DOUBLE.withName("elapsedMs"), JAVA_INT.withName("mode"), MemoryLayout.paddingLayout(4));
     static final MemoryLayout POINT = MemoryLayout.structLayout(JAVA_DOUBLE.withName("x"), JAVA_DOUBLE.withName("y"));
     static final MemoryLayout POLYGON = MemoryLayout.sequenceLayout(4, POINT);
     static final MemoryLayout BARCODE = MemoryLayout.structLayout(

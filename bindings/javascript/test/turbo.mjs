@@ -21,7 +21,6 @@ for (const preset of [2, 4, 8, 16]) {
       assert.deepEqual(result.values, [text]);
       assert.equal(result.mode, "low");
       assert.equal(result.experimentalTurbo, preset);
-      assert.equal(result.unfinished, true);
       assert.ok(result.diagnostics);
       assert.ok(Object.isFrozen(result));
       for (const barcode of result.barcodes) {

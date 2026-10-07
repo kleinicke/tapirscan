@@ -16,7 +16,7 @@ class Preparation(unittest.TestCase):
         """Mode order determines adapter IDs and must invalidate source identity."""
         before = source_files()
         read = Path.read_bytes
-        selection = ROOT / "provenance/modes.json"
+        selection = ROOT / "config/modes.json"
 
         def changed(path: Path) -> bytes:
             data = read(path)
@@ -24,9 +24,7 @@ class Preparation(unittest.TestCase):
 
         with patch.object(Path, "read_bytes", changed):
             after = source_files()
-        self.assertNotEqual(
-            before["provenance/modes.json"], after["provenance/modes.json"]
-        )
+        self.assertNotEqual(before["config/modes.json"], after["config/modes.json"])
 
     def test_refresh_keeps_mtime_and_removes_stale_files(self) -> None:
         """Unchanged inputs keep timestamps; deleted modules do not survive."""

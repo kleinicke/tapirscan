@@ -76,7 +76,7 @@ def measure(
         for repeat in range(count + WARMUP):
             for policy in POLICIES[repeat % 3 :] + POLICIES[: repeat % 3]:
                 result, elapsed = timed(partial(scanners[policy].scan, pixels))
-                actual = sorted((b.text, b.ean_add_on or "") for b in result)
+                actual = sorted((b.text, b.ean_add_on or "") for b in result.barcodes)
                 expected = sorted(
                     (b["text"], b["eanAddOn"] or "") for b in cases[policy]["expected"]
                 )

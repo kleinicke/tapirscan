@@ -1,66 +1,53 @@
 # Release notes
 
-## 1.3.0 — unreleased
+## 1.3.0
 
-**Breaking API changes in every binding.** `scan` returns a barcode list;
-`inspect` returns the detailed report. Native consumers must rebuild for ABI 6.
-See [migration](docs/API_MIGRATION.md) for replacements. Version 1.3.0 is an explicit early-library exception to the
-[compatibility policy](CONTRIBUTING.md#api-stability); migrate before upgrading.
+**Breaking API changes in every binding.** `scan` returns decoded values and
+their locations; `inspect` returns the detailed report. Native consumers must
+rebuild for ABI 6. See the [migration guide](docs/API_MIGRATION.md).
 
 ### Application API
 
+- `scan` returns `values`, `barcodes` (text, format, polygon and rectangle) and
+  `best`. `inspect` adds timing, unread regions and diagnostics, replacing the
+  `debug` option. The `unfinished` result flag is removed; it was set on nearly
+  every scan and gave no useful signal.
+- The free `best()` function and direct iteration, indexing and `len` on Python
+  and Rust results are removed; use `result.best` and `result.barcodes`.
 - JavaScript adds `tapirscan/browser`: scan files, images, video frames, canvases
   and bitmaps in a bundled worker. Construction is synchronous, scans return
   promises, and server rendering is supported. Next.js and Vite production builds
-  bundle the worker and WASM; Vite 6/7 development servers need the configuration
-  in the [JavaScript guide](bindings/javascript/README.md).
-- `scan` returns decoded instances with text, format, source-image geometry and
-  payload metadata. `inspect` adds unread regions, work status, timing and
-  diagnostics, replacing the debug option. `best(barcodes)` selects by reader
-  support in JavaScript, Python, Rust, C++ and Java; support is not confidence.
-- C, C++ and Java share the same scanner/options/result model as the other
+  bundle the worker and WASM; Vite 6/7 development servers need one
+  [configuration line](bindings/javascript/README.md#browser-apps-react-and-svelte).
+- C, C++ and Java share the scanner, options and result model of the other
   bindings. One native library contains all four effort modes. ABI 6 provides
-  caller-owned error details, typed access and lazy JSON serialization. C scanner
-  options have an explicit initializer; C++ rejects temporary image buffers.
-- Java accepts native `MemorySegment` pixels without copying and compares
-  payload bytes by content. Python wheels bundle the single native library.
-  Rust barcodes implement serde `Serialize`. JavaScript and Python expose typed
-  decoded format identifiers.
-- JavaScript adds experimental Turbo presets `2`, `4`, `8` and `16` for 1D
-  scanning, including Retail. Numbers are identifiers, not speed guarantees;
-  presets do not provide corresponding 2D speedups. Their APIs may change in
-  minor releases. See [Turbo usage](bindings/javascript/README.md#experimental-turbo-presets).
+  caller-owned error details, typed access and on-demand JSON. C scanner options
+  have an explicit initializer; C++ rejects temporary image buffers.
+- Java accepts `MemorySegment` pixels without copying. Python wheels bundle the
+  native library. Rust barcodes implement serde `Serialize`. JavaScript and
+  Python expose typed format identifiers.
+- JavaScript adds experimental Turbo presets `2`, `4`, `8` and `16` for faster
+  1D scanning, including Retail. They may change in minor releases; see
+  [Turbo presets](bindings/javascript/README.md#experimental-turbo-presets).
 
 ### Scanner behavior
 
-- Segment-voting localization and source-bar duplicate consolidation cover all
-  stable effort modes and linear formats, retaining distinct same-value labels.
-- Retail recovery adds bounded contrast, motion-ghost and defocus retries,
-  original-pixel evidence for small labels, and guarded reduced-resolution
-  retries. High and Very High share the retail EAN-8/UPC-E path; Very High adds
-  subpixel EAN-13 recovery where precise affine candidate geometry is available.
-- QR and Aztec recovery gain bounded sampling, contrast and geometry retries.
-  Localized linear and matrix recovery preserve source coordinates and work
-  limits. Turbo recovery adds evidence confirmation and guarded empty-scan
-  retries, including Turbo2 contrast/high-pass retries on its strongest retail box.
-- Reads, geometry, ordering and latency can differ from 1.2.2. Higher effort does
-  not guarantee more reads on every image. See the [core guide](core/README.md)
-  for selected changes, retained measurements, limitations and known failures.
+- More linear barcodes are found and boxed in all effort modes, with fewer
+  duplicate reads of the same label; separate labels with equal values stay
+  separate.
+- Retail labels read better under low contrast, camera shake, defocus and small
+  print. High and Very High read more EAN-8 and UPC-E labels; Very High adds
+  subpixel recovery for small EAN-13 symbols.
+- QR Code and Aztec recover more difficult symbols.
+- Reads, geometry, ordering and latency can differ from 1.2.2. Higher effort
+  does not guarantee more reads on every image.
 
-### Packaging and documentation
+### Packaging
 
-- Documentation-only provenance snapshots no longer invalidate WASM package
-  verification. Compiled sources, selected engine identities and binary hashes
-  remain checked. Python validation accepts empty search-window evidence when
-  no full-frame search was performed.
-
-- Implemented linear and 2D formats are documented as supported, with explicit
-  [variant limitations](docs/FORMATS.md); Turbo presets remain experimental.
-- Packages include the complete MIT and Apache 2.0 license texts, correcting
-  the license-file mismatch in the published 1.2.2 artifacts.
-- Research archives and obsolete prototypes move outside the release source
-  tree. Production builds require no research checkout; retained Turbo variants
-  and active recovery paths remain available.
+- All implemented linear and 2D formats are supported, with documented
+  [variant limitations](docs/FORMATS.md).
+- Packages include the complete MIT and Apache 2.0 license texts, correcting the
+  license files in the 1.2.2 artifacts.
 
 ## 1.2.2 — 2026-09-25
 

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from math import ceil, floor
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeAlias, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeAlias, cast
 
 from typing_extensions import override
 
@@ -178,7 +177,6 @@ class Diagnostics:
 
     regions: Regions | None
     barcodes: tuple[BarcodeEvidence, ...]
-    localization_limited: bool
     _json: bytes = field(repr=False, compare=False)
 
     def to_raw_dict(self) -> dict[str, JSONValue]:
@@ -186,55 +184,25 @@ class Diagnostics:
         return cast("dict[str, JSONValue]", json.loads(self._json))
 
 
-def best(barcodes: Iterable[Barcode]) -> Barcode | None:
-    """Return the highest-support barcode, keeping the first read on ties.
-
-    Works on scan() output and inspection results alike. Support is uncalibrated
-    evidence; select by format, payload or position when the application knows them.
-    """
-    winner: Barcode | None = None
-    for barcode in barcodes:
-        if winner is None or barcode.support > winner.support:
-            winner = barcode
-    return winner
-
-
 @dataclass(frozen=True)
-class ScanResult(Sequence[Barcode]):
+class ScanResult:
     """Decoded values and their locations; no diagnostic collection."""
 
     barcodes: tuple[Barcode, ...]
 
     @property
     def best(self) -> Barcode | None:
-        """Highest-support read, or None; support is not confidence."""
-        return best(self.barcodes)
-
-    @override
-    def __len__(self) -> int:
-        """Return the number of decoded barcodes."""
-        return len(self.barcodes)
-
-    @override
-    def __iter__(self) -> Iterator[Barcode]:
-        """Iterate the decoded barcodes in scanner order."""
-        return iter(self.barcodes)
-
-    @overload
-    def __getitem__(self, index: int) -> Barcode: ...
-
-    @overload
-    def __getitem__(self, index: slice) -> tuple[Barcode, ...]: ...
-
-    @override
-    def __getitem__(self, index: int | slice) -> Barcode | tuple[Barcode, ...]:
-        """Select a barcode or a slice of barcodes."""
-        return self.barcodes[index]
+        """Highest-support read, first on ties, or None; support is not confidence."""
+        winner: Barcode | None = None
+        for barcode in self.barcodes:
+            if winner is None or barcode.support > winner.support:
+                winner = barcode
+        return winner
 
     @property
     def values(self) -> list[str]:
         """Return an independent list of decoded strings."""
-        return [barcode.text for barcode in self]
+        return [barcode.text for barcode in self.barcodes]
 
     def as_dict(self) -> dict[str, JSONValue]:
         """Return an independent JSON-compatible result."""
@@ -252,7 +220,6 @@ class InspectionResult(ScanResult):
 
     mode: Mode
     elapsed_ms: float
-    unfinished: bool
     undecoded: tuple[UndecodedRegion, ...]
     image: ImageSize
     diagnostics: Diagnostics
@@ -271,7 +238,6 @@ class InspectionResult(ScanResult):
             "image": dict(self.image._asdict()),
             "mode": self.mode,
             "elapsed_ms": self.elapsed_ms,
-            "unfinished": self.unfinished,
             "undecoded": [
                 {"format": r.format, "polygon": [[p.x, p.y] for p in r.polygon]}
                 for r in self.undecoded
@@ -383,7 +349,6 @@ def _from_json(raw: bytes, width: int, height: int) -> InspectionResult:
         barcodes,
         value["mode"],
         value["elapsedMs"],
-        frame["unfinished"] or value["localizationLimited"],
         undecoded,
         ImageSize(width, height),
         Diagnostics(
@@ -396,7 +361,6 @@ def _from_json(raw: bytes, width: int, height: int) -> InspectionResult:
                 )
                 for b in frame["barcodes"]
             ),
-            value["localizationLimited"],
             raw,
         ),
         raw,

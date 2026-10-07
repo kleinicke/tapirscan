@@ -522,7 +522,7 @@ pub(crate) fn scan(
             &unread,
         )
     });
-    crate::formats::typed_result(reads, unread, true, localized.limited, raw)
+    crate::formats::typed_result(reads, unread, true, raw)
 }
 
 // Additional retail recovery must agree with source pixels independently of

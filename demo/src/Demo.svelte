@@ -4,6 +4,7 @@
   import { SvelteMap } from "svelte/reactivity";
   import {
     comparisonOptions,
+    previousReleaseOptions,
     visibleResults,
     type ComparisonSpec,
     type ComparisonEntry,
@@ -22,8 +23,7 @@
   import { DoubleTap } from "./lib/taps";
   import { LabelLayout } from "./lib/labels";
   import { version } from "../package.json";
-  import scannerVersions from "./lib/scanner-versions.json";
-  const releaseVersion = scannerVersions.default;
+  import { latestRelease as releaseVersion, releaseVersions } from "virtual:tapirscan-releases";
   const benchmarkEnabled = import.meta.env.VITE_ENABLE_IMAGE_BENCHMARK === "true";
 
   let pdfDocument: import("pdfjs-dist").PDFDocumentProxy | null = null;
@@ -192,7 +192,7 @@
       controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
     }
   }
-  const options = [
+  const primaryOptions = [
     "fast",
     "turbo",
     "turbo2",
@@ -202,7 +202,6 @@
     "zxing",
     "zxingdefault",
     "zbar",
-    "nano",
     "quality",
     "veryhigh",
     "ts-low-next",
@@ -215,6 +214,11 @@
     "zxingjs",
     "zxingjsdefault",
   ].map((id) => comparisonOptions.find((spec) => spec.id === id)!);
+  // Earlier published versions stay available, tucked into a second group.
+  const previousReleases = previousReleaseOptions(
+    [...releaseVersions].reverse().filter((version) => version !== releaseVersion),
+  );
+  const options = [...primaryOptions, ...previousReleases];
   let selected = ["fast", "turbo", "zxing", "zbar"];
   let visibleScanners = [...selected];
   const demoImages = [
@@ -1148,7 +1152,7 @@
     <details class="extra-scanners">
       <summary>More scanners ({visibleScanners.length} shown)</summary>
       <div class="scanner-menu">
-        {#each options as option (option.id)}
+        {#each primaryOptions as option (option.id)}
           <label>
             <input
               type="checkbox"
@@ -1159,6 +1163,23 @@
           </label>
         {/each}
       </div>
+      {#if previousReleases.length}
+        <details class="previous-releases">
+          <summary>Previous releases</summary>
+          <div class="scanner-menu">
+            {#each previousReleases as option (option.id)}
+              <label>
+                <input
+                  type="checkbox"
+                  checked={visibleScanners.includes(option.id)}
+                  on:change={() => toggleVisibility(option.id)}
+                />
+                <span style:color={option.color}>{option.label}</span>
+              </label>
+            {/each}
+          </div>
+        </details>
+      {/if}
     </details>
     <div class="viewer" class:expanded bind:this={viewer}>
       <div
@@ -1722,6 +1743,14 @@
   .extra-scanners summary {
     cursor: pointer;
     font-weight: 600;
+  }
+  .previous-releases {
+    margin-top: 8px;
+    font-size: 13px;
+  }
+  .previous-releases summary {
+    cursor: pointer;
+    opacity: 0.75;
   }
   .scanner-menu {
     display: flex;

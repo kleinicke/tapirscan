@@ -33,8 +33,8 @@ public final class ApiTest {
                 0, false, "{}");
         check(result.best().orElseThrow() == a);
         Barcode stronger = barcode(new byte[]{2}, 6);
-        check(Tapirscan.best(List.of(a, stronger, b)).orElseThrow() == stronger);
-        check(Tapirscan.best(List.of()).isEmpty());
+        check(new ScanResult(List.of(a, stronger, b)).best().orElseThrow() == stronger);
+        check(new ScanResult(List.of()).best().isEmpty());
         check(Native.IMAGE.byteSize() == 48 && Native.SUMMARY.byteSize() == 48);
         check(Native.BARCODE.byteSize() == 136 && Native.REGION.byteSize() == 72);
         check(Native.SCANNER_OPTIONS.byteSize() == 12 && Native.SCAN_OPTIONS.byteSize() == 8);

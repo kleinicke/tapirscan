@@ -1,6 +1,5 @@
 // Compile-time consumer contract. This function is never executed.
 import {
-  best as bestOf,
   scan,
   Scanner,
   type Barcode,
@@ -22,7 +21,7 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
   try {
     const scanResult: ScanResult = scanner.scan(image);
     const barcodes: readonly Barcode[] = scanResult.barcodes;
-    const first: Barcode | undefined = bestOf(barcodes);
+    const first: Barcode | undefined = scanResult.best;
     // Decoded barcodes always have a known format.
     const format: Format | undefined = first?.format;
     console.log(format);
@@ -94,7 +93,6 @@ export interface ApplicationOptions extends ScannerOptions {
 import {
   scan as scanSource,
   Scanner as BrowserScanner,
-  best as bestRead,
   type InspectionResult as BrowserResult,
   type ScanResult as BrowserScanResult,
 } from "../dist/browser.js";
@@ -112,7 +110,7 @@ export async function browserConsumer(file: File, video: HTMLVideoElement, image
     new BrowserScanner({ loadWasm: () => Promise.resolve(new ArrayBuffer(0)) });
     // @ts-expect-error Scans need an image source.
     await scanner.scan("photo.png");
-    return [bestRead(fromFile.barcodes)?.text, fromVideo.values, fromPixels.barcodes.length];
+    return [fromFile.best?.text, fromVideo.values, fromPixels.barcodes.length];
   } finally {
     scanner.dispose();
   }

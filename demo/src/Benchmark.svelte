@@ -458,17 +458,16 @@
               ><th>Method</th><th>Images: 0 unique codes</th><th>Images: exactly 1 unique code</th
               ><th>Images: 2+ unique codes</th><th>Total codes detected</th><th
                 >Repeated images / extra reads</th
-              ><th>Errors</th><th>Unfinished</th><th>Mean ms</th><th>Median ms</th><th>P95 ms</th
-              ><th>Total ms</th></tr
+              ><th>Errors</th><th>Mean ms</th><th>Median ms</th><th>P95 ms</th><th>Total ms</th></tr
             ></thead
           ><tbody>
             {#each methods as item (item.id)}{@const stats = statistics(filtered, item.id)}<tr
                 ><th style:--method-color={item.color}>{item.label}</th><td>{stats.zeroUnique}</td
                 ><td>{stats.oneUnique}</td><td>{stats.multipleUnique}</td><td>{stats.reads}</td><td
                   >{stats.repeated} / {stats.extras}</td
-                ><td>{stats.errors}</td><td>{stats.unfinished}</td><td>{ms(stats.mean)}</td><td
-                  >{ms(stats.median)}</td
-                ><td>{ms(stats.p95)}</td><td>{ms(stats.total)}</td></tr
+                ><td>{stats.errors}</td><td>{ms(stats.mean)}</td><td>{ms(stats.median)}</td><td
+                  >{ms(stats.p95)}</td
+                ><td>{ms(stats.total)}</td></tr
               >{/each}
           </tbody>
         </table>
@@ -533,9 +532,6 @@
                 {#each observation?.regions ?? [] as region, index (index)}<p>
                     {index + 1}. <code>{region.text}</code>
                   </p>{/each}
-                {#if observation?.unfinished}<p class="note">
-                    Search unfinished; more reads may exist.
-                  </p>{/if}
               </details>{/each}
           </article>
         {/each}

@@ -1,4 +1,4 @@
-// Strict checks for maintained release bindings; frozen imports have a separate core audit.
+// Strict checks for maintained release bindings; core and multiformat have a separate Rust audit.
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -82,7 +82,7 @@ if (selected("native")) {
   ]);
 }
 if (selected("rust")) {
-  const modes = JSON.parse(fs.readFileSync(path.join(root, "provenance/modes.json"), "utf8")).modes;
+  const modes = JSON.parse(fs.readFileSync(path.join(root, "config/modes.json"), "utf8")).modes;
   const parent = fs.mkdtempSync(path.join(root, ".quality-cache/lint-"));
   const publicCrate = path.join(root, "build/crates/tapirscan");
   const cargoTarget = path.join(root, "build/native-target");

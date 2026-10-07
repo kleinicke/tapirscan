@@ -10,6 +10,6 @@ public record ScanResult(List<Barcode> barcodes) {
     /** Decoded text in scanner order, including repeated values. */
     public List<String> values() { return barcodes.stream().map(Barcode::text).toList(); }
 
-    /** Highest support, keeping first-read ties; see {@link Tapirscan#best}. */
-    public Optional<Barcode> best() { return Tapirscan.best(barcodes); }
+    /** Highest support, keeping first-read ties; empty when nothing was decoded. */
+    public Optional<Barcode> best() { return Tapirscan.highestSupport(barcodes); }
 }

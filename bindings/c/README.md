@@ -1,20 +1,16 @@
 # Tapirscan for C
 
-`tapirscan_scan` returns an owned barcode-list handle. Read its size using
+`tapirscan_scan` returns an owned result handle. Read the barcode count with
 `tapirscan_result_count`, then each barcode with `tapirscan_result_barcode` and
-`tapirscan_result_copy`. Positions are always available in `polygon`.
-A successful result can have zero barcodes. Destroy it with `tapirscan_result_destroy`.
+`tapirscan_result_copy`. Positions are in `polygon`. Destroy the result with
+`tapirscan_result_destroy`.
 
-Use `tapirscan_inspect` to retain unread regions, work status, timing and diagnostics.
-`tapirscan_result_info` and `tapirscan_result_undecoded` require an inspection result;
-they return `TAPIRSCAN_INVALID_ARGUMENT` for ordinary scan results.
-There is no debug flag. JSON access serializes lazily: a barcode array for scanning,
-and the schema-2 engine report for inspection.
+Use `tapirscan_inspect` to also get unread regions, timing and diagnostics.
+`tapirscan_result_info` and `tapirscan_result_undecoded` require an inspection
+result and return `TAPIRSCAN_INVALID_ARGUMENT` for ordinary scan results.
 
-Both operations accept decoded pixels and return source-image barcode geometry.
-Inspection also includes undecoded proposals and reported work limits. Defaults are Medium effort and
-retail formats (EAN13, UPCA, EAN8 and UPCE). One shared library contains all
-four effort modes.
+Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8 and UPCE). One
+shared library contains all four effort modes.
 
 ```c
 #include <tapirscan.h>
@@ -51,9 +47,9 @@ int scan_rgba(const uint8_t *pixels, uint64_t width, uint64_t height) {
 ```
 
 Operations return a `tapirscan_status`; `tapirscan_status_message` describes
-it. No detection is a successful result with `barcode_count` 0. Results own their
-data and outlive their scanner. Equal payloads at distinct locations remain
-separate physical instances.
+it. If nothing is decoded, the call succeeds and `tapirscan_result_count` returns 0. Results own their data and outlive their scanner. Equal payloads at distinct
+locations are reported as separate barcodes. C has no `best` helper; choose from
+the list by format, payload or position.
 
 ## Reuse and configuration
 
@@ -75,8 +71,10 @@ tapirscan_scanner_options options = {
 tapirscan_scanner scanner;
 tapirscan_scanner_create(&options, &scanner, NULL);
 
+/* `image` is a tapirscan_image as in the example above. */
 tapirscan_scan_options scan = {0}; /* zero fields keep the defaults */
 scan.extended_budget = 1;
+tapirscan_result result;
 tapirscan_inspect(scanner, &image, &scan, &result, NULL);
 ```
 
@@ -100,33 +98,28 @@ more time and does not promise exhaustive decoding; see [API design](../../docs/
 
 ## Results
 
-JSON is serialized lazily. Query `tapirscan_result_json_length(result, &length)`
-and allocate `length + 1` bytes before `tapirscan_result_copy_json`.
-
 `tapirscan_result_count` returns the number of decoded barcodes for either
-operation. For inspection results, `tapirscan_result_info` fills a
-`tapirscan_summary`: `barcode_count`, `undecoded_count`, `width`, `height`,
-`mode`, `elapsed_ms` and `unfinished`. `support` is reader-specific evidence,
-not a probability or a cross-format confidence; select barcodes by format,
-payload or position when the application knows them.
+operation.
 
 `tapirscan_result_barcode` fills a `tapirscan_barcode` with the source-image
-`polygon`, `support`, `format` and the lengths of its variable fields. Copy a
+`polygon`, `support`, `format` and the lengths of its variable fields. `support`
+is reader-specific evidence, a ranking heuristic and not a confidence. Copy a
 field with `tapirscan_result_copy` into a buffer larger than its length; the copy
 is NUL-terminated and preserves embedded NUL bytes. Optional fields
 (`TAPIRSCAN_FIELD_PAYLOAD_BYTES`, `_EAN_ADD_ON`, `_STRUCTURED_APPEND_ID`) report
 `TAPIRSCAN_ABSENT` as their length when unavailable. `gs1` and
 `reader_initialization` are -1 when the reader does not report them.
 
+For inspection results, `tapirscan_result_info` fills a `tapirscan_summary`:
+`barcode_count`, `undecoded_count`, `width`, `height`, `mode` and `elapsed_ms`.
 `tapirscan_result_undecoded` fills a `tapirscan_region` for each localized
-proposal without an accepted decode; `format` is 0 when unknown. These can be
-false candidates or deferred work. An empty list and `unfinished` 0 do not
-guarantee exhaustive coverage.
+region without an accepted decode; `format` is 0 when unknown. These can be
+false candidates, and an empty list does not guarantee that every barcode was found.
 
-`tapirscan_result_copy_json` copies a JSON array of the decoded barcodes for
-scans, and the schema-2 report with unstable engine evidence for inspections.
-`tapirscan_result_json_length` serializes on first use. Destroy every result
-with `tapirscan_result_destroy` and every scanner with `tapirscan_scanner_destroy`.
+JSON is serialized on first use. Query `tapirscan_result_json_length(result,
+&length)`, allocate `length + 1` bytes, then call `tapirscan_result_copy_json`.
+For scans it is an array of the decoded barcodes; for inspections it is a
+diagnostics report whose schema is unstable.
 
 ## Images
 
@@ -135,17 +128,16 @@ Alpha is ignored. `stride` is bytes per row; 0 means `width * channels`. Images
 are at least 3×3 and at most 32 megapixels. `length` is the readable buffer
 size; the addressed layout, `(height - 1) * stride + width * channels` bytes,
 must fit in it and in 128 MiB. A larger backing buffer, such as a frame around
-a cropped view, is accepted. Pixels are borrowed only during the call. Decode image files and convert BGR, planar, float
-or 16-bit pixels before scanning.
+a cropped view, is accepted. Pixels are borrowed only during the call. Decode image files and convert BGR,
+planar, float or 16-bit pixels before scanning.
 
 ## Threads and limits
 
 Calls are thread-safe. Scans on one scanner serialize; separate scanners run
 concurrently. Handles are checked IDs: a destroyed or unknown handle returns
 `TAPIRSCAN_INVALID_HANDLE`, and IDs are never reused. There is no fixed limit
-on live scanners or results; destroy each one. Native panics never unwind into C. Invalid raw pointers remain the
-caller's responsibility. The ABI targets 64-bit platforms; macOS arm64 is
-validated locally and Linux in CI.
+on live scanners or results; destroy each one. Native panics never unwind into C. Valid pointers remain the
+caller's responsibility. The library targets 64-bit platforms.
 
 ## Building
 
@@ -156,8 +148,8 @@ python3 scripts/build_native.py
 This builds `build/native/libtapirscan.{so,dylib}` (or `tapirscan.dll`). Compile
 with `-Ibindings/c/include` and link the library. The CMake package in
 [bindings/cpp](../cpp/README.md) installs the library and both headers for C and
-C++ consumers. `tapirscan_abi_version()` returns `TAPIRSCAN_ABI_VERSION`; rebuild
-applications and the library together after an ABI change.
+C++ consumers. `tapirscan_abi_version()` returns `TAPIRSCAN_ABI_VERSION`; build
+the application against the header that matches the library.
 
 ## License
 

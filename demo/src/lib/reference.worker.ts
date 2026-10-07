@@ -89,7 +89,6 @@ self.onmessage = async ({
     }
     const start = performance.now();
     let regions: Region[];
-    let unfinished = false;
     if (data.engine === "zxing" || data.engine === "zxingdefault") {
       const reads = await zx.readBarcodes(
         new ImageData(new Uint8ClampedArray(data.buffer), data.width, data.height),
@@ -114,7 +113,6 @@ self.onmessage = async ({
             read.position.bottomLeft,
           ].map((p) => [p.x, p.y] as const),
         }));
-      unfinished = reads.length === zx.defaultReaderOptions.maxNumberOfSymbols;
     } else if (data.engine === "jsqr") {
       if (!data.formats.includes("QRCode"))
         throw Error("jsQR supports QR Code only. Select Common or All.");
@@ -132,8 +130,6 @@ self.onmessage = async ({
             },
           ]
         : [];
-      // jsQR returns at most one symbol; do not imply exhaustive multi-code coverage.
-      unfinished = !!read;
     } else if (data.engine === "native") {
       const Detector = (self as unknown as { BarcodeDetector?: NativeDetectorConstructor })
         .BarcodeDetector;
@@ -167,7 +163,6 @@ self.onmessage = async ({
         width: data.width,
         height: data.height,
         scanMs: performance.now() - start,
-        unfinished,
       },
     });
   } catch (error) {

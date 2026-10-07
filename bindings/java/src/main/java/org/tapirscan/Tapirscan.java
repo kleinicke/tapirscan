@@ -34,12 +34,7 @@ public final class Tapirscan {
         }
     }
 
-    /**
-     * Highest support, keeping the first read on ties; empty when there are no barcodes.
-     * Works on {@code scan} output and inspection results alike. Support is uncalibrated
-     * evidence, so select by format, payload or position when the application knows them.
-     */
-    public static Optional<Barcode> best(List<Barcode> barcodes) {
+    static Optional<Barcode> highestSupport(List<Barcode> barcodes) {
         Barcode winner = null;
         for (Barcode barcode : barcodes) {
             if (winner == null || barcode.support() > winner.support()) winner = barcode;

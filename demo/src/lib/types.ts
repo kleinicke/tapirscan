@@ -17,6 +17,5 @@ export interface Result {
   width: number;
   height: number;
   scanMs: number;
-  unfinished: boolean;
   scannerVersion?: Mode;
 }

@@ -71,11 +71,6 @@ fn native_parity() {
         assert_eq!(actual, expected, "{} mode {}", case.pixels, case.mode);
         assert_eq!(result.undecoded.len(), case.undecoded, "{}", case.pixels);
         assert_eq!(
-            result.unfinished,
-            case.expected["scan"]["unfinished"].as_bool().unwrap()
-                || case.expected["localizationLimited"].as_bool().unwrap()
-        );
-        assert_eq!(
             result.barcodes.len(),
             case.expected["scan"]["barcodes"].as_array().unwrap().len()
         );

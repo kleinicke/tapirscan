@@ -71,7 +71,6 @@ export async function scanQuagga(image: ImageData, formats: readonly Format[]): 
     width: image.width,
     height: image.height,
     scanMs: performance.now() - start,
-    unfinished: false,
   };
 }
 

@@ -51,7 +51,7 @@ public final class Smoke {
             List<Barcode> barcodes = compact.barcodes();
             if (!compact.values().equals(result.values())) throw new AssertionError("Values differ");
             if (!barcodes.equals(result.barcodes())) throw new AssertionError("Scan/inspect differ");
-            if (!Tapirscan.best(barcodes).equals(result.best())) throw new AssertionError("best differs");
+            if (!compact.best().equals(result.best())) throw new AssertionError("best differs");
             try (Arena arena = Arena.ofConfined()) {
                 // Native segments are scanned in place and must match the copied heap path.
                 MemorySegment direct = arena.allocate(pixels.length).copyFrom(image.pixels());
@@ -76,7 +76,6 @@ public final class Smoke {
 
         StringBuilder out = new StringBuilder();
         out.append("{\"mode\":").append(quoted(result.mode().toString()))
-                .append(",\"unfinished\":").append(result.unfinished())
                 .append(",\"best\":").append(result.best().isPresent() ? result.barcodes().indexOf(result.best().orElseThrow()) : "null")
                 .append(",\"barcodes\":[");
         for (int i = 0; i < result.barcodes().size(); i++) {

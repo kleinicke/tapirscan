@@ -86,7 +86,6 @@ typedef struct tapirscan_summary {
     uint64_t width, height;   /* supplied image size */
     double elapsed_ms;
     uint32_t mode;            /* tapirscan_mode */
-    uint32_t unfinished;      /* 1 when the engine reported a work limit */
 } tapirscan_summary;
 
 /* Lengths of absent optional fields are TAPIRSCAN_ABSENT. Tri-state flags are
@@ -131,7 +130,7 @@ int32_t tapirscan_scanner_create(const tapirscan_scanner_options *options, tapir
 int32_t tapirscan_scanner_destroy(tapirscan_scanner scanner);
 
 /* Pixels are borrowed only for the call. No detection is a successful empty
-   result. A call has no deadline; unfinished may remain true. */
+   result. A call has no deadline. */
 int32_t tapirscan_scan(tapirscan_scanner scanner, const tapirscan_image *image,
     const tapirscan_scan_options *options, tapirscan_result *out, tapirscan_error *error);
 

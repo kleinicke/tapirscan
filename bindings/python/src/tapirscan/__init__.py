@@ -43,7 +43,6 @@ from .results import (
     ValueRange,
     _barcode,
     _from_json,
-    best,
 )
 
 __all__ = [
@@ -67,7 +66,6 @@ __all__ = [
     "StructuredAppend",
     "UndecodedRegion",
     "ValueRange",
-    "best",
     "common_formats",
     "common_linear_formats",
     "inspect",

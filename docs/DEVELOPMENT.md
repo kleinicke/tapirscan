@@ -16,7 +16,7 @@ plus space for compiled modes.
 rustup toolchain install 1.91.1 --profile minimal --target wasm32-unknown-unknown
 cargo +1.91.1 fetch --locked --manifest-path multiformat/Cargo.toml
 cargo +1.91.1 fetch --locked --manifest-path bindings/rust/Cargo.toml
-python3 scripts/verify_import.py
+python3 scripts/verify_sources.py
 ```
 
 ## Build the library
@@ -29,22 +29,23 @@ npm run build --prefix bindings/javascript
 npm test --prefix bindings/javascript
 ```
 
-Both adapters build the prepared public Rust package. `build_wasm.py` verifies
-source and binary identities in the `apiWasm` manifest selected by `provenance/modes.json`; `--record`
-records an intentionally changed build after review and validation. Release WASM
-builds include the four stable modes and four experimental JavaScript Turbo presets.
-Preset recipes come from `scripts/build_turbo.py`; their compile-time settings are
-recorded with each artifact. Environment overrides remain development-only.
+Both adapters build the prepared public Rust package. `build_wasm.py` compiles the
+four stable modes and four experimental JavaScript Turbo presets from the current
+source into `bindings/javascript/wasm/` as `low.wasm`, `medium.wasm`, `high.wasm`,
+`very-high.wasm` and `experimental-turbo{2,4,8,16}.wasm`. Mode settings live in
+`config/modes.json`; preset recipes come from `scripts/build_turbo.py`. The
+`wasm/build.json` manifest records a digest of the WASM source inputs, the file
+hashes and each preset's compile-time settings. A rebuild from unchanged source
+must reproduce the same hashes. `npm pack` refuses WASM files whose digest differs
+from the current source tree. Environment overrides remain development-only.
 
 `core/src` is directly editable production source. `python3 scripts/build.py MODE`
 runs its selected core tests without applying patches. Plain Cargo defaults to
 Medium; use `--no-default-features --features mode-low` for a different mode.
 See [core architecture and mode differences](../core/README.md).
 
-Development builds verify required decoder imports with
-`verify_import.py --imports-only`. The ordinary command additionally checks the
-recorded release source snapshot. Neither command requires a research checkout.
-Historical recipe reproduction belongs in the separate experiment workspace.
+`verify_sources.py` checks the repository boundary and the generated format
+declarations. Experiments with scanner recipes belong in a separate experiment workspace, not in this repository.
 
 ## Install local packages
 
@@ -58,8 +59,7 @@ python3 -m pip wheel --no-deps --wheel-dir build/wheels bindings/python
 python3 -m pip install build/wheels/tapirscan-*.whl
 ```
 
-Python wheels include the native library, which contains every mode. In a source checkout, you can instead
-use `library_dir="build/native"` or `TAPIRSCAN_LIBRARY_DIR`. The wheel builder
+Python wheels include the native library, which contains every mode. In a source checkout, use `library_dir="build/native"` or `TAPIRSCAN_LIBRARY_DIR`. The wheel builder
 accepts `TAPIRSCAN_NATIVE_DIR` for a prebuilt directory and fails if a mode is missing.
 
 Linux release wheels must be built/repaired for the advertised manylinux baseline;
@@ -75,14 +75,15 @@ pnpm --dir demo build
 pnpm --dir demo preview
 ```
 
-The demo uses the locally packaged scanner. Its asset preparation checks WASM
-hashes, creates the synthetic example, and copies the independent comparison
-engines. See [camera behavior and hosting](../demo/README.md).
+The demo's `-next` readers use the local library build, so build the WASM files and
+the JavaScript package first. Its main readers use the latest npm release. Asset
+preparation copies both sets of engines, creates the synthetic example, and copies
+the independent comparison engines. See [camera behavior and hosting](../demo/README.md).
 
 ## Validate changes
 
 ```sh
-python3 scripts/verify_import.py
+python3 scripts/verify_sources.py
 node tools/quality/install.mjs
 node tools/quality/all.mjs
 ```
@@ -93,14 +94,13 @@ and a JDK in `JAVA_HOME`. You can save local tool paths in the ignored
 for the focused tests, platform matrix, and reproduction commands.
 
 The public package is assembled under `build/crates/tapirscan` by
-`scripts/prepare_rust.py`. `--refresh` verifies frozen decoder imports and updates generated
+`scripts/prepare_rust.py`. `--refresh` verifies the repository boundary and updates generated
 sources while preserving compilation caches. Each WASM artifact selects one mode through Cargo features. The C library
 contains all four modes; ordinary Rust packages include all modes by default.
 Generated sources are build outputs, not a second implementation to edit.
 
-Algorithm changes use ordinary diffs in `core/src` and exact experiment records.
-Follow [PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); imported decoder inputs and their
-checksums remain immutable.
+Algorithm changes use ordinary diffs in `core/src`.
+Follow [PROMOTING_CHANGES.md](PROMOTING_CHANGES.md); decoder changes in `multiformat/` follow the same steps.
 
 ## Maintained runtime boundaries
 
@@ -117,9 +117,9 @@ session. Keep scanner decisions in Rust so experiments apply to every binding.
 Format names, native bits, ordered presets and reserved add-on flags are declared
 in `config/formats.json`. Run `python3 scripts/generate_formats.py` after changing
 it, then `python3 scripts/generate_formats.py --check`. Generated Rust and
-TypeScript declarations are checked in; `verify_import.py` also checks for drift.
+TypeScript declarations are checked in; `verify_sources.py` also checks for drift.
 Changing a format bit is an API/ABI change, not a routine registry edit. The pinned
-decoder implementation still needs its own promotion when adding a new format.
+decoder implementation needs its own promotion when a format is added.
 
 ## Reproducible WASM builds
 
@@ -131,12 +131,10 @@ wrapper filename includes its source hash so Cargo invalidates its cache when th
 wrapper changes. Ordinary native builds retain Cargo's standard compiler invocation.
 
 The wrapper uses Cargo's documented [compiler wrapper interface](https://doc.rust-lang.org/cargo/reference/config.html#buildrustc-wrapper).
-WASM artifact hashes must agree between independent checkout paths before promotion.
+WASM artifact hashes must agree between independent checkout paths.
 
-WASM source identity covers compiled sources and build tools. The mutable
-`provenance/modes.json` selection is checked against the manifest's mode/preset
-artifact records separately; updating a documentation-only runtime snapshot does
-not change WASM source identity. Source and binary hash checks remain required.
+The WASM source digest in `build.json` covers compiled sources, build tools and
+`config/modes.json`; documentation and JavaScript host changes do not affect it.
 
 Use the [scanner comparison command](COMPARING_SCANNERS.md) to record native or WASM parity and paired timings between built checkouts.
 
@@ -149,26 +147,25 @@ python3 scripts/build_native.py
 ```
 
 Package preparation updates changed generated files and removes obsolete modules,
-preserving timestamps for unchanged Cargo inputs. Source generation finishes in a
+preserving timestamps for Cargo inputs that did not change. Source generation finishes in a
 temporary directory before updating the package, so a failed transformation leaves
-the previous package usable. Each mode has its own Cargo output directory so cached builds cannot pick up
+the existing package usable. Each mode has its own Cargo output directory so cached builds cannot pick up
 another mode’s same-named WASM or example executable. Native and WASM commands hold an exclusive package
 lock through their build. A competing command fails with the lock path; after an
 interruption, inspect its `owner` PID and remove the lock only after that process
 has stopped. Direct Cargo consumers must not overlap a package refresh.
 
-For scanner experiments before release promotion:
+For scanner experiments:
 
 ```sh
 python3 scripts/build_wasm.py --development
 npm run build --prefix bindings/javascript
 ```
 
-Development assets and their manifest live under `build/wasm-development/`.
-Add a mode argument, such as `medium`, to build only that mode. When source
-changes, the development manifest drops records for modes not rebuilt; release
-recording still requires all four modes for a changed source identity.
-Pass that manifest and its `assets/` directory to the comparison command's
-`--candidate-wasm` and `--candidate-assets` options. Release assets, tags and
-recorded manifests stay unchanged; normal promotion still requires new immutable
-identities and the release checks.
+Development assets live under `build/wasm-development/assets/` with plain mode
+names. Add a mode argument, such as `medium`, to build only that mode. Package
+assets and `build.json` are not modified by development builds. Passing a mode
+to a package build rebuilds just that mode and records only files built from the
+current source, so `npm pack` fails until every file is rebuilt.
+`TAPIRSCAN_LOW_CLASSIC=1 python3 scripts/build_wasm.py --development low` builds the
+core's Low Classic policy for comparisons; it is not part of the demo or package.

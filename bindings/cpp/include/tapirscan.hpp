@@ -171,7 +171,7 @@ struct Barcode {
     std::string text;
     Format format = Format::Ean13;
     Quad polygon{};
-    /// Uncalibrated, reader-specific evidence; used by `best`.
+    /// Uncalibrated, reader-specific evidence; used by `ScanResult::best`.
     std::uint64_t support = 0;
     /// Original decoded bytes where the reader reports them.
     std::optional<std::vector<std::uint8_t>> payload_bytes;
@@ -184,17 +184,14 @@ struct Barcode {
     std::array<double, 4> rect() const;
 };
 
-/// Highest support, keeping the first read on ties; null when empty. Works on
-/// `scan` output and inspection results alike. Support is uncalibrated evidence,
-/// so select by format, payload or position when the application knows them.
+namespace detail {
 inline const Barcode* best(const std::vector<Barcode>& barcodes) {
     const Barcode* winner = nullptr;
     for (const auto& barcode : barcodes)
         if (!winner || barcode.support > winner->support) winner = &barcode;
     return winner;
 }
-/// Rejected: the pointer would dangle once the temporary vector is destroyed.
-const Barcode* best(const std::vector<Barcode>&&) = delete;
+}  // namespace detail
 
 /// A localized region without an accepted decode; format is empty when unknown.
 struct UndecodedRegion {
@@ -205,8 +202,9 @@ struct UndecodedRegion {
 /// Decoded values and their source-image locations, owned by the caller.
 struct ScanResult {
     std::vector<Barcode> barcodes;
-    /// See `tapirscan::best`. Temporaries are rejected to avoid dangling pointers.
-    const Barcode* best() const& { return tapirscan::best(barcodes); }
+    /// Highest support, keeping the first read on ties; null when empty. Support is
+    /// uncalibrated evidence, not confidence. Temporaries are rejected to avoid dangling pointers.
+    const Barcode* best() const& { return detail::best(barcodes); }
     const Barcode* best() const&& = delete;
     /// Decoded text of every barcode, in scanner order.
     std::vector<std::string> values() const {
@@ -225,8 +223,6 @@ struct InspectionResult : ScanResult {
     std::uint64_t height = 0;
     Mode mode = Mode::Medium;
     double elapsed_ms = 0;
-    /// The engine reported a work limit. False does not guarantee exhaustive scanning.
-    bool unfinished = false;
     /// Unstable engine diagnostics JSON from inspection.
     std::string diagnostics;
 
@@ -313,7 +309,6 @@ public:
         result.height = info.height;
         result.mode = static_cast<Mode>(info.mode);
         result.elapsed_ms = info.elapsed_ms;
-        result.unfinished = info.unfinished != 0;
         result.undecoded.reserve(static_cast<std::size_t>(info.undecoded_count));
         for (std::uint64_t i = 0; i < info.undecoded_count; ++i) {
             tapirscan_region r{};

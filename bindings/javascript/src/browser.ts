@@ -12,10 +12,11 @@ import type {
 } from "./index.js";
 import { ScannerError } from "./rust-session.js";
 
-export { best } from "./index.js";
 export { ScannerError } from "./rust-session.js";
 export type {
   Barcode,
+  DiagnosticBarcode,
+  Diagnostics,
   EanAddOnPolicy,
   Format,
   FormatSelection,
@@ -23,6 +24,7 @@ export type {
   Mode,
   PixelImage,
   Quad,
+  RegionEvidence,
   ScanOptions,
   InspectionResult,
   ScanResult,

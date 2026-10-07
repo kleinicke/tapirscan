@@ -90,7 +90,7 @@ test("one-shot scan reads files and every image source kind", async () => {
 test("a reusable scanner queues concurrent scans and freezes results", async () => {
   const outcome = await page.evaluate(async () => {
     const { image, canvas, tapirscan } = globalThis.fixture;
-    const { Scanner, best } = tapirscan;
+    const { Scanner } = tapirscan;
     const scanner = new Scanner({ mode: "low", formats: ["EAN13", "QRCode"] });
     try {
       await scanner.ready;
@@ -102,9 +102,9 @@ test("a reusable scanner queues concurrent scans and freezes results", async () 
       const report = await scanner.inspect(canvas, { formats: "EAN13", extendedBudget: true });
       return {
         texts: reads.map((result) => result.values),
-        best: best(reads[0].barcodes)?.text,
+        best: reads[0].best?.text,
         frozen: Object.isFrozen(reads[0]) && Object.isFrozen(reads[0].barcodes[0].polygon),
-        report: [report.mode, report.values, typeof report.unfinished, Boolean(report.diagnostics)],
+        report: [report.mode, report.values, Boolean(report.diagnostics)],
       };
     } finally {
       scanner.dispose();
@@ -114,7 +114,7 @@ test("a reusable scanner queues concurrent scans and freezes results", async () 
   assert.deepEqual(outcome.texts, [[text], [text], [text]]);
   assert.equal(outcome.best, text);
   assert.equal(outcome.frozen, true);
-  assert.deepEqual(outcome.report, ["low", [text], "boolean", true]);
+  assert.deepEqual(outcome.report, ["low", [text], true]);
 });
 
 test("errors keep their types, and disposal rejects queued work", async () => {

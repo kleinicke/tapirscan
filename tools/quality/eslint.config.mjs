@@ -16,7 +16,6 @@ export default [
       "sources/**",
       "datasets/**",
       "core/**",
-      "provenance/**",
       "**/experimental-built/**",
       "**/public/**",
     ],

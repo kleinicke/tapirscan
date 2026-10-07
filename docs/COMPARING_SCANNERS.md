@@ -10,11 +10,11 @@ python scripts/compare_scanners.py \
   --baseline /path/to/baseline \
   --candidate /path/to/candidate \
   --dataset-root /path/to/tapirscan-datasets \
-  --manifest /path/to/tapirscan-datasets/datasets/splits/rotation_priority_20260910/core500.json \
-  --output /path/to/new-evidence/native
+  --manifest /path/to/manifest.json \
+  --output /path/to/evidence/native
 ```
 
-Run again with `--backend wasm --output /path/to/new-evidence/wasm` for WASM.
+Run again with `--backend wasm --output /path/to/evidence/wasm` for WASM.
 The default selection is all four modes, EAN13 and retail formats, default budgets,
 full diagnostics, and five timing repetitions on 50 evenly spaced images. Use
 `--budgets default extended`, `--modes low medium`, `--formats QRCode`, or
@@ -28,16 +28,16 @@ command's selections for that row. `eanAddOnPolicy` accepts `Ignore`, `Read`, or
 `Require`. Encoded images are converted to RGBA without applying EXIF rotation.
 
 Native builds are found in each checkout's `build/native`. WASM selection comes
-from its `provenance/modes.json`, with assets in `bindings/javascript/wasm`.
+from `bindings/javascript/wasm/build.json`, with assets in the same directory.
 `--baseline-native`, `--candidate-native`, `--baseline-wasm`, `--candidate-wasm`,
 `--baseline-assets` and `--candidate-assets` can select captured artifacts instead.
-The `*-wasm` options name identity manifests. The harness uses its current Python
+The `*-wasm` options name `build.json` files. The harness uses its current Python
 facade for both native libraries, which must support that ABI. WASM uses each
 checkout's built JavaScript facade. This is a same-backend before/after comparison;
 it does not assert native/WASM floating-point equivalence.
 
 The command refuses to overwrite an evidence directory. `report.json` records
-source state, actual artifact hashes, the manifest identity, host and runtime,
+source state (git commit and dirty state), actual artifact hashes, the `build.json` source digest, host and runtime,
 comparison counts and timing distributions. `inputs.json` identifies the actual
 files. `differences.jsonl` retains at most ten full differences by default, while
 all differences count toward failure. Any mismatch exits with status 1. Errors in
@@ -49,8 +49,7 @@ scanners reused, warm-up scans, alternating baseline/candidate order, and debug
 output disabled. Timings include public binding conversion and exclude compilation,
 image decoding and result comparison. `timings.jsonl` retains every paired sample;
 summary groups separate modes, formats, budgets and supplement policy. Avoid
-concurrent builds or other heavy work while measuring. Treat these measurements as
-evidence for the selected cohort and runtime, not a general speed guarantee.
+concurrent builds or other heavy work while measuring.
 
 `--backend browser --playwright-module /absolute/path/to/playwright/index.mjs`
 runs the same comparisons inside headless Chromium. Add `--browser-channel chrome`

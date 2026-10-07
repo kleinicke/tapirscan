@@ -198,7 +198,7 @@ def scan_native(
     )
     elapsed = (time.perf_counter_ns() - start) / 1e6
     return elapsed, clean(
-        {"public": [b.as_dict() for b in barcodes], "diagnostics": None}
+        {"public": [b.as_dict() for b in barcodes.barcodes], "diagnostics": None}
     )
 
 
@@ -480,7 +480,11 @@ def artifacts(config: dict[str, Any], label: str) -> dict[str, object]:
         files = [root / f"{prefix}tapirscan{suffix}"]
     else:
         manifest = Path(config[label + "Wasm"])
-        entries = json.loads(manifest.read_text())["modes"]
+        entries = [
+            {"mode": entry["mode"], "file": name}
+            for name, entry in json.loads(manifest.read_text())["files"].items()
+            if "preset" not in entry
+        ]
         root = Path(config[label + "Assets"])
         files = [
             manifest,
@@ -542,7 +546,7 @@ def arguments() -> argparse.Namespace:
     for label in ("baseline", "candidate"):
         parser.add_argument(f"--{label}-native", type=Path)
         parser.add_argument(
-            f"--{label}-wasm", type=Path, help="WASM identity manifest override"
+            f"--{label}-wasm", type=Path, help="WASM build.json override"
         )
         parser.add_argument(
             f"--{label}-assets", type=Path, help="WASM asset directory override"
@@ -585,9 +589,11 @@ def main() -> None:
         config[label + "Native"] = str(
             (getattr(args, label + "_native") or root / "build/native").resolve()
         )
-        selection = json.loads((root / "provenance/modes.json").read_text())
         config[label + "Wasm"] = str(
-            (getattr(args, label + "_wasm") or root / selection["apiWasm"]).resolve()
+            (
+                getattr(args, label + "_wasm")
+                or root / "bindings/javascript/wasm/build.json"
+            ).resolve()
         )
         config[label + "Assets"] = str(
             (

@@ -1,17 +1,16 @@
 # Public API design
 
-This is the 1.3.0 API revision. See [migration](API_MIGRATION.md).
+This page describes the public API. See [upgrading](API_MIGRATION.md) when moving from an earlier version.
 `scan` returns a lightweight `ScanResult`: decoded strings through `values`,
 and their locations through `barcodes`. Each barcode retains format, geometry,
 support and optional payload metadata. `best` is an optional convenience.
-There is no public `debug` option. Python and Rust also allow direct iteration.
+There is no public `debug` option. Results are not iterable; use `barcodes`.
 
 Inspection is explicit and returns `InspectionResult`:
 
 - `barcodes`: the same decoded instances as scanning with the same options.
 - `undecoded`: localized proposals without accepted decodes. They can be false
   candidates, failed attempts or deferred work, and may overlap.
-- `unfinished`: the engine reported a work limit. False does not promise exhaustive coverage.
 - Image dimensions, selected mode and scan timing.
 - `diagnostics`: unstable engine-specific evidence for advanced consumers.
 
@@ -19,9 +18,8 @@ C uses owned result handles for both operations. Count/barcode/copy accessors wo
 for either; summary and unread-region accessors require inspection. JSON is lazy:
 ordinary results serialize to a barcode array, inspection to a schema-2 report.
 
-`values` is a convenience projection of decoded text. `best(barcodes)` selects the largest reader-specific support
-from any barcode list, including `result.barcodes`, keeping first-read ties;
-`result.best` applies the same rule to either result type. It is not a most-reliable selection across formats or
+`values` is a convenience projection of decoded text. `result.best` selects the largest reader-specific support
+of either result type, keeping first-read ties. It is not a most-reliable selection across formats or
 efforts and does not change scan work. Applications should select by the format,
 payload or position they need. Support remains uncalibrated evidence.
 
@@ -43,15 +41,13 @@ Source-detail recovery can discover additional candidates.
 It is valid for every format selection, including selections changed per call.
 The public contract does not prescribe candidate counts, iteration limits,
 shared versus per-candidate budgets, or which internal search stages expand.
-Those details may evolve without changing this API. Effort mode remains separate.
+Those details can change without changing this API. Effort mode is separate.
 
-Currently, true removes the primary EAN-13/UPC-A shared retry and association caps.
-Other readers currently keep their existing budgets; accepting the flag does not
-claim that every reader already performs extra work. Future readers can extend
-appropriate budgets under the same flag. Per-candidate effort, intentional
-deferral, localization, sampling, result and ambiguity limits still apply.
-It is not unlimited search or a deadline, and `unfinished` may remain true.
-The adapters translate this intent to the engine’s work controls. There is no retry-until-finished loop.
+True removes the primary EAN-13/UPC-A shared retry and association caps.
+Other readers keep their budgets; accepting the flag does not mean every reader
+performs extra work. Per-candidate effort, intentional deferral, localization,
+sampling, result and ambiguity limits still apply. It is not unlimited search or
+a deadline, and there is no retry-until-finished loop.
 
 ## Configuration and ownership
 

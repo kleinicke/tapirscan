@@ -60,7 +60,6 @@ These are internal reader effort levels, not comparable work or confidence score
 QR High adds threshold/sharpen recovery; Very High also tries bounded curved-grid
 recovery for Model 2 version 2 and above. Packed RGBA QR-only inputs use direct
 WASM upload with the same grayscale conversion and ignored alpha.
-`unfinished` reports exhausted limits; no public continuation option is available.
 EAN13-only scanning does not invoke them. When EAN13
 and UPCA are both enabled, zero-prefixed EAN13 is returned as UPCA.
 
@@ -74,13 +73,12 @@ with multiple symbols remain multiple results; single-result selection happens
 after scanning and ranks by support.
 
 Undecoded localization for Code39, ITF, Codabar and failed DataBar payloads is
-incomplete. Candidate, retry and parsing caps are reflected in `unfinished`;
-a bounded search may still return valid reads. Fixed sampling strategies and
-unsupported format variants are not completeness guarantees. Scores are not calibrated probabilities. These limitations are
-inherited from the promoted experiment, not release performance guarantees.
+incomplete. Candidate, retry and parsing caps bound the search,
+which may still return valid reads. Fixed sampling strategies and
+unsupported format variants are not completeness guarantees. Scores are not calibrated probabilities.
 
 Python and JavaScript optionally expose two- and five-digit EAN/UPC supplements
 through the creation policy `Ignore` (default), `Read` or `Require`. EAN8
 supplements are a nonstandard extension.
-The localized-linear strategy remains internal; public scanning
+The localized-linear strategy is internal; public scanning
 uses the full-frame strategy.

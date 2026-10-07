@@ -54,8 +54,10 @@ async function pair(mode, addon) {
     const instances = [];
     for (const label of ["baseline", "candidate"]) {
       const manifest = JSON.parse(readFileSync(config[`${label}Wasm`], "utf8"));
-      const entry = manifest.modes.find((entry) => entry.mode === mode);
-      const bytes = readFileSync(path.join(config[`${label}Assets`], entry.file));
+      const file = Object.keys(manifest.files).find(
+        (name) => manifest.files[name].mode === mode && manifest.files[name].preset === undefined,
+      );
+      const bytes = readFileSync(path.join(config[`${label}Assets`], file));
       const host = await import(
         pathToFileURL(path.join(config[label], "bindings/javascript/dist/index.js"))
       );

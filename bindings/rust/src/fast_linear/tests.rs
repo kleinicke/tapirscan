@@ -73,7 +73,6 @@ fn source_density_and_axis_retry_preserve_clean_retail_values() {
                 [expected],
                 "tier={TIER}, scale={scale}, padding={padding}, rotated={rotated}"
             );
-            assert!(result.unfinished);
         }
     }
 }
@@ -114,7 +113,6 @@ fn axis_confirmation_preserves_two_nearby_equal_ean8_symbols() {
         centers.sort_by(f64::total_cmp);
         assert!((20.0..100.0).contains(&centers[0]));
         assert!((120.0..200.0).contains(&centers[1]));
-        assert!(result.unfinished);
     }
 }
 
@@ -170,7 +168,6 @@ fn short_clean_bars_keep_three_rows_and_do_not_invent_itf() {
                 [expected],
                 "tier={TIER}, scale={scale}, padding={padding}, rotated={rotated}"
             );
-            assert!(result.unfinished);
         }
     }
 }

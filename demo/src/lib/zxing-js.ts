@@ -119,6 +119,5 @@ export function scanZXingJS(
     width,
     height,
     scanMs: performance.now() - start,
-    unfinished: true,
   };
 }

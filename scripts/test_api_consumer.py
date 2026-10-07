@@ -80,13 +80,11 @@ def check(manifest_path: Path, library_dir: str | None = None) -> list[dict[str,
                         [b["text"] for b in case["expected"]],
                         (mode, case["name"]),
                     )
-                    if "unfinished" in case:
-                        checks.assertEqual(result.unfinished, case["unfinished"])
                     exported = result.as_dict()
                     checks.assertEqual(json.loads(json.dumps(exported)), exported)
                     checks.assertEqual(exported["values"], result.values)
                     actual = []
-                    for read in result:
+                    for read in result.barcodes:
                         actual.append(metadata(read, case))
                         checks.assertIn(
                             read.format,
@@ -128,7 +126,6 @@ def check(manifest_path: Path, library_dir: str | None = None) -> list[dict[str,
                             {
                                 "mode": mode,
                                 "name": case["name"],
-                                "unfinished": result.unfinished,
                                 "barcodes": [
                                     {
                                         "text": b.text,
@@ -137,7 +134,7 @@ def check(manifest_path: Path, library_dir: str | None = None) -> list[dict[str,
                                         "eanAddOn": b.ean_add_on,
                                         "polygon": b.polygon,
                                     }
-                                    for b in result
+                                    for b in result.barcodes
                                 ],
                             }
                         )

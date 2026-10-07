@@ -57,8 +57,6 @@ export async function runApiChecks(Scanner, fixtures, options = {}) {
             fixture.expected.map((b) => b.text).sort(),
             `${mode}/${fixture.name}: payloads`,
           );
-          if ("unfinished" in fixture)
-            equal(result.unfinished, fixture.unfinished, `${fixture.name}: work limit`);
           const actual = result.barcodes.map((b) => {
             check(
               (Array.isArray(fixture.formats) ? fixture.formats : [fixture.formats]).includes(
@@ -117,7 +115,6 @@ export async function runApiChecks(Scanner, fixtures, options = {}) {
             observations.push({
               mode,
               name: fixture.name,
-              unfinished: result.unfinished,
               barcodes: result.barcodes.map(({ text, format, support, polygon, eanAddOn }) => ({
                 text,
                 format,

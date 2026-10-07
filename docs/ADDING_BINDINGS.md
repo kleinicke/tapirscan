@@ -2,7 +2,7 @@
 
 Anyone can ask an AI coding assistant to scaffold a Tapirscan binding with a
 single prompt. The shared C ABI makes that practical: there is no need to port
-the decoding algorithm. Generated code still needs compilation, ownership tests
+the decoding algorithm. Generated code needs compilation, ownership tests
 and decoding checks before it is ready for users.
 
 Start with this prompt, replacing the language and target platforms:
@@ -11,7 +11,7 @@ Start with this prompt, replacing the language and target platforms:
 > bindings/c/include/tapirscan.h and docs/NATIVE_BINDINGS.md. Follow the current
 > Java and C++ wrappers for ownership and UTF-8 handling. Provide a simple scan
 > API following docs/API_DESIGN.md: decoded instances, undecoded proposals,
-> source-image polygons and work-limit status, with optional diagnostics and
+> source-image polygons, with optional diagnostics and
 > format selection, extended budget and all four modes. Preserve native status
 > codes, explicit buffer lengths and result cleanup on errors. Include build
 > instructions, one minimal example and a scan_raw harness printing the same JSON

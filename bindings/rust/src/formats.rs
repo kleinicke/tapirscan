@@ -418,7 +418,7 @@ impl Scanner {
                 }));
             }
         }
-        typed_result(reads, unread, unfinished, localization_limited, raw)
+        typed_result(reads, unread, unfinished, raw)
     }
 }
 
@@ -456,13 +456,7 @@ fn primary_result(result: &crate::Result) -> Result<EngineScan, Error> {
         .retain_diagnostics
         .then(|| crate::result::value(result, MODE, 0.0))
         .transpose()?;
-    typed_result(
-        reads,
-        unread,
-        result.unfinished(),
-        result.localization_work_limited,
-        raw,
-    )
+    typed_result(reads, unread, result.unfinished(), raw)
 }
 
 fn format_diagnostics(
@@ -521,7 +515,6 @@ pub(crate) fn typed_result(
     reads: Vec<Read>,
     unread: Vec<Region>,
     unfinished: bool,
-    localization_limited: bool,
     mut diagnostics: Option<Value>,
 ) -> Result<EngineScan, Error> {
     if let Some(raw) = &mut diagnostics {
@@ -537,8 +530,6 @@ pub(crate) fn typed_result(
             .into_iter()
             .map(Region::into_public)
             .collect::<Result<_, _>>()?,
-        unfinished,
-        localization_limited,
         diagnostics,
     })
 }

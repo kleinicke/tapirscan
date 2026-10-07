@@ -1,65 +1,63 @@
-import { mkdir, readFile, writeFile, rm, cp } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile, rm, cp } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { releases } from "./releases.mjs";
+import { sourceDigest } from "../../bindings/javascript/scripts/verify-package.mjs";
 await import("./build-docs.mjs");
 const root = new URL("../../", import.meta.url);
-const selection = JSON.parse(await readFile(new URL("provenance/modes.json", root), "utf8"));
-const apiWasm = JSON.parse(await readFile(new URL(selection.apiWasm, root), "utf8"));
-if (apiWasm.schema !== 1 || ![1, 2].includes(apiWasm.apiVersion))
-  throw Error("Unsupported Tapirscan WASM manifest");
-const versions = JSON.parse(
-  await readFile(new URL("demo/src/lib/scanner-versions.json", root), "utf8"),
-);
-const current = versions.versions.find((entry) => entry.sourceDigest === apiWasm.sourceDigest);
-if (JSON.stringify(current?.modes) !== JSON.stringify(apiWasm.modes))
-  throw Error("Selected scanner build is missing from the demo version registry");
-const assets = versions.versions.flatMap((entry) =>
-  entry.modes.map(({ file, sha256 }) => [file, sha256]),
-);
-const turbo = JSON.parse(await readFile(new URL("demo/src/lib/turbo.json", root), "utf8"));
-const experimental = [turbo, ...(turbo.previous ?? []), ...(turbo.variants ?? [])];
-assets.push(...experimental.map(({ file, sha256 }) => [file, sha256]));
-async function archivedEngine(file) {
-  const failures = [];
-  for (const host of ["tapirscan.f-kleinicke.de"]) {
-    try {
-      const response = await fetch(`https://${host}/engines/${file}`, {
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (!response.ok) throw Error(`HTTP ${response.status}`);
-      return Buffer.from(await response.arrayBuffer());
-    } catch (error) {
-      failures.push(error);
-    }
+const demo = new URL("../", import.meta.url);
+const modes = ["low", "medium", "high", "very-high"];
+const presets = [2, 4, 8, 16];
+
+// engines/<version>/<mode>.wasm for each npm release, engines/next/ for the
+// repository's current build. Every file is verified by npm's lockfile
+// integrity (releases) or by the build manifest (next).
+const dest = new URL("public/engines/", demo);
+await rm(dest, { recursive: true, force: true });
+for (const { version, alias } of releases()) {
+  const folder = new URL(`node_modules/${alias}/wasm/`, demo);
+  let names;
+  try {
+    names = await readdir(folder);
+  } catch (error) {
+    if (error.code === "ENOENT")
+      throw Error(`Run pnpm install: ${alias} is missing`, { cause: error });
+    throw error;
   }
-  throw new AggregateError(failures, `Cannot fetch archived engine ${file}`);
+  await mkdir(new URL(`${version}/`, dest), { recursive: true });
+  for (const mode of modes) {
+    const matches = names.filter((name) => name === `${mode}.wasm` || name.startsWith(`${mode}-`));
+    if (matches.length !== 1)
+      throw Error(`Tapirscan ${version} must ship exactly one ${mode} engine: ${matches}`);
+    await cp(new URL(matches[0], folder), new URL(`${version}/${mode}.wasm`, dest));
+  }
 }
 
-const loaded = [];
-// Avoid a burst of archive requests on fresh CI runners. Every byte remains hash-pinned.
-for (const [file, hash] of assets) {
-  const local = new URL(
-    (experimental.some((entry) => entry.file === file)
-      ? "build/demo-experiments/"
-      : "bindings/javascript/wasm/") + file,
-    root,
-  );
-  let bytes;
-  try {
-    bytes = await readFile(local);
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-    bytes = await archivedEngine(file);
-  }
-  if (createHash("sha256").update(bytes).digest("hex") !== hash)
-    throw Error(`Engine hash mismatch: ${file}`);
-  loaded.push([file, bytes]);
+const library = new URL("bindings/javascript/", root);
+const build = new URL("wasm/build.json", library);
+let manifest;
+try {
+  manifest = JSON.parse(await readFile(build, "utf8"));
+} catch (error) {
+  if (error.code === "ENOENT")
+    throw Error("Build the library first: python3 scripts/build_wasm.py", { cause: error });
+  throw error;
 }
-const dest = new URL("public/engines/", new URL("../", import.meta.url));
-await rm(dest, { recursive: true, force: true });
-await mkdir(dest, { recursive: true });
-for (const [file, bytes] of loaded) await writeFile(new URL(file, dest), bytes);
+if (manifest.sourceDigest !== (await sourceDigest()))
+  throw Error("Library WASM files are stale: run python3 scripts/build_wasm.py");
+await readFile(new URL("dist/index.js", library)).catch((error) => {
+  throw Error("Build the JavaScript package: npm run build --prefix bindings/javascript", {
+    cause: error,
+  });
+});
+await mkdir(new URL("next/", dest), { recursive: true });
+for (const name of [...modes, ...presets.map((preset) => `experimental-turbo${preset}`)]) {
+  const bytes = await readFile(new URL(`wasm/${name}.wasm`, library));
+  if (createHash("sha256").update(bytes).digest("hex") !== manifest.files[`${name}.wasm`]?.sha256)
+    throw Error(`Library WASM does not match build.json: ${name}`);
+  await writeFile(new URL(`next/${name}.wasm`, dest), bytes);
+}
 execFileSync("python3", [fileURLToPath(new URL("scripts/prepare_demo.py", root))], {
   stdio: "inherit",
 });

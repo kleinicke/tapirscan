@@ -44,7 +44,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "{}",
         json!({
             "mode": result.mode.as_str(),
-            "unfinished": result.unfinished,
             "best": best,
             "barcodes": result.barcodes.iter().map(|b| json!({
                 "text": b.text,

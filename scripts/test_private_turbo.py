@@ -1,4 +1,4 @@
-"""Keep private Turbo recipes out of release recording and public mode choices."""
+"""Keep private Turbo recipes out of package builds and public mode choices."""
 
 import contextlib
 import io
@@ -27,11 +27,11 @@ class PrivateTurboTests(unittest.TestCase):
         self.assertEqual(tier["TAPIRSCAN_TURBO_DIRECT_SAMPLE"], "1")
         self.assertNotIn("32", TIERS)
 
-    def test_release_recording_rejects_private_selection(self) -> None:
-        """Never record a private Low-slot scanner as an ordinary release."""
+    def test_package_build_rejects_private_selection(self) -> None:
+        """Never build a private Low-slot scanner into the package assets."""
         with (
             patch.dict(os.environ, {"TAPIRSCAN_EXPERIMENTAL_TURBO": "1"}),
-            patch("sys.argv", ["build_wasm.py", "--record", "low"]),
+            patch("sys.argv", ["build_wasm.py", "low"]),
             contextlib.redirect_stderr(io.StringIO()),
             self.assertRaises(SystemExit) as caught,
         ):

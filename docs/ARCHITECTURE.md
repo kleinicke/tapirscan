@@ -1,6 +1,6 @@
 # How Tapirscan works
 
-Tapirscan's main EAN-13 path combines oriented localization with a supplied-region
+Tapirscan combines oriented localization with a supplied-region
 scanner. It uses classical image processing and decoding; neither neural weights
 nor another barcode library are required at runtime.
 
@@ -13,8 +13,8 @@ nor another barcode library are required at runtime.
    barcode evidence; other modes always search the full frame. Inspection reports
    a search window only when it was searched.
 3. **Attempt all primary candidates.** Cheap attempts precede bounded retries.
-   Source evidence decides where the new modes permit additional retry work.
-4. **Recover small details.** Medium, High and Very high inspect up to two source
+   Source evidence decides where the higher modes permit additional retry work.
+4. **Recover small details.** Medium, High and Very High inspect up to two source
    texture seeds, enlarge selected 256-pixel crops threefold, and scan them with
    the Low instance of the maintained core.
 5. **Reconcile and return.** Decoded values have source-coordinate polygons and
@@ -23,8 +23,7 @@ nor another barcode library are required at runtime.
 
 The effort modes change both compiled implementations and host budgets. They are
 not merely aliases for one function with different timeouts. Higher effort does
-not guarantee a strict superset of a lower mode's reads. Bounded recovery remains
-marked unfinished, even when it successfully decodes a symbol.
+not guarantee a strict superset of a lower mode's reads.
 
 ## One scanner, native and WebAssembly
 
@@ -36,11 +35,10 @@ Scanning is synchronous after JavaScript initialization.
 
 Recovery, interpolation, reader ordering, budgets and duplicate reconciliation
 are implemented once in Rust. The JavaScript layer validates inputs, transfers
-pixels and exposes immutable results. Obsolete JavaScript hosts are retained in the experiment archive. They are not
-part of this repository or required by its builds.
+pixels and exposes immutable results.
 
 Grayscale, RGB and RGBA inputs support explicit strides; alpha is ignored.
-Positions refer to the pixels supplied by the caller, not an earlier image before
+Positions refer to the pixels supplied by the caller, not an image before
 resizing. Crop-local candidate indices are never presented as primary indices.
 See [the native contract](NATIVE_BINDINGS.md) and [Python input rules](API_DESIGN.md).
 
@@ -50,7 +48,7 @@ See [the native contract](NATIVE_BINDINGS.md) and [Python input rules](API_DESIG
 contains the private per-mode engine.
 `pipeline.rs` orders image preparation, localization, primary scanning, recovery
 and consolidation. Its stage helpers preserve proposal order, budgets and
-source-coordinate bookkeeping so experiments can change one stage at a time.
+source-coordinate bookkeeping so one stage can change at a time.
 `pipeline/restoration.rs` holds restored-contrast and threshold crop retries;
 `pipeline/source_evidence.rs` checks recovered reads against original pixels.
 `fast_linear.rs` is the bounded Low linear path; `fast_linear/recovery.rs` reuses
@@ -65,9 +63,8 @@ constructed directly. Reader-specific diagnostic fields live in `ReaderPayload`.
 JSON is used only for requested diagnostics and output boundaries.
 
 Keep scanner decisions in the pipeline and result formatting at the boundary.
-A stage extraction still needs paired scans across all four modes, including
-padded gray/RGB/RGBA inputs and compact versus detailed results. The experiment
-workspace retains those cases and outcomes; the library retains API unit tests.
+A stage extraction needs paired scans across all four modes, including
+padded gray/RGB/RGBA inputs and compact versus detailed results.
 
 ## Additional formats
 
@@ -89,7 +86,7 @@ from an EAN-13 result.
 | Directory                                 | Purpose                                                    |
 | ----------------------------------------- | ---------------------------------------------------------- |
 | `core/`                                   | Maintained production algorithms and explicit effort modes |
-| `provenance/`                             | Selected modes and source/binary hashes                    |
+| `config/`                                 | Effort-mode settings and the format registry               |
 | `bindings/javascript/`                    | Browser/Node API and WASM session adapter                  |
 | `bindings/rust/`                          | Public Scanner API and shared private pipeline             |
 | `bindings/wasm/`                          | Thin WebAssembly adapter over the Rust API                 |
@@ -101,16 +98,14 @@ from an EAN-13 result.
 Production builds compile `core/src` directly. The public Rust package relocates
 this shared tree into private per-mode namespaces to support several modes in one
 process. Generated namespaces are build artifacts, not separate maintained copies.
-Research records and original recipes are retained in the separate experiment archive.
 
 The demo's ZXing and ZBar workers are comparison tools. They never supply fallback
 results to Tapirscan, and they are not dependencies of the distributed library.
 
-## Developing algorithms and experiments
+## Changing the algorithms
 
-Edit `core/src` in an isolated experiment worktree. Plain Cargo selects Medium;
+Edit `core/src`. Plain Cargo selects Medium;
 `python3 scripts/build.py MODE` runs a selected production core's tests.
-Historical recipe reconstruction belongs in the experiment workspace.
 See [the core guide](../core/README.md) for mode features and scratch ownership.
 
 | Stage                           | Main implementation                               | Preserve when testing another stage                  |
@@ -121,20 +116,15 @@ See [the core guide](../core/README.md) for mode features and scratch ownership.
 | Observation association         | `core/src/candidate_scanner/association.rs`       | Independent support and source continuity            |
 | Retry planning and execution    | `core/src/multi_scan/plan.rs`, `multi_scan.rs`    | Defined path order, coverage proofs and budgets      |
 | Physical identity and conflicts | `core/src/frame/identity.rs`, `frame/conflict.rs` | Separate equal labels and conflicting values         |
-| Frame assembly                  | `core/src/frame.rs`                               | Stable geometry and unfinished work                  |
+| Frame assembly                  | `core/src/frame.rs`                               | Stable geometry                                      |
 | Source-detail recovery          | `bindings/rust/src/detail.rs`                     | Effort policy and candidate namespaces               |
 | Release duplicate consolidation | `bindings/rust/src/linear_duplicates.rs`          | Supplement identity, ranking and shared pixel budget |
 
-An experiment regression suite belongs with its frozen manifest in the experiment
-workspace. Reference shared images by path and hash, put decoded pixels and full
-outputs in disposable storage, and retain compact comparison results. Exact output
-parity establishes a behavior-preserving refactor on those cases; it does not
-establish accuracy or latency improvements. Production API and ownership tests
-remain alongside the library.
+Exact output parity establishes a behavior-preserving refactor; it does not
+establish accuracy or latency improvements.
 
-### Frozen reader documentation
+### Reader documentation
 
-`multiformat/README.md` describes its historical research wrapper, paths and
-separate WASM build. Those instructions are retained as part of the pinned import;
-they are not current package instructions. Use this guide and `DEVELOPMENT.md`
-for the shared Rust pipeline, single mode-specific WASM and current build commands.
+`multiformat/README.md` documents the pinned reader import and its own wrapper.
+Use this guide and [development](DEVELOPMENT.md) for the shared Rust pipeline,
+the mode-specific WASM and current build commands.

@@ -4,7 +4,7 @@
 
 **Find barcodes at their own angle.**
 
-Orientation-aware barcode scanning for JavaScript, Python and Rust.
+Orientation-aware barcode scanning for JavaScript, Python, Rust, C, C++ and Java.
 
 [Documentation](https://tapirscan.f-kleinicke.de/docs/) · [Try the live demo](https://tapirscan.f-kleinicke.de) · [npm](https://www.npmjs.com/package/tapirscan) · [PyPI](https://pypi.org/project/tapirscan/) · [JavaScript](bindings/javascript/README.md) · [Python](bindings/python/README.md) · [How it works](docs/ARCHITECTURE.md) · [Compare scanners](docs/COMPARISON.md)
 
@@ -15,10 +15,9 @@ and samples across the bars, including diagonally. It is built for photos and ca
 clean horizontal or vertical scanline may be hard to find.
 
 **Supports linear and 2D barcodes**, including EAN/UPC, Code 128, QR Code,
-Data Matrix, PDF417 and Aztec. Retail formats (EAN13, UPCA, EAN8 and UPCE) are
-enabled by default; select additional formats as needed. Four effort modes let
-you choose how much work to spend on a frame. See [format coverage](docs/FORMATS.md)
-for all supported formats and variants.
+Data Matrix, PDF417 and Aztec. Retail formats (EAN-13, UPC-A, EAN-8 and UPC-E) are
+enabled by default; select additional formats as needed. See
+[format coverage](docs/FORMATS.md) for all formats and variants.
 
 - **Find multiple symbols.** Return decoded values and positions in the original image.
 - **Keep useful evidence.** Inspect localized regions even when decoding fails.
@@ -32,26 +31,26 @@ for all supported formats and variants.
 
 Start with Pesto, choose another example, load a photo, or scan with your camera.
 Medium, ZXing and ZBar are enabled initially to compare the same image. Images are
-processed in your browser. Choose Retail, Common or other format selections to compare the supported readers.
+processed in your browser. Choose Retail, Common or other format selections to
+compare the readers.
 
-[![Tapirscan demo comparing scanners on the default Pesto photo](docs/assets/demo.png)](https://tapirscan.f-kleinicke.de)
+[![Tapirscan demo comparing scanners on the default Pesto photo](docs/assets/demo.jpg)](https://tapirscan.f-kleinicke.de)
 
 ## Language support
 
-| Language                | Integration                                             | Guide                                  |
-| ----------------------- | ------------------------------------------------------- | -------------------------------------- |
-| JavaScript / TypeScript | Browser and Node, WASM included                         | [JS/TS](bindings/javascript/README.md) |
-| Python                  | Native platform wheels; Pillow, NumPy and tensors       | [Python](bindings/python/README.md)    |
-| Java                    | JDK 22+ JAR with a separate native library; no Android  | [Java](bindings/java/README.md)        |
-| C++                     | Header-only C++17 wrapper and CMake installation        | [C++](bindings/cpp/README.md)          |
-| C                       | Shared library with typed results and explicit buffers  | [C](bindings/c/README.md)              |
-| Rust                    | Standalone Cargo package; all four runtime effort modes | [Rust](bindings/rust/README.md)        |
+| Language                | Integration                                            | Guide                                  |
+| ----------------------- | ------------------------------------------------------ | -------------------------------------- |
+| JavaScript / TypeScript | Browser and Node, WASM included                        | [JS/TS](bindings/javascript/README.md) |
+| Python                  | Native platform wheels; Pillow, NumPy and tensors      | [Python](bindings/python/README.md)    |
+| Java                    | JDK 22+ JAR with a separate native library; no Android | [Java](bindings/java/README.md)        |
+| C++                     | Header-only C++17 wrapper and CMake installation       | [C++](bindings/cpp/README.md)          |
+| C                       | Shared library with typed results and explicit buffers | [C](bindings/c/README.md)              |
+| Rust                    | Standalone Cargo package                               | [Rust](bindings/rust/README.md)        |
 
-All use the selected release algorithms. Packaging and convenience differ:
-Every binding offers all four effort modes; Java/C/C++ need the native library. Rust has a self-contained source package prepared
-for crates.io, with typed results and runtime mode selection. JavaScript and Python are available on
-[npm](https://www.npmjs.com/package/tapirscan) and [PyPI](https://pypi.org/project/tapirscan/).
-The other language guides explain how to build their bindings from source.
+Every binding offers all four effort modes and the same results. JavaScript and
+Python install from [npm](https://www.npmjs.com/package/tapirscan) and
+[PyPI](https://pypi.org/project/tapirscan/); the other guides explain how to build
+from source. Java, C and C++ use the native library.
 
 Want another language? An AI coding assistant can scaffold a binding from the
 C ABI with a single prompt. See [the binding guide](docs/ADDING_BINDINGS.md) for a
@@ -59,13 +58,11 @@ starter prompt and the checks needed before using or publishing the result.
 
 ## Quick start
 
-These examples use the **1.3.0 API**. When upgrading from 1.2.2, follow the
-[migration guide](docs/API_MIGRATION.md); `scan` returns values and locations; `inspect` adds diagnostics.
-
 Install Tapirscan from [npm](https://www.npmjs.com/package/tapirscan) or
 [PyPI](https://pypi.org/project/tapirscan/). See the
-[GitHub release](https://github.com/kleinicke/tapirscan/releases/latest) for release notes
-and downloadable packages, or [build locally](docs/DEVELOPMENT.md).
+[GitHub releases](https://github.com/kleinicke/tapirscan/releases/latest) for release notes
+and downloadable packages, or [build locally](docs/DEVELOPMENT.md). Upgrading?
+See the [migration guide](docs/API_MIGRATION.md).
 
 ### JavaScript / TypeScript
 
@@ -87,13 +84,12 @@ for (const barcode of result.barcodes) {
 ```
 
 `result.values` contains decoded strings. `result.barcodes` pairs each value
-with its format, four polygon corners and enclosing rectangle. Positions use
-input-image pixels. Both collections are empty when nothing is decoded.
-Use `inspect` for work status, timing, unread regions and diagnostics.
-TypeScript infers these types from the package’s included declarations.
+with its format, four polygon corners and enclosing rectangle, in input-image
+pixels. Both are empty when nothing is decoded. Use `inspect` instead of `scan`
+for timing, unread regions and diagnostics.
 
 Node and code that already has decoded pixels use the core `tapirscan` entry.
-Svelte, SvelteKit and Vite setup, camera scanning and Node loading are in the
+React, Svelte and Vite setup, camera scanning and Node loading are in the
 [JavaScript guide](bindings/javascript/README.md).
 
 ### Python
@@ -116,15 +112,14 @@ for barcode in result.barcodes:
     print(barcode.text, barcode.format, barcode.polygon)
 ```
 
-Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8, UPCE).
-For other linear formats, pass `formats="1D"`; use `"2D"` or `"all"` as needed.
-Set `mode="high"` for more effort on difficult images.
+Defaults are Medium effort and retail formats. For other linear formats, pass
+`formats="1D"`; use `"2D"` or `"all"` as needed. Set `mode="high"` for more
+effort on difficult images.
 
-See the Python guide for [TIFF images with tifffile](bindings/python/README.md#tiff-with-tifffile),
+The Python guide covers [TIFF images](bindings/python/README.md#tiff-with-tifffile),
 [PyTorch tensors](bindings/python/README.md#pytorch-tensors), and
-[array/tensor layouts, value ranges and GPU handling](bindings/python/README.md#array-and-tensor-inputs).
-Install only the image libraries you use. Decoding runs on CPU, including when
-you supply a GPU tensor.
+[array/tensor layouts, value ranges and GPU tensors](bindings/python/README.md#array-and-tensor-inputs).
+Decoding runs on CPU.
 
 ## How it differs from ZXing and ZBar
 
@@ -142,60 +137,46 @@ accuracy ranking. **[Read the illustrated comparison and its sources](docs/COMPA
 
 ## Choose an effort mode
 
-| Mode        | When to use it                                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------------ |
-| `low`       | Live camera scanning when keeping up with incoming frames matters most.                          |
-| `medium`    | Start here: the default for photos and camera frames.                                            |
-| `high`      | Difficult images when you can spend more time on each scan.                                      |
-| `very-high` | Your largest effort budget when latency matters less; includes bounded subpixel EAN-13 recovery. |
-
-`low` uses the former Turbo implementation. The previous implementation is
-called **Low Classic** and remains a demo-only comparison. See
-[Low and Low Classic](docs/LOW_MODES.md) for behavior and compatibility.
-
-JavaScript also offers **experimental Turbo presets** for faster 1D scanning,
-including Retail: `experimentalTurbo: 2 | 4 | 8 | 16`. They trade difficult-image
-recovery for less work and do not provide corresponding 2D speedups. Numbers are
-preset identifiers, not guaranteed multipliers. See [usage and stability](bindings/javascript/README.md#experimental-turbo-presets).
+| Mode        | When to use it                                                                   |
+| ----------- | -------------------------------------------------------------------------------- |
+| `low`       | Live camera scanning when keeping up with incoming frames matters most.          |
+| `medium`    | Start here: the default for photos and camera frames.                            |
+| `high`      | Difficult images when you can spend more time on each scan.                      |
+| `very-high` | The largest effort budget, including subpixel recovery for small EAN-13 symbols. |
 
 Start with `medium`. Try `low` if scanning slows down your camera preview, or
 `high` and `very-high` when an image is difficult to read. Measure on your own
 images and devices: higher effort does not guarantee more reads on every image.
-See the [architecture guide](docs/ARCHITECTURE.md) for implementation details.
+Effort modes tune EAN/UPC, common linear formats and QR Code; other matrix readers
+use a fixed effort.
 
-## Formats and results
+For harder images you can also allow extra reader work per scan with
+`extended_budget=True` (Python), `extendedBudget: true` (JavaScript) or
+`extended_budget: true` (Rust, C, C++). It is still bounded, not an exhaustive search.
 
-The supported retail group includes EAN-13, UPC-A, EAN-8 and UPC-E. Select
-`formats="retail"` in Python or `formats: "retail"` in JavaScript to enable all
-four; Rust provides `Formats::RETAIL`. Retail formats are enabled by default, and
-UPC-A uses the same optical path. Additional supported readers
-include Code 128, Code 39, Code 93, ITF, Codabar, DataBar,
-DataBar Expanded, QR Code, Data Matrix, PDF417, Aztec, and MaxiCode.
+JavaScript also offers **experimental Turbo presets** for faster 1D scanning:
+`experimentalTurbo: 2 | 4 | 8 | 16`. They trade difficult-image recovery for less
+work. See [usage and stability](bindings/javascript/README.md#experimental-turbo-presets).
 
-See [format coverage](docs/FORMATS.md) before choosing Tapirscan for a particular
-symbology. The four effort modes tune EAN-13/UPC-A, Common1D and QR Code. Other matrix
-readers use a fixed effort setting.
+## Results
 
-Results preserve source-image polygons. Every binding returns all decoded
-instances. Use `best(barcodes)` to select the largest reader-specific support;
-inspection reports also provide `result.best` (`result.best()` in Rust). Support is a ranking heuristic, not a probability. Inspection’s `unfinished` reports
-incomplete work; it does not invalidate a returned read or promise that another
-barcode exists. Wrong reads, duplicates, and missed symbols remain possible.
+Every binding returns all decoded instances, including separate labels with the
+same value, with polygons in source-image coordinates. `result.best` selects the
+read with the highest reader-specific support. Support is a ranking heuristic,
+not a probability; select by format or payload when your application knows what
+it expects. Wrong reads, duplicates and missed symbols remain possible.
 
 ## Documentation
-
-[Python guide](bindings/python/README.md) · [JavaScript / TypeScript guide](bindings/javascript/README.md): all settings,
-defaults, format selection, result geometry, and diagnostic options.
 
 | I want to…                         | Start here                                                                                                                 |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Integrate in a browser or Node app | [JavaScript / TypeScript](bindings/javascript/README.md)                                                                   |
 | Scan Python images and arrays      | [Python](bindings/python/README.md)                                                                                        |
 | Use another native language        | [Rust](bindings/rust/README.md), [C](bindings/c/README.md), [C++](bindings/cpp/README.md), [Java](bindings/java/README.md) |
+| Choose formats                     | [Format coverage](docs/FORMATS.md)                                                                                         |
 | Understand the scanner             | [Comparison](docs/COMPARISON.md) · [Architecture](docs/ARCHITECTURE.md)                                                    |
 | Evaluate performance fairly        | [Benchmark guide](docs/BENCHMARKS.md)                                                                                      |
 | Build or contribute                | [Development](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md)                                                       |
-| Prepare a release                  | [Release checklist](docs/RELEASING.md) · [Changelog](CHANGELOG.md)                                                         |
 
 The demo is a separate application. Its photos, UI, and comparison engines are
 not included in the npm package or Python wheels.
@@ -211,27 +192,13 @@ and refined the evaluation process.
 ## Project status
 
 Tapirscan supports the linear and 2D formats listed in [format coverage](docs/FORMATS.md).
-Turbo presets remain experimental. macOS arm64 has been exercised locally; the release workflows must pass
-for each additional platform before its artifacts are published. No general
-claim of superiority over ZXing or ZBar is made without a reproducible paired
-benchmark.
+Turbo presets are experimental. Release artifacts are published only for
+platforms whose release workflows pass. No general claim of superiority over
+ZXing or ZBar is made without a reproducible paired benchmark. See the
+[compatibility policy](CONTRIBUTING.md#api-stability) for API stability.
 
 Licensed under either the [MIT License](LICENSE-MIT) or the
 [Apache License, Version 2.0](LICENSE-APACHE), at your option
 (`MIT OR Apache-2.0`), copyright © 2026 Florian Nick.
 Third-party components retain their own licenses and
-[notices](multiformat/THIRD_PARTY_NOTICES.md). Release preparation is described in the [release checklist](docs/RELEASING.md).
-
-See the [compatibility policy](CONTRIBUTING.md#api-stability)
-for API stability and release changes.
-
-Set `extended_budget=True` (Python), `extendedBudget: true` (JavaScript), or
-`extended_budget: true` (Rust) to allow extra reader work for any format selection.
-Exact budgets may evolve. Today the flag relaxes shared EAN/UPC retry limits;
-other readers retain their existing budgets. It does not guarantee exhaustive
-search, and `unfinished` may remain true.
-
-Very High is also the development target for increasingly small, subpixel
-barcodes. Its current recovery needs a precise affine EAN-13 region; robust
-localization and camera-response handling remain future work. See the
-[subpixel development target](core/README.md#very-high-subpixel-development-target).
+[notices](multiformat/THIRD_PARTY_NOTICES.md).

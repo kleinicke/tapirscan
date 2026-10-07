@@ -7,7 +7,7 @@ node tools/quality/all.mjs
 ```
 
 This is also the CI quality gate on macOS and Linux. It checks repository-wide
-formatting (excluding protected snapshots), import provenance, maintained Rust
+formatting (excluding protected snapshots), the repository boundary, maintained Rust
 and C ABI bindings in all four modes, JS/TS lint and package/consumer types, Python
 lint and types, C/C++/Java compiler warnings, Svelte diagnostics and quality-tool
 regression tests. It continues after failures, prints a final summary, and exits
@@ -44,18 +44,17 @@ Missing dependencies or a missing JDK fail checks; they are never silently skipp
 The ordinary quality gate includes strict Clippy checks for the maintained core in all four
 production modes, and the multiformat crate.
 Frozen decoder imports remain excluded from automatic formatting. Production
-source changes use ordinary formatting and require recorded provenance and [promotion validation](PROMOTING_CHANGES.md).
+source changes use ordinary formatting and require [promotion validation](PROMOTING_CHANGES.md).
 
 ## Tools and focused checks
 
-The release and sibling `../barcode` research repositories share pinned
-Rust 1.91.1 rustfmt/Clippy and the exact JS tooling lockfile in `tools/quality/`.
+The repository pins Rust 1.91.1 rustfmt/Clippy and the exact JS tooling lockfile in `tools/quality/`.
 Prettier formats JS/TS/Svelte and ordinary JSON/CSS/Markdown/YAML. ESLint checks JS,
 with typescript-eslint strict type-aware rules for TS; `tsc` checks types. Retain
 the existing `svelte-check` command in each Svelte app. Ruff formats Python.
 
 Use Node 24 (the exact version is in `.nvmrc`), Python 3 and rustup.
-Install on a new checkout:
+Install on a fresh checkout:
 
 ```sh
 node tools/quality/install.mjs
@@ -69,15 +68,15 @@ No Cursor configuration or background watcher is used.
 
 Agents format once after a coherent batch of edits, before relevant tests/checks.
 Re-read only affected sections if another edit is needed after formatting; do not
-reload whole files merely because a formatter ran. Do not run full research JS
+reload whole files merely because a formatter ran. Do not run full JS
 lint for Rust-only work. Run the checks relevant to changed code and report failures.
 
 Claude Code and Codex `UserPromptSubmit` hooks record starting file hashes once.
 The read-only `Stop` hook checks formatting only for files changed during the turn.
 It does not rewrite files and requests at most one continuation to fix omissions,
 preventing repeated hook loops. An explicit command and the staged Git check remain
-necessary if a hook was unavailable or its final continuation still has failures.
-Editor format-on-save remains enabled. There are no per-edit formatting hooks or
+necessary if a hook was unavailable or failures remain after its continuation.
+Editor format-on-save is enabled. There are no per-edit formatting hooks or
 background writers. Do not have two agents edit the same file concurrently.
 
 ```sh
@@ -96,26 +95,22 @@ staged content and updates the index atomically. It never
 stages working-tree content: fully staged files are aligned with the formatted
 index, while partially staged working files remain untouched. Those files may
 show formatting differences in their unstaged diff. Syntax errors or missing
-tools still stop the commit; formatting-only differences are fixed automatically.
+tools stop the commit; formatting-only differences are fixed automatically.
 Path-only commits (`git commit --only`) use a temporary index; Git can leave
 formatting differences in the regular index afterward. Prefer committing the
 staged selection normally. Immutable camera-demo vendor hosts are excluded.
 
 Fix lint findings with focused behavioral tests. Do not disable strict rules wholesale.
-The release Rust audit checks all targets for all four production core modes and the multiformat crate. Research-only recipes are
-outside that gate. Runtime parity is verified separately.
+The release Rust audit checks all targets for all four production core modes and the multiformat crate. Runtime parity is verified separately.
 
-## Protected decoder imports and promotion
+## Protected files and promotion
 
-The formatter excludes hash-pinned decoder imports, provenance and generated
-assets. Maintained production source is formatted normally. Research-only source
+The formatter excludes generated assets. Maintained production source is formatted normally. Research-only source
 and dated experiment reports are rejected by `scripts/check_repository_boundary.py`,
-which also runs during import verification. Turbo variants are intentionally kept.
+which also runs during source verification.
 
-Format the coherent edit batch, validate affected modes and bindings, then record
-a new source/WASM identity before integration. Development builds verify decoder
-imports without requiring working source to equal the previous release snapshot.
-The full quality gate checks the selected release revision too. Follow
+Format the coherent edit batch, validate affected modes and bindings, then
+rebuild the WASM files before integration. Follow
 [PROMOTING_CHANGES.md](PROMOTING_CHANGES.md).
 
 Sources: [Claude Code hooks](https://code.claude.com/docs/en/hooks),
@@ -133,6 +128,5 @@ with Ruff ALL, ty and strict mypy; C/C++ with compiler conversion/sign warnings
 as errors; and Java with javac all warnings as errors. Java's restricted native
 FFM calls have documented, method-local exceptions; other warnings stay errors.
 
-Frozen JS hosts remain excluded from maintained-source lint and automatic formatting.
-Maintained core and imported multiformat Rust are checked by the regular gate;
+Maintained core and multiformat Rust are checked by the regular gate;
 scanner parity and package installation checks remain separate runtime checks.

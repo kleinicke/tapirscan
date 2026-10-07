@@ -81,13 +81,13 @@ class Formats(unittest.TestCase):
                         "EAN13,Code128,QRCode",
                     )
                     self.assertEqual(
-                        [(b.text, b.format) for b in result],
+                        [(b.text, b.format) for b in result.barcodes],
                         [
                             (b["text"], b["format"])
                             for b in js["debug"]["scan"]["barcodes"]
                         ],
                     )
-                    self.assertEqual(result.best, result[0])
+                    self.assertEqual(result.best, result.barcodes[0])
                     linear_only = scanner.inspect(
                         PixelImage(pixels, width=1000, height=700), formats=["Code128"]
                     )
@@ -143,7 +143,9 @@ class Formats(unittest.TestCase):
                                 )
                             )
                             self.assertEqual(result.values, [text])
-                            observed = [(b.text, b.support, b.polygon) for b in result]
+                            observed = [
+                                (b.text, b.support, b.polygon) for b in result.barcodes
+                            ]
                             if expected is not None:
                                 self.assertEqual(observed, expected)
                             expected = observed
@@ -161,10 +163,8 @@ class Formats(unittest.TestCase):
                                 "QRCode",
                             )
                             self.assertEqual(
-                                result.unfinished, js["debug"]["scan"]["unfinished"]
-                            )
-                            self.assertEqual(
-                                len(result), len(js["debug"]["scan"]["barcodes"])
+                                len(result.barcodes),
+                                len(js["debug"]["scan"]["barcodes"]),
                             )
                             for native, wasm in zip(
                                 result, js["debug"]["scan"]["barcodes"], strict=True
@@ -207,8 +207,10 @@ class Formats(unittest.TestCase):
                             formats=[fmt],
                         )
                         self.assertEqual(result.values, [text])
-                        self.assertEqual(result[0].format, fmt)
-                        self.assertEqual(result[0].text.encode(), text.encode())
+                        self.assertEqual(result.barcodes[0].format, fmt)
+                        self.assertEqual(
+                            result.barcodes[0].text.encode(), text.encode()
+                        )
                         js = run(
                             "node",
                             ROOT / "bindings/javascript/test/native_parity.mjs",
@@ -292,9 +294,6 @@ class Formats(unittest.TestCase):
                             ):
                                 self.assertAlmostEqual(point.x, foreign[0], places=4)
                                 self.assertAlmostEqual(point.y, foreign[1], places=4)
-                        self.assertEqual(
-                            result.unfinished, js["debug"]["scan"]["unfinished"]
-                        )
                         with self.assertRaises(ValueError):
                             scanner.inspect(
                                 PixelImage(pixels, width=width, height=height),

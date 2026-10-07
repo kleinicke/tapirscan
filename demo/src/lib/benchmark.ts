@@ -14,7 +14,6 @@ export interface Observation {
   regions: Region[];
   scanMs?: number;
   error?: string;
-  unfinished?: boolean;
 }
 export interface Scene {
   name: string;
@@ -62,7 +61,6 @@ export function statistics(scenes: Scene[], method: Method) {
     reads: successful.reduce((sum, observation) => sum + observation.regions.length, 0),
     repeated: successful.filter((observation) => repeats(observation.regions)).length,
     extras: successful.reduce((sum, observation) => sum + repeats(observation.regions), 0),
-    unfinished: successful.filter((observation) => observation.unfinished).length,
     mean: times.length ? total / times.length : null,
     median: times.length
       ? (times[Math.floor((times.length - 1) / 2)] + times[Math.floor(times.length / 2)]) / 2
@@ -102,8 +100,8 @@ export class BenchmarkRunner {
   private warm = new Set<Method>();
   private stopped = false;
   private formats: Format[];
-  private releaseVersion: string;
-  constructor(formats: Format[], releaseVersion = "1.2.2") {
+  private releaseVersion?: string;
+  constructor(formats: Format[], releaseVersion?: string) {
     this.releaseVersion = releaseVersion;
     this.formats = formats;
   }
@@ -159,7 +157,6 @@ export class BenchmarkRunner {
           resolve({
             regions: result.regions.filter((region) => !!region.text),
             scanMs: result.scanMs,
-            unfinished: result.unfinished,
           });
         } else fail(new Error("Invalid worker response"));
       };

@@ -11,9 +11,10 @@ export async function browserComparison(config) {
   const modes = {};
   for (const label of ["baseline", "candidate"]) {
     const manifest = JSON.parse(readFileSync(config[`${label}Wasm`], "utf8"));
-    modes[label] = Object.fromEntries(manifest.modes.map((entry) => [entry.mode, entry.file]));
-    for (const entry of manifest.modes)
-      files.set(`/${label}/wasm/${entry.file}`, path.join(config[`${label}Assets`], entry.file));
+    const stable = Object.entries(manifest.files).filter(([, entry]) => entry.preset === undefined);
+    modes[label] = Object.fromEntries(stable.map(([file, entry]) => [entry.mode, file]));
+    for (const [file] of stable)
+      files.set(`/${label}/wasm/${file}`, path.join(config[`${label}Assets`], file));
   }
   const server = createServer((request, response) => {
     const url = new URL(request.url, "http://localhost");

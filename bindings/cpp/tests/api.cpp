@@ -13,14 +13,9 @@ static_assert(accepts_gray<Pixels&>::value && accepts_rgb<const Pixels&>::value 
 static_assert(!accepts_gray<Pixels&&>::value && !accepts_rgb<Pixels&&>::value && !accepts_rgba<Pixels&&>::value);
 static_assert(!accepts_gray<const Pixels&&>::value && !accepts_rgb<const Pixels&&>::value && !accepts_rgba<const Pixels&&>::value);
 
-// best() returns a pointer into its argument, so temporaries are rejected.
-template<class T, class = void> struct accepts_best : std::false_type {};
-template<class T> struct accepts_best<T, std::void_t<decltype(tapirscan::best(std::declval<T>()))>> : std::true_type {};
+// best() returns a pointer into the result, so temporaries are rejected.
 template<class T, class = void> struct result_best : std::false_type {};
 template<class T> struct result_best<T, std::void_t<decltype(std::declval<T>().best())>> : std::true_type {};
-using Barcodes = std::vector<tapirscan::Barcode>;
-static_assert(accepts_best<Barcodes&>::value && accepts_best<const Barcodes&>::value);
-static_assert(!accepts_best<Barcodes&&>::value && !accepts_best<const Barcodes&&>::value);
 static_assert(result_best<tapirscan::ScanResult&>::value && !result_best<tapirscan::ScanResult&&>::value);
 
 int main() {
@@ -34,7 +29,6 @@ int main() {
     assert(result.best() == &result.barcodes[0]);
     result.barcodes[1].support = 20;
     assert(result.best() == &result.barcodes[0]);
-    assert(tapirscan::best(result.barcodes) == result.best());
     result.barcodes.clear();
     assert(!result.best());
     for (auto bits : {0u, 0x80000000u}) {

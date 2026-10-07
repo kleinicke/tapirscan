@@ -37,16 +37,16 @@ check("format", process.execPath, ["tools/quality/cli.mjs", "check-format", "--a
 // Resolve command names to paths: ty requires an actual executable path.
 try {
   env.QUALITY_PYTHON = pythonExecutable(root, env);
-  check("provenance", env.QUALITY_PYTHON, ["scripts/verify_import.py"]);
+  check("sources", env.QUALITY_PYTHON, ["scripts/verify_sources.py"]);
 } catch (error) {
   console.error(error.message);
-  results.push({ name: "provenance", passed: false });
+  results.push({ name: "sources", passed: false });
 }
 for (const group of ["js", "python", "native", "rust"])
   check(group, process.execPath, ["tools/quality/release.mjs", group]);
 check("demo", "npm", ["run", "check", "--prefix", "demo"]);
 check("tooling-tests", process.execPath, ["--test", "tools/quality/test/*.test.mjs"]);
-check("imported-core", process.execPath, ["tools/quality/check.mjs", "rust"]);
+check("rust-core", process.execPath, ["tools/quality/check.mjs", "rust"]);
 
 console.log("\nQuality summary");
 for (const { name, passed } of results) console.log(`${passed ? "PASS" : "FAIL"} ${name}`);

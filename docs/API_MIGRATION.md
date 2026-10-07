@@ -15,13 +15,14 @@ Scanner improvements may change reads, geometry, ordering and runtime.
 Each barcode includes its text, format, polygon and enclosing rectangle.
 C retains its owned result handle and typed accessors.
 
-| In 1.2.2                                             | In 1.3.0                                                  |
-| ---------------------------------------------------- | --------------------------------------------------------- |
-| `result.values` after scanning                       | Unchanged                                                 |
-| `result.barcodes` for text and locations             | Unchanged                                                 |
-| Timing, `unfinished` or `undecoded` on a scan result | Call `inspect` instead of `scan`                          |
-| `debug` scan option and result field                 | Remove the option; use `inspect` and `result.diagnostics` |
-| Explicit rich `ScanResult` type annotation           | Use `InspectionResult` when calling `inspect`             |
+| In 1.2.2                                   | In 1.3.0                                                  |
+| ------------------------------------------ | --------------------------------------------------------- |
+| `result.values` after scanning             | Unchanged                                                 |
+| `result.barcodes` for text and locations   | Unchanged                                                 |
+| Timing or `undecoded` on a scan result     | Call `inspect` instead of `scan`                          |
+| `unfinished` result flag                   | Removed; it was set on nearly every scan                  |
+| `debug` scan option and result field       | Remove the option; use `inspect` and `result.diagnostics` |
+| Explicit rich `ScanResult` type annotation | Use `InspectionResult` when calling `inspect`             |
 
 The usual values-and-locations case stays short:
 
@@ -40,12 +41,13 @@ for barcode in result.barcodes:
     print(barcode.text, barcode.polygon, barcode.rect)
 ```
 
-Python and Rust results remain iterable. Reusable scanners return the same
+Python and Rust results are no longer iterable or `len`-able; use
+`result.barcodes`. The free `best(barcodes)` function is removed in every
+binding; use `result.best`, or select by support from `barcodes`. Reusable scanners return the same
 result types as their one-shot helpers. Rust also exposes `scan_with_options`
 and `inspect_with_options` for per-call settings.
 
-Use `inspect` only when you need timing, undecoded proposals, work status or
-engine diagnostics. Inspection collects additional evidence; ordinary scans
+Use `inspect` only when you need timing, undecoded proposals or engine diagnostics. Inspection collects additional evidence; ordinary scans
 avoid that collection while returning the same decoded values and locations
 for the same options. There is no `debug` argument or deprecated alias.
 
@@ -102,15 +104,14 @@ copying JSON; ordinary JSON is a barcode array, inspection JSON is a schema-2
 report. Typed access does not serialize JSON.
 
 C++ image factories reject temporary vectors; keep the pixel buffer alive until
-scanning returns. C++ `best` rejects temporary barcode vectors because its
+scanning returns. C++ `best()` rejects temporary results because its
 pointer would dangle. Java `Image` accepts byte arrays or `MemorySegment` pixels;
 keep native segments alive and unchanged while scanning. Java locates the library
 through `tapirscan.library`, `TAPIRSCAN_LIBRARY_DIR` or the system library path.
 See the [C](../bindings/c/README.md), [C++](../bindings/cpp/README.md) and
 [Java](../bindings/java/README.md) guides for complete signatures and ownership.
 
-WASM ABI 2 makes ordinary wire results barcode-only. The JavaScript host also
-accepts historical ABI 1 assets for frozen demo comparisons.
+Raw WASM consumers move to WASM ABI 2, whose ordinary results contain only barcodes.
 
 ## 1.2.0: Rust, Python and JavaScript
 
@@ -138,7 +139,6 @@ confidence estimate. There are no deprecated aliases for the replaced APIs.
 
 A proposal without an accepted decode is called **undecoded**, not unreadable.
 It could be a false candidate or need work the selected policy did not perform.
-`unfinished` reports limits and deferrals, not a count of missed barcodes.
 
 The extended-budget flag is valid for all formats and requests additional reader
 work. Exact budgets and stages are implementation details that may evolve. Today

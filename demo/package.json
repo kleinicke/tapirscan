@@ -19,7 +19,8 @@
     "jsqr": "1.4.0",
     "pdfjs-dist": "6.3.289",
     "svelte": "^5.38.0",
-    "tapirscan": "file:../bindings/javascript",
+    "tapirscan": "link:../bindings/javascript",
+    "tapirscan-1-2-2": "npm:tapirscan@1.2.2",
     "zxing-wasm": "3.1.1"
   },
   "devDependencies": {

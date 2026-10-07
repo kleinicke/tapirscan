@@ -8,8 +8,9 @@ is not a successful scan.
 
 1. Freeze the input rasters. Give every reader identical pixels and dimensions;
    record resizing, orientation correction, and color conversion.
-2. Select the same formats. The public demo compares EAN-13 only. Record every
-   reader option, version, WASM hash, and Tapirscan effort mode.
+2. Select the same formats for every reader. Record every
+   reader option, version, and Tapirscan effort mode. Identify Tapirscan by its
+   package version or git commit and the source digest in `wasm/build.json`.
 3. Separate cold initialization from warmed scans. Include the same preprocessing
    and result-conversion stages in each timed measurement. Keep individual reader
    timings separate from the demo's total sequential batch time.
@@ -28,18 +29,14 @@ For camera applications, also measure time to the first correct result and the
 rate of incorrect results over a sequence. A single-image benchmark cannot
 establish autofocus behavior, motion tolerance, or battery use.
 
-## What has been validated here
+## What the repository validates
 
-The release contains reproducible source hashes, native/WASM output checks,
-generated small-barcode and rotation tests, and a browser comparison against the
-promoted research pipeline. These establish integration parity. They are **not**
-a new independent accuracy benchmark or evidence that Tapirscan always beats
-ZXing/ZBar.
-
-Detailed development studies remain in the research repository. Promotion records
-summarize the relevant limitations and exact selections; start with
-[the current promotion](../core/README.md). Performance claims in future
-releases should link to a reproducible public report with the protocol above.
+The repository checks reproducible WASM builds, native/WASM output parity,
+generated small-barcode and rotation tests, and browser parity. These establish
+integration parity. They are **not** an independent accuracy benchmark or
+evidence that Tapirscan always beats ZXing/ZBar. Numbers from any cohort,
+including your own, describe that cohort and runtime only. Performance claims
+should link to a reproducible report that follows the protocol above.
 
 ## Reporting a difficult image
 

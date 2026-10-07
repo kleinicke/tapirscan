@@ -28,7 +28,6 @@ try {
   console.log(
     JSON.stringify({
       mode: result.mode,
-      unfinished: result.unfinished,
       best,
       barcodes: result.barcodes.map(({ text, format, support, polygon }) => ({
         text,

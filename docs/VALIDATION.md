@@ -1,8 +1,7 @@
 # Validation
 
 The release is validated with reproducible mode builds, native/WASM parity,
-public API tests and clean package installations. These checks establish behavior
-on the tested inputs; they do not establish exhaustive decoding or general accuracy.
+public API tests and clean package installations.
 
 The native bindings share ABI 6. Python tests cover pixel inputs, float ranges,
 layouts, optional BGR conversion, tensor ownership, serialization, diagnostics,
@@ -10,7 +9,7 @@ error handling and resource lifetime. JavaScript tests cover typed results,
 format subsets, optional supplement policies, WASM loading and resource lifetime.
 The Rust API checks cover default `scan(image)`, explicit `scan_with_options`,
 owned results and cross-language parity. Exercise both extended-budget settings
-for every selected format, and undecoded geometry independently of debug.
+for every selected format.
 Installed-package checks also exercise browser workers and relocated assets.
 
 `test_bindings.py` compares native bindings exactly. Against WASM, only polygon
@@ -21,15 +20,15 @@ Coordinates must be finite; the tolerance does not grow with image size.
 
 ## Checks to run
 
-| Change                   | Checks                                                          |
-| ------------------------ | --------------------------------------------------------------- |
-| Core algorithm           | `verify_import.py`, selected `build.py` modes, `test_detail.py` |
-| JavaScript binding       | Package build and `npm test`; production demo-worker tests      |
-| Native ABI or facade     | `build_native.py`, C/C++ tests, Java build, `test_bindings.py`  |
-| Format integration       | `test_multiformat.py` with test-only `zxing-cpp` encoder        |
-| Python images or loading | `test_python_images.py`, installed-wheel smoke test             |
-| Native installation      | `test_cmake_install.py`; clean installed-wheel test             |
-| Maintained source        | `node tools/quality/release.mjs all`                            |
+| Change                   | Checks                                                           |
+| ------------------------ | ---------------------------------------------------------------- |
+| Core algorithm           | `verify_sources.py`, selected `build.py` modes, `test_detail.py` |
+| JavaScript binding       | Package build and `npm test`; production demo-worker tests       |
+| Native ABI or facade     | `build_native.py`, C/C++ tests, Java build, `test_bindings.py`   |
+| Format integration       | `test_multiformat.py` with test-only `zxing-cpp` encoder         |
+| Python images or loading | `test_python_images.py`, installed-wheel smoke test              |
+| Native installation      | `test_cmake_install.py`; clean installed-wheel test              |
+| Maintained source        | `node tools/quality/release.mjs all`                             |
 
 The binding checks need built C++ examples and Java classes:
 
@@ -55,13 +54,14 @@ pnpm --dir demo build
 pnpm --dir demo test
 ```
 
-The optional research/browser parity command is documented in the promotion
-record. All generated test images remain temporary.
+The optional browser parity command is documented in
+[PROMOTING_CHANGES.md](PROMOTING_CHANGES.md). Generated test images are temporary.
 
 ## What these checks do not claim
 
-Synthetic regression tests are not an independent accuracy holdout. Timing during
-builds or CI is not a performance benchmark. Browser and native interpolation can
+These checks establish behavior on the tested inputs, not exhaustive decoding or
+general accuracy. Synthetic regression tests are not an independent accuracy
+holdout, and timing during builds or CI is not a performance benchmark. Browser and native interpolation can
 differ slightly across platforms. Consult [format limitations](FORMATS.md) and
 [benchmark methodology](BENCHMARKS.md) when deciding whether the library fits your use.
 
@@ -86,7 +86,7 @@ dependencies.
 
 Put machine-specific audit notes and measurement reports in `docs/internal/`,
 which is ignored by Git. Keep public API contracts, reproducible validation
-commands, benchmark methodology and algorithm provenance in tracked files.
+commands, benchmark methodology and algorithm descriptions in tracked files.
 Generated fixtures, binaries and timing samples belong in `build/`.
 
 To measure optional supplement overhead separately from correctness checks:
@@ -98,4 +98,4 @@ node bindings/javascript/test/benchmark-supplements.mjs build/supplement-fixture
 
 Run benchmarks sequentially after build activity finishes. They report warm-process
 creation and repeated-scan timings; they do not measure browser downloads or
-first-time compilation. Interpret results for the tested images and hardware.
+first-time compilation.

@@ -11,30 +11,26 @@ explicit work limits and support-based ranking. Do not silently introduce a
 neural model or reference-decoder fallback. Performance claims need reproducible
 paired evidence.
 
-`core/src` is the maintained production algorithm. Edit it directly in isolated
+`core/src` and `multiformat/` are maintained production source. Edit them directly in isolated
 experiment worktrees; select one `mode-*` feature or use `scripts/build.py MODE`.
 Read [the core guide](core/README.md) for stage boundaries and mode differences.
-`multiformat/` remains hash-pinned. Never edit or format imported decoder inputs
-to make a build pass. Research archives and unused prototypes belong in the
+Format and lint both like any other source. Research archives and unused prototypes belong in the
 separate experiment workspace; see [repository boundaries](docs/RESEARCH_BOUNDARY.md).
 Preserve all Turbo variants: they are intentionally retained for future API work.
 
-Development builds verify frozen decoder imports and compile current production source.
-After parity and performance validation, record a new runtime source snapshot and
-new immutable WASM identities. `scripts/verify_import.py` checks the release
-snapshot as well as decoder imports. Follow [promotion](docs/PROMOTING_CHANGES.md) when
+Builds compile current production source; the package version and git commit are
+the release identity. `scripts/verify_sources.py` checks the repository boundary
+and generated formats. Follow [promotion](docs/PROMOTING_CHANGES.md) when
 integrating experimental algorithm changes.
 
 ## Changes and verification
 
-This checkout prepares version 1.3.0, following the API revision described in
-`docs/API_MIGRATION.md`. Implement the current documented APIs and preserve the
-synchronized release versions. Follow the compatibility policy in
+Implement the documented APIs and keep the language package versions
+synchronized. Follow the compatibility policy in
 [CONTRIBUTING.md](CONTRIBUTING.md#api-stability) and [API design](docs/API_DESIGN.md).
 
 - Follow `docs/QUALITY.md`; format a coherent batch before running relevant checks.
 - C, C++, Python and Java share native ABI 6: one library containing every mode.
-  Version 1.3.0 and ABI 6 are unreleased; keep ABI 6 while refining this release.
   ABI changes need cross-language parity and installation tests; preserve
   ownership and error behavior.
 - Keep research datasets, private labels, model weights and generated build outputs
@@ -55,23 +51,17 @@ paths and maintainer workflow notes. It is ignored by Git, optional, and not a
 prerequisite for contributing. It must not contain credentials. Public project
 requirements belong in this file or the linked documentation.
 
-## Current selected scanner (2026-09-25)
+## Geometry invariants
 
-The canonical source includes `9a093db` (bounded barcode-profile agreement for
-fuller display extents), selected by the user for production. Preserve the strict
-physical ownership decisions; the new fallback only adjusts display geometry.
-Validation: [consensus experiment](core/README.md).
-Turbo remains separately pinned by `demo/src/lib/turbo.json`; preserve it.
-
-The selected runtime also includes exact integer threefold recovery-crop interpolation
-from experiment `82dfe65`, shared by Medium, High and Very High. Preserve its
-byte-equivalence tests and separate display geometry from physical ownership.
-See [crop optimization](core/README.md).
+Keep display geometry separate from physical ownership: bounded barcode-profile
+agreement may widen a displayed outline but never changes ownership decisions.
+Recovery crops use exact integer interpolation; preserve its byte-equivalence
+tests. The demo's Turbo readers use the current build's `experimental-turbo*.wasm`.
 
 ## Reserved retail production-release benchmark
 
-`../tapirscan-datasets/datasets/release-benchmarks/retail-food-20261005/` is reserved for production releases as of 2026-10-05. Read its `AGENTS.md` and `training-exclusions.json` before selecting scanner inputs. **Never use its source hashes, product groups, aliases or derivatives for training, optimization, development experiments, or casual benchmarks**, even via older datasets or manifests. Only the expressly authorized initial reference baseline and authorized frozen production-release evaluations are permitted. Historical exposure is documented; do not call it an untouched holdout.
+`../tapirscan-datasets/datasets/release-benchmarks/retail-food-20261005/` is reserved for production releases. Read its `AGENTS.md` and `training-exclusions.json` before selecting scanner inputs. **Never use its source hashes, product groups, aliases or derivatives for training, optimization, development experiments, or casual benchmarks**, even via older datasets or manifests. Only the expressly authorized initial reference baseline and authorized frozen production-release evaluations are permitted. Historical exposure is documented; do not call it an untouched holdout.
 
 ## Required runtime for comparisons
 
-All benchmark scanner measurements must use the library's JavaScript API within installed Google Chrome, including WASM loaded by that API. Native Chrome uses its JavaScript BarcodeDetector API. Do not substitute Node, Python, native command-line or direct Rust timing. Record Chrome version, exact package/artifact identity and scan timing boundaries. Node may orchestrate Chrome; it must not perform the measured scanning. The initial reference and Turbo4 runs already meet this requirement.
+All benchmark scanner measurements must use the library's JavaScript API within installed Google Chrome, including WASM loaded by that API. Native Chrome uses its JavaScript BarcodeDetector API. Do not substitute Node, Python, native command-line or direct Rust timing. Record Chrome version, exact package/artifact identity and scan timing boundaries. Node may orchestrate Chrome; it must not perform the measured scanning.
