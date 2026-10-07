@@ -1,0 +1,5 @@
+# Every cargo invocation in this checkout uses the toolchain CI uses.
+[toolchain]
+channel = "1.91.1"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

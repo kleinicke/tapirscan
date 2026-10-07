@@ -1,29 +1,4 @@
 {
-  "default": "medium",
-  "modes": [
-    {
-      "mode": "low",
-      "fitLimit": 0,
-      "maxLocalizedProposals": 32
-    },
-    {
-      "mode": "medium",
-      "fitLimit": 1,
-      "maxLocalizedProposals": 32,
-      "directions": 1
-    },
-    {
-      "mode": "high",
-      "fitLimit": 4,
-      "maxLocalizedProposals": 32,
-      "directions": 2
-    },
-    {
-      "mode": "very-high",
-      "fitLimit": 1,
-      "maxLocalizedProposals": 63,
-      "directions": 2
-    }
-  ],
+  "modes": ["low", "medium", "high", "very-high"],
   "experimentalTurbo": [2, 4, 8, 16]
 }

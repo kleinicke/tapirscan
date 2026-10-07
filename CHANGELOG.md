@@ -34,7 +34,7 @@ rebuild for ABI 6. See the [migration guide](docs/API_MIGRATION.md).
   native library. Rust barcodes implement serde `Serialize`. JavaScript and
   Python expose typed format identifiers.
 - JavaScript adds experimental Turbo presets `2`, `4`, `8` and `16` for faster
-  1D scanning, including Retail. They may change in minor releases; see
+  1D scanning, including Retail, in both the core and the browser entry. They may change in minor releases; see
   [Turbo presets](bindings/javascript/README.md#experimental-turbo-presets).
 
 ### Scanner behavior

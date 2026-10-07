@@ -1,29 +1,27 @@
 # Build and develop Tapirscan
 
-Run commands from the repository root. The first build needs network access for
-dependencies; compilation then runs offline.
-
-```sh
-node tools/quality/install.mjs        # quality tools and formatting hook
-python3 scripts/build_native.py       # native library with all four modes
-python3 scripts/build_wasm.py         # WASM files into bindings/javascript/wasm/
-npm ci --prefix bindings/javascript && npm run build --prefix bindings/javascript
-node tools/quality/all.mjs            # all static checks
-```
-
 ## Prerequisites
 
-- Rust **1.91.1** with the `wasm32-unknown-unknown` target, Python **3.10+**, Node **24**.
+- [rustup](https://rustup.rs), Python **3.10+** and Node **24**. `rust-toolchain.toml`
+  selects Rust 1.91.1 with the WASM target; rustup installs it on first use.
 - CMake and a C/C++ compiler for native examples; JDK **22+** for Java (CI uses JDK 25).
 - `scripts/build.py` refuses to run with less than 10 GiB free disk space.
 - Environment for the quality gate (`QUALITY_PYTHON`, `JAVA_HOME`,
   `.quality-tools/environment.json`): see [quality checks](QUALITY.md#environment).
 
+## Quick start
+
+Run commands from the repository root. The fetch step needs network access; the
+builds afterwards run offline.
+
 ```sh
-rustup toolchain install 1.91.1 --profile minimal --target wasm32-unknown-unknown
-cargo +1.91.1 fetch --locked --manifest-path multiformat/Cargo.toml
-cargo +1.91.1 fetch --locked --manifest-path bindings/rust/Cargo.toml
-python3 scripts/verify_sources.py
+cargo fetch --locked --manifest-path multiformat/Cargo.toml   # dependencies, once
+cargo fetch --locked --manifest-path bindings/rust/Cargo.toml
+node tools/quality/install.mjs        # quality tools and formatting hook
+python3 scripts/build_native.py       # native library with all four modes
+python3 scripts/build_wasm.py         # WASM files into bindings/javascript/wasm/
+npm ci --prefix bindings/javascript && npm run build --prefix bindings/javascript
+node tools/quality/all.mjs            # all static checks
 ```
 
 ## Build the library
@@ -32,8 +30,10 @@ python3 scripts/verify_sources.py
 native library contains all four modes and ordinary Rust packages include them by
 default; each WASM file contains one. `build_wasm.py` writes `low.wasm`,
 `medium.wasm`, `high.wasm`, `very-high.wasm` and `experimental-turbo{2,4,8,16}.wasm`
-to `bindings/javascript/wasm/`. Mode settings live in `config/modes.json`; Turbo
-preset recipes come from `scripts/build_turbo.py`. The `wasm/build.json` manifest
+to `bindings/javascript/wasm/`. `config/modes.json` lists the modes (their order
+defines engine IDs) and Turbo presets; per-mode budgets live in
+`bindings/rust/src/effort.rs` and Turbo recipes in `scripts/build_turbo.py`. The
+`wasm/build.json` manifest
 records a digest of the WASM source inputs (compiled sources, build tools and
 `config/modes.json`), the file hashes and each preset's compile-time settings. A
 rebuild from unchanged source reproduces the same hashes, and `npm pack` refuses
@@ -84,7 +84,8 @@ python3 -m pip install build/wheels/tapirscan-*.whl
 
 Python wheels include the native library. In a source checkout, use
 `library_dir="build/native"` or `TAPIRSCAN_LIBRARY_DIR`. The wheel builder accepts
-`TAPIRSCAN_NATIVE_DIR` for a prebuilt directory and fails if a mode is missing.
+`TAPIRSCAN_NATIVE_DIR` for a prebuilt directory and fails if the native library is
+missing.
 Linux release wheels must be built for the advertised manylinux baseline; see
 [release preparation](RELEASING.md).
 
@@ -112,8 +113,8 @@ python3 scripts/verify_sources.py
 node tools/quality/all.mjs
 ```
 
-The gate needs the demo dependencies, optional image libraries in `QUALITY_PYTHON`
-and a JDK in `JAVA_HOME`. See [quality checks](QUALITY.md) and
+The gate needs the optional image libraries in `QUALITY_PYTHON` and a JDK in
+`JAVA_HOME`. See [quality checks](QUALITY.md) and
 [validation](VALIDATION.md) for the focused tests and reproduction commands.
 Scanner changes also follow [Changing the scanner](../CONTRIBUTING.md#changing-the-scanner).
 

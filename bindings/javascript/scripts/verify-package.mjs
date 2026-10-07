@@ -82,7 +82,7 @@ export async function verifyPackage() {
     if (!source.includes(file) || !compiled.includes(file))
       throw Error(`Missing ${name} selection`);
     // tapirscan/browser needs literal URLs so bundlers emit the assets.
-    if (preset === undefined && !worker.includes(`new URL("../wasm/${file}", import.meta.url)`))
+    if (!worker.includes(`new URL("../wasm/${file}", import.meta.url)`))
       throw Error(`Missing ${name} URL in the browser worker`);
     if (packageMetadata.exports[`./wasm/${file}`] !== `./wasm/${file}`)
       throw Error(`Missing WASM export: ${name}`);

@@ -11,8 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _CONFIG = json.loads((ROOT / "config/modes.json").read_text())
-MODE_CONFIG = _CONFIG["modes"]
-MODES = tuple(m["mode"] for m in MODE_CONFIG)
+# Mode order defines engine IDs; budgets live in bindings/rust/src/effort.rs.
+MODES = tuple(_CONFIG["modes"])
 TURBO_PRESETS = tuple(_CONFIG["experimentalTurbo"])
 
 

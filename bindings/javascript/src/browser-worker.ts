@@ -2,6 +2,7 @@
 import {
   Scanner,
   type EanAddOnPolicy,
+  type ExperimentalTurbo,
   type FormatSelection,
   type Mode,
   type PixelImage,
@@ -13,6 +14,7 @@ export interface WorkerScannerOptions {
   mode?: Mode;
   formats?: FormatSelection;
   eanAddOnPolicy?: EanAddOnPolicy;
+  experimentalTurbo?: ExperimentalTurbo;
   /** Absolute URL of a directory serving the packaged WASM files. */
   wasmBaseUrl?: string;
 }
@@ -32,6 +34,12 @@ const wasm: Record<Mode, URL> = {
   medium: new URL("../wasm/medium.wasm", import.meta.url),
   high: new URL("../wasm/high.wasm", import.meta.url),
   "very-high": new URL("../wasm/very-high.wasm", import.meta.url),
+};
+const turboWasm: Record<ExperimentalTurbo, URL> = {
+  2: new URL("../wasm/experimental-turbo2.wasm", import.meta.url),
+  4: new URL("../wasm/experimental-turbo4.wasm", import.meta.url),
+  8: new URL("../wasm/experimental-turbo8.wasm", import.meta.url),
+  16: new URL("../wasm/experimental-turbo16.wasm", import.meta.url),
 };
 
 // Typed locally: the DOM and WebWorker libraries cannot share one compilation.
@@ -72,11 +80,13 @@ async function pixels(source: WorkerSource): Promise<PixelImage> {
 async function handle(request: WorkerRequest): Promise<unknown> {
   if (request.type === "create") {
     const { wasmBaseUrl, ...options } = request.options;
-    const mode = options.mode ?? "medium";
+    const { experimentalTurbo: turbo, mode = "medium" } = options;
     // The core validates options before loading; a custom base URL uses its loader.
+    // Invalid modes or presets fail validation, so the lookup below is never used for them.
+    const asset = turbo === undefined ? wasm[mode] : turboWasm[turbo];
     scanner = await Scanner.create(
       wasmBaseUrl === undefined
-        ? { ...options, loadWasm: () => load(wasm[mode]) }
+        ? { ...options, loadWasm: () => load(asset) }
         : { ...options, wasmBaseUrl },
     );
     return { mode: scanner.mode, formats: scanner.formats, eanAddOnPolicy: scanner.eanAddOnPolicy };

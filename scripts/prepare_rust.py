@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from build import MODE_CONFIG, ROOT
+from build import MODES, ROOT
 
 # Embedded copies of the core and multiformat crates keep their full library APIs;
 # each mode's engine uses only part of them. Engine modules are linted normally.
@@ -107,9 +107,9 @@ def assemble(destination: Path) -> None:
     generated = destination / "generated"
     modules = []
     flags = {}
-    for mode in MODE_CONFIG:
-        name = mode["mode"].replace("-", "_")
-        features = {f"mode-{mode['mode']}"}
+    for mode in MODES:
+        name = mode.replace("-", "_")
+        features = {f"mode-{mode}"}
         core = f"core_{name}"
         flags.update(
             copy_module(
@@ -125,7 +125,7 @@ def assemble(destination: Path) -> None:
                 generated / name,
                 Module(
                     name,
-                    {mode["mode"]},
+                    {mode},
                     {
                         "barcode_research_core": core,
                         "recovery_core": "core_low",
@@ -161,9 +161,9 @@ def assemble(destination: Path) -> None:
         for name, enabled in sorted(flags.items())
     ]
     mode_entries = [
-        f'    ("tapirscan_mode_{m["mode"].replace("-", "_")}", '
-        f'"CARGO_FEATURE_MODE_{m["mode"].replace("-", "_").upper()}"),'
-        for m in MODE_CONFIG
+        f'    ("tapirscan_mode_{m.replace("-", "_")}", '
+        f'"CARGO_FEATURE_MODE_{m.replace("-", "_").upper()}"),'
+        for m in MODES
     ]
     (destination / "build.rs").write_text(
         "const FLAGS: &[(&str, bool)] = &[\n"
@@ -188,7 +188,7 @@ def assemble(destination: Path) -> None:
         + "    }\n}\n"
     )
     provenance = {
-        "modes": MODE_CONFIG,
+        "modes": list(MODES),
         "adaptations": [
             "crate paths relocated into private modules",
             "mode features fixed as private namespaced cfg flags",

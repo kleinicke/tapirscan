@@ -138,18 +138,18 @@ export default defineConfig({
 - **Sources:** a `File` or `Blob` (any image the browser decodes), `<img>`,
   `<video>` (its current frame), `<canvas>`, `OffscreenCanvas`, `ImageBitmap`,
   `VideoFrame`, `ImageData`, or decoded pixels as in the core API. Inputs are not
-  modified or transferred. Pixel buffers and image sources are snapshotted when
-  the call starts, so buffers can be reused immediately.
+  modified or transferred.
 - **Methods:** `scan` and `inspect` work as in the core API but return promises.
-  Concurrent calls are queued.
-- **Options:** `mode`, `formats` and `eanAddOnPolicy` work as in the core, and
+  Each call captures its image and options when it starts, so buffers and option
+  objects can be reused immediately. Calls reach the worker in call order.
+- **Options:** `mode`, `formats`, `eanAddOnPolicy` and
+  [`experimentalTurbo`](#experimental-turbo-presets) work as in the core, and
   `scan(image, { formats })` overrides the formats for one call. `wasmBaseUrl`
-  serves the WASM files from another directory. `loadWasm` and Turbo presets need
-  the core.
+  serves the WASM files from another directory. `loadWasm` needs the core.
 - **Lifecycle:** `scanner.ready` resolves once loaded; awaiting it is optional,
   because loading errors also reject every scan. During server rendering the
   constructor does nothing and scans reject. `dispose()` stops the worker and
-  rejects queued scans; returned results stay valid.
+  immediately rejects every unfinished scan; returned results stay valid.
 - **Errors:** unknown option names and invalid `wasmBaseUrl` values throw in the constructor; invalid option values
   and scan arguments reject with `TypeError`; engine failures reject with
   `ScannerError`. Browser image decoding and loading can also fail.
@@ -216,17 +216,14 @@ call; `scanner.formats` exposes the defaults. Results stay valid after disposal.
 
 ## Experimental Turbo presets
 
-For faster **1D barcode scanning**, opt into a Turbo preset instead of a mode:
+For faster **1D barcode scanning**, opt into a Turbo preset instead of a mode.
+Both entries accept it; in the browser it suits camera loops:
 
 ```js
-import { Scanner } from "tapirscan";
+import { Scanner } from "tapirscan/browser";
 
-const scanner = await Scanner.create({ experimentalTurbo: 2, formats: "retail" });
-try {
-  console.log(scanner.scan(image).values);
-} finally {
-  scanner.dispose();
-}
+const scanner = new Scanner({ experimentalTurbo: 2, formats: "retail" });
+const result = await scanner.scan(video);
 ```
 
 Accepted values are **2, 4, 8 and 16**; they name presets, not speed multipliers.
@@ -245,7 +242,8 @@ and `inspect` results report the preset; a Turbo scanner has no effort mode, so
 **Stability:** this option, its presets and their asset imports may change or be
 removed in a minor release. Pin the exact package version if you rely on them.
 
-For Vite/SvelteKit, load the matching asset as in [WASM loading](#vite-and-sveltekit):
+`tapirscan/browser` loads the preset's WASM by itself. With the core in Vite or
+SvelteKit, load the matching asset as in [WASM loading](#vite-and-sveltekit):
 `tapirscan/wasm/experimental-turbo2.wasm`, `-turbo4`, `-turbo8` or `-turbo16`.
 
 ## WASM loading

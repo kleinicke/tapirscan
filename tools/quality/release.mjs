@@ -118,7 +118,7 @@ if (selected("rust")) {
     } else {
       clippy(path.join(publicCrate, "Cargo.toml"));
       // The C library contains every mode; each WASM adapter is built per mode.
-      const adapters = [["c", "all"], ...modes.map(({ mode }) => ["wasm", mode])];
+      const adapters = [["c", "all"], ...modes.map((mode) => ["wasm", mode])];
       for (const [binding, name] of adapters) {
         const dest = path.join(parent, `${binding}-${name}`);
         fs.mkdirSync(dest);
@@ -134,7 +134,7 @@ if (selected("rust")) {
           path.join(dest, "Cargo.toml"),
           template
             .replaceAll("@MODE@", name)
-            .replaceAll("@MODE_ID@", String(modes.findIndex((mode) => mode.mode === name)))
+            .replaceAll("@MODE_ID@", String(modes.indexOf(name)))
             .replaceAll("@PUBLIC_CRATE@", publicCrate),
         );
         run("rustup", [

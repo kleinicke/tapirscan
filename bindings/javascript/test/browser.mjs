@@ -178,7 +178,10 @@ test("server rendering can import and construct without browser globals", async 
 test("the worker's static WASM URLs match the packaged assets", async () => {
   const worker = await readFile(new URL("dist/browser-worker.js", root), "utf8");
   const packageJson = JSON.parse(await readFile(new URL("package.json", root), "utf8"));
-  for (const mode of ["low", "medium", "high", "very-high"]) {
+  const names = ["low", "medium", "high", "very-high", 2, 4, 8, 16].map((name) =>
+    typeof name === "number" ? `experimental-turbo${name}` : name,
+  );
+  for (const mode of names) {
     const file = packageJson.exports[`./wasm/${mode}.wasm`].replace("./wasm/", "");
     assert.ok(worker.includes(`new URL("../wasm/${file}", import.meta.url)`), mode);
   }
@@ -251,4 +254,65 @@ test("invalid URLs allocate no worker and failed initialization terminates its w
     afterFailure: [1, 1],
     terminated: 1,
   });
+});
+
+test("Turbo presets work in the browser entry", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { canvas, tapirscan } = globalThis.fixture;
+    const scanner = new tapirscan.Scanner({ experimentalTurbo: 2 });
+    try {
+      const report = await scanner.inspect(canvas);
+      return { values: report.values, preset: report.experimentalTurbo, hasMode: "mode" in report };
+    } finally {
+      scanner.dispose();
+    }
+  });
+  const text = await page.evaluate(() => globalThis.fixture.text);
+  assert.deepEqual(outcome, { values: [text], preset: 2, hasMode: false });
+});
+
+test("scans capture their options and reach the worker in call order", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { image, canvas, tapirscan } = globalThis.fixture;
+    const OriginalWorker = globalThis.Worker;
+    const sent = [];
+    globalThis.Worker = class extends OriginalWorker {
+      postMessage(message, transfer) {
+        if (message.type !== "create")
+          sent.push(message.source instanceof ImageBitmap ? "bitmap" : "pixels");
+        super.postMessage(message, transfer);
+      }
+    };
+    try {
+      const scanner = new tapirscan.Scanner({ formats: ["EAN13", "QRCode"] });
+      try {
+        const options = { formats: "EAN13" };
+        // The canvas needs an asynchronous bitmap snapshot; the pixels do not.
+        const first = scanner.scan(canvas, options);
+        options.formats = "QRCode";
+        const second = scanner.scan({ ...image, data: image.data.slice() });
+        return { sent: (await Promise.all([first, second]), sent), first: (await first).values };
+      } finally {
+        scanner.dispose();
+      }
+    } finally {
+      globalThis.Worker = OriginalWorker;
+    }
+  });
+  const text = await page.evaluate(() => globalThis.fixture.text);
+  assert.deepEqual(outcome, { sent: ["bitmap", "pixels"], first: [text] });
+});
+
+test("disposal rejects scans that are still being prepared", async () => {
+  const message = await page.evaluate(async () => {
+    const { canvas, tapirscan } = globalThis.fixture;
+    const scanner = new tapirscan.Scanner();
+    const pending = scanner.scan(canvas);
+    scanner.dispose();
+    return pending.then(
+      () => "resolved",
+      (error) => error.message,
+    );
+  });
+  assert.equal(message, "Scanner was disposed");
 });

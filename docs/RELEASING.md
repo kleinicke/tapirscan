@@ -33,7 +33,7 @@ registry token is needed.
 
 1. Run the [development build](DEVELOPMENT.md) and
    [validation checks](VALIDATION.md) at the intended release commit.
-2. Verify the [mode settings](../config/modes.json), package
+2. Verify the [mode budgets](../bindings/rust/src/effort.rs), package
    versions, README examples and changelog. Describe implemented formats as supported, retain documented variant limitations, and label Turbo presets experimental.
 3. Run `python3 scripts/build_wasm.py`, then pack npm from `bindings/javascript`.
    Its `prepack` step rebuilds TypeScript and rejects missing WASM files, files
@@ -130,9 +130,9 @@ locally:
 
 ```sh
 python3 scripts/prepare_rust.py build/crates/tapirscan   # fresh destination
-cargo +1.91.1 test --release --manifest-path build/crates/tapirscan/Cargo.toml
+cargo test --release --manifest-path build/crates/tapirscan/Cargo.toml
 python3 scripts/test_rust_package.py build/crates/tapirscan
-cargo +1.91.1 package --manifest-path build/crates/tapirscan/Cargo.toml
+cargo package --manifest-path build/crates/tapirscan/Cargo.toml
 ```
 
 The archive contains only Rust sources, manifests, license, README, tests, small

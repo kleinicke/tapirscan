@@ -14,7 +14,7 @@ source-image pixels of floating-point roundoff; all other output stays exact.
 | Change                   | Checks                                                           |
 | ------------------------ | ---------------------------------------------------------------- |
 | Core algorithm           | `verify_sources.py`, selected `build.py` modes, `test_detail.py` |
-| JavaScript binding       | Package build and `npm test`; production demo-worker tests       |
+| JavaScript binding       | Package build, `npm test` and `npm run test:browser` (Chrome)    |
 | Native ABI or facade     | `build_native.py`, C/C++ tests, Java build, `test_bindings.py`   |
 | Format integration       | `test_multiformat.py` with test-only `zxing-cpp` encoder         |
 | Python images or loading | `test_python_images.py`, installed-wheel smoke test              |
@@ -32,10 +32,11 @@ python3 scripts/test_cmake_install.py
 python3 scripts/test_python_images.py
 python3 scripts/test_multiformat.py
 python3 scripts/test_detail.py
-pnpm --dir ../tapirscan-web/demo check
-pnpm --dir ../tapirscan-web/demo build
-pnpm --dir ../tapirscan-web/demo test
+npm test --prefix bindings/javascript
+npm run test:browser --prefix bindings/javascript   # installed Google Chrome
 ```
+
+The demo has its own checks in the web repository.
 
 Install Pillow, NumPy and `zxing-cpp` for image and format checks and PyTorch for
 tensor adapters; reference encoders are test dependencies only. Browser parity

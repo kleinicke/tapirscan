@@ -3,6 +3,7 @@ import type { WorkerRequest, WorkerResponse, WorkerSource } from "./browser-work
 import { freeze } from "./freeze.js";
 import type {
   EanAddOnPolicy,
+  ExperimentalTurbo,
   FormatSelection,
   Mode,
   PixelImage,
@@ -46,11 +47,13 @@ export interface ScannerOptions {
   formats?: FormatSelection;
   /** EAN/UPC supplement policy; defaults to "ignore". */
   eanAddOnPolicy?: EanAddOnPolicy;
+  /** @experimental Faster 1D preset instead of a mode; may change in minor releases. */
+  experimentalTurbo?: ExperimentalTurbo;
   /** Serve the packaged WASM files from another directory, such as a CDN. */
   wasmBaseUrl?: string | URL;
 }
 
-const scannerOptions = ["mode", "formats", "eanAddOnPolicy", "wasmBaseUrl"];
+const scannerOptions = ["mode", "formats", "eanAddOnPolicy", "experimentalTurbo", "wasmBaseUrl"];
 interface Pending {
   resolve(value: unknown): void;
   reject(reason: Error): void;
@@ -92,8 +95,9 @@ async function prepare(source: ImageSource): Promise<[WorkerSource, Transferable
 /**
  * A reusable scanner running in a dedicated worker, so scanning never blocks the
  * page. Construction is synchronous and starts loading in the background; during
- * server rendering it does nothing. Calls are queued, and results are deeply
- * frozen and survive disposal. Call dispose() when done to stop the worker.
+ * server rendering it does nothing. Inputs and options are captured when a call
+ * starts, and calls reach the worker in call order. Results are deeply frozen and
+ * survive disposal. Call dispose() when done to stop the worker.
  */
 export class Scanner {
   /** Resolves once the scanner is loaded; rejects with the loading error. Optional. */
@@ -102,15 +106,24 @@ export class Scanner {
   readonly #pending = new Map<number, Pending>();
   #nextId = 0;
   #closed: Error | undefined;
+  /** Rejects on dispose or failure, so calls still preparing stop waiting at once. */
+  readonly #closing: Promise<never>;
+  #rejectClosing: (reason: Error) => void = () => undefined;
+  /** Settles once the previous call has been sent, keeping submissions in call order. */
+  #submitted: Promise<void> = Promise.resolve();
 
   constructor(options: ScannerOptions = {}) {
+    this.#closing = new Promise<never>((_, reject) => {
+      this.#rejectClosing = reject;
+    });
+    this.#closing.catch(() => undefined);
     const input: unknown = options;
     if (input === null || typeof input !== "object" || Array.isArray(input))
       throw new TypeError("Invalid scanner options");
     for (const key of Object.keys(options))
       if (!scannerOptions.includes(key))
         throw new TypeError(
-          `Unknown scanner option: ${key}. Use the core "tapirscan" entry for loadWasm and experimentalTurbo.`,
+          `Unknown scanner option: ${key}. Use the core "tapirscan" entry for loadWasm.`,
         );
     if (typeof Worker === "undefined") {
       this.#closed = new Error(
@@ -183,14 +196,31 @@ export class Scanner {
 
   async #scan(type: "scan" | "inspect", source: ImageSource, options: ScanOptions) {
     if (this.#closed) throw this.#closed;
-    // Capture the frame first, so video scans read the frame current at the call.
-    const [prepared, transfer] = await prepare(source);
+    // Capture the options and the frame before any await, so later changes by the
+    // caller (a reused options object or buffer, the next video frame) cannot leak in.
+    const scanOptions = structuredClone(options);
+    const preparing = prepare(source);
+    const previous = this.#submitted;
+    let submitted: () => void = () => undefined;
+    this.#submitted = new Promise<void>((resolve) => {
+      submitted = resolve;
+    });
     try {
-      await this.ready;
-      return await this.#request({ type, source: prepared, options }, transfer);
+      const [prepared, transfer] = await Promise.race([preparing, this.#closing]);
+      await Promise.race([previous, this.#closing]);
+      await Promise.race([this.ready, this.#closing]);
+      const result = this.#request({ type, source: prepared, options: scanOptions }, transfer);
+      submitted();
+      return await result;
     } finally {
-      // Also release snapshots when initialization or posting fails.
-      if (prepared instanceof ImageBitmap) prepared.close();
+      submitted();
+      // Release a bitmap snapshot that was not sent, including one still being prepared.
+      void preparing.then(
+        ([prepared]) => {
+          if (prepared instanceof ImageBitmap) prepared.close();
+        },
+        () => undefined,
+      );
     }
   }
 
@@ -214,6 +244,7 @@ export class Scanner {
   #close(reason: Error): void {
     if (this.#closed) return;
     this.#closed = reason;
+    this.#rejectClosing(reason);
     this.#worker?.terminate();
     for (const pending of this.#pending.values()) pending.reject(reason);
     this.#pending.clear();
