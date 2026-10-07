@@ -1,6 +1,7 @@
 name: Build Python release wheels
 on:
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 jobs:

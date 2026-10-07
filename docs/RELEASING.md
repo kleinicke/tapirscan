@@ -85,20 +85,37 @@ The separate `publish.yml` workflow publishes only when explicitly selected.
 
 ## Prepare and publish the tested artifacts
 
-1. Push the intended release commit and wait for **Validate scanner and bindings**
-   to succeed. Run **Build Python release wheels** on the same commit and wait
-   for all five targets to succeed.
-2. Run **Prepare or publish release** (`publish.yml`) on that commit, entering
-   the validation and wheel workflow run IDs. Leave `publish` set to `none`.
-   It checks the source commit, workflow identity, versions, native libraries,
-   and all five wheel platforms. It also checks Python distribution metadata and
-   installs the npm tarball. Download the resulting `release-bundle` artifact:
-   it contains `npm/`, `wheels/`, `crates/` and `SHA256SUMS`.
-3. Review this exact bundle, then tag the validated commit `vX.Y.Z` and push the
-   tag. Run the publication workflow **from that tag**, supplying the same two
-   successful build run IDs, and select `all` (or `pypi`, `npm`, `crates` to
-   publish one registry). Publication from an unversioned branch is rejected.
-   Each release number is final; corrections use a new patch version.
+1. Set the intended version in the package manifests and push the release commit.
+2. Run **Prepare or publish release** (`publish.yml`) on that branch or tag. Enter
+   the version without `v` (for example `1.3.0`) and select `all`, or a single
+   registry. Use `none` for a build-only rehearsal.
+3. The workflow checks the version and existing tag before building, then runs
+   **Validate scanner and bindings** and all five Python wheel builds in parallel.
+   Both reusable workflows use the caller's exact commit. Preparation downloads
+   only artifacts from this run, validates the complete package set, and uploads
+   `release-bundle` with `npm/`, `wheels/`, `crates/` and `SHA256SUMS`.
+4. Review the bundle and commit shown in the run summary, then approve the
+   **release** environment deployment in GitHub. This is the single publication
+   approval. The workflow verifies the checksums, creates `vX.Y.Z` at the tested
+   commit (or accepts an existing tag at that commit), then publishes the selected
+   registries in parallel. Every publisher verifies the checksums again.
+
+No build run IDs, separate wheel dispatch, manual tag creation or second
+preparation run are needed. Builds still run the full validation suite; parallel
+jobs remove orchestration delays but do not guarantee a particular release time.
+The version input verifies existing manifests; it does not bump package versions.
+
+The GitHub environment `release` must have `kleinicke` as a required reviewer,
+with self-review allowed so the maintainer can approve their own release run.
+This gate is separate from `pypi`, `npm` and `crates`, whose names must keep
+matching their trusted-publisher configurations. Never approve this gate from
+an automation; it is the maintainer's final review.
+
+If one registry fails after others succeed, use GitHub's **Re-run failed jobs**
+to retry the failed publisher without rebuilding or republishing successful jobs.
+Do not rerun successful publishers for an already published version. Release
+numbers are immutable; corrections require a new patch version. A `none` run
+ends after preparation and never creates a tag or requests publication approval.
 
 Create the GitHub release with the changelog, actual platform support, demo link,
 and documented format limitations. After publishing, verify fresh installs with

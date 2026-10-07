@@ -1,10 +1,8 @@
-"""Collect successful same-commit CI artifacts and validate the release set."""
+"""Validate artifacts downloaded after this run's build jobs have succeeded."""
 
 import hashlib
 import json
-import os
 import shutil
-import subprocess
 import tarfile
 import zipfile
 from email.parser import BytesParser
@@ -25,41 +23,6 @@ PLATFORMS = {
 def fail(message: str) -> NoReturn:
     """Stop without staging or publishing an invalid release."""
     raise SystemExit(message)
-
-
-def download(staging: Path, variable: str, workflow: str, pattern: str) -> None:
-    """Require successful trusted workflow runs for this exact source commit."""
-    run_id = os.environ[variable]
-    repository = os.environ["GITHUB_REPOSITORY"]
-    if not run_id.isdecimal():
-        fail("Workflow run IDs must be numeric")
-    run = json.loads(
-        subprocess.check_output(
-            ["gh", "api", f"repos/{repository}/actions/runs/{run_id}"],
-        )
-    )
-    if (
-        run["conclusion"] != "success"
-        or run["head_sha"] != os.environ["GITHUB_SHA"]
-        or run["path"] != workflow
-        or run["event"] not in {"push", "workflow_dispatch"}
-    ):
-        fail(f"Run {run_id} is not a successful {workflow} build of this commit")
-    subprocess.run(
-        [
-            "gh",
-            "run",
-            "download",
-            run_id,
-            "--repo",
-            repository,
-            "--pattern",
-            pattern,
-            "--dir",
-            str(staging / variable),
-        ],
-        check=True,
-    )
 
 
 def wheel_platform(wheel: Path, version: str) -> str:
@@ -110,21 +73,15 @@ def write_bundle(
 
 
 def main() -> None:
-    """Reject mixed commits, incomplete platform coverage and mismatched versions."""
+    """Reject incomplete platform coverage and mismatched package versions."""
     package = json.loads((ROOT / "bindings/javascript/package.json").read_text())
     version = package["version"]
-    if (
-        os.environ["PUBLISH"] != "none"
-        and os.environ["GITHUB_REF"] != f"refs/tags/v{version}"
-    ):
-        fail(f"Publish only from the v{version} tag")
     staging = ROOT / "build/release-input"
     destination = ROOT / "build/release"
-    if staging.exists() or destination.exists():
-        fail("Release staging directories must be empty")
-    staging.mkdir(parents=True)
-    download(staging, "CI_RUN", ".github/workflows/ci.yml", "packages-ubuntu-24.04")
-    download(staging, "WHEELS_RUN", ".github/workflows/wheels.yml", "wheel-*")
+    if destination.exists():
+        fail("Release destination must be empty")
+    if not staging.is_dir():
+        fail("Missing artifacts from this run's successful validation and wheel jobs")
     wheels = sorted((staging / "WHEELS_RUN").rglob("*.whl"))
     platforms = {wheel_platform(wheel, version) for wheel in wheels}
     if platforms != PLATFORMS or len(wheels) != len(PLATFORMS):
