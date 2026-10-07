@@ -2,6 +2,37 @@
   "default": "1.2.2+release-r2.20260925",
   "versions": [
     {
+      "version": "1.3.0+empty-retry.20261007",
+      "label": "1.3.0 · Turbo2 empty-scan retry",
+      "sourceDigest": "3d08d9a628dfff3d0b569785a1d6a0ab45d15832067e3b14c91b417467fe7aba",
+      "modes": [
+        {
+          "mode": "low",
+          "file": "low-empty-retry-20261007.wasm",
+          "sha256": "c711d41d37b53a05b998cb8655579d9cd8c1189ebde9250c6c6d435ae014c680",
+          "bytes": 1841524
+        },
+        {
+          "mode": "medium",
+          "file": "medium-empty-retry-20261007.wasm",
+          "sha256": "f1189b333ce807ba1c85ba342160437ff0d1ff7a056707d774ab6d1e2d3d4cde",
+          "bytes": 2450496
+        },
+        {
+          "mode": "high",
+          "file": "high-empty-retry-20261007.wasm",
+          "sha256": "9f6c18f300f7506188778ec39dd7980bd64d985da394c78cfe51ad655ce0e984",
+          "bytes": 2414849
+        },
+        {
+          "mode": "very-high",
+          "file": "very-high-empty-retry-20261007.wasm",
+          "sha256": "d087c842a113932c3db158907d69cdd298ce6b40b50bc2aed842965cc8d6c6f5",
+          "bytes": 2501683
+        }
+      ]
+    },
+    {
       "version": "1.3.0+retail-share.20261006",
       "label": "1.3.0 · High shared retail, downscaled rescan",
       "sourceDigest": "a622609fe650624cbd61d4fce853c4fa9f397338da9c835cbddd8548eca4a558",

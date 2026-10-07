@@ -35,8 +35,13 @@ self.onmessage = async ({
     const next = JSON.stringify([identity, mode, formats]);
     if (!scanner || next !== key) {
       self.postMessage({ type: "initializing" });
+      // Package Turbo presets identify their tier; older private pins load as Low.
+      const preset =
+        isTurbo && experimental && "experimentalTurbo" in experimental
+          ? (experimental.experimentalTurbo as 2 | 4 | 8 | 16)
+          : undefined;
       const fresh = await Scanner.create({
-        mode,
+        ...(preset === undefined ? { mode } : { experimentalTurbo: preset }),
         formats,
         loadWasm: async () => {
           const response = await fetch(new URL(build.file, data.engineBaseUrl));

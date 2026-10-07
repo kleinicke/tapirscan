@@ -203,9 +203,7 @@
       "sha256": "d367e8bfb4877115f5d3abf2350eb75aa87b332f8c75bbb01ad736a2812a6024",
       "bytes": 1499289,
       "key": "turbo16"
-    }
-  ],
-  "variants": [
+    },
     {
       "id": "private-turbo-2-all-20260925-25fdd05a85e7",
       "label": "TS-Turbo2",
@@ -286,6 +284,93 @@
       "sha256": "104ac2c41a2610818ced78256265d89c9770dd0a8f2f85e3dbf8b7ef4480025f",
       "bytes": 1499990,
       "key": "turbo16"
+    }
+  ],
+  "variants": [
+    {
+      "id": "experimental-turbo2-empty-retry-20261007",
+      "label": "TS-Turbo2",
+      "sourceCommit": "fd0f1ab6099d80841fe66fdc1f07ab952d307f49",
+      "sourceDigest": "3d08d9a628dfff3d0b569785a1d6a0ab45d15832067e3b14c91b417467fe7aba",
+      "buildEnvironment": {
+        "TAPIRSCAN_EXPERIMENTAL_TURBO": "1",
+        "TAPIRSCAN_TURBO_TIER": "2",
+        "TAPIRSCAN_TURBO_LEGACY_OUTLINES": "1",
+        "TAPIRSCAN_TURBO_BAND_OUTLINES": "1",
+        "TAPIRSCAN_EXPERIMENT_TILE_CACHE": "1",
+        "TAPIRSCAN_TURBO_FINITE_EXTREMA": "1",
+        "TAPIRSCAN_TURBO_SELECTIVE_OUTLINES": "1"
+      },
+      "mode": "low",
+      "file": "experimental-turbo2-empty-retry-20261007.wasm",
+      "sha256": "ddf3e217838bb8b3d0712d8b96dbeb32a0bd7ac69c4eac85dfcda6d4feaac1ef",
+      "bytes": 1801594,
+      "key": "turbo2",
+      "experimentalTurbo": 2
+    },
+    {
+      "id": "experimental-turbo4-empty-retry-20261007",
+      "label": "TS-Turbo4",
+      "sourceCommit": "fd0f1ab6099d80841fe66fdc1f07ab952d307f49",
+      "sourceDigest": "3d08d9a628dfff3d0b569785a1d6a0ab45d15832067e3b14c91b417467fe7aba",
+      "buildEnvironment": {
+        "TAPIRSCAN_EXPERIMENTAL_TURBO": "1",
+        "TAPIRSCAN_TURBO_TIER": "4",
+        "TAPIRSCAN_TURBO_LEGACY_OUTLINES": "1",
+        "TAPIRSCAN_TURBO_BAND_OUTLINES": "1",
+        "TAPIRSCAN_EXPERIMENT_TILE_CACHE": "1",
+        "TAPIRSCAN_TURBO_FINITE_EXTREMA": "1",
+        "TAPIRSCAN_TURBO_SELECTIVE_OUTLINES": "1"
+      },
+      "mode": "low",
+      "file": "experimental-turbo4-empty-retry-20261007.wasm",
+      "sha256": "af7d47611e308690a98def95c4dd11506dad246dc24efd345a2acb351cb770a8",
+      "bytes": 1796455,
+      "key": "turbo4",
+      "experimentalTurbo": 4
+    },
+    {
+      "id": "experimental-turbo8-empty-retry-20261007",
+      "label": "TS-Turbo8",
+      "sourceCommit": "fd0f1ab6099d80841fe66fdc1f07ab952d307f49",
+      "sourceDigest": "3d08d9a628dfff3d0b569785a1d6a0ab45d15832067e3b14c91b417467fe7aba",
+      "buildEnvironment": {
+        "TAPIRSCAN_EXPERIMENTAL_TURBO": "1",
+        "TAPIRSCAN_TURBO_TIER": "8",
+        "TAPIRSCAN_TURBO_LEGACY_OUTLINES": "1",
+        "TAPIRSCAN_TURBO_BAND_OUTLINES": "1",
+        "TAPIRSCAN_EXPERIMENT_TILE_CACHE": "1",
+        "TAPIRSCAN_TURBO_FINITE_EXTREMA": "1",
+        "TAPIRSCAN_TURBO_SELECTIVE_OUTLINES": "1",
+        "TAPIRSCAN_TURBO_PROFILE_CAP": "576"
+      },
+      "mode": "low",
+      "file": "experimental-turbo8-empty-retry-20261007.wasm",
+      "sha256": "9af9debb371b1ffcee5850e8299e75ce91ecf3fe9900a5488f79e0264cc5aa1a",
+      "bytes": 1794594,
+      "key": "turbo8",
+      "experimentalTurbo": 8
+    },
+    {
+      "id": "experimental-turbo16-empty-retry-20261007",
+      "label": "TS-Turbo16",
+      "sourceCommit": "fd0f1ab6099d80841fe66fdc1f07ab952d307f49",
+      "sourceDigest": "3d08d9a628dfff3d0b569785a1d6a0ab45d15832067e3b14c91b417467fe7aba",
+      "buildEnvironment": {
+        "TAPIRSCAN_EXPERIMENTAL_TURBO": "1",
+        "TAPIRSCAN_TURBO_TIER": "16",
+        "TAPIRSCAN_TURBO_LEGACY_OUTLINES": "1",
+        "TAPIRSCAN_TURBO_BAND_OUTLINES": "1",
+        "TAPIRSCAN_EXPERIMENT_TILE_CACHE": "1",
+        "TAPIRSCAN_TURBO_FINITE_EXTREMA": "1",
+        "TAPIRSCAN_TURBO_DIRECT_SAMPLE": "1"
+      },
+      "mode": "low",
+      "file": "experimental-turbo16-empty-retry-20261007.wasm",
+      "sha256": "ee1ef73207bb722860522ec7201a931f052c64e4e437996f945408f75f868bf1",
+      "bytes": 1789920,
+      "key": "turbo16",
+      "experimentalTurbo": 16
     }
   ]
 }
