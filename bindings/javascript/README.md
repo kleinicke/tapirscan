@@ -119,17 +119,23 @@ In Svelte 5 and SvelteKit:
   onDestroy(() => scanner.dispose());
 
   let barcodes = $state.raw([]);
+  let error = $state(null);
   let latest = 0; // scans can finish out of order; keep only the newest
   async function onchange(event) {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
     const request = ++latest;
-    const found = await scanner.scan(file);
-    if (request === latest) barcodes = found.barcodes;
+    try {
+      const found = await scanner.scan(file);
+      if (request === latest) [barcodes, error] = [found.barcodes, null];
+    } catch (cause) {
+      if (request === latest) [barcodes, error] = [[], cause.message];
+    }
   }
 </script>
 
 <input type="file" accept="image/*" {onchange} />
+{#if error}<p role="alert">{error}</p>{/if}
 {#each barcodes as barcode}<p>{barcode.format}: {barcode.text}</p>{/each}
 ```
 
@@ -244,7 +250,7 @@ placed close together. Start with 2 and check detection on your own inputs.
 The presets speed up EAN-13, UPC-A, EAN-8, UPC-E, Code 128, Code 39 and ITF.
 Other formats stay readable when selected, but do not get faster, and mixed-format
 scans still pay for the enabled 2D readers. See
-[Turbo behavior and limitations](../../docs/EXPERIMENTAL_TURBO.md).
+[Turbo behavior and limitations](https://github.com/kleinicke/tapirscan/blob/main/docs/EXPERIMENTAL_TURBO.md).
 
 `experimentalTurbo` and `mode` are mutually exclusive, and Turbo requires
 `eanAddOnPolicy: "ignore"`. A Turbo scanner has no effort mode: `inspect` results
@@ -335,7 +341,7 @@ Code39 and ITF; `"common"` adds QRCode and DataMatrix. `"1D"` and `"2D"`
 enable all linear or all 2D formats.
 The exports `retailFormats`, `commonLinearFormats`, `commonFormats`,
 `linearFormats` and `matrixFormats` help compose custom selections. See
-[format coverage](../../docs/FORMATS.md) for identifiers and variants.
+[format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md) for identifiers and variants.
 
 ## Image input
 

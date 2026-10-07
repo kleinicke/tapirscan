@@ -238,6 +238,27 @@ fn one_shot_returns_owned_results_and_work_status() {
 }
 
 #[test]
+fn format_operators_combine_in_either_order() {
+    use tapirscan::{Format, Formats};
+    assert_eq!(
+        Format::QrCode | Formats::RETAIL,
+        Formats::RETAIL | Format::QrCode
+    );
+}
+
+#[test]
+fn caller_built_extreme_geometry_saturates() {
+    let barcode: tapirscan::Barcode = serde_json::from_value(serde_json::json!({
+        "text": "example", "format": "QRCode", "support": 1,
+        "polygon": [[-3e9, -3e9], [3e9, -3e9], [3e9, 3e9], [-3e9, 3e9]]
+    }))
+    .unwrap();
+    let rect = barcode.rect();
+    assert_eq!((rect.left, rect.top), (i32::MIN, i32::MIN));
+    assert_eq!((rect.width, rect.height), (i32::MAX, i32::MAX));
+}
+
+#[test]
 fn metadata_absence_and_enclosing_pixel_bounds() {
     let barcode: tapirscan::Barcode = serde_json::from_value(serde_json::json!({
         "text": "example", "format": "QRCode", "support": 1,

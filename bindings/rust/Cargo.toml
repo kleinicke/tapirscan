@@ -11,7 +11,7 @@ homepage = "https://tapirscan.f-kleinicke.de"
 readme = "README.md"
 keywords = ["barcode", "scanner", "ean", "qrcode", "image"]
 categories = ["multimedia::images", "computer-vision"]
-include = ["api/**", "generated/**", "tests/**", "examples/**", "LICENSE", "README.md", "provenance.json", "build.rs"]
+include = ["api/**", "generated/**", "tests/**", "examples/**", "LICENSE", "THIRD_PARTY_NOTICES.md", "README.md", "provenance.json", "build.rs"]
 autoexamples = true
 
 [lib]

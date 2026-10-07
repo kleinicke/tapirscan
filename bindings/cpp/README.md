@@ -31,7 +31,7 @@ std::cout << result.undecoded.size() << " undecoded\n";
 
 If nothing is decoded, `barcodes` is empty. Results are owned values and outlive
 the scanner. Support, undecoded regions and duplicate payloads are described in
-[API design](../../docs/API_DESIGN.md).
+[API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md).
 
 Exceptions:
 
@@ -69,7 +69,7 @@ scanner for one image.
 `Formats::from_bits` rejects empty or unknown bits with `std::invalid_argument`.
 
 Presets: `Formats::retail()`, `common_1d()`, `common()`, `linear()`,
-`matrix()` and `all()`. See [format coverage](../../docs/FORMATS.md).
+`matrix()` and `all()`. See [format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md).
 
 | Per-scan option | Default        | Meaning                                                |
 | --------------- | -------------- | ------------------------------------------------------ |
@@ -102,7 +102,7 @@ or a pointer and length, plus width and height; `.with_stride(bytes_per_row)`
 describes padded rows. The vector factories reject temporaries. The pointer
 overloads do not copy: keep the buffer alive and unchanged until the scan call
 returns. Size limits and conversion rules are in
-[API design](../../docs/API_DESIGN.md#images).
+[API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md#images).
 
 ## Building and installing
 

@@ -6,6 +6,10 @@ source-image geometry. `result.values()` borrows decoded strings and
 `InspectionResult` that adds unread regions, timing and diagnostics. Both have
 `_with_options` variants. The crate requires Rust 1.91 (`rust-version = 1.91`).
 
+```sh
+cargo add tapirscan
+```
+
 ```rust
 use tapirscan::Image;
 
@@ -23,7 +27,7 @@ Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8 and UPCE). If
 nothing is decoded, `barcodes` is empty. Invalid input or engine failures are
 `Error` values. Results own their data and outlive the input and scanner.
 Support, undecoded regions and image limits are described in
-[API design](../../docs/API_DESIGN.md).
+[API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md).
 
 ## Reuse and configuration
 
@@ -58,7 +62,7 @@ configuration and `Scanner::default()` uses the defaults.
 | `ean_add_on_policy` | `EanAddOnPolicy::Ignore` | `Ignore`, `Read`, `Require`                 |
 
 Presets: `Formats::RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX`, `ALL`
-(see [format coverage](../../docs/FORMATS.md)). `Read` accepts a supplement when
+(see [format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md)). `Read` accepts a supplement when
 present; `Require` drops retail reads without one. Non-retail formats are
 unaffected.
 
@@ -99,7 +103,7 @@ interleaved; alpha is ignored, including zero alpha. Composite transparency
 before scanning if needed. BGR, planar, float and 16-bit pixels need conversion.
 
 Construction borrows without validation; scanning validates before access.
-Size limits are in [API design](../../docs/API_DESIGN.md#images); final-row
+Size limits are in [API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md#images); final-row
 padding is optional and extra bytes are ignored. `Error` implements `std::error::Error` with `InvalidImage`,
 `InvalidOptions` and `Engine` variants.
 

@@ -1,6 +1,7 @@
 // tapirscan/browser: the core API, run in a bundled worker, for browser image sources.
 import type { WorkerRequest, WorkerResponse, WorkerSource } from "./browser-worker.js";
 import { freeze } from "./freeze.js";
+import { pixelLayout } from "./layout.js";
 import type {
   EanAddOnPolicy,
   ExperimentalTurbo,
@@ -70,26 +71,10 @@ async function prepare(source: ImageSource): Promise<[WorkerSource, Transferable
   if (input === null || typeof input !== "object") throw new TypeError("Expected an image source");
   if (source instanceof Blob) return [source, []];
   if ("data" in source) {
-    if (!(source.data instanceof Uint8Array || source.data instanceof Uint8ClampedArray))
-      throw new TypeError("Expected a byte buffer");
-    if (!("channels" in source) && !(source.data instanceof Uint8ClampedArray))
-      throw new TypeError("Use ImageData or an explicit buffer with channels");
-    const { width, height } = source;
-    const channels = "channels" in source ? source.channels : 4;
-    const stride = ("stride" in source ? source.stride : undefined) ?? width * channels;
-    const positive = (n: unknown) => Number.isSafeInteger(n) && (n as number) > 0;
-    if (![width, height, channels, stride].every(positive) || ![1, 3, 4].includes(channels))
-      throw new TypeError("width, height, channels and stride must be valid positive integers");
-    if (width < 3 || height < 3 || width * height > 32 * 1024 * 1024)
-      throw new TypeError(
-        `Images must be 3×3 to 32 megapixels, got ${String(width)}×${String(height)}`,
-      );
-    // Copy only the addressed rows, not the rest of a larger backing buffer.
-    const addressed = (height - 1) * stride + width * channels;
-    if (stride < width * channels || addressed > source.data.length)
-      throw new TypeError("The pixel buffer is smaller than its width, height and stride");
-    const data = new Uint8Array(source.data.subarray(0, addressed));
-    return [{ data, width, height, channels, stride }, [data.buffer]];
+    // Validate first, then copy only the addressed rows of a larger backing buffer.
+    const { data, width, height, channels, stride, addressed } = pixelLayout(source);
+    const copy = new Uint8Array(data.subarray(0, addressed));
+    return [{ data: copy, width, height, channels, stride }, [copy.buffer]];
   }
   // A copy, so a caller's ImageBitmap stays usable after it is transferred.
   const bitmap = await createImageBitmap(source);
@@ -197,7 +182,16 @@ export class Scanner {
     if (this.#closed) throw this.#closed;
     // Capture the options and the frame before any await, so later changes by the
     // caller (a reused options object or buffer, the next video frame) cannot leak in.
-    const scanOptions = structuredClone(options);
+    // Plain copies (scan options hold at most a format selection); invalid values
+    // pass through unchanged for the core to reject.
+    const input: unknown = options;
+    const scanOptions: ScanOptions =
+      input !== null && typeof input === "object" && !Array.isArray(input)
+        ? {
+            ...options,
+            ...(typeof options.formats === "object" ? { formats: [...options.formats] } : {}),
+          }
+        : options;
     const preparing = prepare(source);
     const previous = this.#submitted;
     let submitted: () => void = () => undefined;

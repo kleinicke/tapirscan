@@ -131,7 +131,13 @@ try {
         const reads = await Promise.all([scanner.inspect(pixels), scanner.scan(image())]);
         checks.push(pixels.data.byteLength > 0);
         checks.push(JSON.stringify(reads[0].values) === expected && texts(reads[1]) === expected);
-        checks.push(await rejects(scanner.scan({ ...image(), width: 1 }), "Invalid image"));
+        // Check the error type, not its wording.
+        checks.push(
+          await scanner.scan({ ...image(), width: 1 }).then(
+            () => false,
+            (error) => error instanceof TypeError,
+          ),
+        );
         checks.push(texts(await scanner.scan(image())) === expected);
         checks.push(
           texts(await scan(image(), { mode: "low", formats: fixture.formats })) === expected,

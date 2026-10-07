@@ -34,7 +34,7 @@ If nothing is decoded, `barcodes()` is empty. Java-side validation can throw
 Native validation and engine failures throw `ScannerException`, whose `code` is
 the native status. Results are immutable records that outlive the scanner.
 Support, undecoded regions and duplicate payloads are described in
-[API design](../../docs/API_DESIGN.md).
+[API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md).
 
 ## Reuse and configuration
 
@@ -62,7 +62,7 @@ concurrently.
 
 Presets: `Format.RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX` and
 `ALL`. Set the supplement policy with `withEanAddOnPolicy`. See
-[format coverage](../../docs/FORMATS.md).
+[format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md).
 
 | Per-scan option | Default            | Meaning                                                |
 | --------------- | ------------------ | ------------------------------------------------------ |
@@ -92,7 +92,7 @@ gives names such as `"QRCode"`.
 `Image.gray`, `Image.rgb` and `Image.rgba` take a byte array or a
 `MemorySegment`, width and height; `.withStride(bytesPerRow)` describes padded
 rows. Size limits and conversion rules are in
-[API design](../../docs/API_DESIGN.md#images).
+[API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md#images).
 
 Byte arrays are copied when scanning, limited to the addressed bytes. Native
 segments are read in place without a copy, which suits camera frames: wrap a

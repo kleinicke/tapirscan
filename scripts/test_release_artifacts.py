@@ -68,7 +68,11 @@ class ReleaseArtifacts(unittest.TestCase):
                 info = tarfile.TarInfo("package/package.json")
                 info.size = len(data)
                 archive.addfile(info, io.BytesIO(data))
-            (ci / "tapirscan-1.1.0.crate").write_bytes(b"crate")
+            with tarfile.open(ci / "tapirscan-1.1.0.crate", "w:gz") as archive:
+                for name in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+                    info = tarfile.TarInfo(f"tapirscan-1.1.0/{name}")
+                    info.size = len(name)
+                    archive.addfile(info, io.BytesIO(name.encode()))
             with patch("collect_release.ROOT", root):
                 main()
                 bundle = root / "build/release"

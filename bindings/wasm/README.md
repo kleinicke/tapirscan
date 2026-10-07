@@ -1,6 +1,6 @@
 # Raw WebAssembly adapter
 
-Most users should use the [JavaScript package](../javascript/README.md), which
+Most users should use the [JavaScript package](https://github.com/kleinicke/tapirscan/blob/main/bindings/javascript/README.md), which
 wraps this adapter. This page is a reference for calling the WebAssembly module
 directly. Each module is built for one effort mode and has no host imports. The
 host copies pixels into the module's input buffer, then runs a synchronous scan.
@@ -35,8 +35,10 @@ output until the next scan or destroy. Handles are checked IDs.
 
 `tapirscan_scan` returns 0 on success, 1 for an invalid argument, 2 for an
 invalid handle, 4 for a scanner failure and 5 for exceeded capacity (these are
-WASM adapter codes, not the C status values). On failure
-the output is a JSON object with an `error` message.
+WASM adapter codes, not the C status values). Status 4 writes a JSON object with an
+`error` message to the output. The other failures are detected before scanning and
+leave the output untouched; it may still hold an earlier result, so read it only
+after status 0 or 4.
 
 An ordinary scan outputs `{"barcodes": [...]}`. Each entry includes its `rect`;
 unavailable metadata is omitted. An inspection also contains `bestIndex`,
@@ -44,4 +46,4 @@ unavailable metadata is omitted. An inspection also contains `bestIndex`,
 `debug`.
 
 The `tapirscan_experimental_turbo` export reports the turbo preset compiled into
-a module; see [experimental turbo](../../docs/EXPERIMENTAL_TURBO.md).
+a module; see [experimental turbo](https://github.com/kleinicke/tapirscan/blob/main/docs/EXPERIMENTAL_TURBO.md).

@@ -52,7 +52,7 @@ Operations return a `tapirscan_status`; `tapirscan_status_message` describes it.
 If nothing is decoded, the call succeeds and `tapirscan_result_count` returns 0.
 Results own their data and outlive their scanner. C has no `best` helper; choose
 from the list by format, payload or position. Support, undecoded regions and
-duplicate payloads are described in [API design](../../docs/API_DESIGN.md).
+duplicate payloads are described in [API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md).
 
 ## Reuse and configuration
 
@@ -87,7 +87,7 @@ tapirscan_inspect(scanner, &image, &scan, &result, NULL);
 
 Presets: `TAPIRSCAN_FORMATS_RETAIL`, `_COMMON_1D`, `_COMMON`, `_LINEAR`,
 `_MATRIX` and `_ALL`, from the generated `tapirscan_formats.h`. See
-[format coverage](../../docs/FORMATS.md).
+[format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md).
 
 | Per-scan option | Default | Meaning                                                      |
 | --------------- | ------- | ------------------------------------------------------------ |
@@ -123,7 +123,7 @@ schema-2 engine report whose fields may change.
 `tapirscan_image` describes gray8, RGB8 or RGBA8 pixels (`channels` 1, 3 or 4).
 `stride` is bytes per row; 0 means `width * channels`. `length` is the readable
 buffer size. Pixels are borrowed only during the call. Size limits and
-conversion rules are in [API design](../../docs/API_DESIGN.md#images).
+conversion rules are in [API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md#images).
 
 ## Threads and limits
 
@@ -141,7 +141,7 @@ python3 scripts/build_native.py
 
 This builds `build/native/libtapirscan.{so,dylib}` (or `tapirscan.dll`). Compile
 with `-Ibindings/c/include` and link the library. The CMake package in
-[bindings/cpp](../cpp/README.md) installs the library and both headers for C and
+[bindings/cpp](https://github.com/kleinicke/tapirscan/blob/main/bindings/cpp/README.md) installs the library and both headers for C and
 C++ consumers. `tapirscan_abi_version()` returns `TAPIRSCAN_ABI_VERSION`; build
 the application against the header that matches the library.
 

@@ -65,6 +65,12 @@ impl std::ops::BitOr for Formats {
         Self(self.0 | rhs.0)
     }
 }
+impl std::ops::BitOr<Formats> for Format {
+    type Output = Formats;
+    fn bitor(self, rhs: Formats) -> Formats {
+        rhs | self
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct EngineScan {
@@ -178,8 +184,9 @@ pub struct Barcode {
 }
 impl Barcode {
     /// Enclosing integer pixel bounds: floor of the minimum to ceil of the maximum.
+    /// Values outside the `i32` range saturate, for barcodes built by callers.
     #[must_use]
-    // Coordinates are finite and bounded by the 32-megapixel input limit, so they fit in i32.
+    // `as` saturates out-of-range floats and maps NaN to 0, which is the intent here.
     #[allow(clippy::cast_possible_truncation)]
     pub fn rect(&self) -> Rect {
         let (mut left, mut top) = (f64::INFINITY, f64::INFINITY);
@@ -191,11 +198,12 @@ impl Barcode {
             bottom = bottom.max(y);
         }
         let (left, top) = (left.floor() as i32, top.floor() as i32);
+        // Subtract in f64: the integer difference can exceed i32 before saturating.
         Rect {
             left,
             top,
-            width: right.ceil() as i32 - left,
-            height: bottom.ceil() as i32 - top,
+            width: (right.ceil() - f64::from(left)) as i32,
+            height: (bottom.ceil() - f64::from(top)) as i32,
         }
     }
 }

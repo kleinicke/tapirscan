@@ -5,6 +5,7 @@ import {
   type FormatSelection,
 } from "./multiformat/formats.js";
 import { freeze, type ReadonlyDeep } from "./freeze.js";
+import { pixelLayout } from "./layout.js";
 import { RustScannerSession, ScannerError } from "./rust-session.js";
 
 export {
@@ -157,33 +158,11 @@ const turboFiles: Record<ExperimentalTurbo, string> = {
 const addOnPolicies: Record<EanAddOnPolicy, number> = { ignore: 0, read: 1, require: 2 };
 
 function pixels(image: PixelImage): PreparedImage {
-  const input: unknown = image;
-  if (input === null || typeof input !== "object")
-    throw new TypeError("Expected ImageData or decoded pixels");
-  const explicit = "channels" in image;
-  if (!explicit && !(image.data instanceof Uint8ClampedArray))
-    throw new TypeError("Use ImageData or an explicit buffer with channels");
-  const channels = explicit ? image.channels : 4;
-  const stride = explicit ? (image.stride ?? image.width * channels) : image.width * 4;
-  const required = (image.height - 1) * stride + image.width * channels;
-  if (
-    !Number.isSafeInteger(image.width) ||
-    !Number.isSafeInteger(image.height) ||
-    image.width < 3 ||
-    image.height < 3 ||
-    image.width * image.height > 32 * 1024 * 1024 ||
-    ![1, 3, 4].includes(channels) ||
-    !Number.isSafeInteger(stride) ||
-    stride < image.width * channels ||
-    required > 128 * 1024 * 1024 ||
-    !(image.data instanceof Uint8Array || image.data instanceof Uint8ClampedArray) ||
-    image.data.byteLength < required
-  )
-    throw new TypeError("Invalid image dimensions, channels, stride or buffer (maximum 128 MiB)");
+  const { data, width, height, channels, stride } = pixelLayout(image);
   return {
-    data: new Uint8Array(image.data.buffer, image.data.byteOffset, image.data.byteLength),
-    width: image.width,
-    height: image.height,
+    data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+    width,
+    height,
     channels,
     stride,
   };

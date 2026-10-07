@@ -101,6 +101,11 @@ def assemble(destination: Path) -> None:
     if (binding / "Cargo.lock").exists():
         shutil.copy2(binding / "Cargo.lock", destination / "Cargo.lock")
     shutil.copy2(ROOT / "LICENSE", destination / "LICENSE")
+    # The crate embeds the multiformat readers, so it carries their notices.
+    shutil.copy2(
+        ROOT / "multiformat/THIRD_PARTY_NOTICES.md",
+        destination / "THIRD_PARTY_NOTICES.md",
+    )
     shutil.copytree(binding / "api", destination / "api")
     shutil.copytree(binding / "tests", destination / "tests")
     shutil.copytree(binding / "examples", destination / "examples")

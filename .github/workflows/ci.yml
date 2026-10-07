@@ -137,6 +137,12 @@ jobs:
           mkdir -p build/packages
           cd bindings/javascript
           npm pack --pack-destination ../../build/packages
+      - name: Test the packed npm package, installed, in Chrome
+        run: |
+          python3 scripts/api_fixtures.py build/api-fixtures --encoder build/zint-encoder/frontend/zint
+          node bindings/javascript/test/installed.mjs build/packages/tapirscan-*.tgz build/api-fixtures/manifest.json
+      - name: Bundle the packed npm package with Vite
+        run: node bindings/javascript/test/bundle.mjs build/packages/tapirscan-*.tgz
       - uses: actions/upload-artifact@v4
         with:
           name: packages-${{ matrix.os }}

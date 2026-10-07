@@ -58,13 +58,5 @@ python3 scripts/test_supplements.py --encoder /path/to/zint --library-dir build/
 This generates fixtures, asserts independently specified payloads and physical
 geometry, and compares Python/JS metadata and coordinates across all modes and
 policies with diagnostics on and off. It covers missing, erased, two-/five-digit and
-different supplements on identical main payloads. To measure supplement overhead
-separately from correctness (run sequentially, after builds finish):
-
-```sh
-python3 scripts/benchmark_supplements.py build/supplement-fixtures/manifest.json
-node bindings/javascript/test/benchmark-supplements.mjs build/supplement-fixtures/manifest.json
-```
-
-These report warm-process creation and repeated-scan timings, not browser downloads
-or first-time compilation.
+different supplements on identical main payloads. Supplement timing, like any
+recorded timing, follows the [benchmark guide](BENCHMARKS.md).

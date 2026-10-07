@@ -65,7 +65,7 @@ for barcode in result.barcodes:
 `formats="1D"` enables all linear formats. `"retail"` selects EAN13, UPCA, EAN8
 and UPCE; `"common1D"` adds Code128, Code39 and ITF; `"common"` adds QRCode and
 DataMatrix; `"2D"` and `"all"` are also available. See
-[format coverage](../../docs/FORMATS.md).
+[format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md).
 
 ### PyTorch tensors
 

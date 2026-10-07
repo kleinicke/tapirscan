@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -343,6 +344,18 @@ public:
 };
 }  // namespace detail
 
+namespace detail {
+/// Saturating conversion: out-of-range values clamp, NaN becomes 0.
+inline std::int32_t saturate(double value) {
+    constexpr double low = std::numeric_limits<std::int32_t>::min();
+    constexpr double high = std::numeric_limits<std::int32_t>::max();
+    if (std::isnan(value)) return 0;
+    if (value <= low) return std::numeric_limits<std::int32_t>::min();
+    if (value >= high) return std::numeric_limits<std::int32_t>::max();
+    return static_cast<std::int32_t>(value);
+}
+}  // namespace detail
+
 inline Rect Barcode::rect() const {
     double left = polygon[0].x, top = polygon[0].y, right = left, bottom = top;
     for (const auto& p : polygon) {
@@ -351,10 +364,10 @@ inline Rect Barcode::rect() const {
         right = p.x > right ? p.x : right;
         bottom = p.y > bottom ? p.y : bottom;
     }
-    const auto x = static_cast<std::int32_t>(std::floor(left));
-    const auto y = static_cast<std::int32_t>(std::floor(top));
-    return {x, y, static_cast<std::int32_t>(std::ceil(right)) - x,
-            static_cast<std::int32_t>(std::ceil(bottom)) - y};
+    // Saturate, so barcodes built by callers with extreme coordinates cannot overflow.
+    const auto x = detail::saturate(std::floor(left));
+    const auto y = detail::saturate(std::floor(top));
+    return {x, y, detail::saturate(std::ceil(right) - x), detail::saturate(std::ceil(bottom) - y)};
 }
 
 /// A reusable scanner. Scans on one scanner serialize; separate scanners run

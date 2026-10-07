@@ -60,7 +60,8 @@ public record Barcode(
             right = Math.max(right, p.x());
             bottom = Math.max(bottom, p.y());
         }
+        // Casting from double saturates; subtracting in double avoids int overflow.
         int x = (int) Math.floor(left), y = (int) Math.floor(top);
-        return new Rect(x, y, (int) Math.ceil(right) - x, (int) Math.ceil(bottom) - y);
+        return new Rect(x, y, (int) (Math.ceil(right) - x), (int) (Math.ceil(bottom) - y));
     }
 }
