@@ -9,7 +9,7 @@ node tools/quality/all.mjs
 This is also the CI quality gate on macOS and Linux. It checks repository-wide
 formatting (excluding protected snapshots), the repository boundary, maintained Rust
 and C ABI bindings in all four modes, JS/TS lint and package/consumer types, Python
-lint and types, C/C++/Java compiler warnings, Svelte diagnostics and quality-tool
+lint and types, C/C++/Java compiler warnings and quality-tool
 regression tests. It continues after failures, prints a final summary, and exits
 nonzero if any stage fails. Each run saves full logs in `.quality-cache/check-*/`;
 CI uploads them on failure. Checks do not rewrite source files.
@@ -19,7 +19,7 @@ steps; a passing static gate does not replace them.
 
 ### Local prerequisites
 
-Run `node tools/quality/install.mjs` and install the binding and demo dependencies
+Run `node tools/quality/install.mjs` and install the binding dependencies
 as described in [development](DEVELOPMENT.md). Use a Python 3.10–3.12 environment
 with `Pillow`, `numpy==2.2.6`, `torch`, `zxing-cpp` and `typing_extensions` installed.
 NumPy's version matches CI and provides stubs compatible with the Python 3.10 API
@@ -130,3 +130,5 @@ FFM calls have documented, method-local exceptions; other warnings stay errors.
 
 Maintained core and multiformat Rust are checked by the regular gate;
 scanner parity and package installation checks remain separate runtime checks.
+
+The demo and benchmark have separate checks in `../../tapirscan-web/README.md`.

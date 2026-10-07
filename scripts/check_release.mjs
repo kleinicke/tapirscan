@@ -17,7 +17,6 @@ const versions = [
     "Java",
     read("bindings/java/pom.xml").match(/<artifactId>tapirscan<\/artifactId><version>([^<]+)/)?.[1],
   ],
-  ["Demo", JSON.parse(read("demo/package.json")).version],
   ["npm lockfile", lock.version],
   ["npm lockfile root", lock.packages?.[""].version],
 ];

@@ -109,10 +109,9 @@ jobs:
         env:
           BARCODE_PYTHON_PACKAGE: ${{ github.workspace }}/build/python-installed
         run: python3 scripts/test_python_images.py
-      - name: Install demo and quality tools
+      - name: Install quality tools
         run: |
           npm install --global pnpm@10.15.1
-          pnpm --dir demo install --frozen-lockfile
           node tools/quality/install.mjs
 
       - name: Check formatting, lint and types
@@ -129,10 +128,6 @@ jobs:
 
       - run: python3 scripts/test_multiformat.py
       - run: python3 scripts/test_detail.py
-      - name: Build the public demo
-        run: |
-          pnpm --dir demo build
-          pnpm --dir demo test
 
       - name: Pack and verify npm distribution
         run: |

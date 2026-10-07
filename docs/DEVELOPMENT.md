@@ -68,11 +68,14 @@ See [release preparation](RELEASING.md).
 
 ## Run the demo
 
+The application lives in `../tapirscan-web/demo`. The local `demo` symlink
+preserves older commands; application changes belong in the web repository.
+
 ```sh
 npm install --global pnpm@10.15.1
-pnpm --dir demo install --frozen-lockfile
-pnpm --dir demo build
-pnpm --dir demo preview
+pnpm --dir ../tapirscan-web/demo install --frozen-lockfile
+pnpm --dir ../tapirscan-web/demo build
+pnpm --dir ../tapirscan-web/demo preview
 ```
 
 The demo's `-next` readers use the local library build, so build the WASM files and

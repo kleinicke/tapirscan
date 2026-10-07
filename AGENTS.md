@@ -1,6 +1,8 @@
 # Contributor and coding-agent guide
 
-Tapirscan contains the release library, language bindings and browser demo.
+Tapirscan contains the release library and language bindings. The browser demo
+and benchmark applications live in `../tapirscan-web`; `demo` is a compatibility
+link. Application builds and publication are managed in that repository.
 Start with [development](docs/DEVELOPMENT.md), [quality checks](docs/QUALITY.md)
 and the guide for the binding you change.
 

@@ -183,3 +183,10 @@ The maintainer’s existing deployment details are in the optional, ignored
 `MAINTAINER.local.md`. The demo includes only explicitly authorized photos. Its assets and comparison
 engines stay out of npm and Python wheels. Do not introduce research datasets or
 unapproved photographs during a release.
+
+## Web application repository
+
+The demo is maintained and built in `../../tapirscan-web/demo`. Library release
+checks no longer require the demo or synchronize its application version. Follow
+the web repository README for app validation. Deployment remains a separate,
+explicitly authorized operation. The local `demo` link preserves old commands.

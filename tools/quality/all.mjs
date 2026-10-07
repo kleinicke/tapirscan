@@ -44,7 +44,6 @@ try {
 }
 for (const group of ["js", "python", "native", "rust"])
   check(group, process.execPath, ["tools/quality/release.mjs", group]);
-check("demo", "npm", ["run", "check", "--prefix", "demo"]);
 check("tooling-tests", process.execPath, ["--test", "tools/quality/test/*.test.mjs"]);
 check("rust-core", process.execPath, ["tools/quality/check.mjs", "rust"]);
 
