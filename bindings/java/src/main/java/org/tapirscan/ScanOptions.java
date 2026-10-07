@@ -17,7 +17,7 @@ public record ScanOptions(Optional<Set<Format>> formats, boolean extendedBudget)
         }
     }
 
-    /** The scanner's formats, no diagnostics and the ordinary work budget. */
+    /** The scanner's formats and the ordinary work budget. */
     public static ScanOptions defaults() {
         return new ScanOptions(Optional.empty(), false);
     }

@@ -49,12 +49,12 @@ unexamined candidates and can miss other clean nearby symbols.
 Small modules, blur, damage, distortion,
 difficult lighting and crowded scenes can lose reads relative to Medium. There
 is no reference-decoder or neural fallback. The source image is never assumed to
-contain only one symbol; `multiple: false` ranks after scanning all candidates.
+contain only one symbol. Use `best(barcodes)` to select one read after scanning.
 
-Every fast linear Turbo result reports `unfinished: true`. Source-coordinate
-geometry, undecoded candidates and support ranking remain available. Add-on
-policies other than Ignore and extended linear budgets retain the ordinary
-pipeline. The public API and release assets are separate from demo labels.
+Fast linear Turbo inspection reports `unfinished: true`, with source-coordinate
+geometry, undecoded candidates and support ranking. The public JavaScript presets
+require `eanAddOnPolicy: "Ignore"` and reject `extendedBudget: true`. Use a stable
+effort mode when you need supplements or extended budgets. The public API and release assets are separate from demo labels.
 
 ## Bounded linear confirmation
 

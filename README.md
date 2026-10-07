@@ -59,6 +59,9 @@ starter prompt and the checks needed before using or publishing the result.
 
 ## Quick start
 
+These examples use the **1.3.0 API**. When upgrading from 1.2.2, follow the
+[migration guide](docs/API_MIGRATION.md); `scan` now returns a barcode list.
+
 Install Tapirscan from [npm](https://www.npmjs.com/package/tapirscan) or
 [PyPI](https://pypi.org/project/tapirscan/). See the
 [GitHub release](https://github.com/kleinicke/tapirscan/releases/latest) for release notes
@@ -95,59 +98,32 @@ Svelte, SvelteKit and Vite setup, camera scanning and Node loading are in the
 
 ### Python
 
-Install `tapirscan` plus the image libraries you use. For these examples:
+Install Tapirscan and Pillow to scan a photo:
 
 ```sh
-pip install tapirscan tifffile pillow torch
+pip install tapirscan pillow
 ```
-
-**TIFF → NumPy array, using defaults:**
-
-```python
-import tifffile
-import tapirscan
-
-pixels = tifffile.imread("label.tif")  # NumPy array
-result = tapirscan.scan(pixels)
-print([b.text for b in result])
-```
-
-This example assumes an 8-bit grayscale or RGB image. Defaults are Medium effort
-and the retail formats (EAN13, UPCA, EAN8, UPCE). No intermediate file or explicit scanner object is needed.
-
-**JPEG, with optional settings:**
 
 ```python
 from PIL import Image
 import tapirscan
 
 with Image.open("label.jpg") as image:
-    result = tapirscan.scan(image, mode="high", formats="1D")
+    barcodes = tapirscan.scan(image)
 
-for barcode in result:
+for barcode in barcodes:
     print(barcode.text, barcode.format, barcode.polygon)
 ```
 
-`formats="1D"` enables all supported linear formats; `"2D"` and `"all"` are also
-available. See [format coverage](docs/FORMATS.md) for supported formats and variants.
+Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8, UPCE).
+For other linear formats, pass `formats="1D"`; use `"2D"` or `"all"` as needed.
+Set `mode="high"` for more effort on difficult images.
 
-**PyTorch tensor:**
-
-```python
-import torch
-
-# Using the NumPy array from the TIFF example:
-tensor = torch.from_numpy(pixels)
-result = tapirscan.scan(tensor)
-print([b.text for b in result])
-```
-
-GPU tensors and tensors with `requires_grad=True` work directly. Tapirscan
-detaches internally and transfers pixels to CPU; your tensor and its autograd
-graph are unchanged. Barcode decoding runs on CPU.
-
-See the [Python guide](bindings/python/README.md) for every argument, result
-field, and scanner reuse. Install only the optional image libraries you need.
+See the Python guide for [TIFF images with tifffile](bindings/python/README.md#tiff-with-tifffile),
+[PyTorch tensors](bindings/python/README.md#pytorch-tensors), and
+[array/tensor layouts, value ranges and GPU handling](bindings/python/README.md#array-and-tensor-inputs).
+Install only the image libraries you use. Decoding runs on CPU, including when
+you supply a GPU tensor.
 
 ## How it differs from ZXing and ZBar
 

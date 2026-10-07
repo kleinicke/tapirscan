@@ -13,39 +13,42 @@
     const status = document.querySelector("pre");
     const start = document.querySelector("#start");
     const stop = document.querySelector("#stop");
-    let running = false;
     let scanner;
     let stream;
 
     function shutdown() {
-      running = false;
       scanner?.dispose();
       stream?.getTracks().forEach((track) => track.stop());
-      scanner = stream = video.srcObject = undefined;
+      scanner = stream = undefined;
+      video.srcObject = null;
       start.disabled = false;
       stop.disabled = true;
     }
 
     start.onclick = async () => {
       start.disabled = true;
-      running = true;
       // Loads in a worker while the camera starts.
-      scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
+      const current = (scanner = new Scanner({ formats: ["EAN13", "QRCode"] }));
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        const camera = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment" },
         });
-        if (!running) return;
+        if (scanner !== current) {
+          camera.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        stream = camera;
         video.srcObject = stream;
         stop.disabled = false;
-        while (running) {
+        while (scanner === current) {
           // Scan each new frame at most once; awaiting the scan avoids a backlog.
           await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
-          const barcodes = await scanner.scan(video);
-          if (running) status.textContent = JSON.stringify(barcodes.map((b) => b.text));
+          if (scanner !== current) break;
+          const barcodes = await current.scan(video);
+          if (scanner === current) status.textContent = JSON.stringify(barcodes.map((b) => b.text));
         }
       } catch (error) {
-        if (running) {
+        if (scanner === current) {
           status.textContent = error.message;
           shutdown();
         }

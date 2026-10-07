@@ -28,8 +28,10 @@ for (Barcode barcode : result.barcodes()) {
 System.out.println(result.undecoded().size() + " undecoded; unfinished: " + result.unfinished());
 ```
 
-No detection is an empty `barcodes()` list. Invalid input and engine failures
-throw `ScannerException`, whose `code` is the native status. Results are
+No detection is an empty `barcodes()` list. Java-side validation can throw
+`IllegalArgumentException`; scanning after close throws `IllegalStateException`.
+Native validation and engine failures throw `ScannerException`, whose `code` is
+the native status. Results are
 immutable records that survive the scanner. Equal payloads at distinct
 locations remain separate physical instances.
 

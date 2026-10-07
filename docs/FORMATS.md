@@ -22,11 +22,10 @@ DataBar requires an explicit selection or `"1D"`). Common is a convenience selec
 not a coverage or accuracy guarantee. Retail is the default selection.
 
 EAN13 and UPCA share the primary scan; selecting UPCA adds output normalization,
-not another image scan. Retail additionally runs the extra engine for EAN8/UPCE,
-sharing its grayscale image and scanline traversal. It does not invoke matrix
-readers. This additional pass costs time depending on image size and content.
-JavaScript also loads the extra WASM module at creation; reuse a scanner across
-frames to amortize initialization. The selected mode tunes EAN13/UPCA, Common1D and QR Code.
+not another image scan. Enabling more formats can add reader work. JavaScript
+loads one complete WASM scanner for the selected effort mode, not a separate
+module per format. Reuse a scanner across frames to amortize initialization.
+The selected mode tunes EAN13/UPCA, Common1D and QR Code.
 
 The supported public identifiers and native bits are:
 

@@ -30,7 +30,7 @@ Install `tapirscan` plus the image libraries you use. For these examples:
 pip install tapirscan tifffile pillow torch
 ```
 
-**TIFF → NumPy array, using defaults:**
+### TIFF with tifffile
 
 ```python
 import tifffile
@@ -44,7 +44,7 @@ print([barcode.text for barcode in barcodes])
 This example assumes an 8-bit grayscale or RGB image. Defaults are Medium effort
 and the retail formats (EAN13, UPCA, EAN8, UPCE). No intermediate file or explicit scanner object is needed.
 
-**JPEG, with optional settings:**
+### JPEG with Pillow
 
 ```python
 from PIL import Image
@@ -65,7 +65,9 @@ EAN8 and UPCE. `"common1D"` adds Code128, Code39 and ITF; `"common"` adds
 QRCode and DataMatrix to `"common1D"`. See
 [format presets and runtime behavior](../../docs/FORMATS.md).
 
-**PyTorch tensor:**
+### PyTorch tensors
+
+This example uses the NumPy array from the [TIFF example](#tiff-with-tifffile):
 
 ```python
 import torch
@@ -79,6 +81,9 @@ print([barcode.text for barcode in barcodes])
 GPU tensors and tensors with `requires_grad=True` work directly. Tapirscan
 detaches internally and transfers pixels to CPU; your tensor and its autograd
 graph are unchanged. Barcode decoding runs on CPU.
+See [array and tensor inputs](#array-and-tensor-inputs) for supported shapes,
+layouts, value ranges and device restrictions, and [all options](#all-options)
+for `layout`, `value_range` and `color_order`.
 
 ## Functions
 
@@ -140,7 +145,7 @@ budgets, timeouts and confidence thresholds are not exposed as scan options.
 
 ## EAN/UPC supplements
 
-Set `ean_add_on_policy="Read"` in Python when creating a scanner or calling one-shot `inspect()`.
+Set `ean_add_on_policy="Read"` in Python when creating a scanner or calling one-shot `scan` or `inspect`.
 The policy is fixed for that scanner; its default is `"Ignore"`.
 
 | Policy      | Behavior                                                                                         |
@@ -168,8 +173,8 @@ payload your application needs when that distinction matters. Checksums and cons
 checks reduce wrong reads but cannot guarantee that every returned decode is correct.
 
 Use `mode="low"` through `"very-high"` at creation to select EAN13/UPCA, Common1D and QR Code search
-effort. Other matrix readers use fixed effort. `result.unfinished` is available without
-and combines reported decoding and localization limits. Returned reads are
+effort. Other matrix readers use fixed effort. Inspection's `result.unfinished`
+combines reported decoding and localization limits. Returned reads are
 still usable. Candidate, retry and parsing caps are reported, including bounded
 searches that also returned reads. False does not promise exhaustive scanning. Exact budgets and interruptible timeouts are not
 public options.
@@ -323,8 +328,7 @@ a recovery crop are local to that crop, not identifiers for tracking across fram
 Invalid input raises ValueError/TypeError; native errors raise `ScannerError`
 with a descriptive message and a numeric `.code` attribute. Native codes are:
 1 invalid arguments, 2 invalid/closed handle, 3 result buffer too small,
-4 internal failure, and 5 resource capacity exceeded. For capacity errors, close
-unused scanners. Unknown codes retain their number. Scanning after close raises RuntimeError.
+4 internal failure. Unknown codes retain their number. Scanning after close raises RuntimeError.
 
 `result.to_raw_dict()` and `result.diagnostics.to_raw_dict()` return independent native
 schema-2 dictionaries. Inspection results include engine evidence,

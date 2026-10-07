@@ -33,7 +33,8 @@ Deploy `demo/dist/` to a static host when ready. Camera access requires HTTPS
 
 The preparation step copies only the selected engine assets and generates a
 small synthetic EAN13 example. Four metadata-stripped photographs are tracked
-in `public/images`; see [image provenance and usage](public/images/README.md). `public/engines`, the generated example and `dist` are ignored by
+in `public/images`; the [release checklist](../docs/RELEASING.md#demo-deployment)
+records their authorization for the demo. `public/engines`, the generated example and `dist` are ignored by
 Git. Other research photos, labels, models, result histories and reference
 scanners other than the two demo comparison dependencies are excluded. npm and Python packages are built from their
 binding directories and exclude this entire app.

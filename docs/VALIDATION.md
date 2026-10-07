@@ -13,6 +13,12 @@ owned results and cross-language parity. Exercise both extended-budget settings
 for every selected format, and undecoded geometry independently of debug.
 Installed-package checks also exercise browser workers and relocated assets.
 
+`test_bindings.py` compares native bindings exactly. Against WASM, only polygon
+coordinates allow an absolute difference of at most `1e-9` source-image pixels
+for floating-point roundoff, including polygons in diagnostics. Payloads, formats,
+support, ordering, counts, work status and all other evidence remain exact.
+Coordinates must be finite; the tolerance does not grow with image size.
+
 ## Checks to run
 
 | Change                   | Checks                                                          |

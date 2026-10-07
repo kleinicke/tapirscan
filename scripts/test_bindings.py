@@ -2,6 +2,7 @@
 """End-to-end parity of the Python, Rust, C++, Java and JavaScript bindings."""
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -28,6 +29,38 @@ MODES = ("low", "medium", "high", "very-high")
 EAN13 = 1
 # Engine evidence compared across languages; timing fields are excluded.
 EVIDENCE = ("scan", "localization", "searchWindows")
+
+
+def assert_wasm_parity(
+    actual: object, expected: object, path: str = "result", *, polygon: bool = False
+) -> None:
+    """Compare JSON exactly except for finite polygon coordinates within 1e-9 px."""
+    checks = unittest.TestCase()
+    if isinstance(actual, dict) and isinstance(expected, dict):
+        checks.assertEqual(actual.keys(), expected.keys(), path)
+        for key in expected:
+            assert_wasm_parity(
+                actual[key], expected[key], f"{path}.{key}", polygon=key == "polygon"
+            )
+    elif isinstance(actual, list) and isinstance(expected, list):
+        checks.assertEqual(len(actual), len(expected), path)
+        for i, (left, right) in enumerate(zip(actual, expected, strict=True)):
+            assert_wasm_parity(left, right, f"{path}[{i}]", polygon=polygon)
+    elif (
+        polygon
+        and isinstance(actual, (int, float))
+        and isinstance(expected, (int, float))
+    ):
+        # Native and WASM geometry can differ by a few f64 ULPs. Do not round
+        # outputs or use relative tolerance: the allowance is fixed in pixels.
+        checks.assertIn(type(actual), (int, float), path)
+        checks.assertIn(type(expected), (int, float), path)
+        checks.assertTrue(math.isfinite(actual) and math.isfinite(expected), path)
+        checks.assertAlmostEqual(actual, expected, delta=1e-9, msg=path)
+    elif polygon:
+        checks.fail(f"{path}: polygon coordinates must be numbers")
+    else:
+        checks.assertEqual(actual, expected, path)
 
 
 def run(*args: object) -> dict[str, Any]:
@@ -120,14 +153,22 @@ class Bindings(unittest.TestCase):
                                     mode, (w, h, c, stride, path), debug=debug
                                 ).items():
                                     evidence = other.pop("debug")
-                                    self.assertEqual(other, reference, language)
+                                    if language == "js":
+                                        assert_wasm_parity(other, reference, language)
+                                    else:
+                                        self.assertEqual(other, reference, language)
                                     if not debug:
                                         self.assertIsNone(evidence, language)
                                         continue
                                     for key in EVIDENCE:
-                                        self.assertEqual(
-                                            evidence[key], raw[key], (language, key)
-                                        )
+                                        if language == "js":
+                                            assert_wasm_parity(
+                                                evidence[key], raw[key], f"js.{key}"
+                                            )
+                                        else:
+                                            self.assertEqual(
+                                                evidence[key], raw[key], (language, key)
+                                            )
 
     def test_extended_budget_parity(self) -> None:
         """The extended budget preserves native/WASM reader parity."""
@@ -162,7 +203,7 @@ class Bindings(unittest.TestCase):
                                 1,
                             )
                             wasm.pop("debug")
-                            self.assertEqual(wasm, typed(native))
+                            assert_wasm_parity(wasm, typed(native))
 
     def test_python_validation_and_lifetime(self) -> None:
         """Invalid input is rejected and results outlive their scanner."""
@@ -216,6 +257,53 @@ class Bindings(unittest.TestCase):
             [r.mode for r in results], ["medium", "high", "medium", "high"]
         )
         self.assertTrue(all(r.values == [TEXT] for r in results))
+
+
+class WasmParityComparison(unittest.TestCase):
+    """Keep the coordinate allowance from hiding scanner or metadata regressions."""
+
+    def test_coordinate_roundoff(self) -> None:
+        """Accept the observed native/WASM difference in public and raw polygons."""
+        native = {"polygon": [[429.25898295157083, 149.58305617058048]]}
+        wasm = {"polygon": [[429.25898295157083, 149.58305617058056]]}
+        for key in ("barcodes", "undecoded", "scan"):
+            with self.subTest(key=key):
+                assert_wasm_parity({key: [wasm]}, {key: [native]})
+
+    def test_geometry_regressions(self) -> None:
+        """Reject shifts, missing coordinates, nonnumeric values and nonfinite data."""
+        for left, right in (
+            ([[149.0, 30.0]], [[149.000001, 30.0]]),
+            ([[1_000_000.0, 30.0]], [[1_000_000.000001, 30.0]]),
+            ([[149.0, 30.0]], [[149.0]]),
+            ([[149.0, 30.0]], []),
+            ([[0.0, 30.0]], [[False, 30.0]]),
+            ([[149.0, 30.0]], [["149", 30.0]]),
+            ([[math.inf, 30.0]], [[math.inf, 30.0]]),
+            ([[math.nan, 30.0]], [[math.nan, 30.0]]),
+        ):
+            with (
+                self.subTest(left=left, right=right),
+                self.assertRaises(AssertionError),
+            ):
+                assert_wasm_parity({"polygon": left}, {"polygon": right})
+
+    def test_everything_else_stays_exact(self) -> None:
+        """Preserve metadata, collection shape/order and nonpolygon float checks."""
+        for left, right in (
+            ({"text": "123"}, {"text": "124"}),
+            ({"support": 7}, {"support": 8}),
+            ({"unfinished": False}, {"unfinished": True}),
+            ({"best": 0}, {"best": 1}),
+            ({"score": 1.0}, {"score": 1.0 + 1e-12}),
+            ({"barcodes": ["first", "second"]}, {"barcodes": ["second", "first"]}),
+            ({"barcodes": []}, {"barcodes": [], "undecoded": []}),
+        ):
+            with (
+                self.subTest(left=left, right=right),
+                self.assertRaises(AssertionError),
+            ):
+                assert_wasm_parity(left, right)
 
 
 if __name__ == "__main__":

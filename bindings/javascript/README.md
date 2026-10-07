@@ -46,6 +46,7 @@ instead of falling behind:
 ```js
 while (running) {
   await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
+  if (!running) break;
   const barcodes = await scanner.scan(video);
   // ...show barcodes (often [])
 }
@@ -73,6 +74,7 @@ export default function BarcodeScanner() {
         element.srcObject = stream;
         while (running) {
           await new Promise((resolve) => element.requestVideoFrameCallback(resolve));
+          if (!running) break;
           const found = await scanner.scan(element);
           if (running) setBarcodes(found);
         }
@@ -113,7 +115,8 @@ In Svelte 5 and SvelteKit:
 
   let barcodes = $state.raw([]);
   async function onchange(event) {
-    barcodes = await scanner.scan(event.currentTarget.files[0]);
+    const file = event.currentTarget.files?.[0];
+    if (file) barcodes = await scanner.scan(file);
   }
 </script>
 
@@ -149,9 +152,11 @@ export default defineConfig({
   does nothing, and scans reject. `dispose()` stops the worker and rejects queued
   scans; results stay valid.
 - **Results and errors:** the same deeply frozen results as the core. Invalid
-  options and images reject with `TypeError`; scanner failures with `ScannerError`.
+  constructor options can throw; scan validation rejects with `TypeError`. Engine
+  failures use `ScannerError`; browser image decoding and loading can also fail.
 - **Requirements:** module workers, `OffscreenCanvas` and WebAssembly SIMD:
-  Chrome 91, Firefox 114, Safari 16.4 or later. Images may have at most 32 megapixels.
+  Chrome 91, Firefox 114, Safari 16.4 or later. The camera examples additionally
+  require `requestVideoFrameCallback`. Images may have at most 32 megapixels.
 
 `best(barcodes)` and the result types are exported from `tapirscan/browser` too.
 
@@ -212,6 +217,8 @@ QRCode and DataMatrix to `"common1D"`. See
 For faster **1D barcode scanning**, opt into a Turbo preset:
 
 ```js
+import { Scanner, inspect } from "tapirscan";
+
 const scanner = await Scanner.create({ experimentalTurbo: 4, formats: "retail" });
 try {
   const result = scanner.inspect(image);
@@ -237,9 +244,9 @@ pays for the enabled 2D readers. See [Turbo behavior and limitations](../../docs
 Choose either `mode` or `experimentalTurbo`; supplying both is an error. Omitting
 both keeps the normal Medium default. The Turbo selection is fixed at creation;
 `scanner.experimentalTurbo` and `result.experimentalTurbo` report it. The underlying
-`mode` is `"low"`. Ordinary results omit `experimentalTurbo`. Results retain the
-same geometry, multiple-barcode and diagnostic fields, including `unfinished`.
-Fast linear scans report unfinished work; this does not invalidate decoded values.
+`mode` is `"low"`. `scan` returns the usual barcode list; `inspect` also reports
+the preset, diagnostics and `unfinished`. Stable-mode inspection omits
+`experimentalTurbo`. Fast linear inspection reports unfinished work; this does not invalidate decoded values.
 
 Turbo requires the default `eanAddOnPolicy: "Ignore"` and rejects
 `extendedBudget: true`, because those options would bypass the fast linear path.
@@ -276,7 +283,9 @@ In Node, the default loader reads assets from the installed package. Decode your
 image with an image library first, then pass grayscale, RGB or RGBA bytes:
 
 ```js
-const result = await inspect({ data: pixels, width, height, channels: 1, stride: width });
+import { scan } from "tapirscan";
+
+const barcodes = await scan({ data: pixels, width, height, channels: 1, stride: width });
 ```
 
 Here `pixels` is a Uint8Array of decoded grayscale pixels. Image codecs are not
@@ -298,7 +307,7 @@ if (!response.ok) throw new Error(`WASM load failed: ${response.status}`);
 const bytes = await response.arrayBuffer();
 const scanner = await Scanner.create({ loadWasm: async () => bytes });
 try {
-  console.log(scanner.inspect(image).values);
+  console.log(scanner.scan(image).map((barcode) => barcode.text));
 } finally {
   scanner.dispose();
 }
@@ -327,14 +336,14 @@ Then point the scanner at that directory:
 ```js
 const scanner = await Scanner.create({ wasmBaseUrl: "/tapirscan/" });
 try {
-  console.log(scanner.inspect(image).values);
+  console.log(scanner.scan(image).map((barcode) => barcode.text));
 } finally {
   scanner.dispose();
 }
 ```
 
 The one-shot helper accepts the same option:
-`await inspect(image, { wasmBaseUrl: "/tapirscan/" })`.
+`await scan(image, { wasmBaseUrl: "/tapirscan/" })`.
 `wasmBaseUrl` accepts a string or URL, with or without a trailing slash. Relative
 URLs resolve against the page/worker URL in browsers and the package module in
 Node; use an absolute URL for an unambiguous location. For authenticated requests
@@ -456,9 +465,6 @@ including separate copies of the same value. Coordinates start at the
 top left, x rightward and y downward. Geometry is returned, not a cropped bitmap.
 Map coordinates back yourself if you resize/rotate before scanning. Support is a
 ranking heuristic, not a probability.
-Polygon coordinates are Rust `f32` values exposed as JavaScript numbers. Their
-decimal string form may show the exact binary value instead of the shorter
-decimal spelling used by older package builds.
 
 The package exports `EanAddOnPolicy`, `ScannerOptions`, `ScanOptions`, `ScanResult`, `Barcode`,
 `PixelImage`, `Image`, `Quad`, `Mode`, `Format`, `FormatSelection`, `Diagnostics`,
@@ -467,7 +473,7 @@ checks still validate pixel buffers and dimensions.
 
 ## EAN/UPC supplements
 
-Set `eanAddOnPolicy: "Read"` when creating a scanner or calling one-shot `inspect()`.
+Set `eanAddOnPolicy: "Read"` when creating a scanner or calling one-shot `scan` or `inspect`.
 The policy is fixed for that scanner; its default is `"Ignore"`.
 
 | Policy      | Behavior                                                                                         |
@@ -544,7 +550,7 @@ Diagnostics also retain the raw schema-2 result: `scan` includes support and can
 evidence, and `localizationLimited` reports localization limits. Depending on the
 reader, `localization`, `searchWindows`, `recovery` and `detailRegions` may be
 present. GS1, reader initialization and structured append are available directly on
-barcodes in inspection reports; raw metadata also retains these fields where supported.
+barcodes from either operation; raw metadata also retains these fields where supported.
 Candidate indices inside recovery crops are local to the crop and are not
 identifiers for tracking between frames.
 
@@ -571,7 +577,7 @@ engines must support the extended-work capability or report an error.
 a source-image polygon and a format hint. It is a localized proposal without an
 accepted decode, not proof of a real or permanently unreadable barcode. Entries
 can overlap or describe false candidates. An empty collection does not prove
-that every barcode was found. Raw candidate attempts remain in debug diagnostics.
+that every barcode was found. Raw candidate attempts remain in inspection diagnostics.
 
 ## License
 

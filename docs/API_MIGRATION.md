@@ -14,10 +14,10 @@ Scanner improvements may change reads, geometry, ordering and runtime.
 `std::vector<Barcode>` in C++, `List<Barcode>` in Java, `list[Barcode]` in Python,
 and a frozen `Barcode[]` in JavaScript. C retains an owned result handle.
 
-| In 1.2.2                                             | Upcoming API                                                      |
+| In 1.2.2                                             | In 1.3.0                                                          |
 | ---------------------------------------------------- | ----------------------------------------------------------------- |
 | `scan(image).barcodes`                               | `scan(image)`; retain language-specific `await` or error handling |
-| `result.values` after scanning                       | Map barcode text, or use `inspect(image).values`                  |
+| `result.values` after scanning                       | Map barcode text; inspection reports also retain `values`         |
 | Timing, `unfinished` or `undecoded` on a scan result | Call `inspect` instead of `scan`                                  |
 | `debug` scan option and result field                 | Remove the option; use `inspect` and `result.diagnostics`         |
 | Highest-support read from a result                   | `best(barcodes)`; inspection reports also retain `best`           |
@@ -49,6 +49,25 @@ Use inspection only when the report is needed; barcode metadata and geometry
 are available in ordinary scan output. `best` keeps the first read on equal
 support and returns the binding's empty value for an empty list. It is not a
 cross-format confidence estimate.
+
+For applications that already iterate Python results, `for barcode in
+tapirscan.scan(image)` still works. Access to text, format, geometry and payload
+metadata does not require inspection. To select one read, use
+`tapirscan.best(barcodes)` in Python or `best(barcodes)` in JavaScript; an empty
+list returns `None` or `undefined`, respectively.
+
+If your application needs the report, replace `scan` with `inspect` and remove
+any `debug` argument. Keep using the report's barcodes, values, timing and work
+status; rename `debug` to `diagnostics` where you consume engine evidence.
+Inspection always collects diagnostics, even when you only need timing or
+undecoded regions. Ordinary scans avoid that extra collection. Do not switch to
+inspection solely to extract text values.
+
+Serialization changes too: JavaScript's `JSON.stringify(await scan(image))`
+now produces an array, not a report object. In Python, replace
+`result.as_dict()` after an ordinary scan with
+`[barcode.as_dict() for barcode in barcodes]`, or use `inspect(image).as_dict()`
+when the report shape is required. Update stored schemas and consumers accordingly.
 
 ### Browser applications
 

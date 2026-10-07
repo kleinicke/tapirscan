@@ -5,8 +5,7 @@ build tools, current documentation and release provenance. It must build and tes
 without a sibling research repository or frozen research implementation.
 
 Turbo variants and Low Classic are deliberately retained, including their demo
-entries, source, build settings and pinned artifacts. Turbo may join the public
-API later. An experimental name alone is not evidence that code is unused.
+entries, source, build settings and pinned artifacts. Numbered Turbo presets are available through the experimental JavaScript API. An experimental name alone is not evidence that code is unused.
 
 Research belongs in the separate experiment workspace: hypotheses, exploratory
 commands, decoder-only adapters, alternative algorithms, failed variants, dated

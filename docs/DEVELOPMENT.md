@@ -94,8 +94,8 @@ for the focused tests, platform matrix, and reproduction commands.
 
 The public package is assembled under `build/crates/tapirscan` by
 `scripts/prepare_rust.py`. `--refresh` verifies frozen decoder imports and updates generated
-sources while preserving compilation caches. The C and WASM adapters select one
-mode through Cargo features; ordinary Rust packages include all modes by default.
+sources while preserving compilation caches. Each WASM artifact selects one mode through Cargo features. The C library
+contains all four modes; ordinary Rust packages include all modes by default.
 Generated sources are build outputs, not a second implementation to edit.
 
 Algorithm changes use ordinary diffs in `core/src` and exact experiment records.
