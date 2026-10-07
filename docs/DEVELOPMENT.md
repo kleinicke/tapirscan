@@ -68,8 +68,8 @@ See [release preparation](RELEASING.md).
 
 ## Run the demo
 
-The application lives in `../tapirscan-web/demo`. The local `demo` symlink
-preserves older commands; application changes belong in the web repository.
+The application lives in `../tapirscan-web/demo`; application changes belong in
+that repository.
 
 ```sh
 npm install --global pnpm@10.15.1
@@ -81,7 +81,7 @@ pnpm --dir ../tapirscan-web/demo preview
 The demo's `-next` readers use the local library build, so build the WASM files and
 the JavaScript package first. Its main readers use the latest npm release. Asset
 preparation copies both sets of engines, creates the synthetic example, and copies
-the independent comparison engines. See [camera behavior and hosting](../demo/README.md).
+the independent comparison engines. See [camera behavior and hosting](../../tapirscan-web/demo/README.md).
 
 ## Validate changes
 

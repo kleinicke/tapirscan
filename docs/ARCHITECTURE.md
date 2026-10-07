@@ -92,7 +92,7 @@ from an EAN-13 result.
 | `bindings/wasm/`                          | Thin WebAssembly adapter over the Rust API                 |
 | `bindings/c/`, `cpp/`, `python/`, `java/` | Native language interfaces                                 |
 | `multiformat/`                            | Pinned EAN8/UPCE and additional linear/2D readers          |
-| `demo/`                                   | Camera/photo app with independent comparison workers       |
+| `../tapirscan-web/demo/`                  | Camera/photo app with independent comparison workers       |
 | `scripts/`                                | Reproduction, packaging and regression checks              |
 
 Production builds compile `core/src` directly. The public Rust package relocates

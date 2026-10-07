@@ -21,27 +21,11 @@ __pycache__/
 .quality-cache/
 .claude/settings.local.json
 
-/demo/dist/
-/demo/public/engines/
-
-/demo/.netlify/
-# Local build settings such as the analytics script URL.
-/demo/.env*.local
-
 # Optional machine-specific maintainer instructions; never published.
 /MAINTAINER.local.md
 
 # Local audit, measurement and development notes; excluded from publication.
 /docs/internal/
 
-/demo/public/pdf/
-
 # Frozen recipe reproduction writes through this generated link.
 /historical/build
-
-# Generated public documentation; sources are under demo/content and scripts.
-/demo/public/docs/
-/demo/public/formats/
-/demo/public/releases/
-/demo/public/license/
-/demo/public/llms.txt

@@ -167,15 +167,15 @@ for a version; fixes need a new version. See the
 ## Demo deployment
 
 After publishing a new npm version, add it to the demo with one alias, for
-example `pnpm --dir demo add tapirscan-1-3-0@npm:tapirscan@1.3.0`. The newest
+example `pnpm --dir ../tapirscan-web/demo add tapirscan-1-3-0@npm:tapirscan@1.3.0`. The newest
 alias becomes the demo's main Tapirscan and earlier ones move under
 "Previous releases"; the `-next` readers always show the current repository build.
-Rebuild and test `demo/dist`, then deploy to your selected Netlify site:
+Rebuild and test `../tapirscan-web/demo/dist`, then deploy to your selected Netlify site:
 
 ```sh
-pnpm --dir demo build
-pnpm --dir demo test
-cd demo
+pnpm --dir ../tapirscan-web/demo build
+pnpm --dir ../tapirscan-web/demo test
+cd ../tapirscan-web/demo
 netlify deploy --prod --dir dist --site YOUR_SITE_ID
 ```
 
@@ -189,4 +189,4 @@ unapproved photographs during a release.
 The demo is maintained and built in `../../tapirscan-web/demo`. Library release
 checks no longer require the demo or synchronize its application version. Follow
 the web repository README for app validation. Deployment remains a separate,
-explicitly authorized operation. The local `demo` link preserves old commands.
+explicitly authorized operation. Run demo commands from the web repository.

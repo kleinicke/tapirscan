@@ -49,9 +49,9 @@ that environment and `JAVA_HOME` to your JDK for the maintained binding gate.
 python3 scripts/test_python_images.py
 python3 scripts/test_multiformat.py
 python3 scripts/test_detail.py
-pnpm --dir demo check
-pnpm --dir demo build
-pnpm --dir demo test
+pnpm --dir ../tapirscan-web/demo check
+pnpm --dir ../tapirscan-web/demo build
+pnpm --dir ../tapirscan-web/demo test
 ```
 
 The optional browser parity command is documented in
