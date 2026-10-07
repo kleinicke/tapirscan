@@ -24,11 +24,11 @@ encoding_rs = "0.8.35"
 image = { version = "0.25.10", default-features = false, optional = true }
 
 [features]
-default = ["image"]
+default = ["image", "mode-low", "mode-medium", "mode-high", "mode-very-high"]
 image = ["dep:image"]
 
-# With no mode feature selected, every mode remains available. Selecting one or
-# more mode features enables smaller platform adapters without the image crate.
+# Each mode feature adds one effort mode, so features from different dependents
+# only ever combine. For a smaller build, disable default features and list modes.
 mode-low = []
 mode-medium = []
 mode-high = []

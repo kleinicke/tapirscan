@@ -60,12 +60,22 @@ import { Scanner } from "tapirscan/browser";
 export default function BarcodeScanner() {
   const video = useRef(null);
   const [barcodes, setBarcodes] = useState([]);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     const element = video.current;
     const scanner = new Scanner();
     const camera = navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
     let running = true; // React StrictMode mounts twice in development
+    // One cleanup for unmounting and for failures: stop scanning and the camera.
+    const stop = () => {
+      running = false;
+      scanner.dispose();
+      camera.then(
+        (stream) => stream.getTracks().forEach((track) => track.stop()),
+        () => {}, // No stream to stop.
+      );
+    };
     camera
       .then(async (stream) => {
         if (!running) return;
@@ -77,20 +87,17 @@ export default function BarcodeScanner() {
           if (running) setBarcodes(found.barcodes);
         }
       })
-      .catch((error) => running && console.error(error));
-    return () => {
-      running = false;
-      scanner.dispose();
-      camera.then(
-        (stream) => stream.getTracks().forEach((track) => track.stop()),
-        () => {}, // Camera errors are handled above.
-      );
-    };
+      .catch((cause) => {
+        if (running) setError(cause.message); // camera denied, loading or scan failure
+        stop();
+      });
+    return stop;
   }, []);
 
   return (
     <>
       <video ref={video} autoPlay muted playsInline />
+      {error && <p role="alert">{error}</p>}
       {barcodes.map((barcode, i) => (
         <p key={i}>
           {barcode.format}: {barcode.text}
@@ -112,9 +119,13 @@ In Svelte 5 and SvelteKit:
   onDestroy(() => scanner.dispose());
 
   let barcodes = $state.raw([]);
+  let latest = 0; // scans can finish out of order; keep only the newest
   async function onchange(event) {
     const file = event.currentTarget.files?.[0];
-    if (file) barcodes = (await scanner.scan(file)).barcodes;
+    if (!file) return;
+    const request = ++latest;
+    const found = await scanner.scan(file);
+    if (request === latest) barcodes = found.barcodes;
   }
 </script>
 
@@ -226,7 +237,8 @@ const scanner = new Scanner({ experimentalTurbo: 2, formats: "retail" });
 const result = await scanner.scan(video);
 ```
 
-Accepted values are **2, 4, 8 and 16**; they name presets, not speed multipliers.
+Accepted values are **2, 4, 8 and 16**. Each roughly indicates the speedup over Low
+it targets; the actual speedup varies with images and devices and is not guaranteed.
 Higher presets do less work and can miss more barcodes, including clean symbols
 placed close together. Start with 2 and check detection on your own inputs.
 The presets speed up EAN-13, UPC-A, EAN-8, UPC-E, Code 128, Code 39 and ITF.

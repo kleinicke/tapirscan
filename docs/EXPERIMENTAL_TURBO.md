@@ -10,8 +10,9 @@ Other bindings do not offer the presets.
 
 The presets do less localization, sampling and recovery work on linear
 barcodes: EAN-13, UPC-A, EAN-8, UPC-E, Code 128, Code 39 and ITF, at any
-rotation. Higher numbers do less work. The numbers name presets; they are not
-speed multipliers.
+rotation. Higher numbers do less work. Each number roughly indicates the speedup
+over Low the preset targets; the actual speedup varies with images and devices and
+is not guaranteed.
 
 Other formats remain readable when selected, but the presets do not make them
 proportionally faster. Mixed-format scans still pay for the enabled 2D readers.

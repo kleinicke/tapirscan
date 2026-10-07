@@ -90,8 +90,8 @@ geometry excludes supplements.
 
 The default `image` feature accepts `&image::GrayImage`, `&image::RgbImage` and
 `&image::RgbaImage` without copying pixels. The application decodes image files
-and converts other formats. Use `default-features = false` to omit the image
-dependency.
+and converts other formats. To omit the image dependency, disable the default
+features and list the modes you need; see [build features](#build-features-and-webassembly).
 
 Raw buffers use `Image::gray(data, width, height)`, `Image::rgb(...)` or
 `Image::rgba(...)`, optionally `.with_stride(bytes_per_row)`. RGB order is
@@ -105,11 +105,16 @@ padding is optional and extra bytes are ignored. `Error` implements `std::error:
 
 ## Build features and WebAssembly
 
-All four effort modes are available by default. To build a smaller binary, select
-one or more of `mode-low`, `mode-medium`, `mode-high` and `mode-very-high`.
-Scanning with an excluded mode returns `Error::InvalidOptions`.
-`default-features = false` only disables the `image` integration and still
-includes every mode.
+The default features include all four effort modes and the `image` integration.
+Each mode is a feature (`mode-low`, `mode-medium`, `mode-high`, `mode-very-high`)
+that only adds code, so features enabled by other dependencies never remove a
+mode. For a smaller binary, disable the defaults and list what you need:
+
+```toml
+tapirscan = { version = "1.3", default-features = false, features = ["mode-medium"] }
+```
+
+Scanning with a mode that is not compiled in returns `Error::InvalidOptions`.
 
 On `wasm32-unknown-unknown`, `elapsed` is zero because no platform clock is
 available.

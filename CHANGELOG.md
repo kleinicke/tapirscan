@@ -30,6 +30,8 @@ rebuild for ABI 6. See the [migration guide](docs/API_MIGRATION.md).
   bindings. One native library contains all four effort modes. ABI 6 provides
   caller-owned error details, typed access and on-demand JSON. C scanner options
   have an explicit initializer; C++ rejects temporary image buffers.
+- Rust mode features only add modes: all four are default features, and
+  smaller builds disable the defaults and list their modes.
 - Java accepts `MemorySegment` pixels without copying. Python wheels bundle the
   native library. Rust barcodes implement serde `Serialize`. JavaScript and
   Python expose typed format identifiers.

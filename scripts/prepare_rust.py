@@ -173,12 +173,10 @@ def assemble(destination: Path) -> None:
         + "\n".join(mode_entries)
         + "\n];\n"
         + "fn main() {\n"
-        + "    let explicit = MODES.iter()\n"
-        + "        .any(|(_, feature)| std::env::var_os(feature).is_some());\n"
         + "    for (name, feature) in MODES {\n"
         + '        println!("cargo::rustc-check-cfg=cfg({name})");\n'
         + '        println!("cargo::rerun-if-env-changed={feature}");\n'
-        + "        if !explicit || std::env::var_os(feature).is_some() {\n"
+        + "        if std::env::var_os(feature).is_some() {\n"
         + '            println!("cargo::rustc-cfg={name}");\n'
         + "        }\n    }\n"
         + '    println!("cargo::rerun-if-changed=build.rs");\n'
