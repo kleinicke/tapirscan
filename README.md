@@ -183,6 +183,8 @@ Tapirscan’s scanner algorithm was written by GPT-6 Astra, guided by my goals,
 experiments, and hands-on testing. I directed the development, checked results,
 and refined the evaluation process.
 
+[Read the development story](docs/STORY.md).
+
 ## Project status
 
 Tapirscan supports the linear and 2D formats listed in [format coverage](docs/FORMATS.md).
