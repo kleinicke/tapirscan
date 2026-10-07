@@ -89,7 +89,13 @@ public final class Scanner implements AutoCloseable {
             settings.set(JAVA_INT, offset(Native.SCAN_OPTIONS, "formats"), scan.formats().map(Format::mask).orElse(0));
             MemorySegment out = arena.allocate(JAVA_LONG);
             MemorySegment error = arena.allocate(Native.ERROR);
-            lib.check(Native.call(inspect ? lib.inspect : lib.scan, handle, input, settings, out, error), error);
+            try {
+                lib.check(Native.call(inspect ? lib.inspect : lib.scan, handle, input, settings, out, error), error);
+            } finally {
+                // Native code read the caller's segment by address; keep it reachable
+                // until the call returns, so an automatic arena cannot free it early.
+                java.lang.ref.Reference.reachabilityFence(image);
+            }
             long result = out.get(JAVA_LONG, 0);
             try {
                 return reader.apply(arena, result);

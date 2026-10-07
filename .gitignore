@@ -29,3 +29,6 @@ __pycache__/
 
 # Frozen recipe reproduction writes through this generated link.
 /historical/build
+
+# Local pnpm store.
+.pnpm-store/

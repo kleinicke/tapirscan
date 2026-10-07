@@ -417,6 +417,14 @@ class Images(unittest.TestCase):
         exported.clear()
         self.assertEqual(result.as_dict()["values"], [TEXT])
 
+    def test_pillow_16_bit_modes(self) -> None:
+        """Every documented I;16 variant scans as intensities in [0,255]."""
+        values = np.frombuffer(RAW, dtype=np.uint8).astype(np.uint16)
+        for mode, dtype in (("I;16", "<u2"), ("I;16L", "<u2"), ("I;16B", ">u2")):
+            with self.subTest(mode=mode):
+                image = Image.frombytes(mode, (W, H), values.astype(dtype).tobytes())
+                self.assertEqual(decode(image, library_dir=LIBS).values, [TEXT])
+
     def test_undecoded_region_types(self) -> None:
         """Undecoded regions are engine geometry, shared with the diagnostics."""
         square = tuple(

@@ -55,7 +55,7 @@ async function load(url: URL): Promise<ArrayBuffer> {
   return response.arrayBuffer();
 }
 
-/** Decode a Blob or ImageBitmap to RGBA pixels; pixel inputs pass through. */
+/** Decode a Blob or ImageBitmap onto white RGBA pixels; pixel inputs pass through. */
 async function pixels(source: WorkerSource): Promise<PixelImage> {
   if (!(source instanceof Blob) && !(source instanceof ImageBitmap)) return source;
   const bitmap = source instanceof Blob ? await createImageBitmap(source) : source;
@@ -70,6 +70,10 @@ async function pixels(source: WorkerSource): Promise<PixelImage> {
       willReadFrequently: true,
     });
     if (!context) throw new Error("2D canvas is unavailable in this browser's workers");
+    // Composite onto white, as images are displayed: the scanner ignores alpha, so
+    // transparent areas would otherwise read as black.
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, width, height);
     context.drawImage(bitmap, 0, 0);
     return context.getImageData(0, 0, width, height);
   } finally {

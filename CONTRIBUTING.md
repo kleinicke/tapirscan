@@ -60,7 +60,7 @@ and cross-language parity tests.
 - Experiments, exploratory adapters, failed variants and dated reports live in a
   separate experiment workspace; dataset identities and observations live in the
   dataset workspace. `scripts/check_repository_boundary.py` rejects research
-  directories, known unused prototypes and dated reports in this repository.
+  directories and dated reports in this repository.
 - Run experiments in isolated worktrees of a committed baseline, editing the real
   `core/src` (or `multiformat/`) rather than a second implementation.
 - Integrate a change once, as a diff of only the selected implementation, its

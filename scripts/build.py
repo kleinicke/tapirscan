@@ -4,7 +4,6 @@
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -39,9 +38,6 @@ def main() -> None:
     parser.add_argument("mode", choices=MODES)
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
-    if shutil.disk_usage(ROOT).free < 10 * 1024**3:
-        msg = "need a 10 GiB free-space reserve before building"
-        raise SystemExit(msg)
     subprocess.run(
         [sys.executable, str(ROOT / "scripts/verify_sources.py")],
         check=True,

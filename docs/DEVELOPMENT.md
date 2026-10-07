@@ -5,7 +5,6 @@
 - [rustup](https://rustup.rs), Python **3.10+** and Node **24**. `rust-toolchain.toml`
   selects Rust 1.91.1 with the WASM target; rustup installs it on first use.
 - CMake and a C/C++ compiler for native examples; JDK **22+** for Java (CI uses JDK 25).
-- `scripts/build.py` refuses to run with less than 10 GiB free disk space.
 - Environment for the quality gate (`QUALITY_PYTHON`, `JAVA_HOME`,
   `.quality-tools/environment.json`): see [quality checks](QUALITY.md#environment).
 

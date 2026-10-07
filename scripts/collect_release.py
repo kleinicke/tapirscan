@@ -52,6 +52,15 @@ def wheel_platform(wheel: Path, version: str) -> str:
     return matches.pop()
 
 
+def check_crate(crate: Path, version: str) -> None:
+    """Require the license and third-party notices inside the packaged crate."""
+    with tarfile.open(crate) as archive:
+        names = set(archive.getnames())
+    for required in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+        if f"tapirscan-{version}/{required}" not in names:
+            fail(f"The Rust crate is missing {required}")
+
+
 def write_bundle(
     destination: Path, wheels: list[Path], tarball: Path, crate: Path
 ) -> None:
@@ -96,11 +105,7 @@ def main() -> None:
     crates = list((staging / "CI_RUN").rglob("*.crate"))
     if len(crates) != 1 or crates[0].name != f"tapirscan-{version}.crate":
         fail("Expected exactly one matching Rust crate")
-    with tarfile.open(crates[0]) as archive:
-        names = set(archive.getnames())
-    for required in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
-        if f"tapirscan-{version}/{required}" not in names:
-            fail(f"The Rust crate is missing {required}")
+    check_crate(crates[0], version)
     write_bundle(destination, wheels, tarballs[0], crates[0])
     print(f"Prepared {version}: five platform wheels, one npm package and one crate")
 

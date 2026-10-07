@@ -290,8 +290,11 @@ test("scans capture their options and reach the worker in call order", async () 
         // The canvas needs an asynchronous bitmap snapshot; the pixels do not.
         const first = scanner.scan(canvas, options);
         options.formats = "QRCode";
+        // A call that fails validation must not let later calls overtake earlier ones.
+        const invalid = scanner.scan({ ...image, width: 1 }).catch((error) => error.name);
         const second = scanner.scan({ ...image, data: image.data.slice() });
-        return { sent: (await Promise.all([first, second]), sent), first: (await first).values };
+        const results = await Promise.all([first, invalid, second]);
+        return { sent, first: results[0].values, invalid: results[1] };
       } finally {
         scanner.dispose();
       }
@@ -300,7 +303,7 @@ test("scans capture their options and reach the worker in call order", async () 
     }
   });
   const text = await page.evaluate(() => globalThis.fixture.text);
-  assert.deepEqual(outcome, { sent: ["bitmap", "pixels"], first: [text] });
+  assert.deepEqual(outcome, { sent: ["bitmap", "pixels"], first: [text], invalid: "TypeError" });
 });
 
 test("disposal rejects scans that are still being prepared", async () => {
@@ -315,4 +318,21 @@ test("disposal rejects scans that are still being prepared", async () => {
     );
   });
   assert.equal(message, "Scanner was disposed");
+});
+
+test("transparent images scan as if shown on white", async () => {
+  const values = await page.evaluate(async () => {
+    const { image, tapirscan } = globalThis.fixture;
+    // Black bars on fully transparent pixels; the hidden RGB is black everywhere.
+    const rgba = new Uint8ClampedArray(image.width * image.height * 4);
+    image.data.forEach((value, i) => {
+      rgba[i * 4 + 3] = value < 128 ? 255 : 0;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    canvas.getContext("2d").putImageData(new ImageData(rgba, image.width), 0, 0);
+    return (await tapirscan.scan(canvas)).values;
+  });
+  assert.deepEqual(values, [await page.evaluate(() => globalThis.fixture.text)]);
 });

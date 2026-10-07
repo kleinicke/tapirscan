@@ -52,9 +52,8 @@ Python install from [npm](https://www.npmjs.com/package/tapirscan) and
 [PyPI](https://pypi.org/project/tapirscan/); the other guides explain how to build
 from source. Java, C and C++ use the native library.
 
-Want another language? An AI coding assistant can scaffold a binding from the
-C ABI with a single prompt. See [the binding guide](docs/ADDING_BINDINGS.md) for a
-starter prompt and the checks needed before using or publishing the result.
+Want another language? Bindings build on the C ABI; the [binding checklist](docs/ADDING_BINDINGS.md)
+lists what a new one needs.
 
 ## Quick start
 

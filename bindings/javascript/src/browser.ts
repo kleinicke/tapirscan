@@ -20,6 +20,7 @@ export type {
   DiagnosticBarcode,
   Diagnostics,
   EanAddOnPolicy,
+  ExperimentalTurbo,
   Format,
   FormatSelection,
   Image,
@@ -206,7 +207,9 @@ export class Scanner {
       submitted();
       return await result;
     } finally {
-      submitted();
+      // A failed call releases its successor only once its own predecessor was
+      // sent, so later calls never overtake earlier ones.
+      void previous.then(submitted);
       // Release a bitmap snapshot that was not sent, including one still being prepared.
       void preparing.then(
         ([prepared]) => {

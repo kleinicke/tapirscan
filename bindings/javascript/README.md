@@ -152,10 +152,16 @@ export default defineConfig({
 });
 ```
 
+CI builds the [Vite example](examples/vite/) from the packed package and scans an
+uploaded photo with the production build in Chrome. The Next.js and Vite 7–8 setups
+were verified by hand.
+
 - **Sources:** a `File` or `Blob` (any image the browser decodes), `<img>`,
   `<video>` (its current frame), `<canvas>`, `OffscreenCanvas`, `ImageBitmap`,
   `VideoFrame`, `ImageData`, or decoded pixels as in the core API. Inputs are not
-  modified or transferred.
+  modified or transferred. Images and canvases are composited onto white, so
+  transparent areas count as background; `ImageData` and pixel buffers are scanned
+  as given, with alpha ignored.
 - **Methods:** `scan` and `inspect` work as in the core API but return promises.
   Each call captures its image and options when it starts, so buffers and option
   objects can be reused immediately. Calls reach the worker in call order.
@@ -442,10 +448,20 @@ the crop, not identifiers for tracking between frames.
 ## Errors
 
 Invalid options throw `TypeError`. Engine and validation failures throw the
-exported `ScannerError` with `.message` and a `.code` of `"invalid_input"`,
-`"disposed"`, `"engine"` or `"capacity"` (too many live scanners). Loader and
-fetch errors reject `Scanner.create` and the one-shot helpers. Dispose reusable
-scanners in `finally`.
+exported `ScannerError` with `.message` and a `.code`:
+
+| Code                                                        | Meaning                                                   |
+| ----------------------------------------------------------- | --------------------------------------------------------- |
+| `"invalid_input"`                                           | The engine rejected the image or options.                 |
+| `"disposed"`                                                | The scanner was disposed.                                 |
+| `"engine"`                                                  | Internal scanner failure.                                 |
+| `"capacity"`                                                | Too many live scanners in this WASM instance.             |
+| `"abi_shape"`, `"abi_version"`, `"abi_mode"`, `"abi_turbo"` | The loaded WASM file does not match this package or mode. |
+| `"invalid_output"`                                          | The engine returned unreadable output.                    |
+| `"core_<n>"`                                                | An unexpected engine status `n`.                          |
+
+Loader and fetch errors reject `Scanner.create` and the one-shot helpers. Dispose
+reusable scanners in `finally`.
 
 ## License
 

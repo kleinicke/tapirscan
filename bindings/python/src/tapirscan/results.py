@@ -150,7 +150,7 @@ class Regions:
     proposals: tuple[Proposal, ...] | None
     search_windows: tuple[SearchWindow, ...] | None
     candidates: tuple[Candidate, ...]
-    omitted: int
+    omitted: int | None  # None when the reader does not count omitted proposals
     work_limited: bool
     undecoded: tuple[UndecodedRegion, ...] = ()
 

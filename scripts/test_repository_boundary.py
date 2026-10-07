@@ -25,21 +25,20 @@ class Boundary(unittest.TestCase):
                 path.touch()
             self.assertEqual(violations(root), [])
 
-    def test_archive_report_and_unused_module_are_rejected(self) -> None:
+    def test_archive_and_report_are_rejected(self) -> None:
         """Untracked research files cannot enter a normal verified build."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for name in (
                 "historical/core/src/lib.rs",
                 "docs/RECOVERY_20260928.md",
-                "core/src/neural_input.rs",
             ):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()
             self.assertEqual(
                 violations(root),
-                ["core/src/neural_input.rs", "docs/RECOVERY_20260928.md", "historical"],
+                ["docs/RECOVERY_20260928.md", "historical"],
             )
 
 

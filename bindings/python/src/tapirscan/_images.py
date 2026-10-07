@@ -94,7 +94,8 @@ def image_bytes(
                 samples = (
                     memoryview(image.tobytes()).cast("f")
                     if image.mode == "F"
-                    else cast("tuple[int, int]", image.getextrema())
+                    # I;16L/I;16B have no getextrema(); "I" holds every 16-bit value.
+                    else cast("tuple[int, int]", image.convert("I").getextrema())
                 )
                 if any(not isfinite(p) or not 0 <= p <= MAX_PIXEL for p in samples):
                     msg = "Pillow pixels must be finite in [0,255]; rescale explicitly"

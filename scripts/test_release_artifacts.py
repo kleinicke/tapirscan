@@ -11,7 +11,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from collect_release import PLATFORMS, main, wheel_platform
+from collect_release import PLATFORMS, check_crate, main, wheel_platform
 
 
 class ReleaseArtifacts(unittest.TestCase):
@@ -41,6 +41,17 @@ class ReleaseArtifacts(unittest.TestCase):
                     )
                     with self.assertRaisesRegex(SystemExit, "Unexpected wheel"):
                         wheel_platform(wheel, "1.0.1")
+
+    def test_crate_without_notices_is_rejected(self) -> None:
+        """A crate must carry the license and the third-party notices."""
+        with tempfile.TemporaryDirectory() as temporary:
+            crate = Path(temporary) / "tapirscan-1.1.0.crate"
+            with tarfile.open(crate, "w:gz") as archive:
+                info = tarfile.TarInfo("tapirscan-1.1.0/LICENSE")
+                info.size = 1
+                archive.addfile(info, io.BytesIO(b"L"))
+            with self.assertRaisesRegex(SystemExit, "THIRD_PARTY_NOTICES"):
+                check_crate(crate, "1.1.0")
 
     def test_complete_bundle_and_missing_platform(self) -> None:
         """Only a complete same-version bundle is accepted; hashes cover its files."""
