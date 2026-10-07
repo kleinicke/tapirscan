@@ -32,6 +32,9 @@ rebuild for ABI 6. See the [migration guide](docs/API_MIGRATION.md).
   have an explicit initializer; C++ rejects temporary image buffers.
 - Rust mode features only add modes: all four are default features, and
   smaller builds disable the defaults and list their modes.
+- Data Matrix, PDF417, Aztec and MaxiCode report `reader_initialization` as
+  false when the symbol has no reader-initialization flag; other formats leave it
+  unavailable.
 - Java accepts `MemorySegment` pixels without copying. Python wheels bundle the
   native library. Rust barcodes implement serde `Serialize`. JavaScript and
   Python expose typed format identifiers.
@@ -50,6 +53,12 @@ rebuild for ABI 6. See the [migration guide](docs/API_MIGRATION.md).
 - QR Code and Aztec recover more difficult symbols.
 - Reads, geometry, ordering and latency can differ from 1.2.2. Higher effort
   does not guarantee more reads on every image.
+
+### Known issues
+
+- A linear barcode decoded along a slightly diagonal scanline can get an outline
+  tilted by a few degrees, extending a few pixels past the bars at two corners.
+  Decoded values are unaffected.
 
 ### Packaging
 

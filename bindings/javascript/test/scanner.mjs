@@ -85,14 +85,20 @@ for (const mode of ["low", "medium", "high", "very-high"]) {
   });
 }
 test("invalid mode fails before loading", async () => {
+  // null and objects that stringify to a mode are rejected, not coerced.
+  for (const mode of ["invalid", null, { toString: () => "medium" }])
+    await assert.rejects(
+      Scanner.create({
+        mode,
+        loadWasm: () => {
+          throw Error("must not load");
+        },
+      }),
+      /Unknown scanner mode/,
+    );
   await assert.rejects(
-    Scanner.create({
-      mode: "invalid",
-      loadWasm: () => {
-        throw Error("must not load");
-      },
-    }),
-    /Unknown scanner mode/,
+    Scanner.create({ eanAddOnPolicy: { toString: () => "ignore" }, loadWasm: () => {} }),
+    /eanAddOnPolicy/,
   );
 });
 

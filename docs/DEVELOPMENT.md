@@ -124,8 +124,10 @@ internal per-mode engine assembled by the build scripts. Keep public result type
 in the API layer. The engine's `pipeline.rs` orders scanner stages, `detail.rs`
 handles crop recovery, `geometry.rs` owns overlap calculations, `read.rs` holds
 typed reader evidence and `formats.rs` reconciles it. `result.rs` serializes
-optional diagnostics. Public results cross the API boundary as Rust types; scanning
-does not construct or parse JSON when diagnostics are disabled.
+optional diagnostics. Public results cross the Rust API as typed values, and the C,
+C++, Java and Python bindings read them through typed accessors; only inspection
+diagnostics are JSON. The WASM adapter is the exception: it hands every result to
+JavaScript as JSON.
 
 In JavaScript, `index.ts` exposes the API and `rust-session.ts` owns the WASM
 session. Keep scanner decisions in Rust so changes apply to every binding.

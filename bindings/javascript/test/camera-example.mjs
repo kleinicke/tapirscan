@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { setImmediate } from "node:timers/promises";
 import { runInNewContext } from "node:vm";
 
-async function cameraExample() {
+async function cameraExample({ failConstruction = false } = {}) {
   const html = await readFile(new URL("../examples/camera.html", import.meta.url), "utf8");
   const source = html.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
   const frames = [];
@@ -21,6 +21,7 @@ async function cameraExample() {
     Scanner: class {
       calls = 0;
       constructor() {
+        if (failConstruction) throw new Error("worker unavailable");
         scanners.push(this);
       }
       scan() {
@@ -79,4 +80,11 @@ test("leaving while camera permission is pending stops a late stream", async () 
   await running;
   assert.equal(camera.stops(), 1);
   assert.equal(camera.elements.video.srcObject, null);
+});
+
+test("a failing scanner constructor is reported and Start works again", async () => {
+  const camera = await cameraExample({ failConstruction: true });
+  await camera.start();
+  assert.equal(camera.elements.pre.textContent, "worker unavailable");
+  assert.equal(camera.elements["#start"].disabled, false);
 });

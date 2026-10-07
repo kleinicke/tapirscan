@@ -15,7 +15,7 @@ public final class ApiTest {
                 support, Optional.of(bytes), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
         byte[] bytes = {0, 1, -1};
         Barcode a = barcode(bytes, 5), b = barcode(bytes.clone(), 5);
         check(a.equals(b) && a.hashCode() == b.hashCode());
@@ -57,6 +57,27 @@ public final class ApiTest {
                 throw new AssertionError("Short input accepted");
             } catch (ScannerException error) {
                 check(error.code == 1 && error.getMessage().contains("buffer"));
+            }
+            // Zero-copy segments must be open and usable on the scanning thread.
+            java.lang.foreign.MemorySegment closed;
+            try (java.lang.foreign.Arena arena = java.lang.foreign.Arena.ofConfined()) {
+                closed = arena.allocate(9);
+            }
+            try {
+                scanner.scan(new Image(closed, 3, 3, 1, 3));
+                throw new AssertionError("Closed segment accepted");
+            } catch (IllegalStateException expected) {
+                check(expected.getMessage().contains("closed"));
+            }
+            java.lang.foreign.MemorySegment[] foreign = new java.lang.foreign.MemorySegment[1];
+            Thread owner = new Thread(() -> foreign[0] = java.lang.foreign.Arena.ofConfined().allocate(9));
+            owner.start();
+            owner.join();
+            try {
+                scanner.scan(new Image(foreign[0], 3, 3, 1, 3));
+                throw new AssertionError("Foreign-thread segment accepted");
+            } catch (IllegalStateException expected) {
+                check(expected.getMessage().contains("thread"));
             }
         }
     }

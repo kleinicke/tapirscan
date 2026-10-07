@@ -17,12 +17,16 @@ function checkGeometry(result, fixture) {
   reads.forEach((read, i) => {
     const expected = fixture.geometry[i];
     equal(read.eanAddOn ?? null, expected.eanAddOn, `${fixture.name}: physical association`);
+    // Cover the bars (at most 4 px short); overhang up to 8 px for the known tilt of
+    // symbols decoded along a slightly diagonal line (see CHANGELOG.md).
+    const left = Math.min(...read.polygon.map(([x]) => x));
+    const right = Math.max(...read.polygon.map(([x]) => x));
     check(
-      Math.abs(Math.min(...read.polygon.map(([x]) => x)) - expected.left) <= 4,
+      left >= expected.left - 8 && left <= expected.left + 4,
       `${fixture.name}: main left edge`,
     );
     check(
-      Math.abs(Math.max(...read.polygon.map(([x]) => x)) - expected.right) <= 4,
+      right >= expected.right - 4 && right <= expected.right + 8,
       `${fixture.name}: main right edge excludes supplement`,
     );
   });

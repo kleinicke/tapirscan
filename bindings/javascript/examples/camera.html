@@ -27,9 +27,10 @@
 
     start.onclick = async () => {
       start.disabled = true;
-      // Loads in a worker while the camera starts.
-      const current = (scanner = new Scanner({ formats: ["EAN13", "QRCode"] }));
+      let current;
       try {
+        // Loads in a worker while the camera starts.
+        current = scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
         const camera = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment" },
         });
@@ -48,6 +49,7 @@
           if (scanner === current) status.textContent = JSON.stringify(barcodes.values);
         }
       } catch (error) {
+        // Also reached when construction fails: report it and re-enable Start.
         if (scanner === current) {
           status.textContent = error.message;
           shutdown();

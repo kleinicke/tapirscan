@@ -28,8 +28,9 @@ formats for that call. At most 1024 scanners can be live at once; creating more
 returns handle 0.
 
 `tapirscan_prepare` allocates exactly `(height - 1) * stride + width * channels`
-bytes. The input view stays valid until the next prepare or destroy, and the
-output until the next scan or destroy. Handles are checked IDs.
+bytes. The input view stays valid until the next prepare or destroy. The output
+stays valid until the next prepare, scan or destroy: read a result before preparing
+the next image. Handles are checked IDs.
 
 ## Results
 

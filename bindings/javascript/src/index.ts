@@ -1,4 +1,5 @@
 import {
+  hasKey,
   maskFor,
   resolveFormats,
   type Format,
@@ -218,7 +219,8 @@ function wireResult(value: unknown): WireResult {
     value.image === null ||
     typeof value.image !== "object" ||
     !("mode" in value) ||
-    !Object.hasOwn(modes, String(value.mode))
+    typeof value.mode !== "string" ||
+    !hasKey(modes, value.mode)
   )
     throw new ScannerError("invalid_output", "Scanner returned an invalid result");
   return value as WireResult;
@@ -290,18 +292,23 @@ export class Scanner {
         throw new TypeError(`Unknown scanner option: ${key}`);
     const turbo = options.experimentalTurbo;
     if (turbo !== undefined) {
-      if (typeof turbo !== "number" || !Object.hasOwn(turboFiles, turbo))
+      if (typeof turbo !== "number" || !hasKey(turboFiles, turbo))
         throw new TypeError("experimentalTurbo must be 2, 4, 8 or 16");
       if (options.mode !== undefined)
         throw new TypeError("Choose mode or experimentalTurbo, not both");
       if (options.eanAddOnPolicy !== undefined && options.eanAddOnPolicy !== "ignore")
         throw new TypeError('experimentalTurbo requires eanAddOnPolicy: "ignore"');
     }
+    // Only undefined or a supported string: null or objects that stringify to a mode are errors.
+    if (
+      options.mode !== undefined &&
+      (typeof options.mode !== "string" || !hasKey(modes, options.mode))
+    )
+      throw new TypeError("Unknown scanner mode");
     const mode = turbo === undefined ? (options.mode ?? "medium") : "low";
-    if (!Object.hasOwn(modes, mode)) throw new TypeError("Unknown scanner mode");
     const formats = resolveFormats(options.formats);
     const addOnPolicy = options.eanAddOnPolicy === undefined ? "ignore" : options.eanAddOnPolicy;
-    if (!Object.hasOwn(addOnPolicies, addOnPolicy))
+    if (typeof addOnPolicy !== "string" || !hasKey(addOnPolicies, addOnPolicy))
       throw new TypeError('eanAddOnPolicy must be "ignore", "read" or "require"');
     if (options.loadWasm !== undefined && typeof options.loadWasm !== "function")
       throw new TypeError("loadWasm must be a function");

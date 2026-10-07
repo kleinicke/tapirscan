@@ -74,6 +74,11 @@ impl Read {
     }
 
     pub fn additional(value: barcode_multiformat::Detection) -> Self {
+        // These readers determine the flag; for the others false only means "not reported".
+        let reader_initialization = match value.format.as_str() {
+            "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode" => Some(value.reader_initialization),
+            _ => value.reader_initialization.then_some(true),
+        };
         Self {
             text: value.text,
             format: value.format,
@@ -84,7 +89,7 @@ impl Read {
             payload_bytes: value.bytes,
             addon: value.addon,
             gs1: Some(value.gs1),
-            reader_initialization: value.reader_initialization.then_some(true),
+            reader_initialization,
             structured_append: value.structured_append,
             payload: ReaderPayload {
                 error: Some(f64::from(value.error)),

@@ -191,26 +191,26 @@ you resize before scanning, map coordinates back when drawing on the original.
 `scan` returns a `ScanResult`; `inspect` returns an `InspectionResult` with the
 same fields plus the ones marked _inspect_. Results are immutable.
 
-| Field/method                    | Meaning                                                                    |
-| ------------------------------- | -------------------------------------------------------------------------- |
-| `result.values`                 | List of decoded strings, one per barcode.                                  |
-| `result.barcodes`               | Tuple of immutable `Barcode` objects.                                      |
-| `result.best`                   | Highest-support barcode (first on ties), or None.                          |
-| `result.as_dict()`              | JSON-compatible dictionary of the public fields, without diagnostics.      |
-| `result.image`                  | _inspect_: `ImageSize(width, height)` of the supplied pixels.              |
-| `result.mode`                   | _inspect_: effort mode used.                                               |
-| `result.elapsed_ms`             | _inspect_: native scan time, excluding image conversion.                   |
-| `result.undecoded`              | _inspect_: [regions without a decode](#undecoded-regions).                 |
-| `result.diagnostics`            | _inspect_: [engine evidence](#diagnostics).                                |
-| `barcode.text`, `.format`       | Decoded text and format identifier.                                        |
-| `barcode.polygon`               | Tuple of four `Point(x, y)` source-image coordinates.                      |
-| `barcode.rect`                  | Enclosing integer `Rect(left, top, width, height)`.                        |
-| `barcode.support`               | Reader-specific ranking evidence used by `best`.                           |
-| `barcode.payload_bytes`         | Decoded matrix payload bytes, or None.                                     |
-| `barcode.gs1`                   | GS1 indicator, or None if not supplied by the reader.                      |
-| `barcode.reader_initialization` | Reader initialization indicator, or None; never executed.                  |
-| `barcode.structured_append`     | `StructuredAppend(index, count, id, parity)`, or None; index is one-based. |
-| `barcode.ean_add_on`            | EAN/UPC supplement, with `ean_add_on_policy` `"read"` or `"require"`.      |
+| Field/method                    | Meaning                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------- |
+| `result.values`                 | List of decoded strings, one per barcode.                                                   |
+| `result.barcodes`               | Tuple of immutable `Barcode` objects.                                                       |
+| `result.best`                   | Highest-support barcode (first on ties), or None.                                           |
+| `result.as_dict()`              | JSON-compatible dictionary of the public fields, without diagnostics.                       |
+| `result.image`                  | _inspect_: `ImageSize(width, height)` of the supplied pixels.                               |
+| `result.mode`                   | _inspect_: effort mode used.                                                                |
+| `result.elapsed_ms`             | _inspect_: native scan time, excluding image conversion.                                    |
+| `result.undecoded`              | _inspect_: [regions without a decode](#undecoded-regions).                                  |
+| `result.diagnostics`            | _inspect_: [engine evidence](#diagnostics).                                                 |
+| `barcode.text`, `.format`       | Decoded text and format identifier.                                                         |
+| `barcode.polygon`               | Tuple of four `Point(x, y)` source-image coordinates.                                       |
+| `barcode.rect`                  | Enclosing integer `Rect(left, top, width, height)`.                                         |
+| `barcode.support`               | Reader-specific ranking evidence used by `best`.                                            |
+| `barcode.payload_bytes`         | Decoded matrix payload bytes, or None.                                                      |
+| `barcode.gs1`                   | GS1 indicator, or None if not supplied by the reader.                                       |
+| `barcode.reader_initialization` | Data Matrix, PDF417, Aztec and MaxiCode reader-initialization flag; None for other formats. |
+| `barcode.structured_append`     | `StructuredAppend(index, count, id, parity)`, or None; index is one-based.                  |
+| `barcode.ean_add_on`            | EAN/UPC supplement, with `ean_add_on_policy` `"read"` or `"require"`.                       |
 
 Separate labels with the same value stay separate entries. `barcode.as_dict()`
 exports a single read, and `json.dumps(result.as_dict())` works directly.

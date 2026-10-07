@@ -53,6 +53,16 @@ cross-format confidence. JavaScript `JSON.stringify(result)` and Python
 In JavaScript, per-call `formats` now override the scanner's formats for that
 call instead of having to be a subset of them.
 
+JavaScript also changes two package details:
+
+- The `formatBits` export is removed. Select formats by name (`"EAN13"`,
+  `"QRCode"`, or presets such as `"retail"`); the bit values remain internal.
+- The WASM files are renamed from `<mode>-release-1.2.2-….wasm` to `low.wasm`,
+  `medium.wasm`, `high.wasm`, `very-high.wasm` and `experimental-turbo2.wasm` to
+  `-turbo16.wasm`, importable as `tapirscan/wasm/<name>.wasm`. Update copy steps,
+  `wasmBaseUrl` hosting and custom `loadWasm` URLs. `tapirscan/browser` needs no
+  setup.
+
 ### Browser applications
 
 The new `tapirscan/browser` entry accepts files and browser image sources and

@@ -54,16 +54,11 @@ def run(*args: object) -> None:
     subprocess.run(list(map(str, args)), check=True)
 
 
-if __name__ == "__main__":
-    with tempfile.TemporaryDirectory(prefix="tapirscan-cmake-install-") as temporary:
-        temp = Path(temporary)
-        prefix = temp / "original"
-        moved = temp / "relocated"
-        run("cmake", "--install", ROOT / "build/cpp", "--prefix", prefix)
-        prefix.rename(moved)
-        source = temp / "consumer"
-        source.mkdir()
-        (source / "CMakeLists.txt").write_text("""cmake_minimum_required(VERSION 3.20)
+def consume(temp: Path, prefix: Path, name: str) -> None:
+    """Build and run the C and C++ consumers against an installed prefix."""
+    source = temp / f"{name}-consumer"
+    source.mkdir()
+    (source / "CMakeLists.txt").write_text("""cmake_minimum_required(VERSION 3.20)
 project(Consumer LANGUAGES C CXX)
 find_package(Tapirscan CONFIG REQUIRED)
 add_executable(consumer main.cpp)
@@ -71,17 +66,43 @@ target_link_libraries(consumer PRIVATE tapirscan::cpp)
 add_executable(c_consumer main.c)
 target_link_libraries(c_consumer PRIVATE tapirscan::native)
 """)
-        (source / "main.cpp").write_text(CONSUMER)
-        (source / "main.c").write_text(C_CONSUMER)
-        run("cmake", "-S", source, "-B", temp / "build", f"-DCMAKE_PREFIX_PATH={moved}")
-        run("cmake", "--build", temp / "build")
-        run(temp / "build/c_consumer")
+    (source / "main.cpp").write_text(CONSUMER)
+    (source / "main.c").write_text(C_CONSUMER)
+    build = temp / f"{name}-build"
+    run("cmake", "-S", source, "-B", build, f"-DCMAKE_PREFIX_PATH={prefix}")
+    run("cmake", "--build", build)
+    run(build / "c_consumer")
+    output = subprocess.check_output([str(build / "consumer")], text=True)
+    if json.loads(output) != ["low", "medium", "high", "very-high"]:
+        msg = f"Installed consumer returned unexpected modes: {output}"
+        raise AssertionError(msg)
+
+
+if __name__ == "__main__":
+    with tempfile.TemporaryDirectory(prefix="tapirscan-cmake-install-") as temporary:
+        temp = Path(temporary)
+        prefix = temp / "original"
+        moved = temp / "relocated"
+        run("cmake", "--install", ROOT / "build/cpp", "--prefix", prefix)
+        prefix.rename(moved)
+        consume(temp, moved, "relocated")
         notices = moved / "share/licenses/tapirscan/THIRD_PARTY_NOTICES.md"
         if not notices.is_file():
             msg = "The native installation is missing the third-party notices"
             raise AssertionError(msg)
-        output = subprocess.check_output([str(temp / "build/consumer")], text=True)
-        if json.loads(output) != ["low", "medium", "high", "very-high"]:
-            msg = f"Installed consumer returned unexpected modes: {output}"
-            raise AssertionError(msg)
-    print("The relocated C and C++ packages scanned; notices are installed.")
+        # Absolute install directories are valid CMake and must not be prefixed twice.
+        absolute = temp / "absolute"
+        run(
+            "cmake",
+            "-S",
+            ROOT / "bindings/cpp",
+            "-B",
+            temp / "absolute-package",
+            "-DTAPIRSCAN_BUILD_TESTS=OFF",
+            f"-DCMAKE_INSTALL_PREFIX={absolute}",
+            f"-DCMAKE_INSTALL_LIBDIR={absolute / 'lib'}",
+            f"-DCMAKE_INSTALL_INCLUDEDIR={absolute / 'include'}",
+        )
+        run("cmake", "--install", temp / "absolute-package")
+        consume(temp, absolute, "absolute")
+    print("Relocated and absolute-directory packages scanned; notices installed.")

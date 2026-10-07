@@ -74,6 +74,13 @@ public final class Scanner implements AutoCloseable {
         Objects.requireNonNull(scan);
         if (handle == 0) throw new IllegalStateException("Scanner is closed");
         long length = image.addressedBytes();
+        MemorySegment source = image.pixels();
+        // Native code reads a zero-copy segment by address, outside FFM's lifetime and
+        // confinement checks: reject a closed or foreign-thread segment here instead.
+        if (source.isNative() && !source.scope().isAlive())
+            throw new IllegalStateException("The pixel segment's arena is closed");
+        if (!source.isAccessibleBy(Thread.currentThread()))
+            throw new IllegalStateException("The pixel segment is confined to another thread");
         try (Arena arena = Arena.ofConfined()) {
             // Native code cannot read the Java heap: copy only the addressed bytes.
             MemorySegment pixels = image.pixels().isNative() ? image.pixels()

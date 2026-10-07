@@ -57,7 +57,10 @@ install(FILES "${TAPIRSCAN_NATIVE_DIR}/${TAPIRSCAN_NATIVE_NAME}" DESTINATION ${C
 if(WIN32)
   install(FILES "${TAPIRSCAN_NATIVE_DIR}/tapirscan.dll.lib" DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
-configure_package_config_file(TapirscanConfig.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/TapirscanConfig.cmake" INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Tapirscan)
+# PATH_VARS resolves relative and absolute install directories correctly.
+configure_package_config_file(TapirscanConfig.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/TapirscanConfig.cmake"
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Tapirscan
+  PATH_VARS CMAKE_INSTALL_LIBDIR CMAKE_INSTALL_INCLUDEDIR)
 write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/TapirscanConfigVersion.cmake" VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
 install(EXPORT TapirscanTargets NAMESPACE tapirscan:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Tapirscan)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/TapirscanConfig.cmake" "${CMAKE_CURRENT_BINARY_DIR}/TapirscanConfigVersion.cmake" DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Tapirscan)

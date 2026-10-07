@@ -2,13 +2,13 @@
 if(NOT TARGET tapirscan::native)
   add_library(tapirscan::native SHARED IMPORTED)
   set_target_properties(tapirscan::native PROPERTIES
-    IMPORTED_LOCATION "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/@TAPIRSCAN_NATIVE_NAME@"
-    INTERFACE_INCLUDE_DIRECTORIES "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@")
+    IMPORTED_LOCATION "@PACKAGE_CMAKE_INSTALL_LIBDIR@/@TAPIRSCAN_NATIVE_NAME@"
+    INTERFACE_INCLUDE_DIRECTORIES "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
   if(UNIX)
     set_target_properties(tapirscan::native PROPERTIES IMPORTED_SONAME "@TAPIRSCAN_NATIVE_SONAME@")
   endif()
   if(WIN32)
-    set_target_properties(tapirscan::native PROPERTIES IMPORTED_IMPLIB "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/tapirscan.dll.lib")
+    set_target_properties(tapirscan::native PROPERTIES IMPORTED_IMPLIB "@PACKAGE_CMAKE_INSTALL_LIBDIR@/tapirscan.dll.lib")
   endif()
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/TapirscanTargets.cmake")
