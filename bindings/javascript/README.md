@@ -138,7 +138,8 @@ export default defineConfig({
 - **Sources:** a `File` or `Blob` (any image the browser decodes), `<img>`,
   `<video>` (its current frame), `<canvas>`, `OffscreenCanvas`, `ImageBitmap`,
   `VideoFrame`, `ImageData`, or decoded pixels as in the core API. Inputs are not
-  modified or transferred.
+  modified or transferred. Pixel buffers and image sources are snapshotted when
+  the call starts, so buffers can be reused immediately.
 - **Methods:** `scan` and `inspect` work as in the core API but return promises.
   Concurrent calls are queued.
 - **Options:** `mode`, `formats` and `eanAddOnPolicy` work as in the core, and
@@ -149,7 +150,7 @@ export default defineConfig({
   because loading errors also reject every scan. During server rendering the
   constructor does nothing and scans reject. `dispose()` stops the worker and
   rejects queued scans; returned results stay valid.
-- **Errors:** unknown option names throw in the constructor; invalid option values
+- **Errors:** unknown option names and invalid `wasmBaseUrl` values throw in the constructor; invalid option values
   and scan arguments reject with `TypeError`; engine failures reject with
   `ScannerError`. Browser image decoding and loading can also fail.
 - **Requirements:** module workers, `OffscreenCanvas` and WebAssembly SIMD:

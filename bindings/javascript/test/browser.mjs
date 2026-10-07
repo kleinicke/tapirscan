@@ -27,7 +27,10 @@ before(async () => {
       response.writeHead(404).end();
     }
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
   browser = await chromium.launch(
     process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" },
   );
@@ -179,4 +182,73 @@ test("the worker's static WASM URLs match the packaged assets", async () => {
     const file = packageJson.exports[`./wasm/${mode}.wasm`].replace("./wasm/", "");
     assert.ok(worker.includes(`new URL("../wasm/${file}", import.meta.url)`), mode);
   }
+});
+
+test("browser scans snapshot reusable pixels before loading or yielding", async () => {
+  const values = await page.evaluate(async () => {
+    const { image, canvas, tapirscan } = globalThis.fixture;
+    const scanner = new tapirscan.Scanner();
+    try {
+      const input = { ...image, data: image.data.slice() };
+      const first = scanner.scan(input);
+      input.data.fill(255);
+      input.width = 3;
+      await scanner.ready;
+      const rgba = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+      const second = scanner.scan(rgba);
+      rgba.data.fill(255);
+      return [(await first).values, (await second).values];
+    } finally {
+      scanner.dispose();
+    }
+  });
+  const text = await page.evaluate(() => globalThis.fixture.text);
+  assert.deepEqual(values, [[text], [text]]);
+});
+
+test("invalid URLs allocate no worker and failed initialization terminates its worker", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { Scanner } = globalThis.fixture.tapirscan;
+    const OriginalWorker = globalThis.Worker;
+    let created = 0,
+      terminated = 0;
+    globalThis.Worker = class extends OriginalWorker {
+      constructor(...args) {
+        super(...args);
+        created++;
+      }
+      terminate() {
+        terminated++;
+        super.terminate();
+      }
+    };
+    try {
+      let invalid;
+      try {
+        new Scanner({ wasmBaseUrl: "http://[" });
+      } catch (error) {
+        invalid = error.name;
+      }
+      const afterInvalid = [created, terminated];
+      const scanner = new Scanner({ wasmBaseUrl: "/missing/" });
+      let failed = false;
+      try {
+        await scanner.ready;
+      } catch {
+        failed = true;
+      }
+      const afterFailure = [created, terminated];
+      scanner.dispose();
+      return { invalid, afterInvalid, failed, afterFailure, terminated };
+    } finally {
+      globalThis.Worker = OriginalWorker;
+    }
+  });
+  assert.deepEqual(outcome, {
+    invalid: "TypeError",
+    afterInvalid: [0, 0],
+    failed: true,
+    afterFailure: [1, 1],
+    terminated: 1,
+  });
 });

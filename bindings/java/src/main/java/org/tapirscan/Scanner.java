@@ -59,7 +59,7 @@ public final class Scanner implements AutoCloseable {
         return run(image, scan, false, (arena, result) -> new ScanResult(readBarcodes(arena, result)));
     }
 
-    /** Inspect one image, including work status, unread regions and diagnostics. */
+    /** Inspect one image, including unread regions and diagnostics. */
     public InspectionResult inspect(Image image) {
         return inspect(image, ScanOptions.defaults());
     }

@@ -371,7 +371,7 @@ export class Scanner {
     });
   }
 
-  /** Inspect barcodes, unread regions, work status and engine diagnostics. */
+  /** Inspect barcodes, unread regions, timing and engine diagnostics. */
   inspect(inputImage: PixelImage, options: ScanOptions = {}): InspectionResult {
     const start = performance.now();
     const raw = wireResult(this.run(inputImage, options, true));

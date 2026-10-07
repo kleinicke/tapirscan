@@ -73,7 +73,7 @@ and cross-language parity tests.
 - Size the Chrome timing to the step: quick (about 100 images per set, one
   repeat, changed modes) while iterating; merge (about 300 images per set, one
   repeat, changed modes) before integrating; full only for package releases.
-  Recorded numbers follow the [runtime rule](AGENTS.md#required-runtime-for-recorded-performance-numbers).
+  Recorded numbers follow the [benchmark runtime requirements](docs/BENCHMARKS.md).
 
 ## Contribution license
 

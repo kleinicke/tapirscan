@@ -329,7 +329,7 @@ pub unsafe extern "C" fn tapirscan_scan(
     unsafe { scan(scanner, image, options, out, error, false) }
 }
 
-/// Inspect an image, retaining work status and diagnostic evidence.
+/// Inspect an image, retaining timing and diagnostic evidence.
 /// # Safety
 /// Same pointer requirements as [`tapirscan_scan`].
 #[unsafe(no_mangle)]

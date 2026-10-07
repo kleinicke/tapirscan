@@ -61,11 +61,29 @@ function revive({ name, message, code }: { name: string; message: string; code?:
   return name === "TypeError" ? new TypeError(message) : new Error(message);
 }
 
-/** Send Blobs and pixels as they are; snapshot elements and bitmaps now. */
+/** Snapshot mutable inputs before the first await; Blobs are immutable. */
 async function prepare(source: ImageSource): Promise<[WorkerSource, Transferable[]]> {
   const input: unknown = source;
   if (input === null || typeof input !== "object") throw new TypeError("Expected an image source");
-  if (source instanceof Blob || "data" in source) return [source, []];
+  if (source instanceof Blob) return [source, []];
+  if ("data" in source) {
+    if (!(source.data instanceof Uint8Array || source.data instanceof Uint8ClampedArray))
+      throw new TypeError("Expected a byte buffer");
+    if (!("channels" in source) && !(source.data instanceof Uint8ClampedArray))
+      throw new TypeError("Use ImageData or an explicit buffer with channels");
+    const data = new Uint8Array(source.data);
+    const snapshot =
+      "channels" in source
+        ? {
+            data,
+            width: source.width,
+            height: source.height,
+            channels: source.channels,
+            stride: source.stride,
+          }
+        : { data, width: source.width, height: source.height, channels: 4 as const };
+    return [snapshot, [data.buffer]];
+  }
   // A copy, so a caller's ImageBitmap stays usable after it is transferred.
   const bitmap = await createImageBitmap(source);
   return [bitmap, [bitmap]];
@@ -100,6 +118,18 @@ export class Scanner {
       );
       this.ready = Promise.reject(this.#closed);
     } else {
+      const { wasmBaseUrl, ...rest } = options;
+      if (
+        wasmBaseUrl !== undefined &&
+        typeof wasmBaseUrl !== "string" &&
+        !(wasmBaseUrl instanceof URL)
+      )
+        throw new TypeError("wasmBaseUrl must be a string or URL");
+      const base = typeof document === "undefined" ? location.href : document.baseURI;
+      const workerOptions =
+        wasmBaseUrl === undefined
+          ? rest
+          : { ...rest, wasmBaseUrl: new URL(wasmBaseUrl, base).href };
       const worker = new Worker(new URL("./browser-worker.js", import.meta.url), {
         type: "module",
       });
@@ -124,29 +154,24 @@ export class Scanner {
       worker.onmessageerror = () => {
         this.#close(new Error("Could not read a scanner worker message"));
       };
-      const { wasmBaseUrl, ...rest } = options;
-      const base = typeof document === "undefined" ? location.href : document.baseURI;
-      this.ready = this.#request(
-        {
-          type: "create",
-          options:
-            wasmBaseUrl === undefined
-              ? rest
-              : { ...rest, wasmBaseUrl: new URL(wasmBaseUrl, base).href },
+      this.ready = this.#request({ type: "create", options: workerOptions }, []).then(
+        () => undefined,
+        (error: unknown) => {
+          this.#close(error instanceof Error ? error : new Error(String(error)));
+          throw error;
         },
-        [],
-      ).then(() => undefined);
+      );
     }
     // Loading errors also reject every scan; awaiting ready is optional.
     this.ready.catch(() => undefined);
   }
 
-  /** Decode barcodes with source-image positions. No detection resolves to []. */
+  /** Decode barcodes with source-image positions. No detection returns empty values and barcodes. */
   async scan(source: ImageSource, options: ScanOptions = {}): Promise<ScanResult> {
     return freeze((await this.#scan("scan", source, options)) as ScanResult);
   }
 
-  /** Scan with unread regions, work status, timing and engine diagnostics. */
+  /** Scan with unread regions, timing and engine diagnostics. */
   async inspect(source: ImageSource, options: ScanOptions = {}): Promise<InspectionResult> {
     return freeze((await this.#scan("inspect", source, options)) as InspectionResult);
   }
@@ -160,8 +185,13 @@ export class Scanner {
     if (this.#closed) throw this.#closed;
     // Capture the frame first, so video scans read the frame current at the call.
     const [prepared, transfer] = await prepare(source);
-    await this.ready;
-    return this.#request({ type, source: prepared, options }, transfer);
+    try {
+      await this.ready;
+      return await this.#request({ type, source: prepared, options }, transfer);
+    } finally {
+      // Also release snapshots when initialization or posting fails.
+      if (prepared instanceof ImageBitmap) prepared.close();
+    }
   }
 
   #request(message: DistributiveOmit<WorkerRequest, "id">, transfer: Transferable[]) {

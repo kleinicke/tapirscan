@@ -1,7 +1,10 @@
 # Evaluating barcode readers
 
-This page holds the rules for fair comparisons. Performance numbers that are
-recorded or published also follow the [runtime rule](../AGENTS.md#required-runtime-for-recorded-performance-numbers).
+This page holds the rules for fair comparisons. Recorded or published scanner
+measurements use the library JavaScript API in installed Google Chrome, including
+WASM loaded through that API. Native Chrome uses its JavaScript BarcodeDetector
+API. Node may orchestrate Chrome, but must not perform the measured scanning.
+Record the Chrome version, exact package or artifact identity and timing boundaries.
 
 Start with the images your application actually receives. Evaluate decoded
 values and complete-frame success together with runtime; a fast incorrect result

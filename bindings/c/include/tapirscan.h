@@ -132,7 +132,7 @@ int32_t tapirscan_scanner_destroy(tapirscan_scanner scanner);
 int32_t tapirscan_scan(tapirscan_scanner scanner, const tapirscan_image *image,
     const tapirscan_scan_options *options, tapirscan_result *out, tapirscan_error *error);
 
-/* Inspection adds work status, unread regions and engine diagnostics. */
+/* Inspection adds unread regions and engine diagnostics. */
 int32_t tapirscan_inspect(tapirscan_scanner scanner, const tapirscan_image *image,
     const tapirscan_scan_options *options, tapirscan_result *out, tapirscan_error *error);
 int32_t tapirscan_result_count(tapirscan_result result, uint64_t *out);

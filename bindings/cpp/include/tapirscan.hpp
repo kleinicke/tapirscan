@@ -401,7 +401,7 @@ public:
         return {run(image, options, false).barcodes()};
     }
 
-    /// Inspect one image, including work status, unread regions and diagnostics.
+    /// Inspect one image, including unread regions and diagnostics.
     InspectionResult inspect(const Image& image, const ScanOptions& options = {}) const {
         return run(image, options, true).read();
     }

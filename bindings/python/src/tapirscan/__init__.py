@@ -324,7 +324,7 @@ class Scanner:
         value_range: ValueRange = "auto",
         color_order: ColorOrder = "RGB",
     ) -> InspectionResult:
-        """Inspect barcodes, unread regions, work status and engine diagnostics."""
+        """Inspect barcodes, unread regions, timing and engine diagnostics."""
         raw, width, height = self._run(
             image,
             inspect=True,
@@ -447,7 +447,7 @@ def inspect(
     value_range: ValueRange = "auto",
     color_order: ColorOrder = "RGB",
 ) -> InspectionResult:
-    """Inspect one image, including work status and engine diagnostics."""
+    """Inspect one image, including timing and engine diagnostics."""
     with Scanner(
         mode,
         formats=formats,

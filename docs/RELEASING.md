@@ -78,7 +78,8 @@ The PyPI distribution is wheel-only. Do not upload a Python-only sdist
 that cannot reproduce its native libraries. Unsupported platforms can build from
 the full Git checkout; musllinux and Windows ARM64 are not currently advertised.
 
-Normal CI also checks the bindings and demo and uploads local npm/wheel artifacts.
+Normal CI checks the library bindings and uploads local npm/wheel artifacts.
+Validate the demo separately in the web repository.
 These two build workflows **do not publish** to package registries.
 The separate `publish.yml` workflow publishes only when explicitly selected.
 

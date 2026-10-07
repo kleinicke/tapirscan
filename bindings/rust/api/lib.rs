@@ -44,7 +44,7 @@ pub fn inspect_with_options<'a>(
     Scanner::default().inspect_with_options(image, options)
 }
 
-/// Inspect with default configuration, including work status and diagnostics.
+/// Inspect with default configuration, including timing and diagnostics.
 /// # Errors
 /// Returns an error for invalid pixels or an engine failure.
 pub fn inspect<'a>(image: impl Into<Image<'a>>) -> Result<InspectionResult, Error> {
@@ -119,11 +119,11 @@ impl Scanner {
 
     /// Scan with per-image overrides and return decoded barcodes.
     ///
-    /// Overrides apply only to this call. Use [`Self::inspect`] for work status
+    /// Overrides apply only to this call. Use [`Self::inspect`] for timing
     /// and diagnostic evidence. The call has no wall-clock timeout.
     ///
     /// # Errors
-    /// Rejects invalid pixels. Extended budgets are accepted for every format.
+    /// Rejects invalid pixels or options.
     /// Internal reader failures are errors, never empty results.
     pub fn scan_with_options<'a>(
         &mut self,
@@ -136,7 +136,7 @@ impl Scanner {
             })
     }
 
-    /// Inspect one image, including unread regions, work status and engine diagnostics.
+    /// Inspect one image, including unread regions, timing and engine diagnostics.
     /// # Errors
     /// Returns an error for invalid pixels or an engine failure.
     pub fn inspect<'a>(&mut self, image: impl Into<Image<'a>>) -> Result<InspectionResult, Error> {

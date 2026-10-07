@@ -50,7 +50,7 @@ schema-2 engine report for inspections.
 
 ## Images
 
-Inputs are decoded pixels, not filenames, URLs or encoded images: gray8, RGB8 or
+The core APIs accept decoded pixels, not filenames, URLs or encoded images: gray8, RGB8 or
 RGBA8, with alpha ignored. Limits, enforced by every binding:
 
 - width and height at least 3×3, at most 32 megapixels;
@@ -60,7 +60,8 @@ RGBA8, with alpha ignored. Limits, enforced by every binding:
 - stride is at least `width * channels`; 0 means packed rows where a binding
   accepts it.
 
-Decode image files and convert BGR, planar, float or 16-bit pixels before
+The browser entry also accepts files and browser image sources and decodes them
+for you. For core APIs, decode image files and convert BGR, planar, float or 16-bit pixels before
 scanning. Python also accepts Pillow, NumPy and tensor inputs, JavaScript
 `ImageData` or byte buffers, and Rust the `image` crate buffers; their guides
 list the conversions.
