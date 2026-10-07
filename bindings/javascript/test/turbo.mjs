@@ -15,11 +15,11 @@ for (const preset of [2, 4, 8, 16]) {
     const { image, text } = fixture();
     let result;
     try {
-      assert.equal(scanner.mode, "low");
+      assert.equal(scanner.mode, undefined);
       assert.equal(scanner.experimentalTurbo, preset);
       result = scanner.inspect(image, {});
       assert.deepEqual(result.values, [text]);
-      assert.equal(result.mode, "low");
+      assert.equal("mode" in result, false);
       assert.equal(result.experimentalTurbo, preset);
       assert.ok(result.diagnostics);
       assert.ok(Object.isFrozen(result));

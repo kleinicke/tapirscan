@@ -238,8 +238,9 @@ scans still pay for the enabled 2D readers. See
 [Turbo behavior and limitations](../../docs/EXPERIMENTAL_TURBO.md).
 
 `experimentalTurbo` and `mode` are mutually exclusive. `scanner.experimentalTurbo`
-and `inspect` results report the preset; `scanner.mode` and `result.mode` report
-`"low"`. Turbo requires `eanAddOnPolicy: "ignore"`.
+and `inspect` results report the preset; a Turbo scanner has no effort mode, so
+`scanner.mode` is `undefined` and results omit `mode`. Turbo requires
+`eanAddOnPolicy: "ignore"`.
 
 **Stability:** this option, its presets and their asset imports may change or be
 removed in a minor release. Pin the exact package version if you rely on them.
@@ -352,7 +353,7 @@ same fields plus the ones marked _inspect_.
 | `result.barcodes`              | `readonly Barcode[]`                                           | Decoded barcodes with format and geometry.                                  |
 | `result.best`                  | `Barcode \| undefined`                                         | Highest-support barcode, first on ties.                                     |
 | `result.image`                 | `{ width, height }`                                            | _inspect_: dimensions of the supplied pixels.                               |
-| `result.mode`                  | `Mode`                                                         | _inspect_: effort mode used.                                                |
+| `result.mode`                  | `Mode \| undefined`                                            | _inspect_: effort mode used; absent for Turbo presets.                      |
 | `result.elapsedMs`             | `number`                                                       | _inspect_: scan time, excluding image loading and scanner creation.         |
 | `result.undecoded`             | `readonly UndecodedRegion[]`                                   | _inspect_: [regions without a decode](#undecoded-regions).                  |
 | `result.diagnostics`           | `Diagnostics`                                                  | _inspect_: [engine evidence](#diagnostics).                                 |

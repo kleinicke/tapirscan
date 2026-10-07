@@ -100,7 +100,8 @@ export interface ScanResult {
 }
 export interface InspectionResult extends ScanResult {
   readonly image: { readonly width: number; readonly height: number };
-  readonly mode: Mode;
+  /** Effort mode used; absent for Turbo presets, which report `experimentalTurbo`. */
+  readonly mode?: Mode;
   /** @experimental Selected Turbo preset, when requested. */
   readonly experimentalTurbo?: ExperimentalTurbo;
   /** Whole synchronous WASM call time measured by the JavaScript host. */
@@ -264,8 +265,7 @@ function publicResult(
     values: barcodes.map((b) => b.text),
     best: bestOf(barcodes),
     image: raw.image,
-    mode: raw.mode,
-    ...(experimentalTurbo === undefined ? {} : { experimentalTurbo }),
+    ...(experimentalTurbo === undefined ? { mode: raw.mode } : { experimentalTurbo }),
     elapsedMs,
     undecoded,
     diagnostics: { ...raw.debug, regions },
@@ -276,7 +276,8 @@ function publicResult(
 export class Scanner {
   private constructor(
     private readonly host: RustScannerSession,
-    readonly mode: Mode,
+    /** Effort mode, fixed at creation; undefined for Turbo presets. */
+    readonly mode: Mode | undefined,
     private readonly configuredFormats: readonly Format[],
     private readonly addOnPolicy: EanAddOnPolicy,
     /** @experimental Selected Turbo preset, fixed at creation. */
@@ -350,7 +351,8 @@ export class Scanner {
       addOnPolicies[addOnPolicy],
       turbo,
     );
-    return new Scanner(host, mode, formats, addOnPolicy, turbo);
+    // Turbo presets run in the Low engine slot but have no effort mode of their own.
+    return new Scanner(host, turbo === undefined ? mode : undefined, formats, addOnPolicy, turbo);
   }
 
   /** Decode barcodes with positions. Use inspect() for diagnostic evidence. */
