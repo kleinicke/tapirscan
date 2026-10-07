@@ -32,7 +32,7 @@
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/empty-retry-20261007.json",
+  "runtimeRevision": "provenance/demo-turbo-docs-20261007.json",
   "apiWasm": "provenance/wasm-empty-retry-20261007.json",
   "sourceRoot": "core/src",
   "experimentalTurbo": [
