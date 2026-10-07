@@ -59,7 +59,7 @@ configuration. `Scanner::default()` needs no configuration.
 | Scanner option      | Default                  | Choices                                     |
 | ------------------- | ------------------------ | ------------------------------------------- |
 | `mode`              | `Mode::Medium`           | `Low`, `Medium`, `High`, `VeryHigh`         |
-| `formats`           | `Format::Ean13.into()`   | One format, combinations with `\|`, presets |
+| `formats`           | `Formats::RETAIL`        | One format, combinations with `\|`, presets |
 | `ean_add_on_policy` | `EanAddOnPolicy::Ignore` | `Ignore`, `Read`, `Require`                 |
 
 Presets: `Formats::RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX`, `ALL`.

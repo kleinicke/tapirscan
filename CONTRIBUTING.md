@@ -36,13 +36,20 @@ new format commitments, or distribution changes before building a large patch.
 
 ## API stability
 
-The binding guides and [API design](docs/API_DESIGN.md) describe the
-1.2.0 API revision, with retail defaults in 1.2.1. See [migration](docs/API_MIGRATION.md).
-The early-library 1.2.0 release explicitly makes a one-time exception by including
-breaking changes in a minor version. From 1.2.0 onward, documented functions, defaults, result fields, identifiers and
-ownership/error contracts stay compatible within a major version. Minor versions
-may add compatible capabilities; patch versions fix bugs. Version 1.2.1 explicitly broadens the default format
-selection to retail; callers needing EAN13-only behavior should select it explicitly.
+The binding guides and [API design](docs/API_DESIGN.md) describe the 1.3.0 API.
+See [migration](docs/API_MIGRATION.md) before upgrading from 1.2.2.
+
+Version 1.3.0 explicitly makes an additional early-library exception to the
+1.x compatibility policy: `scan` returns barcode lists, `inspect` provides
+reports, the debug option is removed, and native consumers rebuild for ABI 6.
+These are intentional breaking changes in a minor release, following the
+1.2.0 API revision and the 1.2.1 expansion to Retail defaults. Pin 1.2.2 until
+your application has migrated.
+
+Apart from these documented exceptions and experimental APIs below, documented
+functions, defaults, result fields, identifiers and ownership/error contracts
+stay compatible within a major version. Minor releases add compatible
+capabilities; patch releases fix bugs.
 
 Decoder improvements can change reads, geometry, ordering and runtime on a given
 image. Those outputs are not bit-for-bit compatibility promises. Supported format variants and limitations are documented in [format coverage](docs/FORMATS.md).
@@ -54,7 +61,7 @@ releases retain interface compatibility. Pin an exact version when using them.
 This exception does not cover stable effort modes or shared result fields.
 
 Undocumented internal counters, private modules and generated build paths are not
-public interfaces. The C ABI is version 4; Rust binary ABI stability is not
+public interfaces. The upcoming C ABI is version 6 (version 4 in 1.2.2); Rust binary ABI stability is not
 promised across compiler versions.
 
 Keep the public interface small. Validate API changes through consumers, packaging

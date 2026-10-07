@@ -81,7 +81,10 @@ export default function BarcodeScanner() {
     return () => {
       running = false;
       scanner.dispose();
-      camera.then((stream) => stream.getTracks().forEach((track) => track.stop()));
+      camera.then(
+        (stream) => stream.getTracks().forEach((track) => track.stop()),
+        () => {}, // Camera errors are handled above.
+      );
     };
   }, []);
 
@@ -166,16 +169,16 @@ There is no `debug` option. The core scans decoded pixels; pass a canvas's
 `ImageData` directly:
 
 ```js
-import { inspect } from "tapirscan";
+import { scan } from "tapirscan";
 
 // Using an existing canvas and its 2D context:
 const image = context.getImageData(0, 0, canvas.width, canvas.height);
-const result = await inspect(image);
-console.log(result.values); // e.g. ["4006381333931"]
+const barcodes = await scan(image);
+console.log(barcodes.map((barcode) => barcode.text)); // e.g. ["4006381333931"]
 ```
 
 Defaults are Medium effort, retail formats, multiple results, and diagnostics available through inspection.
-`result.barcodes` also gives each read's text, format, polygon and rectangle.
+Each barcode contains text, format, polygon and rectangle.
 The helper creates and disposes a scanner automatically. In browsers, the core
 needs its [WASM assets](#wasm-loading) served; Node loads the packaged files automatically.
 
@@ -186,8 +189,8 @@ import { Scanner } from "tapirscan";
 
 const scanner = await Scanner.create({ mode: "high", formats: "1D" });
 try {
-  const result = scanner.inspect(image);
-  for (const barcode of result.barcodes) {
+  const barcodes = scanner.scan(image);
+  for (const barcode of barcodes) {
     console.log(barcode.text, barcode.format, barcode.polygon);
   }
 } finally {
@@ -197,7 +200,7 @@ try {
 
 Here `image` is the `ImageData` above. `formats: "1D"` enables all supported linear
 formats; see [format coverage](../../docs/FORMATS.md) for supported variants. Settings also work with the helper:
-`await inspect(image, { mode: "high", formats: "1D" })`.
+`await scan(image, { mode: "high", formats: "1D" })`.
 
 `formats: "retail"` selects EAN13, UPCA,
 EAN8 and UPCE. `"common1D"` adds Code128, Code39 and ITF; `"common"` adds
@@ -364,12 +367,14 @@ owned frame buffers; `loadWasm` functions must be configured inside the worker.
 
 ## Functions
 
-| Function                               | Return type           | Behavior                                                                                                                  |
-| -------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `inspect(image, options = {})`         | `Promise<ScanResult>` | One image with automatic scanner creation and disposal, including on failure. Accepts creation and scan options together. |
-| `Scanner.create(options = {})`         | `Promise<Scanner>`    | Initialize a reusable scanner. Mode is fixed; formats define defaults and allowed per-call subsets.                       |
-| `scanner.inspect(image, options = {})` | `ScanResult`          | Synchronously scan pixels. Accepts scan options only.                                                                     |
-| `scanner.dispose()`                    | `void`                | Release WASM sessions. Repeated disposal is safe; do not scan after disposal.                                             |
+| Function                               | Return type                   | Behavior                                                                                                                  |
+| -------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `scan(image, options = {})`            | `Promise<readonly Barcode[]>` | One image with automatic creation and disposal. Accepts creation and scan options together.                               |
+| `scanner.scan(image, options = {})`    | `readonly Barcode[]`          | Synchronously scan pixels with a reusable core scanner.                                                                   |
+| `inspect(image, options = {})`         | `Promise<ScanResult>`         | One image with automatic scanner creation and disposal, including on failure. Accepts creation and scan options together. |
+| `Scanner.create(options = {})`         | `Promise<Scanner>`            | Initialize a reusable scanner. Mode is fixed; formats define defaults and allowed per-call subsets.                       |
+| `scanner.inspect(image, options = {})` | `ScanResult`                  | Synchronously scan pixels. Accepts scan options only.                                                                     |
+| `scanner.dispose()`                    | `void`                        | Release WASM sessions. Repeated disposal is safe; do not scan after disposal.                                             |
 
 `image` is required for either scan function. All options are optional. Reuse a
 scanner for successive frames to avoid repeated initialization; create another
@@ -416,6 +421,10 @@ use [`tapirscan/browser`](#browser-apps-react-and-svelte), which accepts them di
 
 ## Results
 
+`scan` returns a read-only `Barcode[]`. The `result.*` fields below belong to
+the `ScanResult` returned by `inspect`; `barcode.*` fields are available from
+both operations.
+
 | Field                          | Type                                                           | Meaning                                                                                                    |
 | ------------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `result.values`                | `readonly string[]`                                            | Decoded strings.                                                                                           |
@@ -429,7 +438,7 @@ use [`tapirscan/browser`](#browser-apps-react-and-svelte), which accepts them di
 | `result.diagnostics`           | `Diagnostics`                                                  | Engine evidence from inspection.                                                                           |
 | `barcode.payloadBytes`         | `readonly number[] \| undefined`                               | Original decoded matrix payload bytes when available; use `Uint8Array.from(...)` for an owned byte buffer. |
 | `barcode.text`                 | `string`                                                       | Decoded text.                                                                                              |
-| `barcode.format`               | `Format \| "Unknown"`                                          | Symbology identifier.                                                                                      |
+| `barcode.format`               | `Format`                                                       | Symbology identifier.                                                                                      |
 | `barcode.polygon`              | `Quad`                                                         | Four `[x, y]` corners in input-image coordinates.                                                          |
 | `barcode.rect`                 | `{ left: number, top: number, width: number, height: number }` | Enclosing integer rectangle.                                                                               |
 | `barcode.support`              | `number`                                                       | Reader-specific ranking evidence; not confidence or a probability.                                         |

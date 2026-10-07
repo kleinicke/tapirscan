@@ -62,8 +62,7 @@ claim that every reader already performs extra work. Future readers can extend
 appropriate budgets under the same flag. Per-candidate effort, intentional
 deferral, localization, sampling, result and ambiguity limits still apply.
 It is not unlimited search or a deadline, and `unfinished` may remain true.
-The adapters translate this intent to existing engine controls; pinned recipes
-are unchanged. There is no retry-until-finished loop.
+The adapters translate this intent to the engine’s work controls. There is no retry-until-finished loop.
 
 ## Configuration and ownership
 

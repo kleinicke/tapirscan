@@ -1,55 +1,106 @@
-# Migration to the uniform API
+# API migration
 
-## Barcode lists and explicit inspection
+## Upgrading from 1.2.2
 
-`scan` now returns `Vec<Barcode>` (Rust), `std::vector<Barcode>` (C++),
-`List<Barcode>` (Java), `list[Barcode]` (Python), or a frozen `Barcode[]` (JS).
-Replace `scan(image).barcodes` with `scan(image)`. Map the list to obtain text.
-If a caller uses timing, work status, unread regions or diagnostic evidence,
-replace `scan` with `inspect`, remove the debug option, and rename the report's
-`debug` field to `diagnostics`. Rust also exposes `inspect_with_options`.
+Version 1.3.0 changes the application API in every binding, as an explicit
+early-library exception to the [compatibility policy](../CONTRIBUTING.md#api-stability).
+Migrate callers before upgrading; pin 1.2.2 until they are ready.
+Medium effort, Retail formats and ignored supplements remain the defaults.
+Scanner improvements may change reads, geometry, ordering and runtime.
 
-The unreleased 1.3.0 API retains native ABI 6. It removes the debug field from `tapirscan_scan_options`, adds
-`tapirscan_inspect` and `tapirscan_result_count`, and makes summary/unread-region
-accessors inspection-only. Rebuild native consumers together. WASM ABI 2 makes ordinary wire results barcode-only. The host also accepts
-historical ABI 1 assets for frozen demo comparisons.
+### Barcode lists and inspection reports
 
-## 1.3.0: C, C++ and Java
+`scan` returns a barcode collection: `Vec<Barcode>` inside Rust's `Result`,
+`std::vector<Barcode>` in C++, `List<Barcode>` in Java, `list[Barcode]` in Python,
+and a frozen `Barcode[]` in JavaScript. C retains an owned result handle.
 
-C, C++ and Java now use the same scanner, options and result model as Rust,
-Python and JavaScript. Native ABI 6 replaces ABI 4, and one library
-(`libtapirscan.so`, `.dylib` or `tapirscan.dll`) contains all four effort modes.
-Rebuild applications against the new header; there are no deprecated aliases.
-Python, JavaScript and Rust applications are unaffected, and scan results of
-the stable modes are unchanged.
+| In 1.2.2                                             | Upcoming API                                                      |
+| ---------------------------------------------------- | ----------------------------------------------------------------- |
+| `scan(image).barcodes`                               | `scan(image)`; retain language-specific `await` or error handling |
+| `result.values` after scanning                       | Map barcode text, or use `inspect(image).values`                  |
+| Timing, `unfinished` or `undecoded` on a scan result | Call `inspect` instead of `scan`                                  |
+| `debug` scan option and result field                 | Remove the option; use `inspect` and `result.diagnostics`         |
+| Highest-support read from a result                   | `best(barcodes)`; inspection reports also retain `best`           |
 
-| Previous (ABI 4)                                                             | Replacement (ABI 5)                                                    |
-| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| One library per mode, `libtapirscan_<mode>`                                  | One `libtapirscan` library; choose `mode` in the scanner options       |
-| `barcode_abi_version`, `barcode_mode`                                        | `tapirscan_abi_version`; read `mode` from the result summary           |
-| `barcode_capabilities`                                                       | Removed; `extended_budget` is always available                         |
-| `tapirscan_create`, `tapirscan_destroy`                                      | `tapirscan_scanner_create(options, &out)`, `tapirscan_scanner_destroy` |
-| `barcode_scan`, `barcode_scan_with_options`, `barcode_scan_formats`          | `tapirscan_scan(scanner, &image, options, &result)`                    |
-| `BARCODE_SINGLE`                                                             | Select from the barcodes; C++ `best(barcodes)`, Java `Tapirscan.best`  |
-| `BARCODE_INCLUDE_REGIONS`                                                    | Typed `tapirscan_result_undecoded`; evidence via `inspect`             |
-| `BARCODE_READ_EAN_ADDON`, `BARCODE_REQUIRE_EAN_ADDON`                        | Scanner option `ean_add_on_policy`                                     |
-| `BARCODE_FINISH_CANDIDATES`                                                  | Scan option `extended_budget`                                          |
-| `barcode_result_info`, `barcode_result_metadata`                             | `tapirscan_result_info`, `tapirscan_summary`                           |
-| `barcode_result_read`, `barcode_read`                                        | `tapirscan_result_barcode`, `tapirscan_barcode` (all metadata)         |
-| `barcode_result_copy_text`                                                   | `tapirscan_result_copy(result, i, TAPIRSCAN_FIELD_TEXT, ...)`          |
-| `barcode_result_copy_json`, `barcode_result_destroy`                         | `tapirscan_result_copy_json`, `tapirscan_result_destroy`               |
-| `BARCODE_OK`, `BARCODE_*` statuses, format mask numbers                      | `TAPIRSCAN_OK`, `TAPIRSCAN_*`, `TAPIRSCAN_FORMAT_*` constants          |
-| C++ `#include <tapirscan/scanner.hpp>`                                       | `#include <tapirscan.hpp>`                                             |
-| C++ `scanner.scan(pixels, length, w, h, channels, stride, ScanOptions{...})` | `scanner.scan(Image::rgba(pixels, w, h), ScanOptions)`                 |
-| C++ `result.barcodes()`, `result.json()`                                     | `result.barcodes`, `result.diagnostics` (when requested)               |
-| CMake `-DBARCODE_MODE=<mode>`, `BARCODE_NATIVE_DIR`                          | Mode is a scanner option; `TAPIRSCAN_NATIVE_DIR`                       |
-| Java `new Tapirscan(libraryDir, Mode)`                                       | `new Scanner(ScannerOptions)` or `Tapirscan.scan(image)`               |
-| Java `scan(pixels, w, h, channels, stride, options)`                         | `scanner.scan(Image.rgba(pixels, w, h).withStride(stride))`            |
-| Java `ScanOptions(multiple, includeRegions, formats)`                        | `ScanOptions` with `formats`, `extendedBudget`                         |
-| Java `Barcode.format()` as a string                                          | `Format` enum; `toString()` gives the shared name                      |
+Rust exposes `scan_with_options` and `inspect_with_options` for per-call settings.
+Reusable scanners follow the same split. There are no deprecated aliases.
 
-Java locates the library through the `tapirscan.library` system property, the
-`TAPIRSCAN_LIBRARY_DIR` environment variable or the system library path.
+```js
+// JavaScript core: before
+const result = await scan(image);
+console.log(result.values);
+
+// After
+const barcodes = await scan(image);
+console.log(barcodes.map((barcode) => barcode.text));
+```
+
+```python
+# Python: before
+result = tapirscan.scan(image)
+print(result.values)
+
+# After
+barcodes = tapirscan.scan(image)
+print([barcode.text for barcode in barcodes])
+```
+
+Use inspection only when the report is needed; barcode metadata and geometry
+are available in ordinary scan output. `best` keeps the first read on equal
+support and returns the binding's empty value for an empty list. It is not a
+cross-format confidence estimate.
+
+### Browser applications
+
+The new `tapirscan/browser` entry accepts files and browser image sources and
+runs the core in a bundled worker. Use `new Scanner(options)` and await `scan`
+or `inspect`. The core `tapirscan` entry still uses `await Scanner.create(options)`
+and synchronous reusable scans over decoded pixels. Both expose one-shot helpers
+and `dispose()`. See [browser setup](../bindings/javascript/README.md#browser-apps-react-and-svelte).
+
+### Native ABI 4 to ABI 6
+
+Rebuild the native library and C, C++, Python and Java consumers together. One
+`libtapirscan.so`, `libtapirscan.dylib` or `tapirscan.dll` contains all four modes.
+ABI 5 and earlier drafts of ABI 6 were development revisions, not published
+migration targets.
+
+| Previous interface                                                  | Replacement                                                                    |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Per-mode `libtapirscan_<mode>` libraries                            | One library; select mode in scanner options                                    |
+| `barcode_abi_version`                                               | `tapirscan_abi_version`                                                        |
+| `tapirscan_create`, `tapirscan_destroy`                             | `tapirscan_scanner_create(options, &out, &error)`, `tapirscan_scanner_destroy` |
+| `barcode_scan`, `barcode_scan_with_options`, `barcode_scan_formats` | `tapirscan_scan(scanner, &image, options, &result, &error)`                    |
+| Include-regions/debug flags                                         | `tapirscan_inspect`; summary and undecoded accessors require inspection        |
+| Single-result flag or best index                                    | Select from the barcode list; C++ and Java provide `best`                      |
+| Supplement flags                                                    | Scanner option `ean_add_on_policy`                                             |
+| Finish-candidates flag                                              | Scan option `extended_budget`                                                  |
+| `barcode_result_read`, `barcode_result_copy_text`                   | `tapirscan_result_barcode`, `tapirscan_result_copy`                            |
+| `barcode_result_copy_json`, `barcode_result_destroy`                | `tapirscan_result_copy_json`, `tapirscan_result_destroy`                       |
+| C++ `<tapirscan/scanner.hpp>`                                       | `<tapirscan.hpp>`                                                              |
+| C++ raw-pixel scan arguments                                        | `scanner.scan(Image::rgba(pixels, w, h), options)`                             |
+| CMake `BARCODE_MODE`, `BARCODE_NATIVE_DIR`                          | Runtime mode option, `TAPIRSCAN_NATIVE_DIR`                                    |
+| Java `new Tapirscan(libraryDir, Mode)`                              | `new Scanner(ScannerOptions)`                                                  |
+| Java string format identifiers                                      | `Format` enum; `toString()` gives the shared name                              |
+
+Initialize C scanner options with `TAPIRSCAN_SCANNER_OPTIONS_INIT`; zero
+initialization is only the per-scan default. The final `tapirscan_error *`
+argument is optional: pass `NULL` to discard details. Always destroy result and
+scanner handles. `tapirscan_result_count` and barcode/copy accessors work on both
+ordinary and inspection results. Query `tapirscan_result_json_length` before
+copying JSON; ordinary JSON is a barcode array, inspection JSON is a schema-2
+report. Typed access does not serialize JSON.
+
+C++ image factories reject temporary vectors; keep the pixel buffer alive until
+scanning returns. C++ `best` rejects temporary barcode vectors because its
+pointer would dangle. Java `Image` accepts byte arrays or `MemorySegment` pixels;
+keep native segments alive and unchanged while scanning. Java locates the library
+through `tapirscan.library`, `TAPIRSCAN_LIBRARY_DIR` or the system library path.
+See the [C](../bindings/c/README.md), [C++](../bindings/cpp/README.md) and
+[Java](../bindings/java/README.md) guides for complete signatures and ownership.
+
+WASM ABI 2 makes ordinary wire results barcode-only. The JavaScript host also
+accepts historical ABI 1 assets for frozen demo comparisons.
 
 ## 1.2.0: Rust, Python and JavaScript
 
@@ -82,9 +133,8 @@ It could be a false candidate or need work the selected policy did not perform.
 The extended-budget flag is valid for all formats and requests additional reader
 work. Exact budgets and stages are implementation details that may evolve. Today
 it relaxes shared EAN/UPC retries; other readers keep their current budgets. False
-preserves the default decoding policy. Undecoded geometry is retained on normal
-scans, which may add result-conversion cost; no speed improvement is claimed.
-Raw traces require `inspect`; they are exposed as `diagnostics`.
+preserves the default decoding policy. In 1.2.x, normal scans retained undecoded geometry in their result report.
+In the new API, use `inspect` for this report and its `diagnostics`.
 
 The intermediate `candidate_budget` / `candidateBudget` API and `CandidateBudget`
 enum are removed. Replace `"shared"` with false and `"per_candidate"` with true
@@ -93,37 +143,3 @@ using `extended_budget` / `extendedBudget`. There is no EAN/UPC format restricti
 Rust `scan(image)` now supplies default scan options automatically. Use
 `scan_with_options(image, options)` for overrides on free functions or scanners.
 The support-based convenience selection is named `best` in all three APIs.
-
-## Native ABI 6 refinements
-
-Rebuild the shared library and every native consumer together. Scanner creation
-and scanning now accept a final optional `tapirscan_error *` for caller-owned
-UTF-8 error details (pass `NULL` to discard). Initialize C scanner options with
-`TAPIRSCAN_SCANNER_OPTIONS_INIT`; zero initialization is only the per-scan default.
-
-`tapirscan_summary` no longer contains `json_length`. Call
-`tapirscan_result_json_length(result, &length)` before copying JSON. Typed result
-access does not serialize JSON. Ordinary scan JSON is a barcode array. Inspection returns schema-2 JSON with
-unread geometry and engine evidence. Python also avoids engine diagnostics
-during ordinary scans. Rust exposes `localization_limited` to
-preserve the separate localization flag across native serialization.
-
-C++ rejects temporary vectors in image factories and rejects empty/unknown format
-masks at construction. Keep the backing pixel buffer alive until scanning returns.
-C++ `best_index` and Java's `bestIndex` record component were removed; use `best()`.
-Java's `ScanResult` constructor no longer takes an index. Java barcode equality
-and hashing compare payload bytes by content.
-
-`tapirscan_summary` no longer contains `best_index`; it is 48 bytes. Select from
-the barcodes instead. Every binding now provides `best` over a plain barcode
-list, so ordinary scans no longer need inspection to pick one read: Rust
-`tapirscan::best(&barcodes)`, C++ `tapirscan::best(barcodes)`, Java
-`Tapirscan.best(barcodes)`, Python `tapirscan.best(barcodes)` and JavaScript
-`best(barcodes)`. `ScanResult.best` remains and uses the same rule. C++ `best`
-overloads reject temporaries, whose pointer would dangle.
-
-`TAPIRSCAN_CAPACITY` and the limit of 1024 live scanners and results are
-removed. `tapirscan_image.length` may now exceed 128 MiB: only the addressed
-layout must fit in 128 MiB, matching Rust. Java `Image` stores a `MemorySegment`
-(`pixels()` replaces `data()`); byte-array factories are unchanged, and native
-segments are scanned without a copy.

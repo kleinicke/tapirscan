@@ -7,6 +7,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from build_wasm import source_files
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -64,6 +67,30 @@ class Provenance(unittest.TestCase):
                 [*command, "--imports-only"], capture_output=True, check=False
             )
             self.assertNotEqual(result.returncode, 0)
+
+    def test_wasm_sources_exclude_release_bookkeeping(self) -> None:
+        """Documentation snapshots preserve WASM identity; compiler inputs do not."""
+        baseline = source_files()
+        self.assertNotIn("provenance/modes.json", baseline)
+        with tempfile.TemporaryDirectory(prefix="tapirscan-wasm-sources-") as tmp:
+            root = Path(tmp)
+            for name in (*baseline, "provenance/import.json", "provenance/modes.json"):
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((ROOT / name).read_bytes())
+            with patch("build_wasm.ROOT", root):
+                self.assertEqual(source_files(), baseline)
+                selection = root / "provenance/modes.json"
+                value = json.loads(selection.read_text())
+                value["runtimeRevision"] = "provenance/new-docs.json"
+                value["apiWasm"] = "provenance/new-manifest.json"
+                selection.write_text(json.dumps(value))
+                self.assertEqual(source_files(), baseline)
+                for name in ("core/src/lib.rs", "scripts/build_wasm.py"):
+                    with self.subTest(source=name):
+                        source = root / name
+                        source.write_bytes(source.read_bytes() + b"\n// changed\n")
+                        self.assertNotEqual(source_files()[name], baseline[name])
 
     def test_reversible_revision_and_tampering(self) -> None:
         """Accept exact revisions and reject drift in every recorded boundary."""

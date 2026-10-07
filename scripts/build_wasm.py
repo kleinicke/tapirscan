@@ -49,7 +49,6 @@ def source_files() -> dict[str, str]:
         )
     paths.update(
         [
-            "provenance/modes.json",
             "core/Cargo.toml",
             "core/Cargo.lock",
             "scripts/build.py",
@@ -60,6 +59,9 @@ def source_files() -> dict[str, str]:
             "config/formats.json",
         ]
     )
+    # modes.json selects output names and provenance records, not Rust source.
+    # Its runtimeRevision changes on documentation-only snapshots. The package
+    # verifier checks selected modes/presets against the built artifact records.
     return {
         name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
         for name in sorted(paths)

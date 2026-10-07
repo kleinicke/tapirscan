@@ -13,9 +13,8 @@ for barcode in barcodes:
 
 Reuse `Scanner.scan(image)` for repeated calls. Use `inspect(image)` or
 `Scanner.inspect(image)` for timing, work status, unread regions and diagnostics.
-The advanced inspection examples follow. There is no `debug` argument.
-
-Scan Pillow images, NumPy arrays and PyTorch tensors with `tapirscan.inspect(image)`.
+There is no `debug` argument. Both operations accept Pillow images, NumPy arrays
+and PyTorch tensors.
 [Try the live demo](https://tapirscan.f-kleinicke.de) · [Quick start](#quick-start) · [Functions](#functions) · [All options](#all-options) · [Results](#results-and-public-types)
 
 ## Installation
@@ -38,8 +37,8 @@ import tifffile
 import tapirscan
 
 pixels = tifffile.imread("label.tif", key=0)  # NumPy array: first TIFF page
-result = tapirscan.inspect(pixels)
-print(result.values)
+barcodes = tapirscan.scan(pixels)
+print([barcode.text for barcode in barcodes])
 ```
 
 This example assumes an 8-bit grayscale or RGB image. Defaults are Medium effort
@@ -52,9 +51,9 @@ from PIL import Image
 import tapirscan
 
 with Image.open("label.jpg") as image:
-    result = tapirscan.inspect(image, mode="high", formats="1D")
+    barcodes = tapirscan.scan(image, mode="high", formats="1D")
 
-for barcode in result:
+for barcode in barcodes:
     print(barcode.text, barcode.format, barcode.polygon)
 ```
 
@@ -73,8 +72,8 @@ import torch
 
 # Using the NumPy array from the TIFF example:
 tensor = torch.from_numpy(pixels)
-result = tapirscan.inspect(tensor)
-print(result.values)
+barcodes = tapirscan.scan(tensor)
+print([barcode.text for barcode in barcodes])
 ```
 
 GPU tensors and tensors with `requires_grad=True` work directly. Tapirscan
@@ -85,7 +84,7 @@ graph are unchanged. Barcode decoding runs on CPU.
 
 ```python
 # One image, with automatic cleanup:
-result = tapirscan.inspect(image, mode="medium", formats=["EAN13"])
+barcodes = tapirscan.scan(image, mode="medium", formats=["EAN13"])
 
 # Reuse native initialization across images:
 with tapirscan.Scanner(mode="high", formats="1D") as scanner:
@@ -93,14 +92,15 @@ with tapirscan.Scanner(mode="high", formats="1D") as scanner:
     best = tapirscan.best(barcodes)  # Barcode or None; all reads remain in barcodes
 ```
 
-Signatures (all settings are optional):
+Signatures (all settings are optional). `inspect` and `scanner.inspect` accept
+the same arguments as their `scan` counterparts and return `ScanResult`:
 
 ```text
-inspect(image, *, mode="medium", formats=None, ean_add_on_policy="Ignore", extended_budget=False,
-     layout="auto", value_range="auto", color_order="RGB", library_dir=None) -> ScanResult
+scan(image, *, mode="medium", formats=None, ean_add_on_policy="Ignore", extended_budget=False,
+     layout="auto", value_range="auto", color_order="RGB", library_dir=None) -> list[Barcode]
 Scanner(mode="medium", *, formats=None, ean_add_on_policy="Ignore", library_dir=None)
-scanner.inspect(image, *, formats=None, extended_budget=False,
-             layout="auto", value_range="auto", color_order="RGB") -> ScanResult
+scanner.scan(image, *, formats=None, extended_budget=False,
+             layout="auto", value_range="auto", color_order="RGB") -> list[Barcode]
 scanner.close()
 ```
 
@@ -236,6 +236,10 @@ and preserves alpha. Floating-point images default to unit intensities; explicit
 use `value_range="0_255"` for floats stored in byte units.
 
 ## Results and public types
+
+`scan` returns a list of `Barcode` objects. The `result.*` fields below belong
+to the `ScanResult` returned by `inspect`; `barcode.*` fields are available from
+both operations.
 
 `ScanResult` is an immutable sequence: iterate, index, slice, use `len(result)` or
 check its truth value. Empty results are false.

@@ -199,8 +199,9 @@ See [format coverage](docs/FORMATS.md) before choosing Tapirscan for a particula
 symbology. The four effort modes tune EAN-13/UPC-A, Common1D and QR Code. Other matrix
 readers use a fixed effort setting.
 
-Results preserve source-image polygons. Python and JavaScript return all decoded
-instances; `result.best` (`result.best()` in Rust) selects the largest reader-specific support. Support is a ranking heuristic, not a probability. `unfinished` reports
+Results preserve source-image polygons. Every binding returns all decoded
+instances. Use `best(barcodes)` to select the largest reader-specific support;
+inspection reports also provide `result.best` (`result.best()` in Rust). Support is a ranking heuristic, not a probability. Inspection’s `unfinished` reports
 incomplete work; it does not invalidate a returned read or promise that another
 barcode exists. Wrong reads, duplicates, and missed symbols remain possible.
 

@@ -133,6 +133,11 @@ wrapper changes. Ordinary native builds retain Cargo's standard compiler invocat
 The wrapper uses Cargo's documented [compiler wrapper interface](https://doc.rust-lang.org/cargo/reference/config.html#buildrustc-wrapper).
 WASM artifact hashes must agree between independent checkout paths before promotion.
 
+WASM source identity covers compiled sources and build tools. The mutable
+`provenance/modes.json` selection is checked against the manifest's mode/preset
+artifact records separately; updating a documentation-only runtime snapshot does
+not change WASM source identity. Source and binary hash checks remain required.
+
 Use the [scanner comparison command](COMPARING_SCANNERS.md) to record native or WASM parity and paired timings between built checkouts.
 
 ## Fast iteration and experimental WASM

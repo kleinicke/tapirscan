@@ -47,6 +47,16 @@ if (
   presets.some((preset) => !experimental.some((entry) => entry.preset === preset))
 )
   throw Error("Public WASM manifest must contain Turbo presets 2, 4, 8 and 16 exactly once");
+for (const [selected, built, key] of [
+  [selection.modes, manifest.modes, "mode"],
+  [selection.experimentalTurbo, experimental, "preset"],
+]) {
+  if (
+    JSON.stringify(selected.map((entry) => [entry[key], `${entry.tag}.wasm`])) !==
+    JSON.stringify(built.map((entry) => [entry[key], entry.file]))
+  )
+    throw Error(`Selected ${key} engines do not match the WASM manifest`);
+}
 const assets = [...manifest.modes, ...experimental];
 const packedWasm = packageMetadata.files.filter((file) => file.endsWith(".wasm"));
 if (

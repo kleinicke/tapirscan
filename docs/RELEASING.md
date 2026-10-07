@@ -3,9 +3,13 @@
 This checkout prepares **1.3.0**, which makes C, C++ and Java recommended bindings
 with the same scanner, options and result model as Rust, Python and JavaScript.
 One native library (ABI 6) now contains all four effort modes. The release also
-includes the bounded Turbo quality improvements and the restructured engine;
-scan results of the stable modes are unchanged from 1.2.2.
-See [API migration](API_MIGRATION.md) for the C, C++ and Java changes.
+includes scanner recovery improvements, experimental JavaScript Turbo presets
+and a browser worker entry point. `scan` now returns a barcode list; `inspect`
+returns the detailed report. This changes application code in every binding.
+See [API migration](API_MIGRATION.md) before upgrading from 1.2.2.
+The breaking changes are an explicitly approved 1.3.0 exception to the
+[compatibility policy](../CONTRIBUTING.md#api-stability). Include that notice and
+the migration guide in the published release notes.
 
 All release-owned manifests and artifact names use 1.3.0. The demo is already
 public at [tapirscan.f-kleinicke.de](https://tapirscan.f-kleinicke.de). Publishing the

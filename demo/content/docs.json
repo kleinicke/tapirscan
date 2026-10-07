@@ -51,25 +51,25 @@
       },
       {
         "title": "Browser quick start",
-        "text": "Pass decoded pixels, such as canvas ImageData. For a bundler-based app, copy the installed WASM files into your public directory first.",
-        "code": "mkdir -p public/tapirscan\ncp node_modules/tapirscan/wasm/*.wasm public/tapirscan/",
-        "lang": "sh"
+        "text": "In browser apps, tapirscan/browser accepts files, images, video frames and canvases and scans in a bundled worker. The examples describe the upcoming API; use the guide for your installed release.",
+        "code": "import { scan } from \"tapirscan/browser\";\n\nconst barcodes = await scan(file); // A File from an image input.\nconsole.log(barcodes.map((barcode) => barcode.text));",
+        "lang": "js"
       },
       {
         "title": "Reuse a scanner",
-        "text": "Initialization is asynchronous; scan() is synchronous. This example expects an existing canvas containing the image you want to scan.",
-        "code": "import { Scanner } from \"tapirscan\";\n\nconst canvas = document.querySelector(\"canvas\");\nconst context = canvas.getContext(\"2d\");\nconst image = context.getImageData(0, 0, canvas.width, canvas.height);\nconst scanner = await Scanner.create({\n  mode: \"medium\", formats: \"retail\", wasmBaseUrl: \"/tapirscan/\"\n});\ntry {\n  const result = scanner.scan(image);\n  console.log(result.values);\n  for (const barcode of result.barcodes) {\n    console.log(barcode.text, barcode.format, barcode.polygon);\n  }\n} finally {\n  scanner.dispose();\n}",
+        "text": "Construct a scanner synchronously and await each scan. Reuse it for repeated images or camera frames; dispose it when finished.",
+        "code": "import { Scanner } from \"tapirscan/browser\";\n\nconst scanner = new Scanner({ mode: \"medium\", formats: \"retail\" });\ntry {\n  const barcodes = await scanner.scan(image); // File, image, video or canvas.\n  for (const barcode of barcodes) {\n    console.log(barcode.text, barcode.format, barcode.polygon);\n  }\n} finally {\n  scanner.dispose();\n}",
         "lang": "js"
       },
       {
         "title": "Node.js inputs",
         "text": "The default Node loader reads packaged WASM files. Decode PNG/JPEG files with an image library before calling scan: encoded bytes and filenames are not pixel inputs.",
-        "code": "import { scan } from \"tapirscan\";\n// pixels: Uint8Array containing decoded grayscale image data.\nconst result = await scan({ data: pixels, width, height, channels: 1, stride: width });\nconsole.log(result.values);",
+        "code": "import { scan } from \"tapirscan\";\n// pixels: Uint8Array containing decoded grayscale image data.\nconst barcodes = await scan({ data: pixels, width, height, channels: 1, stride: width });\nconsole.log(barcodes.map((barcode) => barcode.text));",
         "lang": "js"
       },
       {
         "title": "Camera and worker integration",
-        "text": "Use a Web Worker to keep the interface responsive, reuse one scanner, and keep one frame in flight. Transferred pixel buffers cannot be reused by their sender until ownership is returned. Serve WASM at the configured URL; HTML fallback pages are not valid WASM.",
+        "text": "The browser entry handles worker setup and image capture. Await each scan in a camera loop to avoid a queue of stale frames. Call inspect instead of scan when you need timing, unread regions or work status. Vite 6/7 development servers need optimizeDeps: { exclude: [\"tapirscan\"] }; see the complete guide for bundler setup.",
         "links": [
           [
             "Complete JavaScript API guide",
@@ -98,12 +98,12 @@
       {
         "title": "Scan a photo",
         "text": "Medium effort and the Retail format group are the defaults. Barcode coordinates refer to the input image.",
-        "code": "from PIL import Image\nimport tapirscan\n\nwith Image.open(\"label.jpg\") as image:\n    result = tapirscan.scan(image, mode=\"medium\", formats=\"retail\")\n\nprint(result.values)\nfor barcode in result.barcodes:\n    print(barcode.text, barcode.format, barcode.polygon)",
+        "code": "from PIL import Image\nimport tapirscan\n\nwith Image.open(\"label.jpg\") as image:\n    barcodes = tapirscan.scan(image, mode=\"medium\", formats=\"retail\")\n\nprint([barcode.text for barcode in barcodes])\nfor barcode in barcodes:\n    print(barcode.text, barcode.format, barcode.polygon)",
         "lang": "python"
       },
       {
         "title": "Arrays and repeated scans",
-        "text": "The library also accepts supported NumPy arrays, tensors and explicit pixel buffers. Check the complete guide for dtype, channel layout, stride, device and ownership requirements. Use a reusable Scanner when scanning many images."
+        "text": "The library also accepts supported NumPy arrays, tensors and explicit pixel buffers. Check the complete guide for dtype, channel layout, stride, device and ownership requirements. Use a reusable Scanner when scanning many images. Call inspect for a report with timing, unread regions and work status. These examples describe the upcoming API; consult your installed release’s guide when upgrading."
       },
       {
         "title": "Troubleshooting",
@@ -162,7 +162,7 @@
       },
       {
         "title": "Current demo preview",
-        "text": "The TS-Med-next, TS-High-next and TS-VHigh-next options select the Retail runtime build from 2026-09-29. It includes the merged Retail recovery work and bounded Medium retry optimizations. The ordinary scanner options follow the demo version selector. Select the current Retail build there to try its Low mode."
+        "text": "The source checkout’s next readers follow the selected release candidate. Current Turbo comparisons are pinned separately. The deployed demo may differ until it is rebuilt and published. Check the version selector and engine identity for the build you are using."
       },
       {
         "title": "Version identity matters",

@@ -11,8 +11,8 @@ for (var barcode : barcodes) System.out.println(barcode.text());
 Reuse `Scanner.scan` across images. Call `inspect` for a `ScanResult` with unread
 regions, work status, timing and diagnostics. There is no debug flag.
 
-Scan decoded pixels and receive every accepted barcode, source-image geometry,
-undecoded proposals and reported work limits. Defaults are Medium effort and
+Both operations accept decoded pixels and return source-image barcode geometry.
+Inspection also includes undecoded proposals and reported work limits. Defaults are Medium effort and
 retail formats (EAN13, UPCA, EAN8 and UPCE). The dependency-free JDK 22+ binding
 uses one native library that contains all four effort modes.
 

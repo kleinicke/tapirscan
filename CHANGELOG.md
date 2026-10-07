@@ -2,146 +2,65 @@
 
 ## 1.3.0 — unreleased
 
-- Linear barcodes are localized by anti-aliased segment voting in Low and Medium. Duplicate
-  reads of one physical barcode are merged by following its bars, for all 1D formats including
-  Codabar and DataBar. A partially decoded EAN/UPC scanline is extended before giving up.
-- Medium, High and Very High rescan the strongest unread barcode region with motion-ghost
-  and defocus deblurring, and Medium and Low try ghost removal on unread retail candidates.
-  Medium adds a full-frame search only when an unread region shows decoding evidence.
-  When other linear formats are selected, Medium's retail crop recovery decodes only the
-  localized box and needs repeated guard evidence before a full-frame search.
-- High and Very High also localize linear barcodes by segment voting: more reads on retail,
-  other 1D formats and blurred video at equal or lower scan time.
-- Scans that select other linear formats sweep the whole image only for DataBar (and, in
-  High and Very High, EAN-8/UPC-E); localized recovery reads the rest, with fewer wrong reads.
-- High and Very High read EAN-8 and UPC-E in their retail scan, like Medium: more reads, fewer
-  wrong reads, faster retail scans.
-- Large frames that read nothing but show retail evidence are rescanned at reduced resolution,
-  and High and Very High add stripe-detector boxes on very small frames.
-- Experimental Turbo2 retries a retail scan that read nothing on its strongest box with
-  contrast and high-pass profiles, as Low does: more retail reads at a small cost on empty frames.
+**Breaking API changes in every binding.** `scan` returns a barcode list;
+`inspect` returns the detailed report. Native consumers must rebuild for ABI 6.
+See [migration](docs/API_MIGRATION.md) for replacements. Version 1.3.0 is an explicit early-library exception to the
+[compatibility policy](CONTRIBUTING.md#api-stability); migrate before upgrading.
 
-- Describe implemented barcode formats as supported, with documented variant limitations.
-  Reserve the experimental label for Turbo presets; decoder behavior is unchanged.
+### Application API
 
-- Native ABI 6 adds caller-owned error details and lazy JSON access; rebuild native consumers together.
-- C gains an explicit scanner-options initializer. C++ rejects temporary image buffers and invalid format masks, and derives `best()` from current barcodes.
-- Java uses named native layouts and payload-content equality; Java and C++ remove redundant best-index state.
-- Ordinary native/Python scans no longer retain engine diagnostics. See `docs/API_MIGRATION.md` for signature changes.
-- Every binding adds `best(barcodes)` for plain scan output; `ScanResult.best` uses the same rule. The C summary drops
-  `best_index`, and C++ `best` rejects temporaries.
-- C accepts backing buffers larger than 128 MiB when the addressed layout fits, matching Rust, and drops the
-  1024-handle limit and `TAPIRSCAN_CAPACITY`. Java scans native `MemorySegment` pixels in place and copies only
-  the addressed bytes of arrays.
-- Rust `Barcode` implements serde `Serialize`; the C ABI serializes barcode JSON from it.
-- JavaScript adds `tapirscan/browser`: the same scanner in a bundled worker, scanning files, images, video
-  frames, canvases and bitmaps without WASM setup. Works with Next.js (Turbopack and
-  webpack) and Vite without configuration, apart from the Vite 6/7 development server. `new Scanner()` is synchronous and safe during server
-  rendering. It replaces the hand-written worker client and worker examples.
-- JavaScript and Python type decoded barcode formats as `Format`; `npm pack` accepts WASM ABI 2 again.
+- JavaScript adds `tapirscan/browser`: scan files, images, video frames, canvases
+  and bitmaps in a bundled worker. Construction is synchronous, scans return
+  promises, and server rendering is supported. Next.js and Vite production builds
+  bundle the worker and WASM; Vite 6/7 development servers need the configuration
+  in the [JavaScript guide](bindings/javascript/README.md).
+- `scan` returns decoded instances with text, format, source-image geometry and
+  payload metadata. `inspect` adds unread regions, work status, timing and
+  diagnostics, replacing the debug option. `best(barcodes)` selects by reader
+  support in JavaScript, Python, Rust, C++ and Java; support is not confidence.
+- C, C++ and Java share the same scanner/options/result model as the other
+  bindings. One native library contains all four effort modes. ABI 6 provides
+  caller-owned error details, typed access and lazy JSON serialization. C scanner
+  options have an explicit initializer; C++ rejects temporary image buffers.
+- Java accepts native `MemorySegment` pixels without copying and compares
+  payload bytes by content. Python wheels bundle the single native library.
+  Rust barcodes implement serde `Serialize`. JavaScript and Python expose typed
+  decoded format identifiers.
+- JavaScript adds experimental Turbo presets `2`, `4`, `8` and `16` for 1D
+  scanning, including Retail. Numbers are identifiers, not speed guarantees;
+  presets do not provide corresponding 2D speedups. Their APIs may change in
+  minor releases. See [Turbo usage](bindings/javascript/README.md#experimental-turbo-presets).
 
-- C, C++ and Java are now recommended bindings with the same scanner, options
-  and result model as Rust, Python and JavaScript. Native ABI 6 uses one
-  `tapirscan_` prefix, scanner and scan option structs, typed barcodes with all
-  payload metadata, typed undecoded regions and a best index. One native library
-  now contains all four effort modes. This is a breaking change for C, C++ and
-  Java; see [API migration](docs/API_MIGRATION.md). Python, JavaScript and Rust
-  keep their scan signatures.
+### Scanner behavior
 
-- Format constants for C, C++ and Java are generated from `config/formats.json`.
-  Rust adds `Format::ALL`.
+- Segment-voting localization and source-bar duplicate consolidation cover all
+  stable effort modes and linear formats, retaining distinct same-value labels.
+- Retail recovery adds bounded contrast, motion-ghost and defocus retries,
+  original-pixel evidence for small labels, and guarded reduced-resolution
+  retries. High and Very High share the retail EAN-8/UPC-E path; Very High adds
+  subpixel EAN-13 recovery where precise affine candidate geometry is available.
+- QR and Aztec recovery gain bounded sampling, contrast and geometry retries.
+  Localized linear and matrix recovery preserve source coordinates and work
+  limits. Turbo recovery adds evidence confirmation and guarded empty-scan
+  retries, including Turbo2 contrast/high-pass retries on its strongest retail box.
+- Reads, geometry, ordering and latency can differ from 1.2.2. Higher effort does
+  not guarantee more reads on every image. See the [core guide](core/README.md)
+  for selected changes, retained measurements, limitations and known failures.
 
-- Python wheels bundle one native library and no longer pick up stale libraries
-  from reused build directories.
+### Packaging and documentation
 
-- Improve experimental Turbo Retail and Common1D recovery with bounded evidence
-  confirmation and guarded empty-scan retries. Preserve nearby equal-payload
-  labels, source coordinates and explicit unfinished results. Public Low retains
-  its existing policy.
+- Documentation-only provenance snapshots no longer invalidate WASM package
+  verification. Compiled sources, selected engine identities and binary hashes
+  remain checked. Python validation accepts empty search-window evidence when
+  no full-frame search was performed.
 
-- JavaScript: add `experimentalTurbo: 2 | 4 | 8 | 16` as an alternative to stable
-  effort selection, with matching WASM exports and preset validation. Targets
-  faster 1D scanning (including Retail), not 2D speedups; numbers are not speed
-  guarantees. Experimental options, presets and associated imports/properties
-  may change in minor releases. Stable defaults remain unchanged.
-
-- Python avoids one full-image copy for contiguous NumPy input. Internal engine
-  cleanups; scan results are unchanged.
-
-- Documentation: Python and C default to the Retail formats, not EAN13 only.
-
-## Unreleased: recovery preview
-
-- Bound Medium band recovery with a preliminary source-row probe; keep full
-  confirmation for promising regions. Avoid extra short-code localization on
-  images already within the primary working resolution, and reject narrow
-  internal UPC-E fragments from the optional crop pass.
-
-- Improve Medium Retail recovery with bounded parallel-source profiles, deferred
-  EAN proposals, one optional late EAN crop, and two limited short-code localization
-  crops confirmed on original pixels. Reuse exact source profiles within a scan.
-  Add bounded Retail contrast recovery to Low and strict visual EAN8 evidence to
-  Medium/Low. Preserve existing owners, Turbo routing, and High/Very High recovery
-  policies. See `core/README.md` for limits and retained validation evidence.
-
-- Improve bounded Retail recovery in Medium, High and Very High, including
-  short-code contrast and polarity retries. Medium reuses rejected stripe-group
-  evidence and allows one guarded source-region retry in combined modes.
-  Require actual quiet space for optional restored UPC-E and source-profile
-  agreement for wider Medium EAN13 recovery. High and Very High reject weak
-  UPC-E fragments only with a stronger long-code owner and continuous source-bar
-  evidence. See `core/README.md` for limits and validation.
-
-- Keep the public source tree focused on selected scanner implementations. Move
-  research archives, obsolete JavaScript hosts, unused neural/row-scanning
-  prototypes and legacy research ABIs to the experiment workspace. Preserve
-  Turbo variants and active recovery paths. Production builds require no research
-  checkout; import verification enforces the repository boundary.
-
-- Improve bounded EAN13 original-profile recovery in Medium, High and Very High.
-  Keep Medium combined-mode source-region restoration bounded to the guarded
-  empty-frame exception described above. Protect existing reads and require
-  independent evidence for color and threshold retries. Low receives
-  a smaller Aztec recovery budget. See `core/README.md`.
-
-- Improve Medium/High/Very High Aztec recovery with shared matrix preprocessing,
-  bounded source-gray fitting and sampling, curved-grid hypotheses and stricter
-  Rune confirmation. Preserve explicit work limits and multiple physical symbols.
-  See `core/README.md` for scope and limitations.
-
-- Recover additional small EAN-13 barcodes in real photos using original-pixel
-  multirow evidence and active-edge calibration. Medium uses a conservative
-  evidence gate to protect barcode-free latency; High/Very High search more
-  broadly while retaining normal source-continuity and display-boundary checks.
-  See `core/README.md` for measured scope and limitations.
-
-- Extend High/Very High QR recovery with original-gray sampling, bounded extra
-  resolutions, contrast normalization and polarity retries. Preserve existing
-  reads and map recovered regions into source coordinates. See
-  `core/README.md` for scope and quality/runtime evidence.
-
-- Extend exact QR alignment-coordinate reuse and version-header rejection to High
-  and Very High while preserving their thresholds, sharpening and curved-grid
-  budgets. Fresh private Turbo recipes inherit the improved Low QR path.
-  See `core/README.md` for scope and paired evidence.
-
-- Speed up Low/Medium QR alignment searches without reducing their work budgets,
-  and add bounded QR recovery for large empty Low frames and unresolved Medium
-  contrast/blur cases. Preserve repeated physical symbols and source geometry.
-  See `core/README.md` for the QR-only comparison and scope.
-
-- Add shared bounded matrix-grid, localized image and linear-profile recovery to
-  Medium, High and Very High combined-format scanning. Preserve pending physical
-  instances and tighten unchecked Code39 admission. See
-  `core/README.md` for the measured quality/runtime tradeoff.
-
-- Add bounded original-pixel subpixel EAN-13 recovery to Very High, with independent
-  band agreement and normal conflict checks. Precise affine candidate geometry
-  remains necessary; reliable subpixel localization is an ongoing Very High goal.
-
-- Improve Medium localized linear recovery and High/Very High wider-crop recovery.
-- Strengthen bounded duplicate ownership while preserving distinct same-value labels.
-- See `core/README.md` for measurements and a known degraded-image duplicate.
+- Implemented linear and 2D formats are documented as supported, with explicit
+  [variant limitations](docs/FORMATS.md); Turbo presets remain experimental.
+- Packages include the complete MIT and Apache 2.0 license texts, correcting
+  the license-file mismatch in the published 1.2.2 artifacts.
+- Research archives and obsolete prototypes move outside the release source
+  tree. Production builds require no research checkout; retained Turbo variants
+  and active recovery paths remain available.
 
 ## 1.2.2 — 2026-09-25
 

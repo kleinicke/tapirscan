@@ -11,8 +11,8 @@ they return `TAPIRSCAN_INVALID_ARGUMENT` for ordinary scan results.
 There is no debug flag. JSON access serializes lazily: a barcode array for scanning,
 and the schema-2 engine report for inspection.
 
-Scan decoded pixels and receive every accepted barcode, source-image geometry,
-undecoded proposals and reported work limits. Defaults are Medium effort and
+Both operations accept decoded pixels and return source-image barcode geometry.
+Inspection also includes undecoded proposals and reported work limits. Defaults are Medium effort and
 retail formats (EAN13, UPCA, EAN8 and UPCE). One shared library contains all
 four effort modes.
 
@@ -57,6 +57,12 @@ separate physical instances.
 
 ## Reuse and configuration
 
+Initialize mutable scanner configuration with `TAPIRSCAN_SCANNER_OPTIONS_INIT`.
+Unlike a zero-initialized per-scan struct, this selects Medium/Retail defaults.
+Pass a caller-owned `tapirscan_error` as the final create/scan argument for detailed
+errors. Its message is cleared on success and contains up to 511 UTF-8 bytes on
+failure; status codes remain authoritative. Use a separate error output per call.
+
 Create a scanner once and reuse it across images. Pass `NULL` options for the
 defaults, or select a mode, formats and supplement policy:
 
@@ -93,6 +99,9 @@ enabled by default; additional formats are supported when selected. See [format 
 more time and does not promise exhaustive decoding; see [API design](../../docs/API_DESIGN.md).
 
 ## Results
+
+JSON is serialized lazily. Query `tapirscan_result_json_length(result, &length)`
+and allocate `length + 1` bytes before `tapirscan_result_copy_json`.
 
 `tapirscan_result_count` returns the number of decoded barcodes for either
 operation. For inspection results, `tapirscan_result_info` fills a
@@ -155,12 +164,3 @@ applications and the library together after an ABI change.
 Tapirscan is dual-licensed under **MIT OR Apache-2.0**, at your option.
 See the [full license texts](https://tapirscan.f-kleinicke.de/license/).
 Third-party components retain their own licenses and notices.
-
-Initialize mutable scanner configuration with `TAPIRSCAN_SCANNER_OPTIONS_INIT`.
-Unlike a zero-initialized per-scan struct, this selects Medium/Retail defaults.
-Pass a caller-owned `tapirscan_error` as the final create/scan argument for detailed
-errors. Its message is cleared on success and contains up to 511 UTF-8 bytes on
-failure; status codes remain authoritative. Use a separate error output per call.
-
-JSON is serialized lazily. Query `tapirscan_result_json_length(result, &length)`
-and allocate `length + 1` bytes before `tapirscan_result_copy_json`.

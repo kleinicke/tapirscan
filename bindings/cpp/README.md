@@ -11,8 +11,8 @@ for (const auto& barcode : barcodes) std::cout << barcode.text << '\n';
 Reuse `Scanner::scan` across images. Call `inspect` for a `ScanResult` with unread
 regions, work status, timing and diagnostics. There is no debug flag.
 
-Scan decoded pixels and receive every accepted barcode, source-image geometry,
-undecoded proposals and reported work limits. Defaults are Medium effort and
+Both operations accept decoded pixels and return source-image barcode geometry.
+Inspection also includes undecoded proposals and reported work limits. Defaults are Medium effort and
 retail formats (EAN13, UPCA, EAN8 and UPCE). The header-only C++17 wrapper uses
 one shared library that contains all four effort modes.
 
@@ -56,6 +56,8 @@ Scans on one scanner serialize; separate scanners run concurrently.
 | `mode`              | `Mode::Medium`           | `Low`, `Medium`, `High`, `VeryHigh`         |
 | `formats`           | `Formats::retail()`      | One format, combinations with `\|`, presets |
 | `ean_add_on_policy` | `EanAddOnPolicy::Ignore` | `Ignore`, `Read`, `Require`                 |
+
+`Formats::from_bits` rejects empty or unknown bits with `std::invalid_argument`.
 
 Presets: `Formats::retail()`, `common_1d()`, `common()`, `linear()`, `matrix()`
 and `all()`. Retail formats are enabled by default; additional formats are supported when selected.
@@ -125,7 +127,3 @@ vcpkg recipes are not provided yet.
 Tapirscan is dual-licensed under **MIT OR Apache-2.0**, at your option.
 See the [full license texts](https://tapirscan.f-kleinicke.de/license/).
 Third-party components retain their own licenses and notices.
-
-`Formats::from_bits` rejects empty or unknown bits with `std::invalid_argument`.
-`best` derives its selection from the current barcode vector, including after
-caller edits. Native errors include per-call details.

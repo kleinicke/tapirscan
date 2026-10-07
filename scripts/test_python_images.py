@@ -193,6 +193,41 @@ class Images(unittest.TestCase):
                 append.index = 2  # ty: ignore[invalid-assignment]
         self.assertIsNotNone(result.diagnostics)
 
+    def test_search_window_evidence(self) -> None:
+        """Preserve absent, empty and populated search evidence."""
+        raw = decode(PixelImage(RAW, width=W, height=H), library_dir=LIBS).to_raw_dict()
+        window = {
+            "kind": "full_frame_search",
+            "polygon": [[0, 0], [W, 0], [W, H], [0, H]],
+            "candidateIndex": 7,
+        }
+        for windows in (None, [], [window]):
+            with self.subTest(windows=windows):
+                if windows is None:
+                    raw.pop("searchWindows", None)
+                else:
+                    raw["searchWindows"] = windows
+                report = _from_json(json.dumps(raw).encode(), W, H)
+                regions = report.diagnostics.regions
+                if regions is None:
+                    self.fail("Region evidence was requested")
+                if windows is None:
+                    self.assertIsNone(regions.search_windows)
+                else:
+                    if regions.search_windows is None:
+                        self.fail("Search evidence was dropped")
+                    self.assertEqual(
+                        [
+                            {
+                                "kind": item.kind,
+                                "polygon": [list(point) for point in item.polygon],
+                                "candidateIndex": item.candidate_index,
+                            }
+                            for item in regions.search_windows
+                        ],
+                        windows,
+                    )
+
     def test_numpy(self) -> None:
         """Verify numpy."""
 
@@ -335,7 +370,17 @@ class Images(unittest.TestCase):
         self.assertTrue(regions.candidates)
         if regions.search_windows is None:
             self.fail("Search windows were requested")
-        self.assertEqual(regions.search_windows[0].kind, "full_frame_search")
+        self.assertEqual(
+            [
+                {
+                    "kind": window.kind,
+                    "polygon": [list(point) for point in window.polygon],
+                    "candidateIndex": window.candidate_index,
+                }
+                for window in regions.search_windows
+            ],
+            details.to_raw_dict()["searchWindows"],
+        )
         self.assertTrue(any(c.detections for c in regions.candidates))
         for candidate in regions.candidates:
             self.assertEqual(len(candidate.polygon), 4)
