@@ -114,7 +114,7 @@ try {
         channels: 1,
       });
       const expected = JSON.stringify(fixture.expected.map((b) => b.text));
-      const texts = (barcodes) => JSON.stringify(barcodes.map((b) => b.text));
+      const texts = (barcodes) => JSON.stringify(barcodes.barcodes.map((b) => b.text));
       const rejects = async (promise, text) => {
         try {
           await promise;

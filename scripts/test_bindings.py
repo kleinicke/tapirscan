@@ -22,7 +22,7 @@ from build import ROOT
 sys.path.insert(
     0, os.environ.get("BARCODE_PYTHON_PACKAGE", str(ROOT / "bindings/python/src"))
 )
-from tapirscan import PixelImage, Scanner, ScanResult
+from tapirscan import InspectionResult, PixelImage, Scanner
 
 LIBS = ROOT / "build/native"
 MODES = ("low", "medium", "high", "very-high")
@@ -99,7 +99,7 @@ def harnesses(
     }
 
 
-def typed(result: ScanResult) -> dict[str, Any]:
+def typed(result: InspectionResult) -> dict[str, Any]:
     """Project a Python result onto the harnesses' typed JSON shape."""
     best = (
         None
@@ -144,7 +144,7 @@ class Bindings(unittest.TestCase):
                             with self.subTest(mode=mode, fixture=name, debug=debug):
                                 result = scanner.inspect(image)
                                 self.assertEqual(
-                                    scanner.scan(image), list(result.barcodes)
+                                    scanner.scan(image).barcodes, result.barcodes
                                 )
                                 self.assertEqual(result.values, [TEXT] * expected)
                                 reference = typed(result)

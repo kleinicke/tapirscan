@@ -421,7 +421,7 @@ fn detailed_errors_are_per_call_and_cleared_on_success() {
 fn barcode_json_preserves_optional_metadata() {
     let pixels = [255; 9];
     let mut result = Scanner::default().scan(Image::gray(&pixels, 3, 3)).unwrap();
-    result.push(Barcode {
+    result.barcodes.push(Barcode {
         text: "a\0b".into(),
         format: Format::QrCode,
         polygon: [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]],
@@ -438,7 +438,7 @@ fn barcode_json_preserves_optional_metadata() {
         }),
     });
     let output = Output {
-        barcodes: result,
+        barcodes: result.barcodes,
         report: None,
         json: OnceLock::new(),
     };

@@ -50,21 +50,21 @@ public final class Scanner implements AutoCloseable {
         return options;
     }
 
-    public List<Barcode> scan(Image image) {
+    public ScanResult scan(Image image) {
         return scan(image, ScanOptions.defaults());
     }
 
     /** Scan one image. No detection is a successful empty result. */
-    public List<Barcode> scan(Image image, ScanOptions scan) {
-        return run(image, scan, false, this::readBarcodes);
+    public ScanResult scan(Image image, ScanOptions scan) {
+        return run(image, scan, false, (arena, result) -> new ScanResult(readBarcodes(arena, result)));
     }
 
     /** Inspect one image, including work status, unread regions and diagnostics. */
-    public ScanResult inspect(Image image) {
+    public InspectionResult inspect(Image image) {
         return inspect(image, ScanOptions.defaults());
     }
 
-    public ScanResult inspect(Image image, ScanOptions scan) {
+    public InspectionResult inspect(Image image, ScanOptions scan) {
         return run(image, scan, true, this::read);
     }
 
@@ -128,7 +128,7 @@ public final class Scanner implements AutoCloseable {
         return List.copyOf(barcodes);
     }
 
-    private ScanResult read(Arena arena, long result) {
+    private InspectionResult read(Arena arena, long result) {
         List<Barcode> barcodes = readBarcodes(arena, result);
         MemorySegment summary = arena.allocate(Native.SUMMARY);
         lib.check(Native.call(lib.info, result, summary));
@@ -150,7 +150,7 @@ public final class Scanner implements AutoCloseable {
             lib.check(Native.call(lib.copyJson, result, bytes, jsonLength + 1));
             json = new String(bytes.asSlice(0, jsonLength).toArray(JAVA_BYTE), StandardCharsets.UTF_8);
         }
-        return new ScanResult(barcodes, undecoded,
+        return new InspectionResult(barcodes, undecoded,
                 Math.toIntExact(summary.get(JAVA_LONG, offset(Native.SUMMARY, "width"))), Math.toIntExact(summary.get(JAVA_LONG, offset(Native.SUMMARY, "height"))),
                 Mode.fromCode(summary.get(JAVA_INT, offset(Native.SUMMARY, "mode"))), summary.get(JAVA_DOUBLE, offset(Native.SUMMARY, "elapsedMs")),
                 summary.get(JAVA_INT, offset(Native.SUMMARY, "unfinished")) != 0, json);

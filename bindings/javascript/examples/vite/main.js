@@ -19,7 +19,7 @@ input.onchange = async () => {
   if (!file) return;
   status.textContent = "Scanning…";
   try {
-    const barcodes = await scanner.scan(file);
+    const { barcodes } = await scanner.scan(file);
     status.textContent = barcodes.length
       ? barcodes.map((barcode) => `${barcode.format} ${barcode.text}`).join("\n")
       : "No barcode found.";

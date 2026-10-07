@@ -1,8 +1,9 @@
 # Tapirscan for Rust
 
-`scan(image)` returns `Result<Vec<Barcode>, Error>`: decoded text, format and
-source-image geometry, with an empty vector when nothing is decoded.
-Use `inspect(image)` for a `ScanResult` containing work status, unread regions,
+`scan(image)` returns `Result<ScanResult, Error>`: decoded text, format and
+source-image geometry. `result.values()` borrows decoded strings and
+`result.barcodes` holds the located reads.
+Use `inspect(image)` for an `InspectionResult` containing work status, unread regions,
 timing and diagnostics. Both have `_with_options` variants. There is no debug flag.
 
 ```rust
@@ -82,11 +83,14 @@ options never change scanner configuration.
 
 ## Results
 
-`ScanResult` exposes `barcodes`, `undecoded`, `image_size`, `mode`, `elapsed`
+`ScanResult` provides decoded barcodes, `values()` and `best()`.
+No detections produce empty collections; `best()` returns the language’s empty value.
+
+`InspectionResult` exposes `barcodes`, `undecoded`, `image_size`, `mode`, `elapsed`
 (`Duration`), `unfinished`, `localization_limited` and `diagnostics`. Iterate by reference or consume
 it to move barcodes. `values()` borrows text. `tapirscan::best(&barcodes)`
-borrows the largest-support read of any barcode slice, such as `scan` output,
-keeping first-read ties; `ScanResult::best()` is the same for inspection results.
+borrows the largest-support read of any barcode slice, such as `result.barcodes`,
+keeping first-read ties; `InspectionResult::best()` is the same for inspection results.
 Support is reader-specific and not comparable confidence across formats or
 efforts. `Barcode` implements serde `Serialize` and `Deserialize` with the shared
 schema names, omitting absent optional metadata.

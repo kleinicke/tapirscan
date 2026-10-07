@@ -32,6 +32,7 @@ from .results import (
     Diagnostics,
     EanAddOnPolicy,
     ImageSize,
+    InspectionResult,
     Layout,
     Mode,
     Point,
@@ -54,6 +55,7 @@ __all__ = [
     "FormatSelection",
     "ImageInput",
     "ImageSize",
+    "InspectionResult",
     "Layout",
     "Mode",
     "PixelImage",
@@ -301,7 +303,7 @@ class Scanner:
         layout: Layout = "auto",
         value_range: ValueRange = "auto",
         color_order: ColorOrder = "RGB",
-    ) -> list[Barcode]:
+    ) -> ScanResult:
         """Return decoded barcodes with source-image positions."""
         raw, _, _ = self._run(
             image,
@@ -312,7 +314,7 @@ class Scanner:
             value_range=value_range,
             color_order=color_order,
         )
-        return [_barcode(value) for value in json.loads(raw)]
+        return ScanResult(tuple(_barcode(value) for value in json.loads(raw)))
 
     def inspect(
         self,
@@ -323,7 +325,7 @@ class Scanner:
         layout: Layout = "auto",
         value_range: ValueRange = "auto",
         color_order: ColorOrder = "RGB",
-    ) -> ScanResult:
+    ) -> InspectionResult:
         """Inspect barcodes, unread regions, work status and engine diagnostics."""
         raw, width, height = self._run(
             image,
@@ -426,7 +428,7 @@ def scan(
     layout: Layout = "auto",
     value_range: ValueRange = "auto",
     color_order: ColorOrder = "RGB",
-) -> list[Barcode]:
+) -> ScanResult:
     """Scan one image; create a Scanner to reuse its mode and supplement policy."""
     with Scanner(
         mode,
@@ -454,7 +456,7 @@ def inspect(
     layout: Layout = "auto",
     value_range: ValueRange = "auto",
     color_order: ColorOrder = "RGB",
-) -> ScanResult:
+) -> InspectionResult:
     """Inspect one image, including work status and engine diagnostics."""
     with Scanner(
         mode,

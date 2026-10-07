@@ -76,7 +76,7 @@ test("one-shot scan reads files and every image source kind", async () => {
     };
     const results = {};
     for (const [name, source] of Object.entries(sources))
-      results[name] = (await scan(source)).map((barcode) => barcode.text);
+      results[name] = (await scan(source)).values;
     // The caller's bitmap is copied before transfer, so it stays usable.
     results.bitmapUsable = bitmap.width === canvas.width;
     return results;
@@ -101,9 +101,9 @@ test("a reusable scanner queues concurrent scans and freezes results", async () 
       ]);
       const report = await scanner.inspect(canvas, { formats: "EAN13", extendedBudget: true });
       return {
-        texts: reads.map((barcodes) => barcodes.map((barcode) => barcode.text)),
-        best: best(reads[0])?.text,
-        frozen: Object.isFrozen(reads[0]) && Object.isFrozen(reads[0][0].polygon),
+        texts: reads.map((result) => result.values),
+        best: best(reads[0].barcodes)?.text,
+        frozen: Object.isFrozen(reads[0]) && Object.isFrozen(reads[0].barcodes[0].polygon),
         report: [report.mode, report.values, typeof report.unfinished, Boolean(report.diagnostics)],
       };
     } finally {

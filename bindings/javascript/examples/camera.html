@@ -45,7 +45,7 @@
           await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
           if (scanner !== current) break;
           const barcodes = await current.scan(video);
-          if (scanner === current) status.textContent = JSON.stringify(barcodes.map((b) => b.text));
+          if (scanner === current) status.textContent = JSON.stringify(barcodes.values);
         }
       } catch (error) {
         if (scanner === current) {

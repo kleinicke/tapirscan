@@ -24,8 +24,8 @@ WebAssembly SIMD.
 ```js
 import { scan } from "tapirscan/browser";
 
-const barcodes = await scan(file); // a File from <input type="file">
-console.log(barcodes.map((barcode) => barcode.text)); // e.g. ["4006381333931"]
+const result = await scan(file); // a File from <input type="file">
+console.log(result.values); // e.g. ["4006381333931"]
 ```
 
 Reuse a scanner for several images or camera frames. Construction is synchronous:
@@ -35,7 +35,7 @@ the worker and WASM load in the background, so the first scan simply waits for t
 import { Scanner } from "tapirscan/browser";
 
 const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
-const barcodes = await scanner.scan(image); // a file, <img>, canvas, video frame, ...
+const result = await scanner.scan(image); // a file, <img>, canvas, video frame, ...
 scanner.dispose(); // stops the worker
 ```
 
@@ -47,8 +47,8 @@ instead of falling behind:
 while (running) {
   await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
   if (!running) break;
-  const barcodes = await scanner.scan(video);
-  // ...show barcodes (often [])
+  const result = await scanner.scan(video);
+  // ...show result.values and result.barcodes
 }
 ```
 
@@ -76,7 +76,7 @@ export default function BarcodeScanner() {
           await new Promise((resolve) => element.requestVideoFrameCallback(resolve));
           if (!running) break;
           const found = await scanner.scan(element);
-          if (running) setBarcodes(found);
+          if (running) setBarcodes(found.barcodes);
         }
       })
       .catch((error) => running && console.error(error));
@@ -116,7 +116,7 @@ In Svelte 5 and SvelteKit:
   let barcodes = $state.raw([]);
   async function onchange(event) {
     const file = event.currentTarget.files?.[0];
-    if (file) barcodes = await scanner.scan(file);
+    if (file) barcodes = (await scanner.scan(file)).barcodes;
   }
 </script>
 
@@ -164,8 +164,8 @@ export default defineConfig({
 
 ```js
 import { scan } from "tapirscan";
-const barcodes = await scan(image);
-for (const barcode of barcodes) console.log(barcode.text, barcode.polygon);
+const result = await scan(image);
+for (const barcode of result.barcodes) console.log(barcode.text, barcode.polygon);
 ```
 
 Use `scanner.scan(image)` when reusing a scanner. For unread regions, work status,
@@ -178,8 +178,8 @@ import { scan } from "tapirscan";
 
 // Using an existing canvas and its 2D context:
 const image = context.getImageData(0, 0, canvas.width, canvas.height);
-const barcodes = await scan(image);
-console.log(barcodes.map((barcode) => barcode.text)); // e.g. ["4006381333931"]
+const result = await scan(image);
+console.log(result.values); // e.g. ["4006381333931"]
 ```
 
 Defaults are Medium effort, retail formats, multiple results, and diagnostics available through inspection.
@@ -194,8 +194,8 @@ import { Scanner } from "tapirscan";
 
 const scanner = await Scanner.create({ mode: "high", formats: "1D" });
 try {
-  const barcodes = scanner.scan(image);
-  for (const barcode of barcodes) {
+  const result = scanner.scan(image);
+  for (const barcode of result.barcodes) {
     console.log(barcode.text, barcode.format, barcode.polygon);
   }
 } finally {
@@ -244,7 +244,7 @@ pays for the enabled 2D readers. See [Turbo behavior and limitations](../../docs
 Choose either `mode` or `experimentalTurbo`; supplying both is an error. Omitting
 both keeps the normal Medium default. The Turbo selection is fixed at creation;
 `scanner.experimentalTurbo` and `result.experimentalTurbo` report it. The underlying
-`mode` is `"low"`. `scan` returns the usual barcode list; `inspect` also reports
+`mode` is `"low"`. `scan` returns the usual lightweight result; `inspect` also reports
 the preset, diagnostics and `unfinished`. Stable-mode inspection omits
 `experimentalTurbo`. Fast linear inspection reports unfinished work; this does not invalidate decoded values.
 
@@ -285,7 +285,7 @@ image with an image library first, then pass grayscale, RGB or RGBA bytes:
 ```js
 import { scan } from "tapirscan";
 
-const barcodes = await scan({ data: pixels, width, height, channels: 1, stride: width });
+const result = await scan({ data: pixels, width, height, channels: 1, stride: width });
 ```
 
 Here `pixels` is a Uint8Array of decoded grayscale pixels. Image codecs are not
@@ -307,7 +307,7 @@ if (!response.ok) throw new Error(`WASM load failed: ${response.status}`);
 const bytes = await response.arrayBuffer();
 const scanner = await Scanner.create({ loadWasm: async () => bytes });
 try {
-  console.log(scanner.scan(image).map((barcode) => barcode.text));
+  console.log(scanner.scan(image).values);
 } finally {
   scanner.dispose();
 }
@@ -336,7 +336,7 @@ Then point the scanner at that directory:
 ```js
 const scanner = await Scanner.create({ wasmBaseUrl: "/tapirscan/" });
 try {
-  console.log(scanner.scan(image).map((barcode) => barcode.text));
+  console.log(scanner.scan(image).values);
 } finally {
   scanner.dispose();
 }
@@ -376,14 +376,14 @@ owned frame buffers; `loadWasm` functions must be configured inside the worker.
 
 ## Functions
 
-| Function                               | Return type                   | Behavior                                                                                                                  |
-| -------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `scan(image, options = {})`            | `Promise<readonly Barcode[]>` | One image with automatic creation and disposal. Accepts creation and scan options together.                               |
-| `scanner.scan(image, options = {})`    | `readonly Barcode[]`          | Synchronously scan pixels with a reusable core scanner.                                                                   |
-| `inspect(image, options = {})`         | `Promise<ScanResult>`         | One image with automatic scanner creation and disposal, including on failure. Accepts creation and scan options together. |
-| `Scanner.create(options = {})`         | `Promise<Scanner>`            | Initialize a reusable scanner. Mode is fixed; formats define defaults and allowed per-call subsets.                       |
-| `scanner.inspect(image, options = {})` | `ScanResult`                  | Synchronously scan pixels. Accepts scan options only.                                                                     |
-| `scanner.dispose()`                    | `void`                        | Release WASM sessions. Repeated disposal is safe; do not scan after disposal.                                             |
+| Function                               | Return type                 | Behavior                                                                                                                  |
+| -------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `scan(image, options = {})`            | `Promise<ScanResult>`       | One image with automatic creation and disposal. Accepts creation and scan options together.                               |
+| `scanner.scan(image, options = {})`    | `ScanResult`                | Synchronously scan pixels with a reusable core scanner.                                                                   |
+| `inspect(image, options = {})`         | `Promise<InspectionResult>` | One image with automatic scanner creation and disposal, including on failure. Accepts creation and scan options together. |
+| `Scanner.create(options = {})`         | `Promise<Scanner>`          | Initialize a reusable scanner. Mode is fixed; formats define defaults and allowed per-call subsets.                       |
+| `scanner.inspect(image, options = {})` | `InspectionResult`          | Synchronously scan pixels. Accepts scan options only.                                                                     |
+| `scanner.dispose()`                    | `void`                      | Release WASM sessions. Repeated disposal is safe; do not scan after disposal.                                             |
 
 `image` is required for either scan function. All options are optional. Reuse a
 scanner for successive frames to avoid repeated initialization; create another
@@ -430,9 +430,10 @@ use [`tapirscan/browser`](#browser-apps-react-and-svelte), which accepts them di
 
 ## Results
 
-`scan` returns a read-only `Barcode[]`. The `result.*` fields below belong to
-the `ScanResult` returned by `inspect`; `barcode.*` fields are available from
-both operations.
+`scan` returns a read-only `ScanResult` with `values`, `barcodes` and `best`.
+`inspect` returns an `InspectionResult` with those same fields plus image size,
+mode, timing, work status, undecoded proposals and diagnostics. The barcode
+fields below are available from both operations.
 
 | Field                          | Type                                                           | Meaning                                                                                                    |
 | ------------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -459,14 +460,13 @@ both operations.
 Results, including nested geometry and requested diagnostics, are immutable at
 runtime and in TypeScript. Use `structuredClone(result)` if you need a mutable
 copy. `barcodes` and `values` are empty when nothing is decoded; `undecoded` may still
-contain proposals. Use `best(barcodes)` on `scan` output, or `result.best` on an
-inspection result, for one read, keeping the first on ties, or `undefined` when empty. All decoded instances remain available,
+contain proposals. Use `result.best` for one read, keeping the first on ties, or `undefined` when empty. All decoded instances remain available,
 including separate copies of the same value. Coordinates start at the
 top left, x rightward and y downward. Geometry is returned, not a cropped bitmap.
 Map coordinates back yourself if you resize/rotate before scanning. Support is a
 ranking heuristic, not a probability.
 
-The package exports `EanAddOnPolicy`, `ScannerOptions`, `ScanOptions`, `ScanResult`, `Barcode`,
+The package exports `EanAddOnPolicy`, `ScannerOptions`, `ScanOptions`, `InspectionResult`, `Barcode`,
 `PixelImage`, `Image`, `Quad`, `Mode`, `Format`, `FormatSelection`, `Diagnostics`,
 `StructuredAppend` and `DiagnosticBarcode` types. TypeScript infers results from calls; runtime
 checks still validate pixel buffers and dimensions.

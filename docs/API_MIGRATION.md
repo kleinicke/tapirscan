@@ -8,66 +8,57 @@ Migrate callers before upgrading; pin 1.2.2 until they are ready.
 Medium effort, Retail formats and ignored supplements remain the defaults.
 Scanner improvements may change reads, geometry, ordering and runtime.
 
-### Barcode lists and inspection reports
+### Values, locations and inspection
 
-`scan` returns a barcode collection: `Vec<Barcode>` inside Rust's `Result`,
-`std::vector<Barcode>` in C++, `List<Barcode>` in Java, `list[Barcode]` in Python,
-and a frozen `Barcode[]` in JavaScript. C retains an owned result handle.
+`scan` returns a lightweight `ScanResult` with `values`, `barcodes` and `best`
+(properties in JavaScript/Python; `values()` and `best()` in Rust/C++/Java).
+Each barcode includes its text, format, polygon and enclosing rectangle.
+C retains its owned result handle and typed accessors.
 
-| In 1.2.2                                             | In 1.3.0                                                          |
-| ---------------------------------------------------- | ----------------------------------------------------------------- |
-| `scan(image).barcodes`                               | `scan(image)`; retain language-specific `await` or error handling |
-| `result.values` after scanning                       | Map barcode text; inspection reports also retain `values`         |
-| Timing, `unfinished` or `undecoded` on a scan result | Call `inspect` instead of `scan`                                  |
-| `debug` scan option and result field                 | Remove the option; use `inspect` and `result.diagnostics`         |
-| Highest-support read from a result                   | `best(barcodes)`; inspection reports also retain `best`           |
+| In 1.2.2                                             | In 1.3.0                                                  |
+| ---------------------------------------------------- | --------------------------------------------------------- |
+| `result.values` after scanning                       | Unchanged                                                 |
+| `result.barcodes` for text and locations             | Unchanged                                                 |
+| Timing, `unfinished` or `undecoded` on a scan result | Call `inspect` instead of `scan`                          |
+| `debug` scan option and result field                 | Remove the option; use `inspect` and `result.diagnostics` |
+| Explicit rich `ScanResult` type annotation           | Use `InspectionResult` when calling `inspect`             |
 
-Rust exposes `scan_with_options` and `inspect_with_options` for per-call settings.
-Reusable scanners follow the same split. There are no deprecated aliases.
+The usual values-and-locations case stays short:
 
 ```js
-// JavaScript core: before
 const result = await scan(image);
 console.log(result.values);
-
-// After
-const barcodes = await scan(image);
-console.log(barcodes.map((barcode) => barcode.text));
+for (const barcode of result.barcodes) {
+  console.log(barcode.text, barcode.polygon, barcode.rect);
+}
 ```
 
 ```python
-# Python: before
 result = tapirscan.scan(image)
 print(result.values)
-
-# After
-barcodes = tapirscan.scan(image)
-print([barcode.text for barcode in barcodes])
+for barcode in result.barcodes:
+    print(barcode.text, barcode.polygon, barcode.rect)
 ```
 
-Use inspection only when the report is needed; barcode metadata and geometry
-are available in ordinary scan output. `best` keeps the first read on equal
-support and returns the binding's empty value for an empty list. It is not a
-cross-format confidence estimate.
+Python and Rust results remain iterable. Reusable scanners return the same
+result types as their one-shot helpers. Rust also exposes `scan_with_options`
+and `inspect_with_options` for per-call settings.
 
-For applications that already iterate Python results, `for barcode in
-tapirscan.scan(image)` still works. Access to text, format, geometry and payload
-metadata does not require inspection. To select one read, use
-`tapirscan.best(barcodes)` in Python or `best(barcodes)` in JavaScript; an empty
-list returns `None` or `undefined`, respectively.
+Use `inspect` only when you need timing, undecoded proposals, work status or
+engine diagnostics. Inspection collects additional evidence; ordinary scans
+avoid that collection while returning the same decoded values and locations
+for the same options. There is no `debug` argument or deprecated alias.
 
-If your application needs the report, replace `scan` with `inspect` and remove
-any `debug` argument. Keep using the report's barcodes, values, timing and work
-status; rename `debug` to `diagnostics` where you consume engine evidence.
-Inspection always collects diagnostics, even when you only need timing or
-undecoded regions. Ordinary scans avoid that extra collection. Do not switch to
-inspection solely to extract text values.
+`best` keeps the first read on equal support and returns the binding's empty
+value when nothing was decoded. Support is not cross-format confidence.
+Separate barcodes with the same text remain separate entries, including in
+`values`; use `barcodes` to keep each value paired with its location.
 
-Serialization changes too: JavaScript's `JSON.stringify(await scan(image))`
-now produces an array, not a report object. In Python, replace
-`result.as_dict()` after an ordinary scan with
-`[barcode.as_dict() for barcode in barcodes]`, or use `inspect(image).as_dict()`
-when the report shape is required. Update stored schemas and consumers accordingly.
+JavaScript `JSON.stringify(result)` and Python `result.as_dict()` still produce
+objects, but ordinary results contain only barcodes, values and best. Consumers
+of stored timing or diagnostic fields must switch to inspection and update
+schemas as needed. Python `as_dict()` excludes diagnostics; use
+`report.diagnostics.to_raw_dict()` for engine evidence.
 
 ### Browser applications
 

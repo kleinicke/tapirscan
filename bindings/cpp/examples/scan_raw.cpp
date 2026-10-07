@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
         // Results own their data and survive the scanner.
         tapirscan::Scanner scanner(scanner_options);
         const auto result = scanner.inspect(image, options);
-        const auto barcodes = scanner.scan(image, options);
+        const auto barcodes = scanner.scan(image, options).barcodes;
         if (barcodes.size() != result.barcodes.size()) throw std::runtime_error("Scan/inspect count differs");
         for (std::size_t i = 0; i < barcodes.size(); ++i) {
             if (barcodes[i].text != result.barcodes[i].text || barcodes[i].format != result.barcodes[i].format || barcodes[i].rect() != result.barcodes[i].rect())

@@ -4,7 +4,7 @@ This checkout prepares **1.3.0**, which makes C, C++ and Java recommended bindin
 with the same scanner, options and result model as Rust, Python and JavaScript.
 One native library (ABI 6) now contains all four effort modes. The release also
 includes scanner recovery improvements, experimental JavaScript Turbo presets
-and a browser worker entry point. `scan` now returns a barcode list; `inspect`
+and a browser worker entry point. `scan` returns a lightweight values-and-locations result; `inspect`
 returns the detailed report. This changes application code in every binding.
 See [API migration](API_MIGRATION.md) before upgrading from 1.2.2.
 The breaking changes are an explicitly approved 1.3.0 exception to the

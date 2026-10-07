@@ -236,9 +236,46 @@ pub struct Diagnostics {
     /// Ordinary scanning and drawing barcodes do not require inspecting this value.
     pub raw: serde_json::Value,
 }
+/// Decoded values and their source-image locations, without diagnostic collection.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ScanResult {
+    /// All decoded instances; equal values at different locations stay separate.
+    pub barcodes: Vec<Barcode>,
+}
+impl ScanResult {
+    /// Borrow decoded barcodes in scanner order.
+    pub fn iter(&self) -> std::slice::Iter<'_, Barcode> {
+        self.barcodes.iter()
+    }
+    /// Borrow decoded text in scanner order, including repeated values.
+    #[must_use]
+    pub fn values(&self) -> impl ExactSizeIterator<Item = &str> {
+        self.barcodes.iter().map(|barcode| barcode.text.as_str())
+    }
+    /// Highest support, keeping the first tie; see [`best`].
+    #[must_use]
+    pub fn best(&self) -> Option<&Barcode> {
+        best(&self.barcodes)
+    }
+}
+impl<'a> IntoIterator for &'a ScanResult {
+    type Item = &'a Barcode;
+    type IntoIter = std::slice::Iter<'a, Barcode>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.barcodes.iter()
+    }
+}
+impl IntoIterator for ScanResult {
+    type Item = Barcode;
+    type IntoIter = std::vec::IntoIter<Barcode>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.barcodes.into_iter()
+    }
+}
+
 /// Owned scan output, including all decoded instances.
 #[derive(Clone, Debug)]
-pub struct ScanResult {
+pub struct InspectionResult {
     /// All decoded instances, including distinct physical copies with equal text.
     pub barcodes: Vec<Barcode>,
     /// Localized unread geometry; empty means no unread regions were reported.
@@ -256,7 +293,7 @@ pub struct ScanResult {
     /// Engine evidence returned by inspection; the schema is unstable.
     pub diagnostics: Option<Diagnostics>,
 }
-impl ScanResult {
+impl InspectionResult {
     /// Iterate over decoded instances without allocating.
     pub fn iter(&self) -> std::slice::Iter<'_, Barcode> {
         self.barcodes.iter()
@@ -297,7 +334,7 @@ impl ScanResult {
 
 /// Highest support, preserving the first read on ties; `None` when empty.
 ///
-/// Works on [`scan`](crate::scan) output and inspection results alike. Support is
+/// Pass `result.barcodes` from either scanning or inspection. Support is
 /// uncalibrated reader evidence: select by format, payload or position when the
 /// application knows what it needs.
 #[must_use]
@@ -309,14 +346,14 @@ pub fn best(barcodes: &[Barcode]) -> Option<&Barcode> {
         .map(|(_, b)| b)
 }
 
-impl<'a> IntoIterator for &'a ScanResult {
+impl<'a> IntoIterator for &'a InspectionResult {
     type Item = &'a Barcode;
     type IntoIter = std::slice::Iter<'a, Barcode>;
     fn into_iter(self) -> Self::IntoIter {
         self.barcodes.iter()
     }
 }
-impl IntoIterator for ScanResult {
+impl IntoIterator for InspectionResult {
     type Item = Barcode;
     type IntoIter = std::vec::IntoIter<Barcode>;
     fn into_iter(self) -> Self::IntoIter {

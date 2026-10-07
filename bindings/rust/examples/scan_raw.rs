@@ -33,7 +33,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..ScannerOptions::default()
     });
     let result = scanner.inspect_with_options(image, options)?;
-    assert_eq!(scanner.scan_with_options(image, options)?, result.barcodes);
+    assert_eq!(
+        scanner.scan_with_options(image, options)?.barcodes,
+        result.barcodes
+    );
     let best = result
         .best()
         .and_then(|best| result.barcodes.iter().position(|b| std::ptr::eq(b, best)));

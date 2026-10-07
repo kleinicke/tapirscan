@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 use tapirscan_api::{
-    Barcode, EanAddOnPolicy, Format, Formats, Image, Mode, ScanOptions, ScanResult, Scanner,
+    Barcode, EanAddOnPolicy, Format, Formats, Image, InspectionResult, Mode, ScanOptions, Scanner,
     ScannerOptions, UndecodedRegion,
 };
 
@@ -154,7 +154,7 @@ pub struct RegionC {
 
 struct Output {
     barcodes: Vec<Barcode>,
-    report: Option<ScanResult>,
+    report: Option<InspectionResult>,
     json: OnceLock<Vec<u8>>,
 }
 
@@ -420,7 +420,8 @@ unsafe fn scan(
             (
                 scanner
                     .scan_with_options(pixels, options)
-                    .map_err(Failure::from)?,
+                    .map_err(Failure::from)?
+                    .barcodes,
                 None,
             )
         };

@@ -329,16 +329,22 @@ class Images(unittest.TestCase):
         self.assertIsNotNone(result.diagnostics.regions.search_windows)
 
     def test_scan_returns_only_barcodes(self) -> None:
-        """Ordinary scans return an owned list, equal to inspection barcodes."""
+        """Ordinary results own values and geometry without inspection evidence."""
         image = PixelImage(RAW, width=W, height=H)
         with Scanner(library_dir=LIBS) as scanner:
             result = scanner.scan(image)
-            self.assertIs(type(result), list)
+            self.assertIs(type(result), barcode.ScanResult)
+            self.assertEqual(result.values, [TEXT])
+            self.assertFalse(hasattr(result, "diagnostics"))
             report = scanner.inspect(image)
-            self.assertEqual(result, list(report.barcodes))
+            self.assertEqual(result.barcodes, report.barcodes)
+            self.assertEqual(result.best, report.best)
             self.assertEqual(barcode.best(result), report.best)
             self.assertEqual(
-                scanner.scan(PixelImage(bytes([255]) * len(RAW), width=W, height=H)), []
+                scanner.scan(
+                    PixelImage(bytes([255]) * len(RAW), width=W, height=H)
+                ).values,
+                [],
             )
             with self.assertRaises(TypeError):
                 scanner.scan(image, debug=True)  # ty: ignore[unknown-argument]

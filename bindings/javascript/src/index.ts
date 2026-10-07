@@ -94,11 +94,14 @@ export interface Barcode {
     readonly height: number;
   };
 }
+/** Decoded values and their source-image locations. */
 export interface ScanResult {
   readonly barcodes: readonly Barcode[];
   readonly values: readonly string[];
   /** Largest reader-specific support; not a cross-format confidence comparison. */
   readonly best: Barcode | undefined;
+}
+export interface InspectionResult extends ScanResult {
   readonly image: { readonly width: number; readonly height: number };
   readonly mode: Mode;
   /** @experimental Selected Turbo preset, when requested. */
@@ -144,16 +147,16 @@ interface WireResult {
 }
 
 const modes: Record<Mode, { id: number; file: string }> = {
-  low: { id: 0, file: "low-release-packaging-20261007.wasm" },
-  medium: { id: 1, file: "medium-release-packaging-20261007.wasm" },
-  high: { id: 2, file: "high-release-packaging-20261007.wasm" },
-  "very-high": { id: 3, file: "very-high-release-packaging-20261007.wasm" },
+  low: { id: 0, file: "low-scan-results-20261007.wasm" },
+  medium: { id: 1, file: "medium-scan-results-20261007.wasm" },
+  high: { id: 2, file: "high-scan-results-20261007.wasm" },
+  "very-high": { id: 3, file: "very-high-scan-results-20261007.wasm" },
 };
 const turboFiles: Record<ExperimentalTurbo, string> = {
-  2: "experimental-turbo2-release-packaging-20261007.wasm",
-  4: "experimental-turbo4-release-packaging-20261007.wasm",
-  8: "experimental-turbo8-release-packaging-20261007.wasm",
-  16: "experimental-turbo16-release-packaging-20261007.wasm",
+  2: "experimental-turbo2-scan-results-20261007.wasm",
+  4: "experimental-turbo4-scan-results-20261007.wasm",
+  8: "experimental-turbo8-scan-results-20261007.wasm",
+  16: "experimental-turbo16-scan-results-20261007.wasm",
 };
 const addOnPolicies: Record<EanAddOnPolicy, number> = { Ignore: 0, Read: 1, Require: 2 };
 
@@ -251,7 +254,7 @@ function publicResult(
   raw: WireResult,
   elapsedMs: number,
   experimentalTurbo?: ExperimentalTurbo,
-): ScanResult {
+): InspectionResult {
   if (!raw.debug) throw new ScannerError("invalid_output", "Scanner omitted requested diagnostics");
   const barcodes = raw.barcodes;
   const undecoded = raw.undecoded.map(({ format, polygon }) => ({
@@ -359,7 +362,7 @@ export class Scanner {
   }
 
   /** Decode barcodes with positions. Use inspect() for diagnostic evidence. */
-  scan(inputImage: PixelImage, options: ScanOptions = {}): readonly Barcode[] {
+  scan(inputImage: PixelImage, options: ScanOptions = {}): ScanResult {
     const raw = this.run(inputImage, options, false);
     if (
       raw === null ||
@@ -368,11 +371,16 @@ export class Scanner {
       !Array.isArray(raw.barcodes)
     )
       throw new ScannerError("invalid_output", "Scanner returned an invalid barcode list");
-    return freeze(raw.barcodes as Barcode[]);
+    const barcodes = raw.barcodes as Barcode[];
+    return freeze({
+      barcodes,
+      values: barcodes.map((barcode) => barcode.text),
+      best: best(barcodes),
+    });
   }
 
   /** Inspect barcodes, unread regions, work status and engine diagnostics. */
-  inspect(inputImage: PixelImage, options: ScanOptions = {}): ScanResult {
+  inspect(inputImage: PixelImage, options: ScanOptions = {}): InspectionResult {
     const start = performance.now();
     const raw = wireResult(this.run(inputImage, options, true));
     return publicResult(raw, performance.now() - start, this.experimentalTurbo);
@@ -420,7 +428,7 @@ export function best(barcodes: readonly Barcode[]): Barcode | undefined {
 export async function scan(
   image: PixelImage,
   options: ScannerOptions & ScanOptions = {},
-): Promise<readonly Barcode[]> {
+): Promise<ScanResult> {
   const input: unknown = options;
   if (input === null || typeof input !== "object" || Array.isArray(input))
     throw new TypeError("Invalid scan options");
@@ -437,7 +445,7 @@ export async function scan(
 export async function inspect(
   image: PixelImage,
   options: ScannerOptions & ScanOptions = {},
-): Promise<ScanResult> {
+): Promise<InspectionResult> {
   const input: unknown = options;
   if (input === null || typeof input !== "object" || Array.isArray(input))
     throw new TypeError("Invalid scan options");

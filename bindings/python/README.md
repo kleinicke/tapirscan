@@ -1,13 +1,15 @@
 # Tapirscan for Python
 
-`scan(image)` returns `list[Barcode]`. Each barcode has `text`, `format`, and
-source-image `polygon` / `rect` coordinates. No detection returns `[]`.
+`scan(image)` returns a `ScanResult`: `result.values` gives decoded strings and
+`result.barcodes` pairs each value with its location. Each barcode has `text`, `format`, and
+source-image `polygon` / `rect` coordinates. No detection leaves `values` and `barcodes` empty.
 
 ```python
 import tapirscan
 
-barcodes = tapirscan.scan(image)
-for barcode in barcodes:
+result = tapirscan.scan(image)
+print(result.values)
+for barcode in result.barcodes:
     print(barcode.text, barcode.polygon)
 ```
 
@@ -37,8 +39,8 @@ import tifffile
 import tapirscan
 
 pixels = tifffile.imread("label.tif", key=0)  # NumPy array: first TIFF page
-barcodes = tapirscan.scan(pixels)
-print([barcode.text for barcode in barcodes])
+result = tapirscan.scan(pixels)
+print(result.values)
 ```
 
 This example assumes an 8-bit grayscale or RGB image. Defaults are Medium effort
@@ -51,9 +53,9 @@ from PIL import Image
 import tapirscan
 
 with Image.open("label.jpg") as image:
-    barcodes = tapirscan.scan(image, mode="high", formats="1D")
+    result = tapirscan.scan(image, mode="high", formats="1D")
 
-for barcode in barcodes:
+for barcode in result.barcodes:
     print(barcode.text, barcode.format, barcode.polygon)
 ```
 
@@ -74,8 +76,8 @@ import torch
 
 # Using the NumPy array from the TIFF example:
 tensor = torch.from_numpy(pixels)
-barcodes = tapirscan.scan(tensor)
-print([barcode.text for barcode in barcodes])
+result = tapirscan.scan(tensor)
+print(result.values)
 ```
 
 GPU tensors and tensors with `requires_grad=True` work directly. Tapirscan
@@ -89,23 +91,24 @@ for `layout`, `value_range` and `color_order`.
 
 ```python
 # One image, with automatic cleanup:
-barcodes = tapirscan.scan(image, mode="medium", formats=["EAN13"])
+result = tapirscan.scan(image, mode="medium", formats=["EAN13"])
 
 # Reuse native initialization across images:
 with tapirscan.Scanner(mode="high", formats="1D") as scanner:
-    barcodes = scanner.scan(image)
-    best = tapirscan.best(barcodes)  # Barcode or None; all reads remain in barcodes
+    result = scanner.scan(image)
+    print(result.values)
+    best = result.best  # Barcode or None; all reads remain in result.barcodes
 ```
 
 Signatures (all settings are optional). `inspect` and `scanner.inspect` accept
-the same arguments as their `scan` counterparts and return `ScanResult`:
+the same arguments as their `scan` counterparts and return `InspectionResult`:
 
 ```text
 scan(image, *, mode="medium", formats=None, ean_add_on_policy="Ignore", extended_budget=False,
-     layout="auto", value_range="auto", color_order="RGB", library_dir=None) -> list[Barcode]
+     layout="auto", value_range="auto", color_order="RGB", library_dir=None) -> ScanResult
 Scanner(mode="medium", *, formats=None, ean_add_on_policy="Ignore", library_dir=None)
 scanner.scan(image, *, formats=None, extended_budget=False,
-             layout="auto", value_range="auto", color_order="RGB") -> list[Barcode]
+             layout="auto", value_range="auto", color_order="RGB") -> ScanResult
 scanner.close()
 ```
 
@@ -134,7 +137,7 @@ mismatches with version details and rebuild instructions.
 
 All scans return all decoded instances, including spatially separate copies of the
 same value. Use `tapirscan.best(barcodes)` on any barcode list, or `result.best`
-on an inspection result, for one highest-support read, keeping the first on ties;
+on either result type, for one highest-support read, keeping the first on ties;
 this does not reduce scanning work. Support is a ranking heuristic, not a confidence probability.
 
 Formats and group exports: `Format`, `FormatSelection`, `retail_formats`,
@@ -242,11 +245,12 @@ use `value_range="0_255"` for floats stored in byte units.
 
 ## Results and public types
 
-`scan` returns a list of `Barcode` objects. The `result.*` fields below belong
-to the `ScanResult` returned by `inspect`; `barcode.*` fields are available from
-both operations.
+`scan` returns `ScanResult` with `values`, `barcodes` and `best`.
+`inspect` returns `InspectionResult` with those same fields plus image size, mode,
+timing, work status, undecoded proposals and diagnostics. Barcode fields are
+available from both operations.
 
-`ScanResult` is an immutable sequence: iterate, index, slice, use `len(result)` or
+Both result types are immutable sequences: iterate, index, slice, use `len(result)` or
 check its truth value. Empty results are false.
 
 | Field/method                    | Meaning                                                                                                         |

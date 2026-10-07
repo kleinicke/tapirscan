@@ -202,9 +202,23 @@ struct UndecodedRegion {
     Quad polygon{};
 };
 
-/// Owned scan output; it remains valid after its scanner is destroyed.
+/// Decoded values and their source-image locations, owned by the caller.
 struct ScanResult {
     std::vector<Barcode> barcodes;
+    /// See `tapirscan::best`. Temporaries are rejected to avoid dangling pointers.
+    const Barcode* best() const& { return tapirscan::best(barcodes); }
+    const Barcode* best() const&& = delete;
+    /// Decoded text of every barcode, in scanner order.
+    std::vector<std::string> values() const {
+        std::vector<std::string> values;
+        values.reserve(barcodes.size());
+        for (const auto& barcode : barcodes) values.push_back(barcode.text);
+        return values;
+    }
+};
+
+/// Work status and diagnostic evidence in addition to decoded barcodes.
+struct InspectionResult : ScanResult {
     /// Localized but unread regions. They are candidates, not proven barcodes.
     std::vector<UndecodedRegion> undecoded;
     std::uint64_t width = 0;
@@ -216,16 +230,6 @@ struct ScanResult {
     /// Unstable engine diagnostics JSON from inspection.
     std::string diagnostics;
 
-    /// See `tapirscan::best`. Temporaries are rejected to avoid dangling pointers.
-    const Barcode* best() const& { return tapirscan::best(barcodes); }
-    const Barcode* best() const&& = delete;
-    /// Decoded text of every barcode, in scanner order.
-    std::vector<std::string> values() const {
-        std::vector<std::string> values;
-        values.reserve(barcodes.size());
-        for (const auto& barcode : barcodes) values.push_back(barcode.text);
-        return values;
-    }
 };
 
 namespace detail {
@@ -300,10 +304,10 @@ public:
         return barcodes;
     }
 
-    ScanResult read() const {
+    InspectionResult read() const {
         tapirscan_summary info{};
         check(tapirscan_result_info(handle_, &info));
-        ScanResult result;
+        InspectionResult result;
         result.barcodes = barcodes();
         result.width = info.width;
         result.height = info.height;
@@ -385,12 +389,12 @@ public:
     const ScannerOptions& options() const noexcept { return options_; }
 
     /// Scan one image. No detection is a successful empty result.
-    std::vector<Barcode> scan(const Image& image, const ScanOptions& options = {}) const {
-        return run(image, options, false).barcodes();
+    ScanResult scan(const Image& image, const ScanOptions& options = {}) const {
+        return {run(image, options, false).barcodes()};
     }
 
     /// Inspect one image, including work status, unread regions and diagnostics.
-    ScanResult inspect(const Image& image, const ScanOptions& options = {}) const {
+    InspectionResult inspect(const Image& image, const ScanOptions& options = {}) const {
         return run(image, options, true).read();
     }
 
@@ -410,12 +414,12 @@ private:
 };
 
 /// Scan one image with a temporary scanner. Reuse a `Scanner` for many images.
-inline std::vector<Barcode> scan(const Image& image, const ScannerOptions& scanner = {},
+inline ScanResult scan(const Image& image, const ScannerOptions& scanner = {},
                        const ScanOptions& options = {}) {
     return Scanner(scanner).scan(image, options);
 }
 /// Inspect one image with a temporary scanner.
-inline ScanResult inspect(const Image& image, const ScannerOptions& scanner = {}, const ScanOptions& options = {}) {
+inline InspectionResult inspect(const Image& image, const ScannerOptions& scanner = {}, const ScanOptions& options = {}) {
     return Scanner(scanner).inspect(image, options);
 }
 }  // namespace tapirscan

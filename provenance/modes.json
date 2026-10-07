@@ -3,13 +3,13 @@
   "modes": [
     {
       "mode": "low",
-      "tag": "low-release-packaging-20261007",
+      "tag": "low-scan-results-20261007",
       "fitLimit": 0,
       "maxLocalizedProposals": 32
     },
     {
       "mode": "medium",
-      "tag": "medium-release-packaging-20261007",
+      "tag": "medium-scan-results-20261007",
       "fitLimit": 1,
       "maxLocalizedProposals": 32,
       "directions": 1,
@@ -17,7 +17,7 @@
     },
     {
       "mode": "high",
-      "tag": "high-release-packaging-20261007",
+      "tag": "high-scan-results-20261007",
       "fitLimit": 4,
       "maxLocalizedProposals": 32,
       "directions": 2,
@@ -25,32 +25,32 @@
     },
     {
       "mode": "very-high",
-      "tag": "very-high-release-packaging-20261007",
+      "tag": "very-high-scan-results-20261007",
       "fitLimit": 1,
       "maxLocalizedProposals": 63,
       "directions": 2,
       "recoveryTag": "low-recovery-rebased-20260925"
     }
   ],
-  "runtimeRevision": "provenance/format-guide-loading-20261007.json",
-  "apiWasm": "provenance/wasm-release-packaging-20261007.json",
+  "runtimeRevision": "provenance/scan-results-20261007.json",
+  "apiWasm": "provenance/wasm-scan-results-20261007.json",
   "sourceRoot": "core/src",
   "experimentalTurbo": [
     {
       "preset": 2,
-      "tag": "experimental-turbo2-release-packaging-20261007"
+      "tag": "experimental-turbo2-scan-results-20261007"
     },
     {
       "preset": 4,
-      "tag": "experimental-turbo4-release-packaging-20261007"
+      "tag": "experimental-turbo4-scan-results-20261007"
     },
     {
       "preset": 8,
-      "tag": "experimental-turbo8-release-packaging-20261007"
+      "tag": "experimental-turbo8-scan-results-20261007"
     },
     {
       "preset": 16,
-      "tag": "experimental-turbo16-release-packaging-20261007"
+      "tag": "experimental-turbo16-scan-results-20261007"
     }
   ]
 }

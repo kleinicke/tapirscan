@@ -103,7 +103,7 @@ export async function runApiChecks(Scanner, fixtures, options = {}) {
                 channels: 1,
               },
               { extendedBudget },
-            ),
+            ).barcodes,
             result.barcodes,
             "scan/inspect parity",
           );

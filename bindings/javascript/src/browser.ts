@@ -2,12 +2,12 @@
 import type { WorkerRequest, WorkerResponse, WorkerSource } from "./browser-worker.js";
 import { freeze } from "./freeze.js";
 import type {
-  Barcode,
   EanAddOnPolicy,
   FormatSelection,
   Mode,
   PixelImage,
   ScanOptions,
+  InspectionResult,
   ScanResult,
 } from "./index.js";
 import { ScannerError } from "./rust-session.js";
@@ -24,6 +24,7 @@ export type {
   PixelImage,
   Quad,
   ScanOptions,
+  InspectionResult,
   ScanResult,
   StructuredAppend,
   UndecodedRegion,
@@ -139,13 +140,13 @@ export class Scanner {
   }
 
   /** Decode barcodes with source-image positions. No detection resolves to []. */
-  async scan(source: ImageSource, options: ScanOptions = {}): Promise<readonly Barcode[]> {
-    return freeze((await this.#scan("scan", source, options)) as Barcode[]);
+  async scan(source: ImageSource, options: ScanOptions = {}): Promise<ScanResult> {
+    return freeze((await this.#scan("scan", source, options)) as ScanResult);
   }
 
   /** Scan with unread regions, work status, timing and engine diagnostics. */
-  async inspect(source: ImageSource, options: ScanOptions = {}): Promise<ScanResult> {
-    return freeze((await this.#scan("inspect", source, options)) as ScanResult);
+  async inspect(source: ImageSource, options: ScanOptions = {}): Promise<InspectionResult> {
+    return freeze((await this.#scan("inspect", source, options)) as InspectionResult);
   }
 
   /** Stop the worker and reject queued scans. Repeated disposal is safe. */
@@ -192,7 +193,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 export async function scan(
   source: ImageSource,
   options: ScannerOptions & ScanOptions = {},
-): Promise<readonly Barcode[]> {
+): Promise<ScanResult> {
   const { extendedBudget, ...creation } = options;
   const scanner = new Scanner(creation);
   try {
@@ -206,7 +207,7 @@ export async function scan(
 export async function inspect(
   source: ImageSource,
   options: ScannerOptions & ScanOptions = {},
-): Promise<ScanResult> {
+): Promise<InspectionResult> {
   const { extendedBudget, ...creation } = options;
   const scanner = new Scanner(creation);
   try {

@@ -65,7 +65,12 @@ fn all_modes_preserve_instances_and_inspection_parity() {
                         },
                     )
                     .unwrap();
-                assert_eq!(plain, report.barcodes);
+                assert_eq!(plain.barcodes, report.barcodes);
+                assert_eq!(
+                    plain.values().collect::<Vec<_>>(),
+                    report.values().collect::<Vec<_>>()
+                );
+                assert_eq!(plain.best(), report.best());
                 for (a, b) in plain.iter().zip(&report.barcodes) {
                     assert_eq!(a.text, b.text);
                     assert_eq!(a.format, b.format);
@@ -153,10 +158,11 @@ fn errors_do_not_poison_scanner_and_results_own_data() {
             }
         )
         .unwrap()
+        .barcodes
         .is_empty());
     let empty = scanner.scan(image).unwrap();
-    assert!(empty.is_empty());
-    assert_eq!(empty.len(), 0);
+    assert!(empty.barcodes.is_empty());
+    assert_eq!(empty.barcodes.len(), 0);
     assert!(Formats::try_from(0).is_err());
     assert!(Formats::try_from(65536).is_err());
     let result = {
@@ -183,7 +189,7 @@ fn formats_and_supplement_policy_are_independent_of_effort() {
         result.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(),
         [TEXT]
     );
-    assert!(result.first().unwrap().ean_add_on.is_none());
+    assert!(result.barcodes.first().unwrap().ean_add_on.is_none());
     let qr = scanner
         .scan_with_options(
             image,
@@ -193,7 +199,7 @@ fn formats_and_supplement_policy_are_independent_of_effort() {
             },
         )
         .unwrap();
-    assert!(qr.is_empty());
+    assert!(qr.barcodes.is_empty());
     assert_eq!(scanner.options().formats, Formats::RETAIL);
     assert_eq!(
         (Format::Ean13 | Format::QrCode) | Format::Code128,
@@ -227,13 +233,14 @@ fn one_shot_returns_owned_results_and_work_status() {
         let (pixels, width, height) = fixture(true);
         tapirscan::scan(Image::gray(&pixels, width, height)).unwrap()
     };
-    assert_eq!(result.len(), 2);
-    assert_ne!(result[0].polygon, result[1].polygon);
-    assert_eq!(result.first().unwrap().text, TEXT);
+    assert_eq!(result.barcodes.len(), 2);
+    assert_ne!(result.barcodes[0].polygon, result.barcodes[1].polygon);
+    assert_eq!(result.barcodes.first().unwrap().text, TEXT);
     let blank = [255; 64 * 64];
     assert!(
         tapirscan::scan_with_options(Image::gray(&blank, 64, 64), ScanOptions::default())
             .unwrap()
+            .barcodes
             .is_empty()
     );
 }
@@ -265,7 +272,7 @@ fn metadata_absence_and_enclosing_pixel_bounds() {
 fn best_selects_from_plain_scan_output() {
     let (pixels, width, height) = fixture(true);
     let image = Image::gray(&pixels, width, height);
-    let mut barcodes = tapirscan::scan(image).unwrap();
+    let mut barcodes = tapirscan::scan(image).unwrap().barcodes;
     let inspected = tapirscan::inspect(image).unwrap();
     assert_eq!(tapirscan::best(&barcodes), inspected.best());
     assert!(tapirscan::best(&[]).is_none());

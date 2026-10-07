@@ -1,14 +1,15 @@
 # Tapirscan for C++
 
-`scan(image)` returns `std::vector<Barcode>`, with decoded text, format and
-source-image polygons. An empty vector means no barcode was decoded.
+`scan(image)` returns `ScanResult`, with decoded text, format and
+source-image polygons. Use `result.values()` for strings and `result.barcodes`
+for located reads; both are empty when nothing was decoded.
 
 ```cpp
-auto barcodes = tapirscan::scan(tapirscan::Image::gray(pixels, width, height));
-for (const auto& barcode : barcodes) std::cout << barcode.text << '\n';
+auto result = tapirscan::scan(tapirscan::Image::gray(pixels, width, height));
+for (const auto& barcode : result.barcodes) std::cout << barcode.text << '\n';
 ```
 
-Reuse `Scanner::scan` across images. Call `inspect` for a `ScanResult` with unread
+Reuse `Scanner::scan` across images. Call `inspect` for an `InspectionResult` with unread
 regions, work status, timing and diagnostics. There is no debug flag.
 
 Both operations accept decoded pixels and return source-image barcode geometry.
@@ -73,10 +74,13 @@ see [API design](../../docs/API_DESIGN.md).
 
 ## Results
 
-`ScanResult` exposes `barcodes`, `undecoded`, `width`, `height`, `mode`,
+`ScanResult` provides decoded barcodes, `values()` and `best()`.
+No detections produce empty collections; `best()` returns the language’s empty value.
+
+`InspectionResult` exposes `barcodes`, `undecoded`, `width`, `height`, `mode`,
 `elapsed_ms`, `unfinished` and `diagnostics` JSON. `values()` returns decoded
 text. `tapirscan::best(barcodes)` points at the largest-support read of any
-barcode vector, keeping first-read ties, or is null; `ScanResult::best()` is the
+barcode vector, keeping first-read ties, or is null; `InspectionResult::best()` is the
 same for inspection results. Both reject temporaries, whose pointer would
 dangle. Support is reader-specific and not comparable confidence across formats.
 

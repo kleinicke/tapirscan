@@ -34,7 +34,7 @@ def metadata(read: tapirscan.Barcode, case: dict[str, Any]) -> dict[str, Any]:
     return fields
 
 
-def check_geometry(result: tapirscan.ScanResult, case: dict[str, Any]) -> None:
+def check_geometry(result: tapirscan.InspectionResult, case: dict[str, Any]) -> None:
     """Assert main-barcode extents and supplement association by physical position."""
     if "geometry" not in case:
         return
@@ -107,8 +107,8 @@ def check(manifest_path: Path, library_dir: str | None = None) -> list[dict[str,
                     checks.assertCountEqual(actual, case["expected"], case["name"])
                     checks.assertIsNotNone(result.diagnostics)
                     checks.assertEqual(
-                        scanner.scan(pixels, extended_budget=extended_budget),
-                        list(result.barcodes),
+                        scanner.scan(pixels, extended_budget=extended_budget).barcodes,
+                        result.barcodes,
                     )
                     if case.get("expectUnread"):
                         checks.assertTrue(result.undecoded, case["name"])

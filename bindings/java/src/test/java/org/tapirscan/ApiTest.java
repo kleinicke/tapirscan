@@ -23,7 +23,13 @@ public final class ApiTest {
         a.payloadBytes().orElseThrow()[0] = 88;
         check(a.equals(b));
         check(!a.equals(barcode(new byte[]{1}, 5)));
-        ScanResult result = new ScanResult(List.of(a, b), List.of(), 3, 3, Mode.MEDIUM,
+        var source = new java.util.ArrayList<>(List.of(a, b));
+        var compact = new ScanResult(source);
+        source.clear();
+        check(compact.values().equals(List.of("value", "value")));
+        check(compact.best().orElseThrow() == a);
+        check(new ScanResult(List.of()).best().isEmpty());
+        InspectionResult result = new InspectionResult(List.of(a, b), List.of(), 3, 3, Mode.MEDIUM,
                 0, false, "{}");
         check(result.best().orElseThrow() == a);
         Barcode stronger = barcode(new byte[]{2}, 6);

@@ -44,17 +44,19 @@ public final class Smoke {
             options = options.withFormats(formats);
         }
         Scanner scanner = new Scanner(ScannerOptions.defaults().withMode(mode));
-        ScanResult result;
+        InspectionResult result;
         try (scanner) {
             result = scanner.inspect(image, options);
-            List<Barcode> barcodes = scanner.scan(image, options);
+            ScanResult compact = scanner.scan(image, options);
+            List<Barcode> barcodes = compact.barcodes();
+            if (!compact.values().equals(result.values())) throw new AssertionError("Values differ");
             if (!barcodes.equals(result.barcodes())) throw new AssertionError("Scan/inspect differ");
             if (!Tapirscan.best(barcodes).equals(result.best())) throw new AssertionError("best differs");
             try (Arena arena = Arena.ofConfined()) {
                 // Native segments are scanned in place and must match the copied heap path.
                 MemorySegment direct = arena.allocate(pixels.length).copyFrom(image.pixels());
                 Image nativeImage = new Image(direct, image.width(), image.height(), image.channels(), image.stride());
-                if (!scanner.scan(nativeImage, options).equals(barcodes)) throw new AssertionError("Native input differs");
+                if (!scanner.scan(nativeImage, options).equals(compact)) throw new AssertionError("Native input differs");
             }
             try {
                 scanner.scan(Image.gray(new byte[1], image.width(), image.height()));

@@ -6,6 +6,7 @@ import {
   type Barcode,
   type Format,
   type Image,
+  type InspectionResult,
   type ScanResult,
   type ScannerOptions,
 } from "../dist/index.js";
@@ -19,17 +20,18 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
     wasmBaseUrl: "/engines/",
   });
   try {
-    const barcodes: readonly Barcode[] = scanner.scan(image);
+    const scanResult: ScanResult = scanner.scan(image);
+    const barcodes: readonly Barcode[] = scanResult.barcodes;
     const first: Barcode | undefined = bestOf(barcodes);
     // Decoded barcodes always have a known format.
     const format: Format | undefined = first?.format;
     console.log(format);
     console.log(first?.text);
-    // @ts-expect-error Ordinary scans have no report envelope.
-    console.log(barcodes.barcodes);
+    // @ts-expect-error Ordinary scans do not collect diagnostics.
+    console.log(scanResult.diagnostics);
     // @ts-expect-error Inspection is a separate operation.
     scanner.scan(image, { debug: true });
-    const result: ScanResult = scanner.inspect(image, {});
+    const result: InspectionResult = scanner.inspect(image, {});
     const best: Barcode | undefined = result.best;
     const values: readonly string[] = result.values;
     const formats = scanner.formats;
@@ -93,24 +95,24 @@ import {
   scan as scanSource,
   Scanner as BrowserScanner,
   best as bestRead,
-  type Barcode as BrowserBarcode,
-  type ScanResult as BrowserResult,
+  type InspectionResult as BrowserResult,
+  type ScanResult as BrowserScanResult,
 } from "../dist/browser.js";
 
 export async function browserConsumer(file: File, video: HTMLVideoElement, image: Image) {
   const scanner = new BrowserScanner({ mode: "low", formats: "retail" });
   try {
     await scanner.ready;
-    const fromFile: readonly BrowserBarcode[] = await scanner.scan(file);
+    const fromFile: BrowserScanResult = await scanner.scan(file);
     const fromVideo: BrowserResult = await scanner.inspect(video, { extendedBudget: true });
-    const fromPixels: readonly BrowserBarcode[] = await scanSource(image, { formats: "EAN13" });
+    const fromPixels: BrowserScanResult = await scanSource(image, { formats: "EAN13" });
     // @ts-expect-error Results are frozen.
-    fromFile[0].text = "changed";
+    fromFile.barcodes[0].text = "changed";
     // @ts-expect-error Functions cannot reach the worker; use the core entry.
     new BrowserScanner({ loadWasm: () => Promise.resolve(new ArrayBuffer(0)) });
     // @ts-expect-error Scans need an image source.
     await scanner.scan("photo.png");
-    return [bestRead(fromFile)?.text, fromVideo.values, fromPixels.length];
+    return [bestRead(fromFile.barcodes)?.text, fromVideo.values, fromPixels.barcodes.length];
   } finally {
     scanner.dispose();
   }

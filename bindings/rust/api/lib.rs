@@ -17,7 +17,7 @@ pub use types::*;
 ///
 /// # Errors
 /// Returns an error for invalid pixels or an engine failure.
-pub fn scan<'a>(image: impl Into<Image<'a>>) -> Result<Vec<Barcode>, Error> {
+pub fn scan<'a>(image: impl Into<Image<'a>>) -> Result<ScanResult, Error> {
     Scanner::default().scan(image)
 }
 
@@ -30,7 +30,7 @@ pub fn scan<'a>(image: impl Into<Image<'a>>) -> Result<Vec<Barcode>, Error> {
 pub fn scan_with_options<'a>(
     image: impl Into<Image<'a>>,
     options: ScanOptions,
-) -> Result<Vec<Barcode>, Error> {
+) -> Result<ScanResult, Error> {
     Scanner::default().scan_with_options(image, options)
 }
 
@@ -40,20 +40,20 @@ pub fn scan_with_options<'a>(
 pub fn inspect_with_options<'a>(
     image: impl Into<Image<'a>>,
     options: ScanOptions,
-) -> Result<ScanResult, Error> {
+) -> Result<InspectionResult, Error> {
     Scanner::default().inspect_with_options(image, options)
 }
 
 /// Inspect with default configuration, including work status and diagnostics.
 /// # Errors
 /// Returns an error for invalid pixels or an engine failure.
-pub fn inspect<'a>(image: impl Into<Image<'a>>) -> Result<ScanResult, Error> {
+pub fn inspect<'a>(image: impl Into<Image<'a>>) -> Result<InspectionResult, Error> {
     Scanner::default().inspect(image)
 }
 
 /// Reusable scanner. Inputs are borrowed only during the call; results own their data.
 /// Dropping the scanner releases its resources. Calls scan every selected candidate
-/// within the engine's work limits; [`ScanResult::best`] does not change that work.
+/// within the engine's work limits; [`InspectionResult::best`] does not change that work.
 pub struct Scanner {
     options: ScannerOptions,
     engine: Engine,
@@ -113,7 +113,7 @@ impl Scanner {
     ///
     /// # Errors
     /// Returns an error for invalid pixels or an engine failure.
-    pub fn scan<'a>(&mut self, image: impl Into<Image<'a>>) -> Result<Vec<Barcode>, Error> {
+    pub fn scan<'a>(&mut self, image: impl Into<Image<'a>>) -> Result<ScanResult, Error> {
         self.scan_with_options(image, ScanOptions::default())
     }
 
@@ -129,15 +129,17 @@ impl Scanner {
         &mut self,
         image: impl Into<Image<'a>>,
         options: ScanOptions,
-    ) -> Result<Vec<Barcode>, Error> {
+    ) -> Result<ScanResult, Error> {
         self.run(image.into(), options, false)
-            .map(|result| result.barcodes)
+            .map(|result| ScanResult {
+                barcodes: result.barcodes,
+            })
     }
 
     /// Inspect one image, including unread regions, work status and engine diagnostics.
     /// # Errors
     /// Returns an error for invalid pixels or an engine failure.
-    pub fn inspect<'a>(&mut self, image: impl Into<Image<'a>>) -> Result<ScanResult, Error> {
+    pub fn inspect<'a>(&mut self, image: impl Into<Image<'a>>) -> Result<InspectionResult, Error> {
         self.inspect_with_options(image, ScanOptions::default())
     }
 
@@ -148,7 +150,7 @@ impl Scanner {
         &mut self,
         image: impl Into<Image<'a>>,
         options: ScanOptions,
-    ) -> Result<ScanResult, Error> {
+    ) -> Result<InspectionResult, Error> {
         self.run(image.into(), options, true)
     }
 
@@ -157,7 +159,7 @@ impl Scanner {
         image: Image<'_>,
         options: ScanOptions,
         diagnostics: bool,
-    ) -> Result<ScanResult, Error> {
+    ) -> Result<InspectionResult, Error> {
         let start = timer::Timer::start();
         image.validate()?;
         let formats = options.formats.unwrap_or(self.options.formats);
@@ -187,7 +189,7 @@ impl Scanner {
                 let output = $scanner
                     .scan_formats_typed_with_addons(input, settings, formats.bits(), policy)
                     .map_err(|error| Error::Engine(error.to_string()))?;
-                ScanResult::from_engine(output, image, self.options.mode, start.elapsed())
+                InspectionResult::from_engine(output, image, self.options.mode, start.elapsed())
             }};
         }
         let mut result = match &mut self.engine {

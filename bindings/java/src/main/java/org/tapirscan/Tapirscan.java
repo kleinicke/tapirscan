@@ -14,21 +14,21 @@ public final class Tapirscan {
     private Tapirscan() {}
 
     /** Scan with Medium effort and Retail formats. */
-    public static List<Barcode> scan(Image image) {
+    public static ScanResult scan(Image image) {
         return scan(image, ScannerOptions.defaults());
     }
 
-    public static List<Barcode> scan(Image image, ScannerOptions options) {
+    public static ScanResult scan(Image image, ScannerOptions options) {
         try (Scanner scanner = new Scanner(options)) {
             return scanner.scan(image);
         }
     }
     /** Inspect with Medium effort and Retail formats. */
-    public static ScanResult inspect(Image image) {
+    public static InspectionResult inspect(Image image) {
         return inspect(image, ScannerOptions.defaults());
     }
 
-    public static ScanResult inspect(Image image, ScannerOptions options) {
+    public static InspectionResult inspect(Image image, ScannerOptions options) {
         try (Scanner scanner = new Scanner(options)) {
             return scanner.inspect(image);
         }

@@ -25,7 +25,7 @@ async function cameraExample() {
       }
       scan() {
         this.calls++;
-        return [];
+        return { barcodes: [], values: [], best: undefined };
       }
       dispose() {}
     },

@@ -27,32 +27,25 @@ for (const mode of ["low", "medium", "high", "very-high"]) {
     try {
       const { text, image } = fixture();
       const compact = scanner.scan(image);
-      assert.ok(Array.isArray(compact));
-      assert.deepEqual(
-        compact.map((b) => b.text),
-        [text],
-      );
+      assert.ok(Array.isArray(compact.barcodes));
+      assert.deepEqual(compact.values, [text]);
       assert.equal(compact.diagnostics, undefined);
-      assert.ok(compact[0].support > 0);
+      assert.ok(compact.barcodes[0].support > 0);
       assert.ok(Object.isFrozen(compact));
-      assert.ok(Object.isFrozen(compact[0].polygon));
+      assert.ok(Object.isFrozen(compact.barcodes[0].polygon));
       assert.throws(() => scanner.inspect(image, null), TypeError);
       assert.throws(() => scanner.inspect(image, []), TypeError);
       assert.throws(() => scanner.inspect(image, { multiple: 1 }), TypeError);
       assert.throws(() => scanner.inspect(image, { includeRegions: "yes" }), TypeError);
       assert.throws(() => scanner.inspect(image, { unknown: true }), TypeError);
 
-      assert.deepEqual(
-        scanner.inspect(image, { extendedBudget: false }).values,
-        compact.map((b) => b.text),
-      );
-      assert.deepEqual(
-        scanner.inspect(image, { extendedBudget: true }).values,
-        compact.map((b) => b.text),
-      );
+      assert.deepEqual(scanner.inspect(image, { extendedBudget: false }).values, compact.values);
+      assert.deepEqual(scanner.inspect(image, { extendedBudget: true }).values, compact.values);
       assert.throws(() => scanner.inspect(image, { extendedBudget: "yes" }), /a boolean/);
       const result = scanner.inspect(image, {});
-      assert.deepEqual(compact, result.barcodes);
+      assert.deepEqual(compact.barcodes, result.barcodes);
+      assert.equal(compact.best, compact.barcodes[0]);
+      assert.ok(Object.isFrozen(compact.values));
       assert.deepEqual(result.undecoded, result.diagnostics.regions.undecoded);
       assert.ok(result.diagnostics.scan.barcodes.some((b) => b.text === text));
       assert.ok(result.diagnostics.scan.barcodes.every((b) => b.text === text));
@@ -121,13 +114,10 @@ test("default Node loader, ImageData input and one-shot scan", async () => {
     data[i * 4 + 3] = 255;
   }
   const result = await scan({ data, width: image.width, height: image.height });
-  assert.ok(Array.isArray(result));
-  assert.deepEqual(
-    result.map((b) => b.text),
-    [text],
-  );
-  assert.ok(result[0].rect.width > 0);
-  assert.equal(result[0].polygon.length, 4);
+  assert.ok(Array.isArray(result.barcodes));
+  assert.deepEqual(result.values, [text]);
+  assert.ok(result.barcodes[0].rect.width > 0);
+  assert.equal(result.barcodes[0].polygon.length, 4);
 });
 test("format presets and invalid format validation", async () => {
   assert.deepEqual(retailFormats, ["EAN13", "UPCA", "EAN8", "UPCE"]);
@@ -226,10 +216,7 @@ test("WASM base directory composes with the advanced loader", async () => {
   const { image, text } = fixture();
   const base = new URL("../wasm/", import.meta.url);
   const result = await scan(image, { wasmBaseUrl: base.href.replace(/\/$/, ""), formats: "all" });
-  assert.deepEqual(
-    result.map((b) => b.text),
-    [text],
-  );
+  assert.deepEqual(result.values, [text]);
   for (const options of [
     null,
     [],
@@ -288,10 +275,7 @@ test("per-call format subsets reuse engines and preserve defaults", async () => 
   } finally {
     scanner.dispose();
   }
-  assert.deepEqual(
-    (await scan(fixture().image, { formats: "EAN13" })).map((b) => b.text),
-    [fixture().text],
-  );
+  assert.deepEqual((await scan(fixture().image, { formats: "EAN13" })).values, [fixture().text]);
 });
 
 test("QR-only creation loads one complete engine", async () => {
@@ -476,10 +460,7 @@ test("supplement policy is opt-in, validated at creation and fixed for scans", a
       scanner.dispose();
     }
   }
-  assert.deepEqual(
-    (await scan(image, { eanAddOnPolicy: "Require" })).map((b) => b.text),
-    [],
-  );
+  assert.deepEqual((await scan(image, { eanAddOnPolicy: "Require" })).values, []);
   for (const policy of [null, "read", true, 0, {}])
     await assert.rejects(
       Scanner.create({
@@ -502,8 +483,7 @@ test("extended budget accepts formats without the primary reader", async () => {
   }
 });
 test("one-shot forwards continuation", async () => {
-  assert.deepEqual(
-    (await scan(fixture().image, { extendedBudget: true, loadWasm })).map((b) => b.text),
-    [fixture().text],
-  );
+  assert.deepEqual((await scan(fixture().image, { extendedBudget: true, loadWasm })).values, [
+    fixture().text,
+  ]);
 });

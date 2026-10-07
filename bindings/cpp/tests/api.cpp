@@ -45,7 +45,7 @@ int main() {
     tapirscan::Scanner scanner;
     auto image = tapirscan::Image::gray(pixels, 3, 3);
     const auto barcodes = scanner.scan(image);
-    assert(barcodes.empty() && !tapirscan::best(barcodes));
+    assert(barcodes.barcodes.empty() && barcodes.values().empty() && !barcodes.best());
     image.length = 1;
     try { (void)scanner.scan(image); assert(false); }
     catch (const tapirscan::Error& error) {

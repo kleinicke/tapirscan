@@ -32,6 +32,9 @@ RUNTIME_DIRS = (
     "bindings/rust/api",
     "bindings/c/src",
     "bindings/wasm/src",
+    "bindings/javascript/src",
+    "bindings/python/src",
+    "bindings/java/src",
 )
 # Files that name the selected engines.
 PACKAGE_FILES = (

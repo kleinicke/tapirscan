@@ -62,7 +62,7 @@ fn native_parity() {
                 },
             )
             .unwrap();
-        assert_eq!(plain, result.barcodes);
+        assert_eq!(plain.barcodes, result.barcodes);
         let debug = result.diagnostics.as_ref().unwrap();
         let mut actual = debug.raw.clone();
         let mut expected = case.expected.clone();

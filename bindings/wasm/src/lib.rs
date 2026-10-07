@@ -2,7 +2,7 @@
 
 use std::{cell::RefCell, collections::HashMap};
 use tapirscan::{
-    Barcode, EanAddOnPolicy, Formats, Image, Mode, ScanOptions, ScanResult, Scanner,
+    Barcode, EanAddOnPolicy, Formats, Image, InspectionResult, Mode, ScanOptions, Scanner,
     ScannerOptions, StructuredAppend,
 };
 
@@ -265,7 +265,7 @@ pub extern "C" fn tapirscan_scan(handle: u32, flags: u32, format_mask: u32) -> i
             session.scanner.inspect_with_options(image, options).map(|report| wire_result(&report))
         } else {
             session.scanner.scan_with_options(image, options).map(|barcodes| {
-                serde_json::json!({"barcodes": barcodes.iter().map(wire_barcode).collect::<Vec<_>>()})
+                serde_json::json!({"barcodes": barcodes.barcodes.iter().map(wire_barcode).collect::<Vec<_>>()})
             })
         };
         match result {
@@ -287,7 +287,7 @@ fn store_error(session: &mut Session, message: &str) -> i32 {
     INTERNAL
 }
 
-fn wire_result(result: &ScanResult) -> serde_json::Value {
+fn wire_result(result: &InspectionResult) -> serde_json::Value {
     let best_index = result.best().and_then(|best| {
         result
             .barcodes

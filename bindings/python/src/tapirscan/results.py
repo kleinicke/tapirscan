@@ -201,17 +201,14 @@ def best(barcodes: Iterable[Barcode]) -> Barcode | None:
 
 @dataclass(frozen=True)
 class ScanResult(Sequence[Barcode]):
-    """Inspection report with decoded barcodes and optional engine evidence."""
+    """Decoded values and their locations; no diagnostic collection."""
 
     barcodes: tuple[Barcode, ...]
-    best: Barcode | None
-    mode: Mode
-    elapsed_ms: float
-    unfinished: bool
-    undecoded: tuple[UndecodedRegion, ...]
-    image: ImageSize
-    diagnostics: Diagnostics
-    _json: bytes = field(repr=False, compare=False)
+
+    @property
+    def best(self) -> Barcode | None:
+        """Highest-support read, or None; support is not confidence."""
+        return best(self.barcodes)
 
     @override
     def __len__(self) -> int:
@@ -239,6 +236,29 @@ class ScanResult(Sequence[Barcode]):
         """Return an independent list of decoded strings."""
         return [barcode.text for barcode in self]
 
+    def as_dict(self) -> dict[str, JSONValue]:
+        """Return an independent JSON-compatible result."""
+        selected = self.best
+        return {
+            "barcodes": [barcode.as_dict() for barcode in self.barcodes],
+            "values": list(self.values),
+            "best": selected.as_dict() if selected is not None else None,
+        }
+
+
+@dataclass(frozen=True)
+class InspectionResult(ScanResult):
+    """Inspection report with decoded barcodes and optional engine evidence."""
+
+    mode: Mode
+    elapsed_ms: float
+    unfinished: bool
+    undecoded: tuple[UndecodedRegion, ...]
+    image: ImageSize
+    diagnostics: Diagnostics
+    _json: bytes = field(repr=False, compare=False)
+
+    @override
     def as_dict(self) -> dict[str, JSONValue]:
         """Return independent JSON-compatible public results, excluding diagnostics.
 
@@ -312,7 +332,7 @@ def _undecoded(value: dict[str, Any]) -> tuple[UndecodedRegion, ...]:
     return tuple(unread)
 
 
-def _from_json(raw: bytes, width: int, height: int) -> ScanResult:
+def _from_json(raw: bytes, width: int, height: int) -> InspectionResult:
     # Dynamic values are confined to this trusted, versioned native ABI boundary.
     value: dict[str, Any] = json.loads(raw)
     if value["schemaVersion"] != SCHEMA_VERSION or value["mode"] not in (
@@ -359,9 +379,8 @@ def _from_json(raw: bytes, width: int, height: int) -> ScanResult:
             undecoded,
         )
     barcodes = tuple(_barcode(b) for b in frame["barcodes"])
-    return ScanResult(
+    return InspectionResult(
         barcodes,
-        best(barcodes),
         value["mode"],
         value["elapsedMs"],
         frame["unfinished"] or value["localizationLimited"],

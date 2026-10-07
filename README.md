@@ -60,7 +60,7 @@ starter prompt and the checks needed before using or publishing the result.
 ## Quick start
 
 These examples use the **1.3.0 API**. When upgrading from 1.2.2, follow the
-[migration guide](docs/API_MIGRATION.md); `scan` now returns a barcode list.
+[migration guide](docs/API_MIGRATION.md); `scan` returns values and locations; `inspect` adds diagnostics.
 
 Install Tapirscan from [npm](https://www.npmjs.com/package/tapirscan) or
 [PyPI](https://pypi.org/project/tapirscan/). See the
@@ -80,15 +80,15 @@ a worker, with no WASM setup:
 import { scan } from "tapirscan/browser";
 
 const result = await scan(file); // e.g. a File from <input type="file">
-console.log(result.map((b) => b.text)); // Decoded strings, e.g. ["4006381333931"]
-for (const barcode of result) {
+console.log(result.values); // Decoded strings, e.g. ["4006381333931"]
+for (const barcode of result.barcodes) {
   console.log(barcode.text, barcode.format, barcode.polygon, barcode.rect);
 }
 ```
 
-`result` is a read-only `Barcode[]` containing
-the text, format, four polygon corners, and enclosing rectangle for each read.
-Positions use input-image pixels. The array is empty when nothing is decoded.
+`result.values` contains decoded strings. `result.barcodes` pairs each value
+with its format, four polygon corners and enclosing rectangle. Positions use
+input-image pixels. Both collections are empty when nothing is decoded.
 Use `inspect` for work status, timing, unread regions and diagnostics.
 TypeScript infers these types from the package’s included declarations.
 
@@ -109,9 +109,10 @@ from PIL import Image
 import tapirscan
 
 with Image.open("label.jpg") as image:
-    barcodes = tapirscan.scan(image)
+    result = tapirscan.scan(image)
 
-for barcode in barcodes:
+print(result.values)
+for barcode in result.barcodes:
     print(barcode.text, barcode.format, barcode.polygon)
 ```
 

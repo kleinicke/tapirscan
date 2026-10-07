@@ -12,27 +12,27 @@
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
     },
-    "./wasm/low.wasm": "./wasm/low-release-packaging-20261007.wasm",
-    "./wasm/medium.wasm": "./wasm/medium-release-packaging-20261007.wasm",
-    "./wasm/high.wasm": "./wasm/high-release-packaging-20261007.wasm",
-    "./wasm/very-high.wasm": "./wasm/very-high-release-packaging-20261007.wasm",
-    "./wasm/experimental-turbo2.wasm": "./wasm/experimental-turbo2-release-packaging-20261007.wasm",
-    "./wasm/experimental-turbo4.wasm": "./wasm/experimental-turbo4-release-packaging-20261007.wasm",
-    "./wasm/experimental-turbo8.wasm": "./wasm/experimental-turbo8-release-packaging-20261007.wasm",
-    "./wasm/experimental-turbo16.wasm": "./wasm/experimental-turbo16-release-packaging-20261007.wasm"
+    "./wasm/low.wasm": "./wasm/low-scan-results-20261007.wasm",
+    "./wasm/medium.wasm": "./wasm/medium-scan-results-20261007.wasm",
+    "./wasm/high.wasm": "./wasm/high-scan-results-20261007.wasm",
+    "./wasm/very-high.wasm": "./wasm/very-high-scan-results-20261007.wasm",
+    "./wasm/experimental-turbo2.wasm": "./wasm/experimental-turbo2-scan-results-20261007.wasm",
+    "./wasm/experimental-turbo4.wasm": "./wasm/experimental-turbo4-scan-results-20261007.wasm",
+    "./wasm/experimental-turbo8.wasm": "./wasm/experimental-turbo8-scan-results-20261007.wasm",
+    "./wasm/experimental-turbo16.wasm": "./wasm/experimental-turbo16-scan-results-20261007.wasm"
   },
   "files": [
     "dist",
     "examples",
     "THIRD_PARTY_NOTICES.md",
-    "wasm/low-release-packaging-20261007.wasm",
-    "wasm/medium-release-packaging-20261007.wasm",
-    "wasm/high-release-packaging-20261007.wasm",
-    "wasm/very-high-release-packaging-20261007.wasm",
-    "wasm/experimental-turbo2-release-packaging-20261007.wasm",
-    "wasm/experimental-turbo4-release-packaging-20261007.wasm",
-    "wasm/experimental-turbo8-release-packaging-20261007.wasm",
-    "wasm/experimental-turbo16-release-packaging-20261007.wasm"
+    "wasm/low-scan-results-20261007.wasm",
+    "wasm/medium-scan-results-20261007.wasm",
+    "wasm/high-scan-results-20261007.wasm",
+    "wasm/very-high-scan-results-20261007.wasm",
+    "wasm/experimental-turbo2-scan-results-20261007.wasm",
+    "wasm/experimental-turbo4-scan-results-20261007.wasm",
+    "wasm/experimental-turbo8-scan-results-20261007.wasm",
+    "wasm/experimental-turbo16-scan-results-20261007.wasm"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",

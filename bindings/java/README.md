@@ -1,14 +1,15 @@
 # Tapirscan for Java
 
-`scan(image)` returns an immutable `List<Barcode>` with decoded text, format
-and source-image polygons. An empty list means no barcode was decoded.
+`scan(image)` returns `ScanResult` with decoded text, format
+and source-image polygons. Use `result.values()` for strings and
+`result.barcodes()` for located reads; both are empty when nothing was decoded.
 
 ```java
-var barcodes = Tapirscan.scan(Image.gray(pixels, width, height));
-for (var barcode : barcodes) System.out.println(barcode.text());
+var result = Tapirscan.scan(Image.gray(pixels, width, height));
+for (var barcode : result.barcodes()) System.out.println(barcode.text());
 ```
 
-Reuse `Scanner.scan` across images. Call `inspect` for a `ScanResult` with unread
+Reuse `Scanner.scan` across images. Call `inspect` for an `InspectionResult` with unread
 regions, work status, timing and diagnostics. There is no debug flag.
 
 Both operations accept decoded pixels and return source-image barcode geometry.
@@ -21,7 +22,7 @@ import org.tapirscan.*;
 
 byte[] pixels = new byte[640 * 480];
 java.util.Arrays.fill(pixels, (byte) 255);
-ScanResult result = Tapirscan.inspect(Image.gray(pixels, 640, 480));
+InspectionResult result = Tapirscan.inspect(Image.gray(pixels, 640, 480));
 for (Barcode barcode : result.barcodes()) {
     System.out.println(barcode.text() + " " + barcode.format() + " " + barcode.polygon());
 }
@@ -42,9 +43,9 @@ ScannerOptions options = ScannerOptions.defaults()
         .withMode(Mode.HIGH)
         .withFormats(java.util.Set.of(Format.EAN13, Format.QR_CODE));
 try (Scanner scanner = new Scanner(options)) {
-    var barcodes = scanner.scan(Image.rgba(pixels, width, height),
+    var result = scanner.scan(Image.rgba(pixels, width, height),
             ScanOptions.defaults().withExtendedBudget(true));
-    Tapirscan.best(barcodes).ifPresent(best -> System.out.println(best.text()));
+    result.best().ifPresent(best -> System.out.println(best.text()));
 }
 ```
 
@@ -72,10 +73,13 @@ see [API design](../../docs/API_DESIGN.md).
 
 ## Results
 
-`ScanResult` exposes `barcodes()`, `undecoded()`, `width()`, `height()`,
+`ScanResult` provides decoded barcodes, `values()` and `best()`.
+No detections produce empty collections; `best()` returns the language’s empty value.
+
+`InspectionResult` exposes `barcodes()`, `undecoded()`, `width()`, `height()`,
 `mode()`, `elapsedMs()`, `unfinished()` and `diagnostics()` JSON. `values()`
 returns decoded text. `Tapirscan.best(barcodes)` returns the largest-support read
-of any barcode list, keeping first-read ties; `ScanResult.best()` is the same for
+of any barcode list, keeping first-read ties; `InspectionResult.best()` is the same for
 inspection results. Support is reader-specific and not comparable confidence
 across formats.
 

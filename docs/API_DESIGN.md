@@ -1,23 +1,12 @@
 # Public API design
 
 This is the 1.3.0 API revision. See [migration](API_MIGRATION.md).
-Every binding exposes `scan` returning a barcode list and `inspect` returning a
-`ScanResult` with work status, unread regions, timing and diagnostics. The public Rust
-`Scanner` owns the pipeline in every binding. JavaScript uses a thin WASM
-adapter; native ABI 6 connects C, C++, Python and Java to the same API.
-One-shot calls clean up automatically; reusable scanners amortize initialization.
-Rust uses `scan(image)` for defaults and `scan_with_options(image, options)` for
-overrides; Python uses keyword arguments and JavaScript an options object. All return independent results, including empty results.
+`scan` returns a lightweight `ScanResult`: decoded strings through `values`,
+and their locations through `barcodes`. Each barcode retains format, geometry,
+support and optional payload metadata. `best` is an optional convenience.
+There is no public `debug` option. Python and Rust also allow direct iteration.
 
-## Results
-
-Ordinary scans return a list of decoded physical instances. Text, format,
-source-image polygon/rect and optional payload metadata are available on each
-barcode. Equal payloads at distinct locations remain separate. Empty lists are
-successful results. There is no public `debug` option and no result envelope to
-unwrap for everyday scanning.
-
-Inspection is explicit and returns `ScanResult`:
+Inspection is explicit and returns `InspectionResult`:
 
 - `barcodes`: the same decoded instances as scanning with the same options.
 - `undecoded`: localized proposals without accepted decodes. They can be false
@@ -31,8 +20,8 @@ for either; summary and unread-region accessors require inspection. JSON is lazy
 ordinary results serialize to a barcode array, inspection to a schema-2 report.
 
 `values` is a convenience projection of decoded text. `best(barcodes)` selects the largest reader-specific support
-from any barcode list, including ordinary scan output, keeping first-read ties;
-`ScanResult.best` applies the same rule to inspection results. It is not a most-reliable selection across formats or
+from any barcode list, including `result.barcodes`, keeping first-read ties;
+`result.best` applies the same rule to either result type. It is not a most-reliable selection across formats or
 efforts and does not change scan work. Applications should select by the format,
 payload or position they need. Support remains uncalibrated evidence.
 
