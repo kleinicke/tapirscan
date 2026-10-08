@@ -278,6 +278,15 @@ fn format_operators_combine_in_either_order() {
 }
 
 #[test]
+fn formats_display_their_schema_names() {
+    use tapirscan::Format;
+    for format in Format::ALL {
+        assert_eq!(format.to_string(), format.as_str());
+    }
+    assert_eq!(Format::QrCode.to_string(), "QRCode");
+}
+
+#[test]
 fn caller_built_extreme_geometry_saturates() {
     let barcode: tapirscan::Barcode = serde_json::from_value(serde_json::json!({
         "text": "example", "format": "QRCode", "support": 1,

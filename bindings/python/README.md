@@ -12,7 +12,7 @@ import tapirscan
 result = tapirscan.scan(image)
 print(result.values)
 for barcode in result.barcodes:
-    print(barcode.text, barcode.polygon)
+    print(barcode.text, barcode.format, barcode.rect)
 ```
 
 `image` can be a Pillow image, a NumPy array or a PyTorch tensor. Use `inspect`
@@ -63,7 +63,7 @@ with Image.open("label.jpg") as image:
     result = tapirscan.scan(image, mode="high", formats="1D")
 
 for barcode in result.barcodes:
-    print(barcode.text, barcode.format, barcode.polygon)
+    print(barcode.text, barcode.format, barcode.rect)
 ```
 
 `formats="1D"` enables all linear formats. `"retail"` selects EAN13, UPCA, EAN8

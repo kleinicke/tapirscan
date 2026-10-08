@@ -90,6 +90,12 @@ impl Format {
     }
 }
 
+impl std::fmt::Display for Format {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 pub(crate) const RETAIL_MASK: u32 = 15;
 pub(crate) const COMMON_LINEAR_MASK: u32 = 127;
 pub(crate) const COMMON_MASK: u32 = 1_663;

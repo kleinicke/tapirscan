@@ -17,7 +17,7 @@ fn main() -> Result<(), tapirscan::Error> {
     let pixels = vec![255; 640 * 480];
     let result = tapirscan::scan(Image::gray(&pixels, 640, 480))?;
     for barcode in &result.barcodes {
-        println!("{} {:?} {:?}", barcode.text, barcode.format, barcode.polygon);
+        println!("{} {} {:?}", barcode.text, barcode.format, barcode.rect());
     }
     Ok(())
 }

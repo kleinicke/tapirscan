@@ -1,5 +1,12 @@
 # Release notes
 
+## Unreleased
+
+- Rust: `Format` implements `Display` with the format names used by every
+  binding (`EAN13`, `QRCode`), so `println!("{}", barcode.format)` matches them.
+- Docs: the JavaScript guide decodes Node images with sharp, and the Python and
+  Rust examples print the format and rectangle instead of the polygon.
+
 ## 1.3.0
 
 **Breaking API changes in every binding.** `scan` returns decoded values and

@@ -277,16 +277,23 @@ SvelteKit, load the matching asset as in [WASM loading](#vite-and-sveltekit):
 ## WASM loading
 
 In Node, the default loader reads assets from the installed package. Decode your
-image with an image library first, then pass grayscale, RGB or RGBA bytes:
+image with an image library first, then pass grayscale, RGB or RGBA bytes, for
+example with [sharp](https://sharp.pixelplumbing.com):
 
 ```js
+import sharp from "sharp";
 import { scan } from "tapirscan";
 
-const result = await scan({ data: pixels, width, height, channels: 1, stride: width });
+const { data, info } = await sharp("label.jpg").raw().toBuffer({ resolveWithObject: true });
+const result = await scan({
+  data,
+  width: info.width,
+  height: info.height,
+  channels: info.channels,
+});
 ```
 
-Here `pixels` is a `Uint8Array` of decoded grayscale pixels. Filenames, URLs and
-encoded JPEG/PNG bytes are not scan inputs.
+Filenames, URLs and encoded JPEG/PNG bytes are not scan inputs.
 
 ### Vite and SvelteKit
 

@@ -108,7 +108,7 @@ with Image.open("label.jpg") as image:
 
 print(result.values)
 for barcode in result.barcodes:
-    print(barcode.text, barcode.format, barcode.polygon)
+    print(barcode.text, barcode.format, barcode.rect)
 ```
 
 Defaults are Medium effort and retail formats. For other linear formats, pass
