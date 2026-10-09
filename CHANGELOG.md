@@ -4,6 +4,11 @@
 
 - Rust: `Format` implements `Display` with the format names used by every
   binding (`EAN13`, `QRCode`), so `println!("{}", barcode.format)` matches them.
+- Images up to 256 megapixels and 65,535 pixels per side are accepted (was 32
+  megapixels). Images above 32 megapixels are scanned as an area-averaged
+  grayscale copy, with results in the supplied image's coordinates.
+- Fixed an integer overflow in the QR retry for images wider than about 4.5
+  million pixels in WebAssembly.
 - Docs: the JavaScript guide decodes Node images with sharp, and the Python and
   Rust examples print the format and rectangle instead of the polygon.
 

@@ -1072,7 +1072,7 @@ pub unsafe extern "C" fn multi_prepare(s: *mut Session, w: usize, h: usize) -> u
     let Some(n) = w.checked_mul(h) else {
         return 2;
     };
-    if n > 32 * 1024 * 1024 || w < 1 || h < 1 {
+    if n > 256 * 1024 * 1024 || w.max(h) > 65_535 || w < 1 || h < 1 {
         return 2;
     }
     s.input.resize(n, 0);
@@ -1299,8 +1299,8 @@ mod threshold_tests {
 
     #[test]
     fn adaptive_sum_does_not_overflow_on_long_bright_rows() {
-        // The old u32 prefix overflowed at this length, within the FFI's
-        // 32-megapixel input limit. Each local window still sums to <= 32,895.
+        // The old u32 prefix overflowed at this length. Each local window
+        // still sums to <= 32,895.
         let length = usize::try_from(u32::MAX / 255).unwrap() + 2;
         let row = vec![255; length];
         assert!(threshold(&row, 1).iter().all(|&black| !black));

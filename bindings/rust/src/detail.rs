@@ -1,5 +1,5 @@
 //! Port of the pinned source-detail JS composition. Raw crop frames keep local indices.
-//! Coordinate arithmetic uses validated image bounds (at most 32 Mi pixels).
+//! Coordinate arithmetic uses validated image bounds (at most 256 Mi pixels).
 #![allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,

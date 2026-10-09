@@ -11,7 +11,9 @@ const ARG: i32 = 1;
 const HANDLE: i32 = 2;
 const INTERNAL: i32 = 4;
 const CAPACITY: i32 = 5;
-const MAX_BYTES: usize = 128 * 1024 * 1024;
+const MAX_BYTES: usize = 1024 * 1024 * 1024;
+const MAX_PIXELS: u64 = 256 * 1024 * 1024;
+const MAX_SIDE: u32 = 65_535;
 const MAX_SCANNERS: usize = 1_024;
 const ABI_VERSION: u32 = 2;
 
@@ -169,7 +171,12 @@ pub extern "C" fn tapirscan_prepare(
     channels: u32,
     stride: u32,
 ) -> i32 {
-    if width < 3 || height < 3 || !matches!(channels, 1 | 3 | 4) {
+    if width < 3
+        || height < 3
+        || width.max(height) > MAX_SIDE
+        || u64::from(width) * u64::from(height) > MAX_PIXELS
+        || !matches!(channels, 1 | 3 | 4)
+    {
         return ARG;
     }
     let Ok(row) = width.checked_mul(channels).ok_or(ARG) else {

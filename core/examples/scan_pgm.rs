@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.is_empty() || (args.len() - 1) % 8 != 0 {
         return Err("Usage: scan_pgm [--bands] image.pgm [x0 y0 x1 y1 x2 y2 x3 y3 ...]".into());
     }
-    if std::fs::metadata(&args[0])?.len() > 128 * 1024 * 1024 + 4096 {
+    if std::fs::metadata(&args[0])?.len() > 1024 * 1024 * 1024 + 4096 {
         return Err("PGM file too large".into());
     }
     let bytes = std::fs::read(&args[0])?;

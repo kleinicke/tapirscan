@@ -190,7 +190,9 @@ Storage must cover `(height - 1) * stride + width * channels` bytes.
 
 ### Limits
 
-Images may have at most 32 megapixels and 128 MiB of pixel data; this is checked
+Images above 32 megapixels are scanned as a reduced copy; results stay in source
+coordinates, but barcodes that are small in such an image may be missed.
+Images may have at most 65,535 pixels per side, 256 megapixels and 1 GiB of pixel data; this is checked
 before any conversion or device transfer. Coordinates start at the top left. If
 you resize before scanning, map coordinates back when drawing on the original.
 

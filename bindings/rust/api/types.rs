@@ -292,6 +292,22 @@ impl InspectionResult {
     pub fn values(&self) -> impl ExactSizeIterator<Item = &str> {
         self.barcodes.iter().map(|barcode| barcode.text.as_str())
     }
+    /// Map geometry from a reduced scan back to the supplied image.
+    pub(crate) fn restore_geometry(&mut self, [x, y]: [f64; 2], scanned: [usize; 2]) {
+        let barcodes = self.barcodes.iter_mut().map(|barcode| &mut barcode.polygon);
+        let regions = self.undecoded.iter_mut().map(|region| &mut region.polygon);
+        for point in barcodes.chain(regions).flatten() {
+            point[0] *= x;
+            point[1] *= y;
+        }
+        // Raw diagnostics keep the coordinates of the image the engine scanned.
+        if let Some(Diagnostics {
+            raw: serde_json::Value::Object(raw),
+        }) = &mut self.diagnostics
+        {
+            raw.insert("scannedImageSize".into(), serde_json::json!(scanned));
+        }
+    }
     pub(crate) fn from_engine(
         engine: EngineScan,
         image: Image<'_>,

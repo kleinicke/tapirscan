@@ -62,9 +62,14 @@ async function pixels(source: WorkerSource): Promise<PixelImage> {
   try {
     const { width, height } = bitmap;
     // Reject before allocating a canvas; the scanner enforces the same limits.
-    if (width < 3 || height < 3 || width * height > 32 * 1024 * 1024)
+    if (
+      width < 3 ||
+      height < 3 ||
+      Math.max(width, height) > 65_535 ||
+      width * height > 256 * 1024 * 1024
+    )
       throw new TypeError(
-        `Images must be 3×3 to 32 megapixels, got ${String(width)}×${String(height)}`,
+        `Images must be 3 to 65,535 pixels per side and at most 256 megapixels, got ${String(width)}×${String(height)}`,
       );
     const context = new OffscreenCanvas(width, height).getContext("2d", {
       willReadFrequently: true,

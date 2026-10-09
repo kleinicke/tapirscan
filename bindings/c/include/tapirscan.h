@@ -56,10 +56,11 @@ typedef struct tapirscan_scanner_options {
    Use one per concurrent call. NULL discards details; the status is unchanged. */
 typedef struct tapirscan_error { char message[512]; } tapirscan_error;
 
-/* Gray8, RGB8 or RGBA8 pixels (alpha ignored), at least 3x3 and 32 megapixels.
+/* Gray8, RGB8 or RGBA8 pixels (alpha ignored), 3 to 65,535 pixels per side,
+   at most 256 megapixels.
    stride is the distance between rows in bytes; 0 means width * channels.
    length is the readable buffer size. The addressed layout,
-   (height - 1) * stride + width * channels bytes, must fit in it and in 128 MiB;
+   (height - 1) * stride + width * channels bytes, must fit in it and in 1 GiB;
    a larger backing buffer, such as a frame around a crop, is fine. */
 typedef struct tapirscan_image {
     const uint8_t *data;

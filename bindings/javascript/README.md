@@ -178,7 +178,7 @@ were verified by hand.
   `ScannerError`. Browser image decoding and loading can also fail.
 - **Requirements:** module workers, `OffscreenCanvas` and WebAssembly SIMD:
   Chrome 91, Firefox 114, Safari 16.4 or later. The camera loop also needs
-  `requestVideoFrameCallback`. Images may have at most 32 megapixels.
+  `requestVideoFrameCallback`. Images may have at most 65,535 pixels per side and 256 megapixels.
 - **Deployment size:** bundlers emit all eight WASM files (four modes and four
   Turbo presets, 1.8–2.5 MB each, about 16 MB together), so any can be selected
   without configuration. A page downloads only the one its scanner uses.
@@ -371,7 +371,9 @@ or an explicit pixel buffer:
 | `channels`        | `1 \| 3 \| 4` | Grayscale, RGB or RGBA. Alpha is ignored. Required for explicit buffers.             |
 | `stride`          | `number`      | Bytes between row starts; defaults to width × channels. Larger values allow padding. |
 
-Input is limited to 32 megapixels and 128 MiB of addressed pixels. Keep the buffer
+Input is limited to 65,535 pixels per side, 256 megapixels and 1 GiB of addressed pixels.
+Images above 32 megapixels are scanned as a reduced copy; results stay in source
+coordinates, but barcodes that are small in such an image may be missed. Keep the buffer
 unchanged during the call. Coordinates start at the top left, x rightward and y
 downward. If you resize or rotate before scanning, map coordinates back yourself.
 

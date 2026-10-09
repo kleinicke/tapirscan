@@ -53,12 +53,18 @@ schema-2 engine report for inspections.
 The core APIs accept decoded pixels, not filenames, URLs or encoded images: gray8, RGB8 or
 RGBA8, with alpha ignored. Limits, enforced by every binding:
 
-- width and height at least 3×3, at most 32 megapixels;
+- width and height 3 to 65,535 pixels each, at most 256 megapixels in total;
 - the addressed layout, `(height - 1) * stride + width * channels` bytes, fits
-  in the supplied buffer and in 128 MiB (a larger backing buffer, such as a
+  in the supplied buffer and in 1 GiB (a larger backing buffer, such as a
   frame around a crop, is accepted);
 - stride is at least `width * channels`; 0 means packed rows where a binding
   accepts it.
+
+Images above 32 megapixels are scanned as an area-averaged grayscale copy of
+about 32 megapixels. Results stay in the supplied image's coordinates; inspect
+diagnostics report the scanned size as `scannedImageSize`. A barcode that is
+small relative to such an image may be lost in the reduction; crop around it
+for full resolution.
 
 The browser entry also accepts files and browser image sources and decodes them
 for you. For core APIs, decode image files and convert BGR, planar, float or 16-bit pixels before

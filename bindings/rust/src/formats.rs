@@ -706,15 +706,19 @@ fn scaled_matrix_retry(
     mask: u32,
     effort: usize,
 ) -> barcode_multiformat::Scan {
+    // u64 keeps the products exact where usize is 32 bits (WASM).
+    let scale = |value: usize, numerator: usize, denominator: usize| {
+        usize::try_from(value as u64 * numerator as u64 / denominator as u64).unwrap_or(usize::MAX)
+    };
     let long = width.max(height);
-    let out_width = ((width * target_long + long / 2) / long).max(3);
-    let out_height = ((height * target_long + long / 2) / long).max(3);
+    let out_width = scale(width, target_long, long).max(3);
+    let out_height = scale(height, target_long, long).max(3);
     let x_source: Vec<_> = (0..out_width)
-        .map(|x| ((2 * x + 1) * width / (2 * out_width)).min(width - 1))
+        .map(|x| scale(2 * x + 1, width, 2 * out_width).min(width - 1))
         .collect();
     let mut smaller = vec![0; out_width * out_height];
     for y in 0..out_height {
-        let source_y = ((2 * y + 1) * height / (2 * out_height)).min(height - 1);
+        let source_y = scale(2 * y + 1, height, 2 * out_height).min(height - 1);
         let source = &pixels[source_y * width..(source_y + 1) * width];
         let target = &mut smaller[y * out_width..(y + 1) * out_width];
         for (pixel, &x) in target.iter_mut().zip(&x_source) {
@@ -758,10 +762,11 @@ fn scaled_matrix_retry(
 fn validate(image: Image<'_>, mask: u32) -> Result<(), Error> {
     if mask == 0
         || mask & !ALL_FORMATS_MASK != 0
+        || image.width.max(image.height) > 65_535
         || image
             .width
             .checked_mul(image.height)
-            .is_none_or(|n| n > 32 * 1024 * 1024)
+            .is_none_or(|n| n > 256 * 1024 * 1024)
     {
         return Err(Error::Parameters);
     }

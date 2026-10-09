@@ -84,6 +84,23 @@ for (const mode of ["low", "medium", "high", "very-high"]) {
     }
   });
 }
+test("images above 32 megapixels scan as a reduced copy in source coordinates", async () => {
+  const { text, image } = fixture();
+  const factor = 20;
+  const width = image.width * factor,
+    height = image.height * factor,
+    data = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++)
+      data[y * width + x] =
+        image.data[Math.floor(y / factor) * image.width + Math.floor(x / factor)];
+  const result = await scan({ data, width, height, channels: 1 });
+  assert.deepEqual(result.values, [text]);
+  // The bars start at x = 50 × 20 and end at (50 + 95 × 4) × 20.
+  const { left, width: span } = result.barcodes[0].rect;
+  assert.ok(Math.abs(left - 1000) <= 40 && Math.abs(left + span - 8600) <= 40, `${left}+${span}`);
+});
+
 test("invalid mode fails before loading", async () => {
   // null and objects that stringify to a mode are rejected, not coerced.
   for (const mode of ["invalid", null, { toString: () => "medium" }])
@@ -197,7 +214,7 @@ test("explicit buffers default stride and validate storage across engine paths",
         { ...image, channels: 2 },
         { ...image, width: 2 },
         { ...image, stride: image.width - 1 },
-        { ...image, stride: 128 * 1024 * 1024 },
+        { ...image, stride: 1024 * 1024 * 1024 },
         { ...image, data: new Uint8Array(1) },
       ])
         assert.throws(() => scanner.inspect(invalid), TypeError);

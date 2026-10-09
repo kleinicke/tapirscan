@@ -7,6 +7,7 @@
 mod engine;
 mod format;
 mod pixels;
+mod reduce;
 mod timer;
 mod types;
 pub use format::Format;
@@ -162,6 +163,9 @@ impl Scanner {
     ) -> Result<InspectionResult, Error> {
         let start = timer::Timer::start();
         image.validate()?;
+        // Images above the working size are scanned as an area-averaged copy.
+        let reduced = reduce::reduce(image);
+        let source = reduced.as_ref().map_or(image, reduce::Reduced::image);
         let formats = options.formats.unwrap_or(self.options.formats);
         let addons = self.options.ean_add_on_policy;
         // Each arm calls the exact selected host/core pair.
@@ -169,11 +173,11 @@ impl Scanner {
             ($scanner:expr, $module:ident) => {{
                 use engine::$module as selected;
                 let input = selected::Image {
-                    data: image.data,
-                    width: image.width,
-                    height: image.height,
-                    channels: image.channels,
-                    stride: image.stride,
+                    data: source.data,
+                    width: source.width,
+                    height: source.height,
+                    channels: source.channels,
+                    stride: source.stride,
                 };
                 let settings = selected::ScanOptions {
                     multiple: true,
@@ -207,6 +211,9 @@ impl Scanner {
                 ));
             }
         };
+        if let Some(reduced) = &reduced {
+            result.restore_geometry(reduced.scale(image), [source.width, source.height]);
+        }
         result.elapsed = start.elapsed();
         Ok(result)
     }

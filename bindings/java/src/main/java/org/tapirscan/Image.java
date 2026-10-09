@@ -4,17 +4,18 @@ import java.lang.foreign.MemorySegment;
 import java.util.Objects;
 
 /**
- * Gray8, RGB8 or RGBA8 pixels (alpha ignored), at least 3x3 and at most 32 megapixels.
+ * Gray8, RGB8 or RGBA8 pixels (alpha ignored), 3 to 65,535 pixels per side and at most
+ * 256 megapixels.
  * {@code stride} is bytes per row and 0 means packed rows. The addressed layout,
  * {@code (height - 1) * stride + width * channels} bytes, must fit in {@code pixels} and in
- * 128 MiB; a larger backing segment, such as a frame around a crop, is fine.
+ * 1 GiB; a larger backing segment, such as a frame around a crop, is fine.
  *
  * <p>Array-backed pixels are copied when scanning. Native segments, for example from
  * {@code MemorySegment.ofBuffer(directBuffer)}, are read in place: keep them alive and
  * unchanged until the scan returns.
  */
 public record Image(MemorySegment pixels, int width, int height, int channels, int stride) {
-    private static final long MAX_LAYOUT_BYTES = 128L * 1024 * 1024;
+    private static final long MAX_LAYOUT_BYTES = 1024L * 1024 * 1024;
 
     public Image {
         Objects.requireNonNull(pixels, "pixels");

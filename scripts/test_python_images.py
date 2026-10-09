@@ -555,7 +555,7 @@ class Images(unittest.TestCase):
 
     def test_oversized_images_fail_before_conversion(self) -> None:
         """Check dimensions before copying buffers or converting optional inputs."""
-        width, height = 8192, 4097
+        width, height = 16384, 16385
         # Broadcast views represent an oversized image without allocating its pixels.
         array = np.broadcast_to(np.zeros(1, dtype=np.uint8), (height, width))
         tensor = torch.zeros(1, dtype=torch.uint8).expand(height, width)
@@ -563,7 +563,7 @@ class Images(unittest.TestCase):
             for image in (PixelImage(b"", width=width, height=height), array, tensor):
                 with (
                     self.subTest(input_type=type(image).__name__),
-                    self.assertRaisesRegex(ValueError, "32 megapixel"),
+                    self.assertRaisesRegex(ValueError, "256 megapixel"),
                 ):
                     scanner.inspect(image)
             with (
@@ -576,9 +576,11 @@ class Images(unittest.TestCase):
                 ),
                 patch.object(Image.Image, "convert") as convert,
             ):
-                with self.assertRaisesRegex(ValueError, "32 megapixel"):
+                with self.assertRaisesRegex(ValueError, "256 megapixel"):
                     scanner.inspect(image)
                 convert.assert_not_called()
+            with self.assertRaisesRegex(ValueError, "65,535 pixels"):
+                scanner.inspect(PixelImage(b"", width=65_536, height=3))
             # The exact pixel-count boundary reaches storage validation.
             with self.assertRaisesRegex(ValueError, "buffer is too short"):
                 scanner.inspect(PixelImage(b"", width=width, height=height - 1))
@@ -626,7 +628,7 @@ class Images(unittest.TestCase):
                 PixelImage(RAW, width=W, height=H, channels=2),
                 PixelImage(RAW, width=W, height=H, stride=W - 1),
                 PixelImage(memoryview(RAW)[::2], width=W, height=H),
-                PixelImage(RAW, width=W, height=H, stride=128 * 1024 * 1024),
+                PixelImage(RAW, width=W, height=H, stride=1024 * 1024 * 1024),
             ):
                 with self.assertRaises(ValueError):
                     scanner.inspect(image)

@@ -453,9 +453,9 @@ fn barcode_json_preserves_optional_metadata() {
 
 #[test]
 fn large_backing_buffers_scan_only_the_addressed_layout() {
-    // A crop view into a frame larger than the 128 MiB layout limit. Only the
+    // A crop view into a frame larger than the 1 GiB layout limit. Only the
     // addressed rows count toward the limit, matching the Rust API.
-    let frame = vec![0_u8; (128 << 20) + 1];
+    let frame = vec![0_u8; (1 << 30) + 1];
     let image = ImageC {
         stride: 4096,
         ..gray(&frame, 64, 64)
@@ -468,8 +468,8 @@ fn large_backing_buffers_scan_only_the_addressed_layout() {
         let mut error = ErrorC { message: [0; 512] };
         let mut result = 9;
         let oversized = ImageC {
-            width: 8192,
-            height: 8192,
+            width: 16384,
+            height: 16385,
             stride: 0,
             channels: 3,
             ..image

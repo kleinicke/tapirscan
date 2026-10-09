@@ -74,7 +74,7 @@ __all__ = [
     "scan",
 ]
 ABI_VERSION = 6
-MAX_IMAGE_BYTES = 128 * 1024 * 1024
+MAX_IMAGE_BYTES = 1024 * 1024 * 1024
 _MODES = ("low", "medium", "high", "very-high")
 _ADDON_POLICIES = ("ignore", "read", "require")
 
@@ -210,7 +210,7 @@ def _snapshot(
     stride = row if stride is None else _integer(stride, "stride", row)
     required = (height - 1) * stride + row
     if required > MAX_IMAGE_BYTES:
-        msg = "Image exceeds 128 MiB limit"
+        msg = "Image exceeds 1 GiB limit"
         raise ValueError(msg)
     view = memoryview(cast("bytes", pixels))
     if not view.c_contiguous or view.itemsize != 1:

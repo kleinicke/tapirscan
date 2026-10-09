@@ -36,14 +36,15 @@ export function pixelLayout(image: unknown): PixelLayout {
     !Number.isSafeInteger(height) ||
     width < 3 ||
     height < 3 ||
-    width * height > 32 * 1024 * 1024 ||
+    Math.max(width, height) > 65_535 ||
+    width * height > 256 * 1024 * 1024 ||
     (channels !== 1 && channels !== 3 && channels !== 4) ||
     !Number.isSafeInteger(stride) ||
     stride < width * channels ||
-    addressed > 128 * 1024 * 1024 ||
+    addressed > 1024 * 1024 * 1024 ||
     !(data instanceof Uint8Array || data instanceof Uint8ClampedArray) ||
     data.byteLength < addressed
   )
-    throw new TypeError("Invalid image dimensions, channels, stride or buffer (maximum 128 MiB)");
+    throw new TypeError("Invalid image dimensions, channels, stride or buffer (maximum 1 GiB)");
   return { data, width, height, channels, stride, addressed };
 }

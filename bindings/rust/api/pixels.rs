@@ -67,13 +67,14 @@ impl<'a> Image<'a> {
     pub(crate) fn validate(self) -> Result<(), Error> {
         if self.width < 3
             || self.height < 3
+            || self.width.max(self.height) > 65_535
             || self
                 .width
                 .checked_mul(self.height)
-                .is_none_or(|n| n > 32 * 1024 * 1024)
+                .is_none_or(|n| n > 256 * 1024 * 1024)
         {
             return Err(Error::InvalidImage(
-                "dimensions must be at least 3×3 and at most 32 megapixels",
+                "dimensions must be 3 to 65,535 pixels per side and at most 256 megapixels",
             ));
         }
         let row = self
@@ -87,9 +88,9 @@ impl<'a> Image<'a> {
             .checked_mul(self.stride)
             .and_then(|n| n.checked_add(row))
             .ok_or(Error::InvalidImage("buffer size overflow"))?;
-        if size > 128 * 1024 * 1024 || self.data.len() < size {
+        if size > 1024 * 1024 * 1024 || self.data.len() < size {
             return Err(Error::InvalidImage(
-                "buffer is too short or exceeds the 128 MiB layout limit",
+                "buffer is too short or exceeds the 1 GiB layout limit",
             ));
         }
         Ok(())

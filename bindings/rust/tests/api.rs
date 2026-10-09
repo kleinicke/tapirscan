@@ -278,6 +278,35 @@ fn format_operators_combine_in_either_order() {
 }
 
 #[test]
+fn images_above_the_working_size_report_source_coordinates() {
+    // 20× the fixture is 34.6 MP, above the 32 MP working size.
+    let (small, small_width, small_height) = fixture(false);
+    let (width, height) = (small_width * 20, small_height * 20);
+    let pixels: Vec<u8> = (0..height)
+        .flat_map(|y| {
+            let row = &small[y / 20 * small_width..][..small_width];
+            (0..width).map(move |x| row[x / 20])
+        })
+        .collect();
+    let result = tapirscan::inspect(Image::gray(&pixels, width, height)).unwrap();
+    assert_eq!(result.image_size, [width, height]);
+    assert_eq!(result.values().collect::<Vec<_>>(), [TEXT]);
+    // The bars span x 1000..8600 and y 600..3000 in the supplied image; the
+    // polygon follows the symbol's width and lies within its bar height.
+    let rect = result.barcodes[0].rect();
+    assert!((rect.left - 1000).abs() <= 40, "{rect:?}");
+    assert!((rect.left + rect.width - 8600).abs() <= 40, "{rect:?}");
+    assert!(
+        rect.top >= 560 && rect.top + rect.height <= 3040,
+        "{rect:?}"
+    );
+    assert!(rect.height >= 1200, "{rect:?}");
+    let raw = &result.diagnostics.as_ref().unwrap().raw;
+    let scanned = raw["scannedImageSize"].as_array().unwrap();
+    assert!(scanned[0].as_u64().unwrap() * scanned[1].as_u64().unwrap() <= 32 << 20);
+}
+
+#[test]
 fn formats_display_their_schema_names() {
     use tapirscan::Format;
     for format in Format::ALL {

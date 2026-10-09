@@ -15,8 +15,9 @@ if TYPE_CHECKING:
     from .inputs import ImageInput
     from .results import ColorOrder, Layout, ValueRange
 
-LIMIT = 128 * 1024 * 1024
-MAX_IMAGE_PIXELS = 32 * 1024 * 1024
+LIMIT = 1024 * 1024 * 1024
+MAX_IMAGE_PIXELS = 256 * 1024 * 1024
+MAX_SIDE = 65_535
 MAX_PIXEL = 255
 MIN_SIZE = 3
 HW_DIMENSIONS = 2
@@ -37,11 +38,14 @@ def _size(width: object, height: object, channels: int = 1) -> tuple[int, int]:
     ):
         msg = "Image dimensions must be integers >=3"
         raise ValueError(msg)
+    if max(width, height) > MAX_SIDE:
+        msg = "Image sides must be at most 65,535 pixels"
+        raise ValueError(msg)
     if width * height > MAX_IMAGE_PIXELS:
-        msg = "Image exceeds 32 megapixel limit (33,554,432 pixels)"
+        msg = "Image exceeds 256 megapixel limit (268,435,456 pixels)"
         raise ValueError(msg)
     if width * height * channels > LIMIT:
-        msg = "Image exceeds 128 MiB limit"
+        msg = "Image exceeds 1 GiB limit"
         raise ValueError(msg)
     return width, height
 
