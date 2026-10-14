@@ -140,7 +140,7 @@ fn centers_from_runs(
             found.insert(
                 barcode_multiformat::numeric::usize_f32(offsets[i + 4]) + runs[i + 4] * 0.5,
                 cy,
-                (my + module) * 0.5,
+                f32::midpoint(my, module),
                 module * 1.5,
             );
             let Some((cx, mx)) = cross(
@@ -160,7 +160,7 @@ fn centers_from_runs(
             if !(0.6..=1.7).contains(&(mx / my)) {
                 continue;
             }
-            let module = (mx + my) * 0.5;
+            let module = f32::midpoint(mx, my);
             refined.insert(cx, cy, module, module * 1.5);
         }
     }

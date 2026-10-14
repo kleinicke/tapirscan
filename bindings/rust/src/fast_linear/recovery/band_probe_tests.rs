@@ -7,7 +7,7 @@ fn probe_requires_a_value_and_restores_confirmation_state() {
     for printed in [false, true] {
         let mut pixels = vec![255; 345 * 60];
         if printed {
-            for row in pixels.chunks_exact_mut(345) {
+            for row in pixels.as_chunks_mut::<345>().0 {
                 for (i, bit) in bits.iter().enumerate() {
                     if *bit > 0.5 {
                         row[30 + i * 3..33 + i * 3].fill(0);
@@ -42,7 +42,14 @@ fn probe_requires_a_value_and_restores_confirmation_state() {
         assert_eq!(sampler.runs, previous_runs);
         assert_eq!(candidate.remaining, 131_072);
         assert!(!candidate.restored);
-        assert!(candidate.observations.is_empty());
-        assert!(candidate.row_positions.is_empty());
+        assert!(
+            candidate.observations.is_empty(),
+            "expected no observations"
+        );
+        assert!(
+            candidate.row_positions.is_empty(),
+            "{:?}",
+            candidate.row_positions
+        );
     }
 }

@@ -154,7 +154,7 @@ pub fn decode_relative_edges(
                 (if dark { order } else { order.reverse() }).then_with(|| j.cmp(&i))
             })
             .unwrap_or(a);
-        let threshold = (f64::from(profile[left]) + f64::from(profile[right])) * 0.5;
+        let threshold = f64::midpoint(f64::from(profile[left]), f64::from(profile[right]));
         let original = crate::numeric::usize_f64(b) - 0.5
             + (0.5 - f64::from(profile[b - 1]))
                 / (f64::from(profile[b]) - f64::from(profile[b - 1]));
@@ -727,7 +727,7 @@ pub(crate) fn short_from_existing(
     starts: &mut Vec<usize>,
 ) -> retail_short::ShortReads {
     let mut out = retail_short::ShortReads::default();
-    if mask & 12 != 0 {
+    if mask & 0b1100 != 0 {
         let fractional_covered = retail_short::fully_covered(&runs.fractional, ean13);
         let integer_covered = retail_short::fully_covered(&runs.integer, ean13);
         if fractional_covered && integer_covered {
@@ -776,7 +776,7 @@ pub(crate) fn short_from_extrema(
     primary: &Reads,
     out: &mut retail_short::ShortReads,
 ) {
-    if mask & 12 != 0 && !scratch.capped && !scratch.ambiguous {
+    if mask & 0b1100 != 0 && !scratch.capped && !scratch.ambiguous {
         retail_short::decode_runs(&scratch.runs, mask, max_symbols, primary, out);
     }
 }

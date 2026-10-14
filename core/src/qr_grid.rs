@@ -95,7 +95,7 @@ fn grid_quality(
     }
     let light = sums[0] / usize_f32(counts[0]);
     let dark = sums[1] / usize_f32(counts[1]);
-    let cut = (light + dark) * 0.5;
+    let cut = f32::midpoint(light, dark);
     let inverse = dark > light;
     let errors = observations
         .iter()

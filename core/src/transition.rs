@@ -401,10 +401,6 @@ mod tests {
         }
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-    )]
     fn combined_hypotheses_preserve_barriers_and_distinct_equal_reads() {
         fn read(l: f64, r: f64, d: u8) -> crate::run_profile::Read {
             crate::run_profile::Read {

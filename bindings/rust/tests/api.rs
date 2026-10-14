@@ -177,10 +177,11 @@ fn errors_do_not_poison_scanner_and_results_own_data() {
             )
             .unwrap()
             .barcodes
-            .is_empty()
+            .is_empty(),
+        "expected no barcodes"
     );
     let empty = scanner.scan(image).unwrap();
-    assert!(empty.barcodes.is_empty());
+    assert!(empty.barcodes.is_empty(), "{:?}", empty.barcodes);
     assert_eq!(empty.barcodes.len(), 0);
     assert!(Formats::try_from(0).is_err());
     assert!(Formats::try_from(65536).is_err());
@@ -221,7 +222,7 @@ fn formats_and_supplement_policy_are_independent_of_effort() {
             },
         )
         .unwrap();
-    assert!(qr.barcodes.is_empty());
+    assert!(qr.barcodes.is_empty(), "{:?}", qr.barcodes);
     assert_eq!(scanner.options().formats, Formats::RETAIL);
     assert_eq!(
         (Format::Ean13 | Format::QrCode) | Format::Code128,
@@ -264,7 +265,8 @@ fn one_shot_returns_owned_results_and_work_status() {
         tapirscan::scan_with_options(Image::gray(&blank, 64, 64), ScanOptions::default())
             .unwrap()
             .barcodes
-            .is_empty()
+            .is_empty(),
+        "expected no barcodes"
     );
 }
 

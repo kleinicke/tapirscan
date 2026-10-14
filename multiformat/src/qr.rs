@@ -237,7 +237,9 @@ pub fn decode_matrix(matrix: &[bool], n: usize) -> Option<Payload> {
     let mask = (best.0 & 7) as usize;
     let layout = LAYOUTS[version - 1].get_or_init(|| layout(version));
     let code: Vec<u8> = layout
-        .chunks_exact(8)
+        .as_chunks::<8>()
+        .0
+        .iter()
         .map(|chunk| {
             chunk.iter().fold(0, |value, &(index, masks)| {
                 (value << 1) | (u8::from(matrix[index as usize]) ^ ((masks >> mask) & 1))
@@ -356,12 +358,12 @@ fn parse(
         }
         if mode == 7 {
             let b = bits.take(8)?;
-            eci = Some(if b & 128 == 0 {
+            eci = Some(if b & 0x80 == 0 {
                 b
-            } else if b & 192 == 128 {
-                ((b & 63) << 8) | bits.take(8)?
-            } else if b & 224 == 192 {
-                ((b & 31) << 16) | bits.take(16)?
+            } else if b & 0xC0 == 0x80 {
+                ((b & 0x3F) << 8) | bits.take(8)?
+            } else if b & 0xE0 == 0xC0 {
+                ((b & 0x1F) << 16) | bits.take(16)?
             } else {
                 return None;
             });

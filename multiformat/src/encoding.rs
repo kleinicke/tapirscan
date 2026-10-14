@@ -52,12 +52,14 @@ pub fn decode(bytes: &[u8], eci: Option<usize>) -> Option<String> {
                 return None;
             }
             return bytes
-                .chunks_exact(4)
-                .map(|b| {
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|&b| {
                     char::from_u32(if eci == Some(34) {
-                        u32::from_be_bytes(b.try_into().ok()?)
+                        u32::from_be_bytes(b)
                     } else {
-                        u32::from_le_bytes(b.try_into().ok()?)
+                        u32::from_le_bytes(b)
                     })
                 })
                 .collect();

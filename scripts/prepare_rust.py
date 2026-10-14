@@ -76,7 +76,7 @@ def source_rewriter() -> Path:
     subprocess.run(
         [
             "cargo",
-            "+1.91.1",
+            "+1.99.0",
             "build",
             "--offline",
             "--locked",

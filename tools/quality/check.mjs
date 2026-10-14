@@ -25,7 +25,7 @@ if (mode === "rust") {
       "rustup",
       [
         "run",
-        "1.91.1",
+        "1.99.0",
         "cargo",
         "clippy",
         "--offline",

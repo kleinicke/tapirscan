@@ -137,9 +137,10 @@ impl Localizer {
                     {
                         self.closed[tile_index] = 1;
                         for k in 0..3 {
-                            self.tensor[tile_index][k] = (self.tensor[first_direction][k]
-                                + self.tensor[second_direction][k])
-                                * 0.5;
+                            self.tensor[tile_index][k] = f64::midpoint(
+                                self.tensor[first_direction][k],
+                                self.tensor[second_direction][k],
+                            );
                         }
                         break;
                     }

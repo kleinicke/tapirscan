@@ -205,10 +205,6 @@ mod tests {
         }
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-    )]
     fn strongest_valid_protects_and_disjoint_symbols_do_not_interact() {
         let bad = evidence(false, 0., 95., 0.03);
         let weak = evidence(true, 0., 95., 0.08);

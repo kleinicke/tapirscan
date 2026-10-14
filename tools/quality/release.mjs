@@ -91,7 +91,7 @@ if (selected("rust")) {
       "rustup",
       [
         "run",
-        "1.91.1",
+        "1.99.0",
         "cargo",
         "clippy",
         "--offline",
@@ -139,7 +139,7 @@ if (selected("rust")) {
         );
         run("rustup", [
           "run",
-          "1.91.1",
+          "1.99.0",
           "cargo",
           "generate-lockfile",
           "--offline",

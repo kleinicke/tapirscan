@@ -25,7 +25,7 @@ method-local exceptions).
 
 ## Environment
 
-- Rust 1.91.1 (rustfmt and Clippy), Node 24 (`.nvmrc`), Python 3.10-3.12, clang/clang++, a JDK 22+.
+- Rust 1.99.0 (rustfmt and Clippy), Node 24 (`.nvmrc`), Python 3.10-3.12, clang/clang++, a JDK 22+.
 - `QUALITY_PYTHON`: a Python environment with `Pillow`, `torch`, `zxing-cpp`,
   `typing_extensions` and the NumPy version CI uses (see `.github/workflows/ci.yml`;
   it provides stubs compatible with the Python 3.10 API target). Without it, `python3`

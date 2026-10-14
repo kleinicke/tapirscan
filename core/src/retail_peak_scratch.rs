@@ -58,7 +58,7 @@ impl Scratch {
         self.edges.push(0.);
         for pair in self.extrema.windows(2) {
             let [(left, a), (right, b)] = [pair[0], pair[1]];
-            let cut = (f32::from(a) + f32::from(b)) * 0.5;
+            let cut = f32::midpoint(f32::from(a), f32::from(b));
             for i in left + 1..=right {
                 let previous = f32::from(row[i - 1]);
                 let next = f32::from(row[i]);

@@ -130,10 +130,6 @@ mod tests {
         [[x, y], [x + 100., y], [x + 100., y + 40.], [x, y + 40.]]
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-    )]
     fn area_overlap_and_disjoint_diagonals() {
         assert_eq!(overlap(&rect(0., 0.), &rect(50., 0.)).unwrap(), 0.5);
         let a = [[0., 0.], [100., 100.], [95., 105.], [-5., 5.]];
@@ -142,10 +138,6 @@ mod tests {
         assert_eq!(overlap(&a, &a).unwrap(), 1.);
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-    )]
     fn explicit_lines() {
         let l = [[1., 20.], [99., 20.], [99., 20.], [1., 20.]];
         assert_eq!(overlap(&l, &rect(0., 0.)).unwrap(), 1.);
@@ -154,10 +146,6 @@ mod tests {
         assert_eq!(overlap(&l, &l.map(|p| [p[0], p[1] + 3.])).unwrap(), 0.);
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-    )]
     fn variable_polygon_sizes_are_bounded() {
         let a = [
             [0., 0.],

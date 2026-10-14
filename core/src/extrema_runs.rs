@@ -144,7 +144,7 @@ pub(crate) fn decode_extrema_validated(
     for k in 1..scratch.extrema.len() {
         let (a, color) = scratch.extrema[k - 1];
         let (b, _) = scratch.extrema[k];
-        let threshold = (f64::from(p[a]) + f64::from(p[b])) * 0.5;
+        let threshold = f64::midpoint(f64::from(p[a]), f64::from(p[b]));
         let mut crossing = None;
         for j in a + 1..=b {
             if !scratch.charge() {
@@ -325,7 +325,10 @@ mod tests {
         b.symbols[0].digits = B;
         let r = crate::transition::merge_reads(a, b, 64);
         assert!(r.symbols.is_empty());
-        assert!(!r.rejected_intervals.is_empty());
+        assert!(
+            !r.rejected_intervals.is_empty(),
+            "r.rejected_intervals is empty"
+        );
     }
 }
 

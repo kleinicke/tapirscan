@@ -18,10 +18,15 @@ TURBO_PRESETS = tuple(_CONFIG["experimentalTurbo"])
 def wasm_flags() -> list[str]:
     """Canonicalize std source paths whether rust-src is installed or absent."""
     sysroot = subprocess.check_output(
-        ["rustc", "+1.91.1", "--print", "sysroot"],
+        ["rustc", "+1.99.0", "--print", "sysroot"],
         text=True,
     ).strip()
-    commit = "ed61e7d7e242494fb7057f2657300d9e77bb4fcb"
+    version = subprocess.check_output(["rustc", "+1.99.0", "-vV"], text=True)
+    commit = next(
+        line.split(": ", 1)[1]
+        for line in version.splitlines()
+        if line.startswith("commit-hash: ")
+    )
     return [
         "-C",
         "target-feature=+simd128",
@@ -51,7 +56,7 @@ def main() -> None:
     env = dict(
         os.environ,
         CARGO_TARGET_DIR=str(ROOT / "build/core-target"),
-        RUSTUP_TOOLCHAIN="1.91.1",
+        RUSTUP_TOOLCHAIN="1.99.0",
     )
     env.pop("RUSTFLAGS", None)
     subprocess.run(

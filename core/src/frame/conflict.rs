@@ -192,12 +192,12 @@ pub(super) fn source_conflict_winner(
         return false;
     }
     let top = [
-        (quad[0][0] + quad[1][0]) * 0.5,
-        (quad[0][1] + quad[1][1]) * 0.5,
+        f64::midpoint(quad[0][0], quad[1][0]),
+        f64::midpoint(quad[0][1], quad[1][1]),
     ];
     let bottom = [
-        (quad[2][0] + quad[3][0]) * 0.5,
-        (quad[2][1] + quad[3][1]) * 0.5,
+        f64::midpoint(quad[2][0], quad[3][0]),
+        f64::midpoint(quad[2][1], quad[3][1]),
     ];
     let direction = [bottom[0] - top[0], bottom[1] - top[1]];
     let v2 = direction[0] * direction[0] + direction[1] * direction[1];

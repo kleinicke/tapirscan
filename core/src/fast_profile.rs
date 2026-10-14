@@ -484,7 +484,7 @@ impl Sampler {
             self.first_black = self.extrema.len() > 1 && self.extrema[0].1 < self.extrema[1].1;
             for pair in self.extrema.windows(2) {
                 let [(left, a), (right, b)] = [pair[0], pair[1]];
-                let cut = (a + b) * 0.5;
+                let cut = f32::midpoint(a, b);
                 for i in left + 1..=right {
                     if (values[i - 1] >= cut) != (values[i] >= cut) {
                         self.edges.push(
@@ -514,7 +514,7 @@ impl Sampler {
             // Exclude a bright exterior around a lower-contrast printed label.
             let lo = quantile(10);
             let hi = quantile(65);
-            let cut = (lo + hi) * 0.5;
+            let cut = f32::midpoint(lo, hi);
             self.first_black = values[0] < cut;
             if hi - lo >= 16. {
                 for i in 1..values.len() {
@@ -590,7 +590,7 @@ impl Sampler {
             let lo = minimum(envelope[left][2], envelope[right][0]);
             let hi = maximum(envelope[left][3], envelope[right][1]);
             if hi - lo >= 8. {
-                values[i] - (lo + hi) * 0.5
+                values[i] - f32::midpoint(lo, hi)
             } else {
                 0.
             }
@@ -689,7 +689,7 @@ mod tests {
                         let hi =
                             legacy[i.saturating_sub(12)][3].max(legacy[(i + 12).min(n - 1)][1]);
                         if hi - lo >= 8. {
-                            values[i] - (lo + hi) * 0.5
+                            values[i] - f32::midpoint(lo, hi)
                         } else {
                             0.
                         }
@@ -893,8 +893,8 @@ mod chromatic_profile_tests {
         assert!(sampler.sample_color_limited(rgba, [0., 0.5], [63., 1.5], 1.5, 1024, 2));
         assert_eq!(sampler.values, reference.values);
         assert_eq!(sampler.samples, reference.samples);
-        for pixel in packed.chunks_exact_mut(3) {
-            pixel.fill(pixel[0]);
+        for pixel in packed.as_chunks_mut::<3>().0 {
+            *pixel = [pixel[0]; 3];
         }
         let neutral = ImageView::new(&packed, width, height, 3, width * 3).unwrap();
         assert!(!sampler.sample_color_limited(neutral, [0., 0.5], [63., 1.5], 1.5, 1024, 2));

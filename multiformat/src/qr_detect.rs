@@ -128,7 +128,7 @@ fn finders_with_rows(
             ) else {
                 continue;
             };
-            let module = (mx + my) * 0.5;
+            let module = f32::midpoint(mx, my);
             found.insert(cx, cy, module);
         }
     }
@@ -230,7 +230,7 @@ fn local_triples(finders: &[Finder]) -> impl Iterator<Item = [usize; 3]> + use<>
                 - 1.;
             let angle_error =
                 (d[2].powi(2) - d[0].powi(2) - d[1].powi(2)).abs() / (2. * d[0] * d[1]).max(1.);
-            let score = (d[0] + d[1]) * 0.5 / module + angle_error * 30. + spread * 10.;
+            let score = f32::midpoint(d[0], d[1]) / module + angle_error * 30. + spread * 10.;
             (score, triple)
         })
         .collect();
@@ -548,7 +548,7 @@ fn alignment(
     ex: [f32; 2],
     ey: [f32; 2],
 ) -> Vec<[f32; 2]> {
-    let module = (ex[0].hypot(ex[1]) + ey[0].hypot(ey[1])) * 0.5;
+    let module = f32::midpoint(ex[0].hypot(ex[1]), ey[0].hypot(ey[1]));
     let range = crate::numeric::f32_isize((module * 8.).ceil());
     let step = crate::numeric::f32_usize((module * 0.4).round().max(1.));
     let mut candidates = Vec::new();
@@ -797,20 +797,21 @@ fn detect_with_recovery(
             }
             // Axis-aligned cross sections through a rotated square
             // overestimate module width (sqrt(2) at 45 degrees).
-            let rotation_scale = ((tr.x - tl.x).abs().max((tr.y - tl.y).abs()) / dx
-                + (bl.x - tl.x).abs().max((bl.y - tl.y).abs()) / dy)
-                * 0.5;
+            let rotation_scale = f32::midpoint(
+                (tr.x - tl.x).abs().max((tr.y - tl.y).abs()) / dx,
+                (bl.x - tl.x).abs().max((bl.y - tl.y).abs()) / dy,
+            );
             let module = (tl.module + tr.module + bl.module) / 3. * rotation_scale;
             // Finder separation is measured along the symbol axes;
             // use the rotation-corrected module width here too.
             if dx < module * 10. || dy < module * 10. {
                 continue;
             }
-            let estimate = ((dx + dy) * 0.5 / module + 7. - 17.) / 4.;
+            let estimate = (f32::midpoint(dx, dy) / module + 7. - 17.) / 4.;
             if !(0. ..=42.).contains(&estimate) {
                 continue;
             }
-            let center = [(tr.x + bl.x) * 0.5, (tr.y + bl.y) * 0.5];
+            let center = [f32::midpoint(tr.x, bl.x), f32::midpoint(tr.y, bl.y)];
             if results.iter().any(|r| {
                 r.polygon
                     .iter()

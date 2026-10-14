@@ -21,8 +21,8 @@
   "rust-analyzer.check.command": "clippy",
   "rust-analyzer.check.extraArgs": ["--", "-W", "clippy::pedantic"],
   "prettier.prettierPath": "./tools/quality/node_modules/prettier",
-  "rust-analyzer.rustfmt.overrideCommand": ["rustup", "run", "1.91.1", "rustfmt"],
+  "rust-analyzer.rustfmt.overrideCommand": ["rustup", "run", "1.99.0", "rustfmt"],
   "rust-analyzer.cargo.extraEnv": {
-    "RUSTUP_TOOLCHAIN": "1.91.1"
+    "RUSTUP_TOOLCHAIN": "1.99.0"
   }
 }

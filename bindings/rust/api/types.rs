@@ -254,7 +254,6 @@ pub struct ScanResult {
 }
 impl ScanResult {
     /// Borrow decoded text in scanner order, including repeated values.
-    #[must_use]
     pub fn values(&self) -> impl ExactSizeIterator<Item = &str> {
         self.barcodes.iter().map(|barcode| barcode.text.as_str())
     }
@@ -288,7 +287,6 @@ impl InspectionResult {
         best(&self.barcodes)
     }
     /// Borrow decoded text without allocating a second collection.
-    #[must_use]
     pub fn values(&self) -> impl ExactSizeIterator<Item = &str> {
         self.barcodes.iter().map(|barcode| barcode.text.as_str())
     }

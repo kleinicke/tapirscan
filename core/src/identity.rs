@@ -70,7 +70,10 @@ fn cached_dense_row(
     result
 }
 fn midpoint(e: [[f64; 2]; 2]) -> [f64; 2] {
-    [(e[0][0] + e[1][0]) * 0.5, (e[0][1] + e[1][1]) * 0.5]
+    [
+        f64::midpoint(e[0][0], e[1][0]),
+        f64::midpoint(e[0][1], e[1][1]),
+    ]
 }
 fn edges(q: Quad) -> [[[f64; 2]; 2]; 2] {
     [[q[0], q[1]], [q[3], q[2]]]
@@ -689,10 +692,6 @@ mod budgeted_link_tests {
 mod cache_tests {
     use super::*;
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
-    )]
     fn exact_rows_reuse_work_and_exhaustion_is_not_cached() {
         let pixels: Vec<u8> = (0..420 * 50)
             .map(|i| if (i % 420) / 3 % 2 == 0 { 0 } else { 255 })

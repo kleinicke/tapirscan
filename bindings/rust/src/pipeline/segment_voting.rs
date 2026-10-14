@@ -472,7 +472,7 @@ fn clusters(segs: &[Segment], w: usize, h: usize, s: f64) -> Localized {
             alternatives.push((polygon, alternative_boxes(polygon)));
         }
     }
-    out.sort_by(|a, b| b.1.cmp(&a.1));
+    out.sort_by_key(|v| std::cmp::Reverse(v.1));
     let mut out = merge_split(out, &mut alternatives);
     out.truncate(MAX_PROPOSALS);
     let unions = fragment_unions(&out);
@@ -561,7 +561,7 @@ fn merge_split(
             merged.push((p, n));
         }
     }
-    merged.sort_by(|a, b| b.1.cmp(&a.1));
+    merged.sort_by_key(|v| std::cmp::Reverse(v.1));
     merged
 }
 
@@ -720,8 +720,8 @@ mod tests {
     fn blank_images_have_no_proposals() {
         let data = vec![200u8; 64 * 48];
         let found = localize(image(&data, 64, 48));
-        assert!(found.proposals.is_empty());
+        assert!(found.proposals.is_empty(), "{:?}", found.proposals);
         #[cfg(feature = "medium")]
-        assert!(found.alternatives.is_empty());
+        assert!(found.alternatives.is_empty(), "expected no alternatives");
     }
 }

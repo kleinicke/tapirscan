@@ -13,7 +13,7 @@ fn cdf(t: f64, first: f64, second: f64) -> f64 {
     if second < 1e-8 {
         return (t / first + 0.5).clamp(0., 1.);
     }
-    let x = t + (first + second) * 0.5;
+    let x = t + f64::midpoint(first, second);
     let positive_square = |v: f64| v.max(0.).powi(2);
     ((positive_square(x) - positive_square(x - first) - positive_square(x - second)
         + positive_square(x - first - second))
@@ -48,7 +48,7 @@ fn blurred_cdf(t: f64, first: f64, second: f64, sigma: f64) -> f64 {
         (x * x + sigma * sigma) * normal_cdf(x / sigma)
             + x * sigma * (-0.5 * (x / sigma).powi(2)).exp() / std::f64::consts::TAU.sqrt()
     };
-    let x = t + (first + second) * 0.5;
+    let x = t + f64::midpoint(first, second);
     ((f2(x) - f2(x - first) - f2(x - second) + f2(x - first - second)) / (2. * first * second))
         .clamp(0., 1.)
 }
@@ -169,7 +169,7 @@ pub(super) fn reconstruct_model(
     let mut measurements = Vec::new();
     let mut gram = vec![0.; N * N];
     let mut rhs = [0.; N];
-    let radius = (cosine.abs() + sine.abs()) * 0.5 + sigma * 4.;
+    let radius = f64::midpoint(cosine.abs(), sine.abs()) + sigma * 4.;
     // A retained pixel must not integrate across the finite top/bottom of first bar.
     let vertical_margin = (height * 0.15).max(radius);
     let support = radius;

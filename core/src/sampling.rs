@@ -548,10 +548,6 @@ mod tests {
         );
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-    )]
     fn stride_alpha_borders_and_reuse() {
         let mut s = Sampler::default();
         let m = Transform::new([2., 0., 0., 0., 2., 0., 0., 0., 1.]).unwrap();

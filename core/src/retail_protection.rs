@@ -17,7 +17,7 @@ fn inside(q: Quad, p: [f64; 2]) -> bool {
 }
 impl Collector {
     pub fn set_primary(&mut self, frame: &crate::frame::Frame) {
-        if PROTECT && self.mask & 12 != 0 {
+        if PROTECT && self.mask & 0b1100 != 0 {
             self.primary.extend(
                 frame
                     .barcodes
@@ -50,8 +50,14 @@ impl Collector {
     pub(super) fn protected_detection(&self, d: &crate::candidate_scanner::Detection) -> bool {
         let q = d.polygon;
         self.protected_segment(
-            [0.5 * (q[0][0] + q[3][0]), 0.5 * (q[0][1] + q[3][1])],
-            [0.5 * (q[1][0] + q[2][0]), 0.5 * (q[1][1] + q[2][1])],
+            [
+                f64::midpoint(q[0][0], q[3][0]),
+                f64::midpoint(q[0][1], q[3][1]),
+            ],
+            [
+                f64::midpoint(q[1][0], q[2][0]),
+                f64::midpoint(q[1][1], q[2][1]),
+            ],
             if d.digits[0] == 14 { 67. } else { 51. },
         )
     }

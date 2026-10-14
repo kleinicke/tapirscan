@@ -246,7 +246,7 @@ fn error_adjusted(r: &[f32], p: &[u8]) -> f32 {
             / crate::numeric::usize_f32(p.len().div_ceil(2));
         let odd = r.iter().skip(1).take(p.len() - 1).step_by(2).sum::<f32>()
             / crate::numeric::usize_f32(p.len() / 2);
-        module = (even + odd) * 0.5;
+        module = f32::midpoint(even, odd);
         ((even - odd) * 0.5).clamp(-module * 0.5, module * 0.5)
     } else {
         0.
@@ -388,7 +388,7 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
         if !ean_guards(r, s, end, count) {
             continue;
         }
-        let black = (r[s] + r[s + 2]) * 0.5;
+        let black = f32::midpoint(r[s], r[s + 2]);
         let white = r[s + 1];
         let measured_gain = ((black - white) / (black + white)).clamp(-0.45, 0.45);
         let gains: &[f32] = if count == 8 {
@@ -794,7 +794,7 @@ fn wide_bits_sorted(r: &[f32], sorted: &[f32], n: usize, wides: usize) -> Option
     if narrow < 0.65 || wide / narrow < 1.45 || wide / narrow > 3.8 {
         return None;
     }
-    let cut = (sorted[n - wides - 1] + sorted[n - wides]) * 0.5;
+    let cut = f32::midpoint(sorted[n - wides - 1], sorted[n - wides]);
     let mut bits = 0;
     let mut e = 0.;
     for &x in &r[..n] {
@@ -830,7 +830,7 @@ fn code39(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     let black = (start[0] + start[2] + start[8]) / 3.;
     let white = (start[3] + start[5] + start[7]) / 3.;
     let gain = (black - white) * 0.5;
-    let narrow = (black + white) * 0.5;
+    let narrow = f32::midpoint(black, white);
     if gain.abs() < narrow * 0.1 || gain.abs() > narrow * 0.75 {
         return None;
     }
@@ -1010,7 +1010,7 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
                 }
             }
             let global_error = deviation / sums.iter().sum::<f32>();
-            let module = (means[0] + means[2]) * 0.5;
+            let module = f32::midpoint(means[0], means[2]);
             if global_error > 0.19 || !quiet(r, s, at + 7, module, 5.) {
                 return None;
             }
@@ -1203,7 +1203,7 @@ mod tests {
             if !quiet(r, s, end, module, 4.) {
                 continue;
             }
-            let black = (r[s] + r[s + 2]) * 0.5;
+            let black = f32::midpoint(r[s], r[s + 2]);
             let white = r[s + 1];
             let measured_gain = ((black - white) / (black + white)).clamp(-0.45, 0.45);
             let gains: &[f32] = if count == 8 {
@@ -1366,7 +1366,7 @@ mod tests {
         if narrow < 0.65 || wide / narrow < 1.45 || wide / narrow > 3.8 {
             return None;
         }
-        let cut = (sorted[n - wides - 1] + sorted[n - wides]) * 0.5;
+        let cut = f32::midpoint(sorted[n - wides - 1], sorted[n - wides]);
         let mut bits = 0;
         let mut e = 0.;
         for &x in &r[..n] {

@@ -155,7 +155,7 @@ mod tests {
         let mut d = original;
         assert_eq!(f.correct(&mut d, 10, 0), Some(0));
         for i in [0, 7, 13, 20, 25] {
-            d[i] ^= 37;
+            d[i] ^= 0x25;
         }
         assert_eq!(f.correct(&mut d, 10, 0), Some(5));
         assert_eq!(d, original);

@@ -453,7 +453,7 @@ fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
                 } else {
                     values.len() / 5
                 };
-                for block in values[..groups * 5].chunks_exact(5) {
+                for block in values[..groups * 5].as_chunks::<5>().0 {
                     let mut value = 0u64;
                     for &v in block {
                         value = value * 900 + v as u64;

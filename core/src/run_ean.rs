@@ -409,7 +409,7 @@ mod tests {
                             crate::numeric::f64_f32(f64::from(c)),
                             crate::numeric::f64_f32(f64::from(d)),
                         ];
-                        for side in [b'L', b'G', b'R'] {
+                        for side in *b"LGR" {
                             assert_eq!(
                                 digit(&width, side).value,
                                 digit_reference(&width, side).value
@@ -434,7 +434,7 @@ mod tests {
                 seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
                 *x = 0.1 + (crate::numeric::f64_f32(f64::from(seed >> 8)) / 16_777_215.) * 7.;
             }
-            for side in [b'L', b'G', b'R'] {
+            for side in *b"LGR" {
                 let a = digit(&width, side);
                 let b = digit_reference(&width, side);
                 assert_eq!(
@@ -502,10 +502,10 @@ fn guard_bias_widths_global(widths: &[f32]) -> Option<[f32; 59]> {
     let mut white = [widths[1], widths[27], widths[29], widths[31], widths[57]];
     black.sort_by(f32::total_cmp);
     white.sort_by(f32::total_cmp);
-    let b = (black[2] + black[3]) * 0.5;
+    let b = f32::midpoint(black[2], black[3]);
     let w = white[2];
     let bias = (b - w) * 0.5;
-    let pitch = (b + w) * 0.5;
+    let pitch = f32::midpoint(b, w);
     if !module.is_finite()
         || module < 0.8
         || bias.abs() < 0.04 * module
@@ -661,7 +661,7 @@ fn guard_bias_widths_spatial(widths: &[f32]) -> Option<[f32; 59]> {
         black /= nb;
         white /= nw;
         bias[k] = (black - white) * 0.5;
-        pitch[k] = (black + white) * 0.5;
+        pitch[k] = f32::midpoint(black, white);
         if !(0.55 * module..=1.8 * module).contains(&pitch[k]) || bias[k].abs() > 0.4 * pitch[k] {
             return None;
         }
@@ -756,7 +756,7 @@ mod pair_reuse_tests {
                 0.1 + crate::numeric::f64_f32(f64::from(seed >> 8)) / 838_860.8
             });
             let got = digit_pair(&w);
-            for (i, side) in [b'L', b'G'].into_iter().enumerate() {
+            for (i, side) in b"LG".iter().copied().enumerate() {
                 let want = digit_reference(&w, side);
                 assert_eq!(
                     (got[i].value, got[i].cost.to_bits(), got[i].gap.to_bits()),

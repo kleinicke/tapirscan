@@ -102,8 +102,7 @@ impl BandScanner {
                         let r = project(matrix, axis, right, fraction)?;
                         self.continuity
                             .check(image, a, [l, r, r, l])
-                            .map(|e| e.supported)
-                            .unwrap_or(false)
+                            .is_ok_and(|e| e.supported)
                     }
                 } else {
                     false

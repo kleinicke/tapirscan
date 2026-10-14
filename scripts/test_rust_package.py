@@ -125,7 +125,7 @@ def check(package: Path) -> None:
     subprocess.run(
         [
             "cargo",
-            "+1.91.1",
+            "+1.99.0",
             "test",
             "--offline",
             "--release",

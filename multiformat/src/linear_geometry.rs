@@ -126,7 +126,7 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
             xy += dx * dy;
         }
     }
-    if (xx - yy).hypot(2. * xy) < (xx + yy) * 0.5 || xx + yy < 100. {
+    if (xx - yy).hypot(2. * xy) < f64::midpoint(xx, yy) || xx + yy < 100. {
         return quad;
     }
     let mut theta = crate::numeric::f64_f32(0.5 * (2. * xy).atan2(xx - yy));
@@ -428,10 +428,6 @@ mod tests {
         assert_eq!(reads.len(), 2);
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "Deduplication must preserve exact input coordinates, not approximate them."
-    )]
     fn matrix_duplicates_merge_without_collapsing_separate_copies() {
         let mut first = read(20., 160.);
         first.format = "DataMatrix".into();

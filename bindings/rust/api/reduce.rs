@@ -87,7 +87,7 @@ fn add_luma<const C: usize>(row: &[u8], weight: f32, rows: &mut [f32]) {
         return;
     }
     let [red, green, blue] = [77., 150., 29.].map(|luma: f32| weight * luma / 256.);
-    for (sum, pixel) in rows.iter_mut().zip(row.chunks_exact(C)) {
+    for (sum, pixel) in rows.iter_mut().zip(row.as_chunks::<C>().0) {
         *sum +=
             red * f32::from(pixel[0]) + green * f32::from(pixel[1]) + blue * f32::from(pixel[2]);
     }
@@ -150,8 +150,8 @@ mod tests {
     fn large_images_keep_aspect_and_flat_luma() {
         let (width, height) = (8192, 4097);
         let mut pixels = vec![0; width * height * 3];
-        for pixel in pixels.chunks_exact_mut(3) {
-            pixel.copy_from_slice(&[10, 128, 250]);
+        for pixel in pixels.as_chunks_mut::<3>().0 {
+            *pixel = [10, 128, 250];
         }
         let image = Image::rgb(&pixels, width, height);
         let reduced = reduce(image).unwrap();

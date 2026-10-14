@@ -195,12 +195,14 @@ pub(super) fn measure(evidence: &mut Evidence<'_>, quad: Quad) -> Option<Quad> {
     }
     let top = follow(evidence, &band, &reference, &template, &probes, -1.)?;
     let bottom = follow(evidence, &band, &reference, &template, &probes, 1.)?;
-    let first = (project(quad[0], band.origin, band.axis)[1]
-        + project(quad[1], band.origin, band.axis)[1])
-        * 0.5;
-    let last = (project(quad[2], band.origin, band.axis)[1]
-        + project(quad[3], band.origin, band.axis)[1])
-        * 0.5;
+    let first = f64::midpoint(
+        project(quad[0], band.origin, band.axis)[1],
+        project(quad[1], band.origin, band.axis)[1],
+    );
+    let last = f64::midpoint(
+        project(quad[2], band.origin, band.axis)[1],
+        project(quad[3], band.origin, band.axis)[1],
+    );
     let low = first.min(last);
     let high = first.max(last);
     // Corner winding must not turn an enlargement into a shrink.

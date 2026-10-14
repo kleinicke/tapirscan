@@ -67,9 +67,9 @@ impl RegionScanner {
             return Err(Error::Parameters);
         }
         self.engine.retail.mask = mask;
-        self.engine.retail.use_raw = mask & 12 != 0;
-        self.engine.retail.use_peaks = mask & 12 != 0;
-        self.engine.retail.peak_retry = mask & 12 != 0;
+        self.engine.retail.use_raw = mask & 0b1100 != 0;
+        self.engine.retail.use_peaks = mask & 0b1100 != 0;
+        self.engine.retail.peak_retry = mask & 0b1100 != 0;
         self.engine.retail.reset();
         Ok(())
     }
@@ -79,7 +79,7 @@ impl RegionScanner {
         frame: &Frame,
         diagnostics: bool,
     ) -> Option<crate::retail_pipeline::RetailResult> {
-        if self.engine.retail.mask & 12 == 0 {
+        if self.engine.retail.mask & 0b1100 == 0 {
             return None;
         }
         self.engine.retail.set_primary(frame);

@@ -3,7 +3,9 @@
 ## Prerequisites
 
 - [rustup](https://rustup.rs), Python **3.10+** and Node **24**. `rust-toolchain.toml`
-  selects Rust 1.91.1 with the WASM target; rustup installs it on first use.
+  selects Rust 1.99.0 with the WASM target; rustup installs it on first use.
+  The published Rust crate keeps `rust-version = "1.91"`; CI checks that it still
+  builds with Rust 1.91.
 - CMake and a C/C++ compiler for native examples; JDK **22+** for Java (CI uses JDK 25).
 - Environment for the quality gate (`QUALITY_PYTHON`, `JAVA_HOME`,
   `.quality-tools/environment.json`): see [quality checks](QUALITY.md#environment).

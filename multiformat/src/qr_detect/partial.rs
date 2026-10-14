@@ -194,7 +194,7 @@ pub(super) fn recover(
             if !(0.6..=1.7).contains(&(ma / mb)) {
                 continue;
             }
-            let module = (ma + mb) * 0.5;
+            let module = f32::midpoint(ma, mb);
             let separation = distance(first, second);
             if separation < module * 10. {
                 continue;

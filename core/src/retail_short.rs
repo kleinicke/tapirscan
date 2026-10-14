@@ -386,7 +386,7 @@ pub(crate) fn legacy_runs(
         } else {
             runs[0].2
         };
-        for r in barcode_multiformat::linear::decode(&widths, dark, mask & 12) {
+        for r in barcode_multiformat::linear::decode(&widths, dark, mask & 0b1100) {
             if r.error > 0.14 {
                 continue;
             }

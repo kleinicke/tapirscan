@@ -800,7 +800,7 @@ mod component_fastpath_tests {
             component_hull(&component, &mut row_min, &mut row_max, &mut touched_rows),
             sorted_component_hull_reference(&component)
         );
-        assert!(touched_rows.is_empty());
+        assert!(touched_rows.is_empty(), "{touched_rows:?}");
         assert!(row_min.iter().all(|&value| value == usize::MAX));
     }
 
@@ -991,8 +991,8 @@ fn l_border_edges(image: &[bool], w: usize, h: usize, quad: [Point; 4]) -> [usiz
         let edge_start = quad[edge];
         let edge_end = quad[(edge + 1) % 4];
         let inward = [
-            center[0] - (edge_start[0] + edge_end[0]) * 0.5,
-            center[1] - (edge_start[1] + edge_end[1]) * 0.5,
+            center[0] - f32::midpoint(edge_start[0], edge_end[0]),
+            center[1] - f32::midpoint(edge_start[1], edge_end[1]),
         ];
         let length = inward[0].hypot(inward[1]);
         if length < 1. {
@@ -1443,8 +1443,8 @@ mod l_border_gate_tests {
             let edge_start = quad[edge];
             let edge_end = quad[(edge + 1) % 4];
             let inward = [
-                center[0] - (edge_start[0] + edge_end[0]) * 0.5,
-                center[1] - (edge_start[1] + edge_end[1]) * 0.5,
+                center[0] - f32::midpoint(edge_start[0], edge_end[0]),
+                center[1] - f32::midpoint(edge_start[1], edge_end[1]),
             ];
             let length = inward[0].hypot(inward[1]);
             if length < 1. {

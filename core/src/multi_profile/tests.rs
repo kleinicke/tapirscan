@@ -357,7 +357,10 @@ fn bias_recovery_counts_and_overlap_conflicts_remain_explicit() {
         conflict.symbols[0].digits = digits([4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3]);
         let merged = crate::transition::merge_reads(r, conflict, 64);
         assert!(merged.symbols.is_empty());
-        assert!(!merged.rejected_intervals.is_empty());
+        assert!(
+            !merged.rejected_intervals.is_empty(),
+            "merged.rejected_intervals is empty"
+        );
         assert_eq!(merged.bias_model_pass, 2);
     }
 }

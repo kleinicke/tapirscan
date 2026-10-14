@@ -682,6 +682,10 @@ fn localize(
     let short_fragments =
         capture_short_fragments.then(|| fragments.into_iter().map(|(_, p)| p).collect());
     let count = found.proposals.len();
+    #[allow(
+        clippy::unnecessary_min_or_max,
+        reason = "fit_limit is a per-mode constant; Low's 0 makes the bound trivial only in that mode."
+    )]
     let examined = count.min(SELECTED.fit_limit);
     let mut proposals = found.proposals;
     for i in 0..examined {
@@ -872,15 +876,15 @@ fn retail_pixels(image: Image<'_>, pixels: &mut Vec<u8>) {
         .chunks(image.stride)
         .zip(pixels.chunks_exact_mut(image.width * 4));
     for (source, target) in rows {
-        let target = target.chunks_exact_mut(4);
+        let target = target.as_chunks_mut::<4>().0;
         if image.channels == 1 {
             for (&gray, out) in source[..image.width].iter().zip(target) {
-                out.copy_from_slice(&[gray, gray, gray, 255]);
+                *out = [gray, gray, gray, 255];
             }
         } else {
             let source = source[..image.width * image.channels].chunks_exact(image.channels);
             for (pixel, out) in source.zip(target) {
-                out.copy_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+                *out = [pixel[0], pixel[1], pixel[2], 255];
             }
         }
     }

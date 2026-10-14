@@ -44,12 +44,12 @@ pub(super) fn crossing_read_paths(a: Quad, b: Quad) -> bool {
     let ends = |quad: Quad| {
         [
             [
-                0.5 * (quad[0][0] + quad[3][0]),
-                0.5 * (quad[0][1] + quad[3][1]),
+                f64::midpoint(quad[0][0], quad[3][0]),
+                f64::midpoint(quad[0][1], quad[3][1]),
             ],
             [
-                0.5 * (quad[1][0] + quad[2][0]),
-                0.5 * (quad[1][1] + quad[2][1]),
+                f64::midpoint(quad[1][0], quad[2][0]),
+                f64::midpoint(quad[1][1], quad[2][1]),
             ],
         ]
     };

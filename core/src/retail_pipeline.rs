@@ -162,7 +162,7 @@ impl Collector {
         self.capped = false;
     }
     pub fn coverage(&mut self, q: Quad) {
-        if self.mask & 12 == 0 {
+        if self.mask & 0b1100 == 0 {
             return;
         }
         if let Some(i) = self.groups.iter().position(|(a, _)| *a == q) {
@@ -176,7 +176,7 @@ impl Collector {
         }
     }
     pub fn peaks(&mut self, p: &[f32], primary: &Reads, axis: usize, f: f64, lo: f64, hi: f64) {
-        if self.mask & 12 == 0 || !self.use_peaks {
+        if self.mask & 0b1100 == 0 || !self.use_peaks {
             return;
         }
         if self.groups.is_empty()
@@ -271,7 +271,13 @@ impl Collector {
             }
         }
         if out.symbols.is_empty() {
-            multi_profile::retail_short::legacy_runs(runs, self.mask & 12, 64, primary, &mut out);
+            multi_profile::retail_short::legacy_runs(
+                runs,
+                self.mask & 0b1100,
+                64,
+                primary,
+                &mut out,
+            );
         }
         self.append(out, axis, f, lo, hi, p.len());
     }
@@ -285,7 +291,7 @@ impl Collector {
         hi: f64,
         n: usize,
     ) {
-        if self.mask & 12 == 0 || !self.use_raw {
+        if self.mask & 0b1100 == 0 || !self.use_raw {
             return;
         }
         let mut out = ShortReads::default();
@@ -302,7 +308,7 @@ impl Collector {
         hi: f64,
         n: usize,
     ) {
-        if self.mask & 12 == 0 {
+        if self.mask & 0b1100 == 0 {
             return;
         }
         let mut out =

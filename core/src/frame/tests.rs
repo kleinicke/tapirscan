@@ -83,7 +83,7 @@ fn rotated_product389_duplicate_keeps_raw_gap_contradiction() {
     let pt = crate::candidate_scanner::point(
         m.0,
         observation.axis,
-        (observation.left + observation.right) * 0.5,
+        f64::midpoint(observation.left, observation.right),
         observation.fraction,
     )
     .unwrap();
@@ -168,7 +168,7 @@ fn rotated_real_duplicate_retains_conflicting_gap_observation() {
     let pt = crate::candidate_scanner::point(
         m.0,
         observation.axis,
-        (observation.left + observation.right) * 0.5,
+        f64::midpoint(observation.left, observation.right),
         observation.fraction,
     )
     .unwrap();
@@ -248,7 +248,7 @@ fn frozen_derived_duplicate_retains_competing_gap_read() {
     let p = crate::candidate_scanner::point(
         m.0,
         observation.axis,
-        (observation.left + observation.right) * 0.5,
+        f64::midpoint(observation.left, observation.right),
         observation.fraction,
     )
     .unwrap();

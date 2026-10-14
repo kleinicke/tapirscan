@@ -65,10 +65,6 @@ impl Normalizer {
 mod tests {
     use super::*;
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-    )]
     fn matches_naive_windows_and_preserves_input() {
         let p = std::array::from_fn::<_, LEN, _>(|i| {
             crate::numeric::usize_f32((i * 37 + i / 7) % 257) / 256.
@@ -90,10 +86,6 @@ mod tests {
         assert_eq!(p, original);
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-    )]
     fn invalid_and_low_contrast() {
         let mut n = Normalizer::default();
         assert!(n.normalize(&[0.; 511]).is_err());

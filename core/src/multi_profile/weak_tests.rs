@@ -70,7 +70,10 @@ fn weak_activated_reads_preserve_conflicts_and_separate_instances() {
     assert_eq!(rb.symbols.len(), 1);
     let conflict = crate::transition::merge_reads(ra.clone(), rb.clone(), 64);
     assert!(conflict.symbols.is_empty());
-    assert!(!conflict.rejected_intervals.is_empty());
+    assert!(
+        !conflict.rejected_intervals.is_empty(),
+        "conflict.rejected_intervals is empty"
+    );
     let mut veto = rb;
     veto.rejected_intervals
         .push((ra.symbols[0].left, ra.symbols[0].right));

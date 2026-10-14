@@ -101,8 +101,8 @@ fn histogram(row: &[u8]) -> [usize; 256] {
     if row.len() >= 512 {
         // Independent counters avoid a serial load/store chain on broad flat backgrounds.
         let mut lanes = [[0usize; 256]; 4];
-        let mut chunks = row.chunks_exact(4);
-        for pixels in &mut chunks {
+        let (chunks, remainder) = row.as_chunks::<4>();
+        for pixels in chunks {
             lanes[0][usize::from(pixels[0])] += 1;
             lanes[1][usize::from(pixels[1])] += 1;
             lanes[2][usize::from(pixels[2])] += 1;
@@ -111,7 +111,7 @@ fn histogram(row: &[u8]) -> [usize; 256] {
         for (value, count) in hist.iter_mut().enumerate() {
             *count = lanes.iter().map(|lane| lane[value]).sum();
         }
-        for &value in chunks.remainder() {
+        for &value in remainder {
             hist[usize::from(value)] += 1;
         }
     } else {
@@ -352,7 +352,7 @@ fn refined_edge(i: usize, row: &[u8], reverse: bool) -> f32 {
     let a = pixel(i - 1);
     let b = pixel(i);
     let frac = if (b - a).abs() > 1. {
-        (((low + high) * 0.5 - a) / (b - a)).clamp(0., 1.)
+        ((f32::midpoint(low, high) - a) / (b - a)).clamp(0., 1.)
     } else {
         0.5
     };
@@ -935,7 +935,7 @@ pub fn scan_observed(
         }
     }
     let mut results: Vec<Detection> = Vec::new();
-    groups.sort_by(|a, b| b.support.cmp(&a.support));
+    groups.sort_by_key(|g| std::cmp::Reverse(g.support));
     for g in groups {
         if g.profile_only && g.error > 0.14 {
             continue;
@@ -1188,13 +1188,7 @@ mod image_safety_tests {
                                 255
                             }
                         }
-                        2 => {
-                            if (i / w / 3 + i % w / 5) % 2 == 0 {
-                                0
-                            } else {
-                                255
-                            }
-                        }
+                        2 if (i / w / 3 + i % w / 5) % 2 == 0 => 0,
                         _ => 255,
                     }
                 })
@@ -1466,7 +1460,7 @@ pub unsafe extern "C" fn multi_scan_rgba(s: *mut Session, mask: u32, effort: usi
     if state.rgba.len() != state.input.len() * 4 {
         return 3;
     }
-    for (gray, pixel) in state.input.iter_mut().zip(state.rgba.chunks_exact(4)) {
+    for (gray, pixel) in state.input.iter_mut().zip(state.rgba.as_chunks::<4>().0) {
         let value =
             (u16::from(pixel[0]) * 77 + u16::from(pixel[1]) * 150 + u16::from(pixel[2]) * 29 + 128)
                 >> 8;

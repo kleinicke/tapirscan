@@ -23,7 +23,7 @@ run(path.join(root, ".quality-tools/python/bin/python"), [
 run("rustup", [
   "toolchain",
   "install",
-  "1.91.1",
+  "1.99.0",
   "--profile",
   "minimal",
   "--component",

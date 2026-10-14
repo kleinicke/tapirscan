@@ -81,7 +81,7 @@ const fn pattern(model: usize, side: u8, d: usize, position: usize) -> f32 {
 }
 const fn templates() -> [[[[f32; 5]; 10]; 3]; 3] {
     let mut result = [[[[0.; 5]; 10]; 3]; 3];
-    let sides = [b'L', b'G', b'R'];
+    let sides = *b"LGR";
     let mut m = 0;
     while m < 3 {
         let mut s = 0;

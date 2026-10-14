@@ -324,7 +324,7 @@ fn module_samples(p: &[f64], h: Hypothesis) -> [f32; 95] {
         let t = (usize_f64(j) + 0.5) / 95.;
         let u = h.left + t * (95. + h.right - h.left) + h.bend * t * (1. - t);
         let center = sample(p, u);
-        let average = (sample(p, u - 0.55) + sample(p, u + 0.55)) * 0.5;
+        let average = f64::midpoint(sample(p, u - 0.55), sample(p, u + 0.55));
         *b = f64_f32((center + h.sharpen * (center - average)).clamp(0., 1.));
     }
     if h.reverse {

@@ -66,7 +66,7 @@ def source_files() -> dict[str, str]:
 
 def build_environment(root: Path = ROOT) -> dict[str, str]:
     """Use stable crate identities and paths, with cache keys tied to the wrapper."""
-    env = dict(os.environ, RUSTUP_TOOLCHAIN="1.91.1", CARGO_INCREMENTAL="0")
+    env = dict(os.environ, RUSTUP_TOOLCHAIN="1.99.0", CARGO_INCREMENTAL="0")
     cargo_home = Path(os.environ.get("CARGO_HOME", Path.home() / ".cargo"))
     env.pop("RUSTFLAGS", None)
     env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(
@@ -238,7 +238,7 @@ def main() -> None:
                 json.dumps(
                     {
                         "schema": 2,
-                        "rustToolchain": "1.91.1",
+                        "rustToolchain": "1.99.0",
                         "sourceDigest": digest,
                         "sourceFiles": inputs,
                         "files": dict(sorted(files.items())),

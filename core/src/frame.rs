@@ -243,8 +243,14 @@ fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy
                 {
                     let ends = |q: Quad| {
                         [
-                            [0.5 * (q[0][0] + q[3][0]), 0.5 * (q[0][1] + q[3][1])],
-                            [0.5 * (q[1][0] + q[2][0]), 0.5 * (q[1][1] + q[2][1])],
+                            [
+                                f64::midpoint(q[0][0], q[3][0]),
+                                f64::midpoint(q[0][1], q[3][1]),
+                            ],
+                            [
+                                f64::midpoint(q[1][0], q[2][0]),
+                                f64::midpoint(q[1][1], q[2][1]),
+                            ],
                         ]
                     };
                     let a = ends(d.polygon);
@@ -328,7 +334,7 @@ fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy
                                 if let Ok(p) = crate::candidate_scanner::point(
                                     m.0,
                                     o.axis,
-                                    (o.left + o.right) * 0.5,
+                                    f64::midpoint(o.left, o.right),
                                     o.fraction,
                                 ) && crate::identity::barrier_between(a, b, p)
                                 {
@@ -485,7 +491,7 @@ fn reconcile_image(im: Option<ImageView<'_>>, candidates: Vec<Candidate>, policy
     // Result limits retain strongest support first; stable ties preserve spatial order.
     if barcodes.len() > policy.max_results {
         work.truncated = true;
-        barcodes.sort_by(|a, b| b.detection.support.cmp(&a.detection.support));
+        barcodes.sort_by_key(|b| std::cmp::Reverse(b.detection.support));
         barcodes.truncate(policy.max_results);
     }
     let unfinished = work.optional_identity_deferred > 0

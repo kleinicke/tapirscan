@@ -110,7 +110,13 @@ fn mode_words(matrix: &[bool], dimension: usize, compact: bool) -> Option<Vec<u1
             mode.push(matrix[(y).cast_unsigned() * dimension + (x).cast_unsigned()]);
         }
     }
-    Some(mode.chunks_exact(4).map(value).collect())
+    Some(
+        mode.as_chunks::<4>()
+            .0
+            .iter()
+            .map(|bits| value(bits))
+            .collect(),
+    )
 }
 /// Aztec Rune: one byte, protected by five GF(16) parity words and the
 /// alternating-bit mask specified in ISO/IEC 24778 Annex A.

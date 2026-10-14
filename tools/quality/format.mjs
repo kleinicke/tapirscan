@@ -118,7 +118,7 @@ export async function formatted(file, text) {
       "rustup",
       [
         "run",
-        "1.91.1",
+        "1.99.0",
         "rustfmt",
         "--edition",
         "2024",

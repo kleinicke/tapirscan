@@ -303,8 +303,8 @@ fn source_angle(im: ImageView<'_>, proposal: &Proposal) -> Option<Proposal> {
         return None;
     }
     let center = [
-        (quad[0][0] + quad[2][0]) * 0.5,
-        (quad[0][1] + quad[2][1]) * 0.5,
+        f64::midpoint(quad[0][0], quad[2][0]),
+        f64::midpoint(quad[0][1], quad[2][1]),
     ];
     let (cos_delta, sin_delta) = (delta.cos(), delta.sin());
     Some(Proposal {
@@ -777,10 +777,6 @@ mod extent_tests {
         }
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
-    )]
     fn source_extent_recovers_clipped_bars_and_polarity() {
         for kind in [1, 2] {
             let d = image(kind);
@@ -854,10 +850,6 @@ mod extent_budget_tests {
 mod angle_distance_tests {
     use super::distance;
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
-    )]
     fn modulo_distance_matches_trigonometric_reference() {
         let pi = std::f64::consts::PI;
         for i in -720..=720 {
@@ -891,10 +883,6 @@ mod angle_distance_tests {
 mod tall_band_tests {
     use super::*;
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
-    )]
     #[expect(
         clippy::too_many_lines,
         reason = "Mode-specific arithmetic is checked against the same connected-border fixture."
@@ -1090,7 +1078,7 @@ mod extent_plan_tests {
         let mut p = vec![q(500., 50.); 24];
         p.extend((0..30).map(|_| q(150., 50.)));
         let (old, n, bad) = extent_plan(&p, false);
-        assert!(old.is_empty());
+        assert!(old.is_empty(), "{old:?}");
         assert_eq!((n, bad), (30, 24));
         let (new, n, bad) = extent_plan(&p, true);
         assert_eq!(new, (24..48).collect::<Vec<_>>());
@@ -1366,10 +1354,6 @@ mod angle_replacement_tests {
         }
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples and unchanged geometry; approximate equality would hide a behavior change."
-    )]
     fn only_high_coherence_small_correction_replaces_parent_geometry() {
         for (angle, score, replaces) in [
             (5., 0.9, true),

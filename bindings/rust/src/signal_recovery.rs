@@ -238,6 +238,6 @@ mod normalization_tests {
             let flat = vec![value; 1024];
             assert_eq!(super::equalize(&flat), flat);
         }
-        assert!(super::equalize(&[]).is_empty());
+        assert!(super::equalize(&[]).is_empty(), "expected no samples");
     }
 }

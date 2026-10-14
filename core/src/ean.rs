@@ -87,7 +87,7 @@ struct Digit {
 }
 const fn bit_patterns() -> [[[usize; 7]; 10]; 3] {
     let mut a = [[[0; 7]; 10]; 3];
-    let sides = [b'L', b'G', b'R'];
+    let sides = *b"LGR";
     let mut s = 0;
     while s < 3 {
         let mut d = 0;
@@ -413,7 +413,7 @@ mod module_error_reuse_tests {
     #[test]
     fn all_binary_patterns_and_noisy_values_preserve_cost_bits() {
         let check = |p: [f32; 7]| {
-            for side in [b'L', b'G', b'R'] {
+            for side in *b"LGR" {
                 let a = digit(&p, side);
                 let b = digit_reference(&p, side);
                 assert_eq!(
@@ -422,7 +422,7 @@ mod module_error_reuse_tests {
                 );
             }
             let pair = digit_pair(&p);
-            for (i, side) in [b'L', b'G'].into_iter().enumerate() {
+            for (i, side) in b"LG".iter().copied().enumerate() {
                 let b = digit_reference(&p, side);
                 let a = pair[i];
                 assert_eq!(

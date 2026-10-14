@@ -14,7 +14,7 @@ pub(super) fn search(
     ex: [f32; 2],
     ey: [f32; 2],
 ) -> Vec<[f32; 2]> {
-    let module = (ex[0].hypot(ex[1]) + ey[0].hypot(ey[1])) * 0.5;
+    let module = f32::midpoint(ex[0].hypot(ex[1]), ey[0].hypot(ey[1]));
     let range = (module * 8.).ceil() as isize;
     let step = (module * 0.4).round().max(1.) as usize;
     let offsets: Vec<_> = (-range..=range).step_by(step).collect();

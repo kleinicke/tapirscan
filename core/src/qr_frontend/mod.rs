@@ -84,8 +84,8 @@ fn histogram(row: &[u8]) -> [usize; 256] {
     if row.len() >= 512 {
         // Independent counters avoid a serial load/store chain on broad flat backgrounds.
         let mut lanes = [[0usize; 256]; 4];
-        let mut chunks = row.chunks_exact(4);
-        for pixels in &mut chunks {
+        let (chunks, remainder) = row.as_chunks::<4>();
+        for pixels in chunks {
             lanes[0][usize::from(pixels[0])] += 1;
             lanes[1][usize::from(pixels[1])] += 1;
             lanes[2][usize::from(pixels[2])] += 1;
@@ -94,7 +94,7 @@ fn histogram(row: &[u8]) -> [usize; 256] {
         for (value, count) in hist.iter_mut().enumerate() {
             *count = lanes.iter().map(|lane| lane[value]).sum();
         }
-        for &value in chunks.remainder() {
+        for &value in remainder {
             hist[usize::from(value)] += 1;
         }
     } else {

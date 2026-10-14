@@ -375,7 +375,7 @@ fn upscale(im: Image<'_>, x: usize, y: usize, w: usize, h: usize) -> Vec<u8> {
             cached_row = Some(y0);
         }
         let output = &mut data[row * output_width * 4..(row + 1) * output_width * 4];
-        for ((a, b), rgba) in top.iter().zip(&bottom).zip(output.chunks_exact_mut(4)) {
+        for ((a, b), rgba) in top.iter().zip(&bottom).zip(output.as_chunks_mut::<4>().0) {
             for channel in 0..3 {
                 rgba[channel] =
                     ((a[channel] * (3 - fraction) + b[channel] * fraction + 4) / 9) as u8;

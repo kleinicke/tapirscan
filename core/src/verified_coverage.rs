@@ -536,7 +536,8 @@ mod reuse_tests {
                 &mut Work::default(),
                 ImageView::new(&[255], 1, 1, 1, 1).unwrap()
             )
-            .is_empty()
+            .is_empty(),
+            "expected no verified claims"
         );
         for ambiguous in [false, true] {
             let mut c = candidate(q, vec![detection(band, 1)]);
@@ -580,7 +581,8 @@ mod reuse_tests {
                     &mut Work::default(),
                     ImageView::new(&[255], 1, 1, 1, 1).unwrap()
                 )
-                .is_empty()
+                .is_empty(),
+                "expected no verified claims"
             );
         }
     }
@@ -728,10 +730,6 @@ mod extension_tests {
         ImageView::new(p, 420, 140, 1, 420).unwrap()
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-    )]
     fn extends_across_bars_not_into_the_reading_direction() {
         let p = pixels();
         let mut w = Work::default();
@@ -766,10 +764,6 @@ mod extension_tests {
         );
     }
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-    )]
     fn rotation_preserves_axis_and_blank_gap_veto() {
         let mut p = pixels();
         p[80 * 420..81 * 420].fill(255);
@@ -864,7 +858,8 @@ mod extension_tests {
             }
 
             assert!(
-                verified_claims(&[c], &mut budget(), &mut Work::default(), image(&p)).is_empty()
+                verified_claims(&[c], &mut budget(), &mut Work::default(), image(&p)).is_empty(),
+                "expected no verified claims"
             );
         }
         let mut c = make();
@@ -874,7 +869,10 @@ mod extension_tests {
             support: 3,
             axis: 0,
         });
-        assert!(verified_claims(&[c], &mut budget(), &mut Work::default(), image(&p)).is_empty());
+        assert!(
+            verified_claims(&[c], &mut budget(), &mut Work::default(), image(&p)).is_empty(),
+            "expected no verified claims"
+        );
     }
 }
 

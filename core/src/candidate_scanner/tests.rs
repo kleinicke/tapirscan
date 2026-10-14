@@ -130,10 +130,6 @@ fn broad_region_associates_parallel_equal_tracks() {
     assert!(out[0].detections[0].polygon[1][0] < out[0].detections[1].polygon[0][0]);
 }
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-)]
 fn canonical_rows_deduplicate_and_veto_conflicts_without_merging_nearby_rows() {
     let (pixels, qs) = fixture(0);
     let im = ImageView::new(&pixels, 1000, 240, 1, 1000).unwrap();
@@ -691,10 +687,6 @@ fn public_configuration_rejects_incompatible_native_profiles() {
 }
 
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "This regression checks exact deterministic samples, discrete tags or unchanged geometry; an epsilon would hide a behavior change."
-)]
 fn interior_normalization_ignores_padding_and_preserves_quiet_values() {
     let mut ex = CandidateScanner::default();
     let n = 512;

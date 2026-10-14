@@ -4,8 +4,10 @@
 import hashlib
 import json
 import os
+import shutil
 import sys
 from collections.abc import Mapping
+from pathlib import Path
 
 
 def compiler_args(args: list[str], environ: Mapping[str, str]) -> list[str]:
@@ -43,7 +45,27 @@ def compiler_args(args: list[str], environ: Mapping[str, str]) -> list[str]:
     return [*filtered, "-C", f"metadata={digest}"]
 
 
+def linker_environment(compiler: str, environ: Mapping[str, str]) -> dict[str, str]:
+    """Restore the toolchain library path that macOS strips from this wrapper.
+
+    rust-lld loads the toolchain's libLLVM.dylib through the dyld fallback path
+    rustup sets; System Integrity Protection removes it when `/usr/bin/env`
+    starts this script (rust-lang/rust#163947).
+    """
+    env = dict(environ)
+    resolved = shutil.which(compiler)
+    if sys.platform == "darwin" and resolved:
+        lib = Path(resolved).resolve().parent.parent / "lib"
+        if (lib / "libLLVM.dylib").exists():
+            fallback = env.get("DYLD_FALLBACK_LIBRARY_PATH")
+            env["DYLD_FALLBACK_LIBRARY_PATH"] = (
+                f"{lib}{os.pathsep}{fallback}" if fallback else str(lib)
+            )
+    return env
+
+
 if __name__ == "__main__":
     command = [sys.argv[1], *compiler_args(sys.argv[2:], os.environ)]
+    os.environ.update(linker_environment(sys.argv[1], os.environ))
     # Cargo supplies the compiler; retain its exit and signal behavior.
     os.execvp(sys.argv[1], command)  # noqa: S606

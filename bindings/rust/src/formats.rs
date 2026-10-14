@@ -78,7 +78,7 @@ impl Scanner {
                 let selected_rare = if matches!(mask, 8 | 16384) { mask } else { 0 };
                 // Every non-retail linear format reuses the localized boxes; Low does the same in
                 // its fast path. DataBar and DataBar Expanded gained most (Low reads them best).
-                let oriented_mask = mask & (496 | 8192 | 16384) | selected_rare;
+                let oriented_mask = mask & (0x01F0 | 0x2000 | 0x4000) | selected_rare;
                 let (mut found, mut pending) = crate::fast_linear::recover_proposals(
                     image,
                     &proposals,
@@ -104,12 +104,12 @@ impl Scanner {
                 }
                 reads.extend(found);
                 // Independent short-code source hypothesis, bounded to unresolved proposals.
-                if reads.is_empty() && mask & 12 != 0 {
+                if reads.is_empty() && mask & 0b1100 != 0 {
                     let unresolved: Vec<_> = proposals.iter().take(4).copied().collect();
                     let (mut extra, regions) = crate::fast_linear::recover_proposals_contrast(
                         image,
                         &unresolved,
-                        mask & 12,
+                        mask & 0b1100,
                         sampler,
                         1.5,
                     )?;
@@ -167,7 +167,7 @@ impl Scanner {
                     }
                 }
                 // Reuse rejected narrow groups only after ordinary Medium recovery fails.
-                if crate::MODE_ID == 1 && reads.is_empty() && mask & 12 != 0 {
+                if crate::MODE_ID == 1 && reads.is_empty() && mask & 0b1100 != 0 {
                     let hypotheses = if let Some(cached) =
                         primary.and_then(|p| p.short_fragments.as_ref())
                     {
@@ -218,7 +218,7 @@ impl Scanner {
                     let (extra, regions) = crate::fast_linear::recover_proposals_contrast(
                         image,
                         &hypotheses,
-                        mask & 12,
+                        mask & 0b1100,
                         sampler,
                         1.5,
                     )?;
@@ -287,7 +287,7 @@ impl Scanner {
                     }
                 }
                 #[cfg(feature = "medium")]
-                if mask & 12 != 0 && image.width.max(image.height) > 768 {
+                if mask & 0b1100 != 0 && image.width.max(image.height) > 768 {
                     crate::short_crop::recover(
                         &mut self.localizer,
                         image,
@@ -333,10 +333,10 @@ impl Scanner {
             ..options
         };
         let shared_retail =
-            crate::MODE_ID != 0 && addons == EanAddOnPolicy::Ignore && mask & 12 != 0;
+            crate::MODE_ID != 0 && addons == EanAddOnPolicy::Ignore && mask & 0b1100 != 0;
         let (extras, coverage) = scan_additional(
             image,
-            if shared_retail { mask & !12 } else { mask },
+            if shared_retail { mask & !0b1100 } else { mask },
             addons,
             &mut self.additional_gray,
         )?;
@@ -667,7 +667,9 @@ fn gray_rows<const CHANNELS: usize>(image: Image<'_>, gray: &mut [u8]) {
         .zip(gray.chunks_mut(image.width))
     {
         for (pixel, value) in source[..image.width * CHANNELS]
-            .chunks_exact(CHANNELS)
+            .as_chunks::<CHANNELS>()
+            .0
+            .iter()
             .zip(target)
         {
             *value = ((u32::from(pixel[0]) * 77
@@ -1200,7 +1202,7 @@ mod coverage_tests {
         proposals[62].polygon = quad;
         assert_eq!(
             uncovered_mask(&proposals, &[quad], u64::MAX),
-            u64::MAX & !1 & !(1 << 62)
+            !1 & !(1 << 62)
         );
         assert_eq!(uncovered_mask(&proposals, &[quad], 1 << 63), 1 << 63);
         assert!(contains_point([0., 5.], &quad));

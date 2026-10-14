@@ -47,7 +47,7 @@ pub(crate) fn runs(row: &[u8]) -> (Vec<bool>, Vec<f32>, Vec<usize>) {
     let mut edges = vec![0.];
     for pair in extrema.windows(2) {
         let [(left, a), (right, b)] = [pair[0], pair[1]];
-        let cut = (f32::from(a) + f32::from(b)) * 0.5;
+        let cut = f32::midpoint(f32::from(a), f32::from(b));
         for i in left + 1..=right {
             let previous = f32::from(row[i - 1]);
             let next = f32::from(row[i]);
@@ -144,7 +144,7 @@ mod tests {
                 assert_eq!(offsets, [0, 100]);
             }
         }
-        assert!(runs(&[]).0.is_empty());
+        assert!(runs(&[]).0.is_empty(), "expected no runs");
     }
 
     #[test]
