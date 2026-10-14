@@ -94,10 +94,21 @@ gives names such as `"QRCode"`.
 rows. Size limits and conversion rules are in
 [API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md#images).
 
-Byte arrays are copied when scanning, limited to the addressed bytes. Native
-segments are read in place without a copy, which suits camera frames: wrap a
-direct `ByteBuffer` with `MemorySegment.ofBuffer(buffer)`. Keep a native segment
-alive and unchanged until the scan returns.
+Byte arrays are copied when scanning, limited to the addressed bytes, into a
+buffer the scanner reuses until `close()` (about 1 ms for 12 MP RGBA on an M1,
+5 ms on Linux x86-64). Native segments are read in place without a copy, which
+suits camera frames: wrap a direct `ByteBuffer` with `MemorySegment.ofBuffer(buffer)`.
+Keep a native segment alive and unchanged until the scan returns. Gray input is as
+good as color; do not convert color for scanning.
+
+## Fast scanning
+
+Create one `Scanner` per thread and reuse it; `Tapirscan.scan` creates a scanner
+per call. Select only the formats you need, since each enabled 2D format searches
+the whole image, and use `Mode.LOW` for camera frames. Scans with several 2D
+formats also use extra threads internally; on servers that already run one scanner
+per core, set `TAPIRSCAN_THREADS=1`. Kotlin on the JVM uses the same API. See
+[fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).
 
 ## Building and loading the native library
 
@@ -115,7 +126,9 @@ found, creating the first scanner throws `IllegalArgumentException` from the
 JDK's library lookup; an incompatible build throws `IllegalStateException`
 ("Native ABI mismatch" or a missing symbol). Rebuild the library to match.
 `--enable-native-access=ALL-UNNAMED` avoids the JDK's native-access warning. The
-JAR and the native library are distributed separately; Android is not supported.
+JAR and the native library are distributed separately. Android is not supported:
+its runtime lacks the Foreign Function & Memory API. Android apps can call the C
+library through JNI, or use the JavaScript package in a WebView.
 
 ## License
 

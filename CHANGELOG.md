@@ -11,6 +11,14 @@
   grayscale copy, with results in the supplied image's coordinates.
 - Fixed an integer overflow in the QR retry for images wider than about 4.5
   million pixels in WebAssembly.
+- Native builds (C, C++, Java, Python, Rust) run the enabled 2D readers of one scan
+  on separate threads, with identical results: with all formats, Low scans are
+  1.6-1.75× and Medium scans 1.25-1.35× faster (AMD Ryzen 7 5800X, Apple M1 Pro). Set `TAPIRSCAN_THREADS=1` to
+  keep each scan on one thread, for example on servers running one scanner per core.
+  WebAssembly scans stay single-threaded.
+- Docs: a [fast end-to-end scanning](docs/PERFORMANCE.md) guide with measured costs
+  and the fastest input path per environment; every binding guide now has a short
+  fast-usage section, and the C example reuses its scanner.
 - Faster Low and Medium scans with several formats, with identical results:
   Low mode's QR alignment search uses the precomputed sampling tables Medium
   already had, PDF417 localization precomputes its rotated-row products, and Data

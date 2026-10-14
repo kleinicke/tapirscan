@@ -13,7 +13,16 @@ cargo add tapirscan
 On x86-64, Cargo targets the oldest x86-64 CPUs by default. Building with
 `RUSTFLAGS="-C target-cpu=x86-64-v2"` (SSE4.2; every Intel CPU since 2008 and AMD
 since 2011) makes scans 20-30% faster with identical results; the prebuilt native
-library for C, C++, Java and Python uses it.
+library for C, C++, Java and Python uses it. To keep it for every build, add to
+`.cargo/config.toml`:
+
+```toml
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=x86-64-v2"]
+```
+
+Use the matching target name on Windows (`x86_64-pc-windows-msvc`) or macOS
+(`x86_64-apple-darwin`).
 
 ```rust
 use tapirscan::Image;
@@ -33,6 +42,16 @@ nothing is decoded, `barcodes` is empty. Invalid input or engine failures are
 `Error` values. Results own their data and outlive the input and scanner.
 Support, undecoded regions and image limits are described in
 [API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md).
+
+## Fast scanning
+
+Reuse one `Scanner` per thread; the free `scan` and `inspect` functions create one
+per call. Select only the formats you need, since each enabled 2D format searches
+the whole image, and use `Mode::Low` for camera frames. Pass `GrayImage` or the
+8-bit buffer you already have; do not convert color. Scans with several 2D formats
+also use extra threads internally; set `TAPIRSCAN_THREADS=1` when you already run
+one scanner per core. See
+[fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).
 
 ## Reuse and configuration
 

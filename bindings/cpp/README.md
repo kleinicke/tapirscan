@@ -104,6 +104,28 @@ overloads do not copy: keep the buffer alive and unchanged until the scan call
 returns. Size limits and conversion rules are in
 [API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md#images).
 
+### OpenCV
+
+`cv::Mat` frames are BGR, which has no layout here. Convert to gray, which is also
+the cheapest input, and pass the row stride:
+
+```cpp
+cv::Mat gray;
+cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+const auto image = tapirscan::Image::gray(gray.data, gray.step * gray.rows, gray.cols, gray.rows)
+                       .with_stride(gray.step);
+const auto result = scanner.scan(image);
+```
+
+### Fast scanning
+
+Create one `tapirscan::Scanner` and reuse it for every frame; the free functions
+create a scanner per call. Select only the formats you need, since each enabled 2D
+format searches the whole image, and use `Mode::Low` for camera frames. Use one
+scanner per thread; scans with several 2D formats also use extra threads
+internally (`TAPIRSCAN_THREADS=1` keeps each scan on one thread). See
+[fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).
+
 ## Building and installing
 
 ```sh

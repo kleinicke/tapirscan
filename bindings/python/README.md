@@ -89,6 +89,49 @@ GPU tensors and tensors with `requires_grad=True` work directly: Tapirscan copie
 the pixels to CPU without changing your tensor or its autograd graph. Decoding
 runs on CPU. See [array and tensor inputs](#array-and-tensor-inputs).
 
+## Fast scanning
+
+- **Select only the formats you need.** Each enabled 2D format searches the whole
+  image; `formats="all"` is for exploration.
+- **Reuse a `Scanner`** for more than one image, and use `mode="low"` for camera
+  frames.
+- **Inputs, cheapest first:** contiguous uint8 NumPy arrays (gray, RGB or RGBA,
+  about 1-4 ms extra for 12 MP); uint8 tensors; float arrays and tensors (validated
+  and rounded, on several threads for large arrays); Pillow images (one `tobytes()`
+  copy). CUDA tensors are converted on the GPU and transferred once, so scan
+  tensors where they already are; moving a CPU tensor to the GPU only for scanning
+  does not pay off for uint8 and saves little for large float tensors. Gray and
+  color are equally fine; do not convert color for scanning.
+- **Threads and servers:** scanning releases the GIL, so one scanner per thread
+  scales with CPU cores (about 7× with 8 threads). Create one per worker thread,
+  for example with `threading.local()` or a `ThreadPoolExecutor` initializer. In
+  FastAPI and other async frameworks, scan in a sync endpoint or thread pool so the
+  event loop keeps running. With `multiprocessing`, create the scanner inside each
+  process. Scans with several 2D formats also use extra threads internally; set
+  `TAPIRSCAN_THREADS=1` when you already run one scanner per core.
+
+```python
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+import tapirscan
+
+local = threading.local()
+
+
+def scan(image):
+    if not hasattr(local, "scanner"):
+        local.scanner = tapirscan.Scanner(formats=["EAN13", "QRCode"])
+    return local.scanner.scan(image).values
+
+
+with ThreadPoolExecutor() as pool:
+    results = list(pool.map(scan, images))
+```
+
+See [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md)
+for measured costs.
+
 ## Functions
 
 ```python
@@ -169,7 +212,21 @@ if image is None:
 result = tapirscan.scan(image, color_order="BGR")
 ```
 
-OpenCV is not a dependency. `color_order="BGR"` does not modify your array.
+OpenCV is not a dependency. `color_order="BGR"` does not modify your array; do not
+call `cv2.cvtColor` just for scanning. When color is not needed, reading with
+`cv2.imread("label.jpg", cv2.IMREAD_GRAYSCALE)` is the cheapest input. For a camera
+or video, reuse one scanner:
+
+```python
+capture = cv2.VideoCapture(0)
+with tapirscan.Scanner(mode="low", formats=["EAN13", "QRCode"]) as scanner:
+    while True:
+        ok, frame = capture.read()
+        if not ok:
+            break
+        for barcode in scanner.scan(frame, color_order="BGR").barcodes:
+            print(barcode.text, barcode.rect)
+```
 
 ### Pillow
 

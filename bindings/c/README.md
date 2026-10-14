@@ -18,30 +18,39 @@ shared library contains all four effort modes.
 #include <stdlib.h>
 #include <tapirscan.h>
 
-int scan_rgba(const uint8_t *pixels, uint64_t width, uint64_t height) {
+/* Scan one RGBA frame with a scanner the caller created once and reuses. */
+int32_t scan_rgba(tapirscan_scanner scanner, const uint8_t *pixels, uint64_t width,
+                  uint64_t height) {
+    tapirscan_image image = {pixels, width * height * 4, width, height, 4, 0};
+    tapirscan_result result;
+    int32_t status = tapirscan_scan(scanner, &image, NULL, &result, NULL);
+    if (status != TAPIRSCAN_OK) {
+        fprintf(stderr, "%s\n", tapirscan_status_message(status));
+        return status;
+    }
+    uint64_t count = 0;
+    tapirscan_result_count(result, &count);
+    for (uint64_t i = 0; i < count; i++) {
+        tapirscan_barcode barcode;
+        if (tapirscan_result_barcode(result, i, &barcode) != TAPIRSCAN_OK) continue;
+        char *text = malloc(barcode.text_length + 1); /* the copy adds a NUL */
+        if (text && tapirscan_result_copy(result, i, TAPIRSCAN_FIELD_TEXT, (uint8_t *)text,
+                                          barcode.text_length + 1) == TAPIRSCAN_OK) {
+            printf("%s %s at (%.1f, %.1f)\n", tapirscan_format_name(barcode.format), text,
+                   barcode.polygon[0].x, barcode.polygon[0].y);
+        }
+        free(text);
+    }
+    tapirscan_result_destroy(result);
+    return TAPIRSCAN_OK;
+}
+
+int scan_frames(const uint8_t *const *frames, size_t count, uint64_t width, uint64_t height) {
     tapirscan_scanner scanner;
     int32_t status = tapirscan_scanner_create(NULL, &scanner, NULL); /* Medium, retail */
     if (status != TAPIRSCAN_OK) return status;
-    tapirscan_image image = {pixels, width * height * 4, width, height, 4, 0};
-    tapirscan_result result;
-    status = tapirscan_scan(scanner, &image, NULL, &result, NULL);
-    if (status == TAPIRSCAN_OK) {
-        uint64_t count = 0;
-        tapirscan_result_count(result, &count);
-        for (uint64_t i = 0; i < count; i++) {
-            tapirscan_barcode barcode;
-            if (tapirscan_result_barcode(result, i, &barcode) != TAPIRSCAN_OK) continue;
-            char *text = malloc(barcode.text_length + 1); /* the copy adds a NUL */
-            if (text && tapirscan_result_copy(result, i, TAPIRSCAN_FIELD_TEXT, (uint8_t *)text,
-                                              barcode.text_length + 1) == TAPIRSCAN_OK) {
-                printf("%s %s at (%.1f, %.1f)\n", tapirscan_format_name(barcode.format), text,
-                       barcode.polygon[0].x, barcode.polygon[0].y);
-            }
-            free(text);
-        }
-        tapirscan_result_destroy(result);
-    } else {
-        fprintf(stderr, "%s\n", tapirscan_status_message(status));
+    for (size_t i = 0; i < count && status == TAPIRSCAN_OK; i++) {
+        status = scan_rgba(scanner, frames[i], width, height);
     }
     tapirscan_scanner_destroy(scanner);
     return status;

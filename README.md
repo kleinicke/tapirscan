@@ -85,7 +85,8 @@ for (const barcode of result.barcodes) {
 `result.values` contains decoded strings. `result.barcodes` pairs each value
 with its format, four polygon corners and enclosing rectangle, in input-image
 pixels. Both are empty when nothing is decoded. Use `inspect` instead of `scan`
-for timing, unread regions and diagnostics.
+for timing, unread regions and diagnostics. The one-shot `scan` starts a worker for
+each call; for more than one image, create a `Scanner` once and reuse it.
 
 Node and code that already has decoded pixels use the core `tapirscan` entry.
 React, Svelte and Vite setup, camera scanning and Node loading are in the
@@ -111,9 +112,10 @@ for barcode in result.barcodes:
     print(barcode.text, barcode.format, barcode.rect)
 ```
 
-Defaults are Medium effort and retail formats. For other linear formats, pass
-`formats="1D"`; use `"2D"` or `"all"` as needed. Set `mode="high"` for more
-effort on difficult images.
+Defaults are Medium effort and retail formats. Select exactly the formats you need,
+for example `formats=["EAN13", "QRCode"]`, or `"1D"`, `"2D"` or `"all"`; each enabled
+2D format adds work to every scan. Set `mode="high"` for more effort on difficult
+images. For many images, create one `tapirscan.Scanner(...)` and call `scanner.scan`.
 
 The Python guide covers [TIFF images](bindings/python/README.md#tiff-with-tifffile),
 [PyTorch tensors](bindings/python/README.md#pytorch-tensors), and
@@ -150,6 +152,16 @@ Effort modes tune EAN/UPC, common linear formats, QR Code, Data Matrix and Aztec
 (see [effort levels](docs/FORMATS.md#effort-levels)); PDF417 and MaxiCode use a fixed
 effort.
 
+## Scan fast
+
+Speed is mostly decided by four choices: enable only the formats you need (each 2D
+format adds a search of the whole image), reuse one scanner, use `low` for camera
+frames, and pass decoded 8-bit pixels at the size you need (1-2 megapixel camera
+frames rather than 12-megapixel stills). On 960×960 photos, Low with retail formats
+takes about 5 ms per scan natively, Medium with all formats about 37-62 ms. See
+[fast end-to-end scanning](docs/PERFORMANCE.md) for measured costs and the fastest
+input path in browsers, Node, Python, Java, C, C++, Rust and mobile apps.
+
 JavaScript also offers **experimental Turbo presets** for faster 1D scanning:
 `experimentalTurbo: 2 | 4 | 8 | 16`. They trade difficult-image recovery for less
 work. See [usage and stability](bindings/javascript/README.md#experimental-turbo-presets).
@@ -170,6 +182,7 @@ it expects. Wrong reads, duplicates and missed symbols remain possible.
 | Scan Python images and arrays      | [Python](bindings/python/README.md)                                                                                        |
 | Use another native language        | [Rust](bindings/rust/README.md), [C](bindings/c/README.md), [C++](bindings/cpp/README.md), [Java](bindings/java/README.md) |
 | Choose formats                     | [Format coverage](docs/FORMATS.md)                                                                                         |
+| Make scanning fast                 | [Fast end-to-end scanning](docs/PERFORMANCE.md)                                                                            |
 | Understand the scanner             | [Comparison](docs/COMPARISON.md) · [Architecture](docs/ARCHITECTURE.md)                                                    |
 | Evaluate performance fairly        | [Benchmark guide](docs/BENCHMARKS.md)                                                                                      |
 | Build or contribute                | [Development](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md)                                                       |

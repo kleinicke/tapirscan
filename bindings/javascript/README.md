@@ -26,7 +26,8 @@ const result = await scan(file); // a File from <input type="file">
 console.log(result.values); // e.g. ["4006381333931"]
 ```
 
-Reuse a scanner for several images or camera frames. Construction is synchronous:
+The one-shot `scan` starts and stops a worker for every call. Reuse a scanner for
+several images or camera frames. Construction is synchronous:
 the worker and WASM load in the background, and the first scan waits for them.
 
 ```js
@@ -64,8 +65,12 @@ export default function BarcodeScanner() {
 
   useEffect(() => {
     const element = video.current;
-    const scanner = new Scanner();
-    const camera = navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    // Select only the formats you need; `mode: "low"` keeps up on slower phones.
+    const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
+    // 720p frames scan much faster than a camera's full resolution.
+    const camera = navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+    });
     let running = true; // React StrictMode mounts twice in development
     // One cleanup for unmounting and for failures: stop scanning and the camera.
     const stop = () => {
@@ -170,8 +175,8 @@ were verified by hand.
   `scan(image, { formats })` overrides the formats for one call. `wasmBaseUrl`
   serves the WASM files from another directory. `loadWasm` needs the core.
   `scan(pixels, { transfer: true })` hands a decoded-pixel buffer to the worker
-  instead of copying it, which saves one full copy per call (about 4 ms for 12 MP
-  RGBA on an M1, more on slower devices); the buffer is detached (length 0) once
+  instead of copying it, which saves one full copy per call (for 12 MP RGBA, 5 ms
+  on an M1 under macOS and 27 ms on a Ryzen under Linux); the buffer is detached (length 0) once
   the call starts. It applies when the pixels span their whole, non-shared
   `ArrayBuffer`; other inputs are copied as usual.
 - **Lifecycle:** `scanner.ready` resolves once loaded; awaiting it is optional,
@@ -187,6 +192,23 @@ were verified by hand.
 - **Deployment size:** bundlers emit all eight WASM files (four modes and four
   Turbo presets, 1.8–2.5 MB each, about 16 MB together), so any can be selected
   without configuration. A page downloads only the one its scanner uses.
+
+**Fast scanning in the browser:**
+
+- Select only the formats you need; each enabled 2D format searches the whole image.
+- Reuse one `Scanner`. For camera loops, request 720p or 1080p frames, and use
+  `mode: "low"` or a [Turbo preset](#experimental-turbo-presets) if the preview
+  stutters.
+- Cheapest inputs first: decoded pixels with `{ transfer: true }`, decoded pixels or
+  `ImageData`, then `<video>`/canvas sources (a canvas readback each), then
+  `File`/`Blob` (includes image decoding). Pass gray or RGBA as you have it; do not
+  convert color.
+- A scanner's WASM memory grows to its largest image (about 50 MB after 12 MP,
+  210 MB after 48 MP); on phones, scan occasional large photos with a separate
+  scanner and dispose it.
+
+See [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md)
+for measured costs.
 
 The [camera example](examples/camera.html) is a complete page: from this
 directory (or the installed package), run `python3 -m http.server` and open
@@ -205,8 +227,8 @@ const result = await scan(image);
 console.log(result.values); // e.g. ["4006381333931"]
 ```
 
-The one-shot helper creates and disposes a scanner. Defaults are Medium effort
-and retail formats. In browsers the core needs its [WASM assets](#wasm-loading)
+The one-shot helper creates and disposes a scanner, which costs about 2 ms per call;
+reuse a scanner for repeated images. Defaults are Medium effort and retail formats. In browsers the core needs its [WASM assets](#wasm-loading)
 served; Node loads the packaged files automatically.
 
 Reuse a scanner for repeated images. Its scans are synchronous:
@@ -287,15 +309,16 @@ example with [sharp](https://sharp.pixelplumbing.com):
 
 ```js
 import sharp from "sharp";
-import { scan } from "tapirscan";
+import { Scanner } from "tapirscan";
 
-const { data, info } = await sharp("label.jpg").raw().toBuffer({ resolveWithObject: true });
-const result = await scan({
-  data,
-  width: info.width,
-  height: info.height,
-  channels: info.channels,
-});
+const scanner = await Scanner.create({ formats: ["EAN13", "QRCode"] });
+for (const file of files) {
+  // Decoding straight to gray is the cheapest input; `.raw()` alone gives RGB(A).
+  const { data, info } = await sharp(file).greyscale().raw().toBuffer({ resolveWithObject: true });
+  const result = scanner.scan({ data, width: info.width, height: info.height, channels: 1 });
+  console.log(file, result.values);
+}
+scanner.dispose();
 ```
 
 Filenames, URLs and encoded JPEG/PNG bytes are not scan inputs.
