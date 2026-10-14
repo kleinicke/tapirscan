@@ -88,27 +88,42 @@ fn gray(image: Image<'_>, work: f64) -> (Vec<f32>, usize, usize, f64) {
     // modules shrink below one working pixel into short, misplaced segments. Four samples keep
     // the cost bounded by the working raster rather than the source size.
     let at = |o: usize, f: f64, n: usize| (((o as f64 + f) / s) as usize).min(n - 1);
-    let xs: Vec<[usize; 2]> = (0..w)
-        .map(|ox| [at(ox, 0.25, image.width), at(ox, 0.75, image.width)])
-        .collect();
     let channels = image.channels;
-    let luma = |row: &[u8], x: usize| -> u32 {
-        let p = &row[x * channels..];
-        if channels == 1 {
-            256 * u32::from(p[0])
-        } else {
-            77 * u32::from(p[0]) + 150 * u32::from(p[1]) + 29 * u32::from(p[2])
-        }
-    };
+    // Byte offsets of each cell's two sample columns.
+    let xs: Vec<[usize; 2]> = (0..w)
+        .map(|ox| {
+            [
+                at(ox, 0.25, image.width) * channels,
+                at(ox, 0.75, image.width) * channels,
+            ]
+        })
+        .collect();
     for oy in 0..h {
         let r0 = &image.data[at(oy, 0.25, image.height) * image.stride..];
         let r1 = &image.data[at(oy, 0.75, image.height) * image.stride..];
-        for (v, &[x0, x1]) in g[oy * w..(oy + 1) * w].iter_mut().zip(&xs) {
-            let sum = luma(r0, x0) + luma(r0, x1) + luma(r1, x0) + luma(r1, x1);
-            *v = sum as f32 / 1024.;
+        let cells = &mut g[oy * w..(oy + 1) * w];
+        match channels {
+            1 => average_cells::<1>(r0, r1, &xs, cells),
+            3 => average_cells::<3>(r0, r1, &xs, cells),
+            _ => average_cells::<4>(r0, r1, &xs, cells),
         }
     }
     (g, w, h, s)
+}
+
+/// Average each cell's 2 x 2 luma samples, specialized per channel count.
+fn average_cells<const C: usize>(r0: &[u8], r1: &[u8], xs: &[[usize; 2]], cells: &mut [f32]) {
+    let luma = |row: &[u8], x: usize| -> u32 {
+        if C == 1 {
+            256 * u32::from(row[x])
+        } else {
+            77 * u32::from(row[x]) + 150 * u32::from(row[x + 1]) + 29 * u32::from(row[x + 2])
+        }
+    };
+    for (v, &[x0, x1]) in cells.iter_mut().zip(xs) {
+        let sum = luma(r0, x0) + luma(r0, x1) + luma(r1, x0) + luma(r1, x1);
+        *v = sum as f32 / 1024.;
+    }
 }
 
 /// Polynomial arctangent (error below 0.005 rad), ample for 22.5 degree bins.
