@@ -65,18 +65,7 @@ impl<'a> Image<'a> {
         self
     }
     pub(crate) fn validate(self) -> Result<(), Error> {
-        if self.width < 3
-            || self.height < 3
-            || self.width.max(self.height) > 65_535
-            || self
-                .width
-                .checked_mul(self.height)
-                .is_none_or(|n| n > 256 * 1024 * 1024)
-        {
-            return Err(Error::InvalidImage(
-                "dimensions must be 3 to 65,535 pixels per side and at most 256 megapixels",
-            ));
-        }
+        validate_size(self.width, self.height)?;
         let row = self
             .width
             .checked_mul(self.channels)
@@ -95,6 +84,22 @@ impl<'a> Image<'a> {
         }
         Ok(())
     }
+}
+
+/// Reject dimensions outside 3 to 65,535 pixels per side or above 256 megapixels.
+pub(crate) fn validate_size(width: usize, height: usize) -> Result<(), Error> {
+    if width < 3
+        || height < 3
+        || width.max(height) > 65_535
+        || width
+            .checked_mul(height)
+            .is_none_or(|n| n > 256 * 1024 * 1024)
+    {
+        return Err(Error::InvalidImage(
+            "dimensions must be 3 to 65,535 pixels per side and at most 256 megapixels",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(feature = "image")]
@@ -117,3 +122,23 @@ image_buffer!(GrayImage, gray);
 image_buffer!(RgbImage, rgb);
 #[cfg(feature = "image")]
 image_buffer!(RgbaImage, rgba);
+
+/// Borrow an 8-bit gray, RGB or RGBA `DynamicImage`, such as a decoded JPEG,
+/// without copying pixels.
+#[cfg(feature = "image")]
+impl<'a> TryFrom<&'a image::DynamicImage> for Image<'a> {
+    type Error = Error;
+
+    /// # Errors
+    /// Other pixel formats need conversion first, for example `to_rgb8()`.
+    fn try_from(image: &'a image::DynamicImage) -> Result<Self, Error> {
+        match image {
+            image::DynamicImage::ImageLuma8(pixels) => Ok(pixels.into()),
+            image::DynamicImage::ImageRgb8(pixels) => Ok(pixels.into()),
+            image::DynamicImage::ImageRgba8(pixels) => Ok(pixels.into()),
+            _ => Err(Error::InvalidImage(
+                "only 8-bit gray, RGB and RGBA images are borrowed; convert others with to_rgb8()",
+            )),
+        }
+    }
+}

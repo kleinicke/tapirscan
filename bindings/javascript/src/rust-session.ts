@@ -11,6 +11,16 @@ export class ScannerError extends Error {
   }
 }
 
+/** Pixels the engine scans directly; larger images are reduced (Rust `WORKING_PIXELS`). */
+export const workingPixels = 32 * 1024 * 1024;
+
+/** Write `count` packed rows starting at row `y` into `target`. */
+export type RowReader = (y: number, count: number, target: Uint8Array) => void;
+/** Compiled modules per loaded byte buffer: scanners from cached bytes skip compiling. */
+const compiled = new WeakMap<ArrayBuffer, Promise<WebAssembly.Module>>();
+/** Row chunk size for images above the working size. */
+const chunkBytes = 4 * 1024 * 1024;
+
 interface RustExports extends WebAssembly.Exports {
   memory: WebAssembly.Memory;
   tapirscan_abi_version: () => number;
@@ -25,6 +35,14 @@ interface RustExports extends WebAssembly.Exports {
     channels: number,
     stride: number,
   ) => number;
+  tapirscan_prepare_rows: (
+    handle: number,
+    width: number,
+    height: number,
+    channels: number,
+    chunkRows: number,
+  ) => number;
+  tapirscan_push_rows: (handle: number, count: number) => number;
   tapirscan_input_ptr: (handle: number) => number;
   tapirscan_input_len: (handle: number) => number;
   tapirscan_scan: (handle: number, flags: number, formats: number) => number;
@@ -38,6 +56,8 @@ const exportNames = [
   "tapirscan_create",
   "tapirscan_destroy",
   "tapirscan_prepare",
+  "tapirscan_prepare_rows",
+  "tapirscan_push_rows",
   "tapirscan_input_ptr",
   "tapirscan_input_len",
   "tapirscan_scan",
@@ -72,14 +92,21 @@ export class RustScannerSession {
     addOnPolicy: number,
     experimentalTurbo = 0,
   ): Promise<RustScannerSession> {
-    const instance = await WebAssembly.instantiate(bytes, {});
-    const exports = instance.instance.exports as RustExports;
+    let module = compiled.get(bytes);
+    if (!module) {
+      module = WebAssembly.compile(bytes);
+      compiled.set(bytes, module);
+      // A failed compile is retried with the next scanner.
+      module.catch(() => compiled.delete(bytes));
+    }
+    const instance = await WebAssembly.instantiate(await module, {});
+    const exports = instance.exports as RustExports;
     if (!(exports.memory instanceof WebAssembly.Memory))
       throw new ScannerError("abi_shape", "Missing WASM memory");
     for (const name of exportNames)
       if (typeof exports[name] !== "function")
         throw new ScannerError("abi_shape", `Missing WASM export: ${name}`);
-    if (exports.tapirscan_abi_version() !== 2)
+    if (exports.tapirscan_abi_version() !== 3)
       throw new ScannerError("abi_version", "Unsupported scanner ABI");
     if (exports.tapirscan_mode() !== mode)
       throw new ScannerError("abi_mode", "Scanner WASM mode does not match the requested mode");
@@ -101,22 +128,53 @@ export class RustScannerSession {
     formats: number,
   ): unknown {
     const exports = this.activeExports();
-    status(
-      exports.tapirscan_prepare(
-        this.handle,
-        image.width,
-        image.height,
-        image.channels,
-        image.stride,
-      ),
-      "Image preparation",
-    );
-    const length = exports.tapirscan_input_len(this.handle);
-    const expected = (image.height - 1) * image.stride + image.width * image.channels;
-    if (length !== expected) throw new ScannerError("abi_shape", "Input allocation mismatch");
-    new Uint8Array(exports.memory.buffer, exports.tapirscan_input_ptr(this.handle), length).set(
-      image.data.subarray(0, length),
-    );
+    if (image.width * image.height > workingPixels) {
+      const row = image.width * image.channels;
+      this.pushRows(exports, image, (y, count, target) => {
+        if (image.stride === row) target.set(image.data.subarray(y * row, (y + count) * row));
+        else
+          for (let i = 0; i < count; i++) {
+            const start = (y + i) * image.stride;
+            target.set(image.data.subarray(start, start + row), i * row);
+          }
+      });
+    } else {
+      status(
+        exports.tapirscan_prepare(
+          this.handle,
+          image.width,
+          image.height,
+          image.channels,
+          image.stride,
+        ),
+        "Image preparation",
+      );
+      const length = exports.tapirscan_input_len(this.handle);
+      const expected = (image.height - 1) * image.stride + image.width * image.channels;
+      if (length !== expected) throw new ScannerError("abi_shape", "Input allocation mismatch");
+      new Uint8Array(exports.memory.buffer, exports.tapirscan_input_ptr(this.handle), length).set(
+        image.data.subarray(0, length),
+      );
+    }
+    return this.finish(exports, flags, formats);
+  }
+
+  /**
+   * Scan an image above the working size whose packed rows `read` writes on
+   * demand, top to bottom, so no full-size copy has to exist anywhere.
+   */
+  scanRows(
+    image: { width: number; height: number; channels: number },
+    read: RowReader,
+    flags: number,
+    formats: number,
+  ): unknown {
+    const exports = this.activeExports();
+    this.pushRows(exports, image, read);
+    return this.finish(exports, flags, formats);
+  }
+
+  private finish(exports: RustExports, flags: number, formats: number): unknown {
     const result = exports.tapirscan_scan(this.handle, flags, formats);
     const output = new Uint8Array(
       exports.memory.buffer,
@@ -137,6 +195,43 @@ export class RustScannerSession {
       throw new ScannerError(result === 4 ? "engine" : `core_${String(result)}`, message);
     }
     return decoded;
+  }
+
+  /**
+   * Stream an image above the working size into WASM in chunks of rows, so WASM
+   * memory holds a chunk and the reduced image instead of the whole image.
+   */
+  private pushRows(
+    exports: RustExports,
+    image: { width: number; height: number; channels: number },
+    read: RowReader,
+  ): void {
+    const row = image.width * image.channels;
+    const chunkRows = Math.max(1, Math.floor(chunkBytes / row));
+    status(
+      exports.tapirscan_prepare_rows(
+        this.handle,
+        image.width,
+        image.height,
+        image.channels,
+        chunkRows,
+      ),
+      "Image preparation",
+    );
+    const capacity = exports.tapirscan_input_len(this.handle);
+    if (capacity !== row * Math.min(chunkRows, image.height))
+      throw new ScannerError("abi_shape", "Input allocation mismatch");
+    for (let y = 0; y < image.height; y += chunkRows) {
+      const count = Math.min(chunkRows, image.height - y);
+      // Pushing rows may grow WASM memory, so take a fresh view for every chunk.
+      const target = new Uint8Array(
+        exports.memory.buffer,
+        exports.tapirscan_input_ptr(this.handle),
+        count * row,
+      );
+      read(y, count, target);
+      status(exports.tapirscan_push_rows(this.handle, count), "Image rows");
+    }
   }
 
   dispose(): void {

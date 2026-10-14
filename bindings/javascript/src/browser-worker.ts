@@ -8,6 +8,7 @@ import {
   type PixelImage,
   type ScanOptions,
 } from "./index.js";
+import { scanRows, workingPixels, type RowImage, type RowReader } from "./row-scan.js";
 
 /** Scanner options that can cross the worker boundary. */
 export interface WorkerScannerOptions {
@@ -55,13 +56,59 @@ async function load(url: URL): Promise<ArrayBuffer> {
   return response.arrayBuffer();
 }
 
-/** Canvas reused across calls; it is resized only when the image size changes. */
+/**
+ * Canvas reused for images up to 16 Mi pixels (4K frames, 12-megapixel photos), so
+ * it holds at most 64 MiB; it is resized only when the image size changes.
+ */
 let decodeContext: OffscreenCanvasRenderingContext2D | undefined;
+const reusedPixels = 16 * 1024 * 1024;
+/**
+ * Pixel bytes per band when a large image is decoded band by band. Each band of a
+ * GPU-backed bitmap costs one readback: 64 MiB (three bands at 48 MP) measured
+ * 17% slower than one full-size canvas for canvas sources and as fast for Blobs.
+ */
+const bandBytes = 64 * 1024 * 1024;
 
-/** Decode a Blob or ImageBitmap onto white RGBA pixels; pixel inputs pass through. */
-async function pixels(source: WorkerSource): Promise<PixelImage> {
-  if (!(source instanceof Blob) && !(source instanceof ImageBitmap)) return source;
+function context2d(width: number, height: number): OffscreenCanvasRenderingContext2D {
+  const reuse = width * height <= reusedPixels;
+  if (reuse && decodeContext) {
+    if (decodeContext.canvas.width !== width || decodeContext.canvas.height !== height) {
+      decodeContext.canvas.width = width;
+      decodeContext.canvas.height = height;
+    }
+    return decodeContext;
+  }
+  const created = new OffscreenCanvas(width, height).getContext("2d", {
+    willReadFrequently: true,
+  });
+  if (!created) throw new Error("2D canvas is unavailable in this browser's workers");
+  if (reuse) decodeContext = created;
+  return created;
+}
+
+/** Composite `bitmap` onto white, as images are displayed, with its row `top` at y = 0. */
+function draw(context: OffscreenCanvasRenderingContext2D, bitmap: ImageBitmap, top: number): void {
+  // The scanner ignores alpha, so transparent areas would otherwise read as black.
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+  context.drawImage(bitmap, 0, -top);
+}
+
+type Decoded =
+  { image: PixelImage; release(): void } | { rows: RowImage; read: RowReader; release(): void };
+
+/**
+ * Decode a Blob or ImageBitmap onto white RGBA pixels; pixel inputs pass through.
+ * Images above the working size are read band by band, so neither a full-size
+ * canvas nor a full-size pixel copy is needed.
+ */
+async function decode(source: WorkerSource): Promise<Decoded> {
+  if (!(source instanceof Blob) && !(source instanceof ImageBitmap))
+    return { image: source, release: () => undefined };
   const bitmap = source instanceof Blob ? await createImageBitmap(source) : source;
+  const release = () => {
+    bitmap.close();
+  };
   try {
     const { width, height } = bitmap;
     // Reject before allocating a canvas; the scanner enforces the same limits.
@@ -74,26 +121,36 @@ async function pixels(source: WorkerSource): Promise<PixelImage> {
       throw new TypeError(
         `Images must be 3 to 65,535 pixels per side and at most 256 megapixels, got ${String(width)}×${String(height)}`,
       );
-    if (decodeContext === undefined) {
-      const created = new OffscreenCanvas(width, height).getContext("2d", {
-        willReadFrequently: true,
-      });
-      if (!created) throw new Error("2D canvas is unavailable in this browser's workers");
-      decodeContext = created;
+    if (width * height > workingPixels) {
+      const band = Math.max(1, Math.floor(bandBytes / (width * 4)));
+      const context = context2d(width, Math.min(band, height));
+      let top = -1;
+      let pixels: Uint8ClampedArray = new Uint8ClampedArray(0);
+      const read: RowReader = (y, count, target) => {
+        for (let done = 0; done < count;) {
+          const row = y + done;
+          if (top < 0 || row < top || row >= top + band) {
+            top = row - (row % band);
+            draw(context, bitmap, top);
+            const rows = Math.min(band, height - top);
+            pixels = context.getImageData(0, 0, width, rows).data;
+          }
+          const take = Math.min(count - done, top + band - row, height - row);
+          const from = (row - top) * width * 4;
+          target.set(pixels.subarray(from, from + take * width * 4), done * width * 4);
+          done += take;
+        }
+      };
+      return { rows: { width, height, channels: 4 }, read, release };
     }
-    const context = decodeContext;
-    if (context.canvas.width !== width || context.canvas.height !== height) {
-      context.canvas.width = width;
-      context.canvas.height = height;
-    }
-    // Composite onto white, as images are displayed: the scanner ignores alpha, so
-    // transparent areas would otherwise read as black.
-    context.fillStyle = "#fff";
-    context.fillRect(0, 0, width, height);
-    context.drawImage(bitmap, 0, 0);
-    return context.getImageData(0, 0, width, height);
-  } finally {
-    bitmap.close();
+    const context = context2d(width, height);
+    draw(context, bitmap, 0);
+    const image = context.getImageData(0, 0, width, height);
+    release();
+    return { image, release: () => undefined };
+  } catch (error) {
+    release();
+    throw error;
   }
 }
 
@@ -112,10 +169,17 @@ async function handle(request: WorkerRequest): Promise<unknown> {
     return { mode: scanner.mode, formats: scanner.formats, eanAddOnPolicy: scanner.eanAddOnPolicy };
   }
   if (!scanner) throw new Error("Scanner is not created");
-  const image = await pixels(request.source);
-  return request.type === "scan"
-    ? scanner.scan(image, request.options)
-    : scanner.inspect(image, request.options);
+  const decoded = await decode(request.source);
+  try {
+    const inspect = request.type === "inspect";
+    if ("rows" in decoded)
+      return scanRows(scanner, decoded.rows, decoded.read, request.options, inspect);
+    return inspect
+      ? scanner.inspect(decoded.image, request.options)
+      : scanner.scan(decoded.image, request.options);
+  } finally {
+    decoded.release();
+  }
 }
 
 scope.onmessage = ({ data: request }) => {

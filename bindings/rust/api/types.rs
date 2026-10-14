@@ -1,5 +1,5 @@
 use crate::{
-    Format, Image,
+    Format,
     format::{
         ALL_FORMATS_MASK, COMMON_LINEAR_MASK, COMMON_MASK, LINEAR_MASK, MATRIX_MASK, RETAIL_MASK,
     },
@@ -308,7 +308,7 @@ impl InspectionResult {
     }
     pub(crate) fn from_engine(
         engine: EngineScan,
-        image: Image<'_>,
+        [width, height]: [usize; 2],
         mode: Mode,
         elapsed: Duration,
     ) -> Self {
@@ -318,7 +318,7 @@ impl InspectionResult {
         Self {
             barcodes,
             undecoded,
-            image_size: [image.width, image.height],
+            image_size: [width, height],
             mode,
             elapsed,
             diagnostics,

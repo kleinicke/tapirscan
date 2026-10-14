@@ -98,8 +98,10 @@ geometry excludes supplements.
 ## Images
 
 The default `image` feature accepts `&image::GrayImage`, `&image::RgbImage` and
-`&image::RgbaImage` without copying pixels. The application decodes image files
-and converts other formats. To omit the image dependency, disable the default
+`&image::RgbaImage` without copying pixels, and `Image::try_from(&dynamic_image)?`
+borrows a `DynamicImage` in one of those formats, such as a decoded JPEG from
+`image::open(path)?`. The application decodes image files and converts other
+formats, for example with `to_rgb8()`. To omit the image dependency, disable the default
 features and list the modes you need; see [build features](#build-features-and-webassembly).
 
 Raw buffers use `Image::gray(data, width, height)`, `Image::rgb(...)` or

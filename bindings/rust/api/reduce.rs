@@ -23,59 +23,136 @@ impl Reduced {
         Image::gray(&self.pixels, self.width, self.height)
     }
     /// Factors from reduced to original coordinates, `[x, y]`.
-    pub(crate) fn scale(&self, original: Image<'_>) -> [f64; 2] {
+    pub(crate) fn scale(&self, [width, height]: [usize; 2]) -> [f64; 2] {
         [
-            original.width as f64 / self.width as f64,
-            original.height as f64 / self.height as f64,
+            width as f64 / self.width as f64,
+            height as f64 / self.height as f64,
         ]
     }
 }
 
 /// Reduce a validated image above [`WORKING_PIXELS`]; `None` when it already fits.
 pub(crate) fn reduce(image: Image<'_>) -> Option<Reduced> {
-    let pixels = image.width * image.height;
-    if pixels <= WORKING_PIXELS {
-        return None;
+    let mut reduction = Reduction::new(image.width, image.height, image.channels)?;
+    let row = image.width * image.channels;
+    for y in 0..image.height {
+        let start = y * image.stride;
+        reduction.push_row(&image.data[start..start + row]);
     }
-    let factor = (WORKING_PIXELS as f64 / pixels as f64).sqrt();
-    let width = ((image.width as f64 * factor) as usize).max(3);
-    let height = ((image.height as f64 * factor) as usize).max(3);
-    let columns = spans(image.width, width);
-    let mut output = vec![0; width * height];
-    // Rows are averaged into luma first, in a contiguous loop, then each output
-    // row is reduced horizontally.
-    let mut rows = vec![0_f32; image.width];
-    for (target, (first, weights)) in output
-        .chunks_exact_mut(width)
-        .zip(spans(image.height, height))
-    {
-        rows.fill(0.);
-        for (offset, &weight) in weights.iter().enumerate() {
+    Some(reduction.finish())
+}
+
+/// Row-at-a-time reduction: source rows arrive top to bottom, and only the few
+/// output rows whose windows cover the current row stay open. Each output row
+/// sums its source rows in the same order as a whole-image pass, so the result
+/// does not depend on how the rows are delivered.
+pub(crate) struct Reduction {
+    source_width: usize,
+    source_height: usize,
+    channels: usize,
+    width: usize,
+    height: usize,
+    columns: Vec<(usize, [f32; TAPS])>,
+    rows: Vec<(usize, [f32; TAPS])>,
+    output: Vec<u8>,
+    /// Output rows still receiving source rows, with their luma sums.
+    open: std::collections::VecDeque<(usize, Vec<f32>)>,
+    /// Finished sums kept for reuse.
+    spare: Vec<Vec<f32>>,
+    next_output: usize,
+    received: usize,
+}
+
+impl Reduction {
+    /// Start reducing validated dimensions; `None` when the image already fits.
+    pub(crate) fn new(source_width: usize, source_height: usize, channels: usize) -> Option<Self> {
+        let pixels = source_width * source_height;
+        if pixels <= WORKING_PIXELS {
+            return None;
+        }
+        let factor = (WORKING_PIXELS as f64 / pixels as f64).sqrt();
+        let width = ((source_width as f64 * factor) as usize).max(3);
+        let height = ((source_height as f64 * factor) as usize).max(3);
+        Some(Self {
+            source_width,
+            source_height,
+            channels,
+            width,
+            height,
+            columns: spans(source_width, width),
+            rows: spans(source_height, height),
+            output: vec![0; width * height],
+            open: std::collections::VecDeque::new(),
+            spare: Vec::new(),
+            next_output: 0,
+            received: 0,
+        })
+    }
+
+    /// Source rows still expected.
+    pub(crate) fn remaining_rows(&self) -> usize {
+        self.source_height - self.received
+    }
+
+    /// Add the next packed source row of `source_width * channels` bytes.
+    pub(crate) fn push_row(&mut self, row: &[u8]) {
+        debug_assert!(self.received < self.source_height);
+        debug_assert_eq!(row.len(), self.source_width * self.channels);
+        let index = self.received;
+        while self.next_output < self.height && self.rows[self.next_output].0 <= index {
+            let mut sums = self.spare.pop().unwrap_or_default();
+            sums.clear();
+            sums.resize(self.source_width, 0.);
+            self.open.push_back((self.next_output, sums));
+            self.next_output += 1;
+        }
+        for (output, sums) in &mut self.open {
+            let (first, weights) = self.rows[*output];
+            let weight = weights[index - first];
             if weight == 0. {
                 continue;
             }
-            let start = (first + offset) * image.stride;
-            let row = &image.data[start..start + image.width * image.channels];
-            match image.channels {
-                1 => add_luma::<1>(row, weight, &mut rows),
-                3 => add_luma::<3>(row, weight, &mut rows),
-                _ => add_luma::<4>(row, weight, &mut rows),
+            match self.channels {
+                1 => add_luma::<1>(row, weight, sums),
+                3 => add_luma::<3>(row, weight, sums),
+                _ => add_luma::<4>(row, weight, sums),
             }
         }
-        for (pixel, (first, weights)) in target.iter_mut().zip(&columns) {
-            let sum: f32 = rows[*first..first + TAPS]
-                .iter()
-                .zip(weights)
-                .map(|(value, weight)| value * weight)
-                .sum();
-            *pixel = (sum + 0.5).clamp(0., 255.) as u8;
+        self.received += 1;
+        // A window covers TAPS source rows; it is complete after its last one.
+        while let Some((output, _)) = self.open.front() {
+            if self.rows[*output].0 + TAPS > self.received {
+                break;
+            }
+            let (output, sums) = self.open.pop_front().expect("checked above");
+            let target = &mut self.output[output * self.width..(output + 1) * self.width];
+            for (pixel, (first, weights)) in target.iter_mut().zip(&self.columns) {
+                let sum: f32 = sums[*first..first + TAPS]
+                    .iter()
+                    .zip(weights)
+                    .map(|(value, weight)| value * weight)
+                    .sum();
+                *pixel = (sum + 0.5).clamp(0., 255.) as u8;
+            }
+            self.spare.push(sums);
         }
     }
-    Some(Reduced {
-        pixels: output,
-        width,
-        height,
-    })
+
+    /// The reduced image once every source row has arrived.
+    pub(crate) fn finish(self) -> Reduced {
+        debug_assert_eq!(self.received, self.source_height);
+        debug_assert!(self.open.is_empty());
+        Reduced {
+            pixels: self.output,
+            width: self.width,
+            height: self.height,
+        }
+    }
+
+    /// Source dimensions, `[width, height]`.
+    pub(crate) fn source_size(&self) -> [usize; 2] {
+        [self.source_width, self.source_height]
+    }
 }
 
 /// Add `weight` times each pixel's luma, with the engine's 77/150/29 weights.
@@ -122,7 +199,7 @@ fn spans(source: usize, target: usize) -> Vec<(usize, [f32; TAPS])> {
 
 #[cfg(test)]
 mod tests {
-    use super::{WORKING_PIXELS, reduce, spans};
+    use super::{Reduction, TAPS, WORKING_PIXELS, add_luma, reduce, spans};
     use crate::Image;
 
     #[test]
@@ -137,6 +214,66 @@ mod tests {
                 }
             }
             assert!(coverage.iter().all(|value| (value - 1.).abs() < 1e-4));
+        }
+    }
+
+    /// The whole-image reduction loop before rows could be streamed.
+    fn whole_image_reference(image: Image<'_>) -> Vec<u8> {
+        let mut reduction = Reduction::new(image.width, image.height, image.channels).unwrap();
+        let (width, height) = (reduction.width, reduction.height);
+        let columns = std::mem::take(&mut reduction.columns);
+        let mut output = vec![0; width * height];
+        let mut rows = vec![0_f32; image.width];
+        for (target, (first, weights)) in output
+            .chunks_exact_mut(width)
+            .zip(spans(image.height, height))
+        {
+            rows.fill(0.);
+            for (offset, &weight) in weights.iter().enumerate() {
+                if weight == 0. {
+                    continue;
+                }
+                let start = (first + offset) * image.stride;
+                let row = &image.data[start..start + image.width * image.channels];
+                match image.channels {
+                    1 => add_luma::<1>(row, weight, &mut rows),
+                    3 => add_luma::<3>(row, weight, &mut rows),
+                    _ => add_luma::<4>(row, weight, &mut rows),
+                }
+            }
+            for (pixel, (first, weights)) in target.iter_mut().zip(&columns) {
+                let sum: f32 = rows[*first..first + TAPS]
+                    .iter()
+                    .zip(weights)
+                    .map(|(value, weight)| value * weight)
+                    .sum();
+                *pixel = (sum + 0.5).clamp(0., 255.) as u8;
+            }
+        }
+        output
+    }
+
+    #[test]
+    fn streamed_rows_match_the_whole_image_reduction_bit_for_bit() {
+        let mut state = 0x2545_f491_u32;
+        let mut noise = |count: usize| -> Vec<u8> {
+            (0..count)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 17;
+                    state ^= state << 5;
+                    state.to_le_bytes()[1]
+                })
+                .collect()
+        };
+        for (width, height, channels) in [(8193, 4100, 1), (6001, 5601, 3), (7000, 5000, 4)] {
+            let pixels = noise(width * height * channels);
+            let image = match channels {
+                1 => Image::gray(&pixels, width, height),
+                3 => Image::rgb(&pixels, width, height),
+                _ => Image::rgba(&pixels, width, height),
+            };
+            assert_eq!(reduce(image).unwrap().pixels, whole_image_reference(image));
         }
     }
 
@@ -156,7 +293,7 @@ mod tests {
         let image = Image::rgb(&pixels, width, height);
         let reduced = reduce(image).unwrap();
         assert!(reduced.width * reduced.height <= WORKING_PIXELS);
-        let [x, y] = reduced.scale(image);
+        let [x, y] = reduced.scale([image.width, image.height]);
         assert!((x - y).abs() < 1e-3, "aspect changed: {x} vs {y}");
         // (77 * 10 + 150 * 128 + 29 * 250) / 256 = 106.3
         assert!(reduced.pixels.iter().all(|&value| value == 106));

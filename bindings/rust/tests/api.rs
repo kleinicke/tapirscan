@@ -249,6 +249,29 @@ fn image_crate_buffers_work_without_pixel_copies() {
             .collect::<Vec<_>>(),
         [TEXT]
     );
+    // A decoded DynamicImage in an 8-bit format is borrowed, not copied.
+    let dynamic = image::DynamicImage::ImageLuma8(image);
+    let borrowed = Image::try_from(&dynamic).unwrap();
+    assert_eq!(
+        tapirscan::scan(borrowed)
+            .unwrap()
+            .values()
+            .collect::<Vec<_>>(),
+        [TEXT]
+    );
+    let rgb = image::DynamicImage::ImageRgb8(dynamic.to_rgb8());
+    assert_eq!(
+        tapirscan::scan(Image::try_from(&rgb).unwrap())
+            .unwrap()
+            .values()
+            .collect::<Vec<_>>(),
+        [TEXT]
+    );
+    let deep = image::DynamicImage::ImageLuma16(dynamic.to_luma16());
+    assert!(matches!(
+        Image::try_from(&deep),
+        Err(Error::InvalidImage(_))
+    ));
 }
 
 #[test]
@@ -306,6 +329,36 @@ fn images_above_the_working_size_report_source_coordinates() {
     let raw = &result.diagnostics.as_ref().unwrap().raw;
     let scanned = raw["scannedImageSize"].as_array().unwrap();
     assert!(scanned[0].as_u64().unwrap() * scanned[1].as_u64().unwrap() <= 32 << 20);
+    // Rows delivered in uneven chunks give the same report as the whole image.
+    let mut rows = tapirscan::RowInput::new(width, height, 1).unwrap().unwrap();
+    for chunk in pixels.chunks(width * 777) {
+        rows.push_rows(chunk).unwrap();
+    }
+    assert_eq!(rows.remaining_rows(), 0);
+    let streamed = Scanner::default()
+        .inspect_rows(rows, ScanOptions::default(), true)
+        .unwrap();
+    assert_eq!(streamed.barcodes, result.barcodes);
+    assert_eq!(
+        format!("{:?}", streamed.undecoded),
+        format!("{:?}", result.undecoded)
+    );
+    assert_eq!(streamed.image_size, result.image_size);
+    assert_eq!(
+        streamed.diagnostics.unwrap().raw["scannedImageSize"],
+        raw["scannedImageSize"]
+    );
+    // Images that fit are scanned whole; incomplete or excess rows are rejected.
+    assert!(tapirscan::RowInput::new(4000, 3000, 4).unwrap().is_none());
+    assert!(tapirscan::RowInput::new(width, height, 2).is_err());
+    let mut partial = tapirscan::RowInput::new(width, height, 1).unwrap().unwrap();
+    assert!(partial.push_rows(&pixels[..=width]).is_err());
+    partial.push_rows(&pixels[..width]).unwrap();
+    assert!(
+        Scanner::default()
+            .inspect_rows(partial, ScanOptions::default(), false)
+            .is_err()
+    );
 }
 
 #[test]

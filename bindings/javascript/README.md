@@ -159,7 +159,7 @@ were verified by hand.
 - **Sources:** a `File` or `Blob` (any image the browser decodes), `<img>`,
   `<video>` (its current frame), `<canvas>`, `OffscreenCanvas`, `ImageBitmap`,
   `VideoFrame`, `ImageData`, or decoded pixels as in the core API. Inputs are not
-  modified or transferred. Images and canvases are composited onto white, so
+  modified or transferred, unless you pass `{ transfer: true }` (see Options). Images and canvases are composited onto white, so
   transparent areas count as background; `ImageData` and pixel buffers are scanned
   as given, with alpha ignored.
 - **Methods:** `scan` and `inspect` work as in the core API but return promises.
@@ -169,6 +169,11 @@ were verified by hand.
   [`experimentalTurbo`](#experimental-turbo-presets) work as in the core, and
   `scan(image, { formats })` overrides the formats for one call. `wasmBaseUrl`
   serves the WASM files from another directory. `loadWasm` needs the core.
+  `scan(pixels, { transfer: true })` hands a decoded-pixel buffer to the worker
+  instead of copying it, which saves one full copy per call (about 4 ms for 12 MP
+  RGBA on an M1, more on slower devices); the buffer is detached (length 0) once
+  the call starts. It applies when the pixels span their whole, non-shared
+  `ArrayBuffer`; other inputs are copied as usual.
 - **Lifecycle:** `scanner.ready` resolves once loaded; awaiting it is optional,
   because loading errors also reject every scan. During server rendering the
   constructor does nothing and scans reject. `dispose()` stops the worker and
@@ -373,8 +378,15 @@ or an explicit pixel buffer:
 
 Input is limited to 65,535 pixels per side, 256 megapixels and 1 GiB of addressed pixels.
 Images above 32 megapixels are scanned as a reduced copy; results stay in source
-coordinates, but barcodes that are small in such an image may be missed. Keep the buffer
-unchanged during the call. Coordinates start at the top left, x rightward and y
+coordinates, but barcodes that are small in such an image may be missed. Such images
+are copied into WASM a few rows at a time, so only the reduction is held, not the
+whole image. Keep the buffer unchanged during the call.
+
+A scanner's WASM memory grows to fit the largest image it has scanned (about 210 MB
+after a 48-megapixel photo, 50 MB after 12 megapixels) and is released only by
+`dispose()`. On phones, where browsers close memory-hungry tabs, scan occasional
+large photos with a separate scanner and dispose it afterwards; keep one long-lived
+scanner for camera frames. Coordinates start at the top left, x rightward and y
 downward. If you resize or rotate before scanning, map coordinates back yourself.
 
 ## Results

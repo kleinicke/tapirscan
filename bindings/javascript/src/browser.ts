@@ -8,7 +8,7 @@ import type {
   FormatSelection,
   Mode,
   PixelImage,
-  ScanOptions,
+  ScanOptions as CoreScanOptions,
   InspectionResult,
   ScanResult,
 } from "./index.js";
@@ -28,7 +28,6 @@ export type {
   PixelImage,
   Quad,
   RegionEvidence,
-  ScanOptions,
   InspectionResult,
   ScanResult,
   StructuredAppend,
@@ -41,6 +40,15 @@ export type {
  * or decoded pixels.
  */
 export type ImageSource = ImageBitmapSource | PixelImage;
+
+export interface ScanOptions extends CoreScanOptions {
+  /**
+   * Hand decoded pixels' `ArrayBuffer` to the worker instead of copying it. The
+   * caller's buffer is detached (length 0) once the call starts. Applies only when
+   * the pixels span their whole, non-shared buffer; other inputs are copied as usual.
+   */
+  transfer?: boolean;
+}
 
 export interface ScannerOptions {
   /** Effort; defaults to "medium". */
@@ -67,13 +75,27 @@ function revive({ name, message, code }: { name: string; message: string; code?:
 }
 
 /** Snapshot mutable inputs before the first await; Blobs are immutable. */
-async function prepare(source: ImageSource): Promise<[WorkerSource, Transferable[]]> {
+async function prepare(
+  source: ImageSource,
+  transfer: boolean,
+): Promise<[WorkerSource, Transferable[]]> {
   const input: unknown = source;
   if (input === null || typeof input !== "object") throw new TypeError("Expected an image source");
   if (source instanceof Blob) return [source, []];
   if ("data" in source) {
     // Validate first, then copy only the addressed rows of a larger backing buffer.
     const { data, width, height, channels, stride, addressed } = pixelLayout(source);
+    const { buffer } = data;
+    if (
+      transfer &&
+      buffer instanceof ArrayBuffer &&
+      data.byteOffset === 0 &&
+      data.byteLength === buffer.byteLength
+    ) {
+      // The caller opted in: move the buffer instead of copying it.
+      const moved = new Uint8Array(buffer);
+      return [{ data: moved, width, height, channels, stride }, [buffer]];
+    }
     const copy = new Uint8Array(data.subarray(0, addressed));
     return [{ data: copy, width, height, channels, stride }, [copy.buffer]];
   }
@@ -187,14 +209,17 @@ export class Scanner {
     // Plain copies (scan options hold at most a format selection); invalid values
     // pass through unchanged for the core to reject.
     const input: unknown = options;
-    const scanOptions: ScanOptions =
-      input !== null && typeof input === "object" && !Array.isArray(input)
-        ? {
-            ...options,
-            ...(typeof options.formats === "object" ? { formats: [...options.formats] } : {}),
-          }
-        : options;
-    const preparing = prepare(source);
+    const plain = input !== null && typeof input === "object" && !Array.isArray(input);
+    // `transfer` is handled here; the worker's core receives only scan options.
+    const { transfer = false, ...rest } = plain ? options : {};
+    const scanOptions: CoreScanOptions = plain
+      ? {
+          ...rest,
+          ...(typeof rest.formats === "object" ? { formats: [...rest.formats] } : {}),
+        }
+      : options;
+    if (typeof transfer !== "boolean") throw new TypeError("transfer must be a boolean");
+    const preparing = prepare(source, transfer);
     const previous = this.#submitted;
     let submitted: () => void = () => undefined;
     this.#submitted = new Promise<void>((resolve) => {

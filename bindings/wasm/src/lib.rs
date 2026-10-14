@@ -2,8 +2,8 @@
 
 use std::{cell::RefCell, collections::HashMap};
 use tapirscan::{
-    Barcode, EanAddOnPolicy, Formats, Image, InspectionResult, Mode, ScanOptions, Scanner,
-    ScannerOptions, StructuredAppend,
+    Barcode, EanAddOnPolicy, Formats, Image, InspectionResult, Mode, RowInput, ScanOptions,
+    Scanner, ScannerOptions, StructuredAppend,
 };
 
 const OK: i32 = 0;
@@ -15,7 +15,7 @@ const MAX_BYTES: usize = 1024 * 1024 * 1024;
 const MAX_PIXELS: u64 = 256 * 1024 * 1024;
 const MAX_SIDE: u32 = 65_535;
 const MAX_SCANNERS: usize = 1_024;
-const ABI_VERSION: u32 = 2;
+const ABI_VERSION: u32 = 3;
 
 const MODE_ID: u32 = if cfg!(feature = "mode-low") {
     0
@@ -48,6 +48,9 @@ struct Session {
     input: Vec<u8>,
     output: Vec<u8>,
     image: Option<ImageSpec>,
+    /// An image above the working size arriving in chunks of packed rows.
+    rows: Option<RowInput>,
+    row_bytes: usize,
 }
 
 #[derive(Default)]
@@ -142,6 +145,8 @@ pub extern "C" fn tapirscan_create(mode: u32, format_mask: u32, addon_policy: u3
                     ean_add_on_policy,
                 }),
                 input: Vec::new(),
+                rows: None,
+                row_bytes: 0,
                 output: Vec::new(),
                 image: None,
             },
@@ -201,6 +206,7 @@ pub extern "C" fn tapirscan_prepare(
             return HANDLE;
         };
         session.input.resize(length, 0);
+        session.rows = None;
         session.output.clear();
         session.image = Some(ImageSpec {
             width: width as usize,
@@ -212,6 +218,70 @@ pub extern "C" fn tapirscan_prepare(
     })
 }
 
+/// Start an image above the working size, delivered as chunks of packed rows.
+///
+/// The input buffer then holds `chunk_rows` rows: fill it, call
+/// `tapirscan_push_rows`, repeat top to bottom, then scan. Only a chunk and the
+/// reduced image are held, never the whole image. Images that fit the working
+/// size are rejected; use `tapirscan_prepare` for them.
+#[unsafe(no_mangle)]
+pub extern "C" fn tapirscan_prepare_rows(
+    handle: u32,
+    width: u32,
+    height: u32,
+    channels: u32,
+    chunk_rows: u32,
+) -> i32 {
+    let (width, height, channels) = (width as usize, height as usize, channels as usize);
+    let Ok(Some(rows)) = RowInput::new(width, height, channels) else {
+        return ARG;
+    };
+    let row = width * channels;
+    let Some(length) = row.checked_mul((chunk_rows as usize).min(height)) else {
+        return ARG;
+    };
+    if chunk_rows == 0 || length > MAX_BYTES {
+        return ARG;
+    }
+    REGISTRY.with_borrow_mut(|registry| {
+        let Some(session) = registry.sessions.get_mut(&handle) else {
+            return HANDLE;
+        };
+        // Release a large whole-image buffer from an earlier scan for reuse.
+        session.input.clear();
+        session.input.shrink_to_fit();
+        session.input.resize(length, 0);
+        session.output.clear();
+        session.image = None;
+        session.rows = Some(rows);
+        session.row_bytes = row;
+        OK
+    })
+}
+
+/// Add the first `count` rows of the input buffer to a row image.
+#[unsafe(no_mangle)]
+pub extern "C" fn tapirscan_push_rows(handle: u32, count: u32) -> i32 {
+    REGISTRY.with_borrow_mut(|registry| {
+        let Some(session) = registry.sessions.get_mut(&handle) else {
+            return HANDLE;
+        };
+        let Some(rows) = session.rows.as_mut() else {
+            return ARG;
+        };
+        let Some(bytes) = (count as usize)
+            .checked_mul(session.row_bytes)
+            .filter(|&bytes| bytes <= session.input.len())
+        else {
+            return ARG;
+        };
+        match rows.push_rows(&session.input[..bytes]) {
+            Ok(()) => OK,
+            Err(_) => ARG,
+        }
+    })
+}
+
 /// Pointer to the prepared pixel buffer, or zero for an invalid/unprepared handle.
 #[unsafe(no_mangle)]
 pub extern "C" fn tapirscan_input_ptr(handle: u32) -> u32 {
@@ -219,7 +289,7 @@ pub extern "C" fn tapirscan_input_ptr(handle: u32) -> u32 {
         registry
             .sessions
             .get_mut(&handle)
-            .filter(|session| session.image.is_some())
+            .filter(|session| session.image.is_some() || session.rows.is_some())
             .map_or(0, |session| mutable_pointer(&mut session.input))
     })
 }
@@ -231,7 +301,7 @@ pub extern "C" fn tapirscan_input_len(handle: u32) -> u32 {
         registry
             .sessions
             .get(&handle)
-            .filter(|session| session.image.is_some())
+            .filter(|session| session.image.is_some() || session.rows.is_some())
             .and_then(|session| u32::try_from(session.input.len()).ok())
             .unwrap_or(0)
     })
@@ -256,10 +326,24 @@ pub extern "C" fn tapirscan_scan(handle: u32, flags: u32, format_mask: u32) -> i
         let Some(session) = registry.sessions.get_mut(&handle) else {
             return HANDLE;
         };
+        session.output.clear();
+        if let Some(rows) = session.rows.take() {
+            let inspect = flags & 2 != 0;
+            let result = session
+                .scanner
+                .inspect_rows(rows, ScanOptions { formats }, inspect)
+                .map(|report| {
+                    if inspect {
+                        wire_result(&report)
+                    } else {
+                        serde_json::json!({"barcodes": report.barcodes.iter().map(wire_barcode).collect::<Vec<_>>()})
+                    }
+                });
+            return store_result(session, result);
+        }
         let Some(spec) = session.image else {
             return ARG;
         };
-        session.output.clear();
         let image = match spec.channels {
             1 => Image::gray(&session.input, spec.width, spec.height),
             3 => Image::rgb(&session.input, spec.width, spec.height),
@@ -275,17 +359,21 @@ pub extern "C" fn tapirscan_scan(handle: u32, flags: u32, format_mask: u32) -> i
                 serde_json::json!({"barcodes": barcodes.barcodes.iter().map(wire_barcode).collect::<Vec<_>>()})
             })
         };
-        match result {
-            Ok(result) => match serde_json::to_vec(&result) {
-                Ok(output) => {
-                    session.output = output;
-                    OK
-                }
-                Err(error) => store_error(session, &error.to_string()),
-            },
-            Err(error) => store_error(session, &error.to_string()),
-        }
+        store_result(session, result)
     })
+}
+
+fn store_result(session: &mut Session, result: Result<serde_json::Value, tapirscan::Error>) -> i32 {
+    match result {
+        Ok(result) => match serde_json::to_vec(&result) {
+            Ok(output) => {
+                session.output = output;
+                OK
+            }
+            Err(error) => store_error(session, &error.to_string()),
+        },
+        Err(error) => store_error(session, &error.to_string()),
+    }
 }
 
 fn store_error(session: &mut Session, message: &str) -> i32 {

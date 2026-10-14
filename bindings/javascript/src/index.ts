@@ -7,6 +7,7 @@ import {
 } from "./multiformat/formats.js";
 import { freeze, type ReadonlyDeep } from "./freeze.js";
 import { pixelLayout } from "./layout.js";
+import { registerRowScan } from "./row-scan.js";
 import { RustScannerSession, ScannerError } from "./rust-session.js";
 
 export {
@@ -265,6 +266,14 @@ export class Scanner {
     readonly experimentalTurbo?: ExperimentalTurbo,
   ) {
     Object.freeze(configuredFormats);
+    // The browser worker streams large decoded images through this internal path.
+    registerRowScan(this, (image, read, options, inspect) => {
+      const start = performance.now();
+      const raw = this.host.scanRows(image, read, inspect ? 2 : 0, scanMask(options));
+      return inspect
+        ? publicResult(wireResult(raw), performance.now() - start, this.experimentalTurbo)
+        : scanResult(raw);
+    });
   }
   /** Default formats, fixed at creation; individual scans may override them. */
   get formats(): readonly Format[] {
@@ -343,44 +352,46 @@ export class Scanner {
 
   /** Decode barcodes with positions. Use inspect() for diagnostic evidence. */
   scan(inputImage: PixelImage, options: ScanOptions = {}): ScanResult {
-    const raw = this.run(inputImage, options, false);
-    if (
-      raw === null ||
-      typeof raw !== "object" ||
-      !("barcodes" in raw) ||
-      !Array.isArray(raw.barcodes)
-    )
-      throw new ScannerError("invalid_output", "Scanner returned an invalid barcode list");
-    const barcodes = raw.barcodes as Barcode[];
-    return freeze({
-      barcodes,
-      values: barcodes.map((barcode) => barcode.text),
-      best: bestOf(barcodes),
-    });
+    return scanResult(this.host.scan(pixels(inputImage), 0, scanMask(options)));
   }
 
   /** Inspect barcodes, unread regions, timing and engine diagnostics. */
   inspect(inputImage: PixelImage, options: ScanOptions = {}): InspectionResult {
     const start = performance.now();
-    const raw = wireResult(this.run(inputImage, options, true));
+    const raw = wireResult(this.host.scan(pixels(inputImage), 2, scanMask(options)));
     return publicResult(raw, performance.now() - start, this.experimentalTurbo);
-  }
-
-  private run(inputImage: PixelImage, options: ScanOptions, inspect: boolean): unknown {
-    const image = pixels(inputImage);
-    const input: unknown = options;
-    if (input === null || typeof input !== "object" || Array.isArray(input))
-      throw new TypeError("Invalid scan options");
-    for (const key of Object.keys(options))
-      if (key !== "formats") throw new TypeError(`Unknown scan option: ${key}`);
-    const mask = options.formats === undefined ? 0 : maskFor(resolveFormats(options.formats));
-    return this.host.scan(image, inspect ? 2 : 0, mask);
   }
 
   /** Release the WASM session. Repeated disposal is safe; scanning afterward fails. */
   dispose(): void {
     this.host.dispose();
   }
+}
+
+/** Validate per-call options; zero keeps the scanner's formats. */
+function scanMask(options: ScanOptions): number {
+  const input: unknown = options;
+  if (input === null || typeof input !== "object" || Array.isArray(input))
+    throw new TypeError("Invalid scan options");
+  for (const key of Object.keys(options))
+    if (key !== "formats") throw new TypeError(`Unknown scan option: ${key}`);
+  return options.formats === undefined ? 0 : maskFor(resolveFormats(options.formats));
+}
+
+function scanResult(raw: unknown): ScanResult {
+  if (
+    raw === null ||
+    typeof raw !== "object" ||
+    !("barcodes" in raw) ||
+    !Array.isArray(raw.barcodes)
+  )
+    throw new ScannerError("invalid_output", "Scanner returned an invalid barcode list");
+  const barcodes = raw.barcodes as Barcode[];
+  return freeze({
+    barcodes,
+    values: barcodes.map((barcode) => barcode.text),
+    best: bestOf(barcodes),
+  });
 }
 
 /** Highest support, keeping the first read on ties; undefined when empty. */

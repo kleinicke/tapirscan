@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Rust: `Image::try_from(&dynamic_image)` borrows an 8-bit gray, RGB or RGBA
+  `image::DynamicImage`, such as a decoded JPEG, without copying pixels.
 - Rust: `Format` implements `Display` with the format names used by every
   binding (`EAN13`, `QRCode`), so `println!("{}", barcode.format)` matches them.
 - Images up to 256 megapixels and 65,535 pixels per side are accepted (was 32
@@ -22,7 +24,16 @@
   until `close()`, instead of fresh memory per scan. This saves about 20 ms per
   12-megapixel RGBA scan. Python Pillow images already in L or RGB mode skip a
   redundant conversion copy.
-- Browser: Blob and canvas inputs are decoded on one canvas reused by the worker.
+- Browser: Blob and canvas inputs up to 16 megapixels are decoded on one canvas
+  reused by the worker; larger ones are decoded in bands, with identical results,
+  so no full-size canvas or pixel copy is made. `scan(pixels, { transfer: true })`
+  hands a whole pixel buffer to the worker instead of copying it (12 MP RGBA on
+  x86-64: 23 ms instead of 52 ms); the caller's buffer is detached.
+- WebAssembly: images above 32 megapixels are copied in a few rows at a time and
+  reduced as they arrive, with identical results. A 48-megapixel RGBA photo leaves
+  211 MB of scanner memory instead of 362 MB and scans 24% faster. Scanners
+  created from already loaded WASM reuse its compiled module (0.1 ms instead of
+  2.6 ms per scanner).
 - Docs: the JavaScript guide decodes Node images with sharp, and the Python and
   Rust examples print the format and rectangle instead of the polygon.
 

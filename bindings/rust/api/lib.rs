@@ -14,6 +14,63 @@ pub use format::Format;
 pub use pixels::Image;
 pub use types::*;
 
+/// Rows of an image above the working size, reduced as they arrive.
+///
+/// Internal to the WebAssembly adapter; not a stable API. See
+/// [`Scanner::inspect_rows`].
+#[doc(hidden)]
+pub struct RowInput {
+    reduction: reduce::Reduction,
+    row: usize,
+    start: timer::Timer,
+}
+
+impl RowInput {
+    /// Start an image of `channels` 1, 3 or 4; `None` when it fits the working
+    /// size and should be scanned as one [`Image`].
+    ///
+    /// # Errors
+    /// Rejects invalid dimensions or channel counts.
+    #[doc(hidden)]
+    pub fn new(width: usize, height: usize, channels: usize) -> Result<Option<Self>, Error> {
+        pixels::validate_size(width, height)?;
+        if !matches!(channels, 1 | 3 | 4) {
+            return Err(Error::InvalidImage("channels must be 1, 3 or 4"));
+        }
+        Ok(
+            reduce::Reduction::new(width, height, channels).map(|reduction| Self {
+                reduction,
+                row: width * channels,
+                start: timer::Timer::start(),
+            }),
+        )
+    }
+
+    /// Append whole packed rows of `width * channels` bytes, top to bottom.
+    ///
+    /// # Errors
+    /// Rejects a partial row or more rows than the image has.
+    #[doc(hidden)]
+    pub fn push_rows(&mut self, rows: &[u8]) -> Result<(), Error> {
+        if !rows.len().is_multiple_of(self.row)
+            || rows.len() / self.row > self.reduction.remaining_rows()
+        {
+            return Err(Error::InvalidImage("rows end mid-row or exceed the image"));
+        }
+        for row in rows.chunks_exact(self.row) {
+            self.reduction.push_row(row);
+        }
+        Ok(())
+    }
+
+    /// Rows still expected.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn remaining_rows(&self) -> usize {
+        self.reduction.remaining_rows()
+    }
+}
+
 /// Scan with default configuration and return decoded barcodes with positions.
 ///
 /// # Errors
@@ -155,6 +212,36 @@ impl Scanner {
         self.run(image.into(), options, true)
     }
 
+    /// Scan an image delivered row by row through [`RowInput`].
+    ///
+    /// Internal to the WebAssembly adapter, which uses it so that images above
+    /// the working size never have to be held whole; not a stable API. Results
+    /// equal scanning the same pixels as one [`Image`].
+    ///
+    /// # Errors
+    /// Rejects input with rows still missing, or an engine failure.
+    #[doc(hidden)]
+    pub fn inspect_rows(
+        &mut self,
+        input: RowInput,
+        options: ScanOptions,
+        diagnostics: bool,
+    ) -> Result<InspectionResult, Error> {
+        if input.reduction.remaining_rows() != 0 {
+            return Err(Error::InvalidImage("not all image rows were supplied"));
+        }
+        let size = input.reduction.source_size();
+        let reduced = input.reduction.finish();
+        self.run_source(
+            &input.start,
+            reduced.image(),
+            Some(&reduced),
+            size,
+            options,
+            diagnostics,
+        )
+    }
+
     fn run(
         &mut self,
         image: Image<'_>,
@@ -166,6 +253,27 @@ impl Scanner {
         // Images above the working size are scanned as an area-averaged copy.
         let reduced = reduce::reduce(image);
         let source = reduced.as_ref().map_or(image, reduce::Reduced::image);
+        self.run_source(
+            &start,
+            source,
+            reduced.as_ref(),
+            [image.width, image.height],
+            options,
+            diagnostics,
+        )
+    }
+
+    /// Scan `source`, the supplied image or its reduction, reporting results in
+    /// the coordinates of the supplied `size`.
+    fn run_source(
+        &mut self,
+        start: &timer::Timer,
+        source: Image<'_>,
+        reduced: Option<&reduce::Reduced>,
+        size: [usize; 2],
+        options: ScanOptions,
+        diagnostics: bool,
+    ) -> Result<InspectionResult, Error> {
         let formats = options.formats.unwrap_or(self.options.formats);
         let addons = self.options.ean_add_on_policy;
         // Each arm calls the exact selected host/core pair.
@@ -193,7 +301,7 @@ impl Scanner {
                 let output = $scanner
                     .scan_formats_typed_with_addons(input, settings, formats.bits(), policy)
                     .map_err(|error| Error::Engine(error.to_string()))?;
-                InspectionResult::from_engine(output, image, self.options.mode, start.elapsed())
+                InspectionResult::from_engine(output, size, self.options.mode, start.elapsed())
             }};
         }
         let mut result = match &mut self.engine {
@@ -211,8 +319,8 @@ impl Scanner {
                 ));
             }
         };
-        if let Some(reduced) = &reduced {
-            result.restore_geometry(reduced.scale(image), [source.width, source.height]);
+        if let Some(reduced) = reduced {
+            result.restore_geometry(reduced.scale(size), [source.width, source.height]);
         }
         result.elapsed = start.elapsed();
         Ok(result)

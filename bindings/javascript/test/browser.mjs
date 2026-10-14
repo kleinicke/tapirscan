@@ -232,6 +232,72 @@ test("browser scans snapshot reusable pixels before loading or yielding", async 
   assert.deepEqual(values, [[text], [text]]);
 });
 
+test("images above the working size decode in bands with the same result", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { canvas: fixture, tapirscan } = globalThis.fixture;
+    // 24x the fixture is above the 32-megapixel working size.
+    const scale = 24;
+    const large = new OffscreenCanvas(fixture.width * scale, fixture.height * scale);
+    const context = large.getContext("2d");
+    context.imageSmoothingEnabled = false;
+    context.drawImage(fixture, 0, 0, large.width, large.height);
+    const pixels = context.getImageData(0, 0, large.width, large.height);
+    const blob = await large.convertToBlob({ type: "image/png" });
+    const scanner = new tapirscan.Scanner();
+    try {
+      const fromPixels = await scanner.inspect(pixels);
+      const fromBlob = await scanner.inspect(blob);
+      const strip = ({ elapsedMs: _elapsed, diagnostics: _diagnostics, ...rest }) => rest;
+      return {
+        megapixels: (large.width * large.height) / 2 ** 20,
+        same: JSON.stringify(strip(fromBlob)) === JSON.stringify(strip(fromPixels)),
+        values: fromBlob.values,
+      };
+    } finally {
+      scanner.dispose();
+    }
+  });
+  const text = await page.evaluate(() => globalThis.fixture.text);
+  assert.ok(outcome.megapixels > 32, `${outcome.megapixels} MP`);
+  assert.deepEqual(outcome.values, [text]);
+  assert.ok(outcome.same, "banded Blob decoding changed the result");
+});
+
+test("transfer moves whole pixel buffers to the worker and copies partial views", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { image, tapirscan } = globalThis.fixture;
+    const scanner = new tapirscan.Scanner();
+    try {
+      const whole = { ...image, data: image.data.slice() };
+      const moved = await scanner.scan(whole, { transfer: true, formats: "retail" });
+      // A view into a larger buffer cannot be moved without taking the rest along.
+      const backing = new Uint8Array(image.data.length + 16);
+      backing.set(image.data, 16);
+      const view = { ...image, data: backing.subarray(16) };
+      const copied = await scanner.scan(view, { transfer: true });
+      let rejected = "";
+      await scanner.scan(whole, { transfer: "yes" }).catch((error) => (rejected = error.name));
+      return {
+        moved: moved.values,
+        detached: whole.data.byteLength,
+        copied: copied.values,
+        kept: backing.byteLength,
+        rejected,
+      };
+    } finally {
+      scanner.dispose();
+    }
+  });
+  const text = await page.evaluate(() => globalThis.fixture.text);
+  assert.deepEqual(outcome, {
+    moved: [text],
+    detached: 0,
+    copied: [text],
+    kept: (await page.evaluate(() => globalThis.fixture.image.data.length)) + 16,
+    rejected: "TypeError",
+  });
+});
+
 test("invalid URLs allocate no worker and failed initialization terminates its worker", async () => {
   const outcome = await page.evaluate(async () => {
     const { Scanner } = globalThis.fixture.tapirscan;
