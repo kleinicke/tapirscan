@@ -201,7 +201,8 @@ were verified by hand.
   stutters.
 - Cheapest inputs first: decoded pixels with `{ transfer: true }`, decoded pixels or
   `ImageData`, then `<video>`/canvas sources (a canvas readback each), then
-  `File`/`Blob` (includes image decoding). Pass gray or RGBA as you have it; do not
+  `File`/`Blob` (includes image decoding). Pass pixels as you have them (RGBA is
+  cheapest for the retail formats); do not
   convert color.
 - A scanner's WASM memory grows to its largest image (about 50 MB after 12 MP,
   210 MB after 48 MP); on phones, scan occasional large photos with a separate
@@ -313,9 +314,13 @@ import { Scanner } from "tapirscan";
 
 const scanner = await Scanner.create({ formats: ["EAN13", "QRCode"] });
 for (const file of files) {
-  // Decoding straight to gray is the cheapest input; `.raw()` alone gives RGB(A).
-  const { data, info } = await sharp(file).greyscale().raw().toBuffer({ resolveWithObject: true });
-  const result = scanner.scan({ data, width: info.width, height: info.height, channels: 1 });
+  const { data, info } = await sharp(file).raw().toBuffer({ resolveWithObject: true });
+  const result = scanner.scan({
+    data,
+    width: info.width,
+    height: info.height,
+    channels: info.channels,
+  });
   console.log(file, result.values);
 }
 scanner.dispose();

@@ -106,14 +106,15 @@ returns. Size limits and conversion rules are in
 
 ### OpenCV
 
-`cv::Mat` frames are BGR, which has no layout here. Convert to gray, which is also
-the cheapest input, and pass the row stride:
+`cv::Mat` frames are BGR, which has no layout here. Convert to RGBA, the cheapest
+input (gray and RGB are copied to RGBA internally for the retail formats), and pass
+the row stride:
 
 ```cpp
-cv::Mat gray;
-cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
-const auto image = tapirscan::Image::gray(gray.data, gray.step * gray.rows, gray.cols, gray.rows)
-                       .with_stride(gray.step);
+cv::Mat rgba;
+cv::cvtColor(frame, rgba, cv::COLOR_BGR2RGBA);
+const auto image = tapirscan::Image::rgba(rgba.data, rgba.step * rgba.rows, rgba.cols, rgba.rows)
+                       .with_stride(rgba.step);
 const auto result = scanner.scan(image);
 ```
 

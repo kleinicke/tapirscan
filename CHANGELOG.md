@@ -20,6 +20,9 @@
   eligible components, so large or textured images no longer fall back to a slow
   flood fill. Identical results; Medium with all formats is 23% faster on a
   12-megapixel image.
+- Python: `color_order="BGR"` reorders channels with one strided copy per channel
+  instead of fancy indexing; a 12-megapixel OpenCV frame scans in 32 ms instead of
+  69 ms on an M1 (converting to RGBA with `cv2.cvtColor` remains fastest).
 - Python: `tapirscan.scan_many(images, ...)` scans a batch on worker threads, one
   scanner per thread, and returns results in input order.
 - Docs: a [fast end-to-end scanning](docs/PERFORMANCE.md) guide with measured costs

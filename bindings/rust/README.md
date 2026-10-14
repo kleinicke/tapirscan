@@ -47,8 +47,9 @@ Support, undecoded regions and image limits are described in
 
 Reuse one `Scanner` per thread; the free `scan` and `inspect` functions create one
 per call. Select only the formats you need, since each enabled 2D format searches
-the whole image, and use `Mode::Low` for camera frames. Pass `GrayImage` or the
-8-bit buffer you already have; do not convert color. Scans with several 2D formats
+the whole image, and use `Mode::Low` for camera frames. Pass the 8-bit buffer you
+already have; packed RGBA is the cheapest input for the retail formats (gray and
+RGB are copied to RGBA internally), so do not convert to gray for scanning. Scans with several 2D formats
 also use extra threads internally; set `TAPIRSCAN_THREADS=1` when you already run
 one scanner per core. See
 [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).

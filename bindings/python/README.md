@@ -95,13 +95,13 @@ runs on CPU. See [array and tensor inputs](#array-and-tensor-inputs).
   image; `formats="all"` is for exploration.
 - **Reuse a `Scanner`** for more than one image, and use `mode="low"` for camera
   frames.
-- **Inputs, cheapest first:** contiguous uint8 NumPy arrays (gray, RGB or RGBA,
+- **Inputs, cheapest first:** contiguous uint8 NumPy arrays (RGBA, then RGB or gray,
   about 1-4 ms extra for 12 MP); uint8 tensors; float arrays and tensors (validated
   and rounded, on several threads for large arrays); Pillow images (one `tobytes()`
   copy). CUDA tensors are converted on the GPU and transferred once, so scan
   tensors where they already are; moving a CPU tensor to the GPU only for scanning
-  does not pay off for uint8 and saves little for large float tensors. Gray and
-  color are equally fine; do not convert color for scanning.
+  does not pay off for uint8 and saves little for large float tensors. Do not
+  convert RGBA to gray for scanning; for OpenCV, see below.
 - **Batches:** `tapirscan.scan_many(images, ...)` scans on all CPU cores with one
   scanner per thread.
 - **Threads and servers:** scanning releases the GIL, so one scanner per thread
@@ -223,9 +223,10 @@ if image is None:
 result = tapirscan.scan(image, color_order="BGR")
 ```
 
-OpenCV is not a dependency. `color_order="BGR"` does not modify your array; do not
-call `cv2.cvtColor` just for scanning. When color is not needed, reading with
-`cv2.imread("label.jpg", cv2.IMREAD_GRAYSCALE)` is the cheapest input. For a camera
+OpenCV is not a dependency. `color_order="BGR"` does not modify your array; it
+reorders the channels in a copy. Converting with OpenCV is faster: for a 12 MP
+frame, `scanner.scan(cv2.cvtColor(image, cv2.COLOR_BGR2RGBA))` takes about 15 ms
+on an M1, against 32 ms with `color_order="BGR"`. For a camera
 or video, reuse one scanner:
 
 ```python
@@ -235,7 +236,8 @@ with tapirscan.Scanner(mode="low", formats=["EAN13", "QRCode"]) as scanner:
         ok, frame = capture.read()
         if not ok:
             break
-        for barcode in scanner.scan(frame, color_order="BGR").barcodes:
+        rgba = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
+        for barcode in scanner.scan(rgba).barcodes:
             print(barcode.text, barcode.rect)
 ```
 

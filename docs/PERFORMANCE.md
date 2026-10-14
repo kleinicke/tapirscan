@@ -19,8 +19,11 @@ input path for each environment.
    much cheaper than 12-megapixel stills, especially with 2D formats enabled.
    Images above 32 megapixels are reduced internally, but still cost decoding,
    memory and copies.
-5. **Hand over decoded 8-bit pixels.** Gray, RGB and RGBA are all fine: the scanner
-   converts to luma itself, so do not convert color first. Skip encode/decode
+5. **Hand over decoded 8-bit pixels as you have them.** Packed RGBA is the cheapest
+   input for the default retail formats; gray and RGB inputs are copied to RGBA
+   internally (about 1.5-3 ms at 12 megapixels), so do not convert RGBA to gray
+   for scanning. If you must convert anyway, for example from OpenCV's BGR, convert
+   to RGBA. Skip encode/decode
    round trips, such as drawing to a canvas or saving a JPEG, when you already hold
    pixels.
 
@@ -92,20 +95,21 @@ fresh memory more expensive, hence the larger x86 numbers):
 ## Node
 
 Use `await Scanner.create()` once and `scanner.scan()` per image; the one-shot
-`scan()` costs about 2 ms extra per call. Decode straight to gray when you can, for
-example `sharp(file).greyscale().raw()` with `channels: 1`.
+`scan()` costs about 2 ms extra per call. Pass the decoded buffer as it comes, for
+example `sharp(file).raw()` with `channels: info.channels`.
 
 ## Python
 
-- **Inputs, cheapest first:** contiguous uint8 NumPy arrays (gray, RGB or RGBA);
+- **Inputs, cheapest first:** contiguous uint8 NumPy arrays (RGBA, then RGB or gray);
   uint8 tensors; float arrays and tensors (validated and rounded, multithreaded for
   large arrays); Pillow images (one `tobytes()` copy). CUDA tensors are converted
   on the GPU and transferred once, so scan tensors where they already are. Moving
   a CPU tensor to the GPU only for scanning does not help uint8 tensors; for a
   large float tensor it saved about 9 ms at 12 MP on a Ryzen 7 5800X with an
   RTX 5060 Ti (the upload costs almost as much as the CPU conversion).
-- **OpenCV** images are BGR: pass `color_order="BGR"` instead of calling
-  `cv2.cvtColor`, or read with `cv2.IMREAD_GRAYSCALE` when color is not needed.
+- **OpenCV** images are BGR. `cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)` is the
+  fastest way to scan them (12 MP: about 15 ms in total on an M1, against 32 ms
+  with `color_order="BGR"`, which reorders the channels in Python).
 - **Batches:** `tapirscan.scan_many(images, formats=...)` scans on all CPU cores,
   one scanner per thread, with results in input order.
 - **Threads and servers:** scanning releases the GIL. Use one `Scanner` per
@@ -124,14 +128,13 @@ binding (it needs the Foreign Function & Memory API); see [mobile apps](#mobile-
 ## C, C++ and Rust
 
 - Images are borrowed, never copied: pass your buffer with its row stride.
-- **OpenCV `cv::Mat`:** there is no BGR layout; convert to gray, which is also the
-  cheapest input:
+- **OpenCV `cv::Mat`:** there is no BGR layout; convert to RGBA, the cheapest input:
 
   ```cpp
-  cv::Mat gray;
-  cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
-  auto image = tapirscan::Image::gray(gray.data, gray.step * gray.rows, gray.cols, gray.rows)
-                   .with_stride(gray.step);
+  cv::Mat rgba;
+  cv::cvtColor(frame, rgba, cv::COLOR_BGR2RGBA);
+  auto image = tapirscan::Image::rgba(rgba.data, rgba.step * rgba.rows, rgba.cols, rgba.rows)
+                   .with_stride(rgba.step);
   auto result = scanner.scan(image);
   ```
 
