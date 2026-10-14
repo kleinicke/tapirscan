@@ -35,8 +35,8 @@ def library_name() -> str:
     return "libtapirscan.dylib" if sys.platform == "darwin" else "libtapirscan.so"
 
 
-def build(public_crate: Path, destination: Path) -> None:
-    """Build, test and install the native library and the Rust examples."""
+def prepare_native_crate(public_crate: Path) -> Path:
+    """Write the C ABI crate over the prepared public crate; return its directory."""
     native = ROOT / "build/native-crate"
     sync_tree(ROOT / "bindings/c/src", native / "src")
     write_changed(
@@ -49,6 +49,12 @@ def build(public_crate: Path, destination: Path) -> None:
     public_lock = public_crate / "Cargo.lock"
     if public_lock.exists():
         write_changed(native / "Cargo.lock", public_lock.read_bytes())
+    return native
+
+
+def build(public_crate: Path, destination: Path) -> None:
+    """Build, test and install the native library and the Rust examples."""
+    native = prepare_native_crate(public_crate)
     env = os.environ.copy()
     env.pop("RUSTFLAGS", None)
     env.pop("CARGO_ENCODED_RUSTFLAGS", None)

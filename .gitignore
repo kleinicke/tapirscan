@@ -32,3 +32,7 @@ __pycache__/
 
 # Local pnpm store.
 .pnpm-store/
+
+# Built by scripts/build_apple.py.
+/bindings/swift/TapirscanC.xcframework/
+/bindings/swift/.build/
