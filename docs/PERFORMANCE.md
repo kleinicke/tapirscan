@@ -106,6 +106,8 @@ example `sharp(file).greyscale().raw()` with `channels: 1`.
   RTX 5060 Ti (the upload costs almost as much as the CPU conversion).
 - **OpenCV** images are BGR: pass `color_order="BGR"` instead of calling
   `cv2.cvtColor`, or read with `cv2.IMREAD_GRAYSCALE` when color is not needed.
+- **Batches:** `tapirscan.scan_many(images, formats=...)` scans on all CPU cores,
+  one scanner per thread, with results in input order.
 - **Threads and servers:** scanning releases the GIL. Use one `Scanner` per
   thread (for example `threading.local()` or one per worker in a
   `ThreadPoolExecutor`); throughput scales with cores. In async frameworks such as

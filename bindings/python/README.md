@@ -102,6 +102,8 @@ runs on CPU. See [array and tensor inputs](#array-and-tensor-inputs).
   tensors where they already are; moving a CPU tensor to the GPU only for scanning
   does not pay off for uint8 and saves little for large float tensors. Gray and
   color are equally fine; do not convert color for scanning.
+- **Batches:** `tapirscan.scan_many(images, ...)` scans on all CPU cores with one
+  scanner per thread.
 - **Threads and servers:** scanning releases the GIL, so one scanner per thread
   scales with CPU cores (about 7× with 8 threads). Create one per worker thread,
   for example with `threading.local()` or a `ThreadPoolExecutor` initializer. In
@@ -142,6 +144,9 @@ result = tapirscan.scan(image, mode="medium", formats=["EAN13"])
 with tapirscan.Scanner(mode="high", formats="1D") as scanner:
     result = scanner.scan(image)
     print(result.values)
+
+# Many images on all CPU cores, results in input order:
+results = tapirscan.scan_many(images, formats=["EAN13", "QRCode"])
 ```
 
 Signatures (all settings are optional). `inspect` and `scanner.inspect` take the
@@ -154,7 +159,14 @@ Scanner(mode="medium", *, formats=None, ean_add_on_policy="ignore", library_dir=
 scanner.scan(image, *, formats=None,
              layout="auto", value_range="auto", color_order="RGB") -> ScanResult
 scanner.close()
+scan_many(images, *, mode="medium", formats=None, ean_add_on_policy="ignore",
+          layout="auto", value_range="auto", color_order="RGB", library_dir=None,
+          workers=None) -> list[ScanResult]
 ```
+
+`scan_many` scans on `workers` threads (default: the CPU count), each with its own
+scanner, and returns results in input order. If an image fails, its error is
+raised after the other scans finish.
 
 Use the context manager or call `close()` in a `finally` block; repeated `close()`
 is safe and results stay valid afterwards. Calls on one scanner run one at a time;

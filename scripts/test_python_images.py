@@ -92,6 +92,25 @@ class Images(unittest.TestCase):
             self.assertGreater(reads.barcodes[0].rect.width, 0)
             self.assertEqual(len(reads.barcodes[0].polygon), 4)
 
+    def test_scan_many(self) -> None:
+        """scan_many keeps input order, matches scan and reports errors."""
+        blank = np.full_like(GRAY, 255)
+        images = [GRAY, blank, GRAY.copy(), blank, GRAY]
+        for workers in (None, 1, 3):
+            results = barcode.scan_many(images, workers=workers, library_dir=LIBS)
+            self.assertEqual(
+                [result.values for result in results],
+                [[TEXT], [], [TEXT], [], [TEXT]],
+            )
+        self.assertEqual(barcode.scan_many([], library_dir=LIBS), [])
+        for workers in (0, -1, True):
+            with self.assertRaises(ValueError):
+                barcode.scan_many(images, workers=workers, library_dir=LIBS)
+        with self.assertRaisesRegex(ValueError, "Image buffer is too short|dimensions"):
+            barcode.scan_many(
+                [GRAY, PixelImage(b"", width=W, height=H)], library_dir=LIBS
+            )
+
     def test_reused_snapshot_buffer(self) -> None:
         """A scanner's reused pixel buffer never leaks bytes between images."""
         with Scanner(library_dir=LIBS) as scanner:

@@ -5,12 +5,17 @@ from __future__ import annotations
 import ctypes as c
 import os
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
 from threading import RLock
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from typing_extensions import Self
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 from ._images import _size, image_bytes
 from .formats import (
@@ -72,6 +77,7 @@ __all__ = [
     "matrix_formats",
     "retail_formats",
     "scan",
+    "scan_many",
 ]
 ABI_VERSION = 6
 MAX_IMAGE_BYTES = 1024 * 1024 * 1024
@@ -599,3 +605,54 @@ def inspect(
             value_range=value_range,
             color_order=color_order,
         )
+
+
+def scan_many(
+    images: Iterable[ImageInput],
+    *,
+    mode: Mode = "medium",
+    ean_add_on_policy: EanAddOnPolicy = "ignore",
+    library_dir: str | os.PathLike[str] | None = None,
+    formats: FormatSelection | None = None,
+    layout: Layout = "auto",
+    value_range: ValueRange = "auto",
+    color_order: ColorOrder = "RGB",
+    workers: int | None = None,
+) -> list[ScanResult]:
+    """Scan several images on worker threads; results keep the input order.
+
+    Each worker thread uses its own Scanner, and scanning releases the GIL, so
+    throughput scales with CPU cores. ``workers`` defaults to the CPU count. The
+    first failing image raises its error after the other scans finish.
+    """
+    if workers is not None and (isinstance(workers, bool) or workers < 1):
+        msg = "workers must be a positive integer or None"
+        raise ValueError(msg)
+    pending = list(images)
+    count = min(workers or os.cpu_count() or 1, max(len(pending), 1))
+    local = threading.local()
+    created: list[Scanner] = []
+    created_lock = RLock()
+
+    def scan_one(image: ImageInput) -> ScanResult:
+        scanner = cast("Scanner | None", getattr(local, "scanner", None))
+        if scanner is None:
+            scanner = Scanner(
+                mode,
+                formats=formats,
+                ean_add_on_policy=ean_add_on_policy,
+                library_dir=library_dir,
+            )
+            local.scanner = scanner
+            with created_lock:
+                created.append(scanner)
+        return scanner.scan(
+            image, layout=layout, value_range=value_range, color_order=color_order
+        )
+
+    try:
+        with ThreadPoolExecutor(count, thread_name_prefix="tapirscan") as pool:
+            return list(pool.map(scan_one, pending))
+    finally:
+        for scanner in created:
+            scanner.close()

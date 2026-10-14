@@ -16,6 +16,12 @@
   1.6-1.75× and Medium scans 1.25-1.35× faster (AMD Ryzen 7 5800X, Apple M1 Pro). Set `TAPIRSCAN_THREADS=1` to
   keep each scan on one thread, for example on servers running one scanner per core.
   WebAssembly scans stay single-threaded.
+- Data Matrix candidates come from a streaming component labeller that keeps only
+  eligible components, so large or textured images no longer fall back to a slow
+  flood fill. Identical results; Medium with all formats is 23% faster on a
+  12-megapixel image.
+- Python: `tapirscan.scan_many(images, ...)` scans a batch on worker threads, one
+  scanner per thread, and returns results in input order.
 - Docs: a [fast end-to-end scanning](docs/PERFORMANCE.md) guide with measured costs
   and the fastest input path per environment; every binding guide now has a short
   fast-usage section, and the C example reuses its scanner.
