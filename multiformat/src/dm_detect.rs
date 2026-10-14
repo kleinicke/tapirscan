@@ -197,14 +197,14 @@ fn rotated_rectangle(poly: &[Point]) -> Option<[Point; 4]> {
     }
     best
 }
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 struct Span {
     y: usize,
     left: usize,
     right: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 struct Component {
     parent: usize,
     origin: usize,
@@ -220,23 +220,6 @@ struct Component {
     spans: Vec<Span>,
 }
 
-// A run carries one Component allocation and one Span. Cap the proposal's
-// temporary state before texture or a checkerboard can retain unbounded
-// per-run vectors. Returning None always transfers the image to the exact
-// legacy extractor; it never emits a partial component list.
-const FASTPATH_MAX_RUNS: usize = 262_144;
-
-fn fastpath_run_budget(image_len: usize) -> usize {
-    (image_len / 16).clamp(16_384, FASTPATH_MAX_RUNS)
-}
-
-// A projected excess after a completed quarter or half row pass is enough to
-// abandon CCL before the hard budget. This only chooses the exact legacy
-// extractor; it never suppresses a binary image or a component.
-fn projected_run_over_budget(runs: usize, rows_scanned: usize, h: usize, budget: usize) -> bool {
-    (runs as u64) * (h as u64) * 4 > (budget as u64) * (rows_scanned as u64) * 5
-}
-
 fn find_component(components: &mut [Component], mut index: usize) -> usize {
     let mut root = index;
     while components[root].parent != root {
@@ -250,7 +233,12 @@ fn find_component(components: &mut [Component], mut index: usize) -> usize {
     root
 }
 
-fn union_components(components: &mut [Component], a: usize, b: usize) -> usize {
+fn union_components(
+    components: &mut [Component],
+    a: usize,
+    b: usize,
+    merged: &mut Vec<usize>,
+) -> usize {
     let a = find_component(components, a);
     let b = find_component(components, b);
     if a == b {
@@ -268,6 +256,7 @@ fn union_components(components: &mut [Component], a: usize, b: usize) -> usize {
     } else {
         (b, a)
     };
+    merged.push(child);
     let (origin, count, x0, x1, y0, y1, first_span, mut spans) = {
         let component = &mut components[child];
         component.parent = root;
@@ -321,14 +310,40 @@ fn add_span(components: &mut [Component], index: usize, span: Span) {
 // the previous row when their half-open intervals are at most one pixel apart;
 // that is precisely 8-connectivity. Each source pixel is inspected once while
 // locating its run, avoiding the flood fill's repeated neighbor scans.
-fn fast_components(image: &[bool], w: usize, h: usize) -> Option<Vec<Component>> {
-    let budget = fastpath_run_budget(image.len());
-    let quarter = h.div_ceil(4);
-    let half = h.div_ceil(2);
-    let mut components = Vec::new();
+//
+// A component is complete once no run of the current row continues it. Then it
+// is kept if eligible (or for tests) and its slot is recycled, like the slots of
+// components merged into another root, so memory follows one row of runs rather
+// than the whole image. Downstream orders proposals by size and origin, so the
+// order in which components complete does not matter.
+fn fast_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
+    fast_components_impl(image, w, h, false)
+}
+
+#[cfg(test)]
+fn fast_all_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
+    fast_components_impl(image, w, h, true)
+}
+
+fn fast_components_impl(
+    image: &[bool],
+    w: usize,
+    h: usize,
+    retain_ineligible_for_test: bool,
+) -> Vec<Component> {
+    let mut components: Vec<Component> = Vec::new();
+    let mut free: Vec<usize> = Vec::new();
+    let mut merged: Vec<usize> = Vec::new();
+    // Row in which each slot's root last had a run; marks completed roots.
+    let mut seen_row: Vec<usize> = Vec::new();
+    let mut done = Vec::new();
     let mut previous: Vec<(usize, usize, usize)> = Vec::new();
     let mut current: Vec<(usize, usize, usize)> = Vec::new();
-    let mut runs = 0;
+    let finish = |component: Component, done: &mut Vec<Component>| {
+        if retain_ineligible_for_test || component_is_eligible(&component) {
+            done.push(component);
+        }
+    };
     for y in 0..h {
         let row = y * w;
         let line = &image[row..row + w];
@@ -346,10 +361,6 @@ fn fast_components(image: &[bool], w: usize, h: usize) -> Option<Vec<Component>>
                 .position(|&pixel| !pixel)
                 .map_or(w, |end| left + end);
             let right = x;
-            runs += 1;
-            if runs > budget {
-                return None;
-            }
             while previous_start < previous.len() && previous[previous_start].1 < left {
                 previous_start += 1;
             }
@@ -358,7 +369,9 @@ fn fast_components(image: &[bool], w: usize, h: usize) -> Option<Vec<Component>>
             while overlap < previous.len() && previous[overlap].0 <= right {
                 let previous_label = find_component(&mut components, previous[overlap].2);
                 label = Some(match label {
-                    Some(existing) => union_components(&mut components, existing, previous_label),
+                    Some(existing) => {
+                        union_components(&mut components, existing, previous_label, &mut merged)
+                    }
                     None => previous_label,
                 });
                 overlap += 1;
@@ -368,9 +381,8 @@ fn fast_components(image: &[bool], w: usize, h: usize) -> Option<Vec<Component>>
                 add_span(&mut components, label, span);
                 find_component(&mut components, label)
             } else {
-                let index = components.len();
-                components.push(Component {
-                    parent: index,
+                let fresh = Component {
+                    parent: 0,
                     origin: row + left,
                     count: right - left,
                     x0: left,
@@ -379,31 +391,52 @@ fn fast_components(image: &[bool], w: usize, h: usize) -> Option<Vec<Component>>
                     y1: y,
                     first_span: span,
                     spans: Vec::new(),
-                });
+                };
+                let index = if let Some(index) = free.pop() {
+                    components[index] = fresh;
+                    index
+                } else {
+                    components.push(fresh);
+                    seen_row.push(usize::MAX);
+                    components.len() - 1
+                };
+                components[index].parent = index;
                 index
             };
             current.push((left, right, label));
         }
-        let rows_scanned = y + 1;
-        if (rows_scanned == quarter || rows_scanned == half)
-            && projected_run_over_budget(runs, rows_scanned, h, budget)
-        {
-            return None;
+        // Resolve this row's labels to roots and mark them as continuing.
+        for run in &mut current {
+            run.2 = find_component(&mut components, run.2);
+            seen_row[run.2] = y;
         }
+        // Roots of the previous row that no current run continues are complete.
+        for &(_, _, label) in &previous {
+            let root = find_component(&mut components, label);
+            if seen_row[root] != y {
+                seen_row[root] = y;
+                finish(std::mem::take(&mut components[root]), &mut done);
+                // Other runs of this row may still look the root up.
+                components[root].parent = root;
+                free.push(root);
+            }
+        }
+        // Merged children are referenced by no run once labels are resolved.
+        free.append(&mut merged);
         std::mem::swap(&mut previous, &mut current);
     }
-    Some(
-        components
-            .into_iter()
-            .enumerate()
-            .filter_map(|(index, component)| (component.parent == index).then_some(component))
-            .collect(),
-    )
+    for &(_, _, root) in &previous {
+        if seen_row[root] != h {
+            seen_row[root] = h;
+            finish(std::mem::take(&mut components[root]), &mut done);
+            components[root].parent = root;
+        }
+    }
+    done
 }
 
-// The retained baseline is deliberately complete: a fast-path budget overflow
-// must take the old extraction route for the whole image, not omit unfinished
-// components or apply a coverage gate.
+// The flood-fill extractor the streaming labeller replaced; tests compare the two.
+#[cfg(test)]
 fn legacy_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
     legacy_components_impl(image, w, h, false)
 }
@@ -413,6 +446,7 @@ fn legacy_all_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
     legacy_components_impl(image, w, h, true)
 }
 
+#[cfg(test)]
 fn legacy_components_impl(
     image: &[bool],
     w: usize,
@@ -423,13 +457,17 @@ fn legacy_components_impl(
     let mut components = Vec::new();
     let mut row_min = vec![w; h];
     let mut row_max = vec![0; h];
+    // Reused across components: texture yields millions of tiny components.
+    let mut stack = Vec::new();
+    let mut touched_rows = Vec::new();
     for origin in 0..image.len() {
         if !image[origin] || seen[origin] {
             continue;
         }
-        let mut stack = vec![origin];
+        stack.clear();
+        stack.push(origin);
+        touched_rows.clear();
         let mut count = 0;
-        let mut touched_rows = Vec::new();
         let (mut x0, mut x1, mut y0, mut y1) = (w, 0, h, 0);
         // Scanline flood fill visits the same eight-connected components while
         // marking contiguous spans instead of testing eight neighbors per pixel.
@@ -487,7 +525,7 @@ fn legacy_components_impl(
             && crate::numeric::usize_f32(count) / crate::numeric::usize_f32(width * height) <= 0.92;
         if eligible || retain_ineligible_for_test {
             let mut spans = Vec::with_capacity(touched_rows.len());
-            for y in touched_rows {
+            for &y in &touched_rows {
                 spans.push(Span {
                     y,
                     left: row_min[y],
@@ -509,7 +547,7 @@ fn legacy_components_impl(
                 spans,
             });
         } else {
-            for y in touched_rows {
+            for &y in &touched_rows {
                 row_min[y] = w;
                 row_max[y] = 0;
             }
@@ -664,7 +702,7 @@ fn proposals_from_components(components: Vec<Component>, h: usize) -> (Vec<[Poin
 }
 
 fn candidates(image: &[bool], w: usize, h: usize) -> (Vec<[Point; 4]>, bool) {
-    let components = fast_components(image, w, h).unwrap_or_else(|| legacy_components(image, w, h));
+    let components = fast_components(image, w, h);
     proposals_from_components(components, h)
 }
 
@@ -699,15 +737,12 @@ mod component_fastpath_tests {
 
     fn assert_fast_matches_legacy(image: &[bool], w: usize, h: usize) {
         assert_eq!(
-            signatures(
-                fast_components(image, w, h).expect("within fast-path budget"),
-                h
-            ),
+            signatures(fast_all_components(image, w, h), h),
             signatures(legacy_all_components(image, w, h), h),
             "component count, bounds, row extremes, or hull changed"
         );
         assert_eq!(
-            proposals_from_components(fast_components(image, w, h).unwrap(), h),
+            proposals_from_components(fast_components(image, w, h), h),
             proposals_from_components(legacy_components(image, w, h), h),
             "proposal order or geometry changed"
         );
@@ -859,7 +894,7 @@ mod component_fastpath_tests {
         }
         paint(&mut image, w, 3, 1);
         paint(&mut image, w, 20, 1);
-        let components = fast_components(&image, w, h).unwrap();
+        let components = fast_all_components(&image, w, h);
         assert_eq!(components.len(), 1);
         assert_eq!(components[0].spans.len(), 1);
         assert_fast_matches_legacy(&image, w, h);
@@ -878,7 +913,7 @@ mod component_fastpath_tests {
         for x in 2..24 {
             paint(&mut image, w, x, 2);
         }
-        let components = fast_components(&image, w, h).unwrap();
+        let components = fast_all_components(&image, w, h);
         assert_eq!(components.len(), 1);
         assert_eq!(components[0].origin, 1);
         assert_fast_matches_legacy(&image, w, h);
@@ -923,39 +958,23 @@ mod component_fastpath_tests {
     }
 
     #[test]
-    fn checkerboard_exceeds_budget_and_uses_complete_legacy_fallback() {
+    fn checkerboards_and_dense_noise_match_the_legacy_extractor() {
+        // These once exceeded the run budget of the non-streaming labeller.
         let (w, h) = (512, 512);
-        let image: Vec<_> = (0..h)
+        let checkerboard: Vec<_> = (0..h)
             .flat_map(|y| (0..w).map(move |x| (x + y) % 2 == 0))
             .collect();
-        assert!(fast_components(&image, w, h).is_none());
-        assert_eq!(
-            candidates(&image, w, h),
-            proposals_from_components(legacy_components(&image, w, h), h)
-        );
-    }
-
-    #[test]
-    fn projected_quarter_fallback_preserves_complete_legacy_proposals() {
-        let (w, h) = (512, 512);
-        let image: Vec<_> = (0..h)
-            .flat_map(|y| (0..w).map(move |x| (x + y) % 2 == 0))
-            .collect();
-        let quarter_rows = h / 4;
-        let quarter_runs = (0..quarter_rows)
-            .map(|y| (0..w).filter(|x| (x + y) % 2 == 0).count())
-            .sum();
-        assert!(projected_run_over_budget(
-            quarter_runs,
-            quarter_rows,
-            h,
-            fastpath_run_budget(image.len())
-        ));
-        assert!(fast_components(&image, w, h).is_none());
-        assert_eq!(
-            candidates(&image, w, h),
-            proposals_from_components(legacy_components(&image, w, h), h)
-        );
+        assert_fast_matches_legacy(&checkerboard, w, h);
+        let mut seed = 0x2f6b_1c3d_u32;
+        for (w, h, cut) in [(640, 480, 1), (1200, 900, 2), (333, 777, 3)] {
+            let image: Vec<_> = (0..w * h)
+                .map(|_| {
+                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    seed >> 30 >= cut
+                })
+                .collect();
+            assert_fast_matches_legacy(&image, w, h);
+        }
     }
 }
 fn pixel(image: &[bool], w: usize, h: usize, transform: &[f32; 8], x: f32, y: f32) -> Option<bool> {
