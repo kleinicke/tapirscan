@@ -1,4 +1,5 @@
 //! Project-owned QR finder grouping, projective grid estimation and sampling.
+mod alignment_cached;
 mod finder_index;
 use crate::{Detection, qr};
 mod curved;
@@ -541,6 +542,19 @@ pub fn map(t: &[f32; 8], x: f32, y: f32) -> [f32; 2] {
     ]
 }
 fn alignment(
+    image: &[bool],
+    w: usize,
+    h: usize,
+    guess: [f32; 2],
+    ex: [f32; 2],
+    ey: [f32; 2],
+) -> Vec<[f32; 2]> {
+    alignment_cached::search(image, w, h, guess, ex, ey)
+}
+
+/// The direct search that the cached sampling tables reproduce exactly.
+#[cfg(test)]
+fn alignment_reference(
     image: &[bool],
     w: usize,
     h: usize,
@@ -1146,6 +1160,38 @@ mod limit_tests {
             let (finders, limited) = super::finders(&bits, width, height);
             assert_eq!(finders.len(), 512);
             assert_eq!(limited, count > 512);
+        }
+    }
+}
+
+#[cfg(test)]
+mod alignment_cache_tests {
+    #[test]
+    fn sampling_tables_preserve_exact_ranked_centers() {
+        let mut state = 0x1357_9bdf_u32;
+        for kind in 0..240 {
+            let bits: Vec<_> = (0..33 * 29)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 17;
+                    state ^= state << 5;
+                    match kind {
+                        0 => false,
+                        1 => true,
+                        _ => state & 1 != 0,
+                    }
+                })
+                .collect();
+            for (guess, ex, ey) in [
+                ([16.5, 14.5], [1., 0.], [0., 1.]),
+                ([2.5, 3.1], [2.1, 0.3], [-0.2, 1.7]),
+                ([31.2, 27.8], [3.2, -0.5], [0.4, 2.8]),
+            ] {
+                assert_eq!(
+                    super::alignment(&bits, 33, 29, guess, ex, ey),
+                    super::alignment_reference(&bits, 33, 29, guess, ex, ey)
+                );
+            }
         }
     }
 }

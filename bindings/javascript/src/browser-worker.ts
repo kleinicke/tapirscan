@@ -125,7 +125,7 @@ async function decode(source: WorkerSource): Promise<Decoded> {
       const band = Math.max(1, Math.floor(bandBytes / (width * 4)));
       const context = context2d(width, Math.min(band, height));
       let top = -1;
-      let pixels: Uint8ClampedArray = new Uint8ClampedArray(0);
+      let pixels = new Uint8Array(0);
       const read: RowReader = (y, count, target) => {
         for (let done = 0; done < count;) {
           const row = y + done;
@@ -133,7 +133,9 @@ async function decode(source: WorkerSource): Promise<Decoded> {
             top = row - (row % band);
             draw(context, bitmap, top);
             const rows = Math.min(band, height - top);
-            pixels = context.getImageData(0, 0, width, rows).data;
+            // A same-type view keeps the copies below block copies.
+            const { data } = context.getImageData(0, 0, width, rows);
+            pixels = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
           }
           const take = Math.min(count - done, top + band - row, height - row);
           const from = (row - top) * width * 4;

@@ -331,20 +331,20 @@ fn fast_components(image: &[bool], w: usize, h: usize) -> Option<Vec<Component>>
     let mut runs = 0;
     for y in 0..h {
         let row = y * w;
+        let line = &image[row..row + w];
         current.clear();
         let mut x = 0;
         let mut previous_start = 0;
         while x < w {
-            while x < w && !image[row + x] {
-                x += 1;
-            }
-            if x == w {
+            // Slice searches find the same run boundaries without per-pixel bounds checks.
+            let Some(start) = line[x..].iter().position(|&pixel| pixel) else {
                 break;
-            }
-            let left = x;
-            while x < w && image[row + x] {
-                x += 1;
-            }
+            };
+            let left = x + start;
+            x = line[left..]
+                .iter()
+                .position(|&pixel| !pixel)
+                .map_or(w, |end| left + end);
             let right = x;
             runs += 1;
             if runs > budget {

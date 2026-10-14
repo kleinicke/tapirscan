@@ -221,16 +221,24 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
         let mut row = Vec::with_capacity(width);
         let mut run_buffers: [(Vec<f32>, Vec<usize>); 2] =
             std::array::from_fn(|_| (Vec::new(), Vec::new()));
+        // `original` split into its column and row products, computed once each;
+        // every sample still subtracts and adds exactly the same f32 values.
+        let columns: Vec<[f32; 2]> = (0..width)
+            .map(|x| {
+                let x = crate::numeric::usize_f32(x) + amin;
+                [x * cs, x * sn]
+            })
+            .collect();
         for y in (0..height).step_by(step) {
             row.clear();
             if degrees == 0. && zero_degree_exact(w, h, width, height) {
                 row.extend_from_slice(&gray[y * w..(y + 1) * w]);
             } else {
-                row.extend((0..width).map(|x| {
-                    let [xx, yy] =
-                        original(crate::numeric::usize_f32(x), crate::numeric::usize_f32(y));
-                    let xx = crate::numeric::f32_isize(xx.round());
-                    let yy = crate::numeric::f32_isize(yy.round());
+                let along = crate::numeric::usize_f32(y) + bmin;
+                let (row_x, row_y) = (along * sn, along * cs);
+                row.extend(columns.iter().map(|&[column_x, column_y]| {
+                    let xx = crate::numeric::f32_isize((column_x - row_x).round());
+                    let yy = crate::numeric::f32_isize((column_y + row_y).round());
                     if xx >= 0 && yy >= 0 && xx < (w).cast_signed() && yy < (h).cast_signed() {
                         gray[(yy).cast_unsigned() * w + (xx).cast_unsigned()]
                     } else {

@@ -96,7 +96,9 @@ async function prepare(
       const moved = new Uint8Array(buffer);
       return [{ data: moved, width, height, channels, stride }, [buffer]];
     }
-    const copy = new Uint8Array(data.subarray(0, addressed));
+    // A same-type view makes this a block copy; copying from ImageData's
+    // Uint8ClampedArray into a Uint8Array would convert element by element.
+    const copy = new Uint8Array(data.buffer, data.byteOffset, addressed).slice();
     return [{ data: copy, width, height, channels, stride }, [copy.buffer]];
   }
   // A copy, so a caller's ImageBitmap stays usable after it is transferred.

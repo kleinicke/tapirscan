@@ -11,6 +11,14 @@
   grayscale copy, with results in the supplied image's coordinates.
 - Fixed an integer overflow in the QR retry for images wider than about 4.5
   million pixels in WebAssembly.
+- Faster Low and Medium scans with several formats, with identical results:
+  Low mode's QR alignment search uses the precomputed sampling tables Medium
+  already had, PDF417 localization precomputes its rotated-row products, and Data
+  Matrix run labeling searches whole row slices. With all formats on the 5,315
+  960×960 variation images, median scan time drops 7.5% in Low, 5% in Medium and
+  2-4% in High and Very High on x86-64; Low is 9% faster on an Apple M1.
+- Browser: `ImageData` and canvas pixels are copied as bytes instead of converted
+  element by element (12-megapixel `ImageData`: 27 ms instead of 42 ms on an M1).
 - x86-64 native libraries (C, C++, Java, Python) target x86-64-v2 (SSE4.2,
   POPCNT): scans are 20-30% faster with identical results. They no longer load on
   x86 CPUs older than Intel Nehalem (2008) or AMD Bulldozer (2011).
