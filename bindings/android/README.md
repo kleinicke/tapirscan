@@ -32,7 +32,13 @@ and keep CameraX's default `STRATEGY_KEEP_ONLY_LATEST` so a slow scan skips fram
 val scanner = BarcodeScanner(BarcodeScanner.MODE_LOW, Formats.EAN13 or Formats.QR_CODE)
 
 val analysis = ImageAnalysis.Builder()
-    .setTargetResolution(Size(1280, 720))
+    .setResolutionSelector(
+        ResolutionSelector.Builder()
+            .setResolutionStrategy(
+                ResolutionStrategy(Size(1280, 720), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)
+            )
+            .build()
+    )
     .build()
 analysis.setAnalyzer(executor) { image ->
     val luma = image.planes[0]
@@ -56,7 +62,10 @@ store RGBA bytes) and scan with 4 channels. Errors are thrown as
 
 - Select only the formats you need; each enabled 2D format searches the whole image.
 - Use `MODE_LOW` and 720p or 1080p frames for live scanning; reuse one scanner.
-- The camera's Y plane is the cheapest input: no copy and no color conversion.
+- The camera's Y plane is the cheapest camera input: it is read in place, with no
+  color conversion on your side. Requesting RGBA frames from CameraX adds a
+  conversion per frame.
+- Release builds need no extra R8 rules; the AAR ships its own.
 
 See [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).
 

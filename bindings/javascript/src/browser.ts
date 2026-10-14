@@ -44,7 +44,7 @@ export type ImageSource = ImageBitmapSource | PixelImage;
 export interface ScanOptions extends CoreScanOptions {
   /**
    * Hand decoded pixels' `ArrayBuffer` to the worker instead of copying it. The
-   * caller's buffer is detached (length 0) once the call starts. Applies only when
+   * caller's buffer is detached (length 0) when the call returns its promise. Applies only when
    * the pixels span their whole, non-shared buffer; other inputs are copied as usual.
    */
   transfer?: boolean;
@@ -92,9 +92,10 @@ async function prepare(
       data.byteOffset === 0 &&
       data.byteLength === buffer.byteLength
     ) {
-      // The caller opted in: move the buffer instead of copying it.
-      const moved = new Uint8Array(buffer);
-      return [{ data: moved, width, height, channels, stride }, [buffer]];
+      // The caller opted in: move the buffer instead of copying it. Detach it now,
+      // not at postMessage, so the call captures the pixels when it starts.
+      const moved = structuredClone(buffer, { transfer: [buffer] });
+      return [{ data: new Uint8Array(moved), width, height, channels, stride }, [moved]];
     }
     // A same-type view makes this a block copy; copying from ImageData's
     // Uint8ClampedArray into a Uint8Array would convert element by element.
@@ -228,10 +229,10 @@ export class Scanner {
       submitted = resolve;
     });
     try {
-      const [prepared, transfer] = await this.#untilClosed(preparing);
+      const [prepared, transferList] = await this.#untilClosed(preparing);
       await this.#untilClosed(previous);
       await this.#untilClosed(this.ready);
-      const result = this.#request({ type, source: prepared, options: scanOptions }, transfer);
+      const result = this.#request({ type, source: prepared, options: scanOptions }, transferList);
       submitted();
       return await result;
     } finally {

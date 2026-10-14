@@ -1,5 +1,7 @@
 package org.tapirscan.android;
 
+import java.nio.charset.StandardCharsets;
+
 /** One decoded barcode: text, format name and four corners in source-image pixels. */
 public final class Barcode {
     private final String text;
@@ -7,8 +9,9 @@ public final class Barcode {
     private final double[] polygon;
     private final long support;
 
-    Barcode(String text, String format, double[] polygon, long support) {
-        this.text = text;
+    /** Called from JNI with the UTF-8 text bytes (JNI strings use modified UTF-8). */
+    Barcode(byte[] text, String format, double[] polygon, long support) {
+        this.text = new String(text, StandardCharsets.UTF_8);
         this.format = format;
         this.polygon = polygon;
         this.support = support;

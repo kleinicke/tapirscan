@@ -43,8 +43,7 @@ rows. Errors are thrown as `TapirscanError` with the library's message.
 ## Camera frames
 
 `scan(_ pixelBuffer:)` reads bi-planar YUV frames (the AVFoundation default) in
-place through their luma plane, without a copy, and converts 32-bit BGRA frames to
-RGBA. Reuse one scanner for the session:
+place through their luma plane, and converts 32-bit BGRA frames to RGBA. Reuse one scanner for the session:
 
 ```swift
 final class FrameScanner: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
@@ -66,8 +65,8 @@ frames instead of queueing them, and use a 1280×720 or 1920×1080 session prese
 
 - Select only the formats you need; each enabled 2D format searches the whole image.
 - Create one `BarcodeScanner` and reuse it; use `.low` for live camera frames.
-- Camera luma planes are the cheapest input (no copy); `CGImage`s are rendered once
-  into a buffer the scanner reuses.
+- Camera luma planes are the cheapest camera input: they are read in place, with no
+  color conversion; `CGImage`s are rendered once into a buffer the scanner reuses.
 - Calls on one scanner run one at a time; use one scanner per queue to scan in
   parallel.
 

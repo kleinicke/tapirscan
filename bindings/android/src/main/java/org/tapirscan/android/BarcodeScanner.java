@@ -3,6 +3,7 @@ package org.tapirscan.android;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * A reusable barcode scanner over the Tapirscan C library, through JNI. Create one
@@ -52,6 +53,7 @@ public final class BarcodeScanner implements AutoCloseable {
     /** Scan pixels held in a byte array. */
     public synchronized List<Barcode> scan(
             byte[] pixels, int width, int height, int channels, int stride) {
+        Objects.requireNonNull(pixels, "pixels");
         return Arrays.asList(nativeScanArray(open(), pixels, width, height, channels, stride));
     }
 

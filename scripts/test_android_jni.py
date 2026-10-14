@@ -67,6 +67,7 @@ def main() -> None:
         [
             tool("java"),
             "--enable-native-access=ALL-UNNAMED",
+            "-Xcheck:jni",
             f"-Djava.library.path={OUT}",
             "-cp",
             str(classes),

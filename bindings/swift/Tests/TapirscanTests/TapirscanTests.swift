@@ -51,6 +51,9 @@ final class TapirscanTests: XCTestCase {
         XCTAssertThrowsError(try scanner.scan([0, 0], width: 3, height: 3, channels: 1)) { error in
             XCTAssertFalse((error as? TapirscanError)?.message.isEmpty ?? true)
         }
+        // Out-of-range sizes reach the library as errors instead of trapping.
+        XCTAssertThrowsError(try scanner.scan([0, 0], width: 3, height: 3, channels: Int.max))
+        XCTAssertThrowsError(try scanner.scan([0, 0], width: -3, height: 3, channels: 1))
     }
 
     func testScansCGImages() throws {

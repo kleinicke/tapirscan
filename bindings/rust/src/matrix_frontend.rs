@@ -3,6 +3,10 @@
 use barcode_multiformat::{
     Detection, Scan, binarization, dm_detect, maxicode_detect, pdf417, qr_detect, regions,
 };
+/// Stack for reader threads: they used to run on the caller's (usually larger) stack.
+#[cfg(not(target_family = "wasm"))]
+const READER_STACK: usize = 8 << 20;
+
 /// One matrix reader's reads, work flag and recorded regions.
 type ReaderRun = (Vec<Detection>, bool, regions::Regions);
 
@@ -98,7 +102,8 @@ fn parallel_readers(
     effort: usize,
 ) -> Option<(Vec<ReaderRun>, regions::Regions)> {
     // The base thresholds every grid reader starts from are computed once and
-    // copied; binarization is deterministic, so each copy equals a fresh cache.
+    // shared read-only (cloning the cache shares the images); binarization is
+    // deterministic, so each reader sees what a fresh cache would compute.
     let mut shared = binarization::Images::new(image, width, height);
     if bits.iter().any(|&bit| bit != 2048) {
         for mode in 0..4 {
@@ -107,33 +112,42 @@ fn parallel_readers(
         let _ = shared.is_duplicate(1);
     }
     let shared = &shared;
+    let run = |bit: u32| {
+        let mut regions = regions::Regions::default();
+        let mut binary_images = if bit == 2048 {
+            binarization::Images::new(image, width, height)
+        } else {
+            shared.clone()
+        };
+        let (reads, limited) = run_reader(
+            bit,
+            image,
+            width,
+            height,
+            effort,
+            &mut regions,
+            &mut binary_images,
+        );
+        (reads, limited, regions)
+    };
     let runs: Vec<ReaderRun> = std::thread::scope(|scope| {
-        let handles: Vec<_> = bits
+        // A reader whose thread cannot start runs here instead; its private regions
+        // keep the result identical either way.
+        let pending: Vec<_> = bits
             .iter()
             .map(|&bit| {
-                scope.spawn(move || {
-                    let mut regions = regions::Regions::default();
-                    let mut binary_images = if bit == 2048 {
-                        binarization::Images::new(image, width, height)
-                    } else {
-                        shared.clone()
-                    };
-                    let (reads, limited) = run_reader(
-                        bit,
-                        image,
-                        width,
-                        height,
-                        effort,
-                        &mut regions,
-                        &mut binary_images,
-                    );
-                    (reads, limited, regions)
-                })
+                std::thread::Builder::new()
+                    .stack_size(READER_STACK)
+                    .spawn_scoped(scope, move || run(bit))
+                    .map_err(|_| bit)
             })
             .collect();
-        handles
+        pending
             .into_iter()
-            .map(|handle| handle.join().expect("matrix reader thread panicked"))
+            .map(|handle| match handle {
+                Ok(handle) => handle.join().expect("matrix reader thread panicked"),
+                Err(bit) => run(bit),
+            })
             .collect()
     });
     let total: usize = runs

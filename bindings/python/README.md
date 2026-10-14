@@ -103,7 +103,9 @@ runs on CPU. See [array and tensor inputs](#array-and-tensor-inputs).
   does not pay off for uint8 and saves little for large float tensors. Do not
   convert RGBA to gray for scanning; for OpenCV, see below.
 - **Batches:** `tapirscan.scan_many(images, ...)` scans on all CPU cores with one
-  scanner per thread.
+  scanner per thread, reading a generator only a few images ahead. It already
+  keeps every core busy, so with several 2D formats set `TAPIRSCAN_THREADS=1`
+  (before the first scan) for the highest throughput.
 - **Threads and servers:** scanning releases the GIL, so one scanner per thread
   scales with CPU cores (about 7× with 8 threads). Create one per worker thread,
   for example with `threading.local()` or a `ThreadPoolExecutor` initializer. In

@@ -153,10 +153,10 @@ public final class BarcodeScanner: @unchecked Sendable {
         var image = tapirscan_image(
             data: pixels.baseAddress?.assumingMemoryBound(to: UInt8.self),
             length: UInt64(pixels.count),
-            width: UInt64(max(width, 0)),
-            height: UInt64(max(height, 0)),
-            channels: UInt32(max(channels, 0)),
-            stride: UInt64(max(stride, 0))
+            width: UInt64(clamping: width),
+            height: UInt64(clamping: height),
+            channels: UInt32(clamping: channels),
+            stride: UInt64(clamping: stride)
         )
         var options = tapirscan_scan_options(formats: formats?.rawValue ?? 0)
         var result = tapirscan_result()

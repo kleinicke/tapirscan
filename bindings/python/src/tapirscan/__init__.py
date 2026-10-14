@@ -6,7 +6,8 @@ import ctypes as c
 import os
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
 from threading import RLock
@@ -17,7 +18,7 @@ from typing_extensions import Self
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-from ._images import _size, image_bytes
+from ._images import _cpu_count, _size, image_bytes
 from .formats import (
     FORMAT_BITS,
     Format,
@@ -230,7 +231,8 @@ def _snapshot(
     if view.nbytes < required:
         msg = "Image buffer is too short"
         raise ValueError(msg)
-    # The scanner copies this view into its own buffer before releasing the GIL.
+    # Under its lock, the scanner copies this view into its own buffer before
+    # releasing the GIL, unless `immutable` lets it scan the bytes in place.
     immutable = pixels if type(pixels) is bytes else None
     return view[:required], width, height, channels, stride, immutable
 
@@ -622,14 +624,14 @@ def scan_many(
     """Scan several images on worker threads; results keep the input order.
 
     Each worker thread uses its own Scanner, and scanning releases the GIL, so
-    throughput scales with CPU cores. ``workers`` defaults to the CPU count. The
-    first failing image raises its error after the other scans finish.
+    throughput scales with CPU cores. ``workers`` defaults to the CPUs this process
+    may use. Images are consumed lazily, at most two per worker ahead of the
+    scans. The first failing image raises its error after the other scans finish.
     """
     if workers is not None and (isinstance(workers, bool) or workers < 1):
         msg = "workers must be a positive integer or None"
         raise ValueError(msg)
-    pending = list(images)
-    count = min(workers or os.cpu_count() or 1, max(len(pending), 1))
+    count = workers or _cpu_count()
     local = threading.local()
     created: list[Scanner] = []
     created_lock = RLock()
@@ -652,7 +654,17 @@ def scan_many(
 
     try:
         with ThreadPoolExecutor(count, thread_name_prefix="tapirscan") as pool:
-            return list(pool.map(scan_one, pending))
+            # A bounded window: a generator of decoded images is consumed only as
+            # fast as it is scanned, instead of being held in memory all at once.
+            window: deque[Future[ScanResult]] = deque()
+            done: list[Future[ScanResult]] = []
+            for image in images:
+                if len(window) >= 2 * count:
+                    window[0].exception()
+                    done.append(window.popleft())
+                window.append(pool.submit(scan_one, image))
+            done.extend(window)
+            return [future.result() for future in done]
     finally:
         for scanner in created:
             scanner.close()

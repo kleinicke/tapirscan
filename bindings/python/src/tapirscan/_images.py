@@ -227,11 +227,22 @@ def _check_range(low: float, high: float, ceiling: int, source: str) -> None:
         raise ValueError(msg)
 
 
+def _cpu_count() -> int:
+    """CPUs this process may use (its affinity mask on Python 3.13+)."""
+    count = getattr(os, "process_cpu_count", os.cpu_count)()
+    return cast("int | None", count) or 1
+
+
 @cache
 def _converters() -> ThreadPoolExecutor:
     """Threads for large conversions; NumPy releases the GIL in the block work."""
-    workers = min(MAX_CONVERT_THREADS, os.cpu_count() or 1)
+    workers = min(MAX_CONVERT_THREADS, _cpu_count())
     return ThreadPoolExecutor(workers, thread_name_prefix="tapirscan-convert")
+
+
+if hasattr(os, "register_at_fork"):
+    # A forked child has none of the parent's pool threads; start a fresh pool.
+    os.register_at_fork(after_in_child=_converters.cache_clear)
 
 
 def _round_bytes(
@@ -259,7 +270,7 @@ def _round_bytes(
 
     starts = range(0, image.shape[0], rows)
     errors: Iterator[ValueError | None]
-    if image.size < PARALLEL_SAMPLES or (os.cpu_count() or 1) == 1:
+    if image.size < PARALLEL_SAMPLES or _cpu_count() == 1:
         errors = (convert(start) for start in starts)
     else:
         # Blocks are independent; the first error in block order is raised, as in

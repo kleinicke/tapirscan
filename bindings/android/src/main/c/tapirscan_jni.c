@@ -4,12 +4,20 @@
 #include <string.h>
 #include <tapirscan.h>
 
+/* Text crosses as UTF-8 byte[]: JNI's NewStringUTF expects modified UTF-8. */
+static jbyteArray utf8_bytes(JNIEnv *env, const char *text, size_t length) {
+    jbyteArray bytes = (*env)->NewByteArray(env, (jsize)length);
+    if (bytes) (*env)->SetByteArrayRegion(env, bytes, 0, (jsize)length, (const jbyte *)text);
+    return bytes;
+}
+
 static void throw_error(JNIEnv *env, int32_t status, const char *message) {
+    if ((*env)->ExceptionCheck(env)) return;
+    const char *text = message && *message ? message : tapirscan_status_message(status);
     jclass type = (*env)->FindClass(env, "org/tapirscan/android/TapirscanException");
-    if (!type) return;
-    jmethodID init = (*env)->GetMethodID(env, type, "<init>", "(ILjava/lang/String;)V");
-    jstring text = (*env)->NewStringUTF(env, message && *message ? message : tapirscan_status_message(status));
-    jobject error = (*env)->NewObject(env, type, init, (jint)status, text);
+    jmethodID init = type ? (*env)->GetMethodID(env, type, "<init>", "(I[B)V") : NULL;
+    jbyteArray bytes = init ? utf8_bytes(env, text, strlen(text)) : NULL;
+    jobject error = bytes ? (*env)->NewObject(env, type, init, (jint)status, bytes) : NULL;
     if (error) (*env)->Throw(env, (jthrowable)error);
 }
 
@@ -20,7 +28,7 @@ JNIEXPORT jlong JNICALL Java_org_tapirscan_android_BarcodeScanner_nativeCreate(
     options.mode = (uint32_t)mode;
     options.formats = (uint32_t)formats;
     tapirscan_scanner scanner = 0;
-    tapirscan_error error;
+    tapirscan_error error = {{0}};
     int32_t status = tapirscan_scanner_create(&options, &scanner, &error);
     if (status != TAPIRSCAN_OK) {
         throw_error(env, status, error.message);
@@ -36,6 +44,42 @@ JNIEXPORT void JNICALL Java_org_tapirscan_android_BarcodeScanner_nativeDestroy(
     tapirscan_scanner_destroy((tapirscan_scanner)handle);
 }
 
+/* One result entry as a Barcode, or NULL with a pending exception. */
+static jobject barcode_object(JNIEnv *env, jclass type, jmethodID init, tapirscan_result result,
+                              uint64_t index) {
+    tapirscan_barcode barcode;
+    int32_t status = tapirscan_result_barcode(result, index, &barcode);
+    char *text = status == TAPIRSCAN_OK ? malloc(barcode.text_length + 1) : NULL;
+    if (status == TAPIRSCAN_OK && !text) status = TAPIRSCAN_INTERNAL_ERROR;
+    if (text) {
+        status = tapirscan_result_copy(result, index, TAPIRSCAN_FIELD_TEXT, (uint8_t *)text,
+                                       barcode.text_length + 1);
+    }
+    if (status != TAPIRSCAN_OK) {
+        free(text);
+        throw_error(env, status, NULL);
+        return NULL;
+    }
+    jdouble corners[8];
+    for (int c = 0; c < 4; c++) {
+        corners[2 * c] = barcode.polygon[c].x;
+        corners[2 * c + 1] = barcode.polygon[c].y;
+    }
+    jbyteArray bytes = utf8_bytes(env, text, barcode.text_length);
+    free(text);
+    jstring format = bytes ? (*env)->NewStringUTF(env, tapirscan_format_name(barcode.format)) : NULL;
+    jdoubleArray polygon = format ? (*env)->NewDoubleArray(env, 8) : NULL;
+    jobject value = NULL;
+    if (polygon) {
+        (*env)->SetDoubleArrayRegion(env, polygon, 0, 8, corners);
+        value = (*env)->NewObject(env, type, init, bytes, format, polygon, (jlong)barcode.support);
+    }
+    if (bytes) (*env)->DeleteLocalRef(env, bytes);
+    if (format) (*env)->DeleteLocalRef(env, format);
+    if (polygon) (*env)->DeleteLocalRef(env, polygon);
+    return value;
+}
+
 /* Scan and convert the result into Barcode objects; NULL with a pending exception on failure. */
 static jobjectArray scan(JNIEnv *env, jlong handle, const uint8_t *data, uint64_t length,
                          jint width, jint height, jint channels, jint stride) {
@@ -45,8 +89,8 @@ static jobjectArray scan(JNIEnv *env, jlong handle, const uint8_t *data, uint64_
     }
     tapirscan_image image = {data, length, (uint64_t)width, (uint64_t)height, (uint32_t)channels,
                              (uint64_t)stride};
-    tapirscan_result result;
-    tapirscan_error error;
+    tapirscan_result result = 0;
+    tapirscan_error error = {{0}};
     int32_t status = tapirscan_scan((tapirscan_scanner)handle, &image, NULL, &result, &error);
     if (status != TAPIRSCAN_OK) {
         throw_error(env, status, error.message);
@@ -55,34 +99,17 @@ static jobjectArray scan(JNIEnv *env, jlong handle, const uint8_t *data, uint64_
     uint64_t count = 0;
     tapirscan_result_count(result, &count);
     jclass type = (*env)->FindClass(env, "org/tapirscan/android/Barcode");
-    jmethodID init = type ? (*env)->GetMethodID(env, type, "<init>", "(Ljava/lang/String;Ljava/lang/String;[DJ)V") : NULL;
+    jmethodID init = type ? (*env)->GetMethodID(env, type, "<init>", "([BLjava/lang/String;[DJ)V")
+                          : NULL;
     jobjectArray out = init ? (*env)->NewObjectArray(env, (jsize)count, type, NULL) : NULL;
     for (uint64_t i = 0; out && i < count; i++) {
-        tapirscan_barcode barcode;
-        if (tapirscan_result_barcode(result, i, &barcode) != TAPIRSCAN_OK) continue;
-        char *text = malloc(barcode.text_length + 1);
-        if (!text) break;
-        tapirscan_result_copy(result, i, TAPIRSCAN_FIELD_TEXT, (uint8_t *)text, barcode.text_length + 1);
-        jdouble corners[8];
-        for (int c = 0; c < 4; c++) {
-            corners[2 * c] = barcode.polygon[c].x;
-            corners[2 * c + 1] = barcode.polygon[c].y;
-        }
-        jdoubleArray polygon = (*env)->NewDoubleArray(env, 8);
-        if (polygon) (*env)->SetDoubleArrayRegion(env, polygon, 0, 8, corners);
-        jstring jtext = (*env)->NewStringUTF(env, text);
-        jstring format = (*env)->NewStringUTF(env, tapirscan_format_name(barcode.format));
-        free(text);
-        if (!polygon || !jtext || !format) break;
-        jobject value = (*env)->NewObject(env, type, init, jtext, format, polygon, (jlong)barcode.support);
+        jobject value = barcode_object(env, type, init, result, i);
         if (!value) break;
         (*env)->SetObjectArrayElement(env, out, (jsize)i, value);
         (*env)->DeleteLocalRef(env, value);
-        (*env)->DeleteLocalRef(env, polygon);
-        (*env)->DeleteLocalRef(env, jtext);
-        (*env)->DeleteLocalRef(env, format);
     }
     tapirscan_result_destroy(result);
+    if (type) (*env)->DeleteLocalRef(env, type);
     return (*env)->ExceptionCheck(env) ? NULL : out;
 }
 

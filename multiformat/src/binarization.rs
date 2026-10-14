@@ -12,7 +12,8 @@ pub struct Images<'a> {
     gray: &'a [u8],
     width: usize,
     height: usize,
-    cached: [Option<Vec<bool>>; 6],
+    // Shared so that clones (one per parallel reader) do not copy the images.
+    cached: [Option<std::sync::Arc<[bool]>>; 6],
     row_offsets: [Option<RowOffsets>; 3],
     identical_thresholds: Option<bool>,
     qr_contrast_cut: ContrastCut,
@@ -283,7 +284,7 @@ impl<'a> Images<'a> {
     #[must_use]
     pub fn get(&mut self, mode: usize) -> &[bool] {
         if self.cached[mode].is_none() {
-            let image = if mode == 4 {
+            let image: Vec<bool> = if mode == 4 {
                 let ContrastCut::Value(cut) = self.qr_contrast_cut else {
                     unreachable!("QR contrast availability checked before use");
                 };
@@ -295,9 +296,9 @@ impl<'a> Images<'a> {
             } else {
                 self.get(mode - 2).iter().map(|b| !*b).collect()
             };
-            self.cached[mode] = Some(image);
+            self.cached[mode] = Some(std::sync::Arc::from(image));
         }
-        self.cached[mode].as_ref().unwrap()
+        self.cached[mode].as_deref().unwrap()
     }
 
     /// Return threshold pixels plus lazily populated transition rows. The
@@ -312,7 +313,7 @@ impl<'a> Images<'a> {
         let base = if mode >= 4 { 2 } else { mode % 2 };
         let (width, height) = (self.width, self.height);
         let (cached, row_offsets) = (&self.cached, &mut self.row_offsets);
-        let bits = cached[mode].as_ref().unwrap();
+        let bits = cached[mode].as_deref().unwrap();
         let offsets = row_offsets[base].get_or_insert_with(RowOffsets::new);
         offsets.populate(bits, width, height, step);
         (bits, offsets)

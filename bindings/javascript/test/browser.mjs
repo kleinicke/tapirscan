@@ -269,7 +269,10 @@ test("transfer moves whole pixel buffers to the worker and copies partial views"
     const scanner = new tapirscan.Scanner();
     try {
       const whole = { ...image, data: image.data.slice() };
-      const moved = await scanner.scan(whole, { transfer: true, formats: "retail" });
+      const call = scanner.scan(whole, { transfer: true, formats: "retail" });
+      // Detached when the call starts, so later writes cannot reach the scan.
+      const detachedAtCall = whole.data.byteLength;
+      const moved = await call;
       // A view into a larger buffer cannot be moved without taking the rest along.
       const backing = new Uint8Array(image.data.length + 16);
       backing.set(image.data, 16);
@@ -280,6 +283,7 @@ test("transfer moves whole pixel buffers to the worker and copies partial views"
       return {
         moved: moved.values,
         detached: whole.data.byteLength,
+        detachedAtCall,
         copied: copied.values,
         kept: backing.byteLength,
         rejected,
@@ -292,6 +296,7 @@ test("transfer moves whole pixel buffers to the worker and copies partial views"
   assert.deepEqual(outcome, {
     moved: [text],
     detached: 0,
+    detachedAtCall: 0,
     copied: [text],
     kept: (await page.evaluate(() => globalThis.fixture.image.data.length)) + 16,
     rejected: "TypeError",

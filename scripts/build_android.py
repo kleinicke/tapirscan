@@ -30,6 +30,13 @@ MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
     <uses-sdk android:minSdkVersion="24" />
 </manifest>
 """
+# R8 must keep the JNI entry points and the constructors native code calls.
+PROGUARD = """-keepclasseswithmembernames class org.tapirscan.android.** {
+    native <methods>;
+}
+-keep class org.tapirscan.android.Barcode { <init>(...); }
+-keep class org.tapirscan.android.TapirscanException { <init>(...); }
+"""
 
 
 def toolchain(ndk: Path) -> Path:
@@ -101,6 +108,8 @@ def build(public_crate: Path, ndk: Path) -> Path:
                 str(ANDROID / "src/main/c/tapirscan_jni.c"),
                 str(TARGET / target / "release/libtapirscan.a"),
                 "-Wl,--gc-sections",
+                # Keep the Rust runtime's symbols out of the app's dynamic namespace.
+                "-Wl,--exclude-libs,ALL",
                 "-Wl,-z,max-page-size=16384",
                 "-s",
                 "-llog",
@@ -130,6 +139,7 @@ def build(public_crate: Path, ndk: Path) -> Path:
     with zipfile.ZipFile(aar, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("AndroidManifest.xml", MANIFEST)
         archive.writestr("R.txt", "")
+        archive.writestr("proguard.txt", PROGUARD)
         with zipfile.ZipFile(OUT / "classes.jar", "w", zipfile.ZIP_DEFLATED) as jar:
             for path in sorted(classes.rglob("*.class")):
                 jar.write(path, path.relative_to(classes).as_posix())

@@ -151,7 +151,9 @@ per thread. Native builds additionally run several enabled 2D readers of one sca
 separate threads, which shortens a single scan with all formats by up to 1.75×. On
 servers that already run one scanner per core, set `TAPIRSCAN_THREADS=1` to keep
 each scan on one thread; this saves the few percent of extra CPU time that the
-parallel readers cost. WebAssembly scans always use one thread.
+parallel readers cost. The variable is read once, at the first scan in the process,
+and only `0` or `1` (one thread) and unset (parallel) differ. WebAssembly scans
+always use one thread.
 
 ## Mobile apps
 

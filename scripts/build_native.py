@@ -17,7 +17,7 @@ TARGET = ROOT / "build/native-target"
 # Rust examples used by the cross-language parity tests.
 EXAMPLES = TARGET / "release/examples"
 # x86-64 builds target x86-64-v2 (SSE4.2, POPCNT): every Intel CPU since 2008 and
-# AMD since 2011. Scans are 7-18% faster than the baseline; AVX2 (v3) adds 1-5%.
+# AMD since 2011. Scans are 20-30% faster than the baseline; AVX2 (v3) adds 2-4%.
 X86_64_RUSTFLAGS = "-C target-cpu=x86-64-v2"
 
 

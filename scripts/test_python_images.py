@@ -5,8 +5,10 @@ import ctypes
 import json
 import os
 import sys
+import threading
 import typing
 import unittest
+import warnings
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Any
@@ -110,6 +112,64 @@ class Images(unittest.TestCase):
             barcode.scan_many(
                 [GRAY, PixelImage(b"", width=W, height=H)], library_dir=LIBS
             )
+
+    def test_scan_many_consumes_lazily(self) -> None:
+        """A generator is read only a bounded window ahead of the scans."""
+        produced = 0
+
+        def frames() -> typing.Iterator[np.ndarray[Any, Any]]:
+            nonlocal produced
+            for _ in range(40):
+                produced += 1
+                yield GRAY
+
+        lazy = barcode.scan_many(frames(), workers=2, library_dir=LIBS)
+        self.assertEqual([result.values for result in lazy], [[TEXT]] * 40)
+        self.assertEqual(produced, 40)
+
+        # Count how far the generator runs ahead of finished scans.
+        made = finished = ahead = 0
+        lock = threading.Lock()
+
+        def counted() -> typing.Iterator[np.ndarray[Any, Any]]:
+            nonlocal made, ahead
+            for _ in range(40):
+                with lock:
+                    made += 1
+                    ahead = max(ahead, made - finished)
+                yield GRAY
+
+        def fake_scan(*_: object, **__: object) -> None:
+            nonlocal finished
+            with lock:
+                finished += 1
+
+        with patch.object(Scanner, "scan", fake_scan):
+            barcode.scan_many(counted(), workers=1, library_dir=LIBS)
+        # Two pending scans per worker plus the image being submitted.
+        self.assertLessEqual(ahead, 3)
+
+    @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
+    def test_converter_pool_survives_fork(self) -> None:
+        """A forked child gets a fresh conversion pool instead of the parent's."""
+        from tapirscan import _images  # noqa: PLC0415
+
+        parent = _images._converters()  # noqa: SLF001
+        read, write = os.pipe()
+        with warnings.catch_warnings():
+            # Forking with the pool's threads alive is the case under test.
+            warnings.simplefilter("ignore", DeprecationWarning)
+            pid = os.fork()
+        if pid == 0:
+            os.close(read)
+            fresh = _images._converters() is not parent  # noqa: SLF001
+            os.write(write, b"1" if fresh else b"0")
+            os._exit(0)
+        os.close(write)
+        reply = os.read(read, 1)
+        os.close(read)
+        os.waitpid(pid, 0)
+        self.assertEqual(reply, b"1")
 
     def test_reused_snapshot_buffer(self) -> None:
         """A scanner's reused pixel buffer never leaks bytes between images."""
