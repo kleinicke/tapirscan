@@ -42,10 +42,12 @@ compare the readers.
 | ----------------------- | ------------------------------------------------------ | -------------------------------------- |
 | JavaScript / TypeScript | Browser and Node, WASM included                        | [JS/TS](bindings/javascript/README.md) |
 | Python                  | Native platform wheels; Pillow, NumPy and tensors      | [Python](bindings/python/README.md)    |
-| Java                    | JDK 22+ JAR with a separate native library; no Android | [Java](bindings/java/README.md)        |
+| Java                    | JDK 22+ JAR with a separate native library             | [Java](bindings/java/README.md)        |
 | C++                     | Header-only C++17 wrapper and CMake installation       | [C++](bindings/cpp/README.md)          |
 | C                       | Shared library with typed results and explicit buffers | [C](bindings/c/README.md)              |
 | Rust                    | Standalone Cargo package                               | [Rust](bindings/rust/README.md)        |
+| Swift (iOS, macOS)      | Swift package over an XCFramework; camera frames       | [Swift](bindings/swift/README.md)      |
+| Android (Kotlin, Java)  | AAR with a JNI bridge; CameraX frames                  | [Android](bindings/android/README.md)  |
 
 Every binding offers all four effort modes and the same results. JavaScript and
 Python install from [npm](https://www.npmjs.com/package/tapirscan) and

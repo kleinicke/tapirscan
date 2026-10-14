@@ -20,6 +20,12 @@
   eligible components, so large or textured images no longer fall back to a slow
   flood fill. Identical results; Medium with all formats is 23% faster on a
   12-megapixel image.
+- Swift (iOS 15+, macOS 12+): a Swift package over an XCFramework built by
+  `scripts/build_apple.py`, with `BarcodeScanner` for pixel buffers, `CGImage`s and
+  camera `CVPixelBuffer`s (bi-planar YUV frames are scanned in place).
+- Android (API 24+, arm64-v8a and x86_64): an AAR with a JNI bridge built by
+  `scripts/build_android.py`, with `BarcodeScanner` for direct buffers such as
+  CameraX planes and byte arrays.
 - Python: `color_order="BGR"` reorders channels with one strided copy per channel
   instead of fancy indexing; a 12-megapixel OpenCV frame scans in 32 ms instead of
   69 ms on an M1 (converting to RGBA with `cv2.cvtColor` remains fastest).

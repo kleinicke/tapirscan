@@ -127,9 +127,9 @@ found, creating the first scanner throws `IllegalArgumentException` from the
 JDK's library lookup; an incompatible build throws `IllegalStateException`
 ("Native ABI mismatch" or a missing symbol). Rebuild the library to match.
 `--enable-native-access=ALL-UNNAMED` avoids the JDK's native-access warning. The
-JAR and the native library are distributed separately. Android is not supported:
-its runtime lacks the Foreign Function & Memory API. Android apps can call the C
-library through JNI, or use the JavaScript package in a WebView.
+JAR and the native library are distributed separately. This binding needs the
+Foreign Function & Memory API, which Android lacks; Android apps use the
+[Android AAR](../android/README.md), a JNI bridge with its own small API.
 
 ## License
 

@@ -156,8 +156,10 @@ parallel readers cost. WebAssembly scans always use one thread.
 ## Mobile apps
 
 - **Web apps and WebViews:** use `tapirscan/browser`, as above.
-- **iOS:** the C library builds as a static library for devices and the simulator;
-  call it from Swift through the C header.
-- **Android:** call the C library through JNI from Kotlin or Java (64-bit ABIs);
-  there is no prebuilt AAR yet. 32-bit devices can use the browser build in a
-  WebView.
+- **iOS:** the [Swift package](../bindings/swift/README.md) scans AVFoundation frames
+  through their luma plane, in place, and `CGImage`s.
+- **Android:** the [Android AAR](../bindings/android/README.md) scans the Y plane of
+  CameraX frames in place through JNI (64-bit ABIs). 32-bit devices can use the
+  browser build in a WebView.
+- On phones, use Low, 720p-1080p frames and only the formats you need; scanning the
+  camera's luma plane avoids both a copy and a color conversion.
