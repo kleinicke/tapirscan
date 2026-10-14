@@ -25,7 +25,8 @@
 - Python: non-uint8 inputs convert much faster with identical bytes. CUDA tensors
   are validated and rounded on the GPU and transferred once as 8-bit pixels; CPU
   tensors and NumPy arrays are validated and rounded in one blocked pass, on up to
-  eight threads for NumPy arrays of 4 Mi samples or more. On
+  eight threads for NumPy arrays of 4 Mi samples or more. Immutable `bytes`
+  (Pillow conversions, raw `PixelImage` bytes) are scanned in place. On
   x86-64, a 12-megapixel float32 RGB scan (Medium, retail) takes 36 ms instead of
   840 ms from CUDA, 51 instead of 754 ms from a CPU tensor and 54 instead of
   161 ms from NumPy.

@@ -184,8 +184,12 @@ def _integer(
 
 def _snapshot(
     image: ImageInput, layout: Layout, value_range: ValueRange, color_order: ColorOrder
-) -> tuple[memoryview, int, int, int, int]:
-    """Validate image storage; return the exact view the scanner copies."""
+) -> tuple[memoryview, int, int, int, int, bytes | None]:
+    """Validate image storage; return the exact view and any immutable owner.
+
+    A ``bytes`` object, such as a Pillow conversion or raw ``PixelImage`` bytes, can
+    be scanned in place: it cannot change while the GIL is released.
+    """
     if isinstance(image, PixelImage):
         if layout != "auto" or value_range != "auto" or color_order != "RGB":
             msg = (
@@ -221,7 +225,8 @@ def _snapshot(
         msg = "Image buffer is too short"
         raise ValueError(msg)
     # The scanner copies this view into its own buffer before releasing the GIL.
-    return view[:required], width, height, channels, stride
+    immutable = pixels if type(pixels) is bytes else None
+    return view[:required], width, height, channels, stride, immutable
 
 
 class Scanner:
@@ -408,7 +413,7 @@ class Scanner:
             if not self._handle.value:
                 msg = "Scanner is closed"
                 raise RuntimeError(msg)
-        data, width, height, channels, stride = _snapshot(
+        data, width, height, channels, stride, immutable = _snapshot(
             image, layout, value_range, color_order
         )
         options = _ScanOptions(mask)
@@ -416,15 +421,18 @@ class Scanner:
             if not self._handle.value:
                 msg = "Scanner is closed"
                 raise RuntimeError(msg)
-            # Snapshot input before releasing the GIL in the native call. A reused
-            # buffer avoids faulting in fresh memory for every large image.
             length = data.nbytes
-            if self._staging is None or len(self._staging) < length:
-                self._staging = (c.c_uint8 * length)()
-            memoryview(self._staging).cast("B")[:length] = data
-            pixels = _Image(
-                c.addressof(self._staging), length, width, height, channels, stride
-            )
+            if immutable is not None:
+                # `immutable` stays referenced until the call returns.
+                address = c.cast(c.c_char_p(immutable), c.c_void_p).value or 0
+            else:
+                # Snapshot input before releasing the GIL in the native call. A
+                # reused buffer avoids faulting in fresh memory for every image.
+                if self._staging is None or len(self._staging) < length:
+                    self._staging = (c.c_uint8 * length)()
+                memoryview(self._staging).cast("B")[:length] = data
+                address = c.addressof(self._staging)
+            pixels = _Image(address, length, width, height, channels, stride)
             result = c.c_uint64()
             error = c.create_string_buffer(512)
             self._check(
