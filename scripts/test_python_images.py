@@ -307,6 +307,15 @@ class Images(unittest.TestCase):
         late_nan[-1, -1, -1] = np.nan
         with self.assertRaisesRegex(ValueError, "finite"):
             image_bytes(late_nan)
+        # Large arrays round on threads with the same bytes and the same first error.
+        large = np.random.default_rng(1).random((1500, 1000, 3)).astype(np.float32)
+        expected = np.rint(large.astype(np.float64) * 255).astype(np.uint8)
+        self.assertEqual(image_bytes(large)[0], expected.tobytes())
+        mixed = large.copy()
+        mixed[0, 0, 0] = 2.0
+        mixed[-1, -1, -1] = np.nan
+        with self.assertRaisesRegex(ValueError, "exceed the selected range"):
+            image_bytes(mixed)
         with Scanner(formats="1D", library_dir=LIBS) as scanner:
             self.assertEqual(scanner.inspect(GRAY).values, [TEXT])
             self.assertEqual(scanner.inspect(GRAY, formats="2D").values, [])

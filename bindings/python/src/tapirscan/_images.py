@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from functools import cache
 from math import isfinite
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     import numpy as np
     from numpy.typing import NDArray
     from torch import Tensor
@@ -27,6 +32,9 @@ CHANNELS = (1, 3, 4)
 BGR_CHANNELS = {3: [2, 1, 0], 4: [2, 1, 0, 3]}
 # Float samples rounded per block: a few MiB of float64 stays in cache.
 ROUND_BLOCK = 1 << 18
+# Arrays with at least this many samples are rounded on up to 8 threads.
+PARALLEL_SAMPLES = 1 << 22
+MAX_CONVERT_THREADS = 8
 # CPU tensors round larger blocks: PyTorch spreads each operation over threads.
 # 3 Mi samples (24 MiB of float64) measured fastest overall on x86-64 and Apple M1.
 TENSOR_BLOCK = 3 << 20
@@ -215,6 +223,13 @@ def _check_range(low: float, high: float, ceiling: int, source: str) -> None:
         raise ValueError(msg)
 
 
+@cache
+def _converters() -> ThreadPoolExecutor:
+    """Threads for large conversions; NumPy releases the GIL in the block work."""
+    workers = min(MAX_CONVERT_THREADS, os.cpu_count() or 1)
+    return ThreadPoolExecutor(workers, thread_name_prefix="tapirscan-convert")
+
+
 def _round_bytes(
     image: NDArray[np.generic], ceiling: int, source: str
 ) -> NDArray[np.uint8]:
@@ -225,13 +240,30 @@ def _round_bytes(
     exact = np.float32 if image.dtype.itemsize <= 2 else np.float64  # noqa: PLR2004
     pixels = np.empty(image.shape, dtype=np.uint8)
     rows = max(1, ROUND_BLOCK // max(1, image[0].size))
-    for start in range(0, image.shape[0], rows):
+
+    def convert(start: int) -> ValueError | None:
         block = image[start : start + rows].astype(exact)
         # Widened blocks have fast min/max even for float16.
-        _check_range(float(block.min()), float(block.max()), ceiling, source)
+        try:
+            _check_range(float(block.min()), float(block.max()), ceiling, source)
+        except ValueError as error:
+            return error
         if ceiling == 1:
             np.multiply(block, 255, out=block)
         pixels[start : start + rows] = np.rint(block, out=block)
+        return None
+
+    starts = range(0, image.shape[0], rows)
+    errors: Iterator[ValueError | None]
+    if image.size < PARALLEL_SAMPLES or (os.cpu_count() or 1) == 1:
+        errors = (convert(start) for start in starts)
+    else:
+        # Blocks are independent; the first error in block order is raised, as in
+        # the sequential loop.
+        errors = iter(list(_converters().map(convert, starts)))
+    error = next((error for error in errors if error is not None), None)
+    if error is not None:
+        raise error
     return pixels
 
 

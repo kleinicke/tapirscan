@@ -151,7 +151,8 @@ are rejected rather than clipped: scale higher-bit-depth intensities and undo
 mean/std normalization first. Floats stored in byte units need
 `value_range="0_255"`.
 
-Scanning always runs on the CPU. CUDA tensors are validated and converted to bytes
+Scanning always runs on the CPU. Float NumPy arrays of 4 Mi samples or more are converted on up to eight threads.
+CUDA tensors are validated and converted to bytes
 on the GPU, so only the final 8-bit pixels are transferred; MPS and other device
 tensors are copied to CPU first, which adds latency. Sparse, quantized, complex and
 meta tensors are rejected.
