@@ -106,8 +106,13 @@ fn parallel_readers(
     // deterministic, so each reader sees what a fresh cache would compute.
     let mut shared = binarization::Images::new(image, width, height);
     if bits.iter().any(|&bit| bit != 2048) {
-        for mode in 0..4 {
-            let _ = shared.get(mode);
+        // A second thresholding thread pays off from about one megapixel.
+        if width * height >= 1 << 20 {
+            shared.prefill_parallel();
+        } else {
+            for mode in 0..4 {
+                let _ = shared.get(mode);
+            }
         }
         let _ = shared.is_duplicate(1);
     }
@@ -176,6 +181,46 @@ fn parallel_enabled() -> bool {
             .is_none_or(|threads| threads > 1);
         allowed && std::thread::available_parallelism().is_ok_and(|cores| cores.get() > 1)
     })
+}
+
+/// Run `scan` for each format group, concurrently on multi-core hosts. Groups are
+/// independent scans of the same pixels, so results equal the sequential order.
+pub(crate) fn concurrent(
+    groups: &[(u32, usize)],
+    scan: &(dyn Fn(u32, usize) -> Scan + Sync),
+) -> Vec<Scan> {
+    #[cfg(not(target_family = "wasm"))]
+    if let Some((&(last, last_level), rest)) = groups.split_last()
+        && !rest.is_empty()
+        && parallel_enabled()
+    {
+        return std::thread::scope(|scope| {
+            // The last group (the matrix readers, which fan out further) runs here.
+            let pending: Vec<_> = rest
+                .iter()
+                .map(|&(selected, level)| {
+                    std::thread::Builder::new()
+                        .stack_size(READER_STACK)
+                        .spawn_scoped(scope, move || scan(selected, level))
+                        .map_err(|_| (selected, level))
+                })
+                .collect();
+            let tail = scan(last, last_level);
+            let mut scans: Vec<Scan> = pending
+                .into_iter()
+                .map(|handle| match handle {
+                    Ok(handle) => handle.join().expect("format group thread panicked"),
+                    Err((selected, level)) => scan(selected, level),
+                })
+                .collect();
+            scans.push(tail);
+            scans
+        });
+    }
+    groups
+        .iter()
+        .map(|&(selected, level)| scan(selected, level))
+        .collect()
 }
 
 pub(crate) fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize) -> Scan {
@@ -289,7 +334,7 @@ fn sharpen(gray: &[u8], width: usize, height: usize) -> Vec<u8> {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use super::scan_with;
+    use super::{concurrent, scan_with};
 
     fn report(scan: &barcode_multiformat::Scan) -> String {
         format!(
@@ -306,6 +351,21 @@ mod tests {
                 scan.unfinished,
             )
         )
+    }
+
+    #[test]
+    fn concurrent_groups_keep_their_order() {
+        let scan = |selected: u32, level: usize| barcode_multiformat::Scan {
+            barcodes: Vec::new(),
+            regions: Vec::new(),
+            unfinished: selected % 2 == 1,
+            lines: selected as usize * 10 + level,
+        };
+        let groups = [(7, 1), (2, 0), (5, 3)];
+        let lines: Vec<_> = concurrent(&groups, &scan).iter().map(|s| s.lines).collect();
+        assert_eq!(lines, [71, 20, 53]);
+        assert_eq!(concurrent(&groups[..1], &scan)[0].lines, 71);
+        assert!(concurrent(&[], &scan).is_empty());
     }
 
     #[test]

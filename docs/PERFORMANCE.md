@@ -18,7 +18,9 @@ input path for each environment.
 4. **Scan the size you need.** Camera frames of 1-2 megapixels (720p, 1080p) are
    much cheaper than 12-megapixel stills, especially with 2D formats enabled.
    Images above 32 megapixels are reduced internally, but still cost decoding,
-   memory and copies.
+   memory and copies. When the barcodes are large in a photo, decode it at reduced size, as with
+   Pillow's `Image.draft` for JPEGs: a 12-megapixel photo with all formats scans
+   in 53 ms at half size instead of 231 ms (Apple M1 Pro).
 5. **Hand over decoded 8-bit pixels as you have them.** Packed RGBA is the cheapest
    input for the default retail formats; gray and RGB inputs are copied to RGBA
    internally (about 1.5-3 ms at 12 megapixels), so do not convert RGBA to gray
@@ -147,8 +149,9 @@ binding (it needs the Foreign Function & Memory API); see [mobile apps](#mobile-
 ## Threads and servers
 
 A scanner serves one call at a time; separate scanners run concurrently, so use one
-per thread. Native builds additionally run several enabled 2D readers of one scan on
-separate threads, which shortens a single scan with all formats by up to 1.75×. On
+per thread. Native builds additionally run one scan's 1D formats and enabled 2D
+readers on separate threads, which shortens a single scan with all formats by
+1.4-1.8× on 960×960 photos and up to 2.9× on 12-megapixel images. On
 servers that already run one scanner per core, set `TAPIRSCAN_THREADS=1` to keep
 each scan on one thread; this saves the few percent of extra CPU time that the
 parallel readers cost. The variable is read once, at the first scan in the process,

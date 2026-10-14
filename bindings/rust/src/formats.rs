@@ -920,39 +920,36 @@ fn scan_additional(
         .then(|| crate::fast_sparse::Prepared::new(pixels, image.width, image.height));
     let mut scans = Vec::new();
     let mut coverage = Vec::new();
-    for (selected, level) in [
+    let groups: Vec<(u32, usize)> = [
         (linear & !preserved, effort),
         (preserved, 1),
         (matrix, if matrix & 512 != 0 { qr_effort } else { 1 }),
-    ] {
-        if selected == 0 {
-            continue;
-        }
+    ]
+    .into_iter()
+    .filter(|&(selected, _)| selected != 0)
+    .collect();
+    let first_scan = |selected: u32, level: usize| {
         #[cfg(any(feature = "low", feature = "medium"))]
-        let scan = if let Some(sparse) = sparse.as_ref().filter(|_| {
+        if let Some(sparse) = sparse.as_ref().filter(|_| {
             selected == matrix
                 || (crate::LOW_FAST_PATH
                     && selected & !127 != 0
                     && addons == EanAddOnPolicy::Ignore)
         }) {
-            sparse.scan(selected, level)
-        } else {
-            scan_reader(
-                pixels,
-                image.width,
-                image.height,
-                selected | addons.engine_bits(),
-                level,
-            )
-        };
-        #[cfg(not(any(feature = "low", feature = "medium")))]
-        let scan = scan_reader(
+            return sparse.scan(selected, level);
+        }
+        scan_reader(
             pixels,
             image.width,
             image.height,
             selected | addons.engine_bits(),
             level,
-        );
+        )
+    };
+    let first_scans = crate::matrix_frontend::concurrent(&groups, &first_scan);
+    for (&(selected, level), scan) in groups.iter().zip(first_scans) {
+        #[cfg(any(feature = "high", feature = "very-high"))]
+        let _ = level;
         if selected & LINEAR_MASK != 0
             && crate::MODE_ID != 0
             && mask & 3 != 0

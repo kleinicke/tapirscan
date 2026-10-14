@@ -626,7 +626,9 @@ def scan_many(
     Each worker thread uses its own Scanner, and scanning releases the GIL, so
     throughput scales with CPU cores. ``workers`` defaults to the CPUs this process
     may use. Images are consumed lazily, at most two per worker ahead of the
-    scans. The first failing image raises its error after the other scans finish.
+    scans, so a yielded array must not be modified until ``scan_many`` returns;
+    yield a new array per image. After an image fails, no further images are
+    consumed; the earliest failure is raised once the started scans finish.
     """
     if workers is not None and (isinstance(workers, bool) or workers < 1):
         msg = "workers must be a positive integer or None"
@@ -660,8 +662,10 @@ def scan_many(
             done: list[Future[ScanResult]] = []
             for image in images:
                 if len(window) >= 2 * count:
-                    window[0].exception()
-                    done.append(window.popleft())
+                    oldest = window.popleft()
+                    done.append(oldest)
+                    if oldest.exception() is not None:
+                        break
                 window.append(pool.submit(scan_one, image))
             done.extend(window)
             return [future.result() for future in done]

@@ -102,6 +102,12 @@ runs on CPU. See [array and tensor inputs](#array-and-tensor-inputs).
   tensors where they already are; moving a CPU tensor to the GPU only for scanning
   does not pay off for uint8 and saves little for large float tensors. Do not
   convert RGBA to gray for scanning; for OpenCV, see below.
+- **Large photos:** when the barcodes are large in the frame, let Pillow decode a
+  JPEG at reduced size before it loads: `image = Image.open(path)`, then
+  `image.draft("RGB", (image.width // 2, image.height // 2))`. A 12 MP photo with
+  `formats="all"` then scans in 53 ms instead of 231 ms on an M1. Check that your
+  smallest codes still read, and multiply coordinates by the factor to map them
+  back to the original.
 - **Batches:** `tapirscan.scan_many(images, ...)` scans on all CPU cores with one
   scanner per thread, reading a generator only a few images ahead. It already
   keeps every core busy, so with several 2D formats set `TAPIRSCAN_THREADS=1`

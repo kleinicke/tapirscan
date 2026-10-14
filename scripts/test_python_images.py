@@ -149,6 +149,29 @@ class Images(unittest.TestCase):
         # Two pending scans per worker plus the image being submitted.
         self.assertLessEqual(ahead, 3)
 
+    def test_scan_many_stops_after_a_failure(self) -> None:
+        """The earliest failure is raised and later inputs are not consumed."""
+        short = PixelImage(b"", width=W, height=H)
+        consumed = 0
+
+        def frames() -> typing.Iterator[np.ndarray[Any, Any] | PixelImage]:
+            nonlocal consumed
+            for index in range(1000):
+                consumed += 1
+                yield short if index in (1, 5) else GRAY
+
+        with self.assertRaisesRegex(ValueError, "too short|dimensions"):
+            barcode.scan_many(frames(), workers=2, library_dir=LIBS)
+        self.assertLess(consumed, 20)
+
+        def broken() -> typing.Iterator[np.ndarray[Any, Any]]:
+            yield GRAY
+            msg = "camera unplugged"
+            raise OSError(msg)
+
+        with self.assertRaisesRegex(OSError, "camera unplugged"):
+            barcode.scan_many(broken(), workers=2, library_dir=LIBS)
+
     @unittest.skipUnless(hasattr(os, "fork"), "needs fork")
     def test_converter_pool_survives_fork(self) -> None:
         """A forked child gets a fresh conversion pool instead of the parent's."""

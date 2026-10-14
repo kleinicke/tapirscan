@@ -301,6 +301,39 @@ impl<'a> Images<'a> {
         self.cached[mode].as_deref().unwrap()
     }
 
+    /// Compute the four base thresholds (modes 0-3) with the local chain on a second
+    /// thread. Each image equals what [`Self::get`] computes on demand.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn prefill_parallel(&mut self) {
+        if self.cached[..4].iter().all(Option::is_some) {
+            return;
+        }
+        let (gray, width, height) = (self.gray, self.width, self.height);
+        let invert =
+            |image: &[bool]| -> std::sync::Arc<[bool]> { image.iter().map(|b| !*b).collect() };
+        let chain = |local: bool| {
+            let image: std::sync::Arc<[bool]> =
+                crate::qr_detect::binarize(gray, width, height, local).into();
+            let inverse = invert(&image);
+            (image, inverse)
+        };
+        let ((global, global_inverse), (local, local_inverse)) = std::thread::scope(|scope| {
+            let local = std::thread::Builder::new()
+                .spawn_scoped(scope, || chain(true))
+                .ok();
+            let global = chain(false);
+            let local = local.map_or_else(
+                || chain(true),
+                |h| h.join().expect("threshold thread panicked"),
+            );
+            (global, local)
+        });
+        self.cached[0] = Some(global);
+        self.cached[1] = Some(local);
+        self.cached[2] = Some(global_inverse);
+        self.cached[3] = Some(local_inverse);
+    }
+
     /// Return threshold pixels plus lazily populated transition rows. The
     /// requested `step` adds only its missing rows; cache budget exhaustion
     /// leaves later rows to the exact uncached extraction path.
@@ -362,6 +395,22 @@ mod tests {
         let mut offsets = Vec::new();
         crate::transition_offsets_into(row, &mut offsets);
         offsets
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn parallel_prefill_matches_lazy_thresholds() {
+        let (width, height) = (97, 61);
+        let gray: Vec<u8> = (0..width * height)
+            .map(|i| u8::try_from((i * 37 + (i / width) * 11) % 256).unwrap())
+            .collect();
+        let mut lazy = Images::new(&gray, width, height);
+        let mut prefilled = Images::new(&gray, width, height);
+        prefilled.prefill_parallel();
+        for mode in 0..4 {
+            assert_eq!(lazy.get(mode), prefilled.get(mode), "mode {mode}");
+        }
+        assert_eq!(lazy.is_duplicate(1), prefilled.is_duplicate(1));
     }
 
     #[test]

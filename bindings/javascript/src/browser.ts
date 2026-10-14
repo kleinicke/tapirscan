@@ -44,8 +44,9 @@ export type ImageSource = ImageBitmapSource | PixelImage;
 export interface ScanOptions extends CoreScanOptions {
   /**
    * Hand decoded pixels' `ArrayBuffer` to the worker instead of copying it. The
-   * caller's buffer is detached (length 0) when the call returns its promise. Applies only when
-   * the pixels span their whole, non-shared buffer; other inputs are copied as usual.
+   * caller's buffer is detached (length 0) when the call returns its promise, unless
+   * the scanner was already disposed. Applies only when the pixels span their whole,
+   * non-shared buffer; other inputs are copied as usual.
    */
   transfer?: boolean;
 }

@@ -228,9 +228,12 @@ def _check_range(low: float, high: float, ceiling: int, source: str) -> None:
 
 
 def _cpu_count() -> int:
-    """CPUs this process may use (its affinity mask on Python 3.13+)."""
-    count = getattr(os, "process_cpu_count", os.cpu_count)()
-    return cast("int | None", count) or 1
+    """CPUs this process may use: its affinity mask where the OS reports one."""
+    if hasattr(os, "process_cpu_count"):
+        return os.process_cpu_count() or 1
+    if hasattr(os, "sched_getaffinity"):
+        return len(os.sched_getaffinity(0)) or 1
+    return os.cpu_count() or 1
 
 
 @cache

@@ -67,19 +67,32 @@ fn gray(image: Image<'_>, work: f64) -> (Vec<f32>, usize, usize, f64) {
     let s = (work / long).min(1.);
     let w = ((image.width as f64 * s).round() as usize).max(3);
     let h = ((image.height as f64 * s).round() as usize).max(3);
-    let lum = |x: usize, y: usize| -> f32 {
-        let p = &image.data[y * image.stride + x * image.channels..];
-        if image.channels == 1 {
-            f32::from(p[0])
-        } else {
-            (77. * f32::from(p[0]) + 150. * f32::from(p[1]) + 29. * f32::from(p[2])) / 256.
-        }
-    };
     let mut g = vec![0f32; w * h];
     if s >= 1. {
-        for y in 0..h {
-            for x in 0..w {
-                g[y * w + x] = lum(x, y);
+        // Row slices instead of per-pixel indexing. The integer luma sum is exact, so
+        // the f32 result equals the per-channel f32 formula.
+        for (y, out) in g.chunks_exact_mut(w).enumerate() {
+            let row = &image.data[y * image.stride..][..w * image.channels];
+            match image.channels {
+                1 => {
+                    for (v, &p) in out.iter_mut().zip(row) {
+                        *v = f32::from(p);
+                    }
+                }
+                3 => {
+                    for (v, p) in out.iter_mut().zip(row.as_chunks::<3>().0) {
+                        let sum =
+                            77 * u32::from(p[0]) + 150 * u32::from(p[1]) + 29 * u32::from(p[2]);
+                        *v = sum as f32 / 256.;
+                    }
+                }
+                _ => {
+                    for (v, p) in out.iter_mut().zip(row.as_chunks::<4>().0) {
+                        let sum =
+                            77 * u32::from(p[0]) + 150 * u32::from(p[1]) + 29 * u32::from(p[2]);
+                        *v = sum as f32 / 256.;
+                    }
+                }
             }
         }
         return (g, w, h, s);
@@ -117,7 +130,8 @@ fn average_cells<const C: usize>(r0: &[u8], r1: &[u8], xs: &[[usize; 2]], cells:
         if C == 1 {
             256 * u32::from(row[x])
         } else {
-            77 * u32::from(row[x]) + 150 * u32::from(row[x + 1]) + 29 * u32::from(row[x + 2])
+            let p = &row[x..x + 3];
+            77 * u32::from(p[0]) + 150 * u32::from(p[1]) + 29 * u32::from(p[2])
         }
     };
     for (v, &[x0, x1]) in cells.iter_mut().zip(xs) {

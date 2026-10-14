@@ -11,15 +11,20 @@
   grayscale copy, with results in the supplied image's coordinates.
 - Fixed an integer overflow in the QR retry for images wider than about 4.5
   million pixels in WebAssembly.
-- Native builds (C, C++, Java, Python, Rust) run the enabled 2D readers of one scan
-  on separate threads, with identical results: with all formats, Low scans are
-  1.6-1.75× and Medium scans 1.25-1.35× faster (AMD Ryzen 7 5800X, Apple M1 Pro). Set `TAPIRSCAN_THREADS=1` to
+- Native builds (C, C++, Java, Python, Rust) run one scan's 1D formats, its 2D
+  thresholds and its enabled 2D readers on separate threads, with identical
+  results. With all formats, Low scans are 1.8× and Medium scans 1.4× faster on
+  960×960 photo crops, and up to 2.9× (Apple M1 Pro) and 2.2× (AMD Ryzen 7 5800X)
+  faster on 12-megapixel images. Set `TAPIRSCAN_THREADS=1` to
   keep each scan on one thread, for example on servers running one scanner per core.
   WebAssembly scans stay single-threaded.
 - Data Matrix candidates come from a streaming component labeller that keeps only
   eligible components, so large or textured images no longer fall back to a slow
   flood fill. Identical results; Medium with all formats is 23% faster on a
   12-megapixel image.
+- Medium retail localization reads image rows as slices, so retail scans of
+  images up to 768 pixels on the long side (such as VGA) are 6-13% faster; the QR alignment search skips bounds checks for positions inside
+  the image (QR scans 2-5% faster). Identical results.
 - Swift (iOS 15+, macOS 12+): a Swift package over an XCFramework built by
   `scripts/build_apple.py`, with `BarcodeScanner` for pixel buffers, `CGImage`s and
   camera `CVPixelBuffer`s (bi-planar YUV frames are scanned in place). Slices:
