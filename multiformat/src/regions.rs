@@ -83,6 +83,8 @@ pub struct Region {
     pub localization_score: f32,
     pub support: usize,
 }
+/// Most candidate regions one scan retains.
+pub const MAX_CANDIDATES: usize = 256;
 #[derive(Default)]
 pub struct Regions {
     pub candidates: Vec<Region>,
@@ -108,7 +110,7 @@ impl Regions {
             if score > old.localization_score {
                 *old = region;
             }
-        } else if self.candidates.len() < 256 {
+        } else if self.candidates.len() < MAX_CANDIDATES {
             self.candidates.push(region);
         } else {
             self.limited = true;

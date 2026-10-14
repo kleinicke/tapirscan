@@ -492,3 +492,14 @@ fn large_backing_buffers_scan_only_the_addressed_layout() {
         assert_eq!(tapirscan_scanner_destroy(scanner), 0);
     }
 }
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn x86_64_builds_target_x86_64_v2() {
+    // scripts/build_native.py compiles for x86-64-v2; losing the flag makes scans
+    // 20-30% slower without failing anything else.
+    assert!(
+        cfg!(target_feature = "sse4.2") && cfg!(target_feature = "popcnt"),
+        "build the native library with scripts/build_native.py (-C target-cpu=x86-64-v2)"
+    );
+}

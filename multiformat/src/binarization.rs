@@ -1,11 +1,13 @@
 //! Lazy frame-wide threshold cache shared by opt-in matrix localizers.
 //! A disabled format adds no thresholding work.
+#[derive(Clone, Copy)]
 enum ContrastCut {
     Uncomputed,
     Unavailable,
     Value(u8),
 }
 
+#[derive(Clone)]
 pub struct Images<'a> {
     gray: &'a [u8],
     width: usize,
@@ -26,11 +28,13 @@ const ROW_CACHE_ALLOCATOR_MARGIN: usize = 256 * 1024;
 // It bounds row metadata even if a future caller requests a dense schedule.
 const MAX_CACHED_ROWS: usize = 1_400;
 
+#[derive(Clone)]
 struct CachedRow {
     y: usize,
     offsets: Box<[u32]>,
 }
 
+#[derive(Clone)]
 pub(crate) struct RowOffsets {
     rows: Vec<CachedRow>,
     payload_bytes: usize,

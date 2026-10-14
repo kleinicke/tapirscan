@@ -3,81 +3,217 @@
 use barcode_multiformat::{
     Detection, Scan, binarization, dm_detect, maxicode_detect, pdf417, qr_detect, regions,
 };
-pub(crate) fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize) -> Scan {
-    let mut regions = regions::Regions::default();
-    let mut binary_images = binarization::Images::new(image, width, height);
-    let (mut matrix_results, mut matrix_unfinished) = if mask & 512 != 0 {
-        let (mut reads, mut limited) = if effort > 2 {
-            qr_detect::detect_curved(width, height, &mut regions, &mut binary_images)
-        } else if effort > 1 {
-            qr_detect::detect_extended(width, height, &mut regions, &mut binary_images)
-        } else {
-            qr_detect::detect(width, height, &mut regions, &mut binary_images)
-        };
-        if effort > 1 && width * height <= 1_048_576 {
-            let enhanced = sharpen(image, width, height);
-            let mut recovery = binarization::Images::new(&enhanced, width, height);
-            let (extra, extra_limited) = if effort > 2 {
-                qr_detect::detect_curved(width, height, &mut regions, &mut recovery)
+/// One matrix reader's reads, work flag and recorded regions.
+type ReaderRun = (Vec<Detection>, bool, regions::Regions);
+
+/// The matrix readers selected by `mask`, in their fixed result order.
+fn readers(mask: u32) -> Vec<u32> {
+    [512, 1024, 4096, 131_072, 2048]
+        .into_iter()
+        .filter(|bit| mask & bit != 0)
+        .collect()
+}
+
+/// Run one matrix reader with the shared regions and binarization cache.
+fn run_reader(
+    bit: u32,
+    image: &[u8],
+    width: usize,
+    height: usize,
+    effort: usize,
+    regions: &mut regions::Regions,
+    binary_images: &mut binarization::Images<'_>,
+) -> (Vec<Detection>, bool) {
+    match bit {
+        512 => {
+            let (mut reads, mut limited) = if effort > 2 {
+                qr_detect::detect_curved(width, height, regions, binary_images)
+            } else if effort > 1 {
+                qr_detect::detect_extended(width, height, regions, binary_images)
             } else {
-                qr_detect::detect_extended(width, height, &mut regions, &mut recovery)
+                qr_detect::detect(width, height, regions, binary_images)
             };
-            limited |= extra_limited;
-            for read in extra {
-                if !reads.iter().any(|prior| {
-                    prior.text == read.text
-                        && prior.structured_append == read.structured_append
-                        && barcode_multiformat::regions::overlap(&prior.polygon, &read.polygon)
-                            >= 0.65
-                }) {
-                    reads.push(read);
+            if effort > 1 && width * height <= 1_048_576 {
+                let enhanced = sharpen(image, width, height);
+                let mut recovery = binarization::Images::new(&enhanced, width, height);
+                let (extra, extra_limited) = if effort > 2 {
+                    qr_detect::detect_curved(width, height, regions, &mut recovery)
+                } else {
+                    qr_detect::detect_extended(width, height, regions, &mut recovery)
+                };
+                limited |= extra_limited;
+                for read in extra {
+                    if !reads.iter().any(|prior| {
+                        prior.text == read.text
+                            && prior.structured_append == read.structured_append
+                            && barcode_multiformat::regions::overlap(&prior.polygon, &read.polygon)
+                                >= 0.65
+                    }) {
+                        reads.push(read);
+                    }
                 }
             }
+            (reads, limited)
         }
-        (reads, limited)
-    } else {
-        (vec![], false)
-    };
-    if mask & 1024 != 0 {
-        let (mut reads, limited) =
-            dm_detect::detect(width, height, &mut regions, &mut binary_images);
-        matrix_results.append(&mut reads);
-        matrix_unfinished |= limited;
-    }
-    if mask & 4096 != 0 {
-        let mut search = barcode_research_core::aztec_frontend::Search::default();
-        for mode in 0..4 {
-            if binary_images.is_duplicate(mode) {
-                continue;
+        1024 => dm_detect::detect(width, height, regions, binary_images),
+        4096 => {
+            let mut search = barcode_research_core::aztec_frontend::Search::default();
+            for mode in 0..4 {
+                if binary_images.is_duplicate(mode) {
+                    continue;
+                }
+                let (bits, rows) = binary_images.get_with_runs(mode, (height / 600).max(1));
+                search.threshold(
+                    barcode_research_core::aztec_frontend::Threshold {
+                        bits,
+                        gray: image,
+                        width,
+                        height,
+                        mode,
+                    },
+                    regions,
+                    &|y, row, out| rows.copy_or_extract(y, row, out),
+                );
             }
-            let (bits, rows) = binary_images.get_with_runs(mode, (height / 600).max(1));
-            search.threshold(
-                barcode_research_core::aztec_frontend::Threshold {
-                    bits,
-                    gray: image,
-                    width,
-                    height,
-                    mode,
-                },
-                &mut regions,
-                &|y, row, out| rows.copy_or_extract(y, row, out),
-            );
+            search.contrast(image, width, height, regions);
+            (search.reads, search.limited)
         }
-        search.contrast(image, width, height, &mut regions);
-        matrix_results.append(&mut search.reads);
-        matrix_unfinished |= search.limited;
+        131_072 => maxicode_detect::detect(width, height, regions, binary_images),
+        _ => pdf417::detect(image, width, height, regions),
     }
-    if mask & 131_072 != 0 {
-        let (mut reads, limited) =
-            maxicode_detect::detect(width, height, &mut regions, &mut binary_images);
-        matrix_results.append(&mut reads);
-        matrix_unfinished |= limited;
+}
+
+/// Run the readers concurrently, each with private regions and binarization.
+///
+/// Readers only add regions, merging within their own format, and PDF417 reads
+/// back only PDF417 regions. Concatenating the private regions in reader order
+/// therefore equals the shared sequence, unless the shared 256-region cap would
+/// have dropped one; that case returns `None` and the caller runs sequentially.
+#[cfg(not(target_family = "wasm"))]
+fn parallel_readers(
+    bits: &[u32],
+    image: &[u8],
+    width: usize,
+    height: usize,
+    effort: usize,
+) -> Option<(Vec<ReaderRun>, regions::Regions)> {
+    // The base thresholds every grid reader starts from are computed once and
+    // copied; binarization is deterministic, so each copy equals a fresh cache.
+    let mut shared = binarization::Images::new(image, width, height);
+    if bits.iter().any(|&bit| bit != 2048) {
+        for mode in 0..4 {
+            let _ = shared.get(mode);
+        }
+        let _ = shared.is_duplicate(1);
     }
-    if mask & 2048 != 0 {
-        let (mut reads, limited) = pdf417::detect(image, width, height, &mut regions);
-        matrix_results.append(&mut reads);
-        matrix_unfinished |= limited;
+    let shared = &shared;
+    let runs: Vec<ReaderRun> = std::thread::scope(|scope| {
+        let handles: Vec<_> = bits
+            .iter()
+            .map(|&bit| {
+                scope.spawn(move || {
+                    let mut regions = regions::Regions::default();
+                    let mut binary_images = if bit == 2048 {
+                        binarization::Images::new(image, width, height)
+                    } else {
+                        shared.clone()
+                    };
+                    let (reads, limited) = run_reader(
+                        bit,
+                        image,
+                        width,
+                        height,
+                        effort,
+                        &mut regions,
+                        &mut binary_images,
+                    );
+                    (reads, limited, regions)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("matrix reader thread panicked"))
+            .collect()
+    });
+    let total: usize = runs
+        .iter()
+        .map(|(_, _, regions)| regions.candidates.len())
+        .sum();
+    if total > regions::MAX_CANDIDATES {
+        return None;
     }
+    let mut merged = regions::Regions::default();
+    for (_, _, regions) in &runs {
+        merged.limited |= regions.limited;
+        merged.candidates.extend(regions.candidates.iter().cloned());
+    }
+    Some((runs, merged))
+}
+
+/// Whether several matrix readers run on separate threads: on multi-core hosts
+/// unless `TAPIRSCAN_THREADS=1` (for servers already running one scanner per core).
+fn parallel_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        let allowed = std::env::var("TAPIRSCAN_THREADS")
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .is_none_or(|threads| threads > 1);
+        allowed && std::thread::available_parallelism().is_ok_and(|cores| cores.get() > 1)
+    })
+}
+
+pub(crate) fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize) -> Scan {
+    scan_with(image, width, height, mask, effort, parallel_enabled())
+}
+
+fn scan_with(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    mask: u32,
+    effort: usize,
+    allow_parallel: bool,
+) -> Scan {
+    let bits = readers(mask);
+    let mut matrix_results = Vec::new();
+    let mut matrix_unfinished = false;
+    #[cfg(not(target_family = "wasm"))]
+    let parallel = if bits.len() > 1 && allow_parallel {
+        parallel_readers(&bits, image, width, height, effort)
+    } else {
+        None
+    };
+    #[cfg(target_family = "wasm")]
+    let parallel: Option<(Vec<ReaderRun>, regions::Regions)> = {
+        let _ = allow_parallel;
+        None
+    };
+    let regions = if let Some((runs, merged)) = parallel {
+        for (mut reads, limited, _) in runs {
+            matrix_results.append(&mut reads);
+            matrix_unfinished |= limited;
+        }
+        merged
+    } else {
+        let mut regions = regions::Regions::default();
+        let mut binary_images = binarization::Images::new(image, width, height);
+        for bit in bits {
+            let (mut reads, limited) = run_reader(
+                bit,
+                image,
+                width,
+                height,
+                effort,
+                &mut regions,
+                &mut binary_images,
+            );
+            matrix_results.append(&mut reads);
+            matrix_unfinished |= limited;
+        }
+        regions
+    };
     matrix_results.sort_by_key(|r| std::cmp::Reverse(r.support));
     let mut distinct: Vec<Detection> = Vec::new();
     for read in matrix_results {
@@ -135,4 +271,57 @@ fn sharpen(gray: &[u8], width: usize, height: usize) -> Vec<u8> {
         }
     }
     output
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use super::scan_with;
+
+    fn report(scan: &barcode_multiformat::Scan) -> String {
+        format!(
+            "{:?}",
+            (
+                scan.barcodes
+                    .iter()
+                    .map(|read| (&read.format, &read.text, read.polygon, read.support))
+                    .collect::<Vec<_>>(),
+                scan.regions
+                    .iter()
+                    .map(|region| (&region.format, region.polygon, region.support))
+                    .collect::<Vec<_>>(),
+                scan.unfinished,
+            )
+        )
+    }
+
+    #[test]
+    fn parallel_readers_match_the_sequential_scan() {
+        let (width, height) = (320, 240);
+        let mut state = 0x9e37_79b9_u32;
+        let mut images = vec![vec![255; width * height], vec![0; width * height]];
+        // Blocky noise yields many candidate regions, including past the shared cap.
+        for block in [1, 3, 8] {
+            let mut image = vec![0; width * height];
+            for (i, pixel) in image.iter_mut().enumerate() {
+                let (x, y) = (i % width / block, i / width / block);
+                let (x, y) = (u32::try_from(x).unwrap(), u32::try_from(y).unwrap());
+                let mut v = state ^ x.wrapping_mul(0x85eb_ca6b) ^ y.wrapping_mul(0xc2b2_ae35);
+                v ^= v >> 15;
+                *pixel = if v & 1 == 0 { 0 } else { 255 };
+            }
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            images.push(image);
+        }
+        for image in &images {
+            for effort in 0..4 {
+                for mask in [512 | 1024, 512 | 1024 | 4096 | 131_072 | 2048, 1024 | 2048] {
+                    assert_eq!(
+                        report(&scan_with(image, width, height, mask, effort, true)),
+                        report(&scan_with(image, width, height, mask, effort, false)),
+                        "effort {effort} mask {mask}"
+                    );
+                }
+            }
+        }
+    }
 }
