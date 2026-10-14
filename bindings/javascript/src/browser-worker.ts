@@ -55,6 +55,9 @@ async function load(url: URL): Promise<ArrayBuffer> {
   return response.arrayBuffer();
 }
 
+/** Canvas reused across calls; it is resized only when the image size changes. */
+let decodeContext: OffscreenCanvasRenderingContext2D | undefined;
+
 /** Decode a Blob or ImageBitmap onto white RGBA pixels; pixel inputs pass through. */
 async function pixels(source: WorkerSource): Promise<PixelImage> {
   if (!(source instanceof Blob) && !(source instanceof ImageBitmap)) return source;
@@ -71,10 +74,18 @@ async function pixels(source: WorkerSource): Promise<PixelImage> {
       throw new TypeError(
         `Images must be 3 to 65,535 pixels per side and at most 256 megapixels, got ${String(width)}×${String(height)}`,
       );
-    const context = new OffscreenCanvas(width, height).getContext("2d", {
-      willReadFrequently: true,
-    });
-    if (!context) throw new Error("2D canvas is unavailable in this browser's workers");
+    if (decodeContext === undefined) {
+      const created = new OffscreenCanvas(width, height).getContext("2d", {
+        willReadFrequently: true,
+      });
+      if (!created) throw new Error("2D canvas is unavailable in this browser's workers");
+      decodeContext = created;
+    }
+    const context = decodeContext;
+    if (context.canvas.width !== width || context.canvas.height !== height) {
+      context.canvas.width = width;
+      context.canvas.height = height;
+    }
     // Composite onto white, as images are displayed: the scanner ignores alpha, so
     // transparent areas would otherwise read as black.
     context.fillStyle = "#fff";

@@ -26,6 +26,9 @@ public final class Scanner implements AutoCloseable {
     private final Native lib = Native.get();
     private final ScannerOptions options;
     private long handle;
+    /** Native copy of heap pixels, reused across scans; grows to the largest image. */
+    private Arena stagingArena;
+    private MemorySegment staging = MemorySegment.NULL;
 
     /** Medium effort, Retail formats and ignored supplements. */
     public Scanner() {
@@ -83,8 +86,7 @@ public final class Scanner implements AutoCloseable {
             throw new IllegalStateException("The pixel segment is confined to another thread");
         try (Arena arena = Arena.ofConfined()) {
             // Native code cannot read the Java heap: copy only the addressed bytes.
-            MemorySegment pixels = image.pixels().isNative() ? image.pixels()
-                    : arena.allocate(Math.max(length, 1)).copyFrom(image.pixels().asSlice(0, length));
+            MemorySegment pixels = image.pixels().isNative() ? image.pixels() : staged(image.pixels(), length);
             MemorySegment input = arena.allocate(Native.IMAGE);
             input.set(ADDRESS, offset(Native.IMAGE, "data"), pixels);
             input.set(JAVA_LONG, offset(Native.IMAGE, "length"), length);
@@ -110,6 +112,21 @@ public final class Scanner implements AutoCloseable {
                 lib.check(Native.call(lib.destroyResult, result));
             }
         }
+    }
+
+    /** Copy heap pixels into the reused staging segment; calls hold the scanner lock. */
+    private MemorySegment staged(MemorySegment pixels, long length) {
+        // Never a null pointer, even for an empty (invalid) layout.
+        long size = Math.max(length, 1);
+        if (staging.byteSize() < size) {
+            if (stagingArena != null) stagingArena.close();
+            staging = MemorySegment.NULL;
+            // Shared, because a scanner may be called from different threads in turn.
+            stagingArena = Arena.ofShared();
+            staging = stagingArena.allocate(size);
+        }
+        MemorySegment.copy(pixels, 0, staging, 0, length);
+        return staging;
     }
 
     private List<Barcode> readBarcodes(Arena arena, long result) {
@@ -200,6 +217,11 @@ public final class Scanner implements AutoCloseable {
             long old = handle;
             handle = 0;
             lib.check(Native.call(lib.destroy, old));
+        }
+        if (stagingArena != null) {
+            stagingArena.close();
+            stagingArena = null;
+            staging = MemorySegment.NULL;
         }
     }
 }

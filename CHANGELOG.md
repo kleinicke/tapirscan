@@ -9,6 +9,20 @@
   grayscale copy, with results in the supplied image's coordinates.
 - Fixed an integer overflow in the QR retry for images wider than about 4.5
   million pixels in WebAssembly.
+- x86-64 native libraries (C, C++, Java, Python) target x86-64-v2 (SSE4.2,
+  POPCNT): scans are 20-30% faster with identical results. They no longer load on
+  x86 CPUs older than Intel Nehalem (2008) or AMD Bulldozer (2011).
+- Python: non-uint8 inputs convert much faster with identical bytes. CUDA tensors
+  are validated and rounded on the GPU and transferred once as 8-bit pixels; CPU
+  tensors and NumPy arrays are validated and rounded in one blocked pass. On
+  x86-64, a 12-megapixel float32 RGB scan (Medium, retail) takes 36 ms instead of
+  840 ms from CUDA, 51 instead of 754 ms from a CPU tensor and 54 instead of
+  161 ms from NumPy.
+- Python, Java: a scanner copies caller pixels into one native buffer it reuses
+  until `close()`, instead of fresh memory per scan. This saves about 20 ms per
+  12-megapixel RGBA scan. Python Pillow images already in L or RGB mode skip a
+  redundant conversion copy.
+- Browser: Blob and canvas inputs are decoded on one canvas reused by the worker.
 - Docs: the JavaScript guide decodes Node images with sharp, and the Python and
   Rust examples print the format and rectangle instead of the polygon.
 

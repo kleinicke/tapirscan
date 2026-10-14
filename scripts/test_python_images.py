@@ -92,6 +92,24 @@ class Images(unittest.TestCase):
             self.assertGreater(reads.barcodes[0].rect.width, 0)
             self.assertEqual(len(reads.barcodes[0].polygon), 4)
 
+    def test_reused_snapshot_buffer(self) -> None:
+        """A scanner's reused pixel buffer never leaks bytes between images."""
+        with Scanner(library_dir=LIBS) as scanner:
+            tall = np.vstack([GRAY, np.full_like(GRAY, 255)])
+            self.assertEqual(scanner.scan(tall).values, [TEXT])
+            # A smaller blank image reuses the larger buffer without its barcode.
+            self.assertEqual(scanner.scan(np.full_like(GRAY, 255)).values, [])
+            self.assertEqual(scanner.scan(GRAY).values, [TEXT])
+            # The caller may change its array after a scan returns.
+            pixels = GRAY.copy()
+            self.assertEqual(scanner.scan(pixels).values, [TEXT])
+            pixels[:] = 255
+            self.assertEqual(scanner.scan(pixels).values, [])
+            staging = scanner._staging  # noqa: SLF001
+            self.assertIsNotNone(staging)
+            self.assertGreaterEqual(len(staging or b""), tall.nbytes)
+        self.assertIsNone(scanner._staging)  # noqa: SLF001
+
     def test_old_native_abi(self) -> None:
         """Reject older libraries at initialization with actionable version details."""
         with patch("tapirscan.c.CDLL") as load:
@@ -275,6 +293,20 @@ class Images(unittest.TestCase):
             image_bytes(np.ones((5, 6)), value_range="0_255")[0], bytes([1]) * 30
         )
         image_bytes(np.zeros((3, 10, 4)), layout="CHW")
+        # Block-wise rounding over several blocks matches whole-image float64 math.
+        noise = np.random.default_rng(0).random((700, 400, 3))
+        for pixels in (noise, noise.astype(np.float32), noise.astype(np.float16)):
+            expected = np.rint(pixels.astype(np.float64) * 255).astype(np.uint8)
+            for view in (pixels, np.moveaxis(pixels, 2, 0)):
+                with self.subTest(dtype=pixels.dtype, shape=view.shape):
+                    self.assertEqual(image_bytes(view)[0], expected.tobytes())
+                    self.assertEqual(
+                        image_bytes(view), image_bytes(torch.from_numpy(view))
+                    )
+        late_nan = noise.copy()
+        late_nan[-1, -1, -1] = np.nan
+        with self.assertRaisesRegex(ValueError, "finite"):
+            image_bytes(late_nan)
         with Scanner(formats="1D", library_dir=LIBS) as scanner:
             self.assertEqual(scanner.inspect(GRAY).values, [TEXT])
             self.assertEqual(scanner.inspect(GRAY, formats="2D").values, [])
@@ -658,6 +690,31 @@ class Images(unittest.TestCase):
         self.check_image(
             torch.from_numpy(GRAY).to("cuda").float().requires_grad_() / 255
         )
+        # Device-side conversion matches the CPU adapter byte for byte.
+        gray = torch.from_numpy(GRAY)
+        noise = torch.rand((3, H, W), generator=torch.Generator().manual_seed(0))
+        cases: list[tuple[torch.Tensor, dict[str, Any]]] = [
+            (gray, {}),
+            (gray.bool(), {}),
+            (gray.to(torch.int16), {}),
+            (gray.expand(3, -1, -1), {"color_order": "BGR"}),
+            (gray.expand(4, -1, -1).permute(1, 2, 0), {}),
+            (gray.float(), {"value_range": "0_255"}),
+            ((gray > 0).to(torch.uint8), {"value_range": "0_1"}),
+            (noise, {}),
+            (noise.double(), {"layout": "CHW"}),
+            (noise.half(), {}),
+            (noise.bfloat16(), {}),
+        ]
+        for image, options in cases:
+            with self.subTest(shape=image.shape, dtype=image.dtype, **options):
+                self.assertEqual(
+                    image_bytes(image.cuda(), **options), image_bytes(image, **options)
+                )
+        with self.assertRaisesRegex(ValueError, "finite"):
+            image_bytes(torch.full((5, 6), torch.nan, device="cuda"))
+        with self.assertRaisesRegex(ValueError, "range"):
+            image_bytes(torch.full((5, 6), 2.0, device="cuda"))
 
     @unittest.skipUnless(torch.backends.mps.is_available(), "MPS hardware unavailable")
     def test_mps(self) -> None:

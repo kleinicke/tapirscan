@@ -79,6 +79,17 @@ public final class ApiTest {
             } catch (IllegalStateException expected) {
                 check(expected.getMessage().contains("thread"));
             }
+            // Heap pixels share one reused native buffer: a larger image grows it, a smaller
+            // one reuses it, and another thread may scan with the same scanner in turn.
+            check(scanner.scan(Image.gray(new byte[64 * 48], 64, 48)).barcodes().isEmpty());
+            check(scanner.scan(Image.gray(new byte[9], 3, 3)).barcodes().isEmpty());
+            boolean[] scanned = new boolean[1];
+            Thread other = new Thread(() ->
+                    scanned[0] = scanner.scan(Image.gray(new byte[128 * 96], 128, 96)).barcodes().isEmpty());
+            other.start();
+            other.join();
+            check(scanned[0]);
+            check(scanner.scan(Image.gray(new byte[9], 3, 3)).barcodes().isEmpty());
         }
     }
 }

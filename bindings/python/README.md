@@ -117,7 +117,9 @@ Use the context manager or call `close()` in a `finally` block; repeated `close(
 is safe and results stay valid afterwards. Calls on one scanner run one at a time;
 separate scanners can run concurrently. `scanner.mode` and `scanner.formats` are
 read-only; create another scanner to change effort. Per-call `formats` apply to
-that call only; `None` uses the scanner's selection.
+that call only; `None` uses the scanner's selection. A scanner copies each image
+into a pixel buffer it reuses, as large as the largest image so far, until
+`close()`.
 
 ## All options
 
@@ -147,8 +149,10 @@ are rejected rather than clipped: scale higher-bit-depth intensities and undo
 mean/std normalization first. Floats stored in byte units need
 `value_range="0_255"`.
 
-CUDA, MPS and other device tensors are copied to CPU, which adds latency. Sparse,
-quantized, complex and meta tensors are rejected.
+Scanning always runs on the CPU. CUDA tensors are validated and converted to bytes
+on the GPU, so only the final 8-bit pixels are transferred; MPS and other device
+tensors are copied to CPU first, which adds latency. Sparse, quantized, complex and
+meta tensors are rejected.
 
 ### OpenCV
 

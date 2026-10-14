@@ -25,6 +25,11 @@ COLOR_DIMENSIONS = 3
 BATCH_DIMENSIONS = 4
 CHANNELS = (1, 3, 4)
 BGR_CHANNELS = {3: [2, 1, 0], 4: [2, 1, 0, 3]}
+# Float samples rounded per block: a few MiB of float64 stays in cache.
+ROUND_BLOCK = 1 << 18
+# CPU tensors round larger blocks: PyTorch spreads each operation over threads.
+# 3 Mi samples (24 MiB of float64) measured fastest overall on x86-64 and Apple M1.
+TENSOR_BLOCK = 3 << 20
 
 
 def _size(width: object, height: object, channels: int = 1) -> tuple[int, int]:
@@ -104,7 +109,9 @@ def image_bytes(
                 if any(not isfinite(p) or not 0 <= p <= MAX_PIXEL for p in samples):
                     msg = "Pillow pixels must be finite in [0,255]; rescale explicitly"
                     raise ValueError(msg)
-            converted = image.convert("L" if image.mode == "L" or precision else "RGB")
+            target = "L" if image.mode == "L" or precision else "RGB"
+            # convert() copies even to the same mode; tobytes() already copies.
+            converted = image if image.mode == target else image.convert(target)
             channels = 1 if converted.mode == "L" else 3
             _size(width, height, channels)
             return converted.tobytes(), width, height, channels
@@ -172,7 +179,7 @@ def _numpy_bytes(
 
 
 def _numpy_pixels(
-    image: NDArray[np.generic], value_range: ValueRange
+    image: NDArray[np.generic], value_range: ValueRange, source: str = "Array"
 ) -> NDArray[np.uint8]:
     import numpy as np
 
@@ -184,21 +191,48 @@ def _numpy_pixels(
         return cast("NDArray[np.uint8]", pixels)
     if image.dtype == np.uint8 and value_range != "0_1":
         return cast("NDArray[np.uint8]", image.astype(np.uint8, copy=False))
-    if not np.isfinite(image).all():
-        msg = "Array pixels must be finite"
-        raise ValueError(msg)
-    low, high = float(image.min()), float(image.max())
     unit = value_range == "0_1" or (value_range == "auto" and image.dtype.kind == "f")
-    if low < 0 or high > (1 if unit else 255):
+    ceiling = 1 if unit else 255
+    if image.dtype.kind == "f":
+        return _round_bytes(image, ceiling, source)
+    _check_range(float(image.min()), float(image.max()), ceiling, source)
+    # Validated integers are exact bytes: 0..255, or 0/1 scaled to 0/255.
+    return cast("NDArray[np.uint8]", image.astype(np.uint8) * np.uint8(255 // ceiling))
+
+
+def _check_range(low: float, high: float, ceiling: int, source: str) -> None:
+    """Reject extrema outside [0, ceiling]; source is "Array" or "Tensor"."""
+    # Min and max propagate NaN and infinities, so they also check finiteness.
+    if not (isfinite(low) and isfinite(high)):
+        msg = f"{source} pixels must be finite"
+        raise ValueError(msg)
+    if low < 0 or high > ceiling:
+        fix = "undo normalization" if source == "Tensor" else "rescale explicitly"
         msg = (
-            "Array pixels exceed the selected range; auto uses [0,1] for floats. "
-            "Use value_range='0_255' for byte-unit floats or rescale explicitly"
+            f"{source} pixels exceed the selected range; auto uses [0,1] for floats. "
+            f"Use value_range='0_255' for byte-unit floats or {fix}"
         )
         raise ValueError(msg)
-    return cast(
-        "NDArray[np.uint8]",
-        np.rint(image.astype(np.float64) * (255 if unit else 1)).astype(np.uint8),
-    )
+
+
+def _round_bytes(
+    image: NDArray[np.generic], ceiling: int, source: str
+) -> NDArray[np.uint8]:
+    """Validate and round float pixels to bytes in one pass of cache-sized blocks."""
+    import numpy as np
+
+    # float16 times 255 is exact in float32; wider floats need float64.
+    exact = np.float32 if image.dtype.itemsize <= 2 else np.float64  # noqa: PLR2004
+    pixels = np.empty(image.shape, dtype=np.uint8)
+    rows = max(1, ROUND_BLOCK // max(1, image[0].size))
+    for start in range(0, image.shape[0], rows):
+        block = image[start : start + rows].astype(exact)
+        # Widened blocks have fast min/max even for float16.
+        _check_range(float(block.min()), float(block.max()), ceiling, source)
+        if ceiling == 1:
+            np.multiply(block, 255, out=block)
+        pixels[start : start + rows] = np.rint(block, out=block)
+    return pixels
 
 
 def _tensor_layout(image: Tensor, layout: Layout) -> Tensor:
@@ -232,31 +266,62 @@ def _tensor_layout(image: Tensor, layout: Layout) -> Tensor:
 def _tensor_pixels(image: Tensor, value_range: ValueRange) -> Tensor:
     import torch
 
-    # Blocking transfer and out-of-place conversion preserve the autograd graph.
-    pixels = image.detach().to(device="cpu").resolve_neg()
+    # Out-of-place conversion of a detached tensor preserves the autograd graph.
+    pixels = image.detach()
+    # CUDA converts on the device and transfers only bytes. Other accelerators
+    # (MPS lacks float64) convert on the CPU.
+    if pixels.device.type not in ("cpu", "cuda"):
+        pixels = pixels.to(device="cpu")
+    pixels = pixels.resolve_neg()
     if pixels.dtype == torch.bool:
         return pixels.to(torch.uint8) * 255
     if pixels.dtype == torch.uint8 and value_range != "0_1":
         return pixels
-    pixels = pixels.to(torch.float64)
-    if not torch.isfinite(pixels).all().item():
-        msg = "Tensor pixels must be finite"
-        raise ValueError(msg)
-    low, high = float(pixels.min().item()), float(pixels.max().item())
     unit = value_range == "0_1" or (value_range == "auto" and image.is_floating_point())
     ceiling = 1 if unit else 255
-    if low < 0 or high > ceiling:
-        msg = (
-            "Tensor pixels exceed the selected range; auto uses [0,1] for floats. "
-            "Use value_range='0_255' for byte-unit floats or undo normalization"
-        )
-        raise ValueError(msg)
-    return (pixels * (255 if unit else 1)).round().to(torch.uint8)
+    if pixels.device.type == "cpu" and pixels.is_floating_point():
+        return _round_tensor(pixels, ceiling)
+    # One device synchronization reads both extrema.
+    low, high = torch.stack(torch.aminmax(pixels)).to(torch.float64).tolist()
+    _check_range(low, high, ceiling, "Tensor")
+    if not pixels.is_floating_point():
+        # Validated integers are exact bytes: 0..255, or 0/1 scaled to 0/255.
+        return pixels.to(torch.uint8) * (255 if unit else 1)
+    # float16/bfloat16 times 255 is exact in float32; wider floats need float64
+    # to round exactly like the NumPy adapter.
+    half = pixels.dtype in (torch.float16, torch.bfloat16)
+    exact = torch.float32 if half else torch.float64
+    scaled = pixels.to(exact)
+    if unit:
+        scaled = scaled * 255
+    return scaled.round_().to(torch.uint8)
+
+
+def _round_tensor(pixels: Tensor, ceiling: int) -> Tensor:
+    """Validate and round CPU float pixels to bytes, one reused block at a time."""
+    import torch
+
+    # float16/bfloat16 times 255 is exact in float32; wider floats need float64
+    # to round exactly like the NumPy adapter.
+    half = pixels.dtype in (torch.float16, torch.bfloat16)
+    exact = torch.float32 if half else torch.float64
+    out = torch.empty(pixels.shape, dtype=torch.uint8)
+    rows = max(1, TENSOR_BLOCK // max(1, pixels[0].numel()))
+    block = torch.empty((min(rows, pixels.shape[0]), *pixels.shape[1:]), dtype=exact)
+    for start in range(0, pixels.shape[0], rows):
+        source = pixels[start : start + rows]
+        scaled = block[: source.shape[0]].copy_(source)
+        low, high = torch.aminmax(scaled)
+        _check_range(low.item(), high.item(), ceiling, "Tensor")
+        if ceiling == 1:
+            scaled.mul_(255)
+        out[start : start + rows].copy_(scaled.round_())
+    return out
 
 
 def _tensor_bytes(
     image: Tensor, layout: Layout, value_range: ValueRange, color_order: ColorOrder
-) -> tuple[bytes, int, int, int]:
+) -> tuple[memoryview, int, int, int]:
     import torch
 
     if (
@@ -274,5 +339,16 @@ def _tensor_bytes(
     if color_order == "BGR" and channels != 1:
         pixels = pixels[:, :, BGR_CHANNELS[channels]]
     pixels = pixels.contiguous()
+    if pixels.device.type != "cpu":
+        # Reordered on the device; transfer only the final bytes, into pinned memory
+        # that PyTorch caches across calls (no fresh pages, faster DMA).
+        host = torch.empty(pixels.shape, dtype=torch.uint8, pin_memory=True)
+        pixels = host.copy_(pixels)
+    if "numpy" in sys.modules:
+        import numpy as np
+
+        # Zero-copy view; the scanner snapshots it once.
+        return np.asarray(pixels).data.cast("B"), width, height, channels
     # Own the bytes before native scanning, without requiring NumPy.
-    return ctypes.string_at(pixels.data_ptr(), pixels.numel()), width, height, channels
+    raw = ctypes.string_at(pixels.data_ptr(), pixels.numel())
+    return memoryview(raw), width, height, channels

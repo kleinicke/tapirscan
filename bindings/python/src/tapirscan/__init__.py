@@ -184,8 +184,8 @@ def _integer(
 
 def _snapshot(
     image: ImageInput, layout: Layout, value_range: ValueRange, color_order: ColorOrder
-) -> tuple[c.Array[c.c_uint8], int, int, int, int]:
-    """Validate image storage and own its bytes before releasing the GIL."""
+) -> tuple[memoryview, int, int, int, int]:
+    """Validate image storage; return the exact view the scanner copies."""
     if isinstance(image, PixelImage):
         if layout != "auto" or value_range != "auto" or color_order != "RGB":
             msg = (
@@ -220,9 +220,8 @@ def _snapshot(
     if view.nbytes < required:
         msg = "Image buffer is too short"
         raise ValueError(msg)
-    # Snapshot input before releasing the GIL in the native call.
-    data = (c.c_uint8 * required).from_buffer_copy(view[:required])
-    return data, width, height, channels, stride
+    # The scanner copies this view into its own buffer before releasing the GIL.
+    return view[:required], width, height, channels, stride
 
 
 class Scanner:
@@ -272,6 +271,8 @@ class Scanner:
         )
         path = Path(directory).expanduser().resolve() / f"{prefix}tapirscan{suffix}"
         self._lock = RLock()
+        # Reused snapshot of caller pixels; grows to the largest image until close().
+        self._staging: c.Array[c.c_uint8] | None = None
         self._handle = c.c_uint64(0)
         self._lib = c.CDLL(str(path))
         self._mode = mode
@@ -410,12 +411,20 @@ class Scanner:
         data, width, height, channels, stride = _snapshot(
             image, layout, value_range, color_order
         )
-        pixels = _Image(c.addressof(data), len(data), width, height, channels, stride)
         options = _ScanOptions(mask)
         with self._lock:
             if not self._handle.value:
                 msg = "Scanner is closed"
                 raise RuntimeError(msg)
+            # Snapshot input before releasing the GIL in the native call. A reused
+            # buffer avoids faulting in fresh memory for every large image.
+            length = data.nbytes
+            if self._staging is None or len(self._staging) < length:
+                self._staging = (c.c_uint8 * length)()
+            memoryview(self._staging).cast("B")[:length] = data
+            pixels = _Image(
+                c.addressof(self._staging), length, width, height, channels, stride
+            )
             result = c.c_uint64()
             error = c.create_string_buffer(512)
             self._check(
@@ -511,6 +520,7 @@ class Scanner:
             if self._handle.value:
                 handle = self._handle.value
                 self._handle.value = 0
+                self._staging = None
                 self._check(self._lib.tapirscan_scanner_destroy(handle))
 
     def __enter__(self) -> Self:

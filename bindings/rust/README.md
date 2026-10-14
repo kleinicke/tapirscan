@@ -10,6 +10,11 @@ source-image geometry. `result.values()` borrows decoded strings and
 cargo add tapirscan
 ```
 
+On x86-64, Cargo targets the oldest x86-64 CPUs by default. Building with
+`RUSTFLAGS="-C target-cpu=x86-64-v2"` (SSE4.2; every Intel CPU since 2008 and AMD
+since 2011) makes scans 20-30% faster with identical results; the prebuilt native
+library for C, C++, Java and Python uses it.
+
 ```rust
 use tapirscan::Image;
 

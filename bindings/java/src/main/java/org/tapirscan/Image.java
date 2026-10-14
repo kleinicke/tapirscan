@@ -10,7 +10,8 @@ import java.util.Objects;
  * {@code (height - 1) * stride + width * channels} bytes, must fit in {@code pixels} and in
  * 1 GiB; a larger backing segment, such as a frame around a crop, is fine.
  *
- * <p>Array-backed pixels are copied when scanning. Native segments, for example from
+ * <p>Array-backed pixels are copied when scanning, into a native buffer the scanner reuses
+ * until {@link Scanner#close()}. Native segments, for example from
  * {@code MemorySegment.ofBuffer(directBuffer)}, are read in place: keep them alive and
  * unchanged until the scan returns.
  */

@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,16 @@ from build import ROOT
 TARGET = ROOT / "build/native-target"
 # Rust examples used by the cross-language parity tests.
 EXAMPLES = TARGET / "release/examples"
+# x86-64 builds target x86-64-v2 (SSE4.2, POPCNT): every Intel CPU since 2008 and
+# AMD since 2011. Scans are 7-18% faster than the baseline; AVX2 (v3) adds 1-5%.
+X86_64_RUSTFLAGS = "-C target-cpu=x86-64-v2"
+
+
+def rustflags() -> str | None:
+    """Return fixed compiler flags for this host, ignoring the caller's RUSTFLAGS."""
+    return (
+        X86_64_RUSTFLAGS if platform.machine().lower() in ("x86_64", "amd64") else None
+    )
 
 
 def library_name() -> str:
@@ -40,6 +51,9 @@ def build(public_crate: Path, destination: Path) -> None:
         write_changed(native / "Cargo.lock", public_lock.read_bytes())
     env = os.environ.copy()
     env.pop("RUSTFLAGS", None)
+    env.pop("CARGO_ENCODED_RUSTFLAGS", None)
+    if flags := rustflags():
+        env["RUSTFLAGS"] = flags
     env["CARGO_TARGET_DIR"] = str(TARGET)
     env["CARGO_INCREMENTAL"] = "0"
     common = ["--offline", "--manifest-path", str(native / "Cargo.toml")]
