@@ -18,6 +18,8 @@ import java.util.Optional;
  * @param fields named values in payload order
  */
 public record Content(ContentKind kind, List<ContentField> fields) {
+    private static final int PART_NAME = 0, PART_VALUE = 1;
+
     public Content {
         fields = List.copyOf(fields);
     }
@@ -49,15 +51,16 @@ public record Content(ContentKind kind, List<ContentField> fields) {
             try {
                 MemorySegment summary = arena.allocate(Native.CONTENT_SUMMARY);
                 lib.check(Native.call(lib.contentInfo, content, summary));
-                ContentKind kind = ContentKind.fromCode(summary.get(JAVA_INT, 0));
+                ContentKind kind = ContentKind.fromCode(summary.get(JAVA_INT, Native.offset(Native.CONTENT_SUMMARY, "kind")));
                 long count = summary.get(JAVA_LONG, Native.offset(Native.CONTENT_SUMMARY, "fieldCount"));
                 List<ContentField> fields = new ArrayList<>();
                 MemorySegment lengths = arena.allocate(Native.CONTENT_LENGTHS);
                 for (long i = 0; i < count; i++) {
                     lib.check(Native.call(lib.contentField, content, i, lengths));
-                    fields.add(new ContentField(
-                            copy(lib, arena, content, i, 0, lengths.get(JAVA_LONG, 0)),
-                            copy(lib, arena, content, i, 1, lengths.get(JAVA_LONG, 8))));
+                    long nameLength = lengths.get(JAVA_LONG, Native.offset(Native.CONTENT_LENGTHS, "nameLength"));
+                    long valueLength = lengths.get(JAVA_LONG, Native.offset(Native.CONTENT_LENGTHS, "valueLength"));
+                    fields.add(new ContentField(copy(lib, arena, content, i, PART_NAME, nameLength),
+                            copy(lib, arena, content, i, PART_VALUE, valueLength)));
                 }
                 return Optional.of(new Content(kind, fields));
             } finally {

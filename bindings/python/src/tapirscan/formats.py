@@ -40,10 +40,9 @@ FORMAT_BITS: dict[str, int] = {
     "DataBar": 8192,
     "DataBarExpanded": 16384,
     "MaxiCode": 131072,
-    # Opt-in Code 39 pharmacy numbers: selected by name only, never by a preset.
+    # Opt-in: selected by name, in no preset.
     "Code32": 262144,
     "PZN": 524288,
-    # Opt-in MSI Plessey: no per-character check, selected by name only.
     "MSIPlessey": 1048576,
 }
 

@@ -74,11 +74,11 @@ public:
     static constexpr Formats common_1d() { return Formats(TAPIRSCAN_FORMATS_COMMON_1D); }
     /// Common linear formats plus QR Code and Data Matrix.
     static constexpr Formats common() { return Formats(TAPIRSCAN_FORMATS_COMMON); }
-    /// All supported linear formats.
+    /// All linear formats except the opt-in ones.
     static constexpr Formats linear() { return Formats(TAPIRSCAN_FORMATS_LINEAR); }
     /// QR Code, Data Matrix, PDF417, Aztec and MaxiCode.
     static constexpr Formats matrix() { return Formats(TAPIRSCAN_FORMATS_MATRIX); }
-    /// Every format except the opt-in Code32 and PZN, which are selected by name.
+    /// Every format except the opt-in formats, which are selected by name.
     static constexpr Formats all() { return Formats(TAPIRSCAN_FORMATS_ALL); }
     /// A native TAPIRSCAN_FORMAT_* mask. Empty or unknown bits throw std::invalid_argument.
     static constexpr Formats from_bits(std::uint32_t bits) { return Formats(bits); }
@@ -475,7 +475,7 @@ struct ContentField {
 
 /// Structured content of decoded text, with fields in payload order.
 struct Content {
-    ContentKind kind = ContentKind::Url;
+    ContentKind kind{};
     std::vector<ContentField> fields;
 
     /// First value of a field, or empty when absent.
@@ -493,9 +493,8 @@ struct Content {
     }
 };
 
-/// Recognize GS1 element strings, URLs, Wi-Fi, contacts, payment slips, HIBC,
-/// VINs and AAMVA licenses in decoded text. `gs1` is the barcode's GS1 flag.
-/// Returns empty for text without recognized structure.
+/// Structured content of decoded text, or empty for plain text. `gs1` is the
+/// barcode's GS1 flag. See docs/CONTENT.md.
 inline std::optional<Content> parse_content(std::string_view text, bool gs1 = false) {
     tapirscan_content handle = 0;
     tapirscan_error error{};

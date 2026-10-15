@@ -117,9 +117,8 @@ geometry excludes supplements.
 
 ## Structured content
 
-`Barcode::content` recognizes GS1 elements, Wi-Fi, contacts, payment slips,
-HIBC, VINs and driver's licenses in the decoded text; `parse_content(text, gs1)`
-parses any text.
+`barcode.content()` returns the named fields of GS1, Wi-Fi, contact, payment
+and similar payloads; `parse_content(text, gs1)` parses any text.
 
 ```rust
 if let Some(content) = barcode.content() {
@@ -127,7 +126,7 @@ if let Some(content) = barcode.content() {
 }
 ```
 
-Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+Kinds and fields: [structured content](../../docs/CONTENT.md).
 
 ## Images
 

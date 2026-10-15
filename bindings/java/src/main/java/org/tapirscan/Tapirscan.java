@@ -35,9 +35,8 @@ public final class Tapirscan {
     }
 
     /**
-     * Recognize GS1 element strings, URLs, Wi-Fi, contacts, payment slips, HIBC, VINs and
-     * AAMVA licenses in decoded text. {@code gs1} parses the text as a GS1 element string.
-     * Returns empty for text without recognized structure.
+     * Structured content of decoded text, or empty for plain text. {@code gs1} parses the
+     * text as a GS1 element string. See docs/CONTENT.md.
      */
     public static Optional<Content> parseContent(String text, boolean gs1) {
         return Content.parse(text, gs1);

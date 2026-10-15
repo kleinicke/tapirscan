@@ -45,6 +45,7 @@ public final class Content {
             return name;
         }
 
+        /** Unescaped value as encoded. */
         public String value() {
             return value;
         }
@@ -68,9 +69,8 @@ public final class Content {
     }
 
     /**
-     * Recognize GS1 element strings, URLs, Wi-Fi, contacts, payment slips, HIBC, VINs and
-     * AAMVA licenses in decoded text; {@code gs1} parses it as a GS1 element string.
-     * Returns {@code null} for text without recognized structure.
+     * Structured content of decoded text, or {@code null} for plain text; {@code gs1}
+     * parses it as a GS1 element string. See docs/CONTENT.md.
      */
     public static Content parse(String text, boolean gs1) {
         byte[][] parts = nativeParse(text.getBytes(StandardCharsets.UTF_8), gs1);
@@ -83,6 +83,7 @@ public final class Content {
         return new Content(Kind.fromName(new String(parts[0], StandardCharsets.UTF_8)), fields);
     }
 
+    /** Recognized payload kind. */
     public Kind kind() {
         return kind;
     }

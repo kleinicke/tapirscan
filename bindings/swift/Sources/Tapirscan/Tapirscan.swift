@@ -78,7 +78,8 @@ public struct Barcode: Sendable {
     /// Whether the reader identified GS1 data; `nil` when the reader does not report it.
     public let gs1: Bool?
 
-    /// Structured content of `text`, such as GS1 elements or a Wi-Fi network; `nil` for plain text.
+    /// Structured content of `text`, or `nil` for plain text (or if parsing fails; use
+    /// `parseContent` to see errors).
     public var content: Content? { try? parseContent(text, gs1: gs1 ?? false) }
 }
 
@@ -110,9 +111,8 @@ public struct Content: Sendable {
     public func all(_ name: String) -> [String] { fields.filter { $0.name == name }.map(\.value) }
 }
 
-/// Recognize GS1 element strings, URLs, Wi-Fi, contacts, payment slips, HIBC, VINs and
-/// AAMVA licenses in decoded text. `gs1` parses the text as a GS1 element string.
-/// Returns `nil` for text without recognized structure.
+/// Structured content of decoded text, or `nil` for plain text. `gs1` parses the
+/// text as a GS1 element string. See docs/CONTENT.md.
 public func parseContent(_ text: String, gs1: Bool = false) throws -> Content? {
     let bytes = Array(text.utf8)
     var handle = tapirscan_content()

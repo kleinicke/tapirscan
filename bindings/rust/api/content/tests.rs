@@ -48,6 +48,11 @@ fn gs1_element_strings() {
     for bad in ["0109506000134353", "2712345", "01095060001343"] {
         assert_eq!(parse_content(bad, true), None, "{bad}");
     }
+    // A GS1-flagged Digital Link URL is still recognized.
+    assert_eq!(
+        parsed("https://id.gs1.org/01/09506000134352", true).1[0],
+        ("01".into(), "09506000134352".into())
+    );
     // Without the flag, plain digits are not GS1.
     assert_eq!(parse_content("0109506000134352", false), None);
 }

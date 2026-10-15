@@ -327,6 +327,7 @@ impl Scanner {
                 ));
             }
         };
+        // Code32 and PZN are interpretations of Code 39 reads.
         code39_variants::apply(formats.bits(), &mut result.barcodes);
         if let Some(reduced) = reduced {
             result.restore_geometry(reduced.scale(size), [source.width, source.height]);

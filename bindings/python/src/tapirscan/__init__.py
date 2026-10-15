@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 from ._images import _cpu_count, _size, image_bytes
 from ._library import ABI_VERSION as ABI_VERSION
-from ._library import library_path, load
+from ._library import ScannerError, library_path, load
 from .content import Content, ContentField, ContentKind, parse_content
 from .formats import (
     FORMAT_BITS,
@@ -88,19 +88,6 @@ __all__ = [
 MAX_IMAGE_BYTES = 1024 * 1024 * 1024
 _MODES = ("low", "medium", "high", "very-high")
 _ADDON_POLICIES = ("ignore", "read", "require")
-
-
-_ERROR_CODES = {1: "invalid_input", 2: "disposed", 3: "engine", 4: "engine"}
-
-
-class ScannerError(RuntimeError):
-    """A native scanner failure; `code` matches the JavaScript error codes."""
-
-    def __init__(self, status: int, message: str) -> None:
-        """Keep the native status and name its error code."""
-        self.status = status
-        self.code = _ERROR_CODES.get(status, "engine")
-        super().__init__(f"{message} (status {status})")
 
 
 # Native ABI 7 structures from bindings/c/include/tapirscan.h.

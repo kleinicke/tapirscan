@@ -24,7 +24,7 @@
 #define TAPIRSCAN_FORMATS_RETAIL 15u /* EAN-13, UPC-A, EAN-8 and UPC-E. */
 #define TAPIRSCAN_FORMATS_COMMON_1D 127u /* Retail formats plus Code 128, Code 39 and ITF. */
 #define TAPIRSCAN_FORMATS_COMMON 1663u /* Common linear formats plus QR Code and Data Matrix. */
-#define TAPIRSCAN_FORMATS_LINEAR 25087u /* All supported linear formats, including DataBar variants. */
+#define TAPIRSCAN_FORMATS_LINEAR 25087u /* All linear formats except the opt-in ones, including DataBar variants. */
 #define TAPIRSCAN_FORMATS_MATRIX 138752u /* QR Code, Data Matrix, PDF417, Aztec and MaxiCode. */
 #define TAPIRSCAN_FORMATS_ALL 163839u /* Every format except the opt-in formats. */
 /* Opt-in formats (Code32, PZN, MSIPlessey): selected only by name, never by a preset or ALL. */

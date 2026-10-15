@@ -25,11 +25,11 @@ impl Formats {
     pub const COMMON: Self = Self(COMMON_MASK);
     /// EAN-13, UPC-A, EAN-8 and UPC-E.
     pub const RETAIL: Self = Self(RETAIL_MASK);
-    /// All supported linear formats, including `DataBar` variants.
+    /// All linear formats except the opt-in ones, including `DataBar` variants.
     pub const LINEAR: Self = Self(LINEAR_MASK);
     /// QR Code, Data Matrix, PDF417, Aztec and `MaxiCode`.
     pub const MATRIX: Self = Self(MATRIX_MASK);
-    /// Every format except the opt-in `Code32` and `Pzn`, which are selected by name.
+    /// Every format except the opt-in formats, which are selected by name.
     pub const ALL: Self = Self(ALL_FORMATS_MASK);
 }
 impl TryFrom<u32> for Formats {

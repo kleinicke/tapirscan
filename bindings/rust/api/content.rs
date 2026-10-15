@@ -167,8 +167,10 @@ impl Content {
 /// checks (check digits, mandatory lines).
 #[must_use]
 pub fn parse_content(text: &str, gs1: bool) -> Option<Content> {
-    if gs1 {
-        return gs1_elements(text);
+    // A GS1 QR Code or Data Matrix may hold a Digital Link URL instead of
+    // element strings, so a failed element parse falls through.
+    if gs1 && let Some(content) = gs1_elements(text) {
+        return Some(content);
     }
     for prefix in ["]C1", "]d2", "]Q3", "]e0", "]J1"] {
         if let Some(rest) = text.strip_prefix(prefix) {

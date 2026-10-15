@@ -55,13 +55,13 @@ public enum Format {
     /** Common linear formats plus QR Code and Data Matrix. */
     public static final Set<Format> COMMON =
         Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, QR_CODE, DATA_MATRIX));
-    /** All supported linear formats, including DataBar variants. */
+    /** All linear formats except the opt-in ones, including DataBar variants. */
     public static final Set<Format> LINEAR =
         Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED));
     /** QR Code, Data Matrix, PDF417, Aztec and MaxiCode. */
     public static final Set<Format> MATRIX =
         Collections.unmodifiableSet(EnumSet.of(QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE));
-    /** Every format except the opt-in formats (Code32, PZN, MSIPlessey), which are selected by name. */
+    /** Every format except the opt-in formats, which are selected by name. */
     public static final Set<Format> ALL =
         Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE));
 

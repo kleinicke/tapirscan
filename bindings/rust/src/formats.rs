@@ -938,9 +938,9 @@ pub(crate) fn fast_additional(
     Ok((reads, distinct_regions(unread)))
 }
 
-/// GS1 `DataBar`, `DataBar` Expanded and the opt-in linear formats (MSI Plessey):
-/// linear formats only the whole-image sweep reads.
-const DATABAR_SWEPT: u32 = 8192 | 16384 | ENGINE_OPT_IN_MASK;
+/// Linear formats that Medium and above still read with the whole-image sweep:
+/// GS1 `DataBar` (stacked rows), `DataBar` Expanded and the opt-in MSI Plessey.
+const SWEPT: u32 = 8192 | 16384 | ENGINE_OPT_IN_MASK;
 
 /// Run the linear reader before primary discovery so strong reads can guide deep retries.
 #[expect(
@@ -968,7 +968,7 @@ fn scan_additional(
     let swept = if crate::MODE_ID == 0 || addons != EanAddOnPolicy::Ignore {
         LINEAR_MASK
     } else {
-        DATABAR_SWEPT
+        SWEPT
     };
     let linear = enabled & LINEAR_MASK & swept;
     let matrix = enabled & !LINEAR_MASK;

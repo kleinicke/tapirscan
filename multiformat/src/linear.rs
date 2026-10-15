@@ -1134,6 +1134,7 @@ fn msi_finish(r: &[f32], s: usize, end: usize, digits: &[u8]) -> Option<Read> {
     let means: [f32; 4] = std::array::from_fn(|i| sums[i] / crate::numeric::usize_f32(counts[i]));
     if [0, 2]
         .iter()
+        // Nominal wide/narrow ratio is 2; allow print gain and blur.
         .any(|&i| !(1.4..=3.5).contains(&(means[i + 1] / means[i])))
     {
         return None;
@@ -1145,6 +1146,7 @@ fn msi_finish(r: &[f32], s: usize, end: usize, digits: &[u8]) -> Option<Read> {
             (r[s + 2 * i + 1], 2 + usize::from(!one)),
         ] {
             let distance = (value - means[bucket]).abs();
+            // Each element stays within 0.7 narrow widths of its class mean.
             if distance > (means[bucket & !1] * 0.7).max(0.65) {
                 return None;
             }
@@ -1152,6 +1154,7 @@ fn msi_finish(r: &[f32], s: usize, end: usize, digits: &[u8]) -> Option<Read> {
         }
     }
     let total: f32 = r[s..end - 1].iter().sum();
+    // Mean deviation bound, as Codabar's 0.19 but tighter for a checkless code.
     if deviation / total > 0.17 {
         return None;
     }

@@ -194,6 +194,7 @@ const char *tapirscan_content_kind_name(uint32_t kind);
 int32_t tapirscan_parse_content(const uint8_t *text, uint64_t length, int32_t gs1,
     tapirscan_content *out, tapirscan_error *error);
 int32_t tapirscan_content_info(tapirscan_content content, tapirscan_content_summary *out);
+/* index is 0-based, below field_count. */
 int32_t tapirscan_content_field(tapirscan_content content, uint64_t index, tapirscan_content_lengths *out);
 /* Copy a field's name or value plus a terminating NUL; capacity must exceed its length. */
 int32_t tapirscan_content_copy(tapirscan_content content, uint64_t index, uint32_t part,

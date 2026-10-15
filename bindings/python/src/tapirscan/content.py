@@ -5,9 +5,9 @@ from __future__ import annotations
 import ctypes as c
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias
+from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias, cast, get_args
 
-from ._library import library_path, load
+from ._library import ScannerError, library_path, load
 
 if TYPE_CHECKING:
     import os
@@ -32,22 +32,7 @@ ContentKind: TypeAlias = Literal[
     "VIN",
     "AAMVA",
 ]
-_KINDS: tuple[ContentKind, ...] = (
-    "GS1",
-    "URL",
-    "Email",
-    "Phone",
-    "SMS",
-    "Geo",
-    "WiFi",
-    "Contact",
-    "Calendar",
-    "SwissQRBill",
-    "EPCPayment",
-    "HIBC",
-    "VIN",
-    "AAMVA",
-)
+_KINDS = cast("tuple[ContentKind, ...]", get_args(ContentKind))
 
 
 class ContentField(NamedTuple):
@@ -112,8 +97,7 @@ def _library(path: Path) -> c.CDLL:
 
 def _check(code: int, detail: str = "") -> None:
     if code:
-        msg = f"{detail or 'content parsing failed'} (status {code})"
-        raise RuntimeError(msg)
+        raise ScannerError(code, detail or "content parsing failed")
 
 
 def parse_content(

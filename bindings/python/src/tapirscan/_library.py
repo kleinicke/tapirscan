@@ -9,6 +9,18 @@ from pathlib import Path
 
 ABI_VERSION = 7
 
+_ERROR_CODES = {1: "invalid_input", 2: "disposed", 3: "engine", 4: "engine"}
+
+
+class ScannerError(RuntimeError):
+    """A native scanner failure; `code` matches the JavaScript error codes."""
+
+    def __init__(self, status: int, message: str) -> None:
+        """Keep the native status and name its error code."""
+        self.status = status
+        self.code = _ERROR_CODES.get(status, "engine")
+        super().__init__(f"{message} (status {status})")
+
 
 def library_path(library_dir: str | os.PathLike[str] | None) -> Path:
     """Resolve the native library from the argument, environment or wheel."""

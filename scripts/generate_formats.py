@@ -27,10 +27,13 @@ PRESETS = (
         "Retail formats plus Code 128, Code 39 and ITF.",
     ),
     ("common", "COMMON", "Common linear formats plus QR Code and Data Matrix."),
-    ("1D", "LINEAR", "All supported linear formats, including DataBar variants."),
+    (
+        "1D",
+        "LINEAR",
+        "All linear formats except the opt-in ones, including DataBar variants.",
+    ),
     ("2D", "MATRIX", "QR Code, Data Matrix, PDF417, Aztec and MaxiCode."),
 )
-FORMAT_COUNT = 19
 
 
 def validate_registry(registry: dict[str, Any]) -> None:  # noqa: C901
@@ -40,13 +43,11 @@ def validate_registry(registry: dict[str, Any]) -> None:  # noqa: C901
     variants = [item[1] for item in formats]
     bits = [item[2] for item in formats]
     if (
-        len(formats) != FORMAT_COUNT
-        or len(set(names)) != FORMAT_COUNT
-        or len(set(variants)) != FORMAT_COUNT
+        not formats
+        or len(set(names)) != len(formats)
+        or len(set(variants)) != len(formats)
     ):
-        msg = (
-            f"Format names and Rust variants must contain {FORMAT_COUNT} unique values"
-        )
+        msg = "Format names and Rust variants must be unique"
         raise ValueError(msg)
     if any(not isinstance(bit, int) or bit <= 0 or bit & (bit - 1) for bit in bits):
         msg = "Format bits must be positive, distinct powers of two"
@@ -91,7 +92,6 @@ def validate_registry(registry: dict[str, Any]) -> None:  # noqa: C901
     if len(opt_in) != len(set(opt_in)) or any(n not in names for n in opt_in):
         msg = "Invalid opt-in format list"
         raise ValueError(msg)
-    # Opt-in formats are rare or weakly checked; no preset, `all` included, selects them.
     engine_opt_in = registry["engineOptIn"]
     if any(n not in opt_in for n in engine_opt_in):
         msg = "Engine opt-in formats must be opt-in formats"
@@ -130,7 +130,7 @@ def rust_registry_source(registry: dict[str, Any]) -> str:
 
 pub const LINEAR_MASK: u32 = {mask(linear):_};
 pub const ALL_FORMATS_MASK: u32 = {mask(linear + presets["2D"]):_};
-/// Opt-in linear formats with their own reader; only the whole-image sweep reads them.
+/// Opt-in linear formats with their own reader, read only when selected.
 pub const ENGINE_OPT_IN_MASK: u32 = {mask(registry["engineOptIn"]):_};
 pub const EAN_ADDON_READ_FLAG: u32 = {flags["eanAddOnRead"]:_};
 pub const EAN_ADDON_REQUIRE_FLAG: u32 = {flags["eanAddOnRequire"]:_};
@@ -321,7 +321,7 @@ public enum Format {{
 {constants};
 
 {chr(10).join(presets)}
-    /** Every format except the opt-in formats ({", ".join(registry["optIn"])}), which are selected by name. */
+    /** Every format except the opt-in formats, which are selected by name. */
     public static final Set<Format> ALL =
         Collections.unmodifiableSet(EnumSet.of({", ".join(by_name[n] for n in registry["presets"]["1D"] + registry["presets"]["2D"])}));
 
