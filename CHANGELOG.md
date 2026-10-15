@@ -21,7 +21,8 @@
   4,233 instead of 4,059 known codes (QR-only: 4,242); Low with `common` 4,138
   instead of 4,025. Results of other formats are unchanged. Retail frames with
   EAN-13 and QR cost the same in Medium and High; High and Very High with `all`
-  cost about 40% more.
+  cost about 40-50% more, as their QR recoveries also run on frames where only
+  other formats were read.
 - QR: unread frames get a block-threshold pass in the style of ZXing's hybrid
   binarizer, which follows sharp shadow edges and large modules: in High and Very
   High on every unread frame (High reads 4,391 instead of 4,343 of the QR
