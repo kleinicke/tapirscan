@@ -974,7 +974,6 @@ fn scan_additional(
         #[cfg(feature = "low")]
         let retries = if crate::LOW_FAST_PATH
             && selected == 512
-            && mask == selected
             && addons == EanAddOnPolicy::Ignore
             && scan.barcodes.is_empty()
             && image.width.max(image.height) > 1920
@@ -1002,7 +1001,6 @@ fn scan_additional(
         );
         #[cfg(any(feature = "high", feature = "very-high"))]
         let retries = if selected == 512
-            && mask == selected
             && addons == EanAddOnPolicy::Ignore
             && scan.barcodes.is_empty()
             && image.width.max(image.height) > 1920
@@ -1060,11 +1058,11 @@ fn scan_additional(
     // region. Bound discovery to Full-HD-sized inputs; restoration has a smaller
     // pixel budget because it introduces another image and threshold search.
     #[cfg(not(feature = "low"))]
-    if mask == 512
+    if matrix == 512
         && addons == EanAddOnPolicy::Ignore
         && image.width * image.height <= 2_097_152
         && scans.iter().all(|scan| scan.barcodes.is_empty())
-        && (crate::MODE_ID >= 2 || scans.iter().all(|scan| scan.regions.is_empty()))
+        && (crate::MODE_ID >= 2 || !scans.iter().any(|scan| qr_found(scan, false)))
         && pixels.iter().any(|&value| value != 0 && value != 255)
     {
         let foreground =
@@ -1100,9 +1098,9 @@ fn scan_additional(
         }
     }
     #[cfg(any(feature = "high", feature = "very-high"))]
-    if mask == 512
+    if matrix == 512
         && addons == EanAddOnPolicy::Ignore
-        && scans.iter().all(|scan| scan.barcodes.is_empty())
+        && !scans.iter().any(|scan| qr_found(scan, true))
     {
         let targets: &[usize] = if crate::MODE_ID == 3 {
             &[1200, 1600]
@@ -1122,10 +1120,10 @@ fn scan_additional(
         }
     }
     #[cfg(any(feature = "high", feature = "very-high"))]
-    if mask == 512
+    if matrix == 512
         && addons == EanAddOnPolicy::Ignore
         && image.width * image.height <= 2_097_152
-        && scans.iter().all(|scan| scan.barcodes.is_empty())
+        && !scans.iter().any(|scan| qr_found(scan, true))
     {
         for method in 0..2 {
             let normalized = if method == 0 {
@@ -1147,6 +1145,16 @@ fn scan_additional(
     Ok((scans, coverage))
 }
 
+#[cfg(not(feature = "low"))]
+/// Whether a scan read a QR symbol (`reads`) or left a QR region.
+fn qr_found(scan: &barcode_multiformat::Scan, reads: bool) -> bool {
+    if reads {
+        scan.barcodes.iter().any(|read| read.format == "QRCode")
+    } else {
+        scan.regions.iter().any(|region| region.format == "QRCode")
+    }
+}
+
 #[cfg(feature = "medium")]
 fn medium_retries(
     pixels: &[u8],
@@ -1157,7 +1165,11 @@ fn medium_retries(
     addons: EanAddOnPolicy,
     scan: &barcode_multiformat::Scan,
 ) -> Vec<barcode_multiformat::Scan> {
-    if addons != EanAddOnPolicy::Ignore || !scan.barcodes.is_empty() || mask != selected {
+    // Retries belong to single-format reader groups, such as the QR group of an
+    // EAN-13 and QR selection; groups of several formats keep their first pass.
+    let _ = mask;
+    let mask = selected;
+    if addons != EanAddOnPolicy::Ignore || !scan.barcodes.is_empty() {
         return Vec::new();
     }
     let mut retries = Vec::new();

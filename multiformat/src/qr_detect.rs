@@ -186,6 +186,23 @@ fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) ->
 }
 // Nearby triples bound dense-scene work without the cubic combinations of all
 // finders. Prefer compact, approximately orthogonal, similarly sized groups.
+/// Lower is more plausible: distance in modules, right-angle error and module spread.
+fn triple_score(finders: &[Finder], triple: [usize; 3]) -> f32 {
+    let f = triple.map(|i| &finders[i]);
+    let mut d = [
+        distance(f[0], f[1]),
+        distance(f[0], f[2]),
+        distance(f[1], f[2]),
+    ];
+    d.sort_by(f32::total_cmp);
+    let module = f.iter().map(|p| p.module).sum::<f32>() / 3.;
+    let spread = f.iter().map(|p| p.module).fold(f32::NEG_INFINITY, f32::max)
+        / f.iter().map(|p| p.module).fold(f32::INFINITY, f32::min)
+        - 1.;
+    let angle_error =
+        (d[2].powi(2) - d[0].powi(2) - d[1].powi(2)).abs() / (2. * d[0] * d[1]).max(1.);
+    f32::midpoint(d[0], d[1]) / module + angle_error * 30. + spread * 10.
+}
 fn local_triples(finders: &[Finder]) -> impl Iterator<Item = [usize; 3]> + use<> {
     let mut triples = Vec::new();
     for (a, finder) in finders.iter().enumerate() {
@@ -215,39 +232,18 @@ fn local_triples(finders: &[Finder]) -> impl Iterator<Item = [usize; 3]> + use<>
     triples.sort_unstable();
     triples.dedup();
     let local_keys = triples.clone();
-    let mut ranked: Vec<_> = triples
-        .into_iter()
-        .map(|triple| {
-            let f = triple.map(|i| &finders[i]);
-            let mut d = [
-                distance(f[0], f[1]),
-                distance(f[0], f[2]),
-                distance(f[1], f[2]),
-            ];
-            d.sort_by(f32::total_cmp);
-            let module = f.iter().map(|p| p.module).sum::<f32>() / 3.;
-            let spread = f.iter().map(|p| p.module).fold(f32::NEG_INFINITY, f32::max)
-                / f.iter().map(|p| p.module).fold(f32::INFINITY, f32::min)
-                - 1.;
-            let angle_error =
-                (d[2].powi(2) - d[0].powi(2) - d[1].powi(2)).abs() / (2. * d[0] * d[1]).max(1.);
-            let score = f32::midpoint(d[0], d[1]) / module + angle_error * 30. + spread * 10.;
-            (score, triple)
-        })
+    // Large single symbols can have many accidental finder-like data patches
+    // nearer than their true corners, so the strongest finders' global triples
+    // join the local ones. All are tried in order of geometric plausibility,
+    // which puts the triples of further symbols before accidental ones.
+    let strong = finders.len().min(12);
+    let mut ranked: Vec<_> = (0..strong)
+        .flat_map(|a| (a + 1..strong).flat_map(move |b| (b + 1..strong).map(move |c| [a, b, c])))
+        .chain(triples.into_iter().filter(|t| t[2] >= strong))
+        .map(|triple| (triple_score(finders, triple), triple))
         .collect();
     ranked.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-    // Large single symbols can have many accidental finder-like data patches
-    // nearer than their true corners. Preserve the strongest global triples.
-    let strong = finders.len().min(12);
-    let mut out: Vec<_> = (0..strong)
-        .flat_map(|a| (a + 1..strong).flat_map(move |b| (b + 1..strong).map(move |c| [a, b, c])))
-        .collect();
-    out.extend(
-        ranked
-            .into_iter()
-            .map(|(_, t)| t)
-            .filter(|t| t[2] >= strong),
-    );
+    let out: Vec<_> = ranked.into_iter().map(|(_, t)| t).collect();
     // Preserve the exhaustive fallback order, but do not allocate/generate its
     // remaining triples after the caller reaches its decode-attempt budget.
     let end = if finders.len() <= 80 {
@@ -721,6 +717,11 @@ pub fn detect_curved(
 ) -> (Vec<Detection>, bool) {
     detect_with_recovery(w, h, regions, binary_images, true, true)
 }
+/// Once a symbol is read, a threshold mode stops trying triples after this many
+/// decode attempts without a further read. Further symbols' triples rank early,
+/// so this skips the long tail of accidental triples; images without any read
+/// keep the full attempt budget.
+const PATIENCE: usize = 100;
 #[expect(
     clippy::too_many_lines,
     reason = "QR detection preserves its ordered finder hypotheses and shared work budgets in one transaction."
@@ -744,6 +745,8 @@ fn detect_with_recovery(
     let mut prior_count = 0;
     let mut partial_modes: Vec<(usize, Vec<Finder>)> = Vec::new();
     for mode in 0..if extended { 6 } else { 4 } {
+        let mut read_count = results.len();
+        let mut last_read = attempts;
         if mode >= 4 && !binary_images.has_qr_contrast() {
             continue;
         }
@@ -776,6 +779,13 @@ fn detect_with_recovery(
         // Dense scenes skip the exhaustive fallback beyond the local triples.
         regions.limited |= finders.len() > 80;
         for [a, b, c] in local_triples(&finders) {
+            if results.len() > read_count {
+                read_count = results.len();
+                last_read = attempts;
+            }
+            if read_count > 0 && attempts - last_read > PATIENCE {
+                break;
+            }
             let finder_triple = [&finders[a], &finders[b], &finders[c]];
             // A decoded symbol owns its three finder patterns. Reusing those
             // physical patterns creates duplicate or cross-symbol triples.

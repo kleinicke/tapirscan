@@ -151,11 +151,32 @@ fn centers_with_rows(
         }
     }
     let mut found = found.centers;
+    // Bucket kept centers in 32-pixel cells: a duplicate lies within `radius` on
+    // both axes, so only the cells spanning that box can hold one.
+    let columns = w.div_ceil(32).max(1);
+    let rows = h.div_ceil(32).max(1);
+    let cell = |v: f32, n: usize| (crate::numeric::f32_usize(v.max(0.)) / 32).min(n - 1);
+    let mut cells: Vec<Vec<usize>> = vec![Vec::new(); columns * rows];
+    for (i, c) in found.iter().enumerate() {
+        cells[cell(c.y, rows) * columns + cell(c.x, columns)].push(i);
+    }
     for c in refined.centers {
-        if !found.iter().any(|old| {
-            (old.x - c.x).hypot(old.y - c.y) < c.module * 0.2
-                && (old.module / c.module - 1.).abs() < 0.05
-        }) {
+        let radius = c.module * 0.2;
+        let duplicate = (cell(c.y - radius, rows)..=cell(c.y + radius, rows)).any(|row| {
+            (cell(c.x - radius, columns)..=cell(c.x + radius, columns)).any(|column| {
+                cells[row * columns + column].iter().any(|&i| {
+                    let old = &found[i];
+                    let (dx, dy) = (old.x - c.x, old.y - c.y);
+                    // hypot is at least the larger coordinate difference.
+                    dx.abs() < radius
+                        && dy.abs() < radius
+                        && (old.module / c.module - 1.).abs() < 0.05
+                        && dx.hypot(dy) < radius
+                })
+            })
+        });
+        if !duplicate {
+            cells[cell(c.y, rows) * columns + cell(c.x, columns)].push(found.len());
             found.push(c);
         }
     }

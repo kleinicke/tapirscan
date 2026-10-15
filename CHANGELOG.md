@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- QR: finder triples are tried in order of geometric plausibility, and once a
+  symbol is read, each threshold pass stops after 100 decode attempts without a
+  further read. On a 4,619-image QR development selection (5,142 known codes),
+  Medium reads 4,208 instead of 4,206 and its median scan time falls from 20 to
+  11 ms; Low reads 4,138 instead of 4,137, median 19 to 11 ms (Apple M1 Pro,
+  native). Images without a read keep the full search.
+- QR in mixed selections such as EAN-13 and QR now gets the same QR recovery as a
+  QR-only scan: Medium reads 4,208 instead of 4,059 of those QR codes, and Low
+  4,138 instead of 4,052. Frames without any QR code cost up to about 9% more
+  with such a selection, as QR-only scans already did.
+- Aztec and Data Matrix detection are faster with identical results: Aztec
+  candidate merging uses a spatial grid (36-46% faster at 1-12 megapixels), and
+  Data Matrix labels runs from word-wise row transitions and reuses span buffers
+  (17% faster at 12 megapixels).
 - Rust: `Image::try_from(&dynamic_image)` borrows an 8-bit gray, RGB or RGBA
   `image::DynamicImage`, such as a decoded JPEG, without copying pixels.
 - Rust: `Format` implements `Display` with the format names used by every

@@ -35,7 +35,10 @@ impl Index {
                         continue;
                     }
                     let c = &self.centers[index];
-                    if (c.x - x).hypot(c.y - y) < radius {
+                    let (dx, dy) = (c.x - x, c.y - y);
+                    // hypot is at least max(|dx|, |dy|), so the cheap bound rejects
+                    // exactly the pairs hypot would reject on that account.
+                    if dx.abs() < radius && dy.abs() < radius && dx.hypot(dy) < radius {
                         matched = Some(index);
                     }
                 }

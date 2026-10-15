@@ -238,6 +238,7 @@ fn union_components(
     a: usize,
     b: usize,
     merged: &mut Vec<usize>,
+    pool: &mut Vec<Vec<Span>>,
 ) -> usize {
     let a = find_component(components, a);
     let b = find_component(components, b);
@@ -280,6 +281,9 @@ fn union_components(
     component.y1 = component.y1.max(y1);
     append_component_span(component, first_span);
     component.spans.append(&mut spans);
+    if spans.capacity() > 0 {
+        pool.push(spans);
+    }
     root
 }
 
@@ -339,28 +343,29 @@ fn fast_components_impl(
     let mut done = Vec::new();
     let mut previous: Vec<(usize, usize, usize)> = Vec::new();
     let mut current: Vec<(usize, usize, usize)> = Vec::new();
-    let finish = |component: Component, done: &mut Vec<Component>| {
+    // Span vectors of discarded components are reused, so texture specks that
+    // span a few rows do not allocate one each.
+    let mut pool: Vec<Vec<Span>> = Vec::new();
+    let finish = |component: Component, done: &mut Vec<Component>, pool: &mut Vec<Vec<Span>>| {
         if retain_ineligible_for_test || component_is_eligible(&component) {
             done.push(component);
+        } else if component.spans.capacity() > 0 {
+            let mut spans = component.spans;
+            spans.clear();
+            pool.push(spans);
         }
     };
+    let mut offsets = Vec::new();
     for y in 0..h {
         let row = y * w;
         let line = &image[row..row + w];
         current.clear();
-        let mut x = 0;
         let mut previous_start = 0;
-        while x < w {
-            // Slice searches find the same run boundaries without per-pixel bounds checks.
-            let Some(start) = line[x..].iter().position(|&pixel| pixel) else {
-                break;
-            };
-            let left = x + start;
-            x = line[left..]
-                .iter()
-                .position(|&pixel| !pixel)
-                .map_or(w, |end| left + end);
-            let right = x;
+        // Word-wise transitions give the same runs, left to right: offsets start
+        // at 0 and end at w, and runs of set pixels alternate with unset ones.
+        crate::transition_offsets_into(line, &mut offsets);
+        let first_set = usize::from(!line.first().copied().unwrap_or(false));
+        for &[left, right] in offsets[first_set..].as_chunks::<2>().0 {
             while previous_start < previous.len() && previous[previous_start].1 < left {
                 previous_start += 1;
             }
@@ -369,9 +374,13 @@ fn fast_components_impl(
             while overlap < previous.len() && previous[overlap].0 <= right {
                 let previous_label = find_component(&mut components, previous[overlap].2);
                 label = Some(match label {
-                    Some(existing) => {
-                        union_components(&mut components, existing, previous_label, &mut merged)
-                    }
+                    Some(existing) => union_components(
+                        &mut components,
+                        existing,
+                        previous_label,
+                        &mut merged,
+                        &mut pool,
+                    ),
                     None => previous_label,
                 });
                 overlap += 1;
@@ -390,7 +399,7 @@ fn fast_components_impl(
                     y0: y,
                     y1: y,
                     first_span: span,
-                    spans: Vec::new(),
+                    spans: pool.pop().unwrap_or_default(),
                 };
                 let index = if let Some(index) = free.pop() {
                     components[index] = fresh;
@@ -415,7 +424,7 @@ fn fast_components_impl(
             let root = find_component(&mut components, label);
             if seen_row[root] != y {
                 seen_row[root] = y;
-                finish(std::mem::take(&mut components[root]), &mut done);
+                finish(std::mem::take(&mut components[root]), &mut done, &mut pool);
                 // Other runs of this row may still look the root up.
                 components[root].parent = root;
                 free.push(root);
@@ -428,7 +437,7 @@ fn fast_components_impl(
     for &(_, _, root) in &previous {
         if seen_row[root] != h {
             seen_row[root] = h;
-            finish(std::mem::take(&mut components[root]), &mut done);
+            finish(std::mem::take(&mut components[root]), &mut done, &mut pool);
             components[root].parent = root;
         }
     }
