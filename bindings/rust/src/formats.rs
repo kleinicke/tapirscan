@@ -1181,11 +1181,20 @@ fn medium_retries(
         retries.push(sparse.scan(mask, 0));
     }
     if matches!(mask, 512 | 131_072) && width.max(height) > 1920 {
-        let dimensions: &[usize] = if mask == 512 { &[960] } else { &[1600, 1200] };
+        // QR: a second, finer scale when the coarse one reads nothing; shadowed
+        // large photos often decode at one but not the other.
+        let dimensions: &[usize] = if mask == 512 {
+            &[960, 1280]
+        } else {
+            &[1600, 1200]
+        };
         for &target in dimensions {
-            retries.push(scaled_matrix_retry(
-                pixels, width, height, target, mask, level,
-            ));
+            let retry = scaled_matrix_retry(pixels, width, height, target, mask, level);
+            let decoded = mask == 512 && !retry.barcodes.is_empty();
+            retries.push(retry);
+            if decoded {
+                break;
+            }
         }
     }
     // Revisit an unresolved QR candidate with the existing extended reader.

@@ -28,6 +28,9 @@
   which the offsets disagree become Reed-Solomon erasures, which cost one parity
   symbol instead of two; two parity symbols stay spare to reject miscorrections.
   A pass that patience stops early now reports `unfinished`.
+- QR in Medium: unread images above 1920 pixels also retry at 1280 pixels when
+  the 960-pixel retry reads nothing (Barber photos: 1,116 instead of 1,105 known
+  codes, about 2% more mean time on the QR selection).
 - Aztec and Data Matrix detection are faster with identical results: Aztec
   candidate merging uses a spatial grid (36-46% faster at 1-12 megapixels), and
   Data Matrix labels runs from word-wise row transitions and reuses span buffers
