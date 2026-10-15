@@ -736,7 +736,8 @@ pub fn detect_foreground(
 /// decode attempts without a further read. Further symbols' triples rank early,
 /// so this skips the long tail of accidental triples; images without any read
 /// keep the full attempt budget.
-const PATIENCE: usize = 100;
+/// Low serves live camera frames, where the next frame is another chance.
+const PATIENCE: usize = if cfg!(feature = "mode-low") { 50 } else { 100 };
 #[expect(
     clippy::too_many_lines,
     reason = "QR detection preserves its ordered finder hypotheses and shared work budgets in one transaction."
@@ -1101,7 +1102,13 @@ fn detect_with_recovery(
                             let uncertain: Vec<bool> = (0..n * n)
                                 .map(|i| samples.iter().any(|m| m[i] != samples[0][i]))
                                 .collect();
-                            for mirror in [false, true] {
+                            // Without uncertain modules this repeats the hard decode.
+                            let mirrors: &[bool] = if uncertain.contains(&true) {
+                                &[false, true]
+                            } else {
+                                &[]
+                            };
+                            for &mirror in mirrors {
                                 let transpose = |v: &[bool]| -> Vec<bool> {
                                     if mirror {
                                         (0..n * n).map(|i| v[(i % n) * n + i / n]).collect()

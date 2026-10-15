@@ -4,9 +4,10 @@
 
 - QR: finder triples are tried in order of geometric plausibility, and once a
   symbol is read, each threshold pass stops after 100 decode attempts without a
-  further read. On a 4,619-image QR development selection (5,142 known codes),
+  further read (50 in Low, for live frames). On a 4,619-image QR development
+  selection (5,142 known codes),
   Medium reads 4,208 instead of 4,206 and its median scan time falls from 20 to
-  11 ms; Low reads 4,138 instead of 4,137, median 19 to 11 ms (Apple M1 Pro,
+  11 ms; Low reads 4,138 instead of 4,137, median 19 to 9 ms (Apple M1 Pro,
   native). Images without a read keep the full search.
 - QR in mixed selections reads almost like a QR-only scan: QR selected with
   other 2D formats (`common`, `2D`, `all`) is scanned as its own reader group with
@@ -31,6 +32,13 @@
 - QR in Medium: unread images above 1920 pixels also retry at 1280 pixels when
   the 960-pixel retry reads nothing (Barber photos: 1,116 instead of 1,105 known
   codes, about 2% more mean time on the QR selection).
+- MaxiCode selected with other 2D formats is a reader group of its own, and High
+  and Very High get Medium's reduced-copy retry for large unread frames; in a mixed
+  selection it runs where a MaxiCode candidate was found. Four of the five
+  full-size MaxiCode label photos of the variation set now read in every mode and
+  selection (was one, except Medium with MaxiCode alone).
+- QR finder triples rank mainly by shape (right angle, equal modules); the size
+  term no longer pushes large symbols behind small accidental triples.
 - Aztec and Data Matrix detection are faster with identical results: Aztec
   candidate merging uses a spatial grid (36-46% faster at 1-12 megapixels), and
   Data Matrix labels runs from word-wise row transitions and reuses span buffers

@@ -920,10 +920,12 @@ fn scan_additional(
         .then(|| crate::fast_sparse::Prepared::new(pixels, image.width, image.height));
     let mut scans = Vec::new();
     let mut coverage = Vec::new();
-    // QR selected with other 2D formats is a reader group of its own, so it uses
-    // the maintained QR frontend and the QR recoveries of a QR-only selection.
+    // QR and MaxiCode selected with other 2D formats are reader groups of their
+    // own, so they get the reader and recoveries of a single-format selection.
     let qr_apart = matrix & 512 != 0 && matrix != 512;
-    let matrix_rest = if qr_apart { matrix & !512 } else { matrix };
+    let maxi_apart = matrix & 131_072 != 0 && matrix != 131_072;
+    let matrix_rest =
+        matrix & !(if qr_apart { 512 } else { 0 } | if maxi_apart { 131_072 } else { 0 });
     let groups: Vec<(u32, usize)> = [
         (linear & !preserved, effort),
         (preserved, 1),
@@ -932,6 +934,7 @@ fn scan_additional(
             if matrix_rest & 512 != 0 { qr_effort } else { 1 },
         ),
         (if qr_apart { 512 } else { 0 }, qr_effort),
+        (if maxi_apart { 131_072 } else { 0 }, 1),
     ]
     .into_iter()
     .filter(|&(selected, _)| selected != 0)
@@ -1001,6 +1004,7 @@ fn scan_additional(
         let retries = medium_retries(
             pixels,
             [image.width, image.height],
+            mask,
             selected,
             level,
             addons,
@@ -1020,6 +1024,24 @@ fn scan_additional(
                 selected,
                 1,
             )]
+        } else if selected == 131_072
+            && addons == EanAddOnPolicy::Ignore
+            && scan.barcodes.is_empty()
+            && image.width.max(image.height) > 1920
+            && (mask == 131_072 || !scan.regions.is_empty())
+        {
+            // MaxiCode on large frames, as in Medium: reduced copies first.
+            let mut retries = Vec::new();
+            for target in [1600, 1200] {
+                let retry =
+                    scaled_matrix_retry(pixels, image.width, image.height, target, selected, level);
+                let decoded = !retry.barcodes.is_empty();
+                retries.push(retry);
+                if decoded {
+                    break;
+                }
+            }
+            retries
         } else {
             Vec::new()
         };
@@ -1164,6 +1186,7 @@ fn has_qr_region(scan: &barcode_multiformat::Scan) -> bool {
 fn medium_retries(
     pixels: &[u8],
     [width, height]: [usize; 2],
+    selection: u32,
     selected: u32,
     level: usize,
     addons: EanAddOnPolicy,
@@ -1180,7 +1203,10 @@ fn medium_retries(
         let sparse = crate::fast_sparse::Prepared::new(pixels, width, height);
         retries.push(sparse.scan(mask, 0));
     }
-    if matches!(mask, 512 | 131_072) && width.max(height) > 1920 {
+    // A MaxiCode group of a mixed selection retries only where it left a
+    // candidate, so other selections do not pay for it on every large image.
+    let maxi_candidate = selection == 131_072 || !scan.regions.is_empty();
+    if (mask == 512 || (mask == 131_072 && maxi_candidate)) && width.max(height) > 1920 {
         // QR: a second, finer scale when the coarse one reads nothing; shadowed
         // large photos often decode at one but not the other.
         let dimensions: &[usize] = if mask == 512 {
@@ -1190,7 +1216,7 @@ fn medium_retries(
         };
         for &target in dimensions {
             let retry = scaled_matrix_retry(pixels, width, height, target, mask, level);
-            let decoded = mask == 512 && !retry.barcodes.is_empty();
+            let decoded = !retry.barcodes.is_empty();
             retries.push(retry);
             if decoded {
                 break;
