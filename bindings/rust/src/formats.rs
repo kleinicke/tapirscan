@@ -1064,8 +1064,10 @@ fn scan_additional(
     // Extra foreground thresholds reach unresolved QR frames without a surviving
     // region. Bound discovery to Full-HD-sized inputs; restoration has a smaller
     // pixel budget because it introduces another image and threshold search.
+    // Mixed selections get this fixed-cost pass in High and Very High only, so
+    // Medium stays fast on frames without QR; QR-only scans keep it in Medium.
     #[cfg(not(feature = "low"))]
-    if matrix & 512 != 0
+    if (mask == 512 || (crate::MODE_ID >= 2 && matrix & 512 != 0))
         && addons == EanAddOnPolicy::Ignore
         && image.width * image.height <= 2_097_152
         && scans.iter().all(|scan| scan.barcodes.is_empty())

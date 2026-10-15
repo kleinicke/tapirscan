@@ -8,15 +8,17 @@
   Medium reads 4,208 instead of 4,206 and its median scan time falls from 20 to
   11 ms; Low reads 4,138 instead of 4,137, median 19 to 11 ms (Apple M1 Pro,
   native). Images without a read keep the full search.
-- QR in mixed selections reads like a QR-only scan: QR selected with other 2D
-  formats (`common`, `2D`, `all`) is scanned as its own reader group with the
-  maintained QR frontend, and QR recoveries are gated on the QR group instead of
-  the whole selection; likewise the DataBar and MaxiCode retries apply to a
-  DataBar-only or MaxiCode-only group of a mixed selection. On the QR selection, Medium with EAN-13 and QR reads 4,217
-  instead of 4,059 known codes, with `common` or `all` 4,217 instead of 4,048; Low
-  with `common` 4,138 instead of 4,025. Results of other formats are unchanged.
-  Frames without a QR code cost more with such selections: Low and Medium up to
-  about 10%, High and Very High about 40% with `all`.
+- QR in mixed selections reads almost like a QR-only scan: QR selected with
+  other 2D formats (`common`, `2D`, `all`) is scanned as its own reader group with
+  the maintained QR frontend, and QR recoveries are gated on the QR group instead
+  of the whole selection; likewise the DataBar and MaxiCode retries apply to a
+  DataBar-only or MaxiCode-only group of a mixed selection. The fixed-cost
+  foreground-threshold pass runs for mixed selections in High and Very High only.
+  On the QR selection, Medium with EAN-13 and QR reads 4,165 instead of 4,059
+  known codes, with `common` 4,165 instead of 4,048 (QR-only: 4,220); Low with
+  `common` 4,138 instead of 4,025. Results of other formats are unchanged. On
+  frames without QR, Low and Medium cost about 2% more with such selections, High
+  and Very High about 40% more with `all`.
 - QR: unread frames get a block-threshold pass in the style of ZXing's hybrid
   binarizer, which follows sharp shadow edges and large modules: in High and Very
   High on every unread frame (High reads 4,391 instead of 4,343 of the QR
