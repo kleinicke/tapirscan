@@ -19,6 +19,7 @@ export const formatBits = Object.freeze({
   MaxiCode: 131072,
   Code32: 262144,
   PZN: 524288,
+  MSIPlessey: 1048576,
 } as const);
 export type Format = keyof typeof formatBits;
 export const retailFormats: readonly Format[] = Object.freeze(["EAN13", "UPCA", "EAN8", "UPCE"]);
@@ -63,6 +64,6 @@ export const matrixFormats: readonly Format[] = Object.freeze([
   "MaxiCode",
 ]);
 /** Selected only by name, never by a preset or `"all"`. */
-export const optInFormats: readonly Format[] = Object.freeze(["Code32", "PZN"]);
+export const optInFormats: readonly Format[] = Object.freeze(["Code32", "PZN", "MSIPlessey"]);
 export const eanAddOnReadFlag = 32768;
 export const eanAddOnRequireFlag = 65536;

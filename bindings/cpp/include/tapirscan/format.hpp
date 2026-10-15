@@ -24,5 +24,6 @@ enum class Format : std::uint32_t {
     MaxiCode = TAPIRSCAN_FORMAT_MAXI_CODE,
     Code32 = TAPIRSCAN_FORMAT_CODE32,
     Pzn = TAPIRSCAN_FORMAT_PZN,
+    MsiPlessey = TAPIRSCAN_FORMAT_MSI_PLESSEY,
 };
 }  // namespace tapirscan

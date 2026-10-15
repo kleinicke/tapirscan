@@ -1,6 +1,6 @@
 //! Opt-in format readers. EAN-13/UPC-A keep the selected pinned scanner path.
 use crate::format_registry::{
-    ALL_FORMATS_MASK, EAN_ADDON_READ_FLAG, EAN_ADDON_REQUIRE_FLAG, LINEAR_MASK,
+    ALL_FORMATS_MASK, EAN_ADDON_READ_FLAG, EAN_ADDON_REQUIRE_FLAG, ENGINE_OPT_IN_MASK, LINEAR_MASK,
 };
 use crate::read::{Read, Region};
 use crate::{Error, Image, MODE, ScanOptions, Scanner, geometry::overlap_quads};
@@ -78,7 +78,8 @@ impl Scanner {
                 let selected_rare = if matches!(mask, 8 | 16384) { mask } else { 0 };
                 // Every non-retail linear format reuses the localized boxes; Low does the same in
                 // its fast path. DataBar and DataBar Expanded gained most (Low reads them best).
-                let oriented_mask = mask & (0x01F0 | 0x2000 | 0x4000) | selected_rare;
+                let oriented_mask =
+                    mask & (0x01F0 | 0x2000 | 0x4000 | ENGINE_OPT_IN_MASK) | selected_rare;
                 let (mut found, mut pending) = crate::fast_linear::recover_proposals(
                     image,
                     &proposals,
@@ -372,7 +373,7 @@ impl Scanner {
         #[cfg(not(feature = "low"))]
         let mut deferred_reads = Vec::new();
         #[cfg(not(feature = "low"))]
-        if (mask & 511 != 0 || (crate::MODE_ID == 1 && mask == 16384))
+        if (mask & (511 | ENGINE_OPT_IN_MASK) != 0 || (crate::MODE_ID == 1 && mask == 16384))
             && addons == EanAddOnPolicy::Ignore
         {
             deferred_reads = self.recover_linear_regions(
@@ -511,12 +512,33 @@ fn primary_reads(result: &crate::Result) -> Vec<Read> {
         .collect()
 }
 
+/// MSI Plessey has no per-character check: a threshold pass that erases the end of
+/// a symbol can leave a prefix whose last digit passes the mod-10 check. Drop such
+/// a read when a longer read of the same symbol, starting with its digits, covers it.
+fn drop_msi_prefixes(reads: &mut Vec<Read>) {
+    let prefixes: Vec<bool> = reads
+        .iter()
+        .map(|read| {
+            read.format == "MSIPlessey"
+                && reads.iter().any(|other| {
+                    other.format == read.format
+                        && other.text.len() > read.text.len()
+                        && other.text.starts_with(&read.text)
+                        && overlap_quads(&read.polygon, &other.polygon).0 >= 0.65
+                })
+        })
+        .collect();
+    let mut prefix = prefixes.into_iter();
+    reads.retain(|_| !prefix.next().unwrap_or(false));
+}
+
 pub(crate) fn typed_result(
-    reads: Vec<Read>,
+    mut reads: Vec<Read>,
     unread: Vec<Region>,
     unfinished: bool,
     mut diagnostics: Option<Value>,
 ) -> Result<EngineScan, Error> {
+    drop_msi_prefixes(&mut reads);
     if let Some(raw) = &mut diagnostics {
         raw["scan"]["barcodes"] = serde_json::to_value(&reads).map_err(|_| Error::OutputShape)?;
         raw["scan"]["unfinished"] = json!(unfinished);
@@ -916,8 +938,9 @@ pub(crate) fn fast_additional(
     Ok((reads, distinct_regions(unread)))
 }
 
-/// GS1 `DataBar` and `DataBar` Expanded: linear formats only the whole-image sweep reads.
-const DATABAR_SWEPT: u32 = 8192 | 16384;
+/// GS1 `DataBar`, `DataBar` Expanded and the opt-in linear formats (MSI Plessey):
+/// linear formats only the whole-image sweep reads.
+const DATABAR_SWEPT: u32 = 8192 | 16384 | ENGINE_OPT_IN_MASK;
 
 /// Run the linear reader before primary discovery so strong reads can guide deep retries.
 #[expect(

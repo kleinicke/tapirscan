@@ -14,7 +14,7 @@ constants listed here.
 | `"common"`          | common1D + QRCode, DataMatrix        |
 | `"1D"`              | All supported linear formats         |
 | `"2D"`              | All supported matrix/stacked formats |
-| `"all"`             | All formats except opt-in Code32/PZN |
+| `"all"`             | All formats except the opt-in ones   |
 
 Native names follow each language: Rust `Formats::COMMON_1D`, C
 `TAPIRSCAN_FORMATS_COMMON_1D`, C++ `Formats::common_1d()` and Java
@@ -32,26 +32,27 @@ The selected mode tunes EAN13/UPCA, common1D and QR Code.
 
 The supported public identifiers and native bits are:
 
-| Identifier      |    Bit | Scope                                                            |
-| --------------- | -----: | ---------------------------------------------------------------- |
-| EAN13           |      1 | Effort-mode scanner                                              |
-| UPCA            |      2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected |
-| EAN8            |      4 | Supported retail reader                                          |
-| UPCE            |      8 | Supported retail reader                                          |
-| Code128         |     16 | Supported, including GS1 metadata                                |
-| Code39          |     32 | Standard characters; no automatic full-ASCII expansion           |
-| ITF             |     64 | Supported                                                        |
-| Codabar         |    128 | Supported                                                        |
-| Code93          |    256 | Supported                                                        |
-| QRCode          |    512 | Model 2; no Micro QR, Model 1 or rMQR                            |
-| DataMatrix      |   1024 | ECC200 and DMRE                                                  |
-| PDF417          |   2048 | Normal/Compact; no Micro PDF417 or Macro/structured append       |
-| Aztec           |   4096 | Compact/full and Rune                                            |
-| DataBar         |   8192 | Omnidirectional, Stacked and Stacked Omnidirectional             |
-| DataBarExpanded |  16384 | Expanded and Expanded Stacked                                    |
-| MaxiCode        | 131072 | Modes 2–6; affine finder localization                            |
-| Code32          | 262144 | Opt-in Code 39 variant: Italian pharmacy code, 9-digit number    |
-| PZN             | 524288 | Opt-in Code 39 variant: German PZN8/PZN7, number without `-`     |
+| Identifier      |     Bit | Scope                                                            |
+| --------------- | ------: | ---------------------------------------------------------------- |
+| EAN13           |       1 | Effort-mode scanner                                              |
+| UPCA            |       2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected |
+| EAN8            |       4 | Supported retail reader                                          |
+| UPCE            |       8 | Supported retail reader                                          |
+| Code128         |      16 | Supported, including GS1 metadata                                |
+| Code39          |      32 | Standard characters; no automatic full-ASCII expansion           |
+| ITF             |      64 | Supported                                                        |
+| Codabar         |     128 | Supported                                                        |
+| Code93          |     256 | Supported                                                        |
+| QRCode          |     512 | Model 2; no Micro QR, Model 1 or rMQR                            |
+| DataMatrix      |    1024 | ECC200 and DMRE                                                  |
+| PDF417          |    2048 | Normal/Compact; no Micro PDF417 or Macro/structured append       |
+| Aztec           |    4096 | Compact/full and Rune                                            |
+| DataBar         |    8192 | Omnidirectional, Stacked and Stacked Omnidirectional             |
+| DataBarExpanded |   16384 | Expanded and Expanded Stacked                                    |
+| MaxiCode        |  131072 | Modes 2–6; affine finder localization                            |
+| Code32          |  262144 | Opt-in Code 39 variant: Italian pharmacy code, 9-digit number    |
+| PZN             |  524288 | Opt-in Code 39 variant: German PZN8/PZN7, number without `-`     |
+| MSIPlessey      | 1048576 | Opt-in; mod-10 check digit required, returned with the data      |
 
 ### Pharmacy numbers in Code 39 (Code32, PZN)
 
@@ -74,6 +75,23 @@ symbol is not reported. The opt-in formats are in no preset, `all` included,
 because an arbitrary six-character Code 39 can pass the Code 32 check digit by
 chance (about one in ten): select them only where these codes are expected.
 zxing-cpp reports the same formats as `A012345676` and `-02532876`.
+
+### MSI Plessey
+
+MSI Plessey (also called Modified Plessey) labels shelves and stock in retail
+and warehouses. Each digit is four bars of two widths, with no per-character
+check, so a misread bar can still form valid digits. Tapirscan therefore reads
+only symbols that end in a mod-10 (Luhn) check digit and returns the digits
+including it: `1234566` for the data `123456`. Symbols with a mod-1010 check end
+in two such digits and read the same way. Symbols with only a mod-11 check, or
+no check digit, are not read.
+
+The reader also needs a quiet zone of at least eight modules on both sides of
+the symbol, at least four digits including the check digit, and one consistent
+narrow/wide bar width across the symbol. A symbol cut by the image edge is not
+read: its first bars could otherwise look like a shorter symbol whose last digit
+passes the check by chance. `MSIPlessey` is opt-in: it is in no preset, `all`
+included, so selecting other formats never adds MSI reads.
 
 ## Effort levels
 

@@ -14,6 +14,7 @@ pub const DATABAR: u32 = 8192;
 pub const DATABAR_EXPANDED: u32 = 16384;
 pub const ADDON_READ: u32 = 32768;
 pub const ADDON_REQUIRE: u32 = 65536;
+pub const MSI_PLESSEY: u32 = 1_048_576;
 
 pub(crate) const DIGITS: [[u8; 4]; 10] = [
     [3, 2, 1, 1],
@@ -1032,6 +1033,140 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     None
 }
 
+/// Mod-10 (Luhn) check digit over MSI data digits, rightmost digit doubled.
+fn msi_check(data: &[u8]) -> u8 {
+    let sum: u32 = data
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, &d)| {
+            let v = u32::from(d) * if i % 2 == 0 { 2 } else { 1 };
+            v / 10 + v % 10
+        })
+        .sum();
+    ((10 - sum % 10) % 10).to_le_bytes()[0]
+}
+/// MSI Plessey: each bit is one bar/space pair of three modules, a wide bar
+/// (2:1) for 1 and a narrow bar (1:2) for 0. A 1 starts the symbol; four bits
+/// per digit follow, most significant first; a 0 pair and a narrow bar stop it.
+/// The symbology has no per-character redundancy, so the reader requires a
+/// mod-10 check digit, wide quiet zones and one narrow/wide model for all pairs.
+fn msi(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
+    let pair = |at: usize| -> Option<bool> {
+        let (bar, space) = (*r.get(at)?, *r.get(at + 1)?);
+        let fraction = bar / (bar + space);
+        if (0.2..=0.43).contains(&fraction) {
+            Some(false)
+        } else if (0.57..=0.8).contains(&fraction) {
+            Some(true)
+        } else {
+            None
+        }
+    };
+    if pair(s) != Some(true) {
+        return None;
+    }
+    let module = (r[s] + r[s + 1]) / 3.;
+    // Unlike checked symbologies, a symbol cut by the image or crop edge is not
+    // accepted: any '1' pair inside a symbol looks like a start, and the check
+    // digit alone would pass one in ten such fragments.
+    if r[s - 1] < module * 8. {
+        return None;
+    }
+    let mut digits = Vec::new();
+    let mut at = s + 2;
+    let mut width = r[s] + r[s + 1];
+    while at + 3 <= r.len() && digits.len() < 64 {
+        let stop_quiet = r.get(at + 3).is_some_and(|&quiet| quiet >= module * 8.);
+        if digits.len() >= 4 && stop_quiet && pair(at) == Some(false) {
+            let bar = r[at + 2];
+            let narrow = r[at];
+            if (bar - narrow).abs() > narrow.max(module) * 0.6 {
+                return None;
+            }
+            return msi_finish(r, s, at + 3, &digits);
+        }
+        let mut value = 0u8;
+        for bit in 0..4 {
+            let i = at + bit * 2;
+            let one = pair(i)?;
+            let w = r[i] + *r.get(i + 1)?;
+            // Adjacent pairs share a printing scale; a jump marks another symbol.
+            if (w - width).abs() > width * 0.35 {
+                return None;
+            }
+            width = w;
+            value = value * 2 + u8::from(one);
+        }
+        if value > 9 {
+            return None;
+        }
+        digits.push(value);
+        at += 8;
+    }
+    *limited |= at + 3 <= r.len() && digits.len() >= 64;
+    None
+}
+fn msi_finish(r: &[f32], s: usize, end: usize, digits: &[u8]) -> Option<Read> {
+    let (data, check) = digits.split_at(digits.len() - 1);
+    if msi_check(data) != check[0] {
+        return None;
+    }
+    // One physical model: narrow and wide bars and spaces each cluster, as in
+    // Codabar, so pairs from unrelated bars cannot combine into a symbol.
+    let mut bits = vec![true];
+    for &d in digits {
+        bits.extend((0..4).rev().map(|b| d & (1 << b) != 0));
+    }
+    bits.push(false);
+    let mut sums = [0f32; 4];
+    let mut counts = [0usize; 4];
+    for (i, &one) in bits.iter().enumerate() {
+        let (bar, space) = (r[s + 2 * i], r[s + 2 * i + 1]);
+        sums[usize::from(one)] += bar;
+        sums[2 + usize::from(!one)] += space;
+        counts[usize::from(one)] += 1;
+        counts[2 + usize::from(!one)] += 1;
+    }
+    if counts.contains(&0) {
+        return None;
+    }
+    let means: [f32; 4] = std::array::from_fn(|i| sums[i] / crate::numeric::usize_f32(counts[i]));
+    if [0, 2]
+        .iter()
+        .any(|&i| !(1.4..=3.5).contains(&(means[i + 1] / means[i])))
+    {
+        return None;
+    }
+    let mut deviation = 0.;
+    for (i, &one) in bits.iter().enumerate() {
+        for (value, bucket) in [
+            (r[s + 2 * i], usize::from(one)),
+            (r[s + 2 * i + 1], 2 + usize::from(!one)),
+        ] {
+            let distance = (value - means[bucket]).abs();
+            if distance > (means[bucket & !1] * 0.7).max(0.65) {
+                return None;
+            }
+            deviation += distance;
+        }
+    }
+    let total: f32 = r[s..end - 1].iter().sum();
+    if deviation / total > 0.17 {
+        return None;
+    }
+    Some(Read {
+        decoded: true,
+        addon: None,
+        format: "MSIPlessey",
+        text: digits.iter().map(|&d| char::from(b'0' + d)).collect(),
+        start: s,
+        end,
+        error: deviation / total,
+        gs1: false,
+    })
+}
+
 #[must_use]
 pub fn decode(r: &[f32], first_black: bool, mask: u32) -> Vec<Read> {
     decode_impl(r, first_black, mask, false, &mut false)
@@ -1110,6 +1245,9 @@ fn decode_impl(
         }
         if quiet && found.is_none() && mask & CODABAR != 0 {
             found = codabar(r, s, limited);
+        }
+        if quiet && found.is_none() && mask & MSI_PLESSEY != 0 {
+            found = msi(r, s, limited);
         }
         if let Some(read) = found {
             s = read.end;
@@ -1576,6 +1714,81 @@ mod tests {
     #[test]
     fn rejects_short_noise() {
         assert!(decode(&[1.; 100], false, 511).is_empty());
+    }
+    fn msi_runs(text: &str, module: f32, bleed: f32) -> Vec<f32> {
+        let pair = |one: bool| {
+            if one {
+                [2. * module + bleed, module - bleed]
+            } else {
+                [module + bleed, 2. * module - bleed]
+            }
+        };
+        let mut runs = vec![20. * module];
+        runs.extend(pair(true));
+        for digit in text.bytes().map(|b| b - b'0') {
+            for bit in (0..4).rev() {
+                runs.extend(pair(digit & (1 << bit) != 0));
+            }
+        }
+        runs.extend(pair(false));
+        runs.extend([module + bleed, 20. * module]);
+        runs
+    }
+    #[test]
+    fn msi_plessey_reads_mod10_symbols() {
+        assert_eq!(msi_check(&[1, 2, 3, 4, 5, 6]), 6);
+        assert_eq!(msi_check(&[1, 2, 3, 4, 5, 6, 7]), 4);
+        for (text, module, bleed) in [
+            ("1234566", 2., 0.),
+            ("12345674", 3., 0.6),
+            ("00000", 1.5, -0.3),
+            ("9876543210987658", 2.5, 0.4),
+        ] {
+            let reads = decode(&msi_runs(text, module, bleed), false, MSI_PLESSEY);
+            assert_eq!(reads.len(), 1, "{text}");
+            assert_eq!(
+                (reads[0].format, reads[0].text.as_str()),
+                ("MSIPlessey", text)
+            );
+        }
+        // A wrong check digit, a too-short symbol and an unselected format read nothing.
+        for (text, mask) in [
+            ("1234567", MSI_PLESSEY),
+            ("125", MSI_PLESSEY),
+            ("1234566", 511),
+        ] {
+            assert!(decode(&msi_runs(text, 2., 0.), false, mask).is_empty());
+        }
+        // Without its quiet zone the start pair is not a symbol boundary.
+        let mut crowded = vec![20., 2.];
+        crowded.extend(msi_runs("1234566", 2., 0.));
+        crowded[2] = 6.;
+        assert!(decode(&crowded, false, MSI_PLESSEY).is_empty());
+    }
+    #[test]
+    fn msi_plessey_rejects_other_symbologies_and_noise() {
+        let mut state = 0x5eed_u32;
+        for _ in 0..20_000 {
+            let mut runs = vec![40.];
+            runs.extend((0..60).map(|_| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                1. + f32::from(state.to_be_bytes()[0] % 4)
+            }));
+            runs.push(40.);
+            assert!(decode(&runs, false, MSI_PLESSEY).is_empty());
+        }
+        let mut code39 = vec![20.];
+        for &c in b"*CODE39*" {
+            let bits = C39[C39_ALPHABET.iter().position(|&x| x == c).unwrap()];
+            code39.extend(
+                (0..9)
+                    .rev()
+                    .map(|i| if bits & (1 << i) != 0 { 6. } else { 2. }),
+            );
+            code39.push(2.);
+        }
+        code39.push(20.);
+        assert!(decode(&code39, false, MSI_PLESSEY).is_empty());
     }
     #[test]
     fn ean_guards_are_checked_before_digit_work() {

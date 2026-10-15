@@ -528,3 +528,27 @@ test("barcodes carry the structured content of their text", async () => {
     scanner.dispose();
   }
 });
+
+test("MSI Plessey is opt-in and read when selected", async () => {
+  // Start bit, 8052344 and its mod-10 check digit 2, stop bit and closing bar.
+  let bits = "110";
+  for (const digit of "80523442")
+    for (const bit of Number(digit).toString(2).padStart(4, "0"))
+      bits += bit === "1" ? "110" : "100";
+  bits += "1001";
+  const width = bits.length * 3 + 120,
+    height = 90,
+    data = new Uint8Array(width * height).fill(255);
+  for (let y = 15; y < 75; y++)
+    for (let i = 0; i < bits.length; i++)
+      if (bits[i] === "1") data.fill(0, y * width + 60 + i * 3, y * width + 63 + i * 3);
+  const image = { data, width, height, channels: 1, stride: width };
+  const scanner = await Scanner.create({ formats: "MSIPlessey" });
+  try {
+    const [barcode] = scanner.scan(image).barcodes;
+    assert.deepEqual([barcode.format, barcode.text], ["MSIPlessey", "80523442"]);
+    assert.deepEqual(scanner.scan(image, { formats: "all" }).barcodes, []);
+  } finally {
+    scanner.dispose();
+  }
+});

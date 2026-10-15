@@ -500,7 +500,7 @@ pub fn scan_observed(
         matrix_unfinished |= limited;
         observe("PDF417", matrix_unfinished || regions.limited);
     }
-    if mask & (511 | 8192 | 16384) == 0 {
+    if mask & (511 | 8192 | 16384 | linear::MSI_PLESSEY) == 0 {
         linear_geometry::distinct(&mut matrix_results);
         let (regions, limited) = regions.finish(&matrix_results);
         return Scan {

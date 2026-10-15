@@ -503,3 +503,46 @@ fn opt_in_pharmacy_formats_convert_code39_reads() {
     assert_ne!(Formats::ALL | Format::Pzn, Formats::ALL);
     assert!(Formats::try_from(Format::Code32 as u32 | Format::Pzn as u32).is_ok());
 }
+
+/// MSI Plessey modules: a `1` start bit, four bits per digit and a `0` stop bit,
+/// each bit three modules (`110` or `100`), then the closing bar.
+fn msi_bits(text: &str) -> String {
+    let bit = |one: bool| if one { "110" } else { "100" };
+    let mut bits = String::from(bit(true));
+    for digit in text.bytes().map(|b| b - b'0') {
+        for shift in (0..4).rev() {
+            bits.push_str(bit(digit & (1 << shift) != 0));
+        }
+    }
+    bits.push_str(bit(false));
+    bits.push('1');
+    bits
+}
+
+#[test]
+fn msi_plessey_is_read_in_every_mode_and_only_when_selected() {
+    let (pixels, width, height) = code39_image(&msi_bits("80523442"));
+    for mode in compiled_modes() {
+        let scan = |formats: Formats| {
+            let mut scanner = Scanner::new(ScannerOptions {
+                mode,
+                formats,
+                ..ScannerOptions::default()
+            });
+            let result = scanner.scan(Image::gray(&pixels, width, height)).unwrap();
+            result
+                .barcodes
+                .into_iter()
+                .map(|b| (b.format, b.text))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            scan(Format::MsiPlessey.into()),
+            [(Format::MsiPlessey, "80523442".to_string())],
+            "{mode:?}"
+        );
+        assert_eq!(scan(Formats::ALL), Vec::new(), "{mode:?}");
+    }
+    assert_ne!(Formats::ALL | Format::MsiPlessey, Formats::ALL);
+    assert_eq!(Format::MsiPlessey.as_str(), "MSIPlessey");
+}

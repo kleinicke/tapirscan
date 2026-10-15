@@ -45,6 +45,8 @@ public struct Formats: OptionSet, Sendable {
     public static let code32 = Formats(rawValue: 262_144)
     /// German pharmacy number (PZN), a Code 39 symbol reported without the leading `-`. Opt-in: not in `all`.
     public static let pzn = Formats(rawValue: 524_288)
+    /// MSI Plessey with a mod-10 check digit. Opt-in: not in `all`.
+    public static let msiPlessey = Formats(rawValue: 1_048_576)
 
     /// EAN-13, UPC-A, EAN-8 and UPC-E (the default).
     public static let retail = Formats(rawValue: 15)
@@ -54,7 +56,7 @@ public struct Formats: OptionSet, Sendable {
     public static let common = Formats(rawValue: 1663)
     public static let linear = Formats(rawValue: 25087)
     public static let matrix = Formats(rawValue: 138_752)
-    /// Every format except the opt-in `code32` and `pzn`.
+    /// Every format except the opt-in `code32`, `pzn` and `msiPlessey`.
     public static let all = Formats(rawValue: 163_839)
 }
 

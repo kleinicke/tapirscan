@@ -18,6 +18,8 @@ public final class Formats {
     public static final int DATA_BAR = 8192;
     public static final int DATA_BAR_EXPANDED = 16384;
     public static final int MAXI_CODE = 131072;
+    /** MSI Plessey with a mod-10 check digit; opt-in, not part of {@link #ALL}. */
+    public static final int MSI_PLESSEY = 1048576;
     /** EAN-13, UPC-A, EAN-8 and UPC-E (the default). */
     public static final int RETAIL = 15;
     /** Retail plus Code 128, Code 39 and ITF. */

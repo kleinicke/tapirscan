@@ -1,5 +1,14 @@
 # API migration
 
+## Upgrading from 1.3.0
+
+Existing calls keep working; rebuild native consumers. The native library is
+ABI 7: C, C++, Python and Java check the version when they load it, so headers,
+bindings and library must come from the same release. ABI 7 adds the
+[content parsing](CONTENT.md) functions; the existing functions and structures
+are unchanged. Format selection adds the opt-in `MSIPlessey` bit, which no
+preset includes.
+
 ## Upgrading from 1.2.2
 
 Version 1.3.0 changes the application API in every binding, as an explicit

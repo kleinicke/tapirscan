@@ -48,11 +48,14 @@ pub enum Format {
     #[serde(rename = "PZN")]
     /// German pharmacy number: a Code 39 symbol reported as its 8- or 7-digit number (opt-in).
     Pzn = 524_288,
+    #[serde(rename = "MSIPlessey")]
+    /// MSI Plessey with a mod-10 check digit (opt-in).
+    MsiPlessey = 1_048_576,
 }
 
 impl Format {
     /// Every format in native bit order, including the opt-in formats.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::Ean13,
         Self::Upca,
         Self::Ean8,
@@ -71,6 +74,7 @@ impl Format {
         Self::MaxiCode,
         Self::Code32,
         Self::Pzn,
+        Self::MsiPlessey,
     ];
 
     /// Stable schema name used by language adapters.
@@ -95,6 +99,7 @@ impl Format {
             Self::MaxiCode => "MaxiCode",
             Self::Code32 => "Code32",
             Self::Pzn => "PZN",
+            Self::MsiPlessey => "MSIPlessey",
         }
     }
 }
@@ -112,5 +117,5 @@ pub(crate) const LINEAR_MASK: u32 = 25_087;
 pub(crate) const MATRIX_MASK: u32 = 138_752;
 pub(crate) const ALL_FORMATS_MASK: u32 = LINEAR_MASK | MATRIX_MASK;
 /// Opt-in formats: selected only by name, never by a preset or `ALL`.
-pub(crate) const OPT_IN_MASK: u32 = 786_432;
+pub(crate) const OPT_IN_MASK: u32 = 1_835_008;
 pub(crate) const SUPPORTED_MASK: u32 = ALL_FORMATS_MASK | OPT_IN_MASK;

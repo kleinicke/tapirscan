@@ -27,7 +27,8 @@
       "Pzn",
       524288,
       "German pharmacy number: a Code 39 symbol reported as its 8- or 7-digit number (opt-in)."
-    ]
+    ],
+    ["MSIPlessey", "MsiPlessey", 1048576, "MSI Plessey with a mod-10 check digit (opt-in)."]
   ],
   "presets": {
     "retail": ["EAN13", "UPCA", "EAN8", "UPCE"],
@@ -48,7 +49,8 @@
     ],
     "2D": ["QRCode", "DataMatrix", "PDF417", "Aztec", "MaxiCode"]
   },
-  "optIn": ["Code32", "PZN"],
+  "optIn": ["Code32", "PZN", "MSIPlessey"],
+  "engineOptIn": ["MSIPlessey"],
   "engineFlags": {
     "eanAddOnRead": 32768,
     "eanAddOnRequire": 65536

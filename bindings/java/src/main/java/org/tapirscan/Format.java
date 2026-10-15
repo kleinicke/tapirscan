@@ -42,7 +42,9 @@ public enum Format {
     /** Italian pharmacy code: a Code 39 symbol reported as its 9-digit number (opt-in). */
     CODE32(262144, "Code32"),
     /** German pharmacy number: a Code 39 symbol reported as its 8- or 7-digit number (opt-in). */
-    PZN(524288, "PZN");
+    PZN(524288, "PZN"),
+    /** MSI Plessey with a mod-10 check digit (opt-in). */
+    MSI_PLESSEY(1048576, "MSIPlessey");
 
     /** EAN-13, UPC-A, EAN-8 and UPC-E. */
     public static final Set<Format> RETAIL =
@@ -59,7 +61,7 @@ public enum Format {
     /** QR Code, Data Matrix, PDF417, Aztec and MaxiCode. */
     public static final Set<Format> MATRIX =
         Collections.unmodifiableSet(EnumSet.of(QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE));
-    /** Every format except the opt-in formats (Code 32, PZN), which are selected by name. */
+    /** Every format except the opt-in formats (Code32, PZN, MSIPlessey), which are selected by name. */
     public static final Set<Format> ALL =
         Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE));
 

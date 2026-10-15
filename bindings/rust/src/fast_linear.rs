@@ -103,7 +103,8 @@ struct Observation {
     dense: bool,
 }
 fn required_support(format: &str) -> u64 {
-    if matches!(format, "ITF" | "Code39" | "Codabar") {
+    // Checkless or weakly checked symbologies need a third agreeing row.
+    if matches!(format, "ITF" | "Code39" | "Codabar" | "MSIPlessey") {
         3
     } else {
         2

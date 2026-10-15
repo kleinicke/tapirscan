@@ -73,6 +73,7 @@ fn main() {
         "DataBar" => 8192,
         "DataBarExpanded" => 16384,
         "MaxiCode" => 131_072,
+        "MSIPlessey" => 1_048_576,
         _ => 0,
     };
     if linear_mask != 0 {
