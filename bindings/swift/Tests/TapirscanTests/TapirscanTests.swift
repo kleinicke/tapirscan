@@ -96,4 +96,16 @@ final class TapirscanTests: XCTestCase {
             XCTAssertEqual(try scanner.scan(frame).map(\.text), [text], "format \(format)")
         }
     }
+
+    func testParsesContent() throws {
+        let wifi = try XCTUnwrap(try parseContent("WIFI:S:Café;T:WPA;P:secret;;"))
+        XCTAssertEqual(wifi.kind, .wifi)
+        XCTAssertEqual(wifi.kind.name, "WiFi")
+        XCTAssertEqual(wifi["ssid"], "Café")
+        XCTAssertNil(wifi["hidden"])
+        XCTAssertEqual(try parseContent("0109506000134352", gs1: true)?.all("01"), ["09506000134352"])
+        XCTAssertNil(try parseContent("0109506000134352"))
+        let barcode = Barcode(text: "geo:47.37,8.54", format: "QRCode", polygon: [], support: 1, gs1: nil)
+        XCTAssertEqual(barcode.content?.kind, .geo)
+    }
 }

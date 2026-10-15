@@ -74,6 +74,33 @@ export interface StructuredAppend {
   readonly id?: string;
   readonly parity?: number;
 }
+/** Kind of structured payload recognized in decoded text. */
+export type ContentKind =
+  | "GS1"
+  | "URL"
+  | "Email"
+  | "Phone"
+  | "SMS"
+  | "Geo"
+  | "WiFi"
+  | "Contact"
+  | "Calendar"
+  | "SwissQRBill"
+  | "EPCPayment"
+  | "HIBC"
+  | "VIN"
+  | "AAMVA";
+/** One named value; names repeat where the payload repeats them. */
+export interface ContentField {
+  /** GS1 application identifier such as "01", otherwise a camelCase name such as "ssid". */
+  readonly name: string;
+  readonly value: string;
+}
+/** Structured content of the decoded text, with fields in payload order. */
+export interface Content {
+  readonly kind: ContentKind;
+  readonly fields: readonly ContentField[];
+}
 export interface Barcode {
   /** Payload bytes before character-set interpretation; absent when unavailable. */
   readonly payloadBytes?: readonly number[];
@@ -86,6 +113,8 @@ export interface Barcode {
   readonly readerInitialization?: boolean;
   readonly structuredAppend?: StructuredAppend;
   readonly eanAddOn?: string;
+  /** Recognized structure of `text` (GS1 elements, Wi-Fi, contact, payment, ...); absent for plain text. */
+  readonly content?: Content;
   readonly polygon: Quad;
   readonly rect: {
     readonly left: number;

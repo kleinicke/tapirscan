@@ -1,7 +1,7 @@
-//! Native ABI 6. Handles are registry IDs, never dereferenced pointers.
+//! Native ABI 7. Handles are registry IDs, never dereferenced pointers.
 //! Caller-owned pointer ranges must be valid, correctly aligned and nonoverlapping.
 #[cfg(not(target_pointer_width = "64"))]
-compile_error!("Native ABI 6 currently supports 64-bit targets only");
+compile_error!("Native ABI 7 currently supports 64-bit targets only");
 use std::{
     collections::HashMap,
     ffi::{CString, c_char},
@@ -9,11 +9,11 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 use tapirscan_api::{
-    Barcode, EanAddOnPolicy, Format, Formats, Image, InspectionResult, Mode, ScanOptions, Scanner,
-    ScannerOptions, UndecodedRegion,
+    Barcode, Content, ContentKind, EanAddOnPolicy, Format, Formats, Image, InspectionResult, Mode,
+    ScanOptions, Scanner, ScannerOptions, UndecodedRegion,
 };
 
-const ABI_VERSION: u32 = 6;
+const ABI_VERSION: u32 = 7;
 const ARG: i32 = 1;
 const HANDLE: i32 = 2;
 const BUFFER: i32 = 3;
@@ -25,6 +25,9 @@ const FIELD_TEXT: u32 = 0;
 const FIELD_PAYLOAD_BYTES: u32 = 1;
 const FIELD_EAN_ADD_ON: u32 = 2;
 const FIELD_STRUCTURED_APPEND_ID: u32 = 3;
+
+const CONTENT_FIELD_NAME: u32 = 0;
+const CONTENT_FIELD_VALUE: u32 = 1;
 
 /// Caller-owned, NUL-terminated UTF-8 diagnostic; long messages are truncated.
 #[repr(C)]
@@ -150,6 +153,19 @@ pub struct RegionC {
     pub format: u32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ContentInfoC {
+    pub kind: u32,
+    pub field_count: u64,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct ContentFieldC {
+    pub name_length: u64,
+    pub value_length: u64,
+}
+
 struct Output {
     barcodes: Vec<Barcode>,
     report: Option<InspectionResult>,
@@ -161,6 +177,7 @@ struct Registry {
     next: u64,
     scanners: HashMap<u64, Arc<Mutex<Scanner>>>,
     results: HashMap<u64, Arc<Output>>,
+    contents: HashMap<u64, Arc<Content>>,
 }
 impl Registry {
     /// IDs are never reused, so stale handles cannot alias newer objects.
@@ -609,6 +626,132 @@ pub extern "C" fn tapirscan_result_destroy(result: u64) -> i32 {
         registry()?
             .results
             .remove(&result)
+            .map(|_| ())
+            .ok_or(HANDLE)
+    })
+}
+
+/// Static, NUL-terminated name of a content kind, or null for an unknown value.
+#[unsafe(no_mangle)]
+pub extern "C" fn tapirscan_content_kind_name(kind: u32) -> *const c_char {
+    static NAMES: OnceLock<Vec<(u32, CString)>> = OnceLock::new();
+    NAMES
+        .get_or_init(|| {
+            ContentKind::ALL
+                .iter()
+                .filter_map(|k| Some((*k as u32, CString::new(k.as_str()).ok()?)))
+                .collect()
+        })
+        .iter()
+        .find(|(value, _)| *value == kind)
+        .map_or(std::ptr::null(), |(_, name)| name.as_ptr())
+}
+
+/// Parse decoded UTF-8 text into structured content. `gs1` is the barcode's
+/// tri-state GS1 flag; only 1 selects GS1 element-string parsing. Text with no
+/// recognized structure succeeds with `*out = 0`.
+/// # Safety
+/// `text` must be readable for `length` bytes (it may be null when `length` is 0);
+/// `out` must be null or writable for one `u64`; `error` as for scanner creation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tapirscan_parse_content(
+    text: *const u8,
+    length: u64,
+    gs1: i32,
+    out: *mut u64,
+    error: *mut ErrorC,
+) -> i32 {
+    detailed(unsafe { error.as_mut() }, || {
+        if out.is_null() {
+            return Err(invalid("output handle pointer is null"));
+        }
+        unsafe { *out = 0 };
+        let bytes = match length {
+            0 => &[][..],
+            _ if text.is_null() => return Err(invalid("text pointer is null")),
+            n => unsafe { std::slice::from_raw_parts(text, index(n)?) },
+        };
+        let text = std::str::from_utf8(bytes).map_err(|_| invalid("text is not valid UTF-8"))?;
+        if let Some(content) = tapirscan_api::parse_content(text, gs1 == 1) {
+            let mut r = registry()?;
+            let id = r.id();
+            r.contents.insert(id, Arc::new(content));
+            unsafe { *out = id };
+        }
+        Ok(())
+    })
+}
+
+fn content(id: u64) -> Result<Arc<Content>, i32> {
+    registry()?.contents.get(&id).cloned().ok_or(HANDLE)
+}
+
+/// # Safety
+/// `out` must be null or writable and aligned for one `tapirscan_content_summary`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tapirscan_content_info(handle: u64, out: *mut ContentInfoC) -> i32 {
+    boundary(|| {
+        let out = unsafe { out.as_mut() }.ok_or(ARG)?;
+        *out = ContentInfoC::default();
+        let content = content(handle)?;
+        *out = ContentInfoC {
+            kind: content.kind as u32,
+            field_count: content.fields.len() as u64,
+        };
+        Ok(())
+    })
+}
+
+/// # Safety
+/// `out` must be null or writable and aligned for one `tapirscan_content_lengths`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tapirscan_content_field(
+    handle: u64,
+    position: u64,
+    out: *mut ContentFieldC,
+) -> i32 {
+    boundary(|| {
+        let out = unsafe { out.as_mut() }.ok_or(ARG)?;
+        *out = ContentFieldC::default();
+        let content = content(handle)?;
+        let field = content.fields.get(index(position)?).ok_or(ARG)?;
+        *out = ContentFieldC {
+            name_length: field.name.len() as u64,
+            value_length: field.value.len() as u64,
+        };
+        Ok(())
+    })
+}
+
+/// Copy a field's name or value plus a NUL terminator.
+/// # Safety
+/// `out` must be null or writable for `capacity` bytes, without overlap.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn tapirscan_content_copy(
+    handle: u64,
+    position: u64,
+    part: u32,
+    out: *mut u8,
+    capacity: u64,
+) -> i32 {
+    boundary(|| {
+        let content = content(handle)?;
+        let field = content.fields.get(index(position)?).ok_or(ARG)?;
+        let value = match part {
+            CONTENT_FIELD_NAME => &field.name,
+            CONTENT_FIELD_VALUE => &field.value,
+            _ => return Err(ARG),
+        };
+        unsafe { copy_bytes(value.as_bytes(), out, capacity) }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn tapirscan_content_destroy(handle: u64) -> i32 {
+    boundary(|| {
+        registry()?
+            .contents
+            .remove(&handle)
             .map(|_| ())
             .ok_or(HANDLE)
     })

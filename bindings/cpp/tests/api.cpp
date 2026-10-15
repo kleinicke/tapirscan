@@ -46,4 +46,20 @@ int main() {
         assert(error.code == TAPIRSCAN_INVALID_ARGUMENT);
         assert(std::string(error.what()).find("buffer") != std::string::npos);
     }
+
+    const auto wifi = tapirscan::parse_content("WIFI:S:Cafe;T:WPA;P:secret;;");
+    assert(wifi && wifi->kind == tapirscan::ContentKind::Wifi);
+    assert(tapirscan::to_string(wifi->kind) == "WiFi");
+    assert(wifi->fields.size() == 3 && wifi->get("password") == std::optional<std::string>("secret"));
+    assert(!wifi->get("hidden"));
+    tapirscan::Barcode gs1;
+    gs1.text = "0109506000134352";
+    assert(!tapirscan::parse_content(gs1));
+    gs1.gs1 = true;
+    const auto elements = tapirscan::parse_content(gs1);
+    assert(elements && elements->kind == tapirscan::ContentKind::Gs1);
+    assert(elements->get_all("01") == std::vector<std::string>{"09506000134352"});
+    assert(!tapirscan::parse_content("plain text"));
+    try { (void)tapirscan::parse_content(std::string("\xff")); assert(false); }
+    catch (const tapirscan::Error& error) { assert(error.code == TAPIRSCAN_INVALID_ARGUMENT); }
 }

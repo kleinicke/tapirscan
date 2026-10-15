@@ -216,10 +216,41 @@ class Images(unittest.TestCase):
         """Reject older libraries at initialization with actionable version details."""
         with patch("tapirscan.c.CDLL") as load:
             load.return_value.tapirscan_abi_version.return_value = 4
-            with self.assertRaisesRegex(RuntimeError, "expected 6, got 4.*Rebuild"):
+            with self.assertRaisesRegex(RuntimeError, "expected 7, got 4.*Rebuild"):
                 Scanner(library_dir=LIBS)
             load.return_value.tapirscan_scanner_create.assert_not_called()
             load.return_value.tapirscan_result_json_length.assert_not_called()
+
+    def test_parse_content(self) -> None:
+        """Content parsing works on text and on barcodes, using their GS1 flag."""
+        wifi = barcode.parse_content(
+            "WIFI:S:Cafe;T:WPA;P:se:cret\\;;;", library_dir=LIBS
+        )
+        assert wifi is not None
+        self.assertEqual(wifi.kind, "WiFi")
+        self.assertEqual(wifi.get("password"), "se:cret;")
+        self.assertEqual(
+            [tuple(f) for f in wifi],
+            [("ssid", "Cafe"), ("security", "WPA"), ("password", "se:cret;")],
+        )
+        self.assertIsNone(wifi.get("hidden"))
+        gs1 = Barcode("0109506000134352", ((0.0, 0.0),) * 4, "Code128", gs1=True)  # type: ignore[arg-type]
+        content = barcode.parse_content(gs1, library_dir=LIBS)
+        assert content is not None
+        self.assertEqual(
+            (content.kind, content.get_all("01")), ("GS1", ["09506000134352"])
+        )
+        self.assertIsNone(barcode.parse_content(gs1, gs1=False, library_dir=LIBS))
+        self.assertIsNone(barcode.parse_content("plain text", library_dir=LIBS))
+        vcard = barcode.parse_content(
+            "BEGIN:VCARD\nFN:Zoë\nTEL:1\nTEL:2\nEND:VCARD", library_dir=LIBS
+        )
+        assert vcard is not None
+        self.assertEqual(
+            (vcard.get("name"), vcard.get_all("phone")), ("Zoë", ["1", "2"])
+        )
+        with self.assertRaises(FrozenInstanceError):
+            vcard.kind = "URL"  # type: ignore[misc]
 
     def test_supplement_policy(self) -> None:
         """Policy is opt-in, creation-only and forwarded by one-shot scanning."""

@@ -494,3 +494,37 @@ test("shared format presets cannot be changed by callers", async () => {
     scanner.dispose();
   }
 });
+
+test("barcodes carry the structured content of their text", async () => {
+  // GS1-128: start C, FNC1, (01)09506000134352, check character and stop.
+  const widths =
+    "211232 411131 222122 221213 231131 314111 212222 122132 112331 213311 131141 2331112"
+      .replaceAll(" ", "")
+      .split("")
+      .map(Number);
+  const width = 480,
+    height = 120,
+    data = new Uint8Array(width * height).fill(255);
+  let x = 40;
+  widths.forEach((modules, i) => {
+    if (i % 2 === 0)
+      for (let y = 20; y < 100; y++) data.fill(0, y * width + x, y * width + x + modules * 3);
+    x += modules * 3;
+  });
+  const scanner = await Scanner.create({ formats: "Code128" });
+  try {
+    const [barcode] = scanner.scan({ data, width, height, channels: 1, stride: width }).barcodes;
+    assert.equal(barcode.gs1, true);
+    assert.deepEqual(barcode.content, {
+      kind: "GS1",
+      fields: [{ name: "01", value: "09506000134352" }],
+    });
+    assert.ok(Object.isFrozen(barcode.content.fields[0]));
+    const { text, image } = fixture();
+    const [plain] = scanner.scan(image, { formats: "EAN13" }).barcodes;
+    assert.equal(plain.text, text);
+    assert.equal(plain.content, undefined);
+  } finally {
+    scanner.dispose();
+  }
+});

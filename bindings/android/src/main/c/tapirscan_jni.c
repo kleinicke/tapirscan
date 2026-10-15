@@ -72,7 +72,8 @@ static jobject barcode_object(JNIEnv *env, jclass type, jmethodID init, tapirsca
     jobject value = NULL;
     if (polygon) {
         (*env)->SetDoubleArrayRegion(env, polygon, 0, 8, corners);
-        value = (*env)->NewObject(env, type, init, bytes, format, polygon, (jlong)barcode.support);
+        value = (*env)->NewObject(env, type, init, bytes, format, polygon, (jlong)barcode.support,
+                                  (jint)barcode.gs1);
     }
     if (bytes) (*env)->DeleteLocalRef(env, bytes);
     if (format) (*env)->DeleteLocalRef(env, format);
@@ -99,7 +100,7 @@ static jobjectArray scan(JNIEnv *env, jlong handle, const uint8_t *data, uint64_
     uint64_t count = 0;
     tapirscan_result_count(result, &count);
     jclass type = (*env)->FindClass(env, "org/tapirscan/android/Barcode");
-    jmethodID init = type ? (*env)->GetMethodID(env, type, "<init>", "([BLjava/lang/String;[DJ)V")
+    jmethodID init = type ? (*env)->GetMethodID(env, type, "<init>", "([BLjava/lang/String;[DJI)V")
                           : NULL;
     jobjectArray out = init ? (*env)->NewObjectArray(env, (jsize)count, type, NULL) : NULL;
     for (uint64_t i = 0; out && i < count; i++) {
@@ -136,4 +137,69 @@ JNIEXPORT jobjectArray JNICALL Java_org_tapirscan_android_BarcodeScanner_nativeS
                             channels, stride);
     (*env)->ReleaseByteArrayElements(env, pixels, data, JNI_ABORT);
     return out;
+}
+
+/* Copy one content field part as UTF-8 bytes; NULL with a pending exception on failure. */
+static jbyteArray content_part(JNIEnv *env, tapirscan_content content, uint64_t index, uint32_t part,
+                               uint64_t length) {
+    char *buffer = malloc(length + 1);
+    int32_t status = buffer ? tapirscan_content_copy(content, index, part, (uint8_t *)buffer, length + 1)
+                            : TAPIRSCAN_INTERNAL_ERROR;
+    jbyteArray bytes = status == TAPIRSCAN_OK ? utf8_bytes(env, buffer, length) : NULL;
+    free(buffer);
+    if (status != TAPIRSCAN_OK) throw_error(env, status, NULL);
+    return bytes;
+}
+
+/* Parsed content as UTF-8 byte arrays: the kind name, then name and value of each field.
+   NULL without an exception when the text has no recognized structure. */
+JNIEXPORT jobjectArray JNICALL Java_org_tapirscan_android_Content_nativeParse(
+    JNIEnv *env, jclass type, jbyteArray text, jboolean gs1) {
+    (void)type;
+    jsize length = (*env)->GetArrayLength(env, text);
+    jbyte *data = (*env)->GetByteArrayElements(env, text, NULL);
+    if (!data) return NULL;
+    tapirscan_content content = 0;
+    tapirscan_error error = {{0}};
+    int32_t status = tapirscan_parse_content((const uint8_t *)data, (uint64_t)length, gs1 ? 1 : 0,
+                                             &content, &error);
+    (*env)->ReleaseByteArrayElements(env, text, data, JNI_ABORT);
+    if (status != TAPIRSCAN_OK) {
+        throw_error(env, status, error.message);
+        return NULL;
+    }
+    if (content == 0) return NULL;
+    tapirscan_content_summary summary;
+    status = tapirscan_content_info(content, &summary);
+    jclass bytes_type = status == TAPIRSCAN_OK ? (*env)->FindClass(env, "[B") : NULL;
+    jobjectArray out = bytes_type
+        ? (*env)->NewObjectArray(env, (jsize)(1 + 2 * summary.field_count), bytes_type, NULL)
+        : NULL;
+    if (out) {
+        const char *kind = tapirscan_content_kind_name(summary.kind);
+        jbyteArray name = utf8_bytes(env, kind, strlen(kind));
+        if (name) {
+            (*env)->SetObjectArrayElement(env, out, 0, name);
+            (*env)->DeleteLocalRef(env, name);
+        }
+    }
+    for (uint64_t i = 0; out && !(*env)->ExceptionCheck(env) && i < summary.field_count; i++) {
+        tapirscan_content_lengths lengths;
+        status = tapirscan_content_field(content, i, &lengths);
+        if (status != TAPIRSCAN_OK) break;
+        jbyteArray name = content_part(env, content, i, TAPIRSCAN_CONTENT_FIELD_NAME, lengths.name_length);
+        jbyteArray value = name ? content_part(env, content, i, TAPIRSCAN_CONTENT_FIELD_VALUE,
+                                               lengths.value_length)
+                                : NULL;
+        if (value) {
+            (*env)->SetObjectArrayElement(env, out, (jsize)(1 + 2 * i), name);
+            (*env)->SetObjectArrayElement(env, out, (jsize)(2 + 2 * i), value);
+        }
+        if (name) (*env)->DeleteLocalRef(env, name);
+        if (value) (*env)->DeleteLocalRef(env, value);
+    }
+    tapirscan_content_destroy(content);
+    if (bytes_type) (*env)->DeleteLocalRef(env, bytes_type);
+    if (status != TAPIRSCAN_OK) throw_error(env, status, NULL);
+    return (*env)->ExceptionCheck(env) ? NULL : out;
 }

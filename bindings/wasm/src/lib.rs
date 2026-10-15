@@ -435,6 +435,7 @@ fn wire_barcode(barcode: &Barcode) -> serde_json::Value {
     if let Some(append) = &barcode.structured_append {
         object.insert("structuredAppend".into(), wire_append(append));
     }
+    optional(object, "content", barcode.content().as_ref());
     value
 }
 

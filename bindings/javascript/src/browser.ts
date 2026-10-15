@@ -17,6 +17,9 @@ import { ScannerError } from "./rust-session.js";
 export { ScannerError } from "./rust-session.js";
 export type {
   Barcode,
+  Content,
+  ContentField,
+  ContentKind,
   DiagnosticBarcode,
   Diagnostics,
   EanAddOnPolicy,

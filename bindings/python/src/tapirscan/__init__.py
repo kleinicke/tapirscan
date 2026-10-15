@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ctypes as c
 import os
-import sys
 import threading
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -19,6 +18,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 from ._images import _cpu_count, _size, image_bytes
+from ._library import ABI_VERSION, library_path, load
+from .content import Content, ContentField, ContentKind, parse_content
 from .formats import (
     FORMAT_BITS,
     Format,
@@ -53,6 +54,9 @@ from .results import (
 __all__ = [
     "Barcode",
     "ColorOrder",
+    "Content",
+    "ContentField",
+    "ContentKind",
     "Diagnostics",
     "EanAddOnPolicy",
     "Format",
@@ -76,11 +80,11 @@ __all__ = [
     "inspect",
     "linear_formats",
     "matrix_formats",
+    "parse_content",
     "retail_formats",
     "scan",
     "scan_many",
 ]
-ABI_VERSION = 6
 MAX_IMAGE_BYTES = 1024 * 1024 * 1024
 _MODES = ("low", "medium", "high", "very-high")
 _ADDON_POLICIES = ("ignore", "read", "require")
@@ -99,7 +103,7 @@ class ScannerError(RuntimeError):
         super().__init__(f"{message} (status {status})")
 
 
-# Native ABI 6 structures from bindings/c/include/tapirscan.h.
+# Native ABI 7 structures from bindings/c/include/tapirscan.h.
 class _ScannerOptions(c.Structure):
     _fields_ = [
         ("mode", c.c_uint32),
@@ -263,46 +267,15 @@ class Scanner:
             raise ValueError(msg)
         self._ean_add_on_policy = ean_add_on_policy
         self._formats = resolve_formats(formats)
-        directory = (
-            library_dir
-            if library_dir is not None
-            else os.environ.get("TAPIRSCAN_LIBRARY_DIR")
-        )
-        if directory is None:
-            directory = Path(__file__).resolve().parent / "_native"
-            if not directory.is_dir():
-                msg = (
-                    "This installation has no bundled native library. "
-                    "Install a platform wheel, or set library_dir / "
-                    "TAPIRSCAN_LIBRARY_DIR for a source checkout."
-                )
-                raise ValueError(msg)
-        prefix, suffix = (
-            ("", ".dll")
-            if sys.platform == "win32"
-            else ("lib", ".dylib" if sys.platform == "darwin" else ".so")
-        )
-        path = Path(directory).expanduser().resolve() / f"{prefix}tapirscan{suffix}"
+        path = library_path(library_dir)
         self._lock = RLock()
         # Reused snapshot of caller pixels; grows to the largest image until close().
         self._staging: c.Array[c.c_uint8] | None = None
         self._handle = c.c_uint64(0)
-        self._lib = c.CDLL(str(path))
+        self._lib = load(path)
         self._mode = mode
         u64 = c.c_uint64
-        u32 = c.c_uint32
         ptr = c.POINTER
-        # Check the version before resolving ABI-specific symbols.
-        self._lib.tapirscan_abi_version.argtypes = []
-        self._lib.tapirscan_abi_version.restype = u32
-        actual_abi = self._lib.tapirscan_abi_version()
-        if actual_abi != ABI_VERSION:
-            msg = (
-                f"Native library ABI mismatch: expected {ABI_VERSION}, "
-                f"got {actual_abi} from {path}. "
-                "Rebuild the native library or reinstall a matching wheel."
-            )
-            raise RuntimeError(msg)
         signatures = {
             "tapirscan_status_message": ([c.c_int32], c.c_char_p),
             "tapirscan_scanner_create": (

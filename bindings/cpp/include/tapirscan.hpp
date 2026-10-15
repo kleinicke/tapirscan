@@ -16,7 +16,7 @@
 #include <vector>
 
 namespace tapirscan {
-static_assert(sizeof(void*) == 8, "Native ABI 6 requires a 64-bit target");
+static_assert(sizeof(void*) == 8, "Native ABI 7 requires a 64-bit target");
 
 /// A native failure. `code` is the C status.
 class Error : public std::runtime_error {
@@ -441,5 +441,95 @@ inline ScanResult scan(const Image& image, const ScannerOptions& scanner = {},
 /// Inspect one image with a temporary scanner.
 inline InspectionResult inspect(const Image& image, const ScannerOptions& scanner = {}, const ScanOptions& options = {}) {
     return Scanner(scanner).inspect(image, options);
+}
+
+/// Kind of structured payload recognized by `parse_content`.
+enum class ContentKind : std::uint32_t {
+    Gs1 = TAPIRSCAN_CONTENT_GS1,
+    Url = TAPIRSCAN_CONTENT_URL,
+    Email = TAPIRSCAN_CONTENT_EMAIL,
+    Phone = TAPIRSCAN_CONTENT_PHONE,
+    Sms = TAPIRSCAN_CONTENT_SMS,
+    Geo = TAPIRSCAN_CONTENT_GEO,
+    Wifi = TAPIRSCAN_CONTENT_WIFI,
+    Contact = TAPIRSCAN_CONTENT_CONTACT,
+    Calendar = TAPIRSCAN_CONTENT_CALENDAR,
+    SwissQrBill = TAPIRSCAN_CONTENT_SWISS_QR_BILL,
+    EpcPayment = TAPIRSCAN_CONTENT_EPC_PAYMENT,
+    Hibc = TAPIRSCAN_CONTENT_HIBC,
+    Vin = TAPIRSCAN_CONTENT_VIN,
+    Aamva = TAPIRSCAN_CONTENT_AAMVA,
+};
+
+/// Stable name shared with the other bindings, such as "WiFi".
+inline std::string_view to_string(ContentKind kind) {
+    const char* name = tapirscan_content_kind_name(static_cast<std::uint32_t>(kind));
+    return name ? name : "";
+}
+
+/// One named value; names repeat where the payload repeats them.
+struct ContentField {
+    std::string name;
+    std::string value;
+};
+
+/// Structured content of decoded text, with fields in payload order.
+struct Content {
+    ContentKind kind = ContentKind::Url;
+    std::vector<ContentField> fields;
+
+    /// First value of a field, or empty when absent.
+    std::optional<std::string> get(std::string_view name) const {
+        for (const auto& field : fields)
+            if (field.name == name) return field.value;
+        return std::nullopt;
+    }
+    /// Every value of a field, in payload order.
+    std::vector<std::string> get_all(std::string_view name) const {
+        std::vector<std::string> values;
+        for (const auto& field : fields)
+            if (field.name == name) values.push_back(field.value);
+        return values;
+    }
+};
+
+/// Recognize GS1 element strings, URLs, Wi-Fi, contacts, payment slips, HIBC,
+/// VINs and AAMVA licenses in decoded text. `gs1` is the barcode's GS1 flag.
+/// Returns empty for text without recognized structure.
+inline std::optional<Content> parse_content(std::string_view text, bool gs1 = false) {
+    tapirscan_content handle = 0;
+    tapirscan_error error{};
+    auto status = tapirscan_parse_content(reinterpret_cast<const std::uint8_t*>(text.data()), text.size(),
+                                          gs1 ? 1 : 0, &handle, &error);
+    if (status != TAPIRSCAN_OK) throw Error(status, error.message);
+    if (handle == 0) return std::nullopt;
+    struct Guard {
+        tapirscan_content handle;
+        ~Guard() { tapirscan_content_destroy(handle); }
+    } guard{handle};
+    tapirscan_content_summary info{};
+    detail::check(tapirscan_content_info(handle, &info));
+    Content content;
+    content.kind = static_cast<ContentKind>(info.kind);
+    content.fields.reserve(static_cast<std::size_t>(info.field_count));
+    auto copy = [&](std::uint64_t index, std::uint32_t part, std::uint64_t length) {
+        std::string value(static_cast<std::size_t>(length) + 1, '\0');
+        detail::check(tapirscan_content_copy(handle, index, part,
+                                             reinterpret_cast<std::uint8_t*>(value.data()), value.size()));
+        value.pop_back();
+        return value;
+    };
+    for (std::uint64_t i = 0; i < info.field_count; ++i) {
+        tapirscan_content_lengths lengths{};
+        detail::check(tapirscan_content_field(handle, i, &lengths));
+        content.fields.push_back({copy(i, TAPIRSCAN_CONTENT_FIELD_NAME, lengths.name_length),
+                                  copy(i, TAPIRSCAN_CONTENT_FIELD_VALUE, lengths.value_length)});
+    }
+    return content;
+}
+
+/// Structured content of a decoded barcode, using its text and GS1 flag.
+inline std::optional<Content> parse_content(const Barcode& barcode) {
+    return parse_content(barcode.text, barcode.gs1.value_or(false));
 }
 }  // namespace tapirscan

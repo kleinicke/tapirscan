@@ -3,6 +3,7 @@
 
 // Internal engine; its items are documented in core/README.md, not rustdoc.
 mod code39_variants;
+mod content;
 #[allow(missing_docs)]
 #[path = "../generated/mod.rs"]
 mod engine;
@@ -11,6 +12,7 @@ mod pixels;
 mod reduce;
 mod timer;
 mod types;
+pub use content::{Content, ContentKind, Field, parse_content};
 pub use format::Format;
 pub use pixels::Image;
 pub use types::*;

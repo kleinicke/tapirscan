@@ -55,6 +55,7 @@ public final class JniTest {
             check(fromArray.size() == 1 && fromArray.get(0).text().equals(TEXT), "array scan " + fromArray);
             check(fromArray.get(0).format().equals("EAN13"), "format");
             check(fromArray.get(0).polygon().length == 8, "polygon");
+            check(fromArray.get(0).content() == null, "retail text has no content");
             // A direct buffer with padded rows, as camera planes have, is read in place.
             int stride = width + 16;
             ByteBuffer direct = ByteBuffer.allocateDirect(stride * HEIGHT + 5);
@@ -80,6 +81,11 @@ public final class JniTest {
         } catch (TapirscanException expected) {
             // formats must be nonempty
         }
+        Content wifi = Content.parse("WIFI:S:Café;T:WPA;P:secret;;", false);
+        check(wifi != null && wifi.kind() == Content.Kind.WIFI && "WiFi".equals(wifi.kind().toString()), "wifi kind");
+        check("Café".equals(wifi.get("ssid")) && wifi.get("hidden") == null && wifi.fields().size() == 3, "wifi fields");
+        check(Content.parse("0109506000134352", true).getAll("01").equals(List.of("09506000134352")), "gs1");
+        check(Content.parse("0109506000134352", false) == null, "plain digits");
         System.out.println("android JNI bridge: OK");
     }
 }

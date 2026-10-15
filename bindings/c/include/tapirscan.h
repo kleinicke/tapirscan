@@ -5,7 +5,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Tapirscan native ABI 6: one library containing all four effort modes.
+/* Tapirscan native ABI 7: one library containing all four effort modes.
 
    Create a scanner once, scan any number of images, read the owned result,
    then destroy the result and the scanner. Calls are thread-safe; scans on one
@@ -13,10 +13,11 @@ extern "C" {
    reference valid, aligned, nonoverlapping caller memory. Status failures never
    unwind through C; invalid raw memory and out-of-memory are outside that
    guarantee. Handle IDs are never reused. */
-#define TAPIRSCAN_ABI_VERSION 6u
+#define TAPIRSCAN_ABI_VERSION 7u
 
 typedef uint64_t tapirscan_scanner;
 typedef uint64_t tapirscan_result;
+typedef uint64_t tapirscan_content;
 
 typedef enum tapirscan_status {
     TAPIRSCAN_OK = 0,
@@ -150,6 +151,54 @@ int32_t tapirscan_result_json_length(tapirscan_result result, uint64_t *out);
 /* scan: barcode JSON array. inspect: schema-2 engine report. */
 int32_t tapirscan_result_copy_json(tapirscan_result result, uint8_t *out, uint64_t capacity);
 int32_t tapirscan_result_destroy(tapirscan_result result);
+
+/* Structured content of decoded text (docs/CONTENT.md). Parsing is independent
+   of scanning and works on any UTF-8 text. */
+typedef enum tapirscan_content_kind {
+    TAPIRSCAN_CONTENT_GS1 = 1,          /* GS1 element string or Digital Link; fields named by AI */
+    TAPIRSCAN_CONTENT_URL = 2,
+    TAPIRSCAN_CONTENT_EMAIL = 3,
+    TAPIRSCAN_CONTENT_PHONE = 4,
+    TAPIRSCAN_CONTENT_SMS = 5,
+    TAPIRSCAN_CONTENT_GEO = 6,
+    TAPIRSCAN_CONTENT_WIFI = 7,
+    TAPIRSCAN_CONTENT_CONTACT = 8,      /* vCard or MECARD */
+    TAPIRSCAN_CONTENT_CALENDAR = 9,     /* iCalendar VEVENT */
+    TAPIRSCAN_CONTENT_SWISS_QR_BILL = 10,
+    TAPIRSCAN_CONTENT_EPC_PAYMENT = 11, /* EPC/SEPA credit transfer */
+    TAPIRSCAN_CONTENT_HIBC = 12,
+    TAPIRSCAN_CONTENT_VIN = 13,
+    TAPIRSCAN_CONTENT_AAMVA = 14        /* driver's license / ID card */
+} tapirscan_content_kind;
+
+typedef struct tapirscan_content_summary {
+    uint32_t kind;        /* tapirscan_content_kind */
+    uint64_t field_count;
+} tapirscan_content_summary;
+
+/* Byte lengths, excluding the terminating NUL. */
+typedef struct tapirscan_content_lengths {
+    uint64_t name_length;
+    uint64_t value_length;
+} tapirscan_content_lengths;
+
+/* Parts for tapirscan_content_copy. */
+#define TAPIRSCAN_CONTENT_FIELD_NAME 0u
+#define TAPIRSCAN_CONTENT_FIELD_VALUE 1u
+
+/* Static NUL-terminated name such as "WiFi", or NULL for an unknown kind. */
+const char *tapirscan_content_kind_name(uint32_t kind);
+/* gs1 is the barcode's tri-state flag; only 1 parses the text as a GS1 element
+   string. Text without recognized structure succeeds with *out == 0, which
+   needs no destroy. Invalid UTF-8 returns INVALID_ARGUMENT. */
+int32_t tapirscan_parse_content(const uint8_t *text, uint64_t length, int32_t gs1,
+    tapirscan_content *out, tapirscan_error *error);
+int32_t tapirscan_content_info(tapirscan_content content, tapirscan_content_summary *out);
+int32_t tapirscan_content_field(tapirscan_content content, uint64_t index, tapirscan_content_lengths *out);
+/* Copy a field's name or value plus a terminating NUL; capacity must exceed its length. */
+int32_t tapirscan_content_copy(tapirscan_content content, uint64_t index, uint32_t part,
+    uint8_t *out, uint64_t capacity);
+int32_t tapirscan_content_destroy(tapirscan_content content);
 #ifdef __cplusplus
 }
 #endif

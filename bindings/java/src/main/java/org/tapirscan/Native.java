@@ -16,9 +16,9 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 
-/** Native ABI 6 entry points from tapirscan.h, loaded once per JVM. */
+/** Native ABI 7 entry points from tapirscan.h, loaded once per JVM. */
 final class Native {
-    static final int ABI_VERSION = 6;
+    static final int ABI_VERSION = 7;
     static final MemoryLayout IMAGE = MemoryLayout.structLayout(
             ADDRESS.withName("data"), JAVA_LONG.withName("length"),
             JAVA_LONG.withName("width"), JAVA_LONG.withName("height"),
@@ -42,6 +42,10 @@ final class Native {
     static final MemoryLayout SCAN_OPTIONS = MemoryLayout.structLayout(
             JAVA_INT.withName("formats"));
     static final MemoryLayout ERROR = MemoryLayout.sequenceLayout(512, JAVA_BYTE);
+    static final MemoryLayout CONTENT_SUMMARY = MemoryLayout.structLayout(
+            JAVA_INT.withName("kind"), MemoryLayout.paddingLayout(4), JAVA_LONG.withName("fieldCount"));
+    static final MemoryLayout CONTENT_LENGTHS = MemoryLayout.structLayout(
+            JAVA_LONG.withName("nameLength"), JAVA_LONG.withName("valueLength"));
 
     static long offset(MemoryLayout layout, String field) {
         return layout.byteOffset(groupElement(field));
@@ -51,7 +55,8 @@ final class Native {
     private static Native instance;
 
     final MethodHandle statusMessage, create, destroy, scan, inspect, count, info, barcode, undecoded, copy,
-            copyJson, jsonLength, destroyResult;
+            copyJson, jsonLength, destroyResult, parseContent, contentInfo, contentField, contentCopy,
+            contentDestroy;
 
     static synchronized Native get() {
         if (instance == null) instance = new Native();
@@ -88,6 +93,13 @@ final class Native {
         jsonLength = bind(symbols, "tapirscan_result_json_length", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS));
         copyJson = bind(symbols, "tapirscan_result_copy_json", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS, JAVA_LONG));
         destroyResult = bind(symbols, "tapirscan_result_destroy", FunctionDescriptor.of(JAVA_INT, JAVA_LONG));
+        parseContent = bind(symbols, "tapirscan_parse_content",
+                FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT, ADDRESS, ADDRESS));
+        contentInfo = bind(symbols, "tapirscan_content_info", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS));
+        contentField = bind(symbols, "tapirscan_content_field", FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, ADDRESS));
+        contentCopy = bind(symbols, "tapirscan_content_copy",
+                FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG));
+        contentDestroy = bind(symbols, "tapirscan_content_destroy", FunctionDescriptor.of(JAVA_INT, JAVA_LONG));
     }
 
     // The descriptors match the version-checked C declarations.

@@ -184,6 +184,13 @@ pub struct Barcode {
     pub structured_append: Option<StructuredAppend>,
 }
 impl Barcode {
+    /// Structured content of the decoded text, such as GS1 elements, a Wi-Fi
+    /// configuration or a payment slip; `None` for unstructured text.
+    /// See [`parse_content`](crate::parse_content).
+    #[must_use]
+    pub fn content(&self) -> Option<crate::Content> {
+        crate::parse_content(&self.text, self.gs1 == Some(true))
+    }
     /// Enclosing integer pixel bounds: floor of the minimum to ceil of the maximum.
     /// Values outside the `i32` range saturate, for barcodes built by callers.
     #[must_use]

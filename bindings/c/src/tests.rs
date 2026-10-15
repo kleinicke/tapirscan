@@ -109,7 +109,134 @@ fn layouts_match_the_header() {
     assert_eq!(std::mem::size_of::<ResultInfoC>(), 48);
     assert_eq!(std::mem::size_of::<BarcodeC>(), 136);
     assert_eq!(std::mem::size_of::<RegionC>(), 72);
-    assert_eq!(tapirscan_abi_version(), 6);
+    assert_eq!(std::mem::size_of::<ContentInfoC>(), 16);
+    assert_eq!(std::mem::size_of::<ContentFieldC>(), 16);
+    assert_eq!(tapirscan_abi_version(), 7);
+}
+
+fn content_field(handle: u64, position: u64, part: u32) -> String {
+    let mut lengths = ContentFieldC::default();
+    assert_eq!(
+        unsafe { tapirscan_content_field(handle, position, &raw mut lengths) },
+        0
+    );
+    let length = if part == CONTENT_FIELD_NAME {
+        lengths.name_length
+    } else {
+        lengths.value_length
+    };
+    let mut bytes = vec![0u8; usize::try_from(length).unwrap() + 1];
+    let capacity = bytes.len() as u64;
+    assert_eq!(
+        unsafe { tapirscan_content_copy(handle, position, part, bytes.as_mut_ptr(), capacity - 1) },
+        BUFFER
+    );
+    assert_eq!(
+        unsafe { tapirscan_content_copy(handle, position, part, bytes.as_mut_ptr(), capacity) },
+        0
+    );
+    assert_eq!(bytes.pop(), Some(0));
+    String::from_utf8(bytes).unwrap()
+}
+
+#[test]
+fn parses_content_through_owned_handles() {
+    let text = b"WIFI:S:Cafe;T:WPA;P:secret;;";
+    let mut handle = 99;
+    let mut error = ErrorC { message: [1; 512] };
+    unsafe {
+        assert_eq!(
+            tapirscan_parse_content(
+                text.as_ptr(),
+                text.len() as u64,
+                -1,
+                &raw mut handle,
+                &raw mut error
+            ),
+            0
+        );
+        assert_eq!(error.message[0], 0);
+        let mut summary = ContentInfoC::default();
+        assert_eq!(tapirscan_content_info(handle, &raw mut summary), 0);
+        assert_eq!((summary.kind, summary.field_count), (7, 3));
+        assert_eq!(
+            std::ffi::CStr::from_ptr(tapirscan_content_kind_name(summary.kind)),
+            c"WiFi"
+        );
+        assert_eq!(content_field(handle, 0, CONTENT_FIELD_NAME), "ssid");
+        assert_eq!(content_field(handle, 2, CONTENT_FIELD_VALUE), "secret");
+        let mut lengths = ContentFieldC::default();
+        assert_eq!(tapirscan_content_field(handle, 3, &raw mut lengths), ARG);
+        let mut byte = 0u8;
+        assert_eq!(tapirscan_content_copy(handle, 0, 2, &raw mut byte, 1), ARG);
+        assert_eq!(tapirscan_content_destroy(handle), 0);
+        assert_eq!(tapirscan_content_destroy(handle), HANDLE);
+        assert_eq!(tapirscan_content_info(handle, &raw mut summary), HANDLE);
+
+        // The GS1 flag selects element-string parsing; plain text has no content.
+        let gs1 = b"0109506000134352";
+        assert_eq!(
+            tapirscan_parse_content(
+                gs1.as_ptr(),
+                gs1.len() as u64,
+                1,
+                &raw mut handle,
+                std::ptr::null_mut()
+            ),
+            0
+        );
+        assert_ne!(handle, 0);
+        assert_eq!(content_field(handle, 0, CONTENT_FIELD_NAME), "01");
+        assert_eq!(tapirscan_content_destroy(handle), 0);
+        for flag in [0, -1] {
+            assert_eq!(
+                tapirscan_parse_content(
+                    gs1.as_ptr(),
+                    gs1.len() as u64,
+                    flag,
+                    &raw mut handle,
+                    std::ptr::null_mut()
+                ),
+                0
+            );
+            assert_eq!(handle, 0);
+        }
+        assert_eq!(
+            tapirscan_parse_content(
+                std::ptr::null(),
+                0,
+                0,
+                &raw mut handle,
+                std::ptr::null_mut()
+            ),
+            0
+        );
+        assert_eq!(handle, 0);
+        let invalid = [0xff_u8, 0xfe];
+        assert_eq!(
+            tapirscan_parse_content(invalid.as_ptr(), 2, 0, &raw mut handle, &raw mut error),
+            ARG
+        );
+        assert!(
+            std::ffi::CStr::from_bytes_until_nul(&error.message)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("UTF-8")
+        );
+        assert_eq!(
+            tapirscan_parse_content(
+                std::ptr::null(),
+                1,
+                0,
+                &raw mut handle,
+                std::ptr::null_mut()
+            ),
+            ARG
+        );
+        assert!(tapirscan_content_kind_name(0).is_null());
+        assert!(tapirscan_content_kind_name(15).is_null());
+    }
 }
 
 #[test]

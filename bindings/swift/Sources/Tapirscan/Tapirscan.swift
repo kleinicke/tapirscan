@@ -73,6 +73,70 @@ public struct Barcode: Sendable {
     public let polygon: [Point]
     /// Uncalibrated, reader-specific ranking evidence.
     public let support: UInt64
+    /// Whether the reader identified GS1 data; `nil` when the reader does not report it.
+    public let gs1: Bool?
+
+    /// Structured content of `text`, such as GS1 elements or a Wi-Fi network; `nil` for plain text.
+    public var content: Content? { try? parseContent(text, gs1: gs1 ?? false) }
+}
+
+/// Kind of structured payload recognized by `parseContent`.
+public enum ContentKind: UInt32, Sendable {
+    case gs1 = 1, url, email, phone, sms, geo, wifi, contact, calendar, swissQRBill, epcPayment,
+        hibc, vin, aamva
+
+    /// Stable name shared with the other bindings, such as `"WiFi"`.
+    public var name: String { String(cString: tapirscan_content_kind_name(rawValue)) }
+}
+
+/// One named value; names repeat where the payload repeats them.
+public struct ContentField: Equatable, Sendable {
+    /// GS1 application identifier such as `"01"`, otherwise a camelCase name such as `"ssid"`.
+    public let name: String
+    public let value: String
+}
+
+/// Structured content of decoded text, with fields in payload order.
+public struct Content: Sendable {
+    public let kind: ContentKind
+    public let fields: [ContentField]
+
+    /// First value of a field.
+    public subscript(name: String) -> String? { fields.first { $0.name == name }?.value }
+
+    /// Every value of a field, in payload order.
+    public func all(_ name: String) -> [String] { fields.filter { $0.name == name }.map(\.value) }
+}
+
+/// Recognize GS1 element strings, URLs, Wi-Fi, contacts, payment slips, HIBC, VINs and
+/// AAMVA licenses in decoded text. `gs1` parses the text as a GS1 element string.
+/// Returns `nil` for text without recognized structure.
+public func parseContent(_ text: String, gs1: Bool = false) throws -> Content? {
+    let bytes = Array(text.utf8)
+    var handle = tapirscan_content()
+    var error = tapirscan_error()
+    let status = tapirscan_parse_content(bytes, UInt64(bytes.count), gs1 ? 1 : 0, &handle, &error)
+    guard status == 0 else { throw failure(status, &error) }
+    guard handle != 0 else { return nil }
+    defer { tapirscan_content_destroy(handle) }
+    var summary = tapirscan_content_summary()
+    tapirscan_content_info(handle, &summary)
+    func copy(_ index: UInt64, _ part: UInt32, _ length: UInt64) -> String {
+        var buffer = [UInt8](repeating: 0, count: Int(length) + 1)
+        tapirscan_content_copy(handle, index, part, &buffer, UInt64(buffer.count))
+        return String(decoding: buffer.dropLast(), as: UTF8.self)
+    }
+    var fields: [ContentField] = []
+    for index in 0..<summary.field_count {
+        var lengths = tapirscan_content_lengths()
+        guard tapirscan_content_field(handle, index, &lengths) == 0 else { continue }
+        fields.append(ContentField(
+            name: copy(index, TAPIRSCAN_CONTENT_FIELD_NAME, lengths.name_length),
+            value: copy(index, TAPIRSCAN_CONTENT_FIELD_VALUE, lengths.value_length)
+        ))
+    }
+    guard let kind = ContentKind(rawValue: summary.kind) else { return nil }
+    return Content(kind: kind, fields: fields)
 }
 
 /// A failed call: the C status and its detailed message.
@@ -185,7 +249,8 @@ public final class BarcodeScanner: @unchecked Sendable {
                 text: String(decoding: text.dropLast(), as: UTF8.self),
                 format: String(cString: tapirscan_format_name(barcode.format)),
                 polygon: corners.map { Point(x: $0.x, y: $0.y) },
-                support: barcode.support
+                support: barcode.support,
+                gs1: barcode.gs1 < 0 ? nil : barcode.gs1 != 0
             ))
         }
         return barcodes

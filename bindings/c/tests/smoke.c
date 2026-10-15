@@ -13,6 +13,20 @@ int main(void) {
     assert(strcmp(tapirscan_format_name(TAPIRSCAN_FORMAT_QR_CODE), "QRCode") == 0);
     assert(tapirscan_format_name(TAPIRSCAN_FORMATS_RETAIL) == NULL);
 
+    const char *wifi = "WIFI:S:Cafe;T:WPA;P:secret;;";
+    tapirscan_content content = 0;
+    assert(tapirscan_parse_content((const uint8_t *)wifi, strlen(wifi), -1, &content, NULL) == TAPIRSCAN_OK);
+    tapirscan_content_summary content_info;
+    assert(tapirscan_content_info(content, &content_info) == TAPIRSCAN_OK);
+    assert(content_info.kind == TAPIRSCAN_CONTENT_WIFI && content_info.field_count == 3);
+    assert(strcmp(tapirscan_content_kind_name(content_info.kind), "WiFi") == 0);
+    tapirscan_content_lengths field;
+    assert(tapirscan_content_field(content, 0, &field) == TAPIRSCAN_OK && field.value_length == 4);
+    char ssid[5];
+    assert(tapirscan_content_copy(content, 0, TAPIRSCAN_CONTENT_FIELD_VALUE, (uint8_t *)ssid, sizeof(ssid)) == TAPIRSCAN_OK);
+    assert(strcmp(ssid, "Cafe") == 0);
+    assert(tapirscan_content_destroy(content) == TAPIRSCAN_OK);
+
     uint8_t pixels[64 * 64];
     memset(pixels, 255, sizeof(pixels));
     tapirscan_image image = {pixels, 1, 64, 64, 1, 0};

@@ -34,6 +34,20 @@ public final class Tapirscan {
         }
     }
 
+    /**
+     * Recognize GS1 element strings, URLs, Wi-Fi, contacts, payment slips, HIBC, VINs and
+     * AAMVA licenses in decoded text. {@code gs1} parses the text as a GS1 element string.
+     * Returns empty for text without recognized structure.
+     */
+    public static Optional<Content> parseContent(String text, boolean gs1) {
+        return Content.parse(text, gs1);
+    }
+
+    /** Structured content of a decoded barcode, using its text and GS1 flag. */
+    public static Optional<Content> parseContent(Barcode barcode) {
+        return Content.parse(barcode.text(), barcode.gs1().orElse(false));
+    }
+
     static Optional<Barcode> highestSupport(List<Barcode> barcodes) {
         Barcode winner = null;
         for (Barcode barcode : barcodes) {
