@@ -1114,6 +1114,20 @@ fn scan_additional(
                 3,
                 level,
             ));
+        } else if selected == 512
+            // Low, whose other recoveries are lightest, also enlarges small frames.
+            && cfg!(feature = "low")
+            && addons == EanAddOnPolicy::Ignore
+            && scan.barcodes.is_empty()
+            && image.width.max(image.height) <= 640
+        {
+            retries.push(upscaled_qr_retry(
+                pixels,
+                image.width,
+                image.height,
+                2,
+                level,
+            ));
         }
         #[cfg(not(feature = "low"))]
         let mut scan = scan;
