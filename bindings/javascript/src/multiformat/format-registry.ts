@@ -17,6 +17,8 @@ export const formatBits = Object.freeze({
   DataBar: 8192,
   DataBarExpanded: 16384,
   MaxiCode: 131072,
+  Code32: 262144,
+  PZN: 524288,
 } as const);
 export type Format = keyof typeof formatBits;
 export const retailFormats: readonly Format[] = Object.freeze(["EAN13", "UPCA", "EAN8", "UPCE"]);
@@ -60,5 +62,7 @@ export const matrixFormats: readonly Format[] = Object.freeze([
   "Aztec",
   "MaxiCode",
 ]);
+/** Selected only by name, never by a preset or `"all"`. */
+export const optInFormats: readonly Format[] = Object.freeze(["Code32", "PZN"]);
 export const eanAddOnReadFlag = 32768;
 export const eanAddOnRequireFlag = 65536;

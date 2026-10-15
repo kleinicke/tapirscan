@@ -14,7 +14,7 @@ constants listed here.
 | `"common"`          | common1D + QRCode, DataMatrix        |
 | `"1D"`              | All supported linear formats         |
 | `"2D"`              | All supported matrix/stacked formats |
-| `"all"`             | All supported formats                |
+| `"all"`             | All formats except opt-in Code32/PZN |
 
 Native names follow each language: Rust `Formats::COMMON_1D`, C
 `TAPIRSCAN_FORMATS_COMMON_1D`, C++ `Formats::common_1d()` and Java
@@ -50,6 +50,30 @@ The supported public identifiers and native bits are:
 | DataBar         |   8192 | Omnidirectional, Stacked and Stacked Omnidirectional             |
 | DataBarExpanded |  16384 | Expanded and Expanded Stacked                                    |
 | MaxiCode        | 131072 | Modes 2–6; affine finder localization                            |
+| Code32          | 262144 | Opt-in Code 39 variant: Italian pharmacy code, 9-digit number    |
+| PZN             | 524288 | Opt-in Code 39 variant: German PZN8/PZN7, number without `-`     |
+
+### Pharmacy numbers in Code 39 (Code32, PZN)
+
+Italian Code 32 and German PZN codes are ordinary Code 39 symbols, so the `Code39`
+format already reads them, as their raw Code 39 content: `0CSSBD` for Code 32 and
+`-02532876` for PZN. Select `Code32` and/or `PZN` to get the pharmacy number instead.
+The Code 39 reader then runs, and a read whose content is a valid number of that
+scheme is reported with that format:
+
+- **Code32:** six base-32 characters (digits and consonants) convert to the 9-digit
+  number with leading zeros, `012345676`. The 9th digit is checked with the Code 32
+  check digit (odd positions added, even positions doubled and their digits added).
+  The `A` printed in front of the number is not part of the text.
+- **PZN:** `-` plus 8 digits (PZN8) or 7 digits (PZN7) is reported without the `-`,
+  `02532876`, after the modulo-11 check digit is verified.
+
+The raw Code 39 content stays available as payload bytes. Other Code 39 reads are
+returned only if `Code39` is selected too; with `Code32` alone, a plain Code 39
+symbol is not reported. The opt-in formats are in no preset, `all` included,
+because an arbitrary six-character Code 39 can pass the Code 32 check digit by
+chance (about one in ten): select them only where these codes are expected.
+zxing-cpp reports the same formats as `A012345676` and `-02532876`.
 
 ## Effort levels
 

@@ -62,7 +62,7 @@ inline std::string_view to_string(Mode mode) {
 class Formats {
     std::uint32_t bits_;
     constexpr explicit Formats(std::uint32_t bits) : bits_(bits) {
-        if (bits == 0 || (bits & ~TAPIRSCAN_FORMATS_ALL) != 0)
+        if (bits == 0 || (bits & ~(TAPIRSCAN_FORMATS_ALL | TAPIRSCAN_FORMATS_OPT_IN)) != 0)
             throw std::invalid_argument("empty or unsupported format selection");
     }
 
@@ -78,7 +78,7 @@ public:
     static constexpr Formats linear() { return Formats(TAPIRSCAN_FORMATS_LINEAR); }
     /// QR Code, Data Matrix, PDF417, Aztec and MaxiCode.
     static constexpr Formats matrix() { return Formats(TAPIRSCAN_FORMATS_MATRIX); }
-    /// Every supported format.
+    /// Every format except the opt-in Code32 and PZN, which are selected by name.
     static constexpr Formats all() { return Formats(TAPIRSCAN_FORMATS_ALL); }
     /// A native TAPIRSCAN_FORMAT_* mask. Empty or unknown bits throw std::invalid_argument.
     static constexpr Formats from_bits(std::uint32_t bits) { return Formats(bits); }

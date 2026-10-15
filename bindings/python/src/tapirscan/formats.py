@@ -19,6 +19,8 @@ Format: TypeAlias = Literal[
     "DataBar",
     "DataBarExpanded",
     "MaxiCode",
+    "Code32",
+    "PZN",
 ]
 FORMAT_BITS: dict[str, int] = {
     "EAN13": 1,
@@ -37,6 +39,9 @@ FORMAT_BITS: dict[str, int] = {
     "DataBar": 8192,
     "DataBarExpanded": 16384,
     "MaxiCode": 131072,
+    # Opt-in Code 39 pharmacy numbers: selected by name only, never by a preset.
+    "Code32": 262144,
+    "PZN": 524288,
 }
 
 

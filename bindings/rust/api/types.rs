@@ -2,6 +2,7 @@ use crate::{
     Format,
     format::{
         ALL_FORMATS_MASK, COMMON_LINEAR_MASK, COMMON_MASK, LINEAR_MASK, MATRIX_MASK, RETAIL_MASK,
+        SUPPORTED_MASK,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -28,13 +29,13 @@ impl Formats {
     pub const LINEAR: Self = Self(LINEAR_MASK);
     /// QR Code, Data Matrix, PDF417, Aztec and `MaxiCode`.
     pub const MATRIX: Self = Self(MATRIX_MASK);
-    /// Every supported format.
+    /// Every format except the opt-in `Code32` and `Pzn`, which are selected by name.
     pub const ALL: Self = Self(ALL_FORMATS_MASK);
 }
 impl TryFrom<u32> for Formats {
     type Error = Error;
     fn try_from(bits: u32) -> Result<Self, Error> {
-        if bits == 0 || bits & !Self::ALL.0 != 0 {
+        if bits == 0 || bits & !SUPPORTED_MASK != 0 {
             return Err(Error::InvalidOptions(
                 "empty or unsupported format selection",
             ));

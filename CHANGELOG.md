@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- New opt-in formats `Code32` (Italian pharmacy code) and `PZN` (German
+  Pharmazentralnummer). Both are Code 39 symbols; selecting them reports a valid
+  code's number (`012345676`, `02532876`) instead of the raw Code 39 content,
+  which stays available as payload bytes. They belong to no preset, `all`
+  included. Native bits 262144 and 524288; C adds `TAPIRSCAN_FORMATS_OPT_IN`.
+  See [format coverage](docs/FORMATS.md#pharmacy-numbers-in-code-39-code32-pzn).
 - QR: finder triples are tried in order of geometric plausibility, and once a
   symbol is read, each threshold pass stops after 100 decode attempts without a
   further read (50 in Low, for live frames). On a 4,619-image QR development

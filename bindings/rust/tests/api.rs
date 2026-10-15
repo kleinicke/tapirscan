@@ -444,3 +444,62 @@ fn barcode_serialization_round_trips_and_omits_absent_metadata() {
     let barcode: tapirscan::Barcode = serde_json::from_value(json.clone()).unwrap();
     assert_eq!(serde_json::to_value(&barcode).unwrap(), json);
 }
+
+/// Code 39 modules for `0CSSBD` (Code 32 of 012345676) and `-02532876` (PZN).
+const CODE32_BITS: &str = "1001011011010101001101101011011010010101011010110010101101011001010110100101101010110010110100101101101";
+const PZN_BITS: &str = "1001011011010100101011011010100110110101011001010110110100110101011011001010101011001010110110100101101010100101101101011001101010100101101101";
+
+fn code39_image(bits: &str) -> (Vec<u8>, usize, usize) {
+    let (width, height) = (bits.len() * 3 + 120, 90);
+    let mut pixels = vec![255; width * height];
+    for y in 15..75 {
+        for (x, bit) in bits.bytes().enumerate() {
+            if bit == b'1' {
+                pixels[y * width + 60 + x * 3..y * width + 63 + x * 3].fill(0);
+            }
+        }
+    }
+    (pixels, width, height)
+}
+
+fn reads(formats: Formats, bits: &str) -> Vec<(Format, String, Option<Vec<u8>>)> {
+    let (pixels, width, height) = code39_image(bits);
+    let mut scanner = Scanner::new(ScannerOptions {
+        formats,
+        ..ScannerOptions::default()
+    });
+    let result = scanner.scan(Image::gray(&pixels, width, height)).unwrap();
+    result
+        .barcodes
+        .into_iter()
+        .map(|b| (b.format, b.text, b.payload_bytes))
+        .collect()
+}
+
+#[test]
+fn opt_in_pharmacy_formats_convert_code39_reads() {
+    let code32 = reads(Format::Code32.into(), CODE32_BITS);
+    assert_eq!(
+        code32,
+        [(Format::Code32, "012345676".into(), Some(b"0CSSBD".to_vec()))]
+    );
+    let pzn = reads(Format::Pzn.into(), PZN_BITS);
+    assert_eq!(
+        pzn,
+        [(Format::Pzn, "02532876".into(), Some(b"-02532876".to_vec()))]
+    );
+    // Without the opt-in formats the same symbols stay plain Code 39 ...
+    let plain = reads(Format::Code39.into(), PZN_BITS);
+    assert_eq!(plain.len(), 1);
+    assert_eq!(
+        (plain[0].0, plain[0].1.as_str()),
+        (Format::Code39, "-02532876")
+    );
+    // ... `ALL` does not include them, and a Code 39 read that is not a
+    // pharmacy number is dropped when only the opt-in formats are selected.
+    assert_eq!(reads(Formats::ALL, CODE32_BITS)[0].0, Format::Code39);
+    assert_eq!(reads(Format::Code32.into(), PZN_BITS), Vec::new());
+    assert_ne!(Formats::ALL | Format::Code32, Formats::ALL);
+    assert_ne!(Formats::ALL | Format::Pzn, Formats::ALL);
+    assert!(Formats::try_from(Format::Code32 as u32 | Format::Pzn as u32).is_ok());
+}

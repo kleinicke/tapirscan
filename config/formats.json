@@ -15,7 +15,19 @@
     ["Aztec", "Aztec", 4096, "Aztec Code, including supported Aztec Rune reads."],
     ["DataBar", "DataBar", 8192, "GS1 `DataBar`."],
     ["DataBarExpanded", "DataBarExpanded", 16384, "GS1 `DataBar` Expanded."],
-    ["MaxiCode", "MaxiCode", 131072, "`MaxiCode`."]
+    ["MaxiCode", "MaxiCode", 131072, "`MaxiCode`."],
+    [
+      "Code32",
+      "Code32",
+      262144,
+      "Italian pharmacy code: a Code 39 symbol reported as its 9-digit number (opt-in)."
+    ],
+    [
+      "PZN",
+      "Pzn",
+      524288,
+      "German pharmacy number: a Code 39 symbol reported as its 8- or 7-digit number (opt-in)."
+    ]
   ],
   "presets": {
     "retail": ["EAN13", "UPCA", "EAN8", "UPCE"],
@@ -36,6 +48,7 @@
     ],
     "2D": ["QRCode", "DataMatrix", "PDF417", "Aztec", "MaxiCode"]
   },
+  "optIn": ["Code32", "PZN"],
   "engineFlags": {
     "eanAddOnRead": 32768,
     "eanAddOnRequire": 65536

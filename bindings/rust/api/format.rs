@@ -43,11 +43,16 @@ pub enum Format {
     DataBarExpanded = 16_384,
     /// `MaxiCode`.
     MaxiCode = 131_072,
+    /// Italian pharmacy code: a Code 39 symbol reported as its 9-digit number (opt-in).
+    Code32 = 262_144,
+    #[serde(rename = "PZN")]
+    /// German pharmacy number: a Code 39 symbol reported as its 8- or 7-digit number (opt-in).
+    Pzn = 524_288,
 }
 
 impl Format {
-    /// Every supported format in native bit order.
-    pub const ALL: [Self; 16] = [
+    /// Every format in native bit order, including the opt-in formats.
+    pub const ALL: [Self; 18] = [
         Self::Ean13,
         Self::Upca,
         Self::Ean8,
@@ -64,6 +69,8 @@ impl Format {
         Self::DataBar,
         Self::DataBarExpanded,
         Self::MaxiCode,
+        Self::Code32,
+        Self::Pzn,
     ];
 
     /// Stable schema name used by language adapters.
@@ -86,6 +93,8 @@ impl Format {
             Self::DataBar => "DataBar",
             Self::DataBarExpanded => "DataBarExpanded",
             Self::MaxiCode => "MaxiCode",
+            Self::Code32 => "Code32",
+            Self::Pzn => "PZN",
         }
     }
 }
@@ -102,3 +111,6 @@ pub(crate) const COMMON_MASK: u32 = 1_663;
 pub(crate) const LINEAR_MASK: u32 = 25_087;
 pub(crate) const MATRIX_MASK: u32 = 138_752;
 pub(crate) const ALL_FORMATS_MASK: u32 = LINEAR_MASK | MATRIX_MASK;
+/// Opt-in formats: selected only by name, never by a preset or `ALL`.
+pub(crate) const OPT_IN_MASK: u32 = 786_432;
+pub(crate) const SUPPORTED_MASK: u32 = ALL_FORMATS_MASK | OPT_IN_MASK;

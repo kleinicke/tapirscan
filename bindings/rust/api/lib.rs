@@ -2,6 +2,7 @@
 #![deny(missing_docs)]
 
 // Internal engine; its items are documented in core/README.md, not rustdoc.
+mod code39_variants;
 #[allow(missing_docs)]
 #[path = "../generated/mod.rs"]
 mod engine;
@@ -299,7 +300,12 @@ impl Scanner {
                     EanAddOnPolicy::Require => selected::formats::EanAddOnPolicy::Require,
                 };
                 let output = $scanner
-                    .scan_formats_typed_with_addons(input, settings, formats.bits(), policy)
+                    .scan_formats_typed_with_addons(
+                        input,
+                        settings,
+                        code39_variants::engine_bits(formats.bits()),
+                        policy,
+                    )
                     .map_err(|error| Error::Engine(error.to_string()))?;
                 InspectionResult::from_engine(output, size, self.options.mode, start.elapsed())
             }};
@@ -319,6 +325,7 @@ impl Scanner {
                 ));
             }
         };
+        code39_variants::apply(formats.bits(), &mut result.barcodes);
         if let Some(reduced) = reduced {
             result.restore_geometry(reduced.scale(size), [source.width, source.height]);
         }

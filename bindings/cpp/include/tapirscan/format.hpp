@@ -22,5 +22,7 @@ enum class Format : std::uint32_t {
     DataBar = TAPIRSCAN_FORMAT_DATA_BAR,
     DataBarExpanded = TAPIRSCAN_FORMAT_DATA_BAR_EXPANDED,
     MaxiCode = TAPIRSCAN_FORMAT_MAXI_CODE,
+    Code32 = TAPIRSCAN_FORMAT_CODE32,
+    Pzn = TAPIRSCAN_FORMAT_PZN,
 };
 }  // namespace tapirscan

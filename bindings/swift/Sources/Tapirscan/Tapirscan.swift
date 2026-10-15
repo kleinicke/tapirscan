@@ -41,6 +41,10 @@ public struct Formats: OptionSet, Sendable {
     public static let dataBar = Formats(rawValue: 8192)
     public static let dataBarExpanded = Formats(rawValue: 16384)
     public static let maxiCode = Formats(rawValue: 131_072)
+    /// Italian pharmacy code, a Code 39 symbol reported as its 9-digit number. Opt-in: not in `all`.
+    public static let code32 = Formats(rawValue: 262_144)
+    /// German pharmacy number (PZN), a Code 39 symbol reported without the leading `-`. Opt-in: not in `all`.
+    public static let pzn = Formats(rawValue: 524_288)
 
     /// EAN-13, UPC-A, EAN-8 and UPC-E (the default).
     public static let retail = Formats(rawValue: 15)
@@ -50,6 +54,7 @@ public struct Formats: OptionSet, Sendable {
     public static let common = Formats(rawValue: 1663)
     public static let linear = Formats(rawValue: 25087)
     public static let matrix = Formats(rawValue: 138_752)
+    /// Every format except the opt-in `code32` and `pzn`.
     public static let all = Formats(rawValue: 163_839)
 }
 
