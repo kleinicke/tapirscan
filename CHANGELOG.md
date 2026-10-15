@@ -11,7 +11,8 @@
 - QR in mixed selections reads like a QR-only scan: QR selected with other 2D
   formats (`common`, `2D`, `all`) is scanned as its own reader group with the
   maintained QR frontend, and QR recoveries are gated on the QR group instead of
-  the whole selection. On the QR selection, Medium with EAN-13 and QR reads 4,217
+  the whole selection; likewise the DataBar and MaxiCode retries apply to a
+  DataBar-only or MaxiCode-only group of a mixed selection. On the QR selection, Medium with EAN-13 and QR reads 4,217
   instead of 4,059 known codes, with `common` or `all` 4,217 instead of 4,048; Low
   with `common` 4,138 instead of 4,025. Results of other formats are unchanged.
   Frames without a QR code cost more with such selections: Low and Medium up to
@@ -21,6 +22,10 @@
   High on every unread frame (High reads 4,391 instead of 4,343 of the QR
   selection's codes), in Medium where a QR candidate stayed unread (4,217
   instead of 4,208). Each pass has a bounded budget.
+- QR: when a sampled grid fails to decode at every sampling offset, modules on
+  which the offsets disagree become Reed-Solomon erasures, which cost one parity
+  symbol instead of two; two parity symbols stay spare to reject miscorrections.
+  A pass that patience stops early now reports `unfinished`.
 - Aztec and Data Matrix detection are faster with identical results: Aztec
   candidate merging uses a spatial grid (36-46% faster at 1-12 megapixels), and
   Data Matrix labels runs from word-wise row transitions and reuses span buffers

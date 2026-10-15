@@ -308,6 +308,11 @@ impl<'a> Images<'a> {
     ///
     /// May panic if the cached dimensions are inconsistent with the grayscale buffer.
     pub fn is_duplicate(&mut self, mode: usize) -> bool {
+        // A block-threshold pass scans only its local modes; computing the global
+        // image just to compare would be wasted work.
+        if self.hybrid {
+            return false;
+        }
         if mode >= 4 || mode.is_multiple_of(2) {
             return false;
         }

@@ -784,6 +784,8 @@ fn detect_with_recovery(
                 last_read = attempts;
             }
             if read_count > 0 && attempts - last_read > PATIENCE {
+                // The remaining triples were skipped: report limited work.
+                regions.limited = true;
                 break;
             }
             let finder_triple = [&finders[a], &finders[b], &finders[c]];

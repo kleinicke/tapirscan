@@ -801,6 +801,8 @@ fn detect_with_recovery(
                 last_read = attempts;
             }
             if read_count > 0 && attempts - last_read > PATIENCE {
+                // The remaining triples were skipped: report limited work.
+                regions.limited = true;
                 break;
             }
             let finder_triple = [&finders[a], &finders[b], &finders[c]];
@@ -965,6 +967,7 @@ fn detect_with_recovery(
                         }
                     }
                     for t in transforms {
+                        let mut samples: Vec<Vec<bool>> = Vec::new();
                         for (offset_index, offset) in [0., -0.2, 0.2].into_iter().enumerate() {
                             attempts += 1;
                             if attempts > budget && budget < FULL_BUDGET {
@@ -1048,6 +1051,7 @@ fn detect_with_recovery(
                             let Some(matrix) = sample(image, w, h, n, &t, offset) else {
                                 continue;
                             };
+                            samples.push(matrix.clone());
                             for mirror in [false, true] {
                                 let matrix = if mirror {
                                     (0..n * n).map(|i| matrix[(i % n) * n + i / n]).collect()
@@ -1084,6 +1088,50 @@ fn detect_with_recovery(
                                 }
                             }
                         }
+                        // Modules on which the offset samplings disagree are
+                        // uncertain; their codewords become erasures.
+                        if samples.len() >= 2 {
+                            let majority: Vec<bool> = (0..n * n)
+                                .map(|i| {
+                                    samples.iter().filter(|m| m[i]).count() * 2 > samples.len()
+                                })
+                                .collect();
+                            let uncertain: Vec<bool> = (0..n * n)
+                                .map(|i| samples.iter().any(|m| m[i] != samples[0][i]))
+                                .collect();
+                            for mirror in [false, true] {
+                                let transpose = |v: &[bool]| -> Vec<bool> {
+                                    if mirror {
+                                        (0..n * n).map(|i| v[(i % n) * n + i / n]).collect()
+                                    } else {
+                                        v.to_vec()
+                                    }
+                                };
+                                if let Some(read) = qr::decode_matrix_soft(
+                                    &transpose(&majority),
+                                    n,
+                                    &transpose(&uncertain),
+                                ) {
+                                    used.extend(finder_triple.iter().map(|p| (*p).clone()));
+                                    results.push(Detection {
+                                        bytes: Some(read.bytes),
+                                        structured_append: read.structured_append,
+                                        reader_initialization: false,
+                                        addon: None,
+                                        format: "QRCode".into(),
+                                        text: read.text,
+                                        polygon: [[0., 0.], [nf, 0.], [nf, nf], [0., nf]]
+                                            .map(|[x, y]| map(&t, x, y)),
+                                        support: tl.support.min(tr.support).min(bl.support),
+                                        error: barcode_multiformat::numeric::usize_f32(
+                                            read.corrected,
+                                        ),
+                                        gs1: read.gs1,
+                                    });
+                                    break 'versions;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1108,6 +1156,71 @@ fn detect_with_recovery(
 #[cfg(test)]
 mod rolling_binarize_tests {
     use super::{binarize, binarize_hybrid};
+
+    /// Per-pixel restatement: a pixel belongs to the last block covering it.
+    fn hybrid_reference(gray: &[u8], w: usize, h: usize) -> Vec<bool> {
+        let (columns, rows) = (w.div_ceil(8), h.div_ceil(8));
+        let start = |block: usize, limit: usize| (block * 8).min(limit - 8);
+        let block_of = |v: usize, count: usize, limit: usize| {
+            (0..count).rev().find(|&b| start(b, limit) <= v).unwrap()
+        };
+        let mut black = vec![vec![0_u32; columns]; rows];
+        for by in 0..rows {
+            for bx in 0..columns {
+                let pixels: Vec<u8> = (0..64)
+                    .map(|i| gray[(start(by, h) + i / 8) * w + start(bx, w) + i % 8])
+                    .collect();
+                let (min, max) = (*pixels.iter().min().unwrap(), *pixels.iter().max().unwrap());
+                let mut value = pixels.iter().map(|&p| u32::from(p)).sum::<u32>() / 64;
+                if max - min <= 24 {
+                    value = u32::from(min) / 2;
+                    if by > 0 && bx > 0 {
+                        let neighbors =
+                            (black[by - 1][bx] + 2 * black[by][bx - 1] + black[by - 1][bx - 1]) / 4;
+                        if u32::from(min) < neighbors {
+                            value = neighbors;
+                        }
+                    }
+                }
+                black[by][bx] = value;
+            }
+        }
+        (0..w * h)
+            .map(|i| {
+                let (bx, by) = (block_of(i % w, columns, w), block_of(i / w, rows, h));
+                let (left, top) = (bx.clamp(2, columns - 3), by.clamp(2, rows - 3));
+                let sum: u32 = (top - 2..=top + 2)
+                    .flat_map(|y| (left - 2..=left + 2).map(move |x| (x, y)))
+                    .map(|(x, y)| black[y][x])
+                    .sum();
+                u32::from(gray[i]) <= sum / 25
+            })
+            .collect()
+    }
+
+    #[test]
+    fn hybrid_thresholds_match_the_per_pixel_reference() {
+        let mut state = 0x2545_f491_u32;
+        for (w, h) in [(40, 40), (41, 33), (39, 47), (57, 40), (64, 72), (101, 53)] {
+            let gray: Vec<u8> = (0..w * h)
+                .map(|i| {
+                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    // Flat patches and noisy patches exercise both block rules.
+                    let flat = (i % w / 9 + i / w / 7) % 3 == 0;
+                    if flat {
+                        200
+                    } else {
+                        u8::try_from(state >> 24).unwrap()
+                    }
+                })
+                .collect();
+            assert_eq!(
+                binarize_hybrid(&gray, w, h),
+                hybrid_reference(&gray, w, h),
+                "{w}x{h}"
+            );
+        }
+    }
 
     #[test]
     fn hybrid_thresholds_follow_a_shadow_edge() {

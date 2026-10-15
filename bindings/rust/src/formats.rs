@@ -1001,7 +1001,6 @@ fn scan_additional(
         let retries = medium_retries(
             pixels,
             [image.width, image.height],
-            mask,
             selected,
             level,
             addons,
@@ -1163,7 +1162,6 @@ fn has_qr_region(scan: &barcode_multiformat::Scan) -> bool {
 fn medium_retries(
     pixels: &[u8],
     [width, height]: [usize; 2],
-    mask: u32,
     selected: u32,
     level: usize,
     addons: EanAddOnPolicy,
@@ -1171,7 +1169,6 @@ fn medium_retries(
 ) -> Vec<barcode_multiformat::Scan> {
     // Retries belong to single-format reader groups, such as the QR group of an
     // EAN-13 and QR selection; groups of several formats keep their first pass.
-    let _ = mask;
     let mask = selected;
     if addons != EanAddOnPolicy::Ignore || !scan.barcodes.is_empty() {
         return Vec::new();

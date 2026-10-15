@@ -201,6 +201,22 @@ fn layout(version: usize) -> Vec<(u16, u8)> {
 }
 
 pub fn decode_matrix(matrix: &[bool], n: usize) -> Option<Payload> {
+    decode_matrix_impl(matrix, n, None)
+}
+/// Decode with per-module uncertainty: a block that fails hard decoding is
+/// retried with the codewords holding uncertain modules as erasures.
+#[must_use]
+pub fn decode_matrix_soft(matrix: &[bool], n: usize, uncertain: &[bool]) -> Option<Payload> {
+    if uncertain.len() != matrix.len() {
+        return None;
+    }
+    decode_matrix_impl(matrix, n, Some(uncertain))
+}
+#[expect(
+    clippy::too_many_lines,
+    reason = "Format, layout, block interleaving and correction form one decoding transaction."
+)]
+fn decode_matrix_impl(matrix: &[bool], n: usize, uncertain: Option<&[bool]>) -> Option<Payload> {
     if !(21..=177).contains(&n) || !(n - 17).is_multiple_of(4) || matrix.len() != n * n {
         return None;
     }
@@ -246,6 +262,14 @@ pub fn decode_matrix(matrix: &[bool], n: usize) -> Option<Payload> {
             })
         })
         .collect();
+    let erased_codewords: Vec<bool> = uncertain.map_or_else(Vec::new, |uncertain| {
+        layout
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|chunk| chunk.iter().any(|&(index, _)| uncertain[index as usize]))
+            .collect()
+    });
     let ecc = ECC[level][version];
     let count = BLOCKS[level][version];
     let short = code.len() / count;
@@ -255,11 +279,16 @@ pub fn decode_matrix(matrix: &[bool], n: usize) -> Option<Payload> {
         .map(|i| short - ecc + usize::from(i >= short_count))
         .collect();
     let mut blocks: Vec<Vec<u8>> = lengths.iter().map(|&l| vec![0; l + ecc]).collect();
+    // Block positions of erased codewords.
+    let mut erasures: Vec<Vec<usize>> = vec![Vec::new(); count];
     let mut at = 0;
     for column in 0..*lengths.iter().max()? {
-        for (block, &data_length) in blocks.iter_mut().zip(&lengths) {
+        for (i, (block, &data_length)) in blocks.iter_mut().zip(&lengths).enumerate() {
             if let Some(value) = block[..data_length].get_mut(column) {
                 *value = *code.get(at)?;
+                if erased_codewords.get(at) == Some(&true) {
+                    erasures[i].push(column);
+                }
                 at += 1;
             }
         }
@@ -267,6 +296,9 @@ pub fn decode_matrix(matrix: &[bool], n: usize) -> Option<Payload> {
     for j in 0..ecc {
         for i in 0..count {
             blocks[i][lengths[i] + j] = *code.get(at)?;
+            if erased_codewords.get(at) == Some(&true) {
+                erasures[i].push(lengths[i] + j);
+            }
             at += 1;
         }
     }
@@ -277,7 +309,15 @@ pub fn decode_matrix(matrix: &[bool], n: usize) -> Option<Payload> {
     let mut corrected = 0;
     let mut data = Vec::new();
     for (i, mut block) in blocks.into_iter().enumerate() {
-        corrected += field.correct(&mut block, ecc, 0)?;
+        let original = uncertain.is_some().then(|| block.clone());
+        corrected += match field.correct(&mut block, ecc, 0) {
+            Some(count) => count,
+            None if !erasures[i].is_empty() && erasures[i].len() <= ecc => {
+                block = original?;
+                field.correct_with_erasures(&mut block, ecc, 0, &erasures[i])?
+            }
+            None => return None,
+        };
         data.extend_from_slice(&block[..lengths[i]]);
     }
     let (bytes, text, gs1, structured_append) = parse(&data, version)?;
