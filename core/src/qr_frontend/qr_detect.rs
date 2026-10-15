@@ -399,6 +399,73 @@ fn finder_homography(tl: &Finder, tr: &Finder, bl: &Finder, n: f32) -> Option<[f
     }
     least_squares_homography(&pairs)
 }
+/// Block thresholds in the style of the `ZXing` hybrid binarizer: 8-pixel blocks,
+/// flat blocks inherit their neighbors' black point, and each block uses the mean
+/// black point of its 5x5 block neighborhood.
+///
+/// # Panics
+///
+/// Panics if `gray` is shorter than `w * h`.
+#[must_use]
+pub fn binarize_hybrid(gray: &[u8], w: usize, h: usize) -> Vec<bool> {
+    const BLOCK: usize = 8;
+    let (columns, rows) = (w.div_ceil(BLOCK), h.div_ceil(BLOCK));
+    if columns < 5 || rows < 5 {
+        return binarize(gray, w, h, true);
+    }
+    let offset = |block: usize, limit: usize| (block * BLOCK).min(limit - BLOCK);
+    let mut black = vec![0_u32; columns * rows];
+    for by in 0..rows {
+        let y0 = offset(by, h);
+        for bx in 0..columns {
+            let x0 = offset(bx, w);
+            let (mut sum, mut min, mut max) = (0_u32, 255_u8, 0_u8);
+            for y in y0..y0 + BLOCK {
+                for &pixel in &gray[y * w + x0..y * w + x0 + BLOCK] {
+                    sum += u32::from(pixel);
+                    min = min.min(pixel);
+                    max = max.max(pixel);
+                }
+            }
+            let mut average = sum >> 6;
+            if max - min <= 24 {
+                average = u32::from(min) / 2;
+                if by > 0 && bx > 0 {
+                    let neighbors = (black[(by - 1) * columns + bx]
+                        + 2 * black[by * columns + bx - 1]
+                        + black[(by - 1) * columns + bx - 1])
+                        / 4;
+                    if u32::from(min) < neighbors {
+                        average = neighbors;
+                    }
+                }
+            }
+            black[by * columns + bx] = average;
+        }
+    }
+    let mut out = vec![false; w * h];
+    for by in 0..rows {
+        let y0 = offset(by, h);
+        let top = by.clamp(2, rows - 3);
+        for bx in 0..columns {
+            let x0 = offset(bx, w);
+            let left = bx.clamp(2, columns - 3);
+            let mut sum = 0;
+            for ny in top - 2..=top + 2 {
+                for nx in left - 2..=left + 2 {
+                    sum += black[ny * columns + nx];
+                }
+            }
+            let threshold = sum / 25;
+            for y in y0..y0 + BLOCK {
+                for x in x0..x0 + BLOCK {
+                    out[y * w + x] = u32::from(gray[y * w + x]) <= threshold;
+                }
+            }
+        }
+    }
+    out
+}
 #[must_use]
 ///
 /// # Panics
@@ -620,7 +687,21 @@ pub fn detect(
     regions: &mut barcode_multiformat::regions::Regions,
     binary_images: &mut crate::qr_frontend::binarization::Images<'_>,
 ) -> (Vec<Detection>, bool) {
-    detect_with_recovery(w, h, regions, binary_images, 0..4, false)
+    detect_with_recovery(w, h, regions, binary_images, 0..4, false, FULL_BUDGET)
+}
+/// Decode attempts of a complete detection; reaching it starts partial recovery.
+const FULL_BUDGET: usize = 1200;
+/// Detect over a chosen range of threshold modes. A budget below the full one
+/// ends the pass without partial recovery or a work-limited flag.
+pub fn detect_modes(
+    w: usize,
+    h: usize,
+    regions: &mut barcode_multiformat::regions::Regions,
+    binary_images: &mut crate::qr_frontend::binarization::Images<'_>,
+    modes: std::ops::Range<usize>,
+    budget: usize,
+) -> (Vec<Detection>, bool) {
+    detect_with_recovery(w, h, regions, binary_images, modes, false, budget)
 }
 /// Preserve extended thresholds and the Very High curved-grid budget.
 pub fn detect_effort(
@@ -637,6 +718,7 @@ pub fn detect_effort(
         binary_images,
         0..if effort > 1 { 6 } else { 4 },
         effort > 2,
+        FULL_BUDGET,
     )
 }
 /// Additional foreground splits only; original passes remain owned by the caller.
@@ -646,7 +728,7 @@ pub fn detect_foreground(
     regions: &mut barcode_multiformat::regions::Regions,
     binary_images: &mut crate::qr_frontend::binarization::Images<'_>,
 ) -> (Vec<Detection>, bool) {
-    detect_with_recovery(w, h, regions, binary_images, 4..8, false)
+    detect_with_recovery(w, h, regions, binary_images, 4..8, false, FULL_BUDGET)
 }
 /// Once a symbol is read, a threshold mode stops trying triples after this many
 /// decode attempts without a further read. Further symbols' triples rank early,
@@ -664,6 +746,7 @@ fn detect_with_recovery(
     binary_images: &mut crate::qr_frontend::binarization::Images<'_>,
     modes: std::ops::Range<usize>,
     curved_recovery: bool,
+    budget: usize,
 ) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
     let mut attempts = 0;
@@ -884,7 +967,11 @@ fn detect_with_recovery(
                     for t in transforms {
                         for (offset_index, offset) in [0., -0.2, 0.2].into_iter().enumerate() {
                             attempts += 1;
-                            if attempts > 1200 {
+                            if attempts > budget && budget < FULL_BUDGET {
+                                // A bounded extra pass stops quietly.
+                                return (results, false);
+                            }
+                            if attempts > budget {
                                 partial::recover(
                                     image,
                                     w,
@@ -1020,7 +1107,49 @@ fn detect_with_recovery(
 
 #[cfg(test)]
 mod rolling_binarize_tests {
-    use super::binarize;
+    use super::{binarize, binarize_hybrid};
+
+    #[test]
+    fn hybrid_thresholds_follow_a_shadow_edge() {
+        // 5-pixel checker squares, so blocks contain module edges as in real
+        // symbols; the left half lies in shadow, where dark is
+        // 20 and light is 90, while the right half has 110 and 230. One global
+        // cut cannot separate both halves.
+        let (w, h) = (192, 96);
+        let gray: Vec<u8> = (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                let dark = (x / 5 + y / 5) % 2 == 0;
+                match (x < w / 2, dark) {
+                    (true, true) => 20,
+                    (true, false) => 90,
+                    (false, true) => 110,
+                    (false, false) => 230,
+                }
+            })
+            .collect();
+        let bits = binarize_hybrid(&gray, w, h);
+        for (i, &bit) in bits.iter().enumerate() {
+            let (x, y) = (i % w, i / w);
+            // Block neighborhoods span 40 pixels; next to the edge they mix both sides.
+            if x.abs_diff(w / 2) < 24 {
+                continue;
+            }
+            assert_eq!(bit, (x / 5 + y / 5) % 2 == 0, "pixel {x},{y}");
+        }
+        assert!(
+            binarize(&gray, w, h, false)
+                .iter()
+                .enumerate()
+                .any(|(i, &bit)| { bit != ((i % w / 24 + i / w / 24) % 2 == 0) })
+        );
+        // Too small for 5x5 blocks: the local mean decides.
+        let small = vec![128; 30 * 30];
+        assert_eq!(
+            binarize_hybrid(&small, 30, 30),
+            binarize(&small, 30, 30, true)
+        );
+    }
 
     fn integral_reference(gray: &[u8], w: usize, h: usize) -> Vec<bool> {
         let mut sum = vec![0_u64; (w + 1) * (h + 1)];

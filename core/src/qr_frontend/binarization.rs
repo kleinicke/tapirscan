@@ -15,6 +15,8 @@ pub struct Images<'a> {
     identical_thresholds: Option<bool>,
     qr_contrast_cut: ContrastCut,
     qr_upper_cut: ContrastCut,
+    /// Local modes (1 and 3) use block thresholds instead of the 33-pixel mean.
+    hybrid: bool,
 }
 
 // Cache transition positions only: runs can be derived exactly from adjacent
@@ -236,6 +238,15 @@ impl<'a> Images<'a> {
             identical_thresholds: None,
             qr_contrast_cut: ContrastCut::Uncomputed,
             qr_upper_cut: ContrastCut::Uncomputed,
+            hybrid: false,
+        }
+    }
+    /// Thresholds whose local modes use ZXing-style block thresholds.
+    #[must_use]
+    pub fn new_hybrid(gray: &'a [u8], width: usize, height: usize) -> Self {
+        Self {
+            hybrid: true,
+            ..Self::new(gray, width, height)
         }
     }
     /// A second foreground split recovers low-contrast ink surrounded by a bright background.
@@ -328,6 +339,8 @@ impl<'a> Images<'a> {
                 self.gray.iter().map(|&pixel| pixel <= *cut).collect()
             } else if mode == 5 || mode == 7 {
                 self.get(mode - 1).iter().map(|bit| !*bit).collect()
+            } else if mode == 1 && self.hybrid {
+                crate::qr_frontend::qr_detect::binarize_hybrid(self.gray, self.width, self.height)
             } else if mode < 2 {
                 crate::qr_frontend::qr_detect::binarize(
                     self.gray,

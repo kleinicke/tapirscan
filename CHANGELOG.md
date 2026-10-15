@@ -9,9 +9,14 @@
   11 ms; Low reads 4,138 instead of 4,137, median 19 to 11 ms (Apple M1 Pro,
   native). Images without a read keep the full search.
 - QR in mixed selections such as EAN-13 and QR now gets the same QR recovery as a
-  QR-only scan: Medium reads 4,208 instead of 4,059 of those QR codes, and Low
+  QR-only scan: Medium reads 4,217 instead of 4,059 of those QR codes, and Low
   4,138 instead of 4,052. Frames without any QR code cost up to about 9% more
   with such a selection, as QR-only scans already did.
+- QR: unread frames get a block-threshold pass in the style of ZXing's hybrid
+  binarizer, which follows sharp shadow edges and large modules: in High and Very
+  High on every unread frame (High reads 4,391 instead of 4,343 of the QR
+  selection's codes), in Medium where a QR candidate stayed unread (4,217
+  instead of 4,208). Each pass has a bounded budget.
 - Aztec and Data Matrix detection are faster with identical results: Aztec
   candidate merging uses a spatial grid (36-46% faster at 1-12 megapixels), and
   Data Matrix labels runs from word-wise row transitions and reuses span buffers

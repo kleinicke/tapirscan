@@ -22,6 +22,8 @@ pub fn scan_with_effort(image: &[u8], width: usize, height: usize, effort: usize
 pub fn scan_foreground(image: &[u8], width: usize, height: usize) -> Scan {
     scan_impl(image, width, height, true, 0)
 }
+/// Decode attempts for each block-threshold pass.
+const HYBRID_BUDGET: usize = 200;
 fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort: usize) -> Scan {
     if width == 0 || height == 0 || width.checked_mul(height).is_none_or(|n| n > image.len()) {
         return Scan {
@@ -40,6 +42,28 @@ fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort
     } else {
         qr_detect::detect_effort(width, height, &mut regions, &mut binary, effort)
     };
+    // Block thresholds follow sharp shadow edges and large modules that the
+    // 33-pixel local mean misses. Medium tries them where a QR candidate stayed
+    // unread; High and Very High on every unread frame. Each pass has a bounded
+    // budget and stops quietly.
+    if !foreground
+        && reads.is_empty()
+        && effort >= 1
+        && (effort >= 2 || !regions.candidates.is_empty())
+    {
+        let mut hybrid = binarization::Images::new_hybrid(image, width, height);
+        for modes in [1..2, 3..4] {
+            let (extra, _) = qr_detect::detect_modes(
+                width,
+                height,
+                &mut regions,
+                &mut hybrid,
+                modes,
+                HYBRID_BUDGET,
+            );
+            reads.extend(extra);
+        }
+    }
     if !foreground && effort > 1 && width * height <= 1_048_576 {
         let enhanced = qr_enhance::sharpen(image, width, height);
         let mut recovery = binarization::Images::new(&enhanced, width, height);
