@@ -826,12 +826,57 @@ pub fn detect(
             }
         }
     }
+    drop_conflicting_corrections(&mut results);
     (results, limited)
+}
+
+/// Two different payloads decoded at the same place cannot both be right.
+/// Low error-correction levels let a damaged row group "correct" into another
+/// valid codeword, so the read that needed more corrections is dropped.
+fn drop_conflicting_corrections(results: &mut Vec<Detection>) {
+    let keep: Vec<bool> = results
+        .iter()
+        .map(|read| {
+            read.error == 0.
+                || !results.iter().any(|other| {
+                    other.text != read.text
+                        && other.error < read.error
+                        && crate::regions::overlap(&other.polygon, &read.polygon) > 0.5
+                })
+        })
+        .collect();
+    let mut keep = keep.into_iter();
+    results.retain(|_| keep.next().unwrap_or(true));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conflicting_reads_keep_the_one_with_fewer_corrections() {
+        let read = |text: &str, x: f32, error: f32| Detection {
+            bytes: None,
+            structured_append: None,
+            reader_initialization: false,
+            addon: None,
+            format: "PDF417".into(),
+            text: text.into(),
+            polygon: [[x, 0.], [x + 100., 0.], [x + 100., 40.], [x, 40.]],
+            support: 20,
+            error,
+            gs1: false,
+        };
+        let mut results = vec![
+            read("right", 0., 0.),
+            read("miscorrected", 5., 1.),
+            read("elsewhere", 300., 2.),
+            read("also uncorrected", 3., 0.),
+        ];
+        drop_conflicting_corrections(&mut results);
+        let texts: Vec<_> = results.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(texts, ["right", "elsewhere", "also uncorrected"]);
+    }
 
     #[test]
     fn dense_lookup_matches_sorted_reference_for_every_pattern() {
