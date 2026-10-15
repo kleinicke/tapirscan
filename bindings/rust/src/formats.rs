@@ -1204,10 +1204,11 @@ fn scan_additional(
     }
     #[cfg(any(feature = "high", feature = "very-high"))]
     if matrix & 512 != 0 && addons == EanAddOnPolicy::Ignore && !scans.iter().any(has_qr_read) {
+        // Each finer scale runs only when the coarser one read nothing.
         let targets: &[usize] = if crate::MODE_ID == 3 {
-            &[1200, 1600]
+            &[1200, 1280, 1600]
         } else {
-            &[1200]
+            &[1200, 1280]
         };
         for &target in targets {
             if image.width.max(image.height) <= target {

@@ -46,6 +46,9 @@
   frames of 640x480 and up never take this pass. On the QR development selection:
   Low 4,167 instead of 4,138 known codes, Medium 4,243 instead of 4,238, High
   4,404 instead of 4,402.
+- QR in High and Very High: unread frames above 1280 pixels also retry at 1280
+  pixels after 1200 (High on the QR development selection: 4,427 instead of 4,404
+  known codes, about 16% more mean time).
 - QR in Low and Medium: each detection pass runs at most 150 alignment-pattern
   searches, the costly last stage that plausible but false triples reach on
   textured frames. A textured 640x480 frame without QR scans in 10.6 ms in Low
