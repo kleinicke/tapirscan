@@ -700,6 +700,59 @@ fn gray_image(image: Image<'_>, gray: &mut Vec<u8>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Scan a bilinearly enlarged copy for QR, with results in source coordinates.
+fn upscaled_qr_retry(
+    pixels: &[u8],
+    width: usize,
+    height: usize,
+    factor: usize,
+    effort: usize,
+) -> barcode_multiformat::Scan {
+    let (out_width, out_height) = (width * factor, height * factor);
+    let f = barcode_multiformat::numeric::usize_f32(factor);
+    let source = |out: usize, limit: usize| {
+        let position = ((barcode_multiformat::numeric::usize_f32(out) + 0.5) / f - 0.5)
+            .clamp(0., barcode_multiformat::numeric::usize_f32(limit - 1));
+        let low = barcode_multiformat::numeric::f32_usize(position);
+        let high = (low + 1).min(limit - 1);
+        (
+            low,
+            high,
+            position - barcode_multiformat::numeric::usize_f32(low),
+        )
+    };
+    let columns: Vec<_> = (0..out_width).map(|x| source(x, width)).collect();
+    let mut larger = vec![0_u8; out_width * out_height];
+    for (y, row) in larger.chunks_exact_mut(out_width).enumerate() {
+        let (y0, y1, wy) = source(y, height);
+        for (pixel, &(x0, x1, wx)) in row.iter_mut().zip(&columns) {
+            let at = |yy: usize, xx: usize| f32::from(pixels[yy * width + xx]);
+            let top = at(y0, x0) * (1. - wx) + at(y0, x1) * wx;
+            let bottom = at(y1, x0) * (1. - wx) + at(y1, x1) * wx;
+            *pixel = barcode_multiformat::numeric::f32_u8((top * (1. - wy) + bottom * wy).round());
+        }
+    }
+    let mut scan = scan_reader(&larger, out_width, out_height, 512, effort);
+    // Candidates of a failed enlargement would suppress the later recoveries,
+    // which run only on frames without a QR candidate.
+    if scan.barcodes.is_empty() {
+        scan.regions.clear();
+    }
+    for polygon in scan
+        .barcodes
+        .iter_mut()
+        .map(|value| &mut value.polygon)
+        .chain(scan.regions.iter_mut().map(|value| &mut value.polygon))
+    {
+        for point in polygon {
+            point[0] /= f;
+            point[1] /= f;
+        }
+    }
+    scan.unfinished = true;
+    scan
+}
+
 fn scaled_matrix_retry(
     pixels: &[u8],
     width: usize,
@@ -1047,6 +1100,21 @@ fn scan_additional(
         } else {
             Vec::new()
         };
+        // Tiny frames whose modules span about two pixels read better enlarged.
+        let mut retries = retries;
+        if selected == 512
+            && addons == EanAddOnPolicy::Ignore
+            && scan.barcodes.is_empty()
+            && image.width.max(image.height) <= 300
+        {
+            retries.push(upscaled_qr_retry(
+                pixels,
+                image.width,
+                image.height,
+                3,
+                level,
+            ));
+        }
         #[cfg(not(feature = "low"))]
         let mut scan = scan;
         #[cfg(not(feature = "low"))]
@@ -1438,5 +1506,55 @@ pub(crate) fn scan_reader(
         barcode_research_core::qr_frontend::scan_with_effort(pixels, width, height, effort)
     } else {
         barcode_multiformat::scan(pixels, width, height, mask, effort)
+    }
+}
+
+#[cfg(test)]
+mod upscale_tests {
+    #[test]
+    fn tiny_qr_reads_enlarged_with_source_coordinates() {
+        // Version 1-M "TAPIRSCAN" at two pixels per module.
+        let rows = [
+            "111111101101001111111",
+            "100000101100001000001",
+            "101110100011001011101",
+            "101110101110101011101",
+            "101110100001001011101",
+            "100000100111101000001",
+            "111111101010101111111",
+            "000000001111100000000",
+            "101101110111101001011",
+            "000001001001111100011",
+            "011110110111000001001",
+            "100011010001001011111",
+            "001100100010100100000",
+            "000000001101001010111",
+            "111111101111100101101",
+            "100000101010000110100",
+            "101110100010111000111",
+            "101110101101001101010",
+            "101110101000101100000",
+            "100000100110010100100",
+            "111111101000010011010",
+        ];
+        let (n, scale, margin) = (21, 2, 4);
+        let side = (n + 2 * margin) * scale;
+        let pixels: Vec<u8> = (0..side * side)
+            .map(|i| {
+                let (x, y) = (i % side / scale, i / side / scale);
+                let dark = (margin..n + margin).contains(&x)
+                    && (margin..n + margin).contains(&y)
+                    && rows[y - margin].as_bytes()[x - margin] == b'1';
+                if dark { 30 } else { 225 }
+            })
+            .collect();
+        let scan = super::upscaled_qr_retry(&pixels, side, side, 3, 0);
+        let read = scan.barcodes.first().expect("enlarged copy reads");
+        assert_eq!(read.text, "TAPIRSCAN");
+        let low = barcode_multiformat::numeric::usize_f32(margin * scale) - 1.;
+        let high = barcode_multiformat::numeric::usize_f32((n + margin) * scale) + 1.;
+        for point in read.polygon {
+            assert!(point.iter().all(|v| (low..=high).contains(v)), "{point:?}");
+        }
     }
 }
