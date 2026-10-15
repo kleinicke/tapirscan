@@ -38,10 +38,10 @@ native builds run those readers on separate threads ("parallel", the default; se
 
 | Mode and formats    | M1 Pro, one thread | M1 Pro, parallel | Ryzen 7 5800X, one thread | Ryzen, parallel |
 | ------------------- | -----------------: | ---------------: | ------------------------: | --------------: |
-| Low, retail         |             4.8 ms |           4.8 ms |                    5.1 ms |          5.1 ms |
-| Medium, retail      |              33 ms |            33 ms |                     36 ms |           36 ms |
-| Low, all formats    |              31 ms |            18 ms |                     35 ms |           21 ms |
-| Medium, all formats |              49 ms |            37 ms |                     62 ms |           50 ms |
+| Low, retail         |             4.9 ms |           4.9 ms |                    5.2 ms |          5.3 ms |
+| Medium, retail      |              33 ms |            33 ms |                     37 ms |           37 ms |
+| Low, all formats    |              33 ms |            17 ms |                     36 ms |           21 ms |
+| Medium, all formats |              54 ms |            35 ms |                     58 ms |           43 ms |
 
 WebAssembly (browser and Node) runs about 1.5× slower than native and always on
 one thread.
@@ -151,7 +151,7 @@ binding (it needs the Foreign Function & Memory API); see [mobile apps](#mobile-
 A scanner serves one call at a time; separate scanners run concurrently, so use one
 per thread. Native builds additionally run one scan's 1D formats and enabled 2D
 readers on separate threads, which shortens a single scan with all formats by
-1.4-1.8× on 960×960 photos and up to 2.9× on 12-megapixel images. On
+1.35-1.9× on 960×960 photos and up to 2.9× on 12-megapixel images. On
 servers that already run one scanner per core, set `TAPIRSCAN_THREADS=1` to keep
 each scan on one thread; this saves the few percent of extra CPU time that the
 parallel readers cost. The variable is read once, at the first scan in the process,

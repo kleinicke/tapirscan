@@ -160,7 +160,7 @@ Speed is mostly decided by four choices: enable only the formats you need (each 
 format adds a search of the whole image), reuse one scanner, use `low` for camera
 frames, and pass decoded 8-bit pixels at the size you need (1-2 megapixel camera
 frames rather than 12-megapixel stills). On 960×960 photos, Low with retail formats
-takes about 5 ms per scan natively, Medium with all formats about 37-62 ms. See
+takes about 5 ms per scan natively, Medium with all formats about 35-58 ms. See
 [fast end-to-end scanning](docs/PERFORMANCE.md) for measured costs and the fastest
 input path in browsers, Node, Python, Java, C, C++, Rust and mobile apps.
 

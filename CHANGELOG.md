@@ -54,8 +54,8 @@
   million pixels in WebAssembly.
 - Native builds (C, C++, Java, Python, Rust) run one scan's 1D formats, its 2D
   thresholds and its enabled 2D readers on separate threads, with identical
-  results. With all formats, Low scans are 1.8× and Medium scans 1.4× faster on
-  960×960 photo crops, and up to 2.9× (Apple M1 Pro) and 2.2× (AMD Ryzen 7 5800X)
+  results. With all formats, Low scans are 1.7-1.9× and Medium scans 1.35-1.5×
+  faster on 960×960 photo crops, and up to 2.9× (Apple M1 Pro) and 2.2× (AMD Ryzen 7 5800X)
   faster on 12-megapixel images. Set `TAPIRSCAN_THREADS=1` to
   keep each scan on one thread, for example on servers running one scanner per core.
   WebAssembly scans stay single-threaded.
