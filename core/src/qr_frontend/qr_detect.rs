@@ -831,6 +831,13 @@ pub fn detect_foreground(
 /// decode attempts without a further read. Further symbols' triples rank early,
 /// so this skips the long tail of accidental triples; images without any read
 /// keep the full attempt budget.
+/// Alignment searches per detection pass in Low and Medium. Plausible but false
+/// triples on textured frames reach this costly stage; High keeps searching.
+const ALIGNMENT_BUDGET: usize = if cfg!(any(feature = "mode-low", feature = "mode-medium")) {
+    150
+} else {
+    usize::MAX
+};
 /// Low serves live camera frames, where the next frame is another chance.
 const PATIENCE: usize = if cfg!(feature = "mode-low") { 50 } else { 100 };
 #[expect(
@@ -848,6 +855,7 @@ fn detect_with_recovery(
 ) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
     let mut attempts = 0;
+    let mut align_calls = 0_usize;
     let mut curved_attempts = 0;
     let mut curved_limited = false;
     let mut single_attempts = 0;
@@ -1051,7 +1059,8 @@ fn detect_with_recovery(
                     if stage == 3 && !any_valid {
                         break;
                     }
-                    if stage == 3 && version > 1 {
+                    if stage == 3 && version > 1 && align_calls < ALIGNMENT_BUDGET {
+                        align_calls += 1;
                         let guess = [br[0] - 3. * (ex[0] + ey[0]), br[1] - 3. * (ex[1] + ey[1])];
                         for align in alignment(image, w, h, guess, ex, ey) {
                             if let Some(t) = homography(

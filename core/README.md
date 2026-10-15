@@ -20,7 +20,7 @@ public scanner, see [the architecture overview](../docs/ARCHITECTURE.md).
   source-gray refinement and sampling, and Rune confirmation. Its payload
   decoder reuses immutable error-correction fields. The facade's
   `matrix_frontend` shares the original threshold images and row runs with
-  other matrix readers.
+  Data Matrix, PDF417 and Aztec; QR and MaxiCode are separate reader groups.
 
 - `qr_frontend` owns ordinary QR finder search and bounded foreground-threshold
   recovery. Its separable alignment-coordinate tables preserve exact search

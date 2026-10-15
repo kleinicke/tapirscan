@@ -1100,7 +1100,9 @@ fn scan_additional(
         } else {
             Vec::new()
         };
-        // Tiny frames whose modules span about two pixels read better enlarged.
+        // Tiny frames (thumbnails, cropped symbols) whose modules span about two
+        // pixels read better enlarged. Camera frames, 640x480 and up, never take
+        // this pass: there it would add a whole scan to every frame without QR.
         let mut retries = retries;
         if selected == 512
             && addons == EanAddOnPolicy::Ignore
@@ -1112,20 +1114,6 @@ fn scan_additional(
                 image.width,
                 image.height,
                 3,
-                level,
-            ));
-        } else if selected == 512
-            // Low, whose other recoveries are lightest, also enlarges small frames.
-            && cfg!(feature = "low")
-            && addons == EanAddOnPolicy::Ignore
-            && scan.barcodes.is_empty()
-            && image.width.max(image.height) <= 640
-        {
-            retries.push(upscaled_qr_retry(
-                pixels,
-                image.width,
-                image.height,
-                2,
                 level,
             ));
         }
@@ -1170,13 +1158,15 @@ fn scan_additional(
     // Extra foreground thresholds reach unresolved QR frames without a surviving
     // region. Bound discovery to Full-HD-sized inputs; restoration has a smaller
     // pixel budget because it introduces another image and threshold search.
-    // Mixed selections get this fixed-cost pass in High and Very High only, so
-    // Medium stays fast on frames without QR; QR-only scans keep it in Medium.
+    // Mixed selections get this fixed-cost pass in High and Very High, and in
+    // Medium only on small frames, so Medium stays fast on camera frames without
+    // QR; QR-only scans keep it in Medium. Reads of other formats do not stop it.
     #[cfg(not(feature = "low"))]
-    if (mask == 512 || (crate::MODE_ID >= 2 && matrix & 512 != 0))
+    if (mask == 512
+        || (matrix & 512 != 0 && (crate::MODE_ID >= 2 || image.width * image.height <= 262_144)))
         && addons == EanAddOnPolicy::Ignore
         && image.width * image.height <= 2_097_152
-        && scans.iter().all(|scan| scan.barcodes.is_empty())
+        && !scans.iter().any(has_qr_read)
         && (crate::MODE_ID >= 2 || !scans.iter().any(has_qr_region))
         && pixels.iter().any(|&value| value != 0 && value != 255)
     {
@@ -1213,10 +1203,7 @@ fn scan_additional(
         }
     }
     #[cfg(any(feature = "high", feature = "very-high"))]
-    if matrix & 512 != 0
-        && addons == EanAddOnPolicy::Ignore
-        && scans.iter().all(|scan| scan.barcodes.is_empty())
-    {
+    if matrix & 512 != 0 && addons == EanAddOnPolicy::Ignore && !scans.iter().any(has_qr_read) {
         let targets: &[usize] = if crate::MODE_ID == 3 {
             &[1200, 1600]
         } else {
@@ -1238,7 +1225,7 @@ fn scan_additional(
     if matrix & 512 != 0
         && addons == EanAddOnPolicy::Ignore
         && image.width * image.height <= 2_097_152
-        && scans.iter().all(|scan| scan.barcodes.is_empty())
+        && !scans.iter().any(has_qr_read)
     {
         for method in 0..2 {
             let normalized = if method == 0 {
@@ -1258,6 +1245,12 @@ fn scan_additional(
         }
     }
     Ok((scans, coverage))
+}
+
+#[cfg(not(feature = "low"))]
+/// Whether a scan read a QR symbol.
+fn has_qr_read(scan: &barcode_multiformat::Scan) -> bool {
+    scan.barcodes.iter().any(|read| read.format == "QRCode")
 }
 
 #[cfg(not(feature = "low"))]

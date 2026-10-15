@@ -61,12 +61,18 @@ Effort levels select the following bounded searches:
 | QR Code       | 0   | 1      | 2    | 3         |
 
 Data Matrix and Aztec get an additional grid-recovery pass for localized symbols
-from Medium up, and Aztec uses smaller refinement budgets in Low. PDF417 and
-MaxiCode use the same effort in every mode.
+from Medium up, and Aztec uses smaller refinement budgets in Low. PDF417 uses
+the same effort in every mode; MaxiCode reads the same way in every mode, and from
+Medium up retries large unread frames (over 1920 pixels) on reduced copies.
 
 These are internal reader effort levels, not comparable work or confidence scores.
-QR High adds threshold/sharpen recovery; Very High also tries bounded curved-grid
-recovery for Model 2 version 2 and above. Packed RGBA QR-only inputs use direct
+QR recovery grows with the mode. Every mode retries tiny unread images (up to 300
+pixels) on an enlarged copy. Medium adds, for grids that fail to decode, a gray
+resampling against each module's neighborhood, a block-threshold pass where a QR
+candidate stayed unread, and retries of large frames at 960 and 1280 pixels. High
+adds threshold/sharpen recovery, block thresholds on every unread frame and
+Reed-Solomon erasures for uncertain modules; Very High also tries bounded
+curved-grid recovery for Model 2 version 2 and above. Packed RGBA QR-only inputs use direct
 WASM upload with the same grayscale conversion and ignored alpha.
 EAN13-only scanning does not invoke them. When EAN13
 and UPCA are both enabled, zero-prefixed EAN13 is returned as UPCA.

@@ -14,12 +14,14 @@
   the maintained QR frontend, and QR recoveries are gated on the QR group instead
   of the whole selection; likewise the DataBar and MaxiCode retries apply to a
   DataBar-only or MaxiCode-only group of a mixed selection. The fixed-cost
-  foreground-threshold pass runs for mixed selections in High and Very High only.
-  On the QR selection, Medium with EAN-13 and QR reads 4,165 instead of 4,059
-  known codes, with `common` 4,165 instead of 4,048 (QR-only: 4,220); Low with
-  `common` 4,138 instead of 4,025. Results of other formats are unchanged. On
-  frames without QR, Low and Medium cost about 2% more with such selections, High
-  and Very High about 40% more with `all`.
+  foreground-threshold pass runs for mixed selections in High and Very High, and
+  in Medium on frames up to 262,144 pixels. Frame-level QR recoveries depend on
+  whether a QR symbol was read, so a read of another format next to an unread QR
+  no longer suppresses them. On the QR selection, Medium with EAN-13 and QR reads
+  4,233 instead of 4,059 known codes (QR-only: 4,242); Low with `common` 4,138
+  instead of 4,025. Results of other formats are unchanged. Retail frames with
+  EAN-13 and QR cost the same in Medium and High; High and Very High with `all`
+  cost about 40% more.
 - QR: unread frames get a block-threshold pass in the style of ZXing's hybrid
   binarizer, which follows sharp shadow edges and large modules: in High and Very
   High on every unread frame (High reads 4,391 instead of 4,343 of the QR
@@ -38,11 +40,17 @@
   retry with the weakest twelfth of the modules as erasures. On the same QR
   development selection, after the changes above: Medium 4,238 instead of 4,230
   known codes (about 2% more mean time), High 4,402 instead of 4,392.
-- QR: unread images up to 300 pixels, whose modules may span two pixels, retry
-  on a 3x bilinear enlargement in every mode, and in Low images up to 640 pixels
-  also on a 2x one. On the QR development selection: Low 4,176 instead of 4,138
-  known codes, Medium 4,243 instead of 4,238, High
-  4,404 instead of 4,402, about 1% more mean time.
+- QR: unread images up to 300 pixels (thumbnails, cropped symbols), whose modules
+  may span two pixels, retry on a 3x bilinear enlargement in every mode; camera
+  frames of 640x480 and up never take this pass. On the QR development selection:
+  Low 4,167 instead of 4,138 known codes, Medium 4,243 instead of 4,238, High
+  4,404 instead of 4,402.
+- QR in Low and Medium: each detection pass runs at most 150 alignment-pattern
+  searches, the costly last stage that plausible but false triples reach on
+  textured frames. A textured 640x480 frame without QR scans in 10.6 ms in Low
+  (was 14.2 ms before these QR changes) and 27.7 ms in Medium (was 30.4 ms); the
+  QR selection loses 2 known codes in Low and 1 in Medium, and its mean time
+  falls by 7-8%. High and Very High keep searching.
 - MaxiCode selected with other 2D formats is a reader group of its own, and High
   and Very High get Medium's reduced-copy retry for large unread frames; in a mixed
   2D selection it runs where a MaxiCode candidate was found. Four of the five
