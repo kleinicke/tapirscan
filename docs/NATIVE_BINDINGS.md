@@ -1,6 +1,6 @@
 # Native bindings
 
-C, C++, Python and Java share the public Rust `Scanner` through native ABI 6.
+C, C++, Python and Java share the public Rust `Scanner` through native ABI 7.
 One shared library, built with `python3 scripts/build_native.py`, contains all
 four effort modes; every binding selects the mode when it creates a scanner.
 The header is [`tapirscan.h`](../bindings/c/include/tapirscan.h). Format bits and

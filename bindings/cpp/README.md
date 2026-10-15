@@ -95,6 +95,18 @@ the reader did not report it. `rect()` returns a `tapirscan::Rect` with
 
 `to_string(format)` gives names such as `"QRCode"`.
 
+## Structured content
+
+`tapirscan::parse_content` recognizes GS1 elements, Wi-Fi, contacts, payment
+slips, HIBC, VINs and driver's licenses in a barcode's text:
+
+```cpp
+if (auto content = tapirscan::parse_content(barcode); content && content->kind == tapirscan::ContentKind::Wifi)
+    connect(*content->get("ssid"), content->get("password").value_or(""));
+```
+
+Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+
 ## Images
 
 `Image::gray`, `Image::rgb` and `Image::rgba` take a `std::vector<std::uint8_t>`

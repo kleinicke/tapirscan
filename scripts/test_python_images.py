@@ -226,7 +226,8 @@ class Images(unittest.TestCase):
         wifi = barcode.parse_content(
             "WIFI:S:Cafe;T:WPA;P:se:cret\\;;;", library_dir=LIBS
         )
-        assert wifi is not None
+        if wifi is None:
+            self.fail("Wi-Fi payload not recognized")
         self.assertEqual(wifi.kind, "WiFi")
         self.assertEqual(wifi.get("password"), "se:cret;")
         self.assertEqual(
@@ -234,9 +235,11 @@ class Images(unittest.TestCase):
             [("ssid", "Cafe"), ("security", "WPA"), ("password", "se:cret;")],
         )
         self.assertIsNone(wifi.get("hidden"))
-        gs1 = Barcode("0109506000134352", ((0.0, 0.0),) * 4, "Code128", gs1=True)  # type: ignore[arg-type]
+        polygon = (barcode.Point(0.0, 0.0),) * 4
+        gs1 = Barcode("0109506000134352", polygon, "Code128", gs1=True)
         content = barcode.parse_content(gs1, library_dir=LIBS)
-        assert content is not None
+        if content is None:
+            self.fail("GS1 element string not recognized")
         self.assertEqual(
             (content.kind, content.get_all("01")), ("GS1", ["09506000134352"])
         )
@@ -245,12 +248,13 @@ class Images(unittest.TestCase):
         vcard = barcode.parse_content(
             "BEGIN:VCARD\nFN:Zoë\nTEL:1\nTEL:2\nEND:VCARD", library_dir=LIBS
         )
-        assert vcard is not None
+        if vcard is None:
+            self.fail("vCard not recognized")
         self.assertEqual(
             (vcard.get("name"), vcard.get_all("phone")), ("Zoë", ["1", "2"])
         )
         with self.assertRaises(FrozenInstanceError):
-            vcard.kind = "URL"  # type: ignore[misc]
+            vcard.kind = "URL"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
     def test_supplement_policy(self) -> None:
         """Policy is opt-in, creation-only and forwarded by one-shot scanning."""

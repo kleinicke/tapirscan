@@ -21,6 +21,8 @@ enabled by default; select additional formats as needed. See
 
 - **Find multiple symbols.** Return decoded values and positions in the original image.
 - **Keep useful evidence.** Inspect localized regions even when decoding fails.
+- **Read what the code says.** [Parse](docs/CONTENT.md) GS1 elements, Wi-Fi, contacts,
+  payment slips, HIBC, VINs and driver's licenses from decoded text.
 - **Choose the effort.** `low`, `medium` (default), `high`, or `very-high`.
 - **Run locally.** No API key, hosted decoder, neural model, or image upload.
 - **Use the same core.** Browser/Node WASM and native Python, Rust, C, C++, and Java bindings.

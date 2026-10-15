@@ -442,6 +442,7 @@ same fields plus the ones marked _inspect_.
 | `barcode.readerInitialization` | `boolean \| undefined`                                         | Data Matrix, PDF417, Aztec and MaxiCode reader-initialization flag.         |
 | `barcode.structuredAppend`     | `StructuredAppend \| undefined`                                | Multipart metadata: one-based `index`, `count`, optional `id` and `parity`. |
 | `barcode.eanAddOn`             | `string \| undefined`                                          | EAN/UPC supplement, with `eanAddOnPolicy` `"read"` or `"require"`.          |
+| `barcode.content`              | `Content \| undefined`                                         | [Structured content](#structured-content) of `text`; absent for plain text. |
 
 Separate labels with the same value stay separate entries. Results are deeply
 frozen; use `structuredClone(result)` for a mutable copy. `JSON.stringify(result)`
@@ -461,6 +462,21 @@ for a byte buffer.
 
 All types (`ScanResult`, `InspectionResult`, `Barcode`, `ScannerOptions`,
 `ScanOptions`, `Format` and others) are exported from both entries.
+
+## Structured content
+
+Each barcode whose text has a recognized structure carries `content`: GS1
+elements, Wi-Fi, contacts, payment slips, HIBC, VINs or driver's licenses.
+
+```js
+const { content } = result.barcodes[0];
+if (content?.kind === "WiFi") {
+  const ssid = content.fields.find((f) => f.name === "ssid")?.value;
+}
+```
+
+`content` is absent for plain text. Kinds and field names are listed in
+[structured content](../../docs/CONTENT.md).
 
 ## EAN/UPC supplements
 

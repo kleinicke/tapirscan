@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ctypes as c
-import os
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias
@@ -11,6 +10,7 @@ from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias
 from ._library import library_path, load
 
 if TYPE_CHECKING:
+    import os
     from collections.abc import Iterator
     from pathlib import Path
 

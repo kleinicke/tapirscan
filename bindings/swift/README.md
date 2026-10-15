@@ -40,6 +40,20 @@ let barcodes = try scanner.scan(pixels, width: 1280, height: 720, channels: 4) /
 `channels` is 1 (gray), 3 (RGB) or 4 (RGBA, alpha ignored); pass `stride` for padded
 rows. Errors are thrown as `TapirscanError` with the library's message.
 
+## Structured content
+
+`barcode.content` recognizes GS1 elements, Wi-Fi, contacts, payment slips,
+HIBC, VINs and driver's licenses in the decoded text; `parseContent(_:gs1:)`
+parses any text.
+
+```swift
+if let content = barcode.content, content.kind == .wifi {
+    connect(ssid: content["ssid"], password: content["password"])
+}
+```
+
+Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+
 ## Camera frames
 
 `scan(_ pixelBuffer:)` reads bi-planar YUV frames (the AVFoundation default) in

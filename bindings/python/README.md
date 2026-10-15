@@ -325,6 +325,20 @@ Exported types include `ScanResult`, `InspectionResult`, `Barcode`, `Format`,
 `FormatSelection`, `Mode`, `Layout`, `ValueRange`, `ColorOrder`, `ImageInput` and
 `PixelImage`. The package includes `py.typed`.
 
+## Structured content
+
+`parse_content` recognizes GS1 elements, Wi-Fi, contacts, payment slips, HIBC,
+VINs and driver's licenses in a barcode's text, using its GS1 flag:
+
+```python
+content = tapirscan.parse_content(barcode)  # or a str; gs1=True for element strings
+if content and content.kind == "GS1":
+    gtin, expiry = content.get("01"), content.get("17")
+```
+
+It returns `None` for plain text. Kinds and field names are listed in
+[structured content](../../docs/CONTENT.md).
+
 ## EAN/UPC supplements
 
 Set `ean_add_on_policy` when creating a scanner or calling one-shot `scan` or `inspect`.
@@ -368,7 +382,7 @@ Invalid input raises `ValueError` or `TypeError`. Native failures raise
 `ScannerError` with a message, the native `.status` number and a `.code` shared
 with JavaScript: `"invalid_input"`, `"disposed"` or `"engine"`.
 Scanning after `close()` raises `RuntimeError`. A custom native library from
-`library_dir` must implement native ABI 6; mismatches are reported with
+`library_dir` must implement native ABI 7; mismatches are reported with
 rebuild instructions.
 
 ## License

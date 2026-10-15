@@ -127,6 +127,26 @@ JSON is serialized on first use. Query `tapirscan_result_json_length(result,
 For scans it is an array of the decoded barcodes; for inspections it is a
 schema-2 engine report whose fields may change.
 
+## Structured content
+
+`tapirscan_parse_content` recognizes GS1 elements, Wi-Fi, contacts, payment
+slips, HIBC, VINs and driver's licenses in decoded text. Pass the barcode's
+`gs1` flag; text without structure succeeds with handle 0.
+
+```c
+tapirscan_content content = 0;
+tapirscan_parse_content(text, text_length, barcode.gs1, &content, NULL);
+if (content) {
+    tapirscan_content_summary summary;
+    tapirscan_content_info(content, &summary); /* kind, field_count */
+    /* tapirscan_content_field gives lengths; tapirscan_content_copy copies
+       TAPIRSCAN_CONTENT_FIELD_NAME or _VALUE plus a NUL. */
+    tapirscan_content_destroy(content);
+}
+```
+
+Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+
 ## Images
 
 `tapirscan_image` describes gray8, RGB8 or RGBA8 pixels (`channels` 1, 3 or 4).

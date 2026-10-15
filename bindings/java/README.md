@@ -87,6 +87,20 @@ source-image pixels, top-left origin), `support()`, and optional
 `rect()` returns `Rect(int left, int top, int width, int height)`. `Format.toString()`
 gives names such as `"QRCode"`.
 
+## Structured content
+
+`Tapirscan.parseContent` recognizes GS1 elements, Wi-Fi, contacts, payment
+slips, HIBC, VINs and driver's licenses in a barcode's text:
+
+```java
+Tapirscan.parseContent(barcode)
+        .filter(content -> content.kind() == ContentKind.GS1)
+        .flatMap(content -> content.get("01"))
+        .ifPresent(gtin -> System.out.println("GTIN " + gtin));
+```
+
+Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+
 ## Images
 
 `Image.gray`, `Image.rgb` and `Image.rgba` take a byte array or a

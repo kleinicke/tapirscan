@@ -3,22 +3,22 @@
 from __future__ import annotations
 
 import ctypes as c
-import os
 import threading
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
-from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING, cast
 
 from typing_extensions import Self
 
 if TYPE_CHECKING:
+    import os
     from collections.abc import Iterable
 
 from ._images import _cpu_count, _size, image_bytes
-from ._library import ABI_VERSION, library_path, load
+from ._library import ABI_VERSION as ABI_VERSION
+from ._library import library_path, load
 from .content import Content, ContentField, ContentKind, parse_content
 from .formats import (
     FORMAT_BITS,

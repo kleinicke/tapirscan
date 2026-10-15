@@ -18,7 +18,7 @@ from build import ROOT
 TARGET = ROOT / "build/android-target"
 OUT = ROOT / "build/android"
 ANDROID = ROOT / "bindings/android"
-# ABI, Rust target and clang target. Native ABI 6 supports 64-bit targets only.
+# ABI, Rust target and clang target. Native ABI 7 supports 64-bit targets only.
 ABIS = [
     ("arm64-v8a", "aarch64-linux-android", "aarch64-linux-android"),
     ("x86_64", "x86_64-linux-android", "x86_64-linux-android"),

@@ -49,6 +49,19 @@ analysis.setAnalyzer(executor) { image ->
 // Call scanner.close() when the camera is unbound.
 ```
 
+## Structured content
+
+`barcode.content()` recognizes GS1 elements, Wi-Fi, contacts, payment slips,
+HIBC, VINs and driver's licenses in the decoded text; `Content.parse(text, gs1)`
+parses any text. Both return `null` for plain text.
+
+```java
+Content content = barcode.content();
+if (content != null && content.kind() == Content.Kind.WIFI) connect(content.get("ssid"), content.get("password"));
+```
+
+Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+
 ## Other inputs
 
 `scan(pixels, width, height, channels, stride)` takes a direct `ByteBuffer` (read in

@@ -4,14 +4,14 @@ Most users should use the [JavaScript package](https://github.com/kleinicke/tapi
 wraps this adapter. This page is a reference for calling the WebAssembly module
 directly. Each module is built for one effort mode and has no host imports. The
 host copies pixels into the module's input buffer, then runs a synchronous scan.
-The adapter ABI (version 2) is separate from native ABI 6 of the C library, and
+The adapter ABI (version 3) is separate from native ABI 7 of the C library, and
 its status numbers differ from the C `tapirscan_status` values.
 
 ## Exports
 
 | Export                                                         | Purpose                                                                                       |
 | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `tapirscan_abi_version()`                                      | Adapter ABI version (2)                                                                       |
+| `tapirscan_abi_version()`                                      | Adapter ABI version (3)                                                                       |
 | `tapirscan_mode()`                                             | Compiled effort: 0 Low, 1 Medium, 2 High, 3 Very high                                         |
 | `tapirscan_experimental_turbo()`                               | Turbo preset (2, 4, 8 or 16) compiled into a Low module, else 0                               |
 | `tapirscan_create(mode, formats, addon)`                       | Returns a scanner handle, or 0 for invalid options or a `mode` that differs from the module's |
@@ -41,7 +41,9 @@ WASM adapter codes, not the C status values). Status 4 writes a JSON object with
 leave the output untouched; it may still hold an earlier result, so read it only
 after status 0 or 4.
 
-An ordinary scan outputs `{"barcodes": [...]}`. Each entry includes its `rect`;
+An ordinary scan outputs `{"barcodes": [...]}`. Each entry includes its `rect`
+and, when its text has a recognized structure, `content` (`{"kind", "fields":
+[{"name", "value"}]}`, see [structured content](https://github.com/kleinicke/tapirscan/blob/main/docs/CONTENT.md));
 unavailable metadata is omitted. An inspection also contains `bestIndex`,
 `undecoded`, `image`, `mode`, `elapsedMs` and the engine diagnostics under
 `debug`.

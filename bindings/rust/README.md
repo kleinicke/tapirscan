@@ -115,6 +115,20 @@ geometry excludes supplements.
 `Serialize` and `Deserialize`; `UndecodedRegion` implements `Deserialize` only.
 `InspectionResult` is not serializable.
 
+## Structured content
+
+`Barcode::content` recognizes GS1 elements, Wi-Fi, contacts, payment slips,
+HIBC, VINs and driver's licenses in the decoded text; `parse_content(text, gs1)`
+parses any text.
+
+```rust
+if let Some(content) = barcode.content() {
+    println!("{}: {:?}", content.kind, content.get("01"));
+}
+```
+
+Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+
 ## Images
 
 The default `image` feature accepts `&image::GrayImage`, `&image::RgbImage` and
