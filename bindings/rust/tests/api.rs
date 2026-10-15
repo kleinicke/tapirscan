@@ -545,6 +545,7 @@ fn msi_plessey_is_read_in_every_mode_and_only_when_selected() {
     }
     assert_ne!(Formats::ALL | Format::MsiPlessey, Formats::ALL);
     assert_eq!(Format::MsiPlessey.as_str(), "MSIPlessey");
+}
 
 /// A 16x16 Data Matrix ("TAPIRSCAN-DM-42") drawn at 80 pixels per module, low
 /// contrast and heavily blurred, as in close-up phone photos. At this scale the
