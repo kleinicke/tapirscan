@@ -81,6 +81,8 @@ public final class JniTest {
         } catch (TapirscanException expected) {
             // formats must be nonempty
         }
+        // Opt-in formats are accepted by name.
+        new BarcodeScanner(BarcodeScanner.MODE_LOW, Formats.CODE32 | Formats.PZN | Formats.MSI_PLESSEY).close();
         Content wifi = Content.parse("WIFI:S:Café;T:WPA;P:secret;;", false);
         check(wifi != null && wifi.kind() == Content.Kind.WIFI && "WiFi".equals(wifi.kind().toString()), "wifi kind");
         check("Café".equals(wifi.get("ssid")) && wifi.get("hidden") == null && wifi.fields().size() == 3, "wifi fields");

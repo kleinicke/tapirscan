@@ -18,6 +18,10 @@ public final class Formats {
     public static final int DATA_BAR = 8192;
     public static final int DATA_BAR_EXPANDED = 16384;
     public static final int MAXI_CODE = 131072;
+    /** Italian pharmacy code read from Code 39, as its 9-digit number; opt-in, not part of {@link #ALL}. */
+    public static final int CODE32 = 262144;
+    /** German pharmacy number (PZN8/PZN7) read from Code 39; opt-in, not part of {@link #ALL}. */
+    public static final int PZN = 524288;
     /** MSI Plessey with a mod-10 check digit; opt-in, not part of {@link #ALL}. */
     public static final int MSI_PLESSEY = 1048576;
     /** EAN-13, UPC-A, EAN-8 and UPC-E (the default). */
@@ -26,6 +30,7 @@ public final class Formats {
     public static final int COMMON_1D = 127;
     /** Common linear formats plus QR Code and Data Matrix. */
     public static final int COMMON = 1663;
+    /** Every format except the opt-in CODE32, PZN and MSI_PLESSEY. */
     public static final int ALL = 163839;
 
     private Formats() {}
