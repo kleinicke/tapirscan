@@ -256,13 +256,18 @@ fn gray_decode(
             *bit = !*bit;
         }
     }
-    let mut order: Vec<usize> = (0..n * n).collect();
-    order.sort_by_key(|&i| margins[i]);
-    let mut uncertain = vec![false; n * n];
-    // The weakest twelfth of the modules become erasures.
-    for &i in &order[..n * n / 12] {
-        uncertain[i] = true;
-    }
+    // High and Very High also retry with the weakest twelfth of the modules as
+    // erasures; in Medium that step read nothing extra.
+    let uncertain = cfg!(any(feature = "mode-high", feature = "mode-very-high")).then(|| {
+        let mut order: Vec<usize> = (0..n * n).collect();
+        let weakest = n * n / 12;
+        order.select_nth_unstable_by_key(weakest, |&i| (margins[i], i));
+        let mut uncertain = vec![false; n * n];
+        for &i in &order[..weakest] {
+            uncertain[i] = true;
+        }
+        uncertain
+    });
     for mirror in [false, true] {
         let transpose = |v: &[bool]| -> Vec<bool> {
             if mirror {
@@ -275,7 +280,9 @@ fn gray_decode(
         if let Some(read) = qr::decode_matrix(&matrix, n) {
             return Some(read);
         }
-        if let Some(read) = qr::decode_matrix_soft(&matrix, n, &transpose(&uncertain)) {
+        if let Some(uncertain) = &uncertain
+            && let Some(read) = qr::decode_matrix_soft(&matrix, n, &transpose(uncertain))
+        {
             return Some(read);
         }
     }

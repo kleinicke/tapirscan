@@ -195,7 +195,7 @@ pub(crate) fn concurrent(
         && parallel_enabled()
     {
         return std::thread::scope(|scope| {
-            // The last group (the matrix readers, which fan out further) runs here.
+            // The last group runs here; callers put their heaviest group last.
             let pending: Vec<_> = rest
                 .iter()
                 .map(|&(selected, level)| {

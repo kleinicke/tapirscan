@@ -34,14 +34,17 @@
   codes, about 2% more mean time on the QR selection).
 - QR in Medium, High and Very High: when a sampled grid fails, its modules are
   resampled in gray and thresholded against their 7x7-module neighborhood, which
-  follows illumination gradients across the symbol; the weakest twelfth become
-  erasures. QR selection: Medium 4,238 instead of 4,230 known codes, High 4,402
-  instead of 4,392, about 4% more mean time.
+  follows illumination gradients across the symbol; High and Very High then also
+  retry with the weakest twelfth of the modules as erasures. On the same QR
+  development selection, after the changes above: Medium 4,238 instead of 4,230
+  known codes (about 2% more mean time), High 4,402 instead of 4,392.
 - MaxiCode selected with other 2D formats is a reader group of its own, and High
   and Very High get Medium's reduced-copy retry for large unread frames; in a mixed
-  selection it runs where a MaxiCode candidate was found. Four of the five
+  2D selection it runs where a MaxiCode candidate was found. Four of the five
   full-size MaxiCode label photos of the variation set now read in every mode and
-  selection (was one, except Medium with MaxiCode alone).
+  selection (was one, except Medium with MaxiCode alone); a small sample, so a
+  trend rather than a measurement. Single-threaded, all formats cost about 5% more
+  for the separate group.
 - QR finder triples rank mainly by shape (right angle, equal modules); the size
   term no longer pushes large symbols behind small accidental triples.
 - Aztec and Data Matrix detection are faster with identical results: Aztec
@@ -59,7 +62,7 @@
   million pixels in WebAssembly.
 - Native builds (C, C++, Java, Python, Rust) run one scan's 1D formats, its 2D
   thresholds and its enabled 2D readers on separate threads, with identical
-  results. With all formats, Low scans are 1.7-1.9× and Medium scans 1.35-1.5×
+  results. With all formats, Low scans are 1.7-1.9× and Medium scans 1.35-1.55×
   faster on 960×960 photo crops, and up to 2.9× (Apple M1 Pro) and 2.2× (AMD Ryzen 7 5800X)
   faster on 12-megapixel images. Set `TAPIRSCAN_THREADS=1` to
   keep each scan on one thread, for example on servers running one scanner per core.

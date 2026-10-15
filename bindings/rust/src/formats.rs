@@ -933,8 +933,10 @@ fn scan_additional(
             matrix_rest,
             if matrix_rest & 512 != 0 { qr_effort } else { 1 },
         ),
-        (if qr_apart { 512 } else { 0 }, qr_effort),
         (if maxi_apart { 131_072 } else { 0 }, 1),
+        // The QR group, usually the heaviest, comes last: `concurrent` runs the
+        // last group on the calling thread.
+        (if qr_apart { 512 } else { 0 }, qr_effort),
     ]
     .into_iter()
     .filter(|&(selected, _)| selected != 0)
@@ -1004,7 +1006,7 @@ fn scan_additional(
         let retries = medium_retries(
             pixels,
             [image.width, image.height],
-            mask,
+            matrix,
             selected,
             level,
             addons,
@@ -1028,7 +1030,7 @@ fn scan_additional(
             && addons == EanAddOnPolicy::Ignore
             && scan.barcodes.is_empty()
             && image.width.max(image.height) > 1920
-            && (mask == 131_072 || !scan.regions.is_empty())
+            && (matrix == 131_072 || !scan.regions.is_empty())
         {
             // MaxiCode on large frames, as in Medium: reduced copies first.
             let mut retries = Vec::new();
@@ -1186,7 +1188,7 @@ fn has_qr_region(scan: &barcode_multiformat::Scan) -> bool {
 fn medium_retries(
     pixels: &[u8],
     [width, height]: [usize; 2],
-    selection: u32,
+    matrix: u32,
     selected: u32,
     level: usize,
     addons: EanAddOnPolicy,
@@ -1203,9 +1205,9 @@ fn medium_retries(
         let sparse = crate::fast_sparse::Prepared::new(pixels, width, height);
         retries.push(sparse.scan(mask, 0));
     }
-    // A MaxiCode group of a mixed selection retries only where it left a
+    // A MaxiCode group of a mixed 2D selection retries only where it left a
     // candidate, so other selections do not pay for it on every large image.
-    let maxi_candidate = selection == 131_072 || !scan.regions.is_empty();
+    let maxi_candidate = matrix == 131_072 || !scan.regions.is_empty();
     if (mask == 512 || (mask == 131_072 && maxi_candidate)) && width.max(height) > 1920 {
         // QR: a second, finer scale when the coarse one reads nothing; shadowed
         // large photos often decode at one but not the other.
