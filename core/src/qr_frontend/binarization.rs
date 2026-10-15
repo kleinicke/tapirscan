@@ -227,6 +227,11 @@ pub(crate) fn has_two_directions(
             < energy * 0.90
 }
 impl<'a> Images<'a> {
+    /// The grayscale pixels these thresholds come from.
+    #[must_use]
+    pub fn gray(&self) -> &'a [u8] {
+        self.gray
+    }
     #[must_use]
     pub fn new(gray: &'a [u8], width: usize, height: usize) -> Self {
         Self {

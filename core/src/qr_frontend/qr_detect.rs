@@ -193,6 +193,94 @@ fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) ->
 }
 // Nearby triples bound dense-scene work without the cubic combinations of all
 // finders. Prefer compact, approximately orthogonal, similarly sized groups.
+/// Resample module centers in gray and threshold each module against the mean of
+/// its 7x7 module neighborhood, which follows shadows across the symbol; then
+/// decode, retrying with the lowest-margin modules as erasures.
+fn gray_decode(
+    gray: &[u8],
+    width: usize,
+    height: usize,
+    n: usize,
+    transform: &[f32; 8],
+    hard: &[bool],
+) -> Option<qr::Payload> {
+    let mut values = Vec::with_capacity(n * n);
+    for y in 0..n {
+        for x in 0..n {
+            let point = map(
+                transform,
+                barcode_multiformat::numeric::usize_f32(x) + 0.5,
+                barcode_multiformat::numeric::usize_f32(y) + 0.5,
+            );
+            let xx = barcode_multiformat::numeric::f32_isize(point[0].floor());
+            let yy = barcode_multiformat::numeric::f32_isize(point[1].floor());
+            if xx < 0 || yy < 0 || xx >= width.cast_signed() || yy >= height.cast_signed() {
+                return None;
+            }
+            values.push(i32::from(
+                gray[yy.cast_unsigned() * width + xx.cast_unsigned()],
+            ));
+        }
+    }
+    // Module-space integral image for the neighborhood means.
+    let mut sum = vec![0_i32; (n + 1) * (n + 1)];
+    for y in 0..n {
+        for x in 0..n {
+            sum[(y + 1) * (n + 1) + x + 1] =
+                values[y * n + x] + sum[y * (n + 1) + x + 1] + sum[(y + 1) * (n + 1) + x]
+                    - sum[y * (n + 1) + x];
+        }
+    }
+    let radius = 3;
+    let mut bits = vec![false; n * n];
+    let mut margins = vec![0_i32; n * n];
+    for y in 0..n {
+        for x in 0..n {
+            let (x0, y0, x1, y1) = (
+                x.saturating_sub(radius),
+                y.saturating_sub(radius),
+                (x + radius + 1).min(n),
+                (y + radius + 1).min(n),
+            );
+            let area = i32::try_from((x1 - x0) * (y1 - y0)).ok()?;
+            let total = sum[y1 * (n + 1) + x1] - sum[y0 * (n + 1) + x1] - sum[y1 * (n + 1) + x0]
+                + sum[y0 * (n + 1) + x0];
+            let value = values[y * n + x] * area;
+            bits[y * n + x] = value < total;
+            margins[y * n + x] = (value - total).abs() / area;
+        }
+    }
+    // Match the polarity of the threshold image the grid was found in.
+    if bits.iter().zip(hard).filter(|(a, b)| a == b).count() * 2 < n * n {
+        for bit in &mut bits {
+            *bit = !*bit;
+        }
+    }
+    let mut order: Vec<usize> = (0..n * n).collect();
+    order.sort_by_key(|&i| margins[i]);
+    let mut uncertain = vec![false; n * n];
+    // The weakest twelfth of the modules become erasures.
+    for &i in &order[..n * n / 12] {
+        uncertain[i] = true;
+    }
+    for mirror in [false, true] {
+        let transpose = |v: &[bool]| -> Vec<bool> {
+            if mirror {
+                (0..n * n).map(|i| v[(i % n) * n + i / n]).collect()
+            } else {
+                v.to_vec()
+            }
+        };
+        let matrix = transpose(&bits);
+        if let Some(read) = qr::decode_matrix(&matrix, n) {
+            return Some(read);
+        }
+        if let Some(read) = qr::decode_matrix_soft(&matrix, n, &transpose(&uncertain)) {
+            return Some(read);
+        }
+    }
+    None
+}
 /// Lower is more plausible: distance in modules, right-angle error and module spread.
 fn triple_score(finders: &[Finder], triple: [usize; 3]) -> f32 {
     let f = triple.map(|i| &finders[i]);
@@ -761,6 +849,8 @@ fn detect_with_recovery(
     let mut used: Vec<Finder> = Vec::new();
     let mut prior_count = 0;
     let mut partial_modes: Vec<(usize, Vec<Finder>)> = Vec::new();
+    // Low keeps its live-frame budget without the gray resampling pass.
+    let gray_soft = !cfg!(feature = "mode-low");
     for mode in modes {
         let mut read_count = results.len();
         let mut last_read = attempts;
@@ -775,6 +865,7 @@ fn detect_with_recovery(
         }
         prior_count = results.len();
         let step = (h / 600).max(1);
+        let gray = binary_images.gray();
         let (image, row_cache) = binary_images.get_with_runs(mode, step);
         let (mut finders, capped) = finders_with_rows(image, w, h, Some(row_cache));
         regions.limited |= capped;
@@ -1141,6 +1232,26 @@ fn detect_with_recovery(
                                 }
                             }
                         }
+                        if gray_soft
+                            && !samples.is_empty()
+                            && let Some(read) = gray_decode(gray, w, h, n, &t, &samples[0])
+                        {
+                            used.extend(finder_triple.iter().map(|p| (*p).clone()));
+                            results.push(Detection {
+                                bytes: Some(read.bytes),
+                                structured_append: read.structured_append,
+                                reader_initialization: false,
+                                addon: None,
+                                format: "QRCode".into(),
+                                text: read.text,
+                                polygon: [[0., 0.], [nf, 0.], [nf, nf], [0., nf]]
+                                    .map(|[x, y]| map(&t, x, y)),
+                                support: tl.support.min(tr.support).min(bl.support),
+                                error: barcode_multiformat::numeric::usize_f32(read.corrected),
+                                gs1: read.gs1,
+                            });
+                            break 'versions;
+                        }
                     }
                 }
             }
@@ -1160,6 +1271,77 @@ fn detect_with_recovery(
         );
     }
     (results, limited)
+}
+
+#[cfg(test)]
+mod gray_decode_tests {
+    use super::gray_decode;
+
+    #[test]
+    fn module_space_thresholds_read_a_symbol_under_an_illumination_gradient() {
+        // Version 1-M "TAPIRSCAN" under a strong illumination gradient.
+        let rows = [
+            "111111101101001111111",
+            "100000101100001000001",
+            "101110100011001011101",
+            "101110101110101011101",
+            "101110100001001011101",
+            "100000100111101000001",
+            "111111101010101111111",
+            "000000001111100000000",
+            "101101110111101001011",
+            "000001001001111100011",
+            "011110110111000001001",
+            "100011010001001011111",
+            "001100100010100100000",
+            "000000001101001010111",
+            "111111101111100101101",
+            "100000101010000110100",
+            "101110100010111000111",
+            "101110101101001101010",
+            "101110101000101100000",
+            "100000100110010100100",
+            "111111101000010011010",
+        ];
+        let n = 21;
+        let bits: Vec<bool> = rows
+            .iter()
+            .flat_map(|r| r.bytes().map(|b| b == b'1'))
+            .collect();
+        let (scale, margin) = (6, 4);
+        let w = (n + 2 * margin) * scale;
+        let gray: Vec<u8> = (0..w * w)
+            .map(|i| {
+                let (x, y) = (i % w / scale, i / w / scale);
+                let dark = x >= margin
+                    && y >= margin
+                    && x < n + margin
+                    && y < n + margin
+                    && bits[(y - margin) * n + x - margin];
+                // Illumination falls from full on the right to a fifth on the left.
+                let value: usize = if dark { 40 } else { 220 };
+                let light = 20 + 80 * (i % w) / w;
+                u8::try_from(value * light / 100).unwrap()
+            })
+            .collect();
+        let offset = barcode_multiformat::numeric::usize_f32(margin * scale);
+        let step = barcode_multiformat::numeric::usize_f32(scale);
+        let t = [step, 0., offset, 0., step, offset, 0., 0.];
+        // A single global cut turns the dim light modules dark.
+        let global: Vec<bool> = (0..n * n)
+            .map(|i| gray[((i / n + margin) * scale + 3) * w + (i % n + margin) * scale + 3] < 128)
+            .collect();
+        assert!(barcode_multiformat::qr::decode_matrix(&global, n).is_none());
+        let read = gray_decode(&gray, w, w, n, &t, &bits).expect("gray decode reads the symbol");
+        assert_eq!(read.text, "TAPIRSCAN");
+        // A light-on-dark symbol: the inverted threshold image marks its light
+        // modules, and the polarity check follows that.
+        let inverted_gray: Vec<u8> = gray.iter().map(|v| 255 - v).collect();
+        assert_eq!(
+            gray_decode(&inverted_gray, w, w, n, &t, &bits).map(|r| r.text),
+            Some("TAPIRSCAN".into())
+        );
+    }
 }
 
 #[cfg(test)]

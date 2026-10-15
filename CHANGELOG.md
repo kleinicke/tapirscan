@@ -32,6 +32,11 @@
 - QR in Medium: unread images above 1920 pixels also retry at 1280 pixels when
   the 960-pixel retry reads nothing (Barber photos: 1,116 instead of 1,105 known
   codes, about 2% more mean time on the QR selection).
+- QR in Medium, High and Very High: when a sampled grid fails, its modules are
+  resampled in gray and thresholded against their 7x7-module neighborhood, which
+  follows illumination gradients across the symbol; the weakest twelfth become
+  erasures. QR selection: Medium 4,238 instead of 4,230 known codes, High 4,402
+  instead of 4,392, about 4% more mean time.
 - MaxiCode selected with other 2D formats is a reader group of its own, and High
   and Very High get Medium's reduced-copy retry for large unread frames; in a mixed
   selection it runs where a MaxiCode candidate was found. Four of the five
