@@ -201,7 +201,9 @@ fn triple_score(finders: &[Finder], triple: [usize; 3]) -> f32 {
         - 1.;
     let angle_error =
         (d[2].powi(2) - d[0].powi(2) - d[1].powi(2)).abs() / (2. * d[0] * d[1]).max(1.);
-    f32::midpoint(d[0], d[1]) / module + angle_error * 30. + spread * 10.
+    // Shape dominates: a large symbol's true triple spans 100+ modules and must
+    // not rank behind compact accidental triples.
+    f32::midpoint(d[0], d[1]) / module * 0.1 + angle_error * 30. + spread * 10.
 }
 fn local_triples(finders: &[Finder]) -> impl Iterator<Item = [usize; 3]> + use<> {
     let mut triples = Vec::new();
