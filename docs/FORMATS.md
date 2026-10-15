@@ -12,9 +12,12 @@ constants listed here.
 | `"retail"`          | EAN13, UPCA, EAN8, UPCE              |
 | `"common1D"`        | Retail + Code128, Code39, ITF        |
 | `"common"`          | common1D + QRCode, DataMatrix        |
-| `"1D"`              | All supported linear formats         |
+| `"1D"`              | All linear formats except opt-in     |
 | `"2D"`              | All supported matrix/stacked formats |
-| `"all"`             | All formats except the opt-in ones   |
+| `"all"`             | All formats except opt-in            |
+
+The opt-in formats `Code32`, `PZN` and `MSIPlessey` are in no preset, `all`
+included; select them by name.
 
 Native names follow each language: Rust `Formats::COMMON_1D`, C
 `TAPIRSCAN_FORMATS_COMMON_1D`, C++ `Formats::common_1d()` and Java
@@ -56,42 +59,30 @@ The supported public identifiers and native bits are:
 
 ### Pharmacy numbers in Code 39 (Code32, PZN)
 
-Italian Code 32 and German PZN codes are ordinary Code 39 symbols, so the `Code39`
-format already reads them, as their raw Code 39 content: `0CSSBD` for Code 32 and
-`-02532876` for PZN. Select `Code32` and/or `PZN` to get the pharmacy number instead.
-The Code 39 reader then runs, and a read whose content is a valid number of that
-scheme is reported with that format:
+Italian Code 32 and German PZN codes are ordinary Code 39 symbols; `Code39`
+reads them as raw content (`0CSSBD`, `-02532876`). Select `Code32` and/or `PZN`
+to get the pharmacy number instead: `012345676` (the printed `A` prefix is not
+part of it) and `02532876`. Only reads with a valid check digit are converted;
+the raw Code 39 text stays in the payload bytes. Other Code 39 reads are returned
+only if `Code39` is selected too.
 
-- **Code32:** six base-32 characters (digits and consonants) convert to the 9-digit
-  number with leading zeros, `012345676`. The 9th digit is checked with the Code 32
-  check digit (odd positions added, even positions doubled and their digits added).
-  The `A` printed in front of the number is not part of the text.
-- **PZN:** `-` plus 8 digits (PZN8) or 7 digits (PZN7) is reported without the `-`,
-  `02532876`, after the modulo-11 check digit is verified.
-
-The raw Code 39 content stays available as payload bytes. Other Code 39 reads are
-returned only if `Code39` is selected too; with `Code32` alone, a plain Code 39
-symbol is not reported. The opt-in formats are in no preset, `all` included,
-because an arbitrary six-character Code 39 can pass the Code 32 check digit by
-chance (about one in ten): select them only where these codes are expected.
-zxing-cpp reports the same formats as `A012345676` and `-02532876`.
+Both formats are opt-in, because an arbitrary six-character Code 39 passes the
+Code 32 check about one time in ten: select them only where these codes are
+expected.
 
 ### MSI Plessey
 
-MSI Plessey (also called Modified Plessey) labels shelves and stock in retail
-and warehouses. Each digit is four bars of two widths, with no per-character
-check, so a misread bar can still form valid digits. Tapirscan therefore reads
-only symbols that end in a mod-10 (Luhn) check digit and returns the digits
-including it: `1234566` for the data `123456`. Symbols with a mod-1010 check end
-in two such digits and read the same way. Symbols with only a mod-11 check, or
-no check digit, are not read.
+MSI Plessey has no per-character check, so it is read only when it ends in a
+mod-10 (Luhn) check digit, which is returned with the data: `1234566` for
+`123456`. Mod-1010 symbols read the same way; symbols with only a mod-11 check
+or none are not read. The symbol also needs:
 
-The reader also needs a quiet zone of at least eight modules on both sides of
-the symbol, at least four digits including the check digit, and one consistent
-narrow/wide bar width across the symbol. A symbol cut by the image edge is not
-read: its first bars could otherwise look like a shorter symbol whose last digit
-passes the check by chance. `MSIPlessey` is opt-in: it is in no preset, `all`
-included, so selecting other formats never adds MSI reads.
+- quiet zones of at least eight modules on both sides, so a symbol cut by the
+  image edge is not read;
+- at least four digits, including the check digit;
+- consistent bar widths across the symbol.
+
+`MSIPlessey` is opt-in.
 
 ## Effort levels
 

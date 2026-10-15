@@ -97,15 +97,15 @@ the reader did not report it. `rect()` returns a `tapirscan::Rect` with
 
 ## Structured content
 
-`tapirscan::parse_content` recognizes GS1 elements, Wi-Fi, contacts, payment
-slips, HIBC, VINs and driver's licenses in a barcode's text:
+`tapirscan::parse_content(barcode)` returns the named fields of GS1, Wi-Fi,
+contact, payment and similar payloads.
 
 ```cpp
 if (auto content = tapirscan::parse_content(barcode); content && content->kind == tapirscan::ContentKind::Wifi)
     connect(*content->get("ssid"), content->get("password").value_or(""));
 ```
 
-Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+Kinds and fields: [structured content](../../docs/CONTENT.md).
 
 ## Images
 

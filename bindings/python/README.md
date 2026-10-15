@@ -327,8 +327,8 @@ Exported types include `ScanResult`, `InspectionResult`, `Barcode`, `Format`,
 
 ## Structured content
 
-`parse_content` recognizes GS1 elements, Wi-Fi, contacts, payment slips, HIBC,
-VINs and driver's licenses in a barcode's text, using its GS1 flag:
+`parse_content(barcode)` returns the named fields of GS1, Wi-Fi, contact,
+payment and similar payloads, or `None` for plain text. It also accepts a `str`.
 
 ```python
 content = tapirscan.parse_content(barcode)  # or a str; gs1=True for element strings
@@ -336,8 +336,7 @@ if content and content.kind == "GS1":
     gtin, expiry = content.get("01"), content.get("17")
 ```
 
-It returns `None` for plain text. Kinds and field names are listed in
-[structured content](../../docs/CONTENT.md).
+Kinds and fields: [structured content](../../docs/CONTENT.md).
 
 ## EAN/UPC supplements
 

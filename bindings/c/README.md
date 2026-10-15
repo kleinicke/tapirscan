@@ -129,9 +129,9 @@ schema-2 engine report whose fields may change.
 
 ## Structured content
 
-`tapirscan_parse_content` recognizes GS1 elements, Wi-Fi, contacts, payment
-slips, HIBC, VINs and driver's licenses in decoded text. Pass the barcode's
-`gs1` flag; text without structure succeeds with handle 0.
+`tapirscan_parse_content` returns a handle to the named fields of GS1, Wi-Fi,
+contact, payment and similar payloads, or 0 for plain text. Pass the barcode's
+`gs1` flag.
 
 ```c
 tapirscan_content content = 0;
@@ -139,13 +139,12 @@ tapirscan_parse_content(text, text_length, barcode.gs1, &content, NULL);
 if (content) {
     tapirscan_content_summary summary;
     tapirscan_content_info(content, &summary); /* kind, field_count */
-    /* tapirscan_content_field gives lengths; tapirscan_content_copy copies
-       TAPIRSCAN_CONTENT_FIELD_NAME or _VALUE plus a NUL. */
+    /* read fields with tapirscan_content_field and tapirscan_content_copy */
     tapirscan_content_destroy(content);
 }
 ```
 
-Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+Kinds and fields: [structured content](../../docs/CONTENT.md).
 
 ## Images
 

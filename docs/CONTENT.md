@@ -1,14 +1,9 @@
 # Structured content
 
-Barcodes often carry structured text: GS1 element strings on products and
-logistics labels, Wi-Fi settings and contact cards in QR codes, payment slips,
-health-industry labels, vehicle numbers and driver's licenses. Content parsing
-recognizes these payloads in decoded text and returns their named fields.
-
-Parsing is separate from scanning. It never changes what the scanner reads, it
-runs only on the text you pass (or, in JavaScript, on each decoded barcode), and
-text without a recognized structure has no content. One Rust implementation
-serves every binding, so all languages return the same kinds and fields.
+Content parsing returns the named fields of structured barcode text: GS1
+element strings, Wi-Fi settings, contacts, payment slips, health-industry
+labels, VINs and driver's licenses. It runs on decoded text only and never
+changes what is scanned. Plain text has no content.
 
 ```python
 content = tapirscan.parse_content(barcode)  # a Barcode or a str
@@ -16,67 +11,90 @@ if content and content.kind == "WiFi":
     connect(content.get("ssid"), content.get("password"))
 ```
 
-| Language   | Call                                                                   | Result                                      |
-| ---------- | ---------------------------------------------------------------------- | ------------------------------------------- |
-| Rust       | `barcode.content()`, `tapirscan::parse_content(text, gs1)`             | `Option<Content>`                           |
-| Python     | `tapirscan.parse_content(barcode_or_text, gs1=None)`                   | `Content \| None`                           |
-| JavaScript | `barcode.content` (filled during scanning)                             | `Content \| undefined`, plain frozen data   |
-| Java       | `Tapirscan.parseContent(barcode)`, `Tapirscan.parseContent(text, gs1)` | `Optional<Content>`                         |
-| C++        | `tapirscan::parse_content(barcode)`, `parse_content(text, gs1)`        | `std::optional<Content>`                    |
-| C          | `tapirscan_parse_content(text, length, gs1, &handle, &error)`          | handle, 0 for no content; see `tapirscan.h` |
-| Swift      | `barcode.content`, `parseContent(text, gs1:)`                          | `Content?`                                  |
-| Android    | `barcode.content()`, `Content.parse(text, gs1)`                        | `Content` or `null`                         |
-
-JavaScript parses during scanning, so it has no separate text call; the other
-bindings parse any text you pass.
+| Language   | Call                                                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------- |
+| Rust       | `barcode.content()`, `tapirscan::parse_content(text, gs1)`                                                          |
+| Python     | `tapirscan.parse_content(barcode_or_text, *, gs1=None)`                                                             |
+| JavaScript | `barcode.content`, filled during scanning                                                                           |
+| Java       | `Tapirscan.parseContent(barcode)`, `Tapirscan.parseContent(text, gs1)`                                              |
+| C++        | `tapirscan::parse_content(barcode)`, `parse_content(text, gs1)`                                                     |
+| C          | `tapirscan_parse_content`, a handle (0 = no content); see the [C guide](../bindings/c/README.md#structured-content) |
+| Swift      | `barcode.content`, `parseContent(text, gs1:)`                                                                       |
+| Android    | `barcode.content()`, `Content.parse(text, gs1)`                                                                     |
 
 A `Content` has a `kind` and `fields` in payload order. Each field is a
-`name`/`value` pair; names repeat where the payload repeats them, such as the
-phone numbers of a contact. `get(name)` returns the first value and
-`get_all(name)` (`getAll`, `all`) every value. Values are unescaped but
-otherwise as encoded: dates, amounts and coordinates stay text, so no precision
-or time-zone interpretation is added. Empty values are omitted.
+`name`/`value` pair; a name repeats when the payload repeats it, such as a
+contact's phone numbers. `get(name)` returns the first value, `get_all(name)`
+every value (`getAll` in Java and Android, `all` in Swift). Values are
+unescaped but otherwise as encoded: dates, amounts and coordinates stay text.
 
-Passing a barcode uses its text and GS1 flag. The GS1 flag matters: a GS1-128,
-GS1 DataMatrix, GS1 QR Code or DataBar symbol has no visible marker in its
-text, so element strings are parsed only when the reader reported GS1 (or you
-pass `gs1 = true`). Other text is matched by its own prefix or structure.
+Passing a barcode uses its text and GS1 flag. GS1 element strings carry no
+visible marker, so they are parsed only when the reader reported GS1 or you
+pass `gs1 = true`.
 
-## Kinds and fields
+## Kinds
 
-| Kind          | Recognized by                                                      | Fields                                                                                                                                                                                                                                                                                                                                                                   |
-| ------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GS1`         | GS1 flag; `]C1`, `]d2`, `]Q3`, `]e0`, `]J1`; `(01)…`; Digital Link | One field per element, named by its application identifier (`01`, `17`, `10`, `3103`, …). Digital Link URIs add `url`.                                                                                                                                                                                                                                                   |
-| `URL`         | `http://`, `https://`                                              | `url`                                                                                                                                                                                                                                                                                                                                                                    |
-| `Email`       | `mailto:`, `MATMSG:`                                               | `to` (repeated), `cc`, `bcc`, `subject`, `body`                                                                                                                                                                                                                                                                                                                          |
-| `Phone`       | `tel:`                                                             | `number`                                                                                                                                                                                                                                                                                                                                                                 |
-| `SMS`         | `SMSTO:`, `MMSTO:`, `sms:`                                         | `number` (repeated), `message`                                                                                                                                                                                                                                                                                                                                           |
-| `Geo`         | `geo:`                                                             | `latitude`, `longitude`, `altitude`, `query`                                                                                                                                                                                                                                                                                                                             |
-| `WiFi`        | `WIFI:`                                                            | `ssid`, `security` (`WPA`, `WEP`, `nopass`, …), `password`, `hidden`, `eapMethod`, `phase2Method`, `anonymousIdentity`, `identity`                                                                                                                                                                                                                                       |
-| `Contact`     | vCard (`BEGIN:VCARD`), `MECARD:`                                   | `name`, `organization`, `title`, `phone`, `email`, `address`, `url`, `note`, `birthday`, `nickname` (repeated where the card repeats them)                                                                                                                                                                                                                               |
-| `Calendar`    | iCalendar `VEVENT`                                                 | `summary`, `start`, `end`, `duration`, `location`, `description`, `organizer`, `url`                                                                                                                                                                                                                                                                                     |
-| `SwissQRBill` | `SPC`, version 2.x, `EPD` trailer                                  | `iban`, `creditorName`, `creditorAddress`, `creditorCountry`, `amount`, `currency`, `debtorName`, `debtorAddress`, `debtorCountry`, `referenceType`, `reference`, `message`, `billingInformation`, `alternativeScheme`                                                                                                                                                   |
-| `EPCPayment`  | `BCD`, version 001/002, `SCT` or `INST`                            | `bic`, `name`, `iban`, `currency`, `amount`, `purpose`, `reference`, `text`, `information`                                                                                                                                                                                                                                                                               |
-| `HIBC`        | `+` and a valid mod-43 check character                             | `labelerId`, `productId`, `unitOfMeasure`; secondary data `quantity`, `expiry`, `lot` or `serial`; `link` on a separate secondary symbol                                                                                                                                                                                                                                 |
-| `VIN`         | 17 characters with a valid check digit (an `I` prefix is removed)  | `vin`, `wmi`, `vds`, `vis`, `modelYear`, `plant`, `serial`                                                                                                                                                                                                                                                                                                               |
-| `AAMVA`       | `@` and an `ANSI ` or `AAMVA` header                               | `issuerId`, `version`, `documentType` (`DL`, `ID`), `licenseNumber`, `lastName`, `firstName`, `middleName`, `fullName`, `dateOfBirth`, `expirationDate`, `issueDate`, `sex`, `street`, `street2`, `city`, `state`, `postalCode`, `country`, `height`, `eyeColor`, `hairColor`, `vehicleClass`, `restrictions`, `endorsements`, `documentDiscriminator`, `complianceType` |
+| Kind          | Recognized by                                                      |
+| ------------- | ------------------------------------------------------------------ |
+| `GS1`         | GS1 flag; `]C1`, `]d2`, `]Q3`, `]e0`, `]J1`; `(01)…`; Digital Link |
+| `URL`         | `http://`, `https://`                                              |
+| `Email`       | `mailto:`, `MATMSG:`                                               |
+| `Phone`       | `tel:`                                                             |
+| `SMS`         | `SMSTO:`, `MMSTO:`, `sms:`                                         |
+| `Geo`         | `geo:`                                                             |
+| `WiFi`        | `WIFI:`                                                            |
+| `Contact`     | vCard, `MECARD:`                                                   |
+| `Calendar`    | iCalendar `VEVENT`                                                 |
+| `SwissQRBill` | `SPC` with an `EPD` trailer                                        |
+| `EPCPayment`  | SEPA credit transfer, `BCD`                                        |
+| `HIBC`        | `+` and a valid mod-43 check character                             |
+| `VIN`         | 17 characters with a valid check digit                             |
+| `AAMVA`       | `@` and an `ANSI ` or `AAMVA` header                               |
 
-Checks that reject a payload rather than return partial fields:
+## Fields
 
-- **GS1:** unknown application identifiers, fixed-length elements of the wrong
-  length or with non-digits, and GTIN/SSCC/GLN check digits.
-- **Payments:** the IBAN's ISO 13616 checksum; Swiss QR-bills also need a
-  Swiss or Liechtenstein IBAN, all 31 mandatory lines and the `EPD` trailer.
-- **HIBC:** the mod-43 check character. **VIN:** the position-9 check digit,
-  which North American VINs carry. European VINs without one are not recognized.
-- **AAMVA:** a license number or last name. Element values are as encoded,
-  including the jurisdiction's date order (`MMDDCCYY` in the US, `CCYYMMDD` in
-  Canada).
+- **GS1:** one field per element, named by its application identifier (`01`,
+  `17`, `10`, `3103`, …). Digital Link URLs add `url`.
+- **URL:** `url`. **Phone:** `number`.
+- **Email:** `to` (repeated), `cc`, `bcc`, `subject`, `body`.
+- **SMS:** `number` (repeated), `message`.
+- **Geo:** `latitude`, `longitude`, `altitude`, `query`.
+- **WiFi:** `ssid`, `security` (`WPA`, `WEP`, `nopass`, …), `password`, `hidden`,
+  and for enterprise networks `eapMethod`, `phase2Method`, `anonymousIdentity`,
+  `identity`.
+- **Contact:** `name`, `organization`, `title`, `phone`, `email`, `address`,
+  `url`, `note`, `birthday`, `nickname`.
+- **Calendar:** `summary`, `start`, `end`, `duration`, `location`,
+  `description`, `organizer`, `url`.
+- **SwissQRBill:** `iban`, `creditorName`, `creditorAddress`,
+  `creditorCountry`, `amount`, `currency`, the same three `debtor…` fields,
+  `referenceType`, `reference`, `message`, `billingInformation`,
+  `alternativeScheme`.
+- **EPCPayment:** `bic`, `name`, `iban`, `currency`, `amount`, `purpose`,
+  `reference`, `text`, `information`.
+- **HIBC:** `labelerId`, `productId`, `unitOfMeasure`; secondary data
+  `quantity`, `expiry`, `lot` or `serial`; `link` on a separate secondary symbol.
+- **VIN:** `vin`, `wmi`, `vds`, `vis`, `modelYear`, `plant`, `serial`. An `I`
+  prefix on Code 39 labels is removed.
+- **AAMVA:** `issuerId`, `version`, `documentType` (`DL`, `ID`),
+  `licenseNumber`, `lastName`, `firstName`, `middleName`, `fullName`,
+  `dateOfBirth`, `expirationDate`, `issueDate`, `sex`, `street`, `street2`,
+  `city`, `state`, `postalCode`, `country`, `height`, `eyeColor`, `hairColor`,
+  `vehicleClass`, `restrictions`, `endorsements`, `documentDiscriminator`,
+  `complianceType`. Dates keep the issuer's order (`MMDDCCYY` in the US,
+  `CCYYMMDD` in Canada).
 
-Content can be personal data (contacts, Wi-Fi passwords, licenses). Parsing
-runs locally and stores nothing; handle the returned fields like the scanned
-text itself.
+## Validation
 
-Not covered: Aadhaar secure QR codes (compressed and signed binary), GS1
-element titles and value conversion (dates, decimal weights), Swiss QR-bill
-alternative-scheme payloads, and vCard parameters such as `TYPE=WORK`.
+A payload that fails these checks has no content, rather than partial fields:
+
+- **GS1:** known application identifiers, fixed-length elements of the right
+  length, and GTIN/SSCC/GLN check digits.
+- **Payments:** the IBAN checksum; Swiss QR-bills also need a Swiss or
+  Liechtenstein IBAN and all mandatory lines.
+- **HIBC:** the check character. **VIN:** the position-9 check digit, so VINs
+  without one (common in Europe) are not recognized.
+- **AAMVA:** a license number or last name.
+
+Not covered: Aadhaar QR codes, GS1 element titles and value conversion, Swiss
+QR-bill alternative-scheme payloads, and vCard parameters such as `TYPE=WORK`.

@@ -465,8 +465,8 @@ All types (`ScanResult`, `InspectionResult`, `Barcode`, `ScannerOptions`,
 
 ## Structured content
 
-Each barcode whose text has a recognized structure carries `content`: GS1
-elements, Wi-Fi, contacts, payment slips, HIBC, VINs or driver's licenses.
+A barcode whose text has a recognized structure (GS1, Wi-Fi, contact, payment
+and similar payloads) carries its named fields as `content`.
 
 ```js
 const { content } = result.barcodes[0];
@@ -475,8 +475,7 @@ if (content?.kind === "WiFi") {
 }
 ```
 
-`content` is absent for plain text. Kinds and field names are listed in
-[structured content](../../docs/CONTENT.md).
+Kinds and fields: [structured content](../../docs/CONTENT.md).
 
 ## EAN/UPC supplements
 

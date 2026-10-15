@@ -89,8 +89,8 @@ gives names such as `"QRCode"`.
 
 ## Structured content
 
-`Tapirscan.parseContent` recognizes GS1 elements, Wi-Fi, contacts, payment
-slips, HIBC, VINs and driver's licenses in a barcode's text:
+`Tapirscan.parseContent(barcode)` returns the named fields of GS1, Wi-Fi,
+contact, payment and similar payloads.
 
 ```java
 Tapirscan.parseContent(barcode)
@@ -99,7 +99,7 @@ Tapirscan.parseContent(barcode)
         .ifPresent(gtin -> System.out.println("GTIN " + gtin));
 ```
 
-Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+Kinds and fields: [structured content](../../docs/CONTENT.md).
 
 ## Images
 

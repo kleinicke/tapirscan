@@ -2,12 +2,12 @@
 
 ## Upgrading from 1.3.0
 
-Existing calls keep working; rebuild native consumers. The native library is
-ABI 7: C, C++, Python and Java check the version when they load it, so headers,
-bindings and library must come from the same release. ABI 7 adds the
-[content parsing](CONTENT.md) functions; the existing functions and structures
-are unchanged. Format selection adds the opt-in `MSIPlessey` bit, which no
-preset includes.
+Existing calls keep working; rebuild native consumers. Native ABI 7 adds the
+[content parsing](CONTENT.md) functions and leaves the existing ones unchanged.
+C, C++, Python and Java check the ABI version when they load the library, so
+headers, binding and library must come from the same release. The new formats
+`Code32`, `PZN` and `MSIPlessey` are opt-in: no preset, `all` included, selects
+them.
 
 ## Upgrading from 1.2.2
 

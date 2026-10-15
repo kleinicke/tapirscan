@@ -51,16 +51,15 @@ analysis.setAnalyzer(executor) { image ->
 
 ## Structured content
 
-`barcode.content()` recognizes GS1 elements, Wi-Fi, contacts, payment slips,
-HIBC, VINs and driver's licenses in the decoded text; `Content.parse(text, gs1)`
-parses any text. Both return `null` for plain text.
+`barcode.content()` returns the named fields of GS1, Wi-Fi, contact, payment
+and similar payloads, or `null`; `Content.parse(text, gs1)` parses any text.
 
 ```java
 Content content = barcode.content();
 if (content != null && content.kind() == Content.Kind.WIFI) connect(content.get("ssid"), content.get("password"));
 ```
 
-Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+Kinds and fields: [structured content](../../docs/CONTENT.md).
 
 ## Other inputs
 

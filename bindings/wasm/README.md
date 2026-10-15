@@ -41,10 +41,11 @@ WASM adapter codes, not the C status values). Status 4 writes a JSON object with
 leave the output untouched; it may still hold an earlier result, so read it only
 after status 0 or 4.
 
-An ordinary scan outputs `{"barcodes": [...]}`. Each entry includes its `rect`
-and, when its text has a recognized structure, `content` (`{"kind", "fields":
-[{"name", "value"}]}`, see [structured content](https://github.com/kleinicke/tapirscan/blob/main/docs/CONTENT.md));
-unavailable metadata is omitted. An inspection also contains `bestIndex`,
+An ordinary scan outputs `{"barcodes": [...]}`. Each entry includes its `rect`;
+unavailable metadata is omitted. A barcode with structured text also has
+`content`, `{"kind", "fields": [{"name", "value"}]}`; see
+[structured content](https://github.com/kleinicke/tapirscan/blob/main/docs/CONTENT.md).
+An inspection also contains `bestIndex`,
 `undecoded`, `image`, `mode`, `elapsedMs` and the engine diagnostics under
 `debug`.
 

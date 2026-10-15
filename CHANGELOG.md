@@ -2,22 +2,16 @@
 
 ## Unreleased
 
-- Content parsing in every binding: GS1 element strings (by the reader's GS1
-  flag, symbology identifiers, the bracketed form and GS1 Digital Link), URL,
-  e-mail, phone, SMS, geo, Wi-Fi, vCard/MECARD, iCalendar events, Swiss
-  QR-bills, EPC/SEPA payments, HIBC, VINs and AAMVA licenses. JavaScript
-  barcodes carry it as `barcode.content`; the other bindings add
-  `parse_content`. See [structured content](docs/CONTENT.md).
-- Native ABI 7: adds the content functions; existing functions are unchanged.
+- Content parsing in every binding: GS1 element strings, Wi-Fi, contacts,
+  payment slips, HIBC, VINs, driver's licenses and more. JavaScript barcodes
+  carry `content`; the other bindings add `parse_content`. See
+  [structured content](docs/CONTENT.md).
+- Native ABI 7 adds the content functions; existing functions are unchanged.
   Swift and Android barcodes add the reader's `gs1` flag.
-- New opt-in format `MSIPlessey` (native bit 1048576): MSI Plessey with a
-  mod-10 check digit, read in every mode. Like the other opt-in formats it is in
-  no preset. See [format coverage](docs/FORMATS.md#msi-plessey).
-- New opt-in formats `Code32` (Italian pharmacy code) and `PZN` (German
-  Pharmazentralnummer). Both are Code 39 symbols; selecting them reports a valid
-  code's number (`012345676`, `02532876`) instead of the raw Code 39 content,
-  which stays available as payload bytes. They belong to no preset, `all`
-  included. Native bits 262144 and 524288; C adds `TAPIRSCAN_FORMATS_OPT_IN`.
+- New opt-in format `MSIPlessey` (bit 1048576), read when it has a mod-10 check
+  digit. See [format coverage](docs/FORMATS.md#msi-plessey).
+- New opt-in formats `Code32` and `PZN` (bits 262144 and 524288): Code 39
+  pharmacy codes reported as their number. C adds `TAPIRSCAN_FORMATS_OPT_IN`.
   See [format coverage](docs/FORMATS.md#pharmacy-numbers-in-code-39-code32-pzn).
 - QR: finder triples are tried in order of geometric plausibility, and once a
   symbol is read, each threshold pass stops after 100 decode attempts without a

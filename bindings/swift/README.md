@@ -42,9 +42,8 @@ rows. Errors are thrown as `TapirscanError` with the library's message.
 
 ## Structured content
 
-`barcode.content` recognizes GS1 elements, Wi-Fi, contacts, payment slips,
-HIBC, VINs and driver's licenses in the decoded text; `parseContent(_:gs1:)`
-parses any text.
+`barcode.content` returns the named fields of GS1, Wi-Fi, contact, payment and
+similar payloads; `parseContent(_:gs1:)` parses any text.
 
 ```swift
 if let content = barcode.content, content.kind == .wifi {
@@ -52,7 +51,7 @@ if let content = barcode.content, content.kind == .wifi {
 }
 ```
 
-Kinds and field names are listed in [structured content](../../docs/CONTENT.md).
+Kinds and fields: [structured content](../../docs/CONTENT.md).
 
 ## Camera frames
 
