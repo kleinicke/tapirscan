@@ -13,6 +13,16 @@
 - New opt-in formats `Code32` and `PZN` (bits 262144 and 524288): Code 39
   pharmacy codes reported as their number. C adds `TAPIRSCAN_FORMATS_OPT_IN`.
   See [format coverage](docs/FORMATS.md#pharmacy-numbers-in-code-39-code32-pzn).
+- Data Matrix: large, blurred close-up symbols (tens of pixels per module) are
+  read in High and Very High. A frame without a Data Matrix read is retried on
+  area-averaged copies (400 and 256 pixels long side in High; 400, 1008, 800 and
+  256 in Very High, for frames at least 1.5 times larger), and those copies also
+  tighten the corners of a fair-but-unclean candidate grid by a bounded search.
+  On the 960 development images of the 15 October 2026 labels, Data Matrix reads
+  rise from 537 to 588 (High) and from 538 to 599 (Very High) with no false reads;
+  of 46 symbols that zxing-cpp read and Tapirscan missed, High now reads 21.
+  Medium is unchanged. On large retail photos High with `common` costs about 5%
+  more, with identical reads; other formats' reads are unchanged.
 - Linear formats other than retail (Code 128, Code 39, ITF, Codabar, Code 93,
   DataBar) are also localized at finer scale in High (one half-scale raster) and
   Very High (overlapping 1536-pixel windows) on frames whose long side exceeds

@@ -947,6 +947,73 @@ fn scaled_matrix_retry(
     scan
 }
 
+#[cfg(any(feature = "high", feature = "very-high"))]
+/// Whether a scan read a symbol of this format.
+fn has_format_read(scan: &barcode_multiformat::Scan, format: &str) -> bool {
+    scan.barcodes.iter().any(|read| read.format == format)
+}
+
+/// Scan an area-averaged copy whose long side is `target_long`, with polygons
+/// mapped back to source coordinates.
+#[cfg(any(feature = "high", feature = "very-high"))]
+fn averaged_matrix_retry(
+    pixels: &[u8],
+    width: usize,
+    height: usize,
+    target_long: usize,
+    mask: u32,
+    effort: usize,
+) -> barcode_multiformat::Scan {
+    let long = width.max(height);
+    let out_width = (width * target_long / long).max(3);
+    let out_height = (height * target_long / long).max(3);
+    let bounds = |index: usize, out: usize, source: usize| {
+        let start = index * source / out;
+        (
+            start,
+            ((index + 1) * source / out).max(start + 1).min(source),
+        )
+    };
+    // At most four evenly spaced samples per axis and output pixel keep the
+    // pass cheap on camera frames while still averaging the blur.
+    let mut smaller = vec![0_u8; out_width * out_height];
+    for y in 0..out_height {
+        let (y0, y1) = bounds(y, out_height, height);
+        let y_samples = (y1 - y0).min(4);
+        for x in 0..out_width {
+            let (x0, x1) = bounds(x, out_width, width);
+            let x_samples = (x1 - x0).min(4);
+            let mut sum = 0_u32;
+            for j in 0..y_samples {
+                let row = y0 + (2 * j + 1) * (y1 - y0) / (2 * y_samples);
+                for i in 0..x_samples {
+                    let column = x0 + (2 * i + 1) * (x1 - x0) / (2 * x_samples);
+                    sum += u32::from(pixels[row * width + column]);
+                }
+            }
+            let count = u32::try_from(y_samples * x_samples).unwrap_or(1);
+            smaller[y * out_width + x] = u8::try_from((sum + count / 2) / count).unwrap_or(255);
+        }
+    }
+    let mut scan = scan_reader(&smaller, out_width, out_height, mask, effort);
+    let scale_x = barcode_multiformat::numeric::usize_f32(width)
+        / barcode_multiformat::numeric::usize_f32(out_width);
+    let scale_y = barcode_multiformat::numeric::usize_f32(height)
+        / barcode_multiformat::numeric::usize_f32(out_height);
+    for polygon in scan
+        .barcodes
+        .iter_mut()
+        .map(|value| &mut value.polygon)
+        .chain(scan.regions.iter_mut().map(|value| &mut value.polygon))
+    {
+        for point in polygon {
+            point[0] *= scale_x;
+            point[1] *= scale_y;
+        }
+    }
+    scan
+}
+
 fn validate(image: Image<'_>, mask: u32) -> Result<(), Error> {
     if mask == 0
         || mask & !ALL_FORMATS_MASK != 0
@@ -1333,6 +1400,33 @@ fn scan_additional(
                         image.height,
                     ));
                 }
+            }
+        }
+    }
+    // Large, blurred Data Matrix symbols span tens of pixels per module, far
+    // beyond what the module-scale localizer expects. Unread frames are retried
+    // on area-averaged copies, which also take the corner-refining search.
+    // High tries the two cheap scales; Medium keeps its cost on large photos.
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    if matrix & 1024 != 0
+        && addons == EanAddOnPolicy::Ignore
+        && !scans.iter().any(|scan| has_format_read(scan, "DataMatrix"))
+    {
+        let long = image.width.max(image.height);
+        let targets: &[usize] = if crate::MODE_ID == 3 {
+            &[400, 1008, 800, 256]
+        } else {
+            &[400, 256]
+        };
+        for &target in targets {
+            if long < target * 3 / 2 {
+                continue;
+            }
+            let retry = averaged_matrix_retry(pixels, image.width, image.height, target, 1024, 2);
+            let decoded = !retry.barcodes.is_empty();
+            scans.push(retry);
+            if decoded {
+                break;
             }
         }
     }

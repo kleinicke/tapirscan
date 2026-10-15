@@ -475,7 +475,7 @@ pub fn scan_observed(
     };
     if mask & 1024 != 0 {
         let (mut reads, limited) =
-            dm_detect::detect(width, height, &mut regions, &mut binary_images);
+            dm_detect::detect(width, height, &mut regions, &mut binary_images, effort > 1);
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
         observe("DataMatrix", matrix_unfinished || regions.limited);

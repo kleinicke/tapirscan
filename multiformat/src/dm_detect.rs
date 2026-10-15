@@ -1132,6 +1132,106 @@ fn border(
     }
     Some(crate::numeric::usize_f32(errors) / crate::numeric::usize_f32((cols + rows) * 2))
 }
+/// Hypotheses whose border is fair but not clean usually come from a hull quad a
+/// few pixels off a blurred or strongly tilted symbol. Coordinate descent on
+/// the corners, scored on five samples per border module, tightens the grid;
+/// the refined hypothesis competes next to the original ones.
+const REFINE_LIMIT: usize = 24;
+const REFINE_SEED_LIMIT: f32 = 0.32;
+
+fn fine_border_errors(
+    image: &[bool],
+    w: usize,
+    h: usize,
+    transform: &[f32; 8],
+    cols: usize,
+    rows: usize,
+) -> Option<usize> {
+    const OFFSETS: [[f32; 2]; 5] = [[0., 0.], [0.3, 0.], [-0.3, 0.], [0., 0.3], [0., -0.3]];
+    let mut errors = 0;
+    for (edge, length) in [(0, cols), (1, rows), (2, cols), (3, rows)] {
+        for at in 0..length {
+            let (x, y, expected) = match edge {
+                0 => (at, 0, at % 2 == 0),
+                1 => (cols - 1, at, at % 2 == 1),
+                2 => (at, rows - 1, true),
+                _ => (0, at, true),
+            };
+            for offset in OFFSETS {
+                errors += usize::from(
+                    pixel(
+                        image,
+                        w,
+                        h,
+                        transform,
+                        crate::numeric::usize_f32(x) + 0.5 + offset[0],
+                        crate::numeric::usize_f32(y) + 0.5 + offset[1],
+                    )? != expected,
+                );
+            }
+        }
+    }
+    Some(errors)
+}
+
+fn refine_hypotheses(
+    image: &[bool],
+    w: usize,
+    h: usize,
+    hypotheses: &mut Vec<(f32, datamatrix::Size, [f32; 8], [Point; 4])>,
+    refinements: &mut usize,
+) {
+    let mut refined = Vec::new();
+    for &(score, size, _, polygon) in hypotheses.iter().take(2) {
+        if !(0.03..=REFINE_SEED_LIMIT).contains(&score) || *refinements >= REFINE_LIMIT {
+            continue;
+        }
+        *refinements += 1;
+        let evaluate = |q: &[Point; 4]| {
+            rectangle_transform(size.w, size.h, *q)
+                .and_then(|t| fine_border_errors(image, w, h, &t, size.w, size.h))
+        };
+        let Some(mut best) = evaluate(&polygon) else {
+            continue;
+        };
+        let mut quad = polygon;
+        let module = (quad[1][0] - quad[0][0]).hypot(quad[1][1] - quad[0][1])
+            / crate::numeric::usize_f32(size.w);
+        let mut step = (module * 0.5).max(1.);
+        while step >= 0.2 {
+            let mut improved = false;
+            for corner in 0..4 {
+                for axis in 0..2 {
+                    for sign in [1., -1.] {
+                        let mut candidate = quad;
+                        candidate[corner][axis] += sign * step;
+                        if let Some(errors) = evaluate(&candidate)
+                            && errors < best
+                        {
+                            best = errors;
+                            quad = candidate;
+                            improved = true;
+                        }
+                    }
+                }
+            }
+            if !improved {
+                step *= 0.5;
+            }
+        }
+        let Some(t) = rectangle_transform(size.w, size.h, quad) else {
+            continue;
+        };
+        if let Some(new_score) = border(image, w, h, &t, size.w, size.h)
+            && new_score < score
+        {
+            refined.push((new_score, size, t, quad));
+        }
+    }
+    hypotheses.extend(refined);
+    hypotheses.sort_by(|a, b| a.0.total_cmp(&b.0));
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "The Data Matrix search shares proposal ordering, hypothesis caps and undecoded coverage across its sampling passes."
@@ -1141,9 +1241,11 @@ pub fn detect(
     h: usize,
     regions: &mut crate::regions::Regions,
     binary_images: &mut crate::binarization::Images<'_>,
+    refine: bool,
 ) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
     let mut attempts = 0;
+    let mut refinements = 0;
     for mode in 0..4 {
         if binary_images.is_duplicate(mode) {
             continue;
@@ -1221,7 +1323,7 @@ pub fn detect(
                                 continue;
                             };
                             if let Some(score) = border(image, w, h, &t, size.w, size.h)
-                                && score <= 0.2
+                                && score <= if refine { REFINE_SEED_LIMIT } else { 0.2 }
                             {
                                 hypotheses.push((score, *size, t, expanded));
                             }
@@ -1230,6 +1332,9 @@ pub fn detect(
                 }
             }
             hypotheses.sort_by(|a, b| a.0.total_cmp(&b.0));
+            if refine {
+                refine_hypotheses(image, w, h, &mut hypotheses, &mut refinements);
+            }
             regions.limited |= hypotheses.len() > 12;
             for (score, size, t, polygon) in hypotheses.into_iter().take(12) {
                 attempts += 1;

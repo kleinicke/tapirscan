@@ -545,4 +545,86 @@ fn msi_plessey_is_read_in_every_mode_and_only_when_selected() {
     }
     assert_ne!(Formats::ALL | Format::MsiPlessey, Formats::ALL);
     assert_eq!(Format::MsiPlessey.as_str(), "MSIPlessey");
+
+/// A 16x16 Data Matrix ("TAPIRSCAN-DM-42") drawn at 80 pixels per module, low
+/// contrast and heavily blurred, as in close-up phone photos. At this scale the
+/// module-scale localizer finds nothing; High and Very High read it on a reduced copy.
+#[test]
+fn large_blurred_data_matrix_reads_from_high_up() {
+    const ROWS: [&str; 16] = [
+        "1010101010101010",
+        "1111010001001111",
+        "1110010101000000",
+        "1000010100110011",
+        "1001010101000100",
+        "1100101100010011",
+        "1010010111010010",
+        "1100110110100101",
+        "1000000011001000",
+        "1100110000010111",
+        "1110100010011000",
+        "1100011100110001",
+        "1010110111001110",
+        "1111100111000101",
+        "1011000000100010",
+        "1111111111111111",
+    ];
+    const MODULE: usize = 80;
+    const RADIUS: usize = 30;
+    let size = 22 * MODULE;
+    let mut plane = vec![255_f32; size * size];
+    for y in 0..16 * MODULE {
+        for x in 0..16 * MODULE {
+            let dark = ROWS[y / MODULE].as_bytes()[x / MODULE] == b'1';
+            plane[(y + 3 * MODULE) * size + x + 3 * MODULE] = if dark { 60. } else { 190. };
+        }
+    }
+    for _ in 0..2 {
+        for vertical in [false, true] {
+            let source = plane.clone();
+            for line in 0..size {
+                for at in 0..size {
+                    let (lo, hi) = (at.saturating_sub(RADIUS), (at + RADIUS).min(size - 1));
+                    let sum: f32 = (lo..=hi)
+                        .map(|i| {
+                            if vertical {
+                                source[i * size + line]
+                            } else {
+                                source[line * size + i]
+                            }
+                        })
+                        .sum();
+                    let value = sum / f32::from(u16::try_from(hi - lo + 1).unwrap());
+                    if vertical {
+                        plane[at * size + line] = value;
+                    } else {
+                        plane[line * size + at] = value;
+                    }
+                }
+            }
+        }
+    }
+    // The blurred values stay within 60..=190, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let pixels: Vec<u8> = plane.iter().map(|&v| v.round() as u8).collect();
+    for mode in compiled_modes() {
+        if matches!(mode, Mode::Low | Mode::Medium) {
+            continue;
+        }
+        let mut scanner = Scanner::new(ScannerOptions {
+            mode,
+            formats: Format::DataMatrix.into(),
+            ..ScannerOptions::default()
+        });
+        let result = scanner.scan(Image::gray(&pixels, size, size)).unwrap();
+        assert_eq!(
+            result
+                .barcodes
+                .iter()
+                .map(|b| b.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["TAPIRSCAN-DM-42"],
+            "{mode:?}"
+        );
+    }
 }
