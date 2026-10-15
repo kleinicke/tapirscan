@@ -29,6 +29,93 @@ impl EanAddOnPolicy {
     }
 }
 
+/// Window size, in source pixels, for linear localization of large frames. A
+/// 1536-pixel window puts the 768-pixel localizer raster at half scale.
+#[cfg(not(feature = "low"))]
+const WINDOW_SIDE: usize = 1536;
+/// Most windowed proposals decoded per frame, strongest first.
+#[cfg(not(feature = "low"))]
+const WINDOW_PROPOSALS: usize = 32;
+
+/// Stripe proposals from overlapping windows that no full-frame proposal covers.
+#[cfg(not(feature = "low"))]
+fn windowed_proposals(
+    localizer: &mut barcode_research_core::stripes::Detector,
+    image: Image<'_>,
+    known: &[barcode_research_core::oriented::Proposal],
+) -> Result<Vec<barcode_research_core::oriented::Proposal>, Error> {
+    let starts = |n: usize| -> Vec<usize> {
+        if n <= WINDOW_SIDE {
+            return vec![0];
+        }
+        let mut starts: Vec<usize> = (0..n - WINDOW_SIDE).step_by(WINDOW_SIDE - 256).collect();
+        starts.push(n - WINDOW_SIDE);
+        starts
+    };
+    let (width, height) = (image.width.min(WINDOW_SIDE), image.height.min(WINDOW_SIDE));
+    let mut found: Vec<barcode_research_core::oriented::Proposal> = Vec::new();
+    for y in starts(image.height) {
+        for x in starts(image.width) {
+            let offset = y * image.stride + x * image.channels;
+            let window = crate::ImageView::new(
+                &image.data[offset..],
+                width,
+                height,
+                image.channels,
+                image.stride,
+            )?;
+            for mut proposal in localizer.detect(window)?.proposals {
+                for point in &mut proposal.polygon {
+                    point[0] += barcode_research_core::numeric::usize_f64(x);
+                    point[1] += barcode_research_core::numeric::usize_f64(y);
+                }
+                // Only a proposal of similar extent was already tried: a large
+                // full-frame region does not cover the small symbols inside it.
+                let new = !known.iter().chain(found.iter()).any(|old| {
+                    let (a, b) = overlap_quads(&old.polygon, &proposal.polygon);
+                    a.min(b) > 0.5
+                });
+                if new {
+                    found.push(proposal);
+                }
+            }
+        }
+    }
+    found.sort_by(|a, b| b.score.total_cmp(&a.score));
+    found.truncate(WINDOW_PROPOSALS);
+    Ok(found)
+}
+
+/// Stripe proposals from one half-scale raster that no full-frame proposal covers.
+#[cfg(not(feature = "low"))]
+fn half_scale_proposals(
+    localizer: &mut barcode_research_core::stripes::Detector,
+    image: Image<'_>,
+    known: &[barcode_research_core::oriented::Proposal],
+) -> Result<Vec<barcode_research_core::oriented::Proposal>, Error> {
+    let view = crate::ImageView::new(
+        image.data,
+        image.width,
+        image.height,
+        image.channels,
+        image.stride,
+    )?;
+    let side = barcode_research_core::numeric::usize_f64(image.width.max(image.height));
+    let mut found: Vec<barcode_research_core::oriented::Proposal> = Vec::new();
+    for proposal in localizer.detect_at(view, side * 0.5)?.proposals {
+        let new = !known.iter().chain(found.iter()).any(|old| {
+            let (a, b) = overlap_quads(&old.polygon, &proposal.polygon);
+            a.min(b) > 0.5
+        });
+        if new {
+            found.push(proposal);
+        }
+    }
+    found.sort_by(|a, b| b.score.total_cmp(&a.score));
+    found.truncate(WINDOW_PROPOSALS);
+    Ok(found)
+}
+
 impl Scanner {
     #[cfg(not(feature = "low"))]
     #[expect(
@@ -102,6 +189,30 @@ impl Scanner {
                         crate::fast_linear::recover_proposals(image, &full, mask, sampler)?;
                     found.extend(extra);
                     pending.extend(regions);
+                }
+                // The localizer works on a 768-pixel raster: in large frames small
+                // symbols fall below its minimum group size. Localize again at half
+                // scale (High) or on overlapping windows (Very High) and decode only
+                // the new proposals. Medium keeps its cost on large retail photos.
+                if crate::MODE_ID >= 2
+                    && oriented_mask != 0
+                    && image.width.max(image.height) > WINDOW_SIDE
+                {
+                    let windowed = if crate::MODE_ID == 2 {
+                        half_scale_proposals(&mut self.localizer, image, &proposals)?
+                    } else {
+                        windowed_proposals(&mut self.localizer, image, &proposals)?
+                    };
+                    if !windowed.is_empty() {
+                        let (extra, regions) = crate::fast_linear::recover_proposals(
+                            image,
+                            &windowed,
+                            oriented_mask,
+                            sampler,
+                        )?;
+                        found.extend(extra);
+                        pending.extend(regions);
+                    }
                 }
                 reads.extend(found);
                 // Independent short-code source hypothesis, bounded to unresolved proposals.
@@ -1586,6 +1697,50 @@ mod upscale_tests {
         let high = barcode_multiformat::numeric::usize_f32((n + margin) * scale) + 1.;
         for point in read.polygon {
             assert!(point.iter().all(|v| (low..=high).contains(v)), "{point:?}");
+        }
+    }
+}
+
+#[cfg(all(test, not(feature = "low")))]
+mod finer_localization_tests {
+    /// Code 39 `-02532876` at two pixels per module and 30 rows in a 3200x2400
+    /// frame: on the 768-pixel localization raster it is below the minimum
+    /// stripe-group size, so only High and Very High read it.
+    #[test]
+    fn small_linear_symbol_in_large_frame_reads_from_high_up() {
+        let bits = "1001011011010100101011011010100110110101011001010110110100110101011011001010101011001010110110100101101010100101101101011001101010100101101101";
+        let (width, height) = (3200, 2400);
+        let mut data = vec![255; width * height];
+        for y in 800..830 {
+            for (i, bit) in bits.bytes().enumerate() {
+                if bit == b'1' {
+                    data[y * width + 1066 + 2 * i..y * width + 1068 + 2 * i].fill(0);
+                }
+            }
+        }
+        let image = crate::Image {
+            data: &data,
+            width,
+            height,
+            channels: 1,
+            stride: width,
+        };
+        let scan = crate::Scanner::default()
+            .scan_formats_typed_with_addons(
+                image,
+                crate::ScanOptions {
+                    multiple: true,
+                    ..crate::ScanOptions::default()
+                },
+                32,
+                super::EanAddOnPolicy::Ignore,
+            )
+            .unwrap();
+        let texts: Vec<_> = scan.barcodes.iter().map(|b| b.text.as_str()).collect();
+        if crate::MODE_ID >= 2 {
+            assert_eq!(texts, ["-02532876"]);
+        } else {
+            assert!(texts.is_empty(), "{texts:?}");
         }
     }
 }

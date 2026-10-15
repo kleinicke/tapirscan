@@ -203,6 +203,16 @@ impl Detector {
     pub fn detect(&mut self, im: ImageView<'_>) -> std::result::Result<Result, Error> {
         self.detect_grid(im, 768., false, |_| {})
     }
+    /// Detect on a working raster of `working_dimension` pixels on the long side.
+    /// # Errors
+    /// Rejects unsupported image dimensions.
+    pub fn detect_at(
+        &mut self,
+        im: ImageView<'_>,
+        working_dimension: f64,
+    ) -> std::result::Result<Result, Error> {
+        self.detect_grid(im, working_dimension, false, |_| {})
+    }
     /// Observe primary stripe groups while reusing the detector raster.
     /// The observer does not modify primary proposal decisions.
     /// # Errors

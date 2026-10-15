@@ -13,6 +13,19 @@
 - New opt-in formats `Code32` and `PZN` (bits 262144 and 524288): Code 39
   pharmacy codes reported as their number. C adds `TAPIRSCAN_FORMATS_OPT_IN`.
   See [format coverage](docs/FORMATS.md#pharmacy-numbers-in-code-39-code32-pzn).
+- Linear formats other than retail (Code 128, Code 39, ITF, Codabar, Code 93,
+  DataBar) are also localized at finer scale in High (one half-scale raster) and
+  Very High (overlapping 1536-pixel windows) on frames whose long side exceeds
+  1536 pixels. The 768-pixel localization raster made small symbols in large
+  photos, such as short Code 128 fields on part labels, too small to localize.
+  On 469 large images of the 15 October 2026 development labels, High reads 444
+  instead of 249 Code 128 symbols and Very High 525 instead of 274. Medium is
+  unchanged; on large retail photos High with `common1D` costs about 15% more
+  (`common` 7%), Very High about 35% (14%), without changing their reads.
+- PDF417: when two different payloads are decoded at the same place, the one that
+  needed more error corrections is dropped. Low error-correction levels let a
+  damaged row group correct into another valid codeword. On 198 labelled PDF417
+  images all 388 correct Medium reads remain and wrong payloads fall from 6 to 1.
 - QR: finder triples are tried in order of geometric plausibility, and once a
   symbol is read, each threshold pass stops after 100 decode attempts without a
   further read (50 in Low, for live frames). On a 4,619-image QR development

@@ -98,6 +98,12 @@ from Medium up, and Aztec uses smaller refinement budgets in Low. PDF417 uses
 the same effort in every mode; MaxiCode reads the same way in every mode, and from
 Medium up retries large unread frames (over 1920 pixels) on reduced copies.
 
+On frames whose long side exceeds 1536 pixels, High also localizes the non-retail
+linear formats on a half-scale raster and Very High on overlapping 1536-pixel
+windows, so small symbols in large photos can be found; Medium and Low use the
+768-pixel localization raster only. For small codes in large photos with Medium, crop
+around them.
+
 These are internal reader effort levels, not comparable work or confidence scores.
 QR recovery grows with the mode. Every mode retries tiny unread images (up to 300
 pixels) on an enlarged copy. Medium adds, for grids that fail to decode, a gray
