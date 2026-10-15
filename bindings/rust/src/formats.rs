@@ -920,10 +920,18 @@ fn scan_additional(
         .then(|| crate::fast_sparse::Prepared::new(pixels, image.width, image.height));
     let mut scans = Vec::new();
     let mut coverage = Vec::new();
+    // QR selected with other 2D formats is a reader group of its own, so it uses
+    // the maintained QR frontend and the QR recoveries of a QR-only selection.
+    let qr_apart = matrix & 512 != 0 && matrix != 512;
+    let matrix_rest = if qr_apart { matrix & !512 } else { matrix };
     let groups: Vec<(u32, usize)> = [
         (linear & !preserved, effort),
         (preserved, 1),
-        (matrix, if matrix & 512 != 0 { qr_effort } else { 1 }),
+        (
+            matrix_rest,
+            if matrix_rest & 512 != 0 { qr_effort } else { 1 },
+        ),
+        (if qr_apart { 512 } else { 0 }, qr_effort),
     ]
     .into_iter()
     .filter(|&(selected, _)| selected != 0)
@@ -931,7 +939,7 @@ fn scan_additional(
     let first_scan = |selected: u32, level: usize| {
         #[cfg(any(feature = "low", feature = "medium"))]
         if let Some(sparse) = sparse.as_ref().filter(|_| {
-            selected == matrix
+            selected & LINEAR_MASK == 0
                 || (crate::LOW_FAST_PATH
                     && selected & !127 != 0
                     && addons == EanAddOnPolicy::Ignore)
@@ -1019,7 +1027,7 @@ fn scan_additional(
         #[cfg(not(feature = "low"))]
         let mut scan = scan;
         #[cfg(not(feature = "low"))]
-        let grid_retries = if selected == matrix && addons == EanAddOnPolicy::Ignore {
+        let grid_retries = if selected & LINEAR_MASK == 0 && addons == EanAddOnPolicy::Ignore {
             matrix_retries(pixels, [image.width, image.height], selected, &mut scan)
         } else {
             Vec::new()
@@ -1058,11 +1066,11 @@ fn scan_additional(
     // region. Bound discovery to Full-HD-sized inputs; restoration has a smaller
     // pixel budget because it introduces another image and threshold search.
     #[cfg(not(feature = "low"))]
-    if matrix == 512
+    if matrix & 512 != 0
         && addons == EanAddOnPolicy::Ignore
         && image.width * image.height <= 2_097_152
         && scans.iter().all(|scan| scan.barcodes.is_empty())
-        && (crate::MODE_ID >= 2 || !scans.iter().any(|scan| qr_found(scan, false)))
+        && (crate::MODE_ID >= 2 || !scans.iter().any(has_qr_region))
         && pixels.iter().any(|&value| value != 0 && value != 255)
     {
         let foreground =
@@ -1098,9 +1106,9 @@ fn scan_additional(
         }
     }
     #[cfg(any(feature = "high", feature = "very-high"))]
-    if matrix == 512
+    if matrix & 512 != 0
         && addons == EanAddOnPolicy::Ignore
-        && !scans.iter().any(|scan| qr_found(scan, true))
+        && scans.iter().all(|scan| scan.barcodes.is_empty())
     {
         let targets: &[usize] = if crate::MODE_ID == 3 {
             &[1200, 1600]
@@ -1120,10 +1128,10 @@ fn scan_additional(
         }
     }
     #[cfg(any(feature = "high", feature = "very-high"))]
-    if matrix == 512
+    if matrix & 512 != 0
         && addons == EanAddOnPolicy::Ignore
         && image.width * image.height <= 2_097_152
-        && !scans.iter().any(|scan| qr_found(scan, true))
+        && scans.iter().all(|scan| scan.barcodes.is_empty())
     {
         for method in 0..2 {
             let normalized = if method == 0 {
@@ -1146,13 +1154,9 @@ fn scan_additional(
 }
 
 #[cfg(not(feature = "low"))]
-/// Whether a scan read a QR symbol (`reads`) or left a QR region.
-fn qr_found(scan: &barcode_multiformat::Scan, reads: bool) -> bool {
-    if reads {
-        scan.barcodes.iter().any(|read| read.format == "QRCode")
-    } else {
-        scan.regions.iter().any(|region| region.format == "QRCode")
-    }
+/// Whether a scan left a QR candidate region.
+fn has_qr_region(scan: &barcode_multiformat::Scan) -> bool {
+    scan.regions.iter().any(|region| region.format == "QRCode")
 }
 
 #[cfg(feature = "medium")]

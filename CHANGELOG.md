@@ -8,10 +8,14 @@
   Medium reads 4,208 instead of 4,206 and its median scan time falls from 20 to
   11 ms; Low reads 4,138 instead of 4,137, median 19 to 11 ms (Apple M1 Pro,
   native). Images without a read keep the full search.
-- QR in mixed selections such as EAN-13 and QR now gets the same QR recovery as a
-  QR-only scan: Medium reads 4,217 instead of 4,059 of those QR codes, and Low
-  4,138 instead of 4,052. Frames without any QR code cost up to about 9% more
-  with such a selection, as QR-only scans already did.
+- QR in mixed selections reads like a QR-only scan: QR selected with other 2D
+  formats (`common`, `2D`, `all`) is scanned as its own reader group with the
+  maintained QR frontend, and QR recoveries are gated on the QR group instead of
+  the whole selection. On the QR selection, Medium with EAN-13 and QR reads 4,217
+  instead of 4,059 known codes, with `common` or `all` 4,217 instead of 4,048; Low
+  with `common` 4,138 instead of 4,025. Results of other formats are unchanged.
+  Frames without a QR code cost more with such selections: Low and Medium up to
+  about 10%, High and Very High about 40% with `all`.
 - QR: unread frames get a block-threshold pass in the style of ZXing's hybrid
   binarizer, which follows sharp shadow edges and large modules: in High and Very
   High on every unread frame (High reads 4,391 instead of 4,343 of the QR
