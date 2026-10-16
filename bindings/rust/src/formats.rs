@@ -216,6 +216,27 @@ impl Scanner {
                     found.extend(extra);
                     pending.extend(regions);
                 }
+                // Warped symbols that Low reads from its segment-voting boxes (DataBar
+                // Expanded, ITF, Code 93), tried in High and Very High when no retail format is
+                // selected and stripe boxes were found but none read. Whole-frame voting would
+                // cost Medium about 40% on single-format selections.
+                if cfg!(any(feature = "high", feature = "very-high"))
+                    && primary.is_none()
+                    && oriented_mask != 0
+                    && reads.is_empty()
+                    && found.is_empty()
+                    && !pending.is_empty()
+                {
+                    let voted = crate::pipeline::segment_voting::localize(image).proposals;
+                    let (extra, regions) = crate::fast_linear::recover_proposals(
+                        image,
+                        &voted,
+                        oriented_mask,
+                        sampler,
+                    )?;
+                    found.extend(extra);
+                    pending.extend(regions);
+                }
                 // Retail boxes span the full bar height; rows near their edges can keep
                 // checksum-free formats below their row support. Decode the central band of
                 // unread boxes, which stripe localization would have proposed on its own.

@@ -52,9 +52,15 @@
   instead of 249 Code 128 symbols and Very High 525 instead of 274. Medium is
   unchanged; on large retail photos High with `common1D` costs about 15% more
   (`common` 7%), Very High about 35% (14%), without changing their reads.
-- High and Very High run localized recovery for `DataBarExpanded` selected alone, as
-  Medium does. On the variation images that ZXing, ZBar or native Chrome read, High
-  reads 266 instead of 259 of 293 (Medium 271).
+- High and Very High read warped linear symbols as Low does: when no retail format is
+  selected and their stripe boxes read nothing, they also decode Low's segment-voting
+  boxes; with `DataBarExpanded` alone they now run localized recovery like Medium. On
+  340 variation images per format selected alone, High reads ITF 202 instead of 188,
+  Code 93 305 instead of 291, Code 39 48 instead of 43, Code 128 68 instead of 65 and
+  DataBar Expanded 322 instead of 279 (Low: ITF 182, DataBar Expanded 322), with no
+  wrong reads. These selections cost High about 30% more on frames with other
+  barcodes (about 10% with all non-retail 1D formats); Medium, where whole-frame
+  voting would cost about 40%, is unchanged.
 - ITF start and stop patterns tolerate ink spread: when every bar prints wider than
   every space (or narrower), the guards are checked with that bias removed; such reads
   need at least six digits. High and Very High also sweep large frames with twice as
