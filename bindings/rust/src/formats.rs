@@ -116,6 +116,32 @@ fn half_scale_proposals(
     Ok(found)
 }
 
+/// Unread retail boxes whose central band is decoded for the other linear formats.
+#[cfg(not(feature = "low"))]
+const CORE_PROPOSALS: usize = 4;
+
+/// The middle 40% of a box across its bars, keeping its full length.
+#[cfg(not(feature = "low"))]
+fn central_band(q: &crate::Quad) -> crate::Quad {
+    use crate::geometry::{distance, lerp};
+    // Corners 0-1 and 3-2 run along the bars' scan axis unless 1-2 is the longer edge.
+    if distance(q[0], q[1]) >= distance(q[1], q[2]) {
+        [
+            lerp(q[0], q[3], 0.3),
+            lerp(q[1], q[2], 0.3),
+            lerp(q[1], q[2], 0.7),
+            lerp(q[0], q[3], 0.7),
+        ]
+    } else {
+        [
+            lerp(q[0], q[1], 0.3),
+            lerp(q[0], q[1], 0.7),
+            lerp(q[3], q[2], 0.7),
+            lerp(q[3], q[2], 0.3),
+        ]
+    }
+}
+
 impl Scanner {
     #[cfg(not(feature = "low"))]
     #[expect(
@@ -189,6 +215,34 @@ impl Scanner {
                         crate::fast_linear::recover_proposals(image, &full, mask, sampler)?;
                     found.extend(extra);
                     pending.extend(regions);
+                }
+                // Retail boxes span the full bar height; rows near their edges can keep
+                // checksum-free formats below their row support. Decode the central band of
+                // unread boxes, which stripe localization would have proposed on its own.
+                if primary.is_some() && oriented_mask & 0x01F0 != 0 {
+                    let cores: Vec<_> = proposals
+                        .iter()
+                        .filter(|p| {
+                            !reads
+                                .iter()
+                                .chain(found.iter())
+                                .any(|read| overlap_quads(&read.polygon, &p.polygon).0 > 0.)
+                        })
+                        .take(CORE_PROPOSALS)
+                        .map(|p| crate::Proposal {
+                            polygon: central_band(&p.polygon),
+                            score: p.score,
+                        })
+                        .collect();
+                    if !cores.is_empty() {
+                        let (extra, _) = crate::fast_linear::recover_proposals(
+                            image,
+                            &cores,
+                            oriented_mask & 0x01F0,
+                            sampler,
+                        )?;
+                        found.extend(extra);
+                    }
                 }
                 // The localizer works on a 768-pixel raster: in large frames small
                 // symbols fall below its minimum group size. Localize again at half
@@ -1569,6 +1623,31 @@ mod coverage_tests {
         assert!(contains_point([0., 5.], &quad));
         assert!(!contains_point([0., 0.], &[[0., 0.]; 4]));
         assert!(!contains_point([f64::NAN, 0.], &quad));
+    }
+}
+
+#[cfg(all(test, not(feature = "low")))]
+mod central_band_tests {
+    use super::central_band;
+
+    fn assert_close(actual: crate::Quad, expected: crate::Quad) {
+        for (a, e) in actual.iter().flatten().zip(expected.iter().flatten()) {
+            assert!((a - e).abs() < 1e-9, "{actual:?} != {expected:?}");
+        }
+    }
+
+    #[test]
+    fn keeps_the_scan_axis_and_the_middle_of_the_bars() {
+        let along = [[0., 0.], [100., 0.], [100., 20.], [0., 20.]];
+        assert_close(
+            central_band(&along),
+            [[0., 6.], [100., 6.], [100., 14.], [0., 14.]],
+        );
+        let across = [[0., 0.], [20., 0.], [20., 100.], [0., 100.]];
+        assert_close(
+            central_band(&across),
+            [[6., 0.], [14., 0.], [14., 100.], [6., 100.]],
+        );
     }
 }
 

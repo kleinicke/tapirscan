@@ -32,6 +32,19 @@
   instead of 249 Code 128 symbols and Very High 525 instead of 274. Medium is
   unchanged; on large retail photos High with `common1D` costs about 15% more
   (`common` 7%), Very High about 35% (14%), without changing their reads.
+- Linear formats read the same whether or not retail formats are selected with
+  them. With retail selected, Code 39, Code 128, Code 93, Codabar and ITF are now
+  also decoded from the central band of up to four unread retail boxes: these
+  boxes span the full bar height, and rows near their edges could leave a symbol
+  that reads alone without enough row support (lost since 1.3.0, for example a
+  noisy Code 39 patch code on a scanned page). Without retail, ITF and Code 128
+  get back their whole-image sweep (Medium at Low's effort, High and Very High
+  at the next). On 2380 synthetic variation images with all 1D formats, Medium
+  and High each read 9 more symbols; with ITF alone Medium reads 172 instead of
+  166 of 340 and High 179, with Code 128 alone 64 and 65 instead of 56; no wrong
+  reads were added. Medium costs about 2% more on retail photos with all 1D
+  formats and about 4% more with ITF or Code 128 alone; retail-only scans are
+  unchanged.
 - PDF417: when two different payloads are decoded at the same place, the one that
   needed more error corrections is dropped. Low error-correction levels let a
   damaged row group correct into another valid codeword. On 198 labelled PDF417
