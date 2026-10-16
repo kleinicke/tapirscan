@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Medium reads many more Code 128 fields on large label photos: when its whole-image
+  sweep of a frame whose shorter side exceeds 1536 pixels reads one Code 128, it sweeps
+  again with twice the lines and diagonal angles. On the 1,578 development images, Medium
+  reads 1,135 instead of 778 Code 128 symbols (High 1,238, zxing-cpp 704) with no wrong
+  reads; frames without a Code 128 do not pay, so Chrome timing is unchanged on retail,
+  other-1D and non-target sets.
 - Medium is faster with QR selected: it tries at most 25 alignment-pattern searches per
   threshold pass (was 150), which false finder triples on textured photos used up. QR
   reads on the 4,619-image QR development selection are unchanged (4,242 with QR alone,

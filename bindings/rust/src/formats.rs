@@ -1593,6 +1593,16 @@ fn medium_retries(
     // Retries belong to single-format reader groups, such as the QR group of an
     // EAN-13 and QR selection; groups of several formats keep their first pass.
     let mask = selected;
+    // Large label photos carry many short Code 128 fields. Once the sweep read one, a sweep
+    // with twice the lines and diagonal angles finds the others; retail photos rarely pay.
+    if addons == EanAddOnPolicy::Ignore
+        && mask & 16 != 0
+        && mask & 15 == 0
+        && width.min(height) > 1536
+        && scan.barcodes.iter().any(|b| b.format == "Code128")
+    {
+        return vec![scan_reader(pixels, width, height, mask, 1)];
+    }
     if addons != EanAddOnPolicy::Ignore || !scan.barcodes.is_empty() {
         return Vec::new();
     }
