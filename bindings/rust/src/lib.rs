@@ -108,7 +108,7 @@ pub struct Scanner {
     fast_profiles: barcode_research_core::fast_profile::Sampler,
     retail_rgba: Vec<u8>,
     /// Other linear formats share this scan: Medium retail crops decode only their box.
-    #[cfg(feature = "medium")]
+    #[cfg(not(feature = "low"))]
     shared_linear: bool,
     #[cfg(not(feature = "low"))]
     recovery: recovery_core::region_scan::RegionScanner,

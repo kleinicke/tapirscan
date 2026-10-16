@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- High and Very High now run Medium's retail recoveries (contrast, high-pass, wide and
+  band profiles; deferred proposals; late crops) on frames their own retries leave
+  unread. High had fallen behind Medium on retail photos. On 929 real development
+  photos, High reads 841 → 850 and Very High 848 → 857 with no lost reads, and
+  photos with a wrong value drop from 10 to 8 (Medium: 852). Low and Medium return
+  identical results. In Chrome, High costs about 5% more on retail scans and 2–4% on
+  frames without a barcode; scans that also select other linear formats are within 2%.
 - Content parsing in every binding: GS1 element strings, Wi-Fi, contacts,
   payment slips, HIBC, VINs, driver's licenses and more. JavaScript barcodes
   carry `content`; the other bindings add `parse_content`. See

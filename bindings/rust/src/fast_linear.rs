@@ -13,13 +13,9 @@ use barcode_research_core::numeric::usize_f64;
 mod recovery;
 #[cfg(not(feature = "low"))]
 pub(crate) use recovery::{
-    append_recovered, recover_proposals, recover_proposals_color, recover_proposals_contrast,
-    recover_proposals_inverted,
-};
-#[cfg(feature = "medium")]
-pub(crate) use recovery::{
-    recover_proposals_band, recover_proposals_deghost, recover_proposals_highpass,
-    recover_proposals_wide,
+    append_recovered, recover_proposals, recover_proposals_band, recover_proposals_color,
+    recover_proposals_contrast, recover_proposals_deghost, recover_proposals_highpass,
+    recover_proposals_inverted, recover_proposals_wide,
 };
 
 // Build-only research selection, deliberately absent from every public API.
@@ -745,21 +741,19 @@ enum SourceProfile {
     Color(u8),
     #[cfg(not(feature = "low"))]
     Inverted,
-    #[cfg(feature = "medium")]
+    #[cfg(not(feature = "low"))]
     WideEan,
-    #[cfg(feature = "medium")]
+    #[cfg(not(feature = "low"))]
     BandEan(f64),
     /// Wide high-pass hypothesis for blurred or ghosted photographs.
-    #[cfg(any(feature = "low", feature = "medium"))]
     Highpass(f32),
     /// Ghosting hypothesis (camera shake): undo a half-strength copy about one EAN-13 module
     /// behind each sample, or ahead of it when `true`.
-    #[cfg(any(feature = "low", feature = "medium"))]
     Deghost(bool),
 }
 impl SourceProfile {
     fn band(profile: Self) -> Option<f64> {
-        #[cfg(feature = "medium")]
+        #[cfg(not(feature = "low"))]
         {
             if let Self::BandEan(offset) = profile {
                 Some(offset)
@@ -767,7 +761,7 @@ impl SourceProfile {
                 None
             }
         }
-        #[cfg(not(feature = "medium"))]
+        #[cfg(feature = "low")]
         {
             let _ = profile;
             None
@@ -778,12 +772,10 @@ impl SourceProfile {
             Self::Gray(strength) => strength,
             // Discovery uses the wider 1.5 kernel; continuity uses the existing
             // narrow 2.25 kernel and its stricter source-line confirmation.
-            #[cfg(feature = "medium")]
+            #[cfg(not(feature = "low"))]
             Self::WideEan | Self::BandEan(_) => 2.25,
-            #[cfg(any(feature = "low", feature = "medium"))]
             Self::Highpass(strength) => strength,
             // Restored attempts and the single-format sampling density, as for high-pass.
-            #[cfg(any(feature = "low", feature = "medium"))]
             Self::Deghost(_) => 1.,
             #[cfg(not(feature = "low"))]
             _ => 0.,
@@ -803,15 +795,12 @@ impl SourceProfile {
             Self::Color(_) => false,
             #[cfg(not(feature = "low"))]
             Self::Inverted => true,
-            #[cfg(feature = "medium")]
+            #[cfg(not(feature = "low"))]
             Self::WideEan | Self::BandEan(_) => false,
-            #[cfg(any(feature = "low", feature = "medium"))]
             Self::Highpass(_) => false,
-            #[cfg(any(feature = "low", feature = "medium"))]
             Self::Deghost(_) => false,
         }
     }
-    #[cfg(any(feature = "low", feature = "medium"))]
     fn deghost(self) -> Option<bool> {
         if let Self::Deghost(backward) = self {
             Some(backward)
@@ -820,17 +809,9 @@ impl SourceProfile {
         }
     }
     fn highpass(self) -> Option<f32> {
-        #[cfg(any(feature = "low", feature = "medium"))]
-        {
-            if let Self::Highpass(strength) = self {
-                Some(strength)
-            } else {
-                None
-            }
-        }
-        #[cfg(not(any(feature = "low", feature = "medium")))]
-        {
-            let _ = self;
+        if let Self::Highpass(strength) = self {
+            Some(strength)
+        } else {
             None
         }
     }
@@ -839,11 +820,9 @@ impl SourceProfile {
             Self::Gray(_) => false,
             #[cfg(not(feature = "low"))]
             Self::Color(_) | Self::Inverted => false,
-            #[cfg(feature = "medium")]
+            #[cfg(not(feature = "low"))]
             Self::WideEan | Self::BandEan(_) => true,
-            #[cfg(any(feature = "low", feature = "medium"))]
             Self::Highpass(_) => false,
-            #[cfg(any(feature = "low", feature = "medium"))]
             Self::Deghost(_) => false,
         }
     }
@@ -876,7 +855,7 @@ impl Candidate<'_> {
                 || self.profile.color() > 0
                 || (self.profile.contrast() > 0.
                     && (matches!(o.read.format.as_str(), "ITF" | "Code39")
-                        || (cfg!(feature = "medium")
+                        || (!cfg!(feature = "low")
                             && self.mask == 1
                             && o.original_rows.count_ones() < 3)))
             {
@@ -1114,11 +1093,8 @@ fn sample_line_density(
     for method in 0..methods {
         candidate.restored = method >= 3;
         if method == 3 {
-            #[cfg(any(feature = "low", feature = "medium"))]
             let deghost = candidate.profile.deghost();
-            #[cfg(not(any(feature = "low", feature = "medium")))]
-            let deghost: Option<bool> = None;
-            if cfg!(feature = "medium") && candidate.profile.wide() {
+            if !cfg!(feature = "low") && candidate.profile.wide() {
                 sampler.restore_contrast_wide(1.5);
             } else if let Some(backward) = deghost {
                 // The profile spans 1.3 box lengths and an EAN-13 holds 95 modules. Boxes
@@ -1253,9 +1229,9 @@ fn sample_candidate_profile(
             im,
             a,
             b,
-            if cfg!(feature = "medium") && candidate.profile.wide() && candidate.mask == 1 {
+            if !cfg!(feature = "low") && candidate.profile.wide() && candidate.mask == 1 {
                 2.0
-            } else if cfg!(feature = "medium")
+            } else if !cfg!(feature = "low")
                 && candidate.profile.contrast() > 0.
                 && candidate.mask == 1
             {
@@ -1263,9 +1239,9 @@ fn sample_candidate_profile(
             } else {
                 DENSITY
             },
-            if cfg!(feature = "medium") && candidate.profile.wide() && candidate.mask == 1 {
+            if !cfg!(feature = "low") && candidate.profile.wide() && candidate.mask == 1 {
                 limit.min(1536)
-            } else if cfg!(feature = "medium")
+            } else if !cfg!(feature = "low")
                 && candidate.profile.contrast() > 0.
                 && candidate.mask == 1
             {

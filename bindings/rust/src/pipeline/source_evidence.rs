@@ -250,7 +250,7 @@ pub(crate) fn recovered_ean_source_agreement(image: Image<'_>, q: Quad, digits: 
     false
 }
 
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 pub(super) fn independently_confirmed_ean_reads(
     image: Image<'_>,
     extra: Vec<crate::read::Read>,

@@ -12,9 +12,9 @@ mod source_evidence;
 use restoration::recover_restored_regions;
 #[cfg(any(feature = "high", feature = "very-high"))]
 use restoration::recover_threshold_regions;
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 use restoration::{recover_late_wide_crop, recover_scaled_crop};
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 use source_evidence::independently_confirmed_ean_reads;
 pub(crate) use source_evidence::recovered_ean_source_agreement;
 pub(crate) use source_evidence::source_contradiction;
@@ -204,6 +204,30 @@ fn scan_prepared_impl(
         &mut scan,
         &mut scanner.fast_profiles,
     )?;
+    // Medium's contrast, high-pass, wide and band profile recoveries also apply here, but only
+    // to frames High's own retries left unread: frames with a read pay nothing. Other linear
+    // symbols sharing the scan show stray guards, so they need repeated guard passes.
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    let retail_unread = scan.frame.barcodes.is_empty()
+        && (!scanner.shared_linear || scan.frame.candidates.iter().any(|c| c.work.guard_pass >= 4));
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    if retail_unread {
+        recover_primary_proposals(
+            image,
+            &localization.proposals,
+            &mut scan,
+            &mut scanner.fast_profiles,
+        )?;
+    }
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    if retail_unread && scan.frame.barcodes.is_empty() {
+        recover_deferred_proposals(
+            image,
+            &localization.proposals,
+            &mut scan,
+            &mut scanner.fast_profiles,
+        )?;
+    }
     #[cfg(any(feature = "high", feature = "very-high"))]
     if allow_restoration {
         recover_threshold_regions(scanner, image, &localization.proposals, &mut scan)?;
@@ -225,6 +249,24 @@ fn scan_prepared_impl(
             &localization.proposals,
             &mut scan,
             cfg!(feature = "medium") && shared_retail && !options.finish_candidates,
+        )?;
+    }
+    // Each crop rescans the whole High pipeline. Retry only frames with repeated guard passes
+    // (Medium's threshold for its shared full-frame rescan), and not when other linear formats
+    // share the scan: there most frames are retail-unread.
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    if allow_restoration
+        && scan.frame.barcodes.is_empty()
+        && !scanner.shared_linear
+        && scan.frame.candidates.iter().any(|c| c.work.guard_pass >= 4)
+    {
+        recover_unread_crops(
+            scanner,
+            image,
+            options,
+            coverage,
+            &localization.proposals,
+            &mut scan,
         )?;
     }
     #[cfg(feature = "medium")]
@@ -276,9 +318,9 @@ fn scan_prepared_impl(
     })
 }
 
-/// Late Medium crop retries for frames without any read: a wide-restored crop,
+/// Late crop retries for frames without any read: a wide-restored crop,
 /// then area-reduced crops of large unresolved symbols.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 fn recover_unread_crops(
     scanner: &mut Scanner,
     image: Image<'_>,
@@ -439,18 +481,18 @@ fn admit_primary_reads(
 }
 
 /// Unresolved primary proposals with barcode evidence tried with the ghosting hypothesis.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 const DEGHOST_PROPOSALS: usize = 4;
 
 /// Unresolved primary proposals tried with the wide high-pass profile hypothesis.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 const HIGHPASS_PROPOSALS: usize = 8;
 
 /// Decode up to eight unresolved EAN-13/UPC-A proposals from wide high-pass
 /// profiles (blurred, ghosted or unevenly lit photographs). Restored reads need
 /// payload agreement with unmodified source rows, or five supporting rows, and
 /// must not be contradicted by the source.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 fn recover_highpass_proposals(
     image: Image<'_>,
     proposals: &[Proposal],
@@ -462,13 +504,16 @@ fn recover_highpass_proposals(
         .iter()
         .enumerate()
         .filter(|(i, p)| {
-            scan.frame
-                .candidates
-                .get(*i)
-                .is_some_and(|c| c.detections.is_empty())
-                && !protected.iter().any(|b| {
-                    super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3
-                })
+            scan.frame.candidates.get(*i).is_some_and(|c| {
+                // High and Very High retry only boxes with retail evidence, keeping frames
+                // without a symbol cheap; Medium retries every unread box.
+                c.detections.is_empty()
+                    && (cfg!(feature = "medium")
+                        || c.work.guard_pass > 0
+                        || c.work.forward_blur_windows >= 2)
+            }) && !protected
+                .iter()
+                .any(|b| super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3)
         })
         .map(|(_, p)| *p)
         .take(HIGHPASS_PROPOSALS)
@@ -517,7 +562,7 @@ fn recover_highpass_proposals(
 
 /// Retry bounded unresolved source proposals with independent row confirmation.
 /// Protect reconciled original ownership before adding a new physical read.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 fn recover_primary_proposals(
     image: Image<'_>,
     proposals: &[Proposal],
@@ -918,7 +963,7 @@ pub(super) fn select_one(reads: &mut Vec<Barcode>) {
     }
 }
 
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 fn recover_deferred_proposals(
     image: Image<'_>,
     proposals: &[Proposal],

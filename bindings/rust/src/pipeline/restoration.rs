@@ -3,7 +3,7 @@ use super::{
     Error, Image, Proposal, Quad, ScanOptions, Scanner, checked_image, protected_primary,
     scan_prepared_impl, source_contradiction,
 };
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 use super::{recovered_ean_source_agreement, scan_policy};
 use barcode_research_core::frame::Barcode;
 #[cfg(any(feature = "high", feature = "very-high"))]
@@ -322,12 +322,12 @@ pub(super) fn recover_threshold_regions(
     Ok(())
 }
 
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 pub(super) fn restore_alternate_source_image(image: Image<'_>) -> Vec<u8> {
     restore_with_kernel(image, &[1, 4, 11, 21, 26, 21, 11, 4, 1])
 }
 
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 pub(super) fn recover_late_wide_crop(
     scanner: &mut Scanner,
     image: Image<'_>,
@@ -424,7 +424,7 @@ pub(super) fn recover_late_wide_crop(
 }
 
 /// Source pixels allowed in one reduced crop; equal to the restoration crop budget.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 const SCALED_CROP_PIXELS: usize = 131_072;
 
 /// Area-averaged grayscale reduction of a source crop by `factor` (< 1).
@@ -470,7 +470,7 @@ pub(super) fn reduce_gray(image: Image<'_>, factor: f64) -> (Vec<u8>, usize, usi
 /// sharp proposal can fail at one sampling scale only. Rescan up to two such
 /// proposals with retail guard evidence (or blurred high-scoring stripes) from
 /// an area-reduced crop, keeping source agreement and contradiction checks.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 pub(super) fn recover_scaled_crop(
     scanner: &mut Scanner,
     image: Image<'_>,
@@ -551,7 +551,7 @@ pub(super) fn recover_scaled_crop(
 }
 
 /// Source placement of an area-reduced recovery crop.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 struct ReducedCrop<'a> {
     x: usize,
     y: usize,
@@ -561,7 +561,7 @@ struct ReducedCrop<'a> {
 }
 
 /// Scan one reduced crop and admit source-confirmed reads; true when any was added.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 fn admit_reduced_reads(
     scanner: &mut Scanner,
     image: Image<'_>,

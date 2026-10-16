@@ -600,14 +600,14 @@ impl Scanner {
         shared_retail: bool,
         mask: u32,
     ) -> Result<crate::Result, Error> {
-        #[cfg(feature = "medium")]
+        #[cfg(not(feature = "low"))]
         {
             self.shared_linear = mask & LINEAR_MASK & !15 != 0;
         }
-        #[cfg(not(feature = "medium"))]
+        #[cfg(feature = "low")]
         let _ = mask;
         let primary = self.scan_with_coverage(image, options, coverage, false, shared_retail);
-        #[cfg(feature = "medium")]
+        #[cfg(not(feature = "low"))]
         {
             self.shared_linear = false;
         }

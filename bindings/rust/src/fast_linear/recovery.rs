@@ -51,7 +51,7 @@ pub(crate) fn recover_proposals_inverted(
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
     recover_proposals_variant(image, proposals, mask, sampler, SourceProfile::Inverted)
 }
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 pub(crate) fn recover_proposals_highpass(
     image: Image<'_>,
     proposals: &[crate::Proposal],
@@ -67,7 +67,7 @@ pub(crate) fn recover_proposals_highpass(
         SourceProfile::Highpass(strength),
     )
 }
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 pub(crate) fn recover_proposals_deghost(
     image: Image<'_>,
     proposals: &[crate::Proposal],
@@ -83,7 +83,7 @@ pub(crate) fn recover_proposals_deghost(
         SourceProfile::Deghost(backward),
     )
 }
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 pub(crate) fn recover_proposals_wide(
     image: Image<'_>,
     proposals: &[crate::Proposal],
@@ -94,7 +94,7 @@ pub(crate) fn recover_proposals_wide(
 }
 /// Probe unresolved bands before spending the full confirmation budget.
 /// Probe observations never become outputs; the established pass starts fresh.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 fn band_has_evidence(
     candidate: &mut Candidate<'_>,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
@@ -157,7 +157,7 @@ fn recover_proposals_variant(
             observations: Vec::new(),
             row_positions: Vec::new(),
         };
-        #[cfg(feature = "medium")]
+        #[cfg(not(feature = "low"))]
         if matches!(profile, SourceProfile::BandEan(_))
             && !band_has_evidence(&mut candidate, sampler)
         {
@@ -463,7 +463,7 @@ fn bridge_line(
     false
 }
 
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 pub(crate) fn recover_proposals_band(
     image: Image<'_>,
     proposals: &[crate::Proposal],
