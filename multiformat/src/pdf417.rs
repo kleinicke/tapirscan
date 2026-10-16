@@ -391,6 +391,71 @@ struct DecodedPayload {
     bytes: Vec<u8>,
     text: String,
     reader_initialization: bool,
+    structured_append: Option<crate::StructuredAppend>,
+}
+/// Text-compaction codewords as ASCII, as used by the Macro PDF417 file id.
+fn text_codewords(values: &[usize]) -> Option<String> {
+    let (mut mode, mut shift, mut out) = (0, None, Vec::new());
+    for &v in values {
+        text_value(v / 30, &mut mode, &mut shift, &mut out)?;
+        text_value(v % 30, &mut mode, &mut shift, &mut out)?;
+    }
+    String::from_utf8(out).ok()
+}
+/// Macro PDF417 control block after a 928 codeword: five-digit segment index,
+/// file id, optional tagged fields and the optional last-segment terminator
+/// 922. Returns the next codeword position and the sequence position, which is
+/// only exposed once the segment count is known (field 1 or a terminator).
+fn macro_block(
+    code: &[usize],
+    mut at: usize,
+    end: usize,
+) -> Option<(usize, Option<crate::StructuredAppend>)> {
+    let digits = numeric(&[*code.get(at)?, *code.get(at + 1)?])?;
+    at += 2;
+    if digits.len() != 5 || at > end {
+        return None;
+    }
+    let index: usize = std::str::from_utf8(&digits).ok()?.parse().ok()?;
+    let begin = at;
+    while at < end && code[at] < 900 {
+        at += 1;
+    }
+    let id = text_codewords(&code[begin..at])?;
+    let mut count = None;
+    let mut last = false;
+    while at < end {
+        match code[at] {
+            923 => {
+                let tag = *code.get(at + 1)?;
+                at += 2;
+                let begin = at;
+                while at < end && code[at] < 900 {
+                    at += 1;
+                }
+                if tag == 1 {
+                    let digits = numeric(code.get(begin..at.min(begin + 15))?)?;
+                    count = std::str::from_utf8(&digits).ok()?.parse::<usize>().ok();
+                }
+            }
+            922 => {
+                last = true;
+                at += 1;
+                break;
+            }
+            _ => break,
+        }
+    }
+    let count = count.or(last.then_some(index + 1));
+    Some((
+        at,
+        count.map(|count| crate::StructuredAppend {
+            index: index + 1,
+            count,
+            id: Some(id),
+            parity: None,
+        }),
+    ))
 }
 #[expect(
     clippy::too_many_lines,
@@ -410,6 +475,7 @@ fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
     let mut text = String::new();
     let mut compaction = 900;
     let mut reader_initialization = false;
+    let mut structured_append = None;
     while at < length {
         let mut c = code[at];
         at += 1;
@@ -448,7 +514,13 @@ fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
                     at += 1;
                 }
                 let values = &code[begin..at];
-                let groups = if c == 901 {
+                // A byte-latch run whose length is a multiple of five is read
+                // as raw bytes unless a value above 255 proves it is a group.
+                let groups = if c == 901
+                    && !(!values.is_empty()
+                        && values.len().is_multiple_of(5)
+                        && values[values.len() - 5..].iter().any(|&v| v > 255))
+                {
                     values.len().saturating_sub(1) / 5
                 } else {
                     values.len() / 5
@@ -485,11 +557,23 @@ fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
                     out.extend(numeric(&code[start..at])?);
                 }
             }
-            927 => {
-                text.push_str(&crate::encoding::decode(&out[segment_start..], Some(eci))?);
+            925..=927 => {
+                // Unknown character sets matter only when bytes follow them.
+                if out.len() > segment_start {
+                    text.push_str(&crate::encoding::decode(&out[segment_start..], Some(eci))?);
+                }
                 segment_start = out.len();
-                eci = *code.get(at)?;
-                at += 1;
+                let first = *code.get(at)?;
+                (eci, at) = match c {
+                    927 => (first, at + 1),
+                    926 => (900 + first * 900 + *code.get(at + 1)?, at + 2),
+                    _ => (810_900 + first, at + 1),
+                };
+            }
+            928 => {
+                let (next, sequence) = macro_block(code, at, length)?;
+                at = next;
+                structured_append = sequence;
             }
             921 if at == 2 => reader_initialization = true,
             _ => return None,
@@ -498,11 +582,14 @@ fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
     if out.is_empty() {
         return None;
     }
-    text.push_str(&crate::encoding::decode(&out[segment_start..], Some(eci))?);
+    if out.len() > segment_start {
+        text.push_str(&crate::encoding::decode(&out[segment_start..], Some(eci))?);
+    }
     Some(DecodedPayload {
         bytes: out,
         text,
         reader_initialization,
+        structured_append,
     })
 }
 fn group_metadata(rows: &[Row], strict: bool) -> Option<(usize, usize, usize)> {
@@ -556,7 +643,8 @@ fn compact_region_valid(rows: &[Row]) -> bool {
         > rows.len()
 }
 fn decode_group(rows: &[Row]) -> Option<(DecodedPayload, usize)> {
-    let (count, cols, ecc) = group_metadata(rows, false)?;
+    let meta = group_metadata(rows, false);
+    let (count, cols, ecc) = meta?;
     let mut cells = vec![BTreeMap::<usize, usize>::new(); count * cols];
     for r in rows {
         let index = r.left.or(r.right)? / 30 * 3 + r.cluster;
@@ -585,11 +673,13 @@ fn decode_group(rows: &[Row]) -> Option<(DecodedPayload, usize)> {
             }
         })
         .collect();
-    let corrected = reed_prime::correct(&mut code, ecc, &erasures)?;
+    let corrected = reed_prime::correct(&mut code, ecc, &erasures);
+    let corrected = corrected?;
     if code[0] != count * cols - ecc {
         return None;
     }
-    Some((parse_payload(&code)?, corrected))
+    let pp = parse_payload(&code);
+    Some((pp?, corrected))
 }
 #[expect(
     clippy::too_many_lines,
@@ -701,7 +791,7 @@ fn detect_axes(
                     }) {
                         results.push(Detection {
                             bytes: Some(read.bytes),
-                            structured_append: None,
+                            structured_append: read.structured_append,
                             reader_initialization: read.reader_initialization,
                             addon: None,
                             format: "PDF417".into(),
@@ -852,6 +942,29 @@ fn drop_conflicting_corrections(results: &mut Vec<Detection>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn macro_control_block_reports_the_sequence_position() {
+        // Text "AB", then 928, index 00000 (codewords 111 100), file id "AB",
+        // and the last-segment terminator 922.
+        let parsed = parse_payload(&[7, 1, 928, 111, 100, 1, 922]).expect("macro block parses");
+        assert_eq!(parsed.text, "AB");
+        let append = parsed.structured_append.expect("segment count is known");
+        assert_eq!((append.index, append.count), (1, 1));
+        assert_eq!(append.id.as_deref(), Some("AB"));
+    }
+
+    #[test]
+    fn macro_block_without_a_known_count_is_not_a_sequence() {
+        let parsed = parse_payload(&[6, 1, 928, 111, 100, 1]).expect("macro block parses");
+        assert!(parsed.structured_append.is_none());
+    }
+
+    #[test]
+    fn eci_codeword_before_a_text_run_selects_its_charset() {
+        let parsed = parse_payload(&[4, 927, 3, 1]).expect("ECI 3 parses");
+        assert_eq!(parsed.text, "AB");
+    }
 
     #[test]
     fn conflicting_reads_keep_the_one_with_fewer_corrections() {

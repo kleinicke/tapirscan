@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- PDF417 reads more symbols: Macro PDF417 control blocks (structured append with segment
+  index, count and file id), ECI codewords 925 and 926, and byte runs of five codewords;
+  guard ends are followed along their bar so perspective photos rectify correctly. On
+  zxing-cpp's 60-file PDF417 sample set, 44 become 55 in every mode (zxing-cpp reads 60). On
+  162 real PDF417 photos, expected reads 382 become 452 of 1,344 in every mode; six
+  reads in dense multi-label photos swap to a neighbouring symbol of the same photo.
+  Runtime is unchanged within noise.
 - Low no longer reports a UPC-E or EAN-8 decoded from part of an EAN-13 or UPC-A it also
   reads. Selections beyond `common1D` (Codabar, Code 93, DataBar or any 2D format) produced
   such fragments on many retail photos. On 929 real development photos with `all`, photos

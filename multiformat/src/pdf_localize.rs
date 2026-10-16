@@ -75,6 +75,75 @@ impl Strip {
         })
     }
 }
+/// Blur and perspective shorten the matched part of a guard strip. Follow the
+/// centre of the guard's wide bar along the fitted line until it turns light,
+/// so the fitted ends reach the symbol's true top and bottom edges.
+fn extend_fit(
+    fit: &mut Fit,
+    gray: &[u8],
+    (width, height): (usize, usize),
+    original: &impl Fn(f32, f32) -> [f32; 2],
+    step: usize,
+) {
+    let norm = (1. + fit.slope * fit.slope).sqrt();
+    let horizontal = fit.module * norm;
+    let inward = if fit.start == fit.reversed { -1. } else { 1. };
+    let center = |y: f32, offset: f32| {
+        let [px, py] = original(
+            fit.slope * y + fit.intercept + inward * offset * horizontal,
+            y,
+        );
+        let (px, py) = (px.round(), py.round());
+        (px >= 0.
+            && py >= 0.
+            && px < crate::numeric::usize_f32(width)
+            && py < crate::numeric::usize_f32(height))
+        .then(|| {
+            f32::from(gray[crate::numeric::f32_usize(py) * width + crate::numeric::f32_usize(px)])
+        })
+    };
+    let bar = if fit.start { 4. } else { 14.5 };
+    let (mut dark, mut light, mut count) = (0., 0., 0.);
+    let (top, bottom) = (fit.top, fit.bottom);
+    let samples = 8;
+    for i in 0..=samples {
+        let y = top
+            + (bottom - top) * crate::numeric::usize_f32(i) / crate::numeric::usize_f32(samples);
+        if let (Some(on), Some(off)) = (center(y, bar), center(y, -1.5)) {
+            dark += on;
+            light += off;
+            count += 1.;
+        }
+    }
+    if count < 3. || (light - dark) / count < 40. {
+        return;
+    }
+    let threshold = (light + dark) / (2. * count);
+    let limit = crate::numeric::usize_f32(height.max(width));
+    let walk = |from: f32, sign: f32| {
+        let mut edge = from;
+        let mut light_run = 0;
+        let mut y = from;
+        while (y - from).abs() < limit {
+            y += sign * crate::numeric::usize_f32(step);
+            match center(y, bar) {
+                Some(v) if v <= threshold => {
+                    edge = y;
+                    light_run = 0;
+                }
+                _ => {
+                    light_run += 1;
+                    if light_run >= 2 {
+                        break;
+                    }
+                }
+            }
+        }
+        edge
+    };
+    fit.top = walk(top, -1.).min(top);
+    fit.bottom = walk(bottom, 1.).max(bottom);
+}
 // Compact PDF417 has only the repeated start guard. Recover its width from
 // independently decoded left indicators after aligning to the fitted bar axis.
 fn compact_quad(
@@ -338,7 +407,10 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
             std::mem::swap(&mut row, &mut previous_row);
         }
         for strips in strips_by_mode {
-            let fitted: Vec<_> = strips.iter().filter_map(Strip::fit).collect();
+            let mut fitted: Vec<_> = strips.iter().filter_map(Strip::fit).collect();
+            for fit in &mut fitted {
+                extend_fit(fit, gray, (w, h), &original, step);
+            }
             for a in fitted.iter().filter(|g| g.start) {
                 let mut paired = false;
                 for b in fitted
