@@ -449,6 +449,7 @@ impl Scanner {
         let (extras, coverage) = scan_additional(
             image,
             if shared_retail { mask & !0b1100 } else { mask },
+            mask & 15 != 0,
             addons,
             &mut self.additional_gray,
         )?;
@@ -1090,6 +1091,7 @@ pub(crate) fn fast_additional(
     let (scans, _) = scan_additional(
         image,
         mask,
+        mask & 15 != 0,
         EanAddOnPolicy::Ignore,
         &mut scanner.additional_gray,
     )?;
@@ -1128,6 +1130,7 @@ const SWEPT: u32 = 8192 | 16384 | ENGINE_OPT_IN_MASK;
 fn scan_additional(
     image: Image<'_>,
     mask: u32,
+    retail: bool,
     addons: EanAddOnPolicy,
     gray: &mut Vec<u8>,
 ) -> Result<(Vec<barcode_multiformat::Scan>, Vec<crate::Quad>), Error> {
@@ -1150,9 +1153,11 @@ fn scan_additional(
     };
     let linear = enabled & LINEAR_MASK & swept;
     let matrix = enabled & !LINEAR_MASK;
-    // ITF needs the original angle coverage even with localized profile recovery.
-    let preserved = if crate::MODE_ID == 1 && addons == EanAddOnPolicy::Ignore {
-        linear & 64
+    // Without retail boxes to recover from, ITF and Code 128 need the whole-image sweep's
+    // angle coverage (Medium at Low's effort, High and Very High at the next); with retail
+    // selected, localized recovery reads them at a fraction of the cost.
+    let preserved = if !cfg!(feature = "low") && addons == EanAddOnPolicy::Ignore && !retail {
+        enabled & (64 | 16)
     } else {
         0
     };
@@ -1182,7 +1187,10 @@ fn scan_additional(
         matrix & !(if qr_apart { 512 } else { 0 } | if maxi_apart { 131_072 } else { 0 });
     let groups: Vec<(u32, usize)> = [
         (linear & !preserved, effort),
-        (preserved, 1),
+        (
+            preserved,
+            usize::from(cfg!(any(feature = "high", feature = "very-high"))),
+        ),
         (
             matrix_rest,
             if matrix_rest & 512 != 0 { qr_effort } else { 1 },
