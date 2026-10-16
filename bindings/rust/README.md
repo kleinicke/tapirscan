@@ -121,8 +121,10 @@ geometry excludes supplements.
 and similar payloads; `parse_content(text, gs1)` parses any text.
 
 ```rust
-if let Some(content) = barcode.content() {
-    println!("{}: {:?}", content.kind, content.get("01"));
+fn print_content(barcode: &tapirscan::Barcode) {
+    if let Some(content) = barcode.content() {
+        println!("{}: {:?}", content.kind, content.get("01"));
+    }
 }
 ```
 

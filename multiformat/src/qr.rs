@@ -200,6 +200,7 @@ fn layout(version: usize) -> Vec<(u16, u8)> {
     bits
 }
 
+#[must_use]
 pub fn decode_matrix(matrix: &[bool], n: usize) -> Option<Payload> {
     decode_matrix_impl(matrix, n, None)
 }

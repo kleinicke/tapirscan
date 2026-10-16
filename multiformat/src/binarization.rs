@@ -303,6 +303,10 @@ impl<'a> Images<'a> {
 
     /// Compute the four base thresholds (modes 0-3) with the local chain on a second
     /// thread. Each image equals what [`Self::get`] computes on demand.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the threshold thread panics.
     #[cfg(not(target_family = "wasm"))]
     pub fn prefill_parallel(&mut self) {
         if self.cached[..4].iter().all(Option::is_some) {
