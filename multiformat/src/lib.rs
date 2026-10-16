@@ -529,7 +529,7 @@ pub fn scan_observed_for_mode(
         observe("MaxiCode", matrix_unfinished || regions.limited);
     }
     if mask & 2048 != 0 {
-        let (mut reads, limited) = pdf417::detect(image, width, height, &mut regions);
+        let (mut reads, limited) = pdf417::detect(image, width, height, &mut regions, mode);
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
         observe("PDF417", matrix_unfinished || regions.limited);

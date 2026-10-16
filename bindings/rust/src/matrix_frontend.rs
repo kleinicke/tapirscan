@@ -94,7 +94,7 @@ fn run_reader(
             (search.reads, search.limited)
         }
         131_072 => maxicode_detect::detect(width, height, regions, binary_images),
-        _ => pdf417::detect(image, width, height, regions),
+        _ => pdf417::detect(image, width, height, regions, crate::MODE_ID as usize),
     }
 }
 

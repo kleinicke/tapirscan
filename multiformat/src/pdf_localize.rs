@@ -15,6 +15,29 @@ fn zero_degree_exact(w: usize, h: usize, generated_width: usize, generated_heigh
 fn possible_guard(runs: &[f32]) -> bool {
     runs.len() >= 3 && runs[0] >= 3. * runs[1].max(runs[2])
 }
+/// Guard pattern error after undoing print gain: ink spread widens the bars
+/// and narrows the spaces by the same amount, so the sums of neighbouring runs
+/// stay put. The best of a few gain steps counts.
+fn gain_error(runs: &[f32], pattern: &[u8]) -> f32 {
+    let modules = f32::from(pattern.iter().sum::<u8>());
+    let module = runs[..pattern.len()].iter().sum::<f32>() / modules;
+    let mut best = f32::INFINITY;
+    for gain in [0.25f32, 0.5] {
+        let mut adjusted = [0f32; 9];
+        for (i, value) in adjusted.iter_mut().enumerate().take(pattern.len()) {
+            let shift = gain * module * if i % 2 == 0 { 1. } else { -1. };
+            *value = (runs[i] - shift).max(module * 0.2);
+        }
+        best = best.min(pattern_error(&adjusted[..pattern.len()], pattern));
+    }
+    best
+}
+/// Whether two quadrilaterals have nearly the same height, so that a taller
+/// crop of the same symbol is kept as its own proposal.
+fn same_extent(first: &Quad, second: &Quad) -> bool {
+    let side = |quad: &Quad| (quad[3][0] - quad[0][0]).hypot(quad[3][1] - quad[0][1]);
+    (side(first) / side(second).max(1e-3) - 1.).abs() < 0.04
+}
 #[derive(Clone)]
 struct Strip {
     start: bool,
@@ -84,6 +107,7 @@ fn extend_fit(
     (width, height): (usize, usize),
     original: &impl Fn(f32, f32) -> [f32; 2],
     step: usize,
+    patient: bool,
 ) {
     let norm = (1. + fit.slope * fit.slope).sqrt();
     let horizontal = fit.module * norm;
@@ -133,7 +157,13 @@ fn extend_fit(
                 }
                 _ => {
                     light_run += 1;
-                    if light_run >= 2 {
+                    // The patient walk crosses the cracks that blur, grain and
+                    // print wear leave in a guard bar; the plain one stops at
+                    // the first gap, which keeps stacked symbols apart.
+                    if light_run >= 2
+                        && (!patient
+                            || crate::numeric::usize_f32(light_run * step) >= fit.module * 1.5)
+                    {
                         break;
                     }
                 }
@@ -153,7 +183,7 @@ fn compact_quad(
     fit: &Fit,
     step: usize,
     original: impl Fn(f32, f32) -> [f32; 2],
-) -> Option<Quad> {
+) -> Option<[Quad; 2]> {
     let norm = (1. + fit.slope * fit.slope).sqrt();
     let sign = if fit.reversed { -1. } else { 1. };
     let cross = |y: f32| ((fit.slope * y + fit.intercept) * fit.slope + y) / norm;
@@ -218,13 +248,19 @@ fn compact_quad(
     // reversed scanline edge rounding cannot shorten it below the reader gate.
     modules.sort_by(f32::total_cmp);
     let module = modules[modules.len() / 2];
-    let end = module * crate::numeric::usize_f32((columns + 2) * 17 + 4);
-    Some([
-        point(-2. * fit.module, top),
-        point(end, top),
-        point(end, bottom),
-        point(-2. * fit.module, bottom),
-    ])
+    let quad = |modules: usize| {
+        let end = module * crate::numeric::usize_f32(modules + 4);
+        [
+            point(-2. * fit.module, top),
+            point(end, top),
+            point(end, bottom),
+            point(-2. * fit.module, bottom),
+        ]
+    };
+    // A start guard without a matched stop guard is either a Compact symbol
+    // (start, left indicator, data) or a full symbol whose stop guard blur or
+    // print gain hid: offer both widths.
+    Some([quad((columns + 2) * 17), quad((columns + 3) * 17 + 18)])
 }
 ///
 /// # Panics
@@ -235,10 +271,13 @@ fn compact_quad(
     reason = "PDF417 proposal construction preserves ordered row grouping, merging and truncation evidence within one bounded pass."
 )]
 pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) {
-    let mut out: Vec<(Quad, usize)> = Vec::new();
-    let mut compact_out: Vec<(Quad, usize)> = Vec::new();
+    // Index 1 holds the proposals of the patient guard walk. They follow every
+    // plain proposal, so a taller crop never decodes before the symbol it
+    // might otherwise swallow.
+    let mut out: [Vec<(Quad, usize)>; 2] = [Vec::new(), Vec::new()];
+    let mut compact_out: [Vec<(Quad, usize)>; 2] = [Vec::new(), Vec::new()];
     let mut limited = false;
-    let mut compact_attempts = 0;
+    let mut compact_attempts = [0usize; 2];
     for degrees in [0f32, 90., 45., -45.] {
         let angle = degrees.to_radians();
         let cs = angle.cos();
@@ -279,8 +318,12 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
             ]
         };
         let step = (height / 400).max(1);
-        let mut strips_by_mode: [Vec<Strip>; 2] = std::array::from_fn(|_| Vec::new());
-        let mut active_by_mode: [Vec<usize>; 2] = std::array::from_fn(|_| Vec::new());
+        // Slots 0 and 1 hold guards that match as printed, one per threshold
+        // mode. Slots 2 and 3 hold guards that match only after undoing print
+        // gain; they never mix with exact ones, so gain tolerance cannot
+        // disturb a symbol that localizes without it.
+        let mut strips_by_mode: [Vec<Strip>; 4] = std::array::from_fn(|_| Vec::new());
+        let mut active_by_mode: [Vec<usize>; 4] = std::array::from_fn(|_| Vec::new());
         // `threshold` is a pure function of one sampled row and mode. Cache
         // the preceding row's two bitmaps so identical adjacent samples do
         // not repeat preprocessing; all row, mode, reverse, and association
@@ -319,14 +362,16 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                 continue;
             }
             let same_row = previous_row == row;
-            for (mode, strips) in strips_by_mode.iter_mut().enumerate() {
-                let active = &mut active_by_mode[mode];
+            for mode in 0..2 {
                 // A completed strip can never match a later row again. Keep
                 // it for fitting, but omit it from future association searches.
-                active.retain(|&index| {
-                    crate::numeric::usize_f32(y) - strips[index].points.last().unwrap()[1]
-                        <= crate::numeric::usize_f32(step) * 3.
-                });
+                for slot in [mode, mode + 2] {
+                    let strips = &strips_by_mode[slot];
+                    active_by_mode[slot].retain(|&index| {
+                        crate::numeric::usize_f32(y) - strips[index].points.last().unwrap()[1]
+                            <= crate::numeric::usize_f32(step) * 3.
+                    });
+                }
                 if !same_row {
                     crate::threshold_into(&row, mode, &mut previous_bits[mode]);
                 }
@@ -348,11 +393,18 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                             } else {
                                 &[7, 1, 1, 3, 1, 1, 1, 2, 1]
                             };
-                            if s + pattern.len() > runs.len()
-                                || pattern_error(&runs[s..], pattern) > 0.12
-                            {
+                            if s + pattern.len() > runs.len() {
                                 continue;
                             }
+                            let slot = if pattern_error(&runs[s..], pattern) <= 0.12 {
+                                mode
+                            } else if gain_error(&runs[s..], pattern) <= 0.12 {
+                                mode + 2
+                            } else {
+                                continue;
+                            };
+                            let strips = &mut strips_by_mode[slot];
+                            let active = &mut active_by_mode[slot];
                             let module = runs[s..s + pattern.len()].iter().sum::<f32>()
                                 / if start { 17. } else { 18. };
                             let edge = offsets[if start { s } else { s + 9 }];
@@ -406,10 +458,14 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
             }
             std::mem::swap(&mut row, &mut previous_row);
         }
-        for strips in strips_by_mode {
+        for (strips, patient) in strips_by_mode
+            .iter()
+            .flat_map(|strips| [(strips, false), (strips, true)])
+        {
+            let which = usize::from(patient);
             let mut fitted: Vec<_> = strips.iter().filter_map(Strip::fit).collect();
             for fit in &mut fitted {
-                extend_fit(fit, gray, (w, h), &original, step);
+                extend_fit(fit, gray, (w, h), &original, step, patient);
             }
             for a in fitted.iter().filter(|g| g.start) {
                 let mut paired = false;
@@ -471,40 +527,47 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                         edge_point(l, lb + crate::numeric::usize_f32(step), -1.),
                     ];
                     paired = true;
-                    if out
-                        .iter()
-                        .any(|(p, _)| crate::regions::overlap(p, &quad) > 0.7)
-                    {
+                    if out.iter().flatten().any(|(p, _)| {
+                        crate::regions::overlap(p, &quad) > 0.7
+                            && (!patient || same_extent(p, &quad))
+                    }) {
                         continue;
                     }
-                    if out.len() < 24 {
-                        out.push((quad, a.support.min(b.support)));
+                    if out[which].len() < 96 {
+                        out[which].push((quad, a.support.min(b.support)));
                     } else {
                         limited = true;
                     }
                 }
                 if !paired {
-                    if compact_attempts >= 64 {
+                    if compact_attempts[which] >= 64 {
                         limited = true;
                         continue;
                     }
-                    compact_attempts += 1;
-                    if let Some(q) = compact_quad(gray, w, h, a, step, original) {
-                        // Preserve overlapping crops with different fitted
-                        // axes until row metadata and correction are tested.
-                        let axis = [q[1][0] - q[0][0], q[1][1] - q[0][1]];
-                        if compact_out.iter().any(|(p, _)| {
-                            let other = [p[1][0] - p[0][0], p[1][1] - p[0][1]];
-                            let sine = (axis[0] * other[1] - axis[1] * other[0]).abs()
-                                / (axis[0].hypot(axis[1]) * other[0].hypot(other[1]));
-                            sine < 0.025 && crate::regions::overlap(p, &q) > 0.7
-                        }) {
-                            continue;
-                        }
-                        if compact_out.len() < 24 {
-                            compact_out.push((q, a.support));
-                        } else {
-                            limited = true;
+                    compact_attempts[which] += 1;
+                    if let Some(quads) = compact_quad(gray, w, h, a, step, original) {
+                        for q in quads {
+                            // Preserve overlapping crops with different fitted
+                            // axes until row metadata and correction are tested.
+                            let axis = [q[1][0] - q[0][0], q[1][1] - q[0][1]];
+                            if compact_out.iter().flatten().any(|(p, _)| {
+                                let other = [p[1][0] - p[0][0], p[1][1] - p[0][1]];
+                                let sine = (axis[0] * other[1] - axis[1] * other[0]).abs()
+                                    / (axis[0].hypot(axis[1]) * other[0].hypot(other[1]));
+                                let length = axis[0].hypot(axis[1]);
+                                let other_length = other[0].hypot(other[1]);
+                                sine < 0.025
+                                    && (length / other_length - 1.).abs() < 0.03
+                                    && same_extent(p, &q)
+                                    && crate::regions::overlap(p, &q) > 0.7
+                            }) {
+                                continue;
+                            }
+                            if compact_out[which].len() < 96 {
+                                compact_out[which].push((q, a.support));
+                            } else {
+                                limited = true;
+                            }
                         }
                     }
                 }
@@ -512,14 +575,22 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
         }
     }
     // Fully paired guards take priority over speculative Compact rectangles.
-    for item in compact_out {
-        if out.len() < 24 {
-            out.push(item);
+    let mut ordered = Vec::new();
+    let [out_plain, out_patient] = out;
+    let [compact_plain, compact_patient] = compact_out;
+    for item in out_plain
+        .into_iter()
+        .chain(compact_plain)
+        .chain(out_patient)
+        .chain(compact_patient)
+    {
+        if ordered.len() < 96 {
+            ordered.push(item);
         } else {
             limited = true;
         }
     }
-    (out, limited)
+    (ordered, limited)
 }
 
 #[must_use]

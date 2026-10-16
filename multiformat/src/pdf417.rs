@@ -117,6 +117,53 @@ fn symbol(r: &[f32]) -> Option<(usize, usize)> {
     }
     Some((value, cluster))
 }
+/// Closest codeword of a known cluster for eight run widths that no codeword
+/// matches exactly (print gain, blur). The Reed-Solomon stage then treats a
+/// wrong guess as an error instead of every such cell as an erasure.
+/// Check codewords a group with guessed cells must leave unused (at most).
+const SPARE: usize = 8;
+/// Check codewords a decode with erasures must leave unused: spending every
+/// check codeword on erasures leaves nothing to confirm the result.
+const MIN_SPARE: usize = 2;
+/// Most proposals per scan that get the costlier column-count re-read, for Low, Medium and
+/// High (and Very High): about one read per dense sheet, at a tenth of a second there.
+const MAX_TOLERANT: [usize; 3] = [0, 0, 48];
+/// Marks a codeword value chosen by nearest-pattern search rather than exact match.
+const GUESS: usize = 1024;
+fn nearest_symbol(r: &[f32], cluster: usize) -> Option<usize> {
+    if r.len() < 8 {
+        return None;
+    }
+    let module = r[..8].iter().sum::<f32>() / 17.;
+    if module < 0.65 {
+        return None;
+    }
+    let mut best = (f32::INFINITY, 0);
+    for (value, &pattern) in CODES.get(cluster)?.iter().enumerate() {
+        let mut widths = [0f32; 8];
+        let (mut index, mut previous) = (0, true);
+        for bit in (0..17).rev().map(|shift| (pattern >> shift) & 1 == 1) {
+            if bit != previous {
+                index += 1;
+                previous = bit;
+            }
+            widths[index] += 1.;
+        }
+        for gain in [0f32, -0.3, 0.3, -0.6, 0.6] {
+            let error: f32 = (0..8)
+                .map(|i| {
+                    let adjusted = r[i] / module - gain * if i % 2 == 0 { 1. } else { -1. };
+                    (adjusted - widths[i]).powi(2)
+                })
+                .sum::<f32>()
+                + gain.abs() * 0.3;
+            if error < best.0 {
+                best = (error, value);
+            }
+        }
+    }
+    (best.0 < 1.5).then_some(best.1)
+}
 #[derive(Clone)]
 struct Row {
     left: Option<usize>,
@@ -200,13 +247,14 @@ pub fn diagnostic_rows(gray: &[u8], w: usize, h: usize) -> serde_json::Value {
 fn read_row(bits: &[bool], gray: &[u8], reversed: bool, y: f32) -> Vec<Row> {
     let mut offsets = Vec::new();
     let mut refined = Vec::new();
-    read_row_reuse(bits, gray, reversed, y, &mut offsets, &mut refined)
+    read_row_reuse(bits, gray, reversed, y, None, &mut offsets, &mut refined)
 }
 fn read_row_reuse(
     bits: &[bool],
     gray: &[u8],
     reversed: bool,
     y: f32,
+    columns: Option<usize>,
     offsets: &mut Vec<usize>,
     refined: &mut Vec<f32>,
 ) -> Vec<Row> {
@@ -232,7 +280,10 @@ fn read_row_reuse(
         let mut at = s + 16;
         let mut values = Vec::new();
         while at + 9 <= r.len() && values.len() < 32 {
-            let val = symbol(&r[at..]);
+            let mut val = symbol(&r[at..]);
+            if let (None, Some(_), Some((_, cluster))) = (val, columns, left_symbol) {
+                val = nearest_symbol(&r[at..], cluster).map(|value| (value + GUESS, cluster));
+            }
             if at + 17 <= r.len()
                 && crate::linear::pattern_error(&r[at + 8..], &[7, 1, 1, 3, 1, 1, 1, 2, 1]) < 0.18
             {
@@ -259,6 +310,26 @@ fn read_row_reuse(
                 break;
             }
             values.push(val);
+            // A symbol whose column count is known from its other rows ends
+            // after that many cells, even when print damage hides the stop
+            // guard of this row.
+            if let (Some(count), Some((left, cluster))) = (columns, left_symbol)
+                && values.len() == count
+            {
+                out.push(Row {
+                    left: Some(left),
+                    right: None,
+                    cluster,
+                    values: values
+                        .iter()
+                        .map(|v| v.and_then(|(value, c)| (c == cluster).then_some(value)))
+                        .collect(),
+                    x0: crate::numeric::usize_f32(offsets[s]),
+                    x1: crate::numeric::usize_f32(offsets[at + 8]),
+                    y,
+                });
+                break;
+            }
             // Compact PDF417 ends after the data cells with a single-module
             // black bar. It has no right row indicator or full stop pattern.
             let module = r[at..at + 8].iter().sum::<f32>() / 17.;
@@ -645,6 +716,7 @@ fn compact_region_valid(rows: &[Row]) -> bool {
 fn decode_group(rows: &[Row]) -> Option<(DecodedPayload, usize)> {
     let meta = group_metadata(rows, false);
     let (count, cols, ecc) = meta?;
+    let mut guessed = false;
     let mut cells = vec![BTreeMap::<usize, usize>::new(); count * cols];
     for r in rows {
         let index = r.left.or(r.right)? / 30 * 3 + r.cluster;
@@ -656,7 +728,9 @@ fn decode_group(rows: &[Row]) -> Option<(DecodedPayload, usize)> {
         }
         for (i, v) in r.values.iter().enumerate() {
             if let Some(v) = v {
-                *cells[index * cols + i].entry(*v).or_default() += 1;
+                guessed |= *v >= GUESS;
+                let weight = if *v >= GUESS { 1 } else { 4 };
+                *cells[index * cols + i].entry(*v % GUESS).or_default() += weight;
             }
         }
     }
@@ -673,7 +747,53 @@ fn decode_group(rows: &[Row]) -> Option<(DecodedPayload, usize)> {
             }
         })
         .collect();
-    let corrected = reed_prime::correct(&mut code, ecc, &erasures);
+    // Guessed cells make a wrong decode likelier, so a guessed group must
+    // leave spare check codewords unused: that many extra zero syndromes make
+    // a chance match of garbage negligible.
+    let spare = if guessed {
+        SPARE
+    } else if erasures.is_empty() {
+        0
+    } else {
+        MIN_SPARE
+    }
+    .min(ecc);
+    let consumed = |locations: usize, erased: usize| 2 * locations - erased;
+    let mut attempt = code.clone();
+    let mut corrected = reed_prime::correct(&mut attempt, ecc, &erasures)
+        .filter(|&n| consumed(n, erasures.len()) + spare <= ecc);
+    if corrected.is_some() {
+        code = attempt;
+    } else if guessed {
+        // Nearest-pattern guesses can be wrong. Erase the least certain cells
+        // too: an erasure costs one correction where an error costs two.
+        let mut order: Vec<usize> = (0..cells.len()).filter(|i| !erasures.contains(i)).collect();
+        let margin = |i: usize| {
+            let mut votes: Vec<usize> = cells[i].values().copied().collect();
+            votes.sort_unstable_by(|a, b| b.cmp(a));
+            votes[0] - votes.get(1).copied().unwrap_or(0)
+        };
+        order.sort_by_key(|&i| margin(i));
+        let room = ecc.saturating_sub(spare + erasures.len());
+        for extra in (1..=12).map(|i| (room * i / 12).max(1)) {
+            if erasures.len() + extra + spare > ecc {
+                break;
+            }
+            let mut all = erasures.clone();
+            all.extend(order.iter().take(extra));
+            let mut attempt = code.clone();
+            for &i in &all {
+                attempt[i] = 0;
+            }
+            if let Some(count) = reed_prime::correct(&mut attempt, ecc, &all)
+                .filter(|&n| consumed(n, all.len()) + spare <= ecc)
+            {
+                code = attempt;
+                corrected = Some(count);
+                break;
+            }
+        }
+    }
     let corrected = corrected?;
     if code[0] != count * cols - ecc {
         return None;
@@ -691,6 +811,7 @@ fn detect_axes(
     h: usize,
     regions: &mut crate::regions::Regions,
     target_scanlines: usize,
+    columns: Option<usize>,
 ) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
     // Thresholds depend only on the sampled row bytes and mode. Keep the last
@@ -738,6 +859,7 @@ fn detect_axes(
                         &row,
                         reversed,
                         crate::numeric::usize_f32(y),
+                        columns,
                         &mut run_offsets,
                         &mut refined_runs,
                     ) {
@@ -826,15 +948,35 @@ fn covered_fraction(candidate: &[[f32; 2]; 4], decoded: &[[f32; 2]; 4]) -> f32 {
     crate::regions::overlap(candidate, decoded) * candidate_area.min(area(decoded)) / candidate_area
 }
 
-/// Whole-image rows plus guard-guided rectification at arbitrary in-plane angles.
+/// Column count voted by the left row indicators of an already rectified crop.
+fn crop_columns(gray: &[u8], w: usize, h: usize) -> Option<usize> {
+    let mut votes = [0usize; 30];
+    let step = (h / 100).max(1);
+    for y in (0..h).step_by(step) {
+        let line = &gray[y * w..(y + 1) * w];
+        let mirrored: Vec<u8> = line.iter().rev().copied().collect();
+        for line in [line, &mirrored] {
+            for mode in 0..2 {
+                if let Some((value, 2, _)) = left_indicator(line, mode) {
+                    votes[value % 30] += 1;
+                }
+            }
+        }
+    }
+    let (best, &count) = votes.iter().enumerate().max_by_key(|(_, count)| **count)?;
+    (count >= 3 && count * 2 > votes.iter().sum::<usize>()).then_some(best + 1)
+}
+/// Whole-image rows plus guard-guided rectification at arbitrary in-plane angles, with the
+/// retry limits of a scanner `mode` (0 Low, 1 Medium, 2 High, 3 Very High).
 pub fn detect(
     gray: &[u8],
     w: usize,
     h: usize,
     regions: &mut crate::regions::Regions,
+    mode: usize,
 ) -> (Vec<Detection>, bool) {
     let mut coarse_regions = crate::regions::Regions::default();
-    let (mut results, mut limited) = detect_axes(gray, w, h, &mut coarse_regions, 96);
+    let (mut results, mut limited) = detect_axes(gray, w, h, &mut coarse_regions, 96, None);
     // A localized band without a covering payload may contain dense rows or
     // multiple symbols. Retry the original full-frame density, even if another
     // barcode has already decoded elsewhere. Sparse search is an effort
@@ -855,7 +997,7 @@ pub fn detect(
     }
     limited |= coarse_regions.limited;
     if dense_retry {
-        let (dense_results, dense_limited) = detect_axes(gray, w, h, regions, 500);
+        let (dense_results, dense_limited) = detect_axes(gray, w, h, regions, 500, None);
         limited |= dense_limited;
         for read in dense_results {
             if !results.iter().any(|existing| {
@@ -868,6 +1010,7 @@ pub fn detect(
     }
     let (proposals, capped) = crate::pdf_localize::proposals(gray, w, h);
     limited |= capped;
+    let mut tolerant_attempts = 0;
     for (polygon, support) in proposals {
         if results
             .iter()
@@ -882,8 +1025,26 @@ pub fn detect(
             continue;
         };
         let mut crop_regions = crate::regions::Regions::default();
-        let (found, capped) = detect_axes(&pixels, width, height, &mut crop_regions, 500);
+        let (mut found, capped) = detect_axes(&pixels, width, height, &mut crop_regions, 500, None);
         limited |= capped || crop_regions.limited;
+        if found.is_empty()
+            && tolerant_attempts < MAX_TOLERANT[mode.min(2)]
+            && let Some(columns) = crop_columns(&pixels, width, height)
+        {
+            tolerant_attempts += 1;
+            // The guards localized a symbol the strict row reader could not
+            // finish: read each row for the column count its indicators give.
+            let (tolerant, capped) = detect_axes(
+                &pixels,
+                width,
+                height,
+                &mut crop_regions,
+                500,
+                Some(columns),
+            );
+            limited |= capped;
+            found = tolerant;
+        }
         for mut read in found {
             read.polygon = read.polygon.map(|p| crate::qr_detect::map(&t, p[0], p[1]));
             if !results.iter().any(|d| {
@@ -905,7 +1066,7 @@ pub fn detect(
                     .any(|read| covered_fraction(&region.polygon, &read.polygon) >= 0.85)
         })
     {
-        let (dense_results, dense_limited) = detect_axes(gray, w, h, regions, 500);
+        let (dense_results, dense_limited) = detect_axes(gray, w, h, regions, 500, None);
         limited |= dense_limited;
         for read in dense_results {
             if !results.iter().any(|existing| {
@@ -942,6 +1103,36 @@ fn drop_conflicting_corrections(results: &mut Vec<Detection>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn widths(pattern: u32) -> [f32; 8] {
+        let mut out = [0f32; 8];
+        let (mut index, mut previous) = (0, true);
+        for bit in (0..17).rev().map(|shift| (pattern >> shift) & 1 == 1) {
+            if bit != previous {
+                index += 1;
+                previous = bit;
+            }
+            out[index] += 1.;
+        }
+        out
+    }
+
+    #[test]
+    fn nearest_symbol_recovers_codewords_through_print_gain() {
+        for (cluster, value) in [(0, 5), (1, 400), (2, 928)] {
+            let mut run = widths(CODES[cluster][value]);
+            for (i, width) in run.iter_mut().enumerate() {
+                // Ink spread: bars grow, spaces shrink, scale is 3 px/module.
+                *width = (*width + if i % 2 == 0 { 0.4 } else { -0.4 }) * 3.;
+            }
+            assert_eq!(nearest_symbol(&run, cluster), Some(value));
+        }
+    }
+
+    #[test]
+    fn nearest_symbol_rejects_runs_far_from_any_codeword() {
+        assert_eq!(nearest_symbol(&[2., 9., 2., 9., 2., 9., 2., 9.], 0), None);
+    }
 
     #[test]
     fn macro_control_block_reports_the_sequence_position() {

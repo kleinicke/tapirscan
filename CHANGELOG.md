@@ -64,6 +64,20 @@
   162 real PDF417 photos, expected reads 382 become 452 of 1,344 in every mode; six
   reads in dense multi-label photos swap to a neighbouring symbol of the same photo.
   Runtime is unchanged within noise.
+- PDF417 reads more real-world symbols. Guards are also matched after undoing print gain
+  (on their own strips, so exact matches are undisturbed); a start guard without a matched
+  stop guard also proposes the full-symbol width, not only the Compact one; a second, more
+  patient walk along the guard bar proposes taller crops of the same symbol; and the
+  proposal cap rises from 24 to 96, which had hidden symbols on sheets of 12 or more labels.
+  In High and Very High, a localized symbol the strict row reader cannot finish is re-read
+  for the column count its row indicators give, with nearest-codeword guesses for unmatched
+  cells and extra erasures of the least certain cells. Guessed groups must keep at least 8
+  check codewords unused, and any decode with erasures at least 2, so a symbol whose check
+  codewords are all spent on erasures (which confirms nothing) is not reported. On the
+  1,578 development photos, PDF417 reads go from 453 to 468 in Low and Medium and to 475 in
+  High (one read of 17 on one dense sheet is lost), other formats and wrong reads
+  unchanged. In Chrome with all formats, frames without PDF417 cost the same; frames with
+  PDF417 cost about 6% more in Low, 3% in Medium and 5% in High.
 - Low no longer reports a UPC-E or EAN-8 decoded from part of an EAN-13 or UPC-A it also
   reads. Selections beyond `common1D` (Codabar, Code 93, DataBar or any 2D format) produced
   such fragments on many retail photos. On 929 real development photos with `all`, photos
