@@ -52,6 +52,9 @@
   instead of 249 Code 128 symbols and Very High 525 instead of 274. Medium is
   unchanged; on large retail photos High with `common1D` costs about 15% more
   (`common` 7%), Very High about 35% (14%), without changing their reads.
+- High and Very High run localized recovery for `DataBarExpanded` selected alone, as
+  Medium does. On the variation images that ZXing, ZBar or native Chrome read, High
+  reads 266 instead of 259 of 293 (Medium 271).
 - ITF start and stop patterns tolerate ink spread: when every bar prints wider than
   every space (or narrower), the guards are checked with that bias removed; such reads
   need at least six digits. High and Very High also sweep large frames with twice as
