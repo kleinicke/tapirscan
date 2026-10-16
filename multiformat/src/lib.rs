@@ -527,8 +527,13 @@ pub fn scan_observed(
             active[3] = active[3].max(y);
         }
     }
+    // Effort 1 without retail formats is the Code 128/ITF sweep of High and Very High: twice
+    // as many lines on large frames keep short fields of label photos between two lines.
+    let dense =
+        effort == 1 && mask & (linear::EAN13 | linear::UPCA | linear::EAN8 | linear::UPCE) == 0;
     let step = crate::numeric::usize_f32(
-        (width.min(height) / if effort > 0 { 120 } else { 64 }).clamp(2, 16),
+        (width.min(height) / if effort > 0 { 120 } else { 64 })
+            .clamp(2, if dense { 8 } else { 16 }),
     );
     let angles: &[f32] = if effort > 1 {
         &[0., 90., 45., -45., 22.5, -22.5, 67.5, -67.5]
