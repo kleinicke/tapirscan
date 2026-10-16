@@ -1094,7 +1094,6 @@ fn validate(image: Image<'_>, mask: u32) -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(not(feature = "low"))]
 pub(crate) fn contains_point(point: [f64; 2], quad: &crate::Quad) -> bool {
     if !point.iter().all(|v| v.is_finite()) || !quad.iter().flatten().all(|v| v.is_finite()) {
         return false;

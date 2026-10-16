@@ -557,7 +557,9 @@ fn finalize_reads(
     mask: u32,
     multiple: bool,
 ) -> Vec<Read> {
-    let mut reads = keep_one_per_symbol(crate::linear_duplicates::merge_fast(reads, image));
+    let mut reads = drop_nested_short_retail(keep_one_per_symbol(
+        crate::linear_duplicates::merge_fast(reads, image),
+    ));
     if mask & !127 != 0 {
         remove_decoded_regions(unread, &reads);
     }
@@ -566,6 +568,34 @@ fn finalize_reads(
     if !multiple {
         reads.truncate(1);
     }
+    reads
+}
+
+/// One printed symbol holds one code: a UPC-E or EAN-8 read centred inside an EAN-13 or UPC-A
+/// read is a fragment of that symbol (its six or eight modules match part of the longer code)
+/// and is dropped. Broad selections add such fragments from the full-image linear sweep.
+#[cfg(feature = "low")]
+fn drop_nested_short_retail(mut reads: Vec<Read>) -> Vec<Read> {
+    let long: Vec<crate::Quad> = reads
+        .iter()
+        .filter(|r| matches!(r.format.as_str(), "EAN13" | "UPCA"))
+        .map(|r| r.polygon)
+        .collect();
+    if long.is_empty() {
+        return reads;
+    }
+    reads.retain(|r| {
+        if !matches!(r.format.as_str(), "UPCE" | "EAN8") {
+            return true;
+        }
+        let centre = [
+            r.polygon.iter().map(|p| p[0]).sum::<f64>() / 4.,
+            r.polygon.iter().map(|p| p[1]).sum::<f64>() / 4.,
+        ];
+        !long
+            .iter()
+            .any(|q| crate::formats::contains_point(centre, q))
+    });
     reads
 }
 

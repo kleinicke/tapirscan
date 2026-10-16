@@ -352,3 +352,35 @@ fn empty_scan_recovery_reads_blurred_small_ean13() {
         assert_eq!(texts, ["4002575076905"], "tier={TIER}");
     }
 }
+
+/// A UPC-E or EAN-8 read centred inside an EAN-13 read is a fragment of that symbol;
+/// short reads beside it, and short reads without a longer one, stay.
+#[test]
+fn short_retail_reads_inside_an_ean13_are_dropped() {
+    let read = |format: &str, text: &str, polygon: crate::Quad| {
+        let mut read = Read::primary(
+            [4, 7, 5, 1, 0, 0, 4, 3, 2, 0, 5, 5, 2],
+            polygon,
+            6,
+            0,
+            Vec::new(),
+        );
+        read.format = format.into();
+        read.text = text.into();
+        read
+    };
+    let ean13 = [[100., 100.], [300., 100.], [300., 160.], [100., 160.]];
+    let inside = [[110., 110.], [190., 110.], [190., 150.], [110., 150.]];
+    let beside = [[320., 100.], [420., 100.], [420., 160.], [320., 160.]];
+    let kept = drop_nested_short_retail(vec![
+        read("EAN13", "4751004320552", ean13),
+        read("UPCE", "17510044", inside),
+        read("UPCE", "01234565", beside),
+        read("EAN8", "96385074", inside),
+    ]);
+    let texts: Vec<_> = kept.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(texts, ["4751004320552", "01234565"]);
+
+    let alone = drop_nested_short_retail(vec![read("EAN8", "96385074", inside)]);
+    assert_eq!(alone.len(), 1);
+}

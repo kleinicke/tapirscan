@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Low no longer reports a UPC-E or EAN-8 decoded from part of an EAN-13 or UPC-A it also
+  reads. Selections beyond `common1D` (Codabar, Code 93, DataBar or any 2D format) produced
+  such fragments on many retail photos. On 929 real development photos with `all`, photos
+  with a wrong retail value drop from 16 to 6 (retail selection: 7 to 5), with identical
+  correct reads and unchanged EAN-8/UPC-E reads on 751 images of those formats. Medium,
+  High and Very High are unchanged.
 - High and Very High now run Medium's retail recoveries (contrast, high-pass, wide and
   band profiles; deferred proposals; late crops) on frames their own retries leave
   unread. High had fallen behind Medium on retail photos. On 929 real development
