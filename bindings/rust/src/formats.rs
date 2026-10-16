@@ -1206,11 +1206,21 @@ fn scan_additional(
     };
     let linear = enabled & LINEAR_MASK & swept;
     let matrix = enabled & !LINEAR_MASK;
-    // Without retail boxes to recover from, ITF and Code 128 need the whole-image sweep's
-    // angle coverage (Medium at Low's effort, High and Very High at the next); with retail
-    // selected, localized recovery reads them at a fraction of the cost.
-    let preserved = if !cfg!(feature = "low") && addons == EanAddOnPolicy::Ignore && !retail {
-        enabled & (64 | 16)
+    // Medium sweeps Code 128 at Low's effort, High and Very High at the next: retail boxes come
+    // from a 768-pixel localization raster, on which the many small Code 128 fields of large
+    // label photos vanish. With retail selected, Medium sweeps only frames above twice that
+    // raster. ITF joins the sweep only without retail; with retail selected, localized
+    // recovery reads it at a fraction of the cost.
+    let large = image.width.max(image.height) > 1536;
+    let preserved = if !cfg!(feature = "low") && addons == EanAddOnPolicy::Ignore {
+        enabled
+            & if !retail {
+                64 | 16
+            } else if large || cfg!(any(feature = "high", feature = "very-high")) {
+                16
+            } else {
+                0
+            }
     } else {
         0
     };
