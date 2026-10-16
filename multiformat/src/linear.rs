@@ -895,21 +895,36 @@ fn code39_with_gain(
     None
 }
 fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
-    if error(&r[s..], &[1, 1, 1, 1]) > 0.18 {
+    // Ink spread widens every bar and narrows every space (or the reverse). Digits are
+    // unaffected (each holds only bars or only spaces), so only the guards need the
+    // bias, measured on the start pattern when it fails the plain check.
+    let corrected = if error(&r[s..], &[1, 1, 1, 1]) <= 0.18 {
+        false
+    } else if error_adjusted(&r[s..], &[1, 1, 1, 1]) <= 0.18 {
+        true
+    } else {
         return None;
-    }
+    };
+    let bias = if corrected {
+        (r[s] + r[s + 2] - r[s + 1] - r[s + 3]) / 4.
+    } else {
+        0.
+    };
     let module = r[s..s + 4].iter().sum::<f32>() / 4.;
     if s == 0 || (s != 1 && r[s - 1] < module * 7.) {
         return None;
     }
+    let stop = |at: usize| {
+        let guard = [r[at] - bias, r[at + 1] + bias, r[at + 2] - bias];
+        error(&guard, &[3, 1, 1]) < 0.18 || error(&guard, &[2, 1, 1]) < 0.18
+    };
     let mut at = s + 4;
     let mut out = Vec::new();
     let mut err = 0.;
     while at + 3 <= r.len() && out.len() < 80 {
-        if out.len() >= 4
-            && (error(&r[at..], &[3, 1, 1]) < 0.18 || error(&r[at..], &[2, 1, 1]) < 0.18)
-            && quiet(r, s, at + 3, module, 7.)
-        {
+        // A bias-corrected start is weaker evidence: require ITF-6 or longer.
+        let shortest = if corrected { 6 } else { 4 };
+        if out.len() >= shortest && stop(at) && quiet(r, s, at + 3, module, 7.) {
             return Some(Read {
                 decoded: true,
                 addon: None,
