@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Medium is faster with QR selected: it tries at most 25 alignment-pattern searches per
+  threshold pass (was 150), which false finder triples on textured photos used up. QR
+  reads on the 4,619-image QR development selection are unchanged (4,242 with QR alone,
+  4,233 with EAN-13 and QR); in Chrome, Medium with `common` is about 5% faster on
+  retail photos and frames without a barcode, and EAN-13 with QR about 8%.
 - Data Matrix reads more phone photos, industrial marks and foreshortened symbols in
   every mode. A candidate that passed the L-border gate but did not decode is retried with
   a wider side-ratio window (strong perspective shortens one axis), by tuning the grid

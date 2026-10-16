@@ -833,8 +833,11 @@ pub fn detect_foreground(
 /// keep the full attempt budget.
 /// Alignment searches per detection pass in Low and Medium. Plausible but false
 /// triples on textured frames reach this costly stage; High keeps searching.
-const ALIGNMENT_BUDGET: usize = if cfg!(any(feature = "mode-low", feature = "mode-medium")) {
+/// Medium's 25 keep every QR read of the frozen 4,619-image selection.
+const ALIGNMENT_BUDGET: usize = if cfg!(feature = "mode-low") {
     150
+} else if cfg!(feature = "mode-medium") {
+    25
 } else {
     usize::MAX
 };
