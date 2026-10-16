@@ -1580,6 +1580,10 @@ fn has_qr_region(scan: &barcode_multiformat::Scan) -> bool {
     scan.regions.iter().any(|region| region.format == "QRCode")
 }
 
+/// EAN-13, UPC-A, EAN-8 and UPC-E.
+#[cfg(feature = "medium")]
+const RETAIL_BITS: u32 = 0b1111;
+
 #[cfg(feature = "medium")]
 fn medium_retries(
     pixels: &[u8],
@@ -1597,7 +1601,7 @@ fn medium_retries(
     // with twice the lines and diagonal angles finds the others; retail photos rarely pay.
     if addons == EanAddOnPolicy::Ignore
         && mask & 16 != 0
-        && mask & 15 == 0
+        && mask & RETAIL_BITS == 0
         && width.min(height) > 1536
         && scan.barcodes.iter().any(|b| b.format == "Code128")
     {
