@@ -59,8 +59,9 @@
   340 synthetic variations and High 188 instead of 179 (Low 182); parcel-label ITF
   codes that only zxing-cpp read before are now read in every mode. High reads 1,238
   instead of 1,009 Code 128 symbols on the 15 October 2026 development labels.
-- Code 128 is swept over the whole image in Medium (frames longer than 1536 pixels),
-  High and Very High also when retail formats are selected. Retail boxes come from a
+- Code 128 and Code 39 are swept over the whole image in Medium (frames longer than
+  1536 pixels), High and Very High also when retail formats are selected (Code 39 adds
+  two reads on the development labels, which Low already read). Retail boxes come from a
   768-pixel localization raster, on which the many small Code 128 fields of large
   label photos vanish, so Medium read fewer of them than Low. On the 1,578
   development images of the 15 October 2026 real-image labels with all formats,
