@@ -5,6 +5,7 @@ mod component_geometry;
 pub mod databar;
 pub mod datamatrix;
 pub mod dm_detect;
+pub mod dm_gray;
 pub mod encoding;
 mod encoding_tables;
 pub mod expanded;

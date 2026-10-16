@@ -239,6 +239,11 @@ impl<'a> Images<'a> {
             qr_contrast_cut: ContrastCut::Uncomputed,
         }
     }
+    /// The grayscale frame the thresholds derive from.
+    #[must_use]
+    pub fn gray(&self) -> &'a [u8] {
+        self.gray
+    }
     /// A second foreground split recovers low-contrast ink surrounded by a bright background.
     pub(crate) fn has_qr_contrast(&mut self) -> bool {
         if matches!(self.qr_contrast_cut, ContrastCut::Uncomputed) {

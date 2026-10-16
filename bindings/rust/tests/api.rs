@@ -629,3 +629,95 @@ fn large_blurred_data_matrix_reads_from_high_up() {
         );
     }
 }
+
+/// The 16x16 Data Matrix "TAPIRSCAN-DM-42" with a three-module quiet zone, drawn with
+/// `module` pixels per module along each axis and blurred by `passes` box filters of `radius`.
+fn blurred_data_matrix(
+    module: [usize; 2],
+    radius: usize,
+    passes: usize,
+) -> (Vec<u8>, usize, usize) {
+    const ROWS: [&str; 16] = [
+        "1010101010101010",
+        "1111010001001111",
+        "1110010101000000",
+        "1000010100110011",
+        "1001010101000100",
+        "1100101100010011",
+        "1010010111010010",
+        "1100110110100101",
+        "1000000011001000",
+        "1100110000010111",
+        "1110100010011000",
+        "1100011100110001",
+        "1010110111001110",
+        "1111100111000101",
+        "1011000000100010",
+        "1111111111111111",
+    ];
+    let (width, height) = (22 * module[0], 22 * module[1]);
+    let mut plane = vec![255_f32; width * height];
+    for y in 0..16 * module[1] {
+        for x in 0..16 * module[0] {
+            let dark = ROWS[y / module[1]].as_bytes()[x / module[0]] == b'1';
+            plane[(y + 3 * module[1]) * width + x + 3 * module[0]] = if dark { 60. } else { 190. };
+        }
+    }
+    for vertical in [false, true].repeat(passes) {
+        let source = plane.clone();
+        let (lines, length) = if vertical {
+            (width, height)
+        } else {
+            (height, width)
+        };
+        for line in 0..lines {
+            for at in 0..length {
+                let (lo, hi) = (at.saturating_sub(radius), (at + radius).min(length - 1));
+                let sum: f32 = (lo..=hi)
+                    .map(|i| {
+                        if vertical {
+                            source[i * width + line]
+                        } else {
+                            source[line * width + i]
+                        }
+                    })
+                    .sum();
+                let value = sum / f32::from(u16::try_from(hi - lo + 1).unwrap());
+                if vertical {
+                    plane[at * width + line] = value;
+                } else {
+                    plane[line * width + at] = value;
+                }
+            }
+        }
+    }
+    // The blurred values stay within 60..=190, so the cast is exact.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let pixels = plane.iter().map(|&v| v.round() as u8).collect();
+    (pixels, width, height)
+}
+
+fn read_texts(mode: Mode, pixels: &[u8], width: usize, height: usize) -> Vec<String> {
+    let mut scanner = Scanner::new(ScannerOptions {
+        mode,
+        formats: Format::DataMatrix.into(),
+        ..ScannerOptions::default()
+    });
+    let result = scanner.scan(Image::gray(pixels, width, height)).unwrap();
+    result.barcodes.iter().map(|b| b.text.clone()).collect()
+}
+
+/// Strong perspective can shorten one axis of a square symbol to about 0.57 of the
+/// other (here 14 by 8 pixels per module); the first localizer pass accepts only
+/// 0.65 to 1.55, so a wider retry has to read it in every mode.
+#[test]
+fn foreshortened_data_matrix_reads_in_every_mode() {
+    let (pixels, width, height) = blurred_data_matrix([14, 8], 2, 1);
+    for mode in compiled_modes() {
+        assert_eq!(
+            read_texts(mode, &pixels, width, height),
+            vec!["TAPIRSCAN-DM-42"],
+            "{mode:?}"
+        );
+    }
+}

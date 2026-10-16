@@ -1071,7 +1071,7 @@ fn l_border_edges(image: &[bool], w: usize, h: usize, quad: [Point; 4]) -> [usiz
 }
 // Closed-form rectangle-to-quadrilateral mapping. Every size hypothesis has
 // this rectangular source, so a general eight-equation elimination is wasteful.
-fn rectangle_transform(cols: usize, rows: usize, q: [Point; 4]) -> Option<[f32; 8]> {
+pub(crate) fn rectangle_transform(cols: usize, rows: usize, q: [Point; 4]) -> Option<[f32; 8]> {
     let dx1 = q[1][0] - q[2][0];
     let dx2 = q[3][0] - q[2][0];
     let dy1 = q[1][1] - q[2][1];
@@ -1103,8 +1103,20 @@ fn border(
     cols: usize,
     rows: usize,
 ) -> Option<f32> {
+    border_with_limit(image, w, h, transform, cols, rows, 2)
+}
+/// Border error fraction with at most `(cols + rows) * 2 * fifths / 5` wrong samples.
+fn border_with_limit(
+    image: &[bool],
+    w: usize,
+    h: usize,
+    transform: &[f32; 8],
+    cols: usize,
+    rows: usize,
+    fifths: usize,
+) -> Option<f32> {
     let mut errors = 0;
-    let error_limit = (cols + rows) * 2 / 5;
+    let error_limit = (cols + rows) * fifths / 5;
     // The two clock tracks reject solid rectangles sooner. This changes only
     // sampling order: every admitted hypothesis has the same border error sum.
     for (edge, length) in [(0, cols), (1, rows), (2, cols), (3, rows)] {
@@ -1232,10 +1244,18 @@ fn refine_hypotheses(
     hypotheses.sort_by(|a, b| a.0.total_cmp(&b.0));
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "The Data Matrix search shares proposal ordering, hypothesis caps and undecoded coverage across its sampling passes."
-)]
+/// Whether a read already covers the center of this candidate.
+fn near_result(results: &[Detection], quad: &[Point; 4]) -> bool {
+    let center = |poly: &[Point]| {
+        poly.iter()
+            .fold([0., 0.], |s, p| [s[0] + p[0] / 4., s[1] + p[1] / 4.])
+    };
+    let c = center(quad);
+    results.iter().any(|r| {
+        let d = center(&r.polygon);
+        (c[0] - d[0]).hypot(c[1] - d[1]) < 8.
+    })
+}
 pub fn detect(
     w: usize,
     h: usize,
@@ -1243,9 +1263,52 @@ pub fn detect(
     binary_images: &mut crate::binarization::Images<'_>,
     refine: bool,
 ) -> (Vec<Detection>, bool) {
+    detect_with_crops(
+        w,
+        h,
+        regions,
+        binary_images,
+        refine,
+        if refine {
+            CROP_RETRIES_REFINED
+        } else {
+            CROP_RETRIES
+        },
+    )
+}
+/// Unread candidate boxes retried on an area-averaged crop: Medium and High limits.
+const CROP_RETRIES: usize = 1;
+/// Failing candidates kept for the retries, per frame: Medium and High.
+const RETRY_CANDIDATES: usize = 2;
+const RETRY_CANDIDATES_REFINED: usize = 12;
+/// Sizes per candidate that the grayscale refinement tries.
+const GRAY_SIZES_PER_CANDIDATE: usize = 2;
+const CROP_RETRIES_REFINED: usize = 2;
+#[expect(
+    clippy::too_many_lines,
+    reason = "The Data Matrix search shares proposal ordering, hypothesis caps and undecoded coverage across its sampling passes."
+)]
+fn detect_with_crops(
+    w: usize,
+    h: usize,
+    regions: &mut crate::regions::Regions,
+    binary_images: &mut crate::binarization::Images<'_>,
+    refine: bool,
+    crop_retries: usize,
+) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
     let mut attempts = 0;
     let mut refinements = 0;
+    let gray = binary_images.gray();
+    let mut gray_attempts = if crop_retries == 0 {
+        3
+    } else if refine {
+        8
+    } else {
+        2
+    };
+    let mut failed: Vec<(Vec<[Point; 4]>, usize)> = Vec::new();
+    let mut unread: Vec<[Point; 4]> = Vec::new();
     for mode in 0..4 {
         if binary_images.is_duplicate(mode) {
             continue;
@@ -1271,6 +1334,7 @@ pub fn detect(
                 continue;
             }
             let mut hypotheses = Vec::new();
+            let mut orientations: Vec<[Point; 4]> = Vec::new();
             for mirror in [false, true] {
                 for rotation in 0..4 {
                     // A valid orientation puts the solid L on the bottom and
@@ -1284,6 +1348,7 @@ pub fn detect(
                     let q: [Point; 4] = std::array::from_fn(|i| {
                         original[(rotation + if mirror { 4 - i } else { i }) % 4]
                     });
+                    orientations.push(q);
                     let dx = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]);
                     let dy = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
                     for size in datamatrix::SIZES {
@@ -1336,6 +1401,7 @@ pub fn detect(
                 refine_hypotheses(image, w, h, &mut hypotheses, &mut refinements);
             }
             regions.limited |= hypotheses.len() > 12;
+            let before = results.len();
             for (score, size, t, polygon) in hypotheses.into_iter().take(12) {
                 attempts += 1;
                 if attempts > 800 {
@@ -1380,9 +1446,283 @@ pub fn detect(
                     }
                 }
             }
+            if results.len() == before
+                && failed.len()
+                    < if refine {
+                        RETRY_CANDIDATES_REFINED
+                    } else {
+                        RETRY_CANDIDATES
+                    }
+            {
+                failed.push((orientations, mode));
+            }
         }
     }
+    // Strong perspective foreshortens one axis of a square symbol past the
+    // ratio window of the first pass; unread candidates retry with a wider one.
+    // Fair but unclean borders queue for the grayscale refinement below.
+    let mut queue: Vec<(f32, datamatrix::Size, [Point; 4], bool)> = Vec::new();
+    for (orientations, mode) in failed {
+        if orientations
+            .first()
+            .is_some_and(|first| near_result(&results, first))
+        {
+            continue;
+        }
+        let image = binary_images.get(mode);
+        let mut hypotheses = Vec::new();
+        let mut fair = Vec::new();
+        for &q in &orientations {
+            let dx = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]);
+            let dy = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
+            for size in datamatrix::SIZES {
+                let ratio = (dx / dy)
+                    / (crate::numeric::usize_f32(size.w) / crate::numeric::usize_f32(size.h));
+                if !(0.5..=2.0).contains(&ratio)
+                    || dx / crate::numeric::usize_f32(size.w) < 0.8
+                    || dy / crate::numeric::usize_f32(size.h) < 0.8
+                {
+                    continue;
+                }
+                let Some(t) = rectangle_transform(size.w, size.h, q) else {
+                    continue;
+                };
+                let Some(score) = border_with_limit(image, w, h, &t, size.w, size.h, 2) else {
+                    continue;
+                };
+                if score <= 0.2 && !(0.65..=1.55).contains(&ratio) {
+                    hypotheses.push((score, *size, t, q));
+                }
+                fair.push((score, *size, q, mode >= 2));
+            }
+        }
+        hypotheses.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if refine {
+            refine_hypotheses(image, w, h, &mut hypotheses, &mut refinements);
+        }
+        let mut found = None;
+        for (score, size, t, polygon) in hypotheses.into_iter().take(12) {
+            attempts += 1;
+            if attempts > 800 {
+                break;
+            }
+            let mut matrix = Vec::with_capacity(size.w * size.h);
+            for y in 0..size.h {
+                for x in 0..size.w {
+                    let at = [
+                        crate::numeric::usize_f32(x) + 0.5,
+                        crate::numeric::usize_f32(y) + 0.5,
+                    ];
+                    if let Some(v) = pixel(image, w, h, &t, at[0], at[1]) {
+                        matrix.push(v);
+                    }
+                }
+            }
+            if matrix.len() == size.w * size.h
+                && let Some(read) = datamatrix::decode_matrix(&matrix, size.w, size.h)
+            {
+                found = Some(Detection {
+                    bytes: Some(read.bytes),
+                    structured_append: read.structured_append,
+                    reader_initialization: read.reader_initialization,
+                    addon: None,
+                    format: "DataMatrix".into(),
+                    text: read.text,
+                    polygon,
+                    support: 1,
+                    error: score,
+                    gs1: read.gs1,
+                });
+                break;
+            }
+        }
+        if let Some(read) = found {
+            results.push(read);
+        } else {
+            // Only candidates with a clean-looking border earn an averaged crop.
+            if !fair.is_empty() {
+                unread.push(orientations[0]);
+            }
+            fair.sort_by(|a, b| a.0.total_cmp(&b.0));
+            queue.extend(fair.into_iter().take(GRAY_SIZES_PER_CANDIDATE));
+        }
+    }
+    queue.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for (score, size, q, inverted) in queue {
+        if gray_attempts == 0 {
+            break;
+        }
+        if near_result(&results, &q) {
+            continue;
+        }
+        gray_attempts -= 1;
+        if let Some((read, polygon)) = crate::dm_gray::recover(gray, (w, h), q, size, inverted) {
+            results.push(Detection {
+                bytes: Some(read.bytes),
+                structured_append: read.structured_append,
+                reader_initialization: read.reader_initialization,
+                addon: None,
+                format: "DataMatrix".into(),
+                text: read.text,
+                polygon,
+                support: 1,
+                error: score,
+                gs1: read.gs1,
+            });
+        }
+    }
+    if crop_retries > 0 {
+        results.extend(crop_retries_for(
+            gray,
+            (w, h),
+            &unread,
+            &results,
+            crop_retries,
+        ));
+    }
     (results, false)
+}
+
+/// Bounding box of a quad padded by `pad` of its size, clamped to the frame.
+fn padded_box(quad: &[Point; 4], pad: f32, (w, h): (usize, usize)) -> Option<[usize; 4]> {
+    let low = |axis: usize| quad.iter().map(|p| p[axis]).fold(f32::INFINITY, f32::min);
+    let high = |axis: usize| {
+        quad.iter()
+            .map(|p| p[axis])
+            .fold(f32::NEG_INFINITY, f32::max)
+    };
+    let (x0, x1, y0, y1) = (low(0), high(0), low(1), high(1));
+    let (px, py) = ((x1 - x0) * pad, (y1 - y0) * pad);
+    let clamp = |v: f32, limit: usize| {
+        crate::numeric::f32_usize(v.max(0.).min(crate::numeric::usize_f32(limit)))
+    };
+    let result = [
+        clamp(x0 - px, w),
+        clamp(y0 - py, h),
+        clamp(x1 + px, w),
+        clamp(y1 + py, h),
+    ];
+    (result[2] > result[0] + 8 && result[3] > result[1] + 8).then_some(result)
+}
+
+/// Area-average a crop to the given size.
+fn average_crop(
+    gray: &[u8],
+    stride: usize,
+    [x0, y0, x1, y1]: [usize; 4],
+    (out_w, out_h): (usize, usize),
+) -> Vec<u8> {
+    let (cw, ch) = (x1 - x0, y1 - y0);
+    let mut out = vec![0_u8; out_w * out_h];
+    for y in 0..out_h {
+        let (ya, yb) = (
+            y * ch / out_h,
+            ((y + 1) * ch / out_h).max(y * ch / out_h + 1).min(ch),
+        );
+        for x in 0..out_w {
+            let (xa, xb) = (
+                x * cw / out_w,
+                ((x + 1) * cw / out_w).max(x * cw / out_w + 1).min(cw),
+            );
+            // At most four evenly spaced samples per axis keep the pass cheap.
+            let (ys, xs) = ((yb - ya).min(4), (xb - xa).min(4));
+            let mut sum = 0_u32;
+            for j in 0..ys {
+                let row = y0 + ya + (2 * j + 1) * (yb - ya) / (2 * ys);
+                for i in 0..xs {
+                    let column = x0 + xa + (2 * i + 1) * (xb - xa) / (2 * xs);
+                    sum += u32::from(gray[row * stride + column]);
+                }
+            }
+            let count = u32::try_from(ys * xs).unwrap_or(1);
+            out[y * out_w + x] = u8::try_from((sum + count / 2) / count).unwrap_or(255);
+        }
+    }
+    out
+}
+
+/// Large symbols whose modules span tens of pixels leave candidates that do not
+/// decode at full resolution. Retry the most extensive unread candidates on
+/// area-averaged crops, which both removes the module blur and keeps the cost
+/// proportional to the candidate, not the frame.
+pub(crate) fn crop_retries_for(
+    gray: &[u8],
+    (w, h): (usize, usize),
+    unread: &[[Point; 4]],
+    results: &[Detection],
+    limit: usize,
+) -> Vec<Detection> {
+    const TARGETS: [usize; 2] = [192, 96];
+    let targets = &TARGETS[..if limit > CROP_RETRIES { 2 } else { 1 }];
+    let mut boxes: Vec<[usize; 4]> = Vec::new();
+    for quad in unread {
+        if near_result(results, quad) {
+            continue;
+        }
+        let Some(candidate) = padded_box(quad, 0.12, (w, h)) else {
+            continue;
+        };
+        let (cw, ch) = (candidate[2] - candidate[0], candidate[3] - candidate[1]);
+        if cw.max(ch) < TARGETS[0] * 3 / 2 || cw.max(ch) > 3 * cw.min(ch) {
+            continue;
+        }
+        let covered = |outer: &[usize; 4]| {
+            candidate[0] >= outer[0]
+                && candidate[1] >= outer[1]
+                && candidate[2] <= outer[2]
+                && candidate[3] <= outer[3]
+        };
+        boxes.retain(|other| {
+            !(other[0] >= candidate[0]
+                && other[1] >= candidate[1]
+                && other[2] <= candidate[2]
+                && other[3] <= candidate[3])
+        });
+        if !boxes.iter().any(covered) {
+            boxes.push(candidate);
+        }
+    }
+    boxes.sort_by_key(|b| std::cmp::Reverse((b[2] - b[0]) * (b[3] - b[1])));
+    let mut found: Vec<Detection> = Vec::new();
+    for candidate in boxes.into_iter().take(limit) {
+        let (cw, ch) = (candidate[2] - candidate[0], candidate[3] - candidate[1]);
+        let long = cw.max(ch);
+        for &target in targets {
+            if long < target * 3 / 2 {
+                continue;
+            }
+            let (out_w, out_h) = ((cw * target / long).max(8), (ch * target / long).max(8));
+            let small = average_crop(gray, w, candidate, (out_w, out_h));
+            let mut crop_regions = crate::regions::Regions::default();
+            let mut images = crate::binarization::Images::new(&small, out_w, out_h);
+            let (reads, _) =
+                detect_with_crops(out_w, out_h, &mut crop_regions, &mut images, true, 0);
+            let scale = [
+                crate::numeric::usize_f32(cw) / crate::numeric::usize_f32(out_w),
+                crate::numeric::usize_f32(ch) / crate::numeric::usize_f32(out_h),
+            ];
+            let origin = [
+                crate::numeric::usize_f32(candidate[0]),
+                crate::numeric::usize_f32(candidate[1]),
+            ];
+            let before = found.len();
+            for mut read in reads {
+                for point in &mut read.polygon {
+                    *point = [
+                        origin[0] + point[0] * scale[0],
+                        origin[1] + point[1] * scale[1],
+                    ];
+                }
+                if !near_result(&found, &read.polygon) && !near_result(results, &read.polygon) {
+                    found.push(read);
+                }
+            }
+            if found.len() > before {
+                break;
+            }
+        }
+    }
+    found
 }
 
 #[cfg(test)]

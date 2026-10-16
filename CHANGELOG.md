@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Data Matrix reads more phone photos, industrial marks and foreshortened symbols in
+  every mode. A candidate that passed the L-border gate but did not decode is retried with
+  a wider side-ratio window (strong perspective shortens one axis), by tuning the grid
+  corners on gray values and thresholding modules against the border levels (bloomed or
+  blurred ink merges the L in the binary image), and, when large and its border looked
+  clean, on an area-averaged crop. Medium keeps two failing candidates per frame, High
+  twelve; every retry has explicit limits. On 1,578 real development images, Data Matrix
+  reads rise from 544 to 567 (Low), 604 to 622 (Medium) and 661 to 672 (High) with
+  unchanged reads of every other format and no new wrong reads; large phone photos
+  (3,500 px and up) go from 63 to 72 (Medium) and 96 to 102 (High). In Chrome with
+  `common`, Low and Medium cost about 1 to 2% on retail photos and 1% on frames without a
+  barcode, High about 1.5%; scans without Data Matrix are unchanged.
 - PDF417 reads more symbols: Macro PDF417 control blocks (structured append with segment
   index, count and file id), ECI codewords 925 and 926, and byte runs of five codewords;
   guard ends are followed along their bar so perspective photos rectify correctly. On
