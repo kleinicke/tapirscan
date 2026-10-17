@@ -5,7 +5,7 @@ from __future__ import annotations
 import ctypes as c
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias, cast, get_args
+from typing import TYPE_CHECKING, Literal, NamedTuple, TypeAlias, cast
 
 from ._library import ScannerError, library_path, load
 
@@ -33,7 +33,6 @@ ContentKind: TypeAlias = Literal[
     "VIN",
     "AAMVA",
 ]
-_KINDS = cast("tuple[ContentKind, ...]", get_args(ContentKind))
 
 
 class ContentField(NamedTuple):
@@ -88,6 +87,7 @@ def _library(path: Path) -> c.CDLL:
             c.c_int32,
         ),
         "tapirscan_content_destroy": ([u64], c.c_int32),
+        "tapirscan_content_kind_name": ([c.c_uint32], c.c_char_p),
     }
     for name, (args, result) in signatures.items():
         fn = getattr(lib, name)
@@ -146,6 +146,9 @@ def parse_content(
                 )
                 parts.append(buffer.raw[:length].decode())
             fields.append(ContentField(*parts))
-        return Content(_KINDS[summary.kind - 1], tuple(fields))
+        kind = cast(
+            "ContentKind", lib.tapirscan_content_kind_name(summary.kind).decode()
+        )
+        return Content(kind, tuple(fields))
     finally:
         lib.tapirscan_content_destroy(handle)

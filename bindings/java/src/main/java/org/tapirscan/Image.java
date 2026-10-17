@@ -5,7 +5,8 @@ import java.util.Objects;
 
 /**
  * Gray8, RGB8 or RGBA8 pixels (alpha ignored), 3 to 65,535 pixels per side and at most
- * 256 megapixels.
+ * 256 megapixels. Images above 32 megapixels are scanned as a reduced gray copy, so barcodes
+ * that are small in them may be missed; results stay in source coordinates.
  * {@code stride} is bytes per row and 0 means packed rows. The addressed layout,
  * {@code (height - 1) * stride + width * channels} bytes, must fit in {@code pixels} and in
  * 1 GiB; a larger backing segment, such as a frame around a crop, is fine.

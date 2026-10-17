@@ -9,17 +9,19 @@ its status numbers differ from the C `tapirscan_status` values.
 
 ## Exports
 
-| Export                                                         | Purpose                                                                                       |
-| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `tapirscan_abi_version()`                                      | Adapter ABI version (3)                                                                       |
-| `tapirscan_mode()`                                             | Compiled effort: 0 Low, 1 Medium, 2 High, 3 Very high                                         |
-| `tapirscan_experimental_turbo()`                               | Turbo preset (2, 4, 8 or 16) compiled into a Low module, else 0                               |
-| `tapirscan_create(mode, formats, addon)`                       | Returns a scanner handle, or 0 for invalid options or a `mode` that differs from the module's |
-| `tapirscan_destroy(handle)`                                    | Releases the scanner                                                                          |
-| `tapirscan_prepare(handle, width, height, channels, stride)`   | Describes the image and allocates its input buffer                                            |
-| `tapirscan_input_ptr(handle)`, `tapirscan_input_len(handle)`   | Location and size of the input buffer                                                         |
-| `tapirscan_scan(handle, flags, formats)`                       | Scans the prepared image                                                                      |
-| `tapirscan_output_ptr(handle)`, `tapirscan_output_len(handle)` | Location and size of the UTF-8 JSON result                                                    |
+| Export                                                                | Purpose                                                                                       |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `tapirscan_abi_version()`                                             | Adapter ABI version (3)                                                                       |
+| `tapirscan_mode()`                                                    | Compiled effort: 0 Low, 1 Medium, 2 High, 3 Very high                                         |
+| `tapirscan_experimental_turbo()`                                      | Turbo preset (2, 4, 8 or 16) compiled into a Low module, else 0                               |
+| `tapirscan_create(mode, formats, addon)`                              | Returns a scanner handle, or 0 for invalid options or a `mode` that differs from the module's |
+| `tapirscan_destroy(handle)`                                           | Releases the scanner                                                                          |
+| `tapirscan_prepare(handle, width, height, channels, stride)`          | Describes the image and allocates its input buffer                                            |
+| `tapirscan_input_ptr(handle)`, `tapirscan_input_len(handle)`          | Location and size of the input buffer                                                         |
+| `tapirscan_prepare_rows(handle, width, height, channels, chunk_rows)` | Starts an image above 32 megapixels, delivered in chunks of packed rows                       |
+| `tapirscan_push_rows(handle, count)`                                  | Adds the first `count` rows of the input buffer to such an image                              |
+| `tapirscan_scan(handle, flags, formats)`                              | Scans the prepared image                                                                      |
+| `tapirscan_output_ptr(handle)`, `tapirscan_output_len(handle)`        | Location and size of the UTF-8 JSON result                                                    |
 
 `formats` is a format bit mask. `addon` is 0 Ignore, 1 Read or 2 Require. In
 `tapirscan_scan`, `flags` accepts only bit 1 (value 2), which selects

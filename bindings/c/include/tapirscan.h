@@ -58,7 +58,9 @@ typedef struct tapirscan_scanner_options {
 typedef struct tapirscan_error { char message[512]; } tapirscan_error;
 
 /* Gray8, RGB8 or RGBA8 pixels (alpha ignored), 3 to 65,535 pixels per side,
-   at most 256 megapixels.
+   at most 256 megapixels. Images above 32 megapixels are scanned as a reduced
+   gray copy, so barcodes that are small in them may be missed; results stay in
+   source coordinates.
    stride is the distance between rows in bytes; 0 means width * channels.
    length is the readable buffer size. The addressed layout,
    (height - 1) * stride + width * channels bytes, must fit in it and in 1 GiB;
