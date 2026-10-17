@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- High and Very High no longer run the stripe localizer on retail scans of frames that
+  are not tiny: they box symbols by segment voting and never used its short-fragment
+  hints. Reads are identical; High is about 8% faster on retail photos, 5% with all 1D
+  formats and 3% on frames without a barcode.
 - Aztec reads small symbols (about 1.5 to 2 pixels per module) in Medium, High and Very
   High: a bullseye candidate with a well-fitting ring that no threshold pass turned into a
   read is retried on an enlarged window around it, and a read must be centered on the

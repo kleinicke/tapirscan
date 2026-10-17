@@ -683,7 +683,16 @@ fn localize(
         trace: [0; 13],
     };
     #[cfg(not(feature = "medium"))]
-    let found = if capture_short_fragments {
+    // High and Very High box symbols by segment voting and never use short fragments, so
+    // they skip the stripe pass except on tiny frames.
+    let found = if cfg!(any(feature = "high", feature = "very-high")) && !tiny_stripes(image) {
+        stripes::Result {
+            proposals: Vec::new(),
+            omitted: 0,
+            limited: false,
+            trace: [0; 13],
+        }
+    } else if capture_short_fragments {
         use barcode_research_core::numeric::usize_f64;
         let scale = (768. / usize_f64(image.width.max(image.height))).min(1.);
         let sx = usize_f64(image.width) / (usize_f64(image.width) * scale).round().max(3.);
@@ -709,13 +718,6 @@ fn localize(
             fragments.sort_by_key(|(edges, _)| std::cmp::Reverse(*edges));
             fragments.truncate(4);
         })?
-    } else if cfg!(any(feature = "high", feature = "very-high")) && !tiny_stripes(image) {
-        stripes::Result {
-            proposals: Vec::new(),
-            omitted: 0,
-            limited: false,
-            trace: [0; 13],
-        }
     } else {
         detector.detect(im)?
     };
