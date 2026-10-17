@@ -26,3 +26,11 @@ export function pythonExecutable(root, env) {
     throw new Error(`Cannot run ${command}; set QUALITY_PYTHON to a Python executable`);
   return result.stdout.trim();
 }
+
+// rust-toolchain.toml is the single source of the Rust version.
+export function rustToolchain(root) {
+  const text = fs.readFileSync(path.join(root, "rust-toolchain.toml"), "utf8");
+  const channel = /^channel\s*=\s*"([^"]+)"/m.exec(text)?.[1];
+  if (!channel) throw new Error("rust-toolchain.toml has no channel");
+  return channel;
+}

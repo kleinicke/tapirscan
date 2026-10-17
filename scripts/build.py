@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -15,13 +16,27 @@ MODES = tuple(_CONFIG["modes"])
 TURBO_PRESETS = tuple(_CONFIG["experimentalTurbo"])
 
 
+def rust_toolchain() -> str:
+    """Return the Rust channel pinned by rust-toolchain.toml, the single source."""
+    match = re.search(
+        r'^channel\s*=\s*"([^"]+)"',
+        (ROOT / "rust-toolchain.toml").read_text(),
+        re.MULTILINE,
+    )
+    if match is None:
+        message = "rust-toolchain.toml has no channel"
+        raise ValueError(message)
+    return match.group(1)
+
+
 def wasm_flags() -> list[str]:
     """Canonicalize std source paths whether rust-src is installed or absent."""
+    rustc = ["rustc", f"+{rust_toolchain()}"]
     sysroot = subprocess.check_output(
-        ["rustc", "+1.99.0", "--print", "sysroot"],
+        [*rustc, "--print", "sysroot"],
         text=True,
     ).strip()
-    version = subprocess.check_output(["rustc", "+1.99.0", "-vV"], text=True)
+    version = subprocess.check_output([*rustc, "-vV"], text=True)
     commit = next(
         line.split(": ", 1)[1]
         for line in version.splitlines()
@@ -56,7 +71,7 @@ def main() -> None:
     env = dict(
         os.environ,
         CARGO_TARGET_DIR=str(ROOT / "build/core-target"),
-        RUSTUP_TOOLCHAIN="1.99.0",
+        RUSTUP_TOOLCHAIN=rust_toolchain(),
     )
     env.pop("RUSTFLAGS", None)
     subprocess.run(

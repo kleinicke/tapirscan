@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { root } from "./format.mjs";
+import { rustToolchain } from "./environment.mjs";
 const mode = process.argv[2] ?? "js";
 const release = fs.existsSync(path.join(root, "bindings/javascript/tsconfig.json"));
 const commands = [];
@@ -25,7 +26,7 @@ if (mode === "rust") {
       "rustup",
       [
         "run",
-        "1.99.0",
+        rustToolchain(root),
         "cargo",
         "clippy",
         "--offline",

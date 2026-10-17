@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as prettier from "prettier";
 import svelte from "prettier-plugin-svelte";
+import { rustToolchain } from "./environment.mjs";
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const excluded = new Set([
@@ -118,7 +119,7 @@ export async function formatted(file, text) {
       "rustup",
       [
         "run",
-        "1.99.0",
+        rustToolchain(root),
         "rustfmt",
         "--edition",
         "2024",

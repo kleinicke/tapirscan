@@ -13,7 +13,7 @@ from fixture_data import fixtures
 from supplement_fixtures import generate as supplement_fixtures
 from test_detail import make_fixtures as detail_fixtures
 
-from build import ROOT
+from build import ROOT, rust_toolchain
 
 sys.path.insert(0, str(ROOT / "bindings/python/src"))
 from tapirscan import Mode, PixelImage, Scanner
@@ -125,7 +125,7 @@ def check(package: Path) -> None:
     subprocess.run(
         [
             "cargo",
-            "+1.99.0",
+            f"+{rust_toolchain()}",
             "test",
             "--offline",
             "--release",

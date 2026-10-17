@@ -149,13 +149,20 @@ jobs:
     environment: crates
     permissions:
       id-token: write
+      contents: read
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: rust-toolchain.toml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: release-bundle
           path: release
       - run: cd release && sha256sum --check SHA256SUMS
-      - run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Install the Rust compiler from rust-toolchain.toml
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
       - name: Publish the reviewed crate
@@ -164,4 +171,4 @@ jobs:
         run: |
           mkdir crate
           tar -xzf release/crates/tapirscan-*.crate -C crate --strip-components 1
-          cargo +1.99.0 publish --locked --manifest-path crate/Cargo.toml
+          cargo publish --locked --manifest-path crate/Cargo.toml

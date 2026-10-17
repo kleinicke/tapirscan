@@ -21,11 +21,23 @@ EXAMPLES = TARGET / "release/examples"
 X86_64_RUSTFLAGS = "-C target-cpu=x86-64-v2"
 
 
-def rustflags() -> str | None:
-    """Return fixed compiler flags for this host, ignoring the caller's RUSTFLAGS."""
-    return (
-        X86_64_RUSTFLAGS if platform.machine().lower() in ("x86_64", "amd64") else None
+def rustflags() -> list[str]:
+    """Return the host's fixed compiler flags followed by the caller's own.
+
+    The caller's CARGO_ENCODED_RUSTFLAGS, which cargo prefers, or else RUSTFLAGS
+    comes after the fixed flag, so a caller can still override it.
+    """
+    fixed = (
+        X86_64_RUSTFLAGS.split()
+        if platform.machine().lower() in ("x86_64", "amd64")
+        else []
     )
+    encoded = os.environ.get("CARGO_ENCODED_RUSTFLAGS")
+    if encoded is not None:
+        caller = encoded.split("\x1f") if encoded else []
+    else:
+        caller = os.environ.get("RUSTFLAGS", "").split()
+    return [*fixed, *caller]
 
 
 def library_name() -> str:
@@ -59,7 +71,7 @@ def build(public_crate: Path, destination: Path) -> None:
     env.pop("RUSTFLAGS", None)
     env.pop("CARGO_ENCODED_RUSTFLAGS", None)
     if flags := rustflags():
-        env["RUSTFLAGS"] = flags
+        env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(flags)
     env["CARGO_TARGET_DIR"] = str(TARGET)
     env["CARGO_INCREMENTAL"] = "0"
     common = ["--offline", "--manifest-path", str(native / "Cargo.toml")]

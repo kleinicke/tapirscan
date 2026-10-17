@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { rustToolchain } from "./environment.mjs";
 if (Number(process.versions.node.split(".")[0]) < 24) {
   console.error("Use Node 24 or newer; with nvm, run nvm install && nvm use first.");
   process.exit(1);
@@ -23,7 +24,7 @@ run(path.join(root, ".quality-tools/python/bin/python"), [
 run("rustup", [
   "toolchain",
   "install",
-  "1.99.0",
+  rustToolchain(root),
   "--profile",
   "minimal",
   "--component",

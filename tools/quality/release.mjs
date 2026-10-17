@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { root } from "./format.mjs";
-import { qualityEnvironment, pythonExecutable } from "./environment.mjs";
+import { qualityEnvironment, pythonExecutable, rustToolchain } from "./environment.mjs";
 const environment = qualityEnvironment(root);
 const mode = process.argv[2] ?? "all";
 const supported = ["all", "rust", "python", "native", "js"];
@@ -91,7 +91,7 @@ if (selected("rust")) {
       "rustup",
       [
         "run",
-        "1.99.0",
+        rustToolchain(root),
         "cargo",
         "clippy",
         "--offline",
@@ -139,7 +139,7 @@ if (selected("rust")) {
         );
         run("rustup", [
           "run",
-          "1.99.0",
+          rustToolchain(root),
           "cargo",
           "generate-lockfile",
           "--offline",

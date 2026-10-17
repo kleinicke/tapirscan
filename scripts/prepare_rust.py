@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from build import MODES, ROOT
+from build import MODES, ROOT, rust_toolchain
 
 # Embedded copies of the core and multiformat crates keep their full library APIs;
 # each mode's engine uses only part of them. Engine modules are linted normally.
@@ -76,7 +76,7 @@ def source_rewriter() -> Path:
     subprocess.run(
         [
             "cargo",
-            "+1.99.0",
+            f"+{rust_toolchain()}",
             "build",
             "--offline",
             "--locked",
