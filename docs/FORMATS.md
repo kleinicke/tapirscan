@@ -48,7 +48,7 @@ The supported public identifiers and native bits are:
 | Code93          |     256 | Supported                                                        |
 | QRCode          |     512 | Model 2; no Micro QR, Model 1 or rMQR                            |
 | DataMatrix      |    1024 | ECC200 and DMRE                                                  |
-| PDF417          |    2048 | Normal/Compact; no Micro PDF417 or Macro/structured append       |
+| PDF417          |    2048 | Normal/Compact and Macro (structured append); no Micro PDF417    |
 | Aztec           |    4096 | Compact/full and Rune                                            |
 | DataBar         |    8192 | Omnidirectional, Stacked and Stacked Omnidirectional             |
 | DataBarExpanded |   16384 | Expanded and Expanded Stacked                                    |
@@ -93,33 +93,32 @@ Effort levels select the following bounded searches:
 | Common-linear | 0   | 1      | 2    | 2         |
 | QR Code       | 0   | 1      | 2    | 3         |
 
-Data Matrix and Aztec get an additional grid-recovery pass for localized symbols
-from Medium up, and Aztec uses smaller refinement budgets in Low. Data Matrix
-candidates with flat clock-track sides are rejected early; the others that do not decode
-are retried with a wider side-ratio window, a grayscale corner refinement (three tries
-per frame in Low and Medium, six in High) and an averaged crop of a large or an enlarged
-crop of a tiny candidate (one in Low and Medium, two in High). Frames without a read are
-also retried on reduced copies in High (two scales) and Very High (four), which reads large blurred close-ups. PDF417 uses
-the same effort in every mode; MaxiCode reads the same way in every mode, and from
-Medium up retries large unread frames (over 1920 pixels) on reduced copies.
-
-On frames whose long side exceeds 1536 pixels, High also localizes the non-retail
-linear formats on a half-scale raster and Very High on overlapping 1536-pixel
-windows, so small symbols in large photos can be found; Medium and Low use the
-768-pixel localization raster only. For small codes in large photos with Medium, crop
-around them.
-
 These are internal reader effort levels, not comparable work or confidence scores.
-QR recovery grows with the mode. Every mode retries tiny unread images (up to 300
-pixels) on an enlarged copy. Medium adds, for grids that fail to decode, a gray
-resampling against each module's neighborhood, a block-threshold pass where a QR
-candidate stayed unread, and retries of large frames at 960 and 1280 pixels. High
-adds threshold/sharpen recovery, block thresholds on every unread frame and
-Reed-Solomon erasures for uncertain modules; Very High also tries bounded
-curved-grid recovery for Model 2 version 2 and above. Packed RGBA QR-only inputs use direct
-WASM upload with the same grayscale conversion and ignored alpha.
-EAN13-only scanning does not invoke them. When EAN13
-and UPCA are both enabled, zero-prefixed EAN13 is returned as UPCA.
+
+- **Linear formats:** on frames whose long side exceeds 1536 pixels, High also
+  localizes non-retail linear formats on a half-scale raster and Very High on
+  overlapping 1536-pixel windows. Low and Medium localize on a 768-pixel raster
+  only; for small codes in large photos, crop around them.
+- **QR Code:** every mode retries tiny unread images (up to 300 pixels) on an
+  enlarged copy. Medium adds gray resampling for grids that fail to decode, a
+  block-threshold pass where a QR candidate stayed unread, and retries of large
+  frames at 960 and 1280 pixels. High adds threshold/sharpen recovery, block
+  thresholds on every unread frame and Reed-Solomon erasures for uncertain
+  modules; Very High also tries curved-grid recovery for version 2 and above.
+  EAN13-only scans run none of this.
+- **Data Matrix:** candidates that do not decode are retried with a wider
+  side-ratio window, a grayscale corner refinement and a resampled crop, with
+  twice the tries in High. Medium and above add a grid-recovery pass; High and
+  Very High also retry unread frames on reduced copies, which reads large blurred
+  close-ups.
+- **Aztec:** Medium and above add a grid-recovery pass and retry small symbols on
+  an enlarged window; Low uses smaller refinement budgets.
+- **PDF417:** High and Very High re-read localized symbols that the row reader
+  cannot finish by matching blurred codeword templates.
+- **MaxiCode** reads the same way in every mode and, from Medium up, retries
+  large unread frames (over 1920 pixels) on reduced copies.
+
+When EAN13 and UPCA are both enabled, zero-prefixed EAN13 is returned as UPCA.
 
 Polygons are in input-image coordinates. Metadata such as GS1, reader
 initialization and structured append is available directly on Python/JavaScript

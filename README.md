@@ -152,9 +152,7 @@ accuracy ranking. **[Read the illustrated comparison and its sources](docs/COMPA
 Start with `medium`. Try `low` if scanning slows down your camera preview, or
 `high` and `very-high` when an image is difficult to read. Measure on your own
 images and devices: higher effort does not guarantee more reads on every image.
-Effort modes tune EAN/UPC, common linear formats, QR Code, Data Matrix and Aztec
-(see [effort levels](docs/FORMATS.md#effort-levels)); PDF417 uses a fixed effort, and
-MaxiCode adds only a retry for large frames from Medium up.
+Effort modes tune every format; see [effort levels](docs/FORMATS.md#effort-levels).
 
 ## Scan fast
 

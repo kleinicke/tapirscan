@@ -108,9 +108,8 @@ Kinds and fields: [structured content](../../docs/CONTENT.md).
 rows. Size limits and conversion rules are in
 [API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md#images).
 
-Byte arrays are copied when scanning, limited to the addressed bytes, into a
-buffer the scanner reuses until `close()` (about 1 ms for 12 MP RGBA on an M1,
-5 ms on Linux x86-64). Native segments are read in place without a copy, which
+Byte arrays are copied when scanning, limited to the addressed bytes, into a buffer the
+scanner reuses until `close()`. Native segments are read in place without a copy, which
 suits camera frames: wrap a direct `ByteBuffer` with `MemorySegment.ofBuffer(buffer)`.
 Keep a native segment alive and unchanged until the scan returns. Pass the pixels
 as you have them; packed RGBA is the cheapest input for the retail formats, so do

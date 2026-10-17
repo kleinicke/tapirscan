@@ -746,7 +746,7 @@ fn finder_grid_valid(
     let mut errors = 0;
     // The error count does not depend on the cell order, so the cells run column
     // by column with each column's base position computed once. Every position
-    // is `(center + x * ex) + y * ey`, as before.
+    // is `(center + x * ex) + y * ey`.
     for x in -3i32..=3 {
         let fx = barcode_multiformat::numeric::f64_f32(f64::from(x));
         let base = [center[0] + fx * ex[0], center[1] + fx * ex[1]];
@@ -823,13 +823,8 @@ pub fn detect_foreground(
 ) -> (Vec<Detection>, bool) {
     detect_with_recovery(w, h, regions, binary_images, 4..8, false, FULL_BUDGET)
 }
-/// Once a symbol is read, a threshold mode stops trying triples after this many
-/// decode attempts without a further read. Further symbols' triples rank early,
-/// so this skips the long tail of accidental triples; images without any read
-/// keep the full attempt budget.
 /// Alignment searches per detection pass in Low and Medium. Plausible but false
 /// triples on textured frames reach this costly stage; High keeps searching.
-/// Medium's 25 keep every QR read of the frozen 4,619-image selection.
 const ALIGNMENT_BUDGET: usize = if cfg!(feature = "mode-low") {
     150
 } else if cfg!(feature = "mode-medium") {
@@ -839,8 +834,8 @@ const ALIGNMENT_BUDGET: usize = if cfg!(feature = "mode-low") {
 };
 /// Medium and above search for an alignment pattern whatever the format bits look
 /// like. Low does so only where an affine fit from the finders reads intact format
-/// information: false triples otherwise used up its whole budget of 150 searches.
-/// Medium's budget of 25 is already small, so the check would save it nothing.
+/// information: false triples would otherwise use up its budget. Medium's budget
+/// is small enough that the check would save nothing.
 const ALIGN_ANYWAY: bool = !cfg!(feature = "mode-low");
 /// Sampling offsets, in modules, of the three grids tried for every transform.
 const GRID_OFFSETS: [f32; 3] = [0., -0.2, 0.2];
@@ -868,7 +863,11 @@ fn format_intact_under(
         })
     })
 }
-/// Low serves live camera frames, where the next frame is another chance.
+/// Once a symbol is read, a threshold mode stops trying triples after this many
+/// decode attempts without a further read. Further symbols' triples rank early,
+/// so this skips the long tail of accidental triples; images without any read
+/// keep the full attempt budget. Low serves live camera frames, where the next
+/// frame is another chance.
 const PATIENCE: usize = if cfg!(feature = "mode-low") { 50 } else { 100 };
 #[expect(
     clippy::too_many_lines,
@@ -1714,7 +1713,7 @@ mod alignment_cache_tests {
 mod finder_grid_tests {
     use super::finder_grid_valid;
 
-    /// The cell-by-cell check as it was before the columns shared their base position.
+    /// Cell-by-cell reference for the column-wise check.
     fn reference(
         image: &[bool],
         w: usize,

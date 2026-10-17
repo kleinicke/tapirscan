@@ -105,7 +105,7 @@ fn rotated_product389_duplicate_keeps_raw_gap_contradiction() {
 }
 #[test]
 fn rotated_real_duplicate_retains_conflicting_gap_observation() {
-    // Frozen whole-scene +40degree development case5021047102439_2.
+    // Whole-scene +40 degree rotated duplicate.
     // Two accepted bands share a candidate, but a different raw read falls
     // between them. The geometry is eligible; contradiction must veto merging.
     let mut candidate = c(

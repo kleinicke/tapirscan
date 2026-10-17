@@ -1357,9 +1357,9 @@ struct Retries {
     /// than bare L borders, so only a short list is ranked.
     ranked: bool,
 }
-/// Retry limits per frame for Low, Medium and High (and Very High). Medium retries its
-/// four best candidates; Low and High the first 64 (High ranking them cost about 3% in
-/// Chrome on retail photos for no read).
+/// Retry limits per frame for Low, Medium and High (and Very High). Medium retries only
+/// its four best-ranked candidates; Low and High retry the first 64 unranked, because
+/// ranking costs more than it finds there.
 const GRAY_ATTEMPTS: [usize; 3] = [3, 3, 6];
 const CROP_RETRIES: [usize; 3] = [1, 1, 2];
 const RETRY_CANDIDATES: [usize; 3] = [64, 4, 64];

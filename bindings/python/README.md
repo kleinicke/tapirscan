@@ -96,7 +96,7 @@ runs on CPU. See [array and tensor inputs](#array-and-tensor-inputs).
 - **Reuse a `Scanner`** for more than one image, and use `mode="low"` for camera
   frames.
 - **Inputs, cheapest first:** contiguous uint8 NumPy arrays (RGBA, then RGB or gray,
-  about 1-4 ms extra for 12 MP); uint8 tensors; float arrays and tensors (validated
+  a small extra copy for large frames); uint8 tensors; float arrays and tensors (validated
   and rounded, on several threads for large arrays); Pillow images (one `tobytes()`
   copy). CUDA tensors are converted on the GPU and transferred once, so scan
   tensors where they already are; moving a CPU tensor to the GPU only for scanning
@@ -105,7 +105,7 @@ runs on CPU. See [array and tensor inputs](#array-and-tensor-inputs).
 - **Large photos:** when the barcodes are large in the frame, let Pillow decode a
   JPEG at reduced size before it loads: `image = Image.open(path)`, then
   `image.draft("RGB", (image.width // 2, image.height // 2))`. A 12 MP photo with
-  `formats="all"` then scans in 53 ms instead of 231 ms on an M1. Check that your
+  `formats="all"` then scans several times faster. Check that your
   smallest codes still read, and multiply coordinates by the factor to map them
   back to the original.
 - **Batches:** `tapirscan.scan_many(images, ...)` scans on all CPU cores with one
@@ -113,7 +113,7 @@ runs on CPU. See [array and tensor inputs](#array-and-tensor-inputs).
   keeps every core busy, so with several 2D formats set `TAPIRSCAN_THREADS=1`
   (before the first scan) for the highest throughput.
 - **Threads and servers:** scanning releases the GIL, so one scanner per thread
-  scales with CPU cores (about 7× with 8 threads). Create one per worker thread,
+  scales with CPU cores. Create one per worker thread,
   for example with `threading.local()` or a `ThreadPoolExecutor` initializer. In
   FastAPI and other async frameworks, scan in a sync endpoint or thread pool so the
   event loop keeps running. With `multiprocessing`, create the scanner inside each
@@ -213,11 +213,10 @@ are rejected rather than clipped: scale higher-bit-depth intensities and undo
 mean/std normalization first. Floats stored in byte units need
 `value_range="0_255"`.
 
-Scanning always runs on the CPU. Float NumPy arrays of 4 Mi samples or more are converted on up to eight threads.
-CUDA tensors are validated and converted to bytes
-on the GPU, so only the final 8-bit pixels are transferred; MPS and other device
-tensors are copied to CPU first, which adds latency. Sparse, quantized, complex and
-meta tensors are rejected.
+Scanning always runs on the CPU. Large float NumPy arrays are converted on several
+threads. CUDA tensors are validated and converted to bytes on the GPU, so only the final
+8-bit pixels are transferred; MPS and other device tensors are copied to CPU first,
+which adds latency. Sparse, quantized, complex and meta tensors are rejected.
 
 ### OpenCV
 
@@ -233,9 +232,8 @@ result = tapirscan.scan(image, color_order="BGR")
 
 OpenCV is not a dependency. `color_order="BGR"` does not modify your array; it
 reorders the channels in a copy. Converting with OpenCV is faster: for a 12 MP
-frame, `scanner.scan(cv2.cvtColor(image, cv2.COLOR_BGR2RGBA))` takes about 15 ms
-on an M1, against 32 ms with `color_order="BGR"`. For a camera
-or video, reuse one scanner:
+frame, `scanner.scan(cv2.cvtColor(image, cv2.COLOR_BGR2RGBA))` is about twice as
+fast as `color_order="BGR"`. For a camera or video, reuse one scanner:
 
 ```python
 capture = cv2.VideoCapture(0)
@@ -276,10 +274,10 @@ Storage must cover `(height - 1) * stride + width * channels` bytes.
 ### Limits
 
 Images above 32 megapixels are scanned as a reduced copy; results stay in source
-coordinates, but barcodes that are small in such an image may be missed.
-Images may have at most 65,535 pixels per side, 256 megapixels and 1 GiB of pixel data; this is checked
-before any conversion or device transfer. Coordinates start at the top left. If
-you resize before scanning, map coordinates back when drawing on the original.
+coordinates, but barcodes that are small in such an image may be missed. Images may have
+at most 65,535 pixels per side, 256 megapixels and 1 GiB of pixel data; this is checked
+before any conversion or device transfer. Coordinates start at the top left. If you
+resize before scanning, map coordinates back when drawing on the original.
 
 ## Results
 

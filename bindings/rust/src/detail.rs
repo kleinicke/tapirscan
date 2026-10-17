@@ -456,8 +456,7 @@ pub fn recover(
     {
         for seed in seeds.iter().take(if wide { 3 } else { 2 }) {
             // The wide pass rescues frames that are unread or weakly read. When every read
-            // so far is well supported it only re-reads them: on the development sets it
-            // never changed a read text and rarely their support.
+            // so far is well supported it would only re-read them.
             if wide
                 && known_retail
                     .iter()

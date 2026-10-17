@@ -174,9 +174,8 @@ were verified by hand.
   [`experimentalTurbo`](#experimental-turbo-presets) work as in the core, and
   `scan(image, { formats })` overrides the formats for one call. `wasmBaseUrl`
   serves the WASM files from another directory. `loadWasm` needs the core.
-  `scan(pixels, { transfer: true })` hands a decoded-pixel buffer to the worker
-  instead of copying it, which saves one full copy per call (for 12 MP RGBA, 5 ms
-  on an M1 under macOS and 27 ms on a Ryzen under Linux); the buffer is detached (length 0) once
+  `scan(pixels, { transfer: true })` hands a decoded-pixel buffer to the worker instead of
+  copying it, which saves one full copy per call; the buffer is detached (length 0) once
   the call starts. It applies when the pixels span their whole, non-shared
   `ArrayBuffer`; other inputs are copied as usual.
 - **Lifecycle:** `scanner.ready` resolves once loaded; awaiting it is optional,
@@ -204,8 +203,8 @@ were verified by hand.
   `File`/`Blob` (includes image decoding). Pass pixels as you have them (RGBA is
   cheapest for the retail formats); do not
   convert color.
-- A scanner's WASM memory grows to its largest image (about 50 MB after 12 MP,
-  210 MB after 48 MP); on phones, scan occasional large photos with a separate
+- A scanner's WASM memory grows to its largest image (about 50 MB after
+  12 MP); on phones, scan occasional large photos with a separate
   scanner and dispose it.
 
 See [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md)
@@ -228,8 +227,8 @@ const result = await scan(image);
 console.log(result.values); // e.g. ["4006381333931"]
 ```
 
-The one-shot helper creates and disposes a scanner, which costs about 2 ms per call;
-reuse a scanner for repeated images. Defaults are Medium effort and retail formats. In browsers the core needs its [WASM assets](#wasm-loading)
+The one-shot helper creates and disposes a scanner on every call. Defaults are Medium
+effort and retail formats. In browsers the core needs its [WASM assets](#wasm-loading)
 served; Node loads the packaged files automatically.
 
 Reuse a scanner for repeated images. Its scans are synchronous:
@@ -410,8 +409,8 @@ coordinates, but barcodes that are small in such an image may be missed. Such im
 are copied into WASM a few rows at a time, so only the reduction is held, not the
 whole image. Keep the buffer unchanged during the call.
 
-A scanner's WASM memory grows to fit the largest image it has scanned (about 210 MB
-after a 48-megapixel photo, 50 MB after 12 megapixels) and is released only by
+A scanner's WASM memory grows to fit the largest image it has scanned (about 50 MB
+after a 12-megapixel photo) and is released only by
 `dispose()`. On phones, where browsers close memory-hungry tabs, scan occasional
 large photos with a separate scanner and dispose it afterwards; keep one long-lived
 scanner for camera frames. Coordinates start at the top left, x rightward and y

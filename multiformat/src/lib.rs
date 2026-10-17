@@ -1332,7 +1332,7 @@ mod threshold_tests {
 
     #[test]
     fn adaptive_sum_does_not_overflow_on_long_bright_rows() {
-        // The old u32 prefix overflowed at this length. Each local window
+        // A u32 prefix sum overflows at this length. Each local window
         // still sums to <= 32,895.
         let length = usize::try_from(u32::MAX / 255).unwrap() + 2;
         let row = vec![255; length];

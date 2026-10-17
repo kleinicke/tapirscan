@@ -49,7 +49,7 @@ image. Those outputs are not bit-for-bit compatibility promises. Supported forma
 Experimental APIs, currently the JavaScript `experimentalTurbo` option, may change or be removed in minor releases.
 
 Undocumented internal counters, private modules and generated build paths are not
-public interfaces. The C ABI is version 6; Rust binary ABI stability is not
+public interfaces. The C ABI is version 7; Rust binary ABI stability is not
 promised across compiler versions.
 
 Keep the public interface small. Validate API changes through consumers, packaging

@@ -3,7 +3,7 @@
 use barcode_multiformat::{
     Detection, Scan, binarization, dm_detect, maxicode_detect, pdf417, qr_detect, regions,
 };
-/// Stack for reader threads: they used to run on the caller's (usually larger) stack.
+/// Stack for reader threads, sized like a typical main-thread stack.
 #[cfg(not(target_family = "wasm"))]
 const READER_STACK: usize = 8 << 20;
 

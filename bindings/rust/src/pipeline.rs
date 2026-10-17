@@ -128,7 +128,7 @@ fn scan_prepared_impl(
     #[cfg(not(feature = "low"))]
     let mut retail = finish_retail(&mut scan, &mut scanner.regions, im);
     // A frame whose boxes read nothing but show retail evidence (guard patterns or blurred
-    // symbol windows) is rescanned jointly with the full-frame window, as before. Other
+    // symbol windows) is rescanned jointly with the full-frame window. Other
     // linear symbols sharing the scan show stray guards, so they need repeated guard passes.
     #[cfg(feature = "medium")]
     if allow_restoration
