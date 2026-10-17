@@ -50,3 +50,8 @@ public func parseContent(_ text: String, gs1: Bool = false) throws -> Content? {
     }
     return Content(kind: kind, fields: fields)
 }
+
+/// Structured content of a decoded barcode, using its text and GS1 flag.
+public func parseContent(_ barcode: Barcode) throws -> Content? {
+    try parseContent(barcode.text, gs1: barcode.gs1 ?? false)
+}

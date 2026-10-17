@@ -77,9 +77,9 @@ an error.
 
 ## Structured content
 
-`barcode.content` returns the named fields of GS1, Wi-Fi, contact, payment and
-similar payloads, or `nil` for plain text; it throws if parsing fails.
-`parseContent(_:gs1:)` parses any text.
+`parseContent(barcode)`, or `barcode.content`, returns the named fields of GS1,
+Wi-Fi, contact, payment and similar payloads, or `nil` for plain text; it throws
+if parsing fails. `parseContent(_:gs1:)` parses any text.
 
 ```swift
 if let content = try barcode.content, content.kind == .wifi {

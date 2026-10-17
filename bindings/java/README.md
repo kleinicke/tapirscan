@@ -95,7 +95,8 @@ gives names such as `"QRCode"`.
 ## Structured content
 
 `Tapirscan.parseContent(barcode)` returns the named fields of GS1, Wi-Fi,
-contact, payment and similar payloads.
+contact, payment and similar payloads; `parseContent(text)` and
+`parseContent(text, gs1)` parse any text.
 
 ```java
 Tapirscan.parseContent(barcode)

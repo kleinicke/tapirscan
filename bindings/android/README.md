@@ -103,7 +103,7 @@ an empty result, not an error.
 
 `Tapirscan.parseContent(barcode)` returns the named fields of GS1, Wi-Fi, contact,
 payment and similar payloads as an `Optional<Content>`, empty for plain text;
-`Tapirscan.parseContent(text, gs1)` parses any text.
+`Tapirscan.parseContent(text)` and `parseContent(text, gs1)` parse any text.
 
 ```java
 Tapirscan.parseContent(barcode).ifPresent(content -> {

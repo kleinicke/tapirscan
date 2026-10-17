@@ -39,7 +39,7 @@ public final class ApiTest {
         check(Native.SCANNER_OPTIONS.byteSize() == 16 && Native.SCAN_OPTIONS.byteSize() == 4);
         check(Native.offset(Native.IMAGE, "stride") == 40);
         check(Native.CONTENT_SUMMARY.byteSize() == 16 && Native.CONTENT_LENGTHS.byteSize() == 16);
-        Content wifi = Tapirscan.parseContent("WIFI:S:Café;T:WPA;P:secret;;", false).orElseThrow();
+        Content wifi = Tapirscan.parseContent("WIFI:S:Café;T:WPA;P:secret;;").orElseThrow();
         check(wifi.kind() == ContentKind.WIFI && wifi.kind().toString().equals("WiFi"));
         check(wifi.get("ssid").equals(Optional.of("Café")) && wifi.get("hidden").isEmpty());
         check(wifi.fields().size() == 3 && wifi.getAll("password").equals(List.of("secret")));
@@ -47,7 +47,7 @@ public final class ApiTest {
                 Optional.empty(), Optional.of(true), Optional.empty(), Optional.empty());
         check(Tapirscan.parseContent(gs1).orElseThrow().get("01").equals(Optional.of("09506000134352")));
         check(Tapirscan.parseContent(gs1.text(), false).isEmpty());
-        check(Tapirscan.parseContent("", false).isEmpty());
+        check(Tapirscan.parseContent("").isEmpty());
         check(Native.offset(Native.SUMMARY, "mode") == 40);
         for (Mode mode : Mode.values()) check(Mode.fromCode(mode.code()) == mode);
         check(EanAddOnPolicy.REQUIRE.code() == 2);

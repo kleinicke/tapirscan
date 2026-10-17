@@ -50,9 +50,9 @@ public struct Barcode: Equatable, Sendable {
         )
     }
 
-    /// Structured content of `text`, or `nil` for plain text. Throws what `parseContent` throws.
+    /// Structured content of `text`, or `nil` for plain text; the same as `parseContent(self)`.
     public var content: Content? {
-        get throws { try parseContent(text, gs1: gs1 ?? false) }
+        get throws { try parseContent(self) }
     }
 }
 

@@ -184,6 +184,7 @@ final class TapirscanTests: XCTestCase {
             text: "geo:47.37,8.54", format: .qrCode, polygon: [], support: 1, payloadBytes: nil,
             eanAddOn: nil, gs1: nil, readerInitialization: nil, structuredAppend: nil)
         XCTAssertEqual(try barcode.content?.kind, .geo)
+        XCTAssertEqual(try parseContent(barcode)?["latitude"], "47.37")
     }
 
     func testContentKindNamesMatchTheNativeLibrary() {

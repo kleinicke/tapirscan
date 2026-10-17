@@ -11,16 +11,22 @@ if content and content.kind == "WiFi":
     connect(content.get("ssid"), content.get("password"))
 ```
 
-| Language   | Call                                                                                                                |
-| ---------- | ------------------------------------------------------------------------------------------------------------------- |
-| Rust       | `barcode.content()`, `tapirscan::parse_content(text, gs1)`                                                          |
-| Python     | `tapirscan.parse_content(barcode_or_text, *, gs1=None)`                                                             |
-| JavaScript | `barcode.content`, filled during scanning                                                                           |
-| Java       | `Tapirscan.parseContent(barcode)`, `Tapirscan.parseContent(text, gs1)`                                              |
-| C++        | `tapirscan::parse_content(barcode)`, `parse_content(text, gs1)`                                                     |
-| C          | `tapirscan_parse_content`, a handle (0 = no content); see the [C guide](../bindings/c/README.md#structured-content) |
-| Swift      | `try barcode.content`, `parseContent(text, gs1:)`                                                                   |
-| Android    | `Tapirscan.parseContent(barcode)`, `Tapirscan.parseContent(text, gs1)`                                              |
+| Language   | From a barcode                                    | From text                                     |
+| ---------- | ------------------------------------------------- | --------------------------------------------- |
+| Rust       | `barcode.content()`                               | `tapirscan::parse_content(text, gs1)`         |
+| Python     | `tapirscan.parse_content(barcode, *, gs1=None)`   | `tapirscan.parse_content(text, *, gs1=None)`  |
+| JavaScript | `barcode.content`, filled during scanning         | none                                          |
+| Java       | `Tapirscan.parseContent(barcode)`                 | `Tapirscan.parseContent(text)`, `(text, gs1)` |
+| C++        | `tapirscan::parse_content(barcode)`               | `tapirscan::parse_content(text, gs1 = false)` |
+| C          | `tapirscan_parse_content` with the barcode's flag | `tapirscan_parse_content` with `gs1` 0 or 1   |
+| Swift      | `parseContent(barcode)`, `barcode.content`        | `parseContent(text, gs1: false)`              |
+| Android    | `Tapirscan.parseContent(barcode)`                 | `Tapirscan.parseContent(text)`, `(text, gs1)` |
+
+Plain text has no content: an empty optional, `None`, `nil`, an absent
+`content` field or a 0 handle (see the
+[C guide](../bindings/c/README.md#structured-content)); Swift calls throw native
+errors. Where `gs1` is optional, text is parsed without GS1 and a barcode with
+its own flag; Python's `gs1` overrides the flag when given.
 
 A `Content` has a `kind` and `fields` in payload order. Each field is a
 `name`/`value` pair; a name repeats when the payload repeats it, such as a
@@ -28,9 +34,8 @@ contact's phone numbers. `get(name)` returns the first value, `get_all(name)`
 every value (`getAll` in Java and Android, `all` in Swift). Values are
 unescaped but otherwise as encoded: dates, amounts and coordinates stay text.
 
-Passing a barcode uses its text and GS1 flag. GS1 element strings carry no
-visible marker, so they are parsed only when the reader reported GS1 or you
-pass `gs1 = true`.
+GS1 element strings carry no visible marker, so they are parsed only when the
+reader reported GS1 or you pass `gs1 = true`.
 
 ## Kinds
 

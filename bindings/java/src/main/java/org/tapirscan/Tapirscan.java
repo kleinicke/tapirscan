@@ -42,6 +42,11 @@ public final class Tapirscan {
         return Content.parse(text, gs1);
     }
 
+    /** Structured content of decoded text that is not a GS1 element string. */
+    public static Optional<Content> parseContent(String text) {
+        return Content.parse(text, false);
+    }
+
     /** Structured content of a decoded barcode, using its text and GS1 flag. */
     public static Optional<Content> parseContent(Barcode barcode) {
         return Content.parse(barcode.text(), barcode.gs1().orElse(false));

@@ -150,13 +150,13 @@ public final class JniTest {
         check(!Format.ALL.contains(Format.PZN) && Format.ALL.contains(Format.MAXI_CODE), "all preset");
         new Scanner(new ScannerOptions(Mode.LOW, only(Format.CODE32, Format.PZN, Format.MSI_PLESSEY),
                 EanAddOnPolicy.READ)).close();
-        Content wifi = Tapirscan.parseContent("WIFI:S:Café;T:WPA;P:secret;;", false).get();
+        Content wifi = Tapirscan.parseContent("WIFI:S:Café;T:WPA;P:secret;;").get();
         check(wifi.kind() == ContentKind.WIFI && "WiFi".equals(wifi.kind().toString()), "wifi kind");
         check("Café".equals(wifi.get("ssid").get()) && !wifi.get("hidden").isPresent()
                 && wifi.fields().size() == 3, "wifi fields");
         check(Tapirscan.parseContent("0109506000134352", true).get().getAll("01")
                 .equals(Collections.singletonList("09506000134352")), "gs1");
-        check(!Tapirscan.parseContent("0109506000134352", false).isPresent(), "plain digits");
+        check(!Tapirscan.parseContent("0109506000134352").isPresent(), "plain digits");
         System.out.println("android JNI bridge: OK");
     }
 }
