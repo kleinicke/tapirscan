@@ -46,6 +46,10 @@ pub(super) struct ModePolicy {
     pub qr_effort: usize,
     /// Unresolved QR regions are resampled on their projected module grid.
     pub qr_grid_projection: bool,
+    /// The QR group of an EAN add-on selection runs the QR-only reader, as a QR-only
+    /// scan does. High's QR-only reader adds block thresholds on every unread frame,
+    /// which made add-on retail scans 5% slower, so High keeps the group reader there.
+    pub qr_addon_group_as_qr_only: bool,
     /// The foreground-threshold QR pass also runs for mixed 2D selections on frames
     /// above `SMALL_FRAME_PIXELS`; QR-only selections always take it.
     pub qr_foreground_mixed_any_size: bool,
@@ -104,6 +108,7 @@ impl ModePolicy {
         shared_short_retail: false,
         qr_effort: 0,
         qr_grid_projection: crate::LOW_FAST_PATH,
+        qr_addon_group_as_qr_only: true,
         qr_foreground_mixed_any_size: false,
         qr_foreground_with_region: false,
         qr_restoration_pixels: super::SMALL_FRAME_PIXELS,
@@ -151,6 +156,7 @@ impl ModePolicy {
         preserved_sweep_any_size: true,
         preserved_sweep_effort: 1,
         qr_effort: 2,
+        qr_addon_group_as_qr_only: false,
         qr_foreground_mixed_any_size: true,
         qr_foreground_with_region: true,
         qr_restoration_pixels: super::QR_RECOVERY_MAX_PIXELS,
