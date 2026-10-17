@@ -2,13 +2,12 @@
 """Build TapirscanC.xcframework (macOS, iOS, iOS simulator) for the Swift package."""
 
 import argparse
-import os
 import plistlib
 import shutil
 import subprocess
 from pathlib import Path
 
-from build_native import X86_64_RUSTFLAGS, prepare_native_crate
+from build_native import cargo_env, prepare_native_crate, static_library
 from prepare_rust import prepared_package
 
 from build import ROOT
@@ -38,35 +37,6 @@ MODULE_MAP = """module TapirscanC {
 """
 
 
-def static_library(native: Path, target: str) -> Path:
-    """Build the C ABI crate as a static library for one Rust target."""
-    env = os.environ.copy()
-    env.pop("RUSTFLAGS", None)
-    env.pop("CARGO_ENCODED_RUSTFLAGS", None)
-    if target.startswith("x86_64"):
-        env["RUSTFLAGS"] = X86_64_RUSTFLAGS
-    env["CARGO_TARGET_DIR"] = str(TARGET)
-    env["CARGO_INCREMENTAL"] = "0"
-    subprocess.run(
-        [
-            "cargo",
-            "rustc",
-            "--offline",
-            "--release",
-            "--lib",
-            "--crate-type",
-            "staticlib",
-            "--target",
-            target,
-            "--manifest-path",
-            str(native / "Cargo.toml"),
-        ],
-        env=env,
-        check=True,
-    )
-    return TARGET / target / "release/libtapirscan.a"
-
-
 def build(public_crate: Path, output: Path) -> None:
     """Build every slice, merge architectures and assemble the XCFramework.
 
@@ -87,7 +57,10 @@ def build(public_crate: Path, output: Path) -> None:
         for header in (ROOT / "bindings/c/include").glob("*.h"):
             shutil.copy2(header, headers / header.name)
         (headers / "module.modulemap").write_text(MODULE_MAP)
-        built = [str(static_library(native, target)) for target in slices]
+        built = [
+            str(static_library(native, target, cargo_env(TARGET, target)))
+            for target in slices
+        ]
         subprocess.run(
             ["lipo", "-create", *built, "-output", str(directory / "libtapirscan.a")],
             check=True,

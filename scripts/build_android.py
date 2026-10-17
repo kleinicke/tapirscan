@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 
 from build_java import tool
-from build_native import X86_64_RUSTFLAGS, prepare_native_crate
+from build_native import cargo_env, prepare_native_crate, static_library
 from prepare_rust import prepared_package
 
 from build import ROOT
@@ -18,10 +18,11 @@ from build import ROOT
 TARGET = ROOT / "build/android-target"
 OUT = ROOT / "build/android"
 ANDROID = ROOT / "bindings/android"
-# ABI, Rust target and clang target. Native ABI 7 supports 64-bit targets only.
+# ABI and Rust target, which also names the NDK clang. Native ABI 7 supports
+# 64-bit targets only.
 ABIS = [
-    ("arm64-v8a", "aarch64-linux-android", "aarch64-linux-android"),
-    ("x86_64", "x86_64-linux-android", "x86_64-linux-android"),
+    ("arm64-v8a", "aarch64-linux-android"),
+    ("x86_64", "x86_64-linux-android"),
 ]
 MIN_API = 24
 MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
@@ -58,41 +59,20 @@ def build(public_crate: Path, ndk: Path) -> Path:
     """Build the C library per ABI, link the JNI bridge into it and package an AAR."""
     tools = toolchain(ndk) / "bin"
     subprocess.run(
-        ["rustup", "target", "add", *[target for _, target, _ in ABIS]],
+        ["rustup", "target", "add", *[target for _, target in ABIS]],
         check=True,
         capture_output=True,
     )
     native = prepare_native_crate(public_crate)
     libraries = OUT / "jni"
     shutil.rmtree(OUT, ignore_errors=True)
-    for abi, target, clang_target in ABIS:
-        clang = tools / f"{clang_target}{MIN_API}-clang"
-        env = os.environ.copy()
-        env.pop("RUSTFLAGS", None)
-        env.pop("CARGO_ENCODED_RUSTFLAGS", None)
-        if target.startswith("x86_64"):
-            # The Android x86-64 ABI already requires SSE4.2 and POPCNT.
-            env["RUSTFLAGS"] = X86_64_RUSTFLAGS
-        env["CARGO_TARGET_DIR"] = str(TARGET)
+    for abi, target in ABIS:
+        clang = tools / f"{target}{MIN_API}-clang"
+        # The Android x86-64 ABI already requires SSE4.2 and POPCNT.
+        env = cargo_env(TARGET, target)
         env[f"CC_{target.replace('-', '_')}"] = str(clang)
         env[f"AR_{target.replace('-', '_')}"] = str(tools / "llvm-ar")
-        subprocess.run(
-            [
-                "cargo",
-                "rustc",
-                "--offline",
-                "--release",
-                "--lib",
-                "--crate-type",
-                "staticlib",
-                "--target",
-                target,
-                "--manifest-path",
-                str(native / "Cargo.toml"),
-            ],
-            env=env,
-            check=True,
-        )
+        library = static_library(native, target, env)
         output = libraries / abi / "libtapirscan_jni.so"
         output.parent.mkdir(parents=True)
         subprocess.run(
@@ -106,7 +86,7 @@ def build(public_crate: Path, ndk: Path) -> Path:
                 "-Werror",
                 f"-I{ROOT / 'bindings/c/include'}",
                 str(ANDROID / "src/main/c/tapirscan_jni.c"),
-                str(TARGET / target / "release/libtapirscan.a"),
+                str(library),
                 "-Wl,--gc-sections",
                 # Keep the Rust runtime's symbols out of the app's dynamic namespace.
                 "-Wl,--exclude-libs,ALL",
