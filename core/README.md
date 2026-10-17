@@ -22,7 +22,7 @@ public scanner, see [the architecture overview](../docs/ARCHITECTURE.md).
   `matrix_frontend` runs it under `Policy::for_mode` (Low has smaller budgets and
   no bowed or adaptive sampling), sharing the original threshold images and row
   runs with Data Matrix and PDF417; QR and MaxiCode are separate reader groups.
-  The multi-format scan runs it under `Policy::MULTIFORMAT`, on threshold images only.
+  The multiformat crate's own scan uses the same per-mode policies.
 
 - `qr_frontend` runs the QR-only reader: the multiformat QR detector
   (`multiformat/src/qr_detect.rs`) under this mode's `Policy`, then bounded
@@ -30,7 +30,8 @@ public scanner, see [the architecture overview](../docs/ARCHITECTURE.md).
   reader groups run the same detector under the same `Policy::for_mode`; there is one
   detector and one threshold cache. `qr_grid` resamples unresolved regions from original
   grayscale pixels. The Rust facade selects QR-only reader groups and enforces
-  the mode-specific frame retry limits.
+  the mode-specific frame retry limits. EAN add-on selections run the same 2D reader
+  groups but skip the recoveries of unread frames that have no candidate region.
 
 - `stripes::Detector` localizes candidates: `stripes/raster.rs` (sampling, contrast
   conditioning, gradients), `groups.rs`, `proposals.rs` and `refinement.rs` (source-pixel

@@ -1,9 +1,8 @@
 //! Bullseye localization and independent Aztec grid sampling.
 //!
 //! One detector serves every caller. Mode-dependent recovery arrives as a
-//! [`Policy`], since this crate has no mode features: the scanner modes select
-//! [`Policy::LOW`] or [`Policy::STANDARD`], the multi-format scan
-//! [`Policy::MULTIFORMAT`].
+//! [`Policy`], since this crate has no mode features: Low selects
+//! [`Policy::LOW`], the other modes [`Policy::STANDARD`].
 use crate::{Detection, aztec, binarization, qr_detect};
 mod center_index;
 mod curves;
@@ -46,15 +45,6 @@ impl Policy {
         curve_budget: 150_000,
         bow_budget: 50_000,
         adaptive_budget: 50_000,
-    };
-    /// The multi-format scan: threshold images only.
-    pub const MULTIFORMAT: Self = Self {
-        gray_recovery: false,
-        contrast: false,
-        refine_budget: 0,
-        curve_budget: 0,
-        bow_budget: 0,
-        adaptive_budget: 0,
     };
     /// The policy of scanner mode `mode` (0 Low, 1 Medium, 2 High, 3 Very High).
     #[must_use]

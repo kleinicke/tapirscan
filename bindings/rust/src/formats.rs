@@ -98,6 +98,14 @@ fn shares_short_retail(mask: u32, addons: EanAddOnPolicy) -> bool {
     POLICY.shared_short_retail && addons == EanAddOnPolicy::Ignore && mask & SHORT_RETAIL != 0
 }
 
+/// Whether the 2D recoveries that run on unread frames without a candidate region
+/// run: reduced, enlarged, foreground-threshold, equalized and inverted copies. EAN
+/// add-on selections skip them to keep their cost; their 2D reader groups and the
+/// recoveries of candidate regions are the same as without add-ons.
+fn evidence_free_2d_recoveries(addons: EanAddOnPolicy) -> bool {
+    addons == EanAddOnPolicy::Ignore
+}
+
 /// Whether the frame's long side exceeds [`REDUCED_COPY_SIDE`].
 fn exceeds_full_hd(width: usize, height: usize) -> bool {
     width.max(height) > REDUCED_COPY_SIDE
@@ -1440,13 +1448,14 @@ fn scan_additional(
         }) {
             return sparse.scan(selected, level);
         }
-        scan_reader(
-            pixels,
-            image.width,
-            image.height,
-            selected | addons.engine_bits(),
-            level,
-        )
+        // EAN add-on flags concern only retail supplements; 2D reader groups read
+        // the same with or without them.
+        let flags = if selected & LINEAR_MASK != 0 {
+            addons.engine_bits()
+        } else {
+            0
+        };
+        scan_reader(pixels, image.width, image.height, selected | flags, level)
     };
     let first_scans = crate::matrix_frontend::concurrent(&groups, &first_scan);
     for (&(selected, level), scan) in groups.iter().zip(first_scans) {
@@ -1474,7 +1483,7 @@ fn scan_additional(
         #[cfg(feature = "low")]
         let retries = if crate::LOW_FAST_PATH
             && selected == QR_CODE
-            && addons == EanAddOnPolicy::Ignore
+            && evidence_free_2d_recoveries(addons)
             && scan.barcodes.is_empty()
             && exceeds_full_hd(image.width, image.height)
         {
@@ -1514,7 +1523,7 @@ fn scan_additional(
         // this pass: there it would add a whole scan to every frame without QR.
         let mut retries = retries;
         if selected == QR_CODE
-            && addons == EanAddOnPolicy::Ignore
+            && evidence_free_2d_recoveries(addons)
             && scan.barcodes.is_empty()
             && image.width.max(image.height) <= 300
         {
@@ -1529,7 +1538,7 @@ fn scan_additional(
         #[cfg(not(feature = "low"))]
         let mut scan = scan;
         #[cfg(not(feature = "low"))]
-        let grid_retries = if selected & LINEAR_MASK == 0 && addons == EanAddOnPolicy::Ignore {
+        let grid_retries = if selected & LINEAR_MASK == 0 {
             matrix_retries(pixels, [image.width, image.height], selected, &mut scan)
         } else {
             Vec::new()
@@ -1565,7 +1574,7 @@ fn scan_additional(
     // Foreground thresholds for unresolved QR frames. Restoration has a smaller pixel
     // budget in Medium because it introduces another image and threshold search.
     #[cfg(not(feature = "low"))]
-    if addons == EanAddOnPolicy::Ignore
+    if evidence_free_2d_recoveries(addons)
         && qr_foreground_wanted(mask, matrix, image.width * image.height, &scans)
         && pixels.iter().any(|&value| value != 0 && value != 255)
     {
@@ -1603,9 +1612,8 @@ fn scan_additional(
     // Data Matrix candidate region, so frames without one keep their cost.
     #[cfg(not(feature = "low"))]
     if matrix & DATA_MATRIX != 0
-        && addons == EanAddOnPolicy::Ignore
         && !scans.iter().any(|scan| has_format_read(scan, "DataMatrix"))
-        && (POLICY.data_matrix_averaged_without_region
+        && ((POLICY.data_matrix_averaged_without_region && evidence_free_2d_recoveries(addons))
             || scans
                 .iter()
                 .any(|scan| has_format_region(scan, "DataMatrix")))
@@ -1629,7 +1637,7 @@ fn scan_additional(
     #[cfg(not(feature = "low"))]
     if !POLICY.qr_reduced_scales.is_empty()
         && matrix & QR_CODE != 0
-        && addons == EanAddOnPolicy::Ignore
+        && evidence_free_2d_recoveries(addons)
         && !scans.iter().any(has_qr_read)
     {
         // Each finer scale runs only when the coarser one read nothing.
@@ -1647,7 +1655,7 @@ fn scan_additional(
     }
     #[cfg(any(feature = "high", feature = "very-high"))]
     if matrix & QR_CODE != 0
-        && addons == EanAddOnPolicy::Ignore
+        && evidence_free_2d_recoveries(addons)
         && image.width * image.height <= QR_RECOVERY_MAX_PIXELS
         && !scans.iter().any(has_qr_read)
     {
@@ -1705,14 +1713,11 @@ fn high_retries(
     addons: EanAddOnPolicy,
     scan: &barcode_multiformat::Scan,
 ) -> Vec<barcode_multiformat::Scan> {
-    if selected == QR_CODE
-        && addons == EanAddOnPolicy::Ignore
-        && scan.barcodes.is_empty()
-        && exceeds_full_hd(width, height)
-    {
+    if !evidence_free_2d_recoveries(addons) {
+        Vec::new()
+    } else if selected == QR_CODE && scan.barcodes.is_empty() && exceeds_full_hd(width, height) {
         vec![scaled_matrix_retry(pixels, width, height, 960, selected, 1)]
     } else if selected == MAXI_CODE
-        && addons == EanAddOnPolicy::Ignore
         && scan.barcodes.is_empty()
         && exceeds_full_hd(width, height)
         && (matrix == MAXI_CODE || !scan.regions.is_empty())
@@ -1774,18 +1779,20 @@ fn medium_retries(
     {
         return vec![scan_reader(pixels, width, height, mask, 1)];
     }
-    if addons != EanAddOnPolicy::Ignore || !scan.barcodes.is_empty() {
+    if !scan.barcodes.is_empty() {
         return Vec::new();
     }
     let mut retries = Vec::new();
-    if mask == DATA_BAR {
+    if mask == DATA_BAR && addons == EanAddOnPolicy::Ignore {
         let sparse = crate::fast_sparse::Prepared::new(pixels, width, height);
         retries.push(sparse.scan(mask, 0));
     }
     // A MaxiCode group of a mixed 2D selection retries only where it left a
     // candidate, so other selections do not pay for it on every large image.
     let maxi_candidate = matrix == MAXI_CODE || !scan.regions.is_empty();
-    if (mask == QR_CODE || (mask == MAXI_CODE && maxi_candidate)) && exceeds_full_hd(width, height)
+    if evidence_free_2d_recoveries(addons)
+        && (mask == QR_CODE || (mask == MAXI_CODE && maxi_candidate))
+        && exceeds_full_hd(width, height)
     {
         // QR: a second, finer scale when the coarse one reads nothing; shadowed
         // large photos often decode at one but not the other.
@@ -2041,11 +2048,7 @@ pub(crate) fn scan_reader(
 ) -> barcode_multiformat::Scan {
     if mask & AZTEC != 0 && mask & !MATRIX_MASK == 0 {
         crate::matrix_frontend::scan(pixels, width, height, mask, effort)
-    } else if mask == QR_CODE
-        || (POLICY.qr_addon_group_as_qr_only
-            && mask & !(EAN_ADDON_READ_FLAG | EAN_ADDON_REQUIRE_FLAG) == QR_CODE)
-    {
-        // EAN add-on flags do not concern QR.
+    } else if mask == QR_CODE {
         barcode_research_core::qr_frontend::scan_with_effort(pixels, width, height, effort)
     } else {
         barcode_multiformat::scan_for_mode(

@@ -529,8 +529,8 @@ pub fn scan_observed_for_mode(
             &mut regions,
             image,
             &mut binary_images,
-            aztec_detect::Policy::MULTIFORMAT,
-            0,
+            aztec_detect::Policy::for_mode(mode),
+            mode,
         );
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
