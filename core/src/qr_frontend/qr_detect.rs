@@ -744,20 +744,16 @@ fn finder_grid_valid(
     ey: [f32; 2],
 ) -> bool {
     let mut errors = 0;
-    for y in -3i32..=3 {
-        for x in -3i32..=3 {
-            let xx = barcode_multiformat::numeric::f32_isize(
-                (center[0]
-                    + barcode_multiformat::numeric::f64_f32(f64::from(x)) * ex[0]
-                    + barcode_multiformat::numeric::f64_f32(f64::from(y)) * ey[0])
-                    .floor(),
-            );
-            let yy = barcode_multiformat::numeric::f32_isize(
-                (center[1]
-                    + barcode_multiformat::numeric::f64_f32(f64::from(x)) * ex[1]
-                    + barcode_multiformat::numeric::f64_f32(f64::from(y)) * ey[1])
-                    .floor(),
-            );
+    // The error count does not depend on the cell order, so the cells run column
+    // by column with each column's base position computed once. Every position
+    // is `(center + x * ex) + y * ey`, as before.
+    for x in -3i32..=3 {
+        let fx = barcode_multiformat::numeric::f64_f32(f64::from(x));
+        let base = [center[0] + fx * ex[0], center[1] + fx * ex[1]];
+        for y in -3i32..=3 {
+            let fy = barcode_multiformat::numeric::f64_f32(f64::from(y));
+            let xx = barcode_multiformat::numeric::f32_isize((base[0] + fy * ey[0]).floor());
+            let yy = barcode_multiformat::numeric::f32_isize((base[1] + fy * ey[1]).floor());
             let expected = x.abs().max(y.abs()) != 2;
             if xx < 0
                 || yy < 0
@@ -766,9 +762,9 @@ fn finder_grid_valid(
                 || image[(yy).cast_unsigned() * w + (xx).cast_unsigned()] != expected
             {
                 errors += 1;
-            }
-            if errors > 20 {
-                return false;
+                if errors > 20 {
+                    return false;
+                }
             }
         }
     }
@@ -841,6 +837,37 @@ const ALIGNMENT_BUDGET: usize = if cfg!(feature = "mode-low") {
 } else {
     usize::MAX
 };
+/// Medium and above search for an alignment pattern whatever the format bits look
+/// like. Low does so only where an affine fit from the finders reads intact format
+/// information: false triples otherwise used up its whole budget of 150 searches.
+/// Medium's budget of 25 is already small, so the check would save it nothing.
+const ALIGN_ANYWAY: bool = !cfg!(feature = "mode-low");
+/// Sampling offsets, in modules, of the three grids tried for every transform.
+const GRID_OFFSETS: [f32; 3] = [0., -0.2, 0.2];
+/// Whether any of the transforms reads intact format information.
+fn format_intact_under(
+    image: &[bool],
+    [w, h]: [usize; 2],
+    n: usize,
+    transforms: &[[f32; 8]],
+) -> bool {
+    transforms.iter().any(|t| {
+        GRID_OFFSETS.into_iter().any(|offset| {
+            let read = |x: usize, y: usize| {
+                let p = map(
+                    t,
+                    barcode_multiformat::numeric::usize_f32(x) + 0.5 + offset,
+                    barcode_multiformat::numeric::usize_f32(y) + 0.5 + offset,
+                );
+                let xx = barcode_multiformat::numeric::f32_isize(p[0].floor());
+                let yy = barcode_multiformat::numeric::f32_isize(p[1].floor());
+                (xx >= 0 && yy >= 0 && xx < w.cast_signed() && yy < h.cast_signed())
+                    .then(|| image[yy.cast_unsigned() * w + xx.cast_unsigned()])
+            };
+            qr::format_intact(n, read)
+        })
+    })
+}
 /// Low serves live camera frames, where the next frame is another chance.
 const PATIENCE: usize = if cfg!(feature = "mode-low") { 50 } else { 100 };
 #[expect(
@@ -995,6 +1022,7 @@ fn detect_with_recovery(
                 let br = [tr.x + bl.x - tl.x, tr.y + bl.y - tl.y];
                 let mut any_valid = affine_valid;
                 // Preserve transform and offset order while avoiding unused geometric fits.
+                let mut early: Vec<[f32; 8]> = Vec::new();
                 for stage in 0..4 {
                     let mut transforms = Vec::new();
                     if stage == 0 && affine_valid {
@@ -1062,7 +1090,14 @@ fn detect_with_recovery(
                     if stage == 3 && !any_valid {
                         break;
                     }
-                    if stage == 3 && version > 1 && align_calls < ALIGNMENT_BUDGET {
+                    if stage < 3 {
+                        early.extend_from_slice(&transforms);
+                    }
+                    if stage == 3
+                        && version > 1
+                        && align_calls < ALIGNMENT_BUDGET
+                        && (ALIGN_ANYWAY || format_intact_under(image, [w, h], n, &early))
+                    {
                         align_calls += 1;
                         let guess = [br[0] - 3. * (ex[0] + ey[0]), br[1] - 3. * (ex[1] + ey[1])];
                         for align in alignment(image, w, h, guess, ex, ey) {
@@ -1081,7 +1116,7 @@ fn detect_with_recovery(
                     }
                     for t in transforms {
                         let mut samples: Vec<Vec<bool>> = Vec::new();
-                        for (offset_index, offset) in [0., -0.2, 0.2].into_iter().enumerate() {
+                        for (offset_index, offset) in GRID_OFFSETS.into_iter().enumerate() {
                             attempts += 1;
                             if attempts > budget && budget < FULL_BUDGET {
                                 // A bounded extra pass stops quietly.
@@ -1665,5 +1700,84 @@ mod alignment_cache_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    reason = "Test arithmetic on small pixel coordinates."
+)]
+mod finder_grid_tests {
+    use super::finder_grid_valid;
+
+    /// The cell-by-cell check as it was before the columns shared their base position.
+    fn reference(
+        image: &[bool],
+        w: usize,
+        h: usize,
+        center: [f32; 2],
+        ex: [f32; 2],
+        ey: [f32; 2],
+    ) -> bool {
+        let mut errors = 0;
+        for y in -3i32..=3 {
+            for x in -3i32..=3 {
+                let (fx, fy) = (x as f32, y as f32);
+                let xx = (center[0] + fx * ex[0] + fy * ey[0]).floor() as isize;
+                let yy = (center[1] + fx * ex[1] + fy * ey[1]).floor() as isize;
+                let expected = x.abs().max(y.abs()) != 2;
+                if xx < 0
+                    || yy < 0
+                    || xx >= w as isize
+                    || yy >= h as isize
+                    || image[yy as usize * w + xx as usize] != expected
+                {
+                    errors += 1;
+                }
+                if errors > 20 {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn column_order_keeps_every_decision() {
+        let (w, h) = (48, 40);
+        let mut state = 0x2545_f491_u32;
+        let mut next = move || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 8) as f32 / (1_u32 << 24) as f32
+        };
+        let mut valid = 0;
+        for round in 0..6000 {
+            // Mostly noise; every third image is a finder pattern at a random pose.
+            let mut image: Vec<bool> = (0..w * h).map(|_| next() < 0.5).collect();
+            let angle = next() * std::f32::consts::TAU;
+            let module = 1. + next() * 2.;
+            let ex = [angle.cos() * module, angle.sin() * module];
+            let ey = [-ex[1] * (0.8 + next() * 0.4), ex[0] * (0.8 + next() * 0.4)];
+            let center = [10. + next() * 28., 10. + next() * 20.];
+            if round % 3 == 0 {
+                for y in -3i32..=3 {
+                    for x in -3i32..=3 {
+                        let px = (center[0] + x as f32 * ex[0] + y as f32 * ey[0]).floor();
+                        let py = (center[1] + x as f32 * ex[1] + y as f32 * ey[1]).floor();
+                        if (0. ..w as f32).contains(&px) && (0. ..h as f32).contains(&py) {
+                            image[py as usize * w + px as usize] = x.abs().max(y.abs()) != 2;
+                        }
+                    }
+                }
+            }
+            let expected = reference(&image, w, h, center, ex, ey);
+            valid += usize::from(expected);
+            assert_eq!(finder_grid_valid(&image, w, h, center, ex, ey), expected);
+        }
+        assert!(valid > 500, "the test must exercise both outcomes");
     }
 }

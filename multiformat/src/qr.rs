@@ -68,6 +68,51 @@ fn format_code(data: u16) -> u16 {
     FORMAT_CODES[usize::from(data)]
 }
 
+/// The format-information copies read from a symbol grid: the first and second
+/// copy as they stand, then both mirrored. `None` when a module lies outside the image.
+fn read_format_words(
+    n: usize,
+    mut read: impl FnMut(usize, usize) -> Option<bool>,
+) -> Option<[u16; 4]> {
+    let (a, b) = format_coordinates(n);
+    let mut formats = [0u16; 4];
+    for (index, coordinates) in [a, b].iter().enumerate() {
+        for (bit, &(x, y)) in coordinates.iter().enumerate() {
+            let (normal, mirrored) = (read(x, y)?, read(y, x)?);
+            formats[index] |= u16::from(normal) << bit;
+            formats[index + 2] |= u16::from(mirrored) << bit;
+        }
+    }
+    Some(formats)
+}
+
+/// Bit errors both copies of an orientation may have to count as intact, and the
+/// errors one copy alone may have.
+const INTACT_PAIR_ERRORS: u32 = 3;
+const INTACT_SINGLE_ERRORS: u32 = 1;
+
+/// Whether the format information of a sampled grid looks intact: in one mirror
+/// orientation both copies are within three bit errors of the same code, or one
+/// copy is within one. Far stricter than [`plausible_image_header`] (a random 15-bit
+/// word lies within three errors of some code about half the time), so callers use
+/// it only to decide whether costlier searches are worth their time. The copies
+/// sit beside the finders, which an affine fit from the finders alone reads well.
+pub fn format_intact(n: usize, read: impl FnMut(usize, usize) -> Option<bool>) -> bool {
+    let Some(formats) = read_format_words(n, read) else {
+        return false;
+    };
+    (0..32).any(|data| {
+        let code = format_code(data);
+        [(0, 1), (2, 3)].iter().any(|&(first, second)| {
+            let (a, b) = (
+                (formats[first] ^ code).count_ones(),
+                (formats[second] ^ code).count_ones(),
+            );
+            (a <= INTACT_PAIR_ERRORS && b <= INTACT_PAIR_ERRORS) || a.min(b) <= INTACT_SINGLE_ERRORS
+        })
+    })
+}
+
 /// Cheap geometric header screening before allocating and sampling a full grid.
 /// Both mirror orientations remain eligible. Timing damage is tolerated, but
 /// random cross-symbol triples should not consume full payload decoding work.
@@ -75,17 +120,9 @@ pub fn plausible_image_header(
     n: usize,
     mut read: impl FnMut(usize, usize) -> Option<bool>,
 ) -> bool {
-    let (a, b) = format_coordinates(n);
-    let mut formats = [0u16; 4];
-    for (index, coordinates) in [a, b].iter().enumerate() {
-        for (bit, &(x, y)) in coordinates.iter().enumerate() {
-            let (Some(normal), Some(mirrored)) = (read(x, y), read(y, x)) else {
-                return false;
-            };
-            formats[index] |= u16::from(normal) << bit;
-            formats[index + 2] |= u16::from(mirrored) << bit;
-        }
-    }
+    let Some(formats) = read_format_words(n, &mut read) else {
+        return false;
+    };
     if !(0..32).any(|data| {
         let code = format_code(data);
         formats
@@ -621,5 +658,88 @@ mod header_proposal_tests {
         for data in 0..32 {
             assert_eq!(format_code(data), old_code(data));
         }
+    }
+}
+
+#[cfg(test)]
+mod format_intact_tests {
+    use super::*;
+
+    /// A grid whose two format copies hold `code` with the given bits flipped.
+    fn grid(n: usize, code: u16, flip_first: u16, flip_second: u16) -> Vec<bool> {
+        let mut grid = vec![false; n * n];
+        let (a, b) = format_coordinates(n);
+        for (coordinates, flip) in [(a, flip_first), (b, flip_second)] {
+            for (bit, &(x, y)) in coordinates.iter().enumerate() {
+                grid[y * n + x] = (code ^ flip) >> bit & 1 != 0;
+            }
+        }
+        grid
+    }
+
+    /// A 15-bit word at least five bit errors away from every format code.
+    fn far_word() -> u16 {
+        (0..=0x7fff_u16)
+            .find(|&word| (0..32).all(|data| (word ^ format_code(data)).count_ones() >= 5))
+            .expect("the code has covering radius above four")
+    }
+
+    fn intact(grid: &[bool], n: usize, mirrored: bool) -> bool {
+        format_intact(n, |x, y| {
+            let (x, y) = if mirrored { (y, x) } else { (x, y) };
+            grid.get(y * n + x).copied()
+        })
+    }
+
+    #[test]
+    fn intact_means_two_copies_near_one_code_or_one_nearly_exact_copy() {
+        let n = 25;
+        let far = far_word();
+        for data in [0, 5, 17, 31] {
+            let code = format_code(data);
+            let ruined = code ^ far;
+            for mirrored in [false, true] {
+                assert!(intact(&grid(n, code, 0, 0), n, mirrored));
+                // Three errors in each copy, or one copy exact and the other far away.
+                assert!(intact(
+                    &grid(n, code, 0b100_0101, 0b1_0000_0011),
+                    n,
+                    mirrored
+                ));
+                assert!(intact(&grid(n, code, 0, ruined), n, mirrored));
+                assert!(intact(&grid(n, code, ruined, 0), n, mirrored));
+                // One bit error in a single copy and a far other copy.
+                assert!(intact(&grid(n, code, 0b100, ruined), n, mirrored));
+                // Four errors in each copy, or two in one and a far other.
+                assert!(!intact(&grid(n, code, 0b1111, 0b1111_0000), n, mirrored));
+                assert!(!intact(&grid(n, code, 0b11, ruined), n, mirrored));
+            }
+        }
+    }
+
+    #[test]
+    fn intact_is_much_rarer_than_plausible_on_noise() {
+        let n = 25;
+        let mut state = 0x9e37_79b9_u32;
+        let (mut plausible, mut intact_count) = (0, 0);
+        for _ in 0..4000 {
+            let grid: Vec<bool> = (0..n * n)
+                .map(|_| {
+                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    state >> 16 & 1 != 0
+                })
+                .collect();
+            let read = |x: usize, y: usize| grid.get(y * n + x).copied();
+            // Count only the format test: a timing-pattern failure would hide it.
+            let words = read_format_words(n, read).expect("inside the grid");
+            plausible += usize::from(
+                words
+                    .iter()
+                    .any(|&w| (0..32).any(|data| (w ^ format_code(data)).count_ones() <= 3)),
+            );
+            intact_count += usize::from(format_intact(n, read));
+        }
+        assert!(plausible > 3000, "{plausible}");
+        assert!(intact_count < 600, "{intact_count}");
     }
 }

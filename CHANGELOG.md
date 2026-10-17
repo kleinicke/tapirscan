@@ -21,6 +21,16 @@
   are not tiny: they box symbols by segment voting and never used its short-fragment
   hints. Reads are identical; High is about 8% faster on retail photos, 5% with all 1D
   formats and 3% on frames without a barcode.
+- Low is about 3% faster with QR selected and 6 to 8% with EAN-13 and QR: it searches for
+  an alignment pattern only where an affine fit from the three finders reads intact
+  format information (both copies of one orientation within three bit errors of the same
+  code, or one copy within one). False finder triples on retail photos otherwise used up
+  its 150 searches, the largest single QR cost in Low. QR reads on the 4,619-image QR
+  selection rise from 4,165 to 4,169 in Low (5 images gained, one very degraded image
+  lost) and stay at 4,242 (QR alone) and 4,233 (with EAN-13) in Medium, whose code path
+  is unchanged; reads of every format on the 1,578 development images are identical in
+  all modes. The finder-pattern grid check also visits its cells column by column with
+  identical results (checked against the cell-by-cell form on random inputs).
 - Aztec reads small symbols (about 1.5 to 2 pixels per module) in Medium, High and Very
   High: a bullseye candidate with a well-fitting ring that no threshold pass turned into a
   read is retried on an enlarged window around it, and a read must be centered on the
