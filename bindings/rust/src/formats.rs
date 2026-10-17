@@ -1571,10 +1571,15 @@ fn scan_additional(
         #[cfg(not(feature = "low"))]
         scans.extend(grid_retries);
     }
+    // Whether the frame justifies the costly QR recoveries below; judged on the
+    // first passes, before any recovery adds candidates of its own.
+    #[cfg(not(feature = "low"))]
+    let qr_evidence = qr_recovery_evidence(mask, image.width * image.height, &scans);
     // Foreground thresholds for unresolved QR frames. Restoration has a smaller pixel
     // budget in Medium because it introduces another image and threshold search.
     #[cfg(not(feature = "low"))]
     if evidence_free_2d_recoveries(addons)
+        && qr_evidence
         && qr_foreground_wanted(mask, matrix, image.width * image.height, &scans)
         && pixels.iter().any(|&value| value != 0 && value != 255)
     {
@@ -1657,6 +1662,7 @@ fn scan_additional(
     if matrix & QR_CODE != 0
         && evidence_free_2d_recoveries(addons)
         && image.width * image.height <= QR_RECOVERY_MAX_PIXELS
+        && qr_evidence
         && !scans.iter().any(has_qr_read)
     {
         for method in 0..2 {
@@ -1679,12 +1685,28 @@ fn scan_additional(
     Ok((scans, coverage))
 }
 
+/// Whether a frame admits the foreground-threshold and equalized/inverted QR
+/// recoveries. QR-only selections and small frames always do. From High up, a mixed
+/// selection's larger frames need an unread QR candidate region: retail photos
+/// without one paid about 63 ms per frame (20%) for these passes in Chrome.
+#[cfg(not(feature = "low"))]
+fn qr_recovery_evidence(
+    mask: u32,
+    pixel_count: usize,
+    scans: &[barcode_multiformat::Scan],
+) -> bool {
+    !POLICY.qr_mixed_recovery_needs_region
+        || mask == QR_CODE
+        || pixel_count <= SMALL_FRAME_PIXELS
+        || scans.iter().any(has_qr_region)
+}
+
 /// Whether the foreground-threshold QR pass runs. Extra foreground thresholds reach
 /// unresolved QR frames without a surviving region; discovery is bounded to
 /// Full-HD-sized inputs. QR-only selections always take this fixed-cost pass. Mixed
-/// selections take it in High and Very High, and in Medium only on small frames
-/// without a QR region, so Medium stays fast on camera frames without QR. Reads of
-/// other formats do not stop it.
+/// selections take it in High and Very High where `qr_recovery_evidence` admits the
+/// frame, and in Medium only on small frames without a QR region, so Medium stays
+/// fast on camera frames without QR. Reads of other formats do not stop it.
 #[cfg(not(feature = "low"))]
 fn qr_foreground_wanted(
     mask: u32,

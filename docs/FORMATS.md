@@ -105,7 +105,9 @@ These are internal reader effort levels, not comparable work or confidence score
   frames at 960 and 1280 pixels. High adds threshold/sharpen recovery, block
   thresholds on every unread frame and Reed-Solomon erasures for uncertain
   modules; Very High also tries curved-grid recovery for version 2 and above.
-  EAN13-only scans run none of this.
+  When QR shares the scan with other formats, the threshold/sharpen and
+  equalized/inverted retries run on frames above 262,144 pixels only where a QR
+  candidate stayed unread. EAN13-only scans run none of this.
 - **Data Matrix:** candidates that do not decode are retried with a wider
   side-ratio window, a grayscale corner refinement and a resampled crop, with
   twice the tries in High. Medium and above add a grid-recovery pass; High and

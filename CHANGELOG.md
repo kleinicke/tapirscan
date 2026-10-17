@@ -75,6 +75,10 @@ geometry and timing can differ from 1.3.0. See the
   identical results.
 - High and Very High run more recoveries and can take noticeably longer on frames
   they leave unread, especially with `all` formats.
+- When QR shares the scan with other formats, High and Very High run the
+  foreground-threshold and equalized/inverted QR recoveries on frames above
+  262,144 pixels only where a QR candidate stayed unread: about 20% faster on retail
+  photos with `common` formats, for 0.2% fewer QR reads.
 - Cheaper inputs: Python converts BGR, float and tensor inputs faster (CUDA
   tensors on the GPU) and scans immutable `bytes` in place; Python and Java reuse
   one pixel buffer per scanner; browsers copy `ImageData` as bytes and decode

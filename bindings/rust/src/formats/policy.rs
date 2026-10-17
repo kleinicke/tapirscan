@@ -51,6 +51,10 @@ pub(super) struct ModePolicy {
     pub qr_foreground_mixed_any_size: bool,
     /// The foreground-threshold QR pass also runs on frames that left a QR region.
     pub qr_foreground_with_region: bool,
+    /// With QR sharing the scan with other formats, the foreground-threshold and
+    /// equalized/inverted QR recoveries run on frames above `SMALL_FRAME_PIXELS` only
+    /// where a QR candidate region stayed unread.
+    pub qr_mixed_recovery_needs_region: bool,
     /// Largest frame, in pixels, whose unread foreground pass is retried sharpened.
     pub qr_restoration_pixels: usize,
     /// Effort of the sharpened QR retry.
@@ -106,6 +110,7 @@ impl ModePolicy {
         qr_grid_projection: crate::LOW_FAST_PATH,
         qr_foreground_mixed_any_size: false,
         qr_foreground_with_region: false,
+        qr_mixed_recovery_needs_region: false,
         qr_restoration_pixels: super::SMALL_FRAME_PIXELS,
         qr_restoration_effort: 1,
         qr_reduced_scales: &[],
@@ -153,6 +158,7 @@ impl ModePolicy {
         qr_effort: 2,
         qr_foreground_mixed_any_size: true,
         qr_foreground_with_region: true,
+        qr_mixed_recovery_needs_region: true,
         qr_restoration_pixels: super::QR_RECOVERY_MAX_PIXELS,
         qr_restoration_effort: 2,
         qr_reduced_scales: &[1200, 1280],
