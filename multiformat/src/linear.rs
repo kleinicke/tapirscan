@@ -1061,6 +1061,16 @@ fn msi_check(data: &[u8]) -> u8 {
         .sum();
     ((10 - sum % 10) % 10).to_le_bytes()[0]
 }
+/// Quiet zone required on both sides of an MSI Plessey symbol, in modules.
+const MSI_QUIET_MODULES: f32 = 8.;
+/// Accepted wide/narrow ratio of the bar and space class means: nominally 2, with
+/// allowance for print gain and blur.
+const MSI_WIDE_NARROW_RATIO: std::ops::RangeInclusive<f32> = 1.4..=3.5;
+/// Largest distance of one element from its class mean, in narrow widths.
+const MSI_ELEMENT_DEVIATION: f32 = 0.7;
+/// Largest mean deviation per unit of symbol width: Codabar allows 0.19, a code
+/// without per-character redundancy less.
+const MSI_MEAN_DEVIATION: f32 = 0.17;
 /// MSI Plessey: each bit is one bar/space pair of three modules, a wide bar
 /// (2:1) for 1 and a narrow bar (1:2) for 0. A 1 starts the symbol; four bits
 /// per digit follow, most significant first; a 0 pair and a narrow bar stop it.
@@ -1085,14 +1095,18 @@ fn msi(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     // Unlike checked symbologies, a symbol cut by the image or crop edge is not
     // accepted: any '1' pair inside a symbol looks like a start, and the check
     // digit alone would pass one in ten such fragments.
-    if r[s - 1] < module * 8. {
+    // The caller only tries starts after a quiet-zone run (`s > 0`).
+    let quiet = *r.get(s.checked_sub(1)?)?;
+    if quiet < module * MSI_QUIET_MODULES {
         return None;
     }
     let mut digits = Vec::new();
     let mut at = s + 2;
     let mut width = r[s] + r[s + 1];
     while at + 3 <= r.len() && digits.len() < 64 {
-        let stop_quiet = r.get(at + 3).is_some_and(|&quiet| quiet >= module * 8.);
+        let stop_quiet = r
+            .get(at + 3)
+            .is_some_and(|&quiet| quiet >= module * MSI_QUIET_MODULES);
         if digits.len() >= 4 && stop_quiet && pair(at) == Some(false) {
             let bar = r[at + 2];
             let narrow = r[at];
@@ -1149,8 +1163,7 @@ fn msi_finish(r: &[f32], s: usize, end: usize, digits: &[u8]) -> Option<Read> {
     let means: [f32; 4] = std::array::from_fn(|i| sums[i] / crate::numeric::usize_f32(counts[i]));
     if [0, 2]
         .iter()
-        // Nominal wide/narrow ratio is 2; allow print gain and blur.
-        .any(|&i| !(1.4..=3.5).contains(&(means[i + 1] / means[i])))
+        .any(|&i| !MSI_WIDE_NARROW_RATIO.contains(&(means[i + 1] / means[i])))
     {
         return None;
     }
@@ -1161,16 +1174,14 @@ fn msi_finish(r: &[f32], s: usize, end: usize, digits: &[u8]) -> Option<Read> {
             (r[s + 2 * i + 1], 2 + usize::from(!one)),
         ] {
             let distance = (value - means[bucket]).abs();
-            // Each element stays within 0.7 narrow widths of its class mean.
-            if distance > (means[bucket & !1] * 0.7).max(0.65) {
+            if distance > (means[bucket & !1] * MSI_ELEMENT_DEVIATION).max(0.65) {
                 return None;
             }
             deviation += distance;
         }
     }
     let total: f32 = r[s..end - 1].iter().sum();
-    // Mean deviation bound, as Codabar's 0.19 but tighter for a checkless code.
-    if deviation / total > 0.17 {
+    if deviation / total > MSI_MEAN_DEVIATION {
         return None;
     }
     Some(Read {
