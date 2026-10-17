@@ -22,7 +22,7 @@ mod pdf417_tables;
 pub mod pdf_localize;
 pub mod qr;
 pub mod qr_detect;
-mod qr_enhance;
+pub mod qr_enhance;
 mod qr_tables;
 mod rectify;
 pub mod reed_binary;
@@ -313,7 +313,7 @@ fn run_offsets_into(bits: &[bool], offsets: &mut Vec<usize>) {
         offsets.push(0);
     }
 }
-pub(crate) fn transition_offsets_into(bits: &[bool], offsets: &mut Vec<usize>) {
+pub fn transition_offsets_into(bits: &[bool], offsets: &mut Vec<usize>) {
     offsets.clear();
     offsets.push(0);
     if bits.is_empty() {
@@ -481,32 +481,14 @@ pub fn scan_observed_for_mode(
     let mut regions = regions::Regions::default();
     let mut binary_images = binarization::Images::new(image, width, height);
     let (mut matrix_results, mut matrix_unfinished) = if mask & QR_CODE != 0 {
-        let (mut reads, mut limited) = if effort > 2 {
-            qr_detect::detect_curved(width, height, &mut regions, &mut binary_images)
-        } else if effort > 1 {
-            qr_detect::detect_extended(width, height, &mut regions, &mut binary_images)
-        } else {
-            qr_detect::detect(width, height, &mut regions, &mut binary_images)
-        };
-        if effort > 1 && width * height <= 1_048_576 {
-            let enhanced = qr_enhance::sharpen(image, width, height);
-            let mut recovery = binarization::Images::new(&enhanced, width, height);
-            let (extra, extra_limited) = if effort > 2 {
-                qr_detect::detect_curved(width, height, &mut regions, &mut recovery)
-            } else {
-                qr_detect::detect_extended(width, height, &mut regions, &mut recovery)
-            };
-            limited |= extra_limited;
-            for read in extra {
-                if !reads.iter().any(|prior| {
-                    prior.text == read.text
-                        && prior.structured_append == read.structured_append
-                        && crate::regions::overlap(&prior.polygon, &read.polygon) >= 0.65
-                }) {
-                    reads.push(read);
-                }
-            }
-        }
+        let (reads, limited) = qr_detect::detect_group(
+            image,
+            width,
+            height,
+            &mut regions,
+            &mut binary_images,
+            effort,
+        );
         observe("QRCode", limited || regions.limited);
         (reads, limited)
     } else {

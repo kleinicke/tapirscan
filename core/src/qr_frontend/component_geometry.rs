@@ -1,5 +1,4 @@
 //! Bounded connected-component geometry shared by matrix finder detectors.
-type Quad = [[f32; 2]; 4];
 pub(crate) fn outline(
     bits: &[bool],
     width: usize,
@@ -84,16 +83,6 @@ pub(crate) fn outline(
         ]);
     }
     Some(crate::qr_frontend::dm_detect::hull(boundary))
-}
-
-pub(crate) fn quad(
-    bits: &[bool],
-    width: usize,
-    seed: [usize; 2],
-    bounds: [usize; 4],
-    count_range: [f32; 2],
-) -> Option<Quad> {
-    crate::qr_frontend::dm_detect::quad(outline(bits, width, seed, bounds, count_range)?)
 }
 #[cfg(test)]
 mod tests {

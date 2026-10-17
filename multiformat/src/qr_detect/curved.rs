@@ -1,4 +1,4 @@
-//! Experimental bounded timing-guided nonplanar sampling; not promoted.
+//! Bounded timing-guided nonplanar sampling for Very High QR effort.
 use super::map;
 
 fn shifted(

@@ -1,7 +1,12 @@
 //! Bounded contrast restoration before independent QR recovery.
 /// Separable binomial smoothing, then a bounded unsharp mask. Border samples
 /// replicate the nearest source pixel; all arithmetic is integer-exact.
-pub(crate) fn sharpen(gray: &[u8], width: usize, height: usize) -> Vec<u8> {
+///
+/// # Panics
+///
+/// Panics if `gray` is shorter than `width * height`.
+#[must_use]
+pub fn sharpen(gray: &[u8], width: usize, height: usize) -> Vec<u8> {
     let weights = [1_u32, 4, 6, 4, 1];
     let mut horizontal = vec![0_u32; width * height];
     for y in 0..height {

@@ -1,11 +1,47 @@
-//! QR-only production frontend. Decoder/ECC and region ownership use the pinned
-//! shared implementation. Multi-matrix groups retain the shared threshold pipeline.
-pub(crate) mod binarization;
+//! QR-only production frontend: the shared multiformat detector under this
+//! mode's [`Policy`], plus block-threshold and sharpened retries. The
+//! multi-format groups use the same detector under `Policy::MULTIFORMAT`.
 pub(crate) mod component_geometry;
 pub(crate) mod dm_detect;
-mod qr_detect;
-mod qr_enhance;
-use barcode_multiformat::{Detection, Scan};
+use barcode_multiformat::qr_detect::{self, FULL_BUDGET, GrayRetry, Pass, Policy};
+use barcode_multiformat::{Detection, Scan, binarization, qr_enhance};
+
+/// This mode's QR detection choices.
+const POLICY: Policy = Policy {
+    // Low serves live camera frames, where the next frame is another chance.
+    patience: if cfg!(feature = "mode-low") { 50 } else { 100 },
+    // Low and Medium bound the alignment searches per pass; High keeps searching.
+    alignment_budget: if cfg!(feature = "mode-low") {
+        150
+    } else if cfg!(feature = "mode-medium") {
+        25
+    } else {
+        usize::MAX
+    },
+    // Low checks the format bits first: false triples would otherwise use up its
+    // budget. Medium's budget is small enough that the check would save nothing.
+    align_anyway: !cfg!(feature = "mode-low"),
+    offset_erasures: true,
+    // Low keeps its live-frame budget without the gray resampling pass. In
+    // Medium its erasure retry read nothing extra.
+    gray: if cfg!(feature = "mode-low") {
+        GrayRetry::Off
+    } else if cfg!(feature = "mode-medium") {
+        GrayRetry::Hard
+    } else {
+        GrayRetry::Erasures
+    },
+};
+/// Run one detection pass under this mode's policy.
+fn detect(
+    width: usize,
+    height: usize,
+    regions: &mut barcode_multiformat::regions::Regions,
+    binary: &mut binarization::Images<'_>,
+    pass: Pass,
+) -> (Vec<Detection>, bool) {
+    qr_detect::detect_with(width, height, regions, binary, POLICY, pass)
+}
 
 /// Scan ordinary QR effort with unchanged finder and recovery work budgets.
 #[must_use]
@@ -35,13 +71,18 @@ fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort
     }
     let mut regions = barcode_multiformat::regions::Regions::default();
     let mut binary = binarization::Images::new(image, width, height);
-    let (mut reads, mut limited) = if foreground {
-        qr_detect::detect_foreground(width, height, &mut regions, &mut binary)
-    } else if effort == 0 {
-        qr_detect::detect(width, height, &mut regions, &mut binary)
+    // The foreground retry tries only the additional foreground splits; the
+    // original passes remain owned by the caller.
+    let pass = if foreground {
+        Pass {
+            modes: 4..8,
+            curved: false,
+            budget: FULL_BUDGET,
+        }
     } else {
-        qr_detect::detect_effort(width, height, &mut regions, &mut binary, effort)
+        Pass::effort(effort > 1, effort > 2)
     };
+    let (mut reads, mut limited) = detect(width, height, &mut regions, &mut binary, pass);
     // Block thresholds follow sharp shadow edges and large modules that the
     // 33-pixel local mean misses. Medium tries them where a QR candidate stayed
     // unread; High and Very High on every unread frame. Each pass has a bounded
@@ -53,22 +94,20 @@ fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort
     {
         let mut hybrid = binarization::Images::new_hybrid(image, width, height);
         for modes in [1..2, 3..4] {
-            let (extra, _) = qr_detect::detect_modes(
-                width,
-                height,
-                &mut regions,
-                &mut hybrid,
+            let pass = Pass {
                 modes,
-                HYBRID_BUDGET,
-            );
+                curved: false,
+                budget: HYBRID_BUDGET,
+            };
+            let (extra, _) = detect(width, height, &mut regions, &mut hybrid, pass);
             reads.extend(extra);
         }
     }
     if !foreground && effort > 1 && width * height <= 1_048_576 {
         let enhanced = qr_enhance::sharpen(image, width, height);
         let mut recovery = binarization::Images::new(&enhanced, width, height);
-        let (extra, extra_limited) =
-            qr_detect::detect_effort(width, height, &mut regions, &mut recovery, effort);
+        let pass = Pass::effort(true, effort > 2);
+        let (extra, extra_limited) = detect(width, height, &mut regions, &mut recovery, pass);
         limited |= extra_limited;
         for read in extra {
             if !reads.iter().any(|prior| {
@@ -102,101 +141,4 @@ fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort
         unfinished: limited || region_limited,
         lines: 0,
     }
-}
-fn histogram(row: &[u8]) -> [usize; 256] {
-    let mut hist = [0usize; 256];
-    if row.len() >= 512 {
-        // Independent counters avoid a serial load/store chain on broad flat backgrounds.
-        let mut lanes = [[0usize; 256]; 4];
-        let (chunks, remainder) = row.as_chunks::<4>();
-        for pixels in chunks {
-            lanes[0][usize::from(pixels[0])] += 1;
-            lanes[1][usize::from(pixels[1])] += 1;
-            lanes[2][usize::from(pixels[2])] += 1;
-            lanes[3][usize::from(pixels[3])] += 1;
-        }
-        for (value, count) in hist.iter_mut().enumerate() {
-            *count = lanes.iter().map(|lane| lane[value]).sum();
-        }
-        for &value in remainder {
-            hist[usize::from(value)] += 1;
-        }
-    } else {
-        for &v in row {
-            hist[usize::from(v)] += 1;
-        }
-    }
-    hist
-}
-pub(crate) fn transition_offsets_into(bits: &[bool], offsets: &mut Vec<usize>) {
-    offsets.clear();
-    offsets.push(0);
-    if bits.is_empty() {
-        return;
-    }
-    let mut previous = bits[0];
-    let mut i = 1;
-    while bits.len() - i >= 8 {
-        let mut bytes = [0u8; 8];
-        for (byte, &bit) in bytes.iter_mut().zip(&bits[i..i + 8]) {
-            *byte = u8::from(bit);
-        }
-        let word = u64::from_le_bytes(bytes);
-        let transitions = word ^ (word << 8 | u64::from(u8::from(previous)));
-        let mut pending = transitions;
-        while pending != 0 {
-            offsets.push(i + pending.trailing_zeros() as usize / 8);
-            pending &= pending - 1;
-        }
-        previous = bits[i + 7];
-        i += 8;
-    }
-    while i < bits.len() {
-        if bits[i] != previous {
-            offsets.push(i);
-        }
-        previous = bits[i];
-        i += 1;
-    }
-    offsets.push(bits.len());
-}
-fn threshold(row: &[u8], mode: usize) -> Vec<bool> {
-    assert_eq!(mode, 0);
-    let mut bits = Vec::with_capacity(row.len());
-    let hist = histogram(row);
-    let sum: u64 = hist
-        .iter()
-        .enumerate()
-        .map(|(i, &n)| i as u64 * n as u64)
-        .sum();
-    let mut mass = 0;
-    let mut left = 0u64;
-    let mut best = 0.;
-    let mut cut = 128;
-    for (i, &n) in hist.iter().enumerate() {
-        // Empty bins repeat the exact same masses, means and score; they
-        // cannot improve the strict maximum or move its first threshold.
-        if n == 0 {
-            continue;
-        }
-        mass += n;
-        left += n as u64 * i as u64;
-        if mass == 0 || mass == row.len() {
-            continue;
-        }
-        let delta = barcode_multiformat::numeric::u64_f64(left)
-            / barcode_multiformat::numeric::usize_f64(mass)
-            - barcode_multiformat::numeric::u64_f64(sum - left)
-                / barcode_multiformat::numeric::usize_f64(row.len() - mass);
-        let score = barcode_multiformat::numeric::usize_f64(mass)
-            * barcode_multiformat::numeric::usize_f64(row.len() - mass)
-            * delta
-            * delta;
-        if score > best {
-            best = score;
-            cut = i;
-        }
-    }
-    bits.extend(row.iter().map(|&v| v as usize <= cut));
-    bits
 }

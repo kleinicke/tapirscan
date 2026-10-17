@@ -1,5 +1,5 @@
 //! Bullseye localization and independent Aztec grid sampling.
-use crate::qr_frontend::binarization;
+use barcode_multiformat::binarization;
 use barcode_multiformat::{Detection, qr_detect};
 use decoder as aztec;
 mod center_index;
@@ -96,7 +96,7 @@ fn centers_gray(gray: &[u8], w: usize, h: usize, cut: u8) -> Vec<Center> {
         for (target, &value) in row.iter_mut().zip(&gray[y * w..(y + 1) * w]) {
             *target = value <= cut;
         }
-        crate::qr_frontend::transition_offsets_into(&row, out);
+        barcode_multiformat::transition_offsets_into(&row, out);
     })
 }
 fn centers_from_runs(
@@ -1045,7 +1045,7 @@ impl Search {
                     mode,
                 },
                 regions,
-                &|_, row, out| crate::qr_frontend::transition_offsets_into(row, out),
+                &|_, row, out| barcode_multiformat::transition_offsets_into(row, out),
                 Some(candidates),
             );
         }
@@ -1126,7 +1126,7 @@ mod lazy_threshold_tests {
     fn compare(gray: &[u8], w: usize, h: usize, cut: u8) -> usize {
         let bits: Vec<_> = gray.iter().map(|&v| v <= cut).collect();
         let eager = centers_with_rows(&bits, w, h, &|_, row, out| {
-            crate::qr_frontend::transition_offsets_into(row, out);
+            barcode_multiformat::transition_offsets_into(row, out);
         });
         let lazy = centers_gray(gray, w, h, cut);
         let values = |v: Vec<Center>| {

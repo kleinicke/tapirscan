@@ -47,22 +47,43 @@ pub(super) fn search(
             })
         })
         .collect();
+    let inside = |samples: &[isize; 25], limit: usize| {
+        samples.iter().all(|&v| v >= 0 && v < limit.cast_signed())
+    };
+    let x_inside: Vec<bool> = x_samples.iter().map(|s| inside(s, w)).collect();
+    // Row starts of each sample, so the inner loop only adds the column.
+    let y_rows: Vec<Option<[usize; 25]>> = y_samples
+        .iter()
+        .map(|s| inside(s, h).then(|| s.map(|v| v.cast_unsigned() * w)))
+        .collect();
     let mut candidates = Vec::new();
     for (yi, &dy) in offsets.iter().enumerate() {
         'locations: for (xi, &dx) in offsets.iter().enumerate() {
             let mut errors = 0u8;
-            for i in 0..25 {
-                let xx = x_samples[xi][i];
-                let yy = y_samples[yi][i];
-                if xx < 0
-                    || yy < 0
-                    || xx >= w.cast_signed()
-                    || yy >= h.cast_signed()
-                    || image[yy.cast_unsigned() * w + xx.cast_unsigned()] != expected[i]
-                {
-                    errors += 1;
-                    if errors > 3 {
-                        continue 'locations;
+            if let (true, Some(rows)) = (x_inside[xi], &y_rows[yi]) {
+                let columns = &x_samples[xi];
+                for i in 0..25 {
+                    if image[rows[i] + columns[i].cast_unsigned()] != expected[i] {
+                        errors += 1;
+                        if errors > 3 {
+                            continue 'locations;
+                        }
+                    }
+                }
+            } else {
+                for i in 0..25 {
+                    let xx = x_samples[xi][i];
+                    let yy = y_samples[yi][i];
+                    if xx < 0
+                        || yy < 0
+                        || xx >= w.cast_signed()
+                        || yy >= h.cast_signed()
+                        || image[yy.cast_unsigned() * w + xx.cast_unsigned()] != expected[i]
+                    {
+                        errors += 1;
+                        if errors > 3 {
+                            continue 'locations;
+                        }
                     }
                 }
             }

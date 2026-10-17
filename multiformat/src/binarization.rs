@@ -13,10 +13,13 @@ pub struct Images<'a> {
     width: usize,
     height: usize,
     // Shared so that clones (one per parallel reader) do not copy the images.
-    cached: [Option<std::sync::Arc<[bool]>>; 6],
-    row_offsets: [Option<RowOffsets>; 3],
+    cached: [Option<std::sync::Arc<Vec<bool>>>; 8],
+    row_offsets: [Option<RowOffsets>; 4],
     identical_thresholds: Option<bool>,
     qr_contrast_cut: ContrastCut,
+    qr_upper_cut: ContrastCut,
+    /// Local modes (1 and 3) use block thresholds instead of the 33-pixel mean.
+    hybrid: bool,
 }
 
 // Cache transition positions only: runs can be derived exactly from adjacent
@@ -36,7 +39,7 @@ struct CachedRow {
 }
 
 #[derive(Clone)]
-pub(crate) struct RowOffsets {
+pub struct RowOffsets {
     rows: Vec<CachedRow>,
     payload_bytes: usize,
     // Retained capacity is budgeted; contents are cleared and reused for the
@@ -171,7 +174,11 @@ impl RowOffsets {
 
     /// Copy a cached row's transition offsets, or calculate the exact same
     /// offsets into the caller scratch buffer after the bounded cache is full.
-    pub(crate) fn copy_or_extract(&self, y: usize, row: &[bool], out: &mut Vec<usize>) {
+    ///
+    /// # Panics
+    ///
+    /// Panics if a cached offset does not fit `usize`.
+    pub fn copy_or_extract(&self, y: usize, row: &[bool], out: &mut Vec<usize>) {
         out.clear();
         if let Ok(index) = self.row_index(y) {
             out.extend(
@@ -233,10 +240,20 @@ impl<'a> Images<'a> {
             gray,
             width,
             height,
-            cached: [None, None, None, None, None, None],
-            row_offsets: [None, None, None],
+            cached: [None, None, None, None, None, None, None, None],
+            row_offsets: [None, None, None, None],
             identical_thresholds: None,
             qr_contrast_cut: ContrastCut::Uncomputed,
+            qr_upper_cut: ContrastCut::Uncomputed,
+            hybrid: false,
+        }
+    }
+    /// Thresholds whose local modes use ZXing-style block thresholds.
+    #[must_use]
+    pub fn new_hybrid(gray: &'a [u8], width: usize, height: usize) -> Self {
+        Self {
+            hybrid: true,
+            ..Self::new(gray, width, height)
         }
     }
     /// The grayscale frame the thresholds derive from.
@@ -259,8 +276,44 @@ impl<'a> Images<'a> {
                 otsu_cut(lower).map(|value| u8::try_from(value).expect("histogram has 256 bins"))
             });
             self.qr_contrast_cut = nested.map_or(ContrastCut::Unavailable, ContrastCut::Value);
+            let upper = cut.and_then(|cut| {
+                let values = &histogram[cut + 1..];
+                let min = values.iter().position(|&count| count > 0)?;
+                let max = values.iter().rposition(|&count| count > 0)?;
+                if max - min < 6 {
+                    return None;
+                }
+                otsu_cut(values)
+                    .map(|value| u8::try_from(value + cut + 1).expect("histogram has 256 bins"))
+            });
+            self.qr_upper_cut = upper.map_or(ContrastCut::Unavailable, ContrastCut::Value);
         }
         matches!(self.qr_contrast_cut, ContrastCut::Value(_))
+    }
+    /// An upper foreground split recovers light ink on a darker background.
+    pub(crate) fn has_qr_upper_contrast(&mut self) -> bool {
+        let _ = self.has_qr_contrast();
+        matches!(self.qr_upper_cut, ContrastCut::Value(_))
+    }
+    /// Return the checked scalar cut of foreground mode 4 or 6 without
+    /// allocating threshold pixels.
+    pub fn foreground_cut(&mut self, mode: usize) -> Option<u8> {
+        let present = match mode {
+            4 => self.has_qr_contrast(),
+            6 => self.has_qr_upper_contrast(),
+            _ => false,
+        };
+        if !present {
+            return None;
+        }
+        match if mode == 4 {
+            &self.qr_contrast_cut
+        } else {
+            &self.qr_upper_cut
+        } {
+            ContrastCut::Value(cut) => Some(*cut),
+            _ => None,
+        }
     }
     /// Pixel-exact equality permits omitting deterministic repeated work.
     /// Callers with adaptive proposal grouping must also check their own state.
@@ -269,6 +322,11 @@ impl<'a> Images<'a> {
     ///
     /// May panic if the cached dimensions are inconsistent with the grayscale buffer.
     pub fn is_duplicate(&mut self, mode: usize) -> bool {
+        // A block-threshold pass scans only its local modes; computing the global
+        // image just to compare would be wasted work.
+        if self.hybrid {
+            return false;
+        }
         if mode >= 4 || mode.is_multiple_of(2) {
             return false;
         }
@@ -280,28 +338,34 @@ impl<'a> Images<'a> {
         self.identical_thresholds == Some(true)
     }
     /// Return global/local threshold pixels (modes 0/1) or their inverse (2/3).
-    /// Internal QR recovery additionally uses its checked foreground split (4/5).
+    /// Internal QR recovery additionally uses checked lower (4/5) and upper (6/7) foreground splits.
     ///
     /// # Panics
     ///
-    /// Panics if `mode` is outside the six cached slots. Local thresholding
+    /// Panics if `mode` is outside the eight cached slots. Local thresholding
     /// may also panic if the dimensions are inconsistent with the grayscale buffer.
     #[must_use]
     pub fn get(&mut self, mode: usize) -> &[bool] {
         if self.cached[mode].is_none() {
-            let image: Vec<bool> = if mode == 4 {
-                let ContrastCut::Value(cut) = self.qr_contrast_cut else {
+            let image: Vec<bool> = if mode == 4 || mode == 6 {
+                let ContrastCut::Value(cut) = (if mode == 4 {
+                    self.qr_contrast_cut
+                } else {
+                    self.qr_upper_cut
+                }) else {
                     unreachable!("QR contrast availability checked before use");
                 };
                 self.gray.iter().map(|&pixel| pixel <= cut).collect()
-            } else if mode == 5 {
-                self.get(4).iter().map(|bit| !*bit).collect()
+            } else if mode == 5 || mode == 7 {
+                self.get(mode - 1).iter().map(|bit| !*bit).collect()
+            } else if mode == 1 && self.hybrid {
+                crate::qr_detect::binarize_hybrid(self.gray, self.width, self.height)
             } else if mode < 2 {
                 crate::qr_detect::binarize(self.gray, self.width, self.height, mode == 1)
             } else {
                 self.get(mode - 2).iter().map(|b| !*b).collect()
             };
-            self.cached[mode] = Some(std::sync::Arc::from(image));
+            self.cached[mode] = Some(std::sync::Arc::new(image));
         }
         self.cached[mode].as_deref().unwrap()
     }
@@ -318,11 +382,9 @@ impl<'a> Images<'a> {
             return;
         }
         let (gray, width, height) = (self.gray, self.width, self.height);
-        let invert =
-            |image: &[bool]| -> std::sync::Arc<[bool]> { image.iter().map(|b| !*b).collect() };
+        let invert = |image: &[bool]| std::sync::Arc::new(image.iter().map(|b| !*b).collect());
         let chain = |local: bool| {
-            let image: std::sync::Arc<[bool]> =
-                crate::qr_detect::binarize(gray, width, height, local).into();
+            let image = std::sync::Arc::new(crate::qr_detect::binarize(gray, width, height, local));
             let inverse = invert(&image);
             (image, inverse)
         };
@@ -350,12 +412,16 @@ impl<'a> Images<'a> {
     /// # Panics
     ///
     /// Has the same dimension and mode requirements as [`Self::get`].
-    pub(crate) fn get_with_runs(&mut self, mode: usize, step: usize) -> (&[bool], &RowOffsets) {
+    pub fn get_with_runs(&mut self, mode: usize, step: usize) -> (&[bool], &RowOffsets) {
         let _ = self.get(mode);
-        let base = if mode >= 4 { 2 } else { mode % 2 };
+        let base = if mode >= 4 {
+            2 + (mode - 4) / 2
+        } else {
+            mode % 2
+        };
         let (width, height) = (self.width, self.height);
         let (cached, row_offsets) = (&self.cached, &mut self.row_offsets);
-        let bits = cached[mode].as_deref().unwrap();
+        let bits = cached[mode].as_deref().map(Vec::as_slice).unwrap();
         let offsets = row_offsets[base].get_or_insert_with(RowOffsets::new);
         offsets.populate(bits, width, height, step);
         (bits, offsets)
@@ -472,5 +538,45 @@ mod tests {
         let mut offsets = Vec::new();
         rows.copy_or_extract(0, &row, &mut offsets);
         assert_eq!(offsets, uncached(&row));
+    }
+}
+
+#[cfg(test)]
+mod foreground_tests {
+    #[test]
+    fn two_tone_inputs_have_no_new_foreground_split() {
+        for value in [0u8, 127, 255] {
+            let pixels = vec![value; 64];
+            let mut images = super::Images::new(&pixels, 8, 8);
+            assert!(!images.has_qr_contrast());
+            assert!(!images.has_qr_upper_contrast());
+        }
+        let pixels: Vec<_> = (0..64).map(|i| if i % 2 == 0 { 0 } else { 255 }).collect();
+        let mut images = super::Images::new(&pixels, 8, 8);
+        assert!(!images.has_qr_contrast());
+        assert!(!images.has_qr_upper_contrast());
+    }
+    #[test]
+    fn lower_and_upper_splits_keep_independent_inverse_run_caches() {
+        let pixels: Vec<_> = (0..64)
+            .map(|i| [0, 10, 20, 30, 220, 230, 240, 250][i % 8])
+            .collect();
+        let mut images = super::Images::new(&pixels, 8, 8);
+        assert!(images.has_qr_contrast());
+        assert!(images.has_qr_upper_contrast());
+        let lower = images.get(4).to_vec();
+        let upper = images.get(6).to_vec();
+        assert_ne!(lower, upper);
+        for (mode, bits) in [(4, lower), (6, upper)] {
+            let (normal, rows) = images.get_with_runs(mode, 2);
+            assert_eq!(normal, bits);
+            let mut offsets = Vec::new();
+            rows.copy_or_extract(0, &bits[..8], &mut offsets);
+            let (inverse, rows) = images.get_with_runs(mode + 1, 3);
+            assert_eq!(inverse, bits.iter().map(|bit| !*bit).collect::<Vec<_>>());
+            let mut inverted_offsets = Vec::new();
+            rows.copy_or_extract(0, &inverse[..8], &mut inverted_offsets);
+            assert_eq!(offsets, inverted_offsets);
+        }
     }
 }

@@ -30,36 +30,7 @@ fn run_reader(
     binary_images: &mut binarization::Images<'_>,
 ) -> (Vec<Detection>, bool) {
     match bit {
-        QR_CODE => {
-            let (mut reads, mut limited) = if effort > 2 {
-                qr_detect::detect_curved(width, height, regions, binary_images)
-            } else if effort > 1 {
-                qr_detect::detect_extended(width, height, regions, binary_images)
-            } else {
-                qr_detect::detect(width, height, regions, binary_images)
-            };
-            if effort > 1 && width * height <= 1_048_576 {
-                let enhanced = sharpen(image, width, height);
-                let mut recovery = binarization::Images::new(&enhanced, width, height);
-                let (extra, extra_limited) = if effort > 2 {
-                    qr_detect::detect_curved(width, height, regions, &mut recovery)
-                } else {
-                    qr_detect::detect_extended(width, height, regions, &mut recovery)
-                };
-                limited |= extra_limited;
-                for read in extra {
-                    if !reads.iter().any(|prior| {
-                        prior.text == read.text
-                            && prior.structured_append == read.structured_append
-                            && barcode_multiformat::regions::overlap(&prior.polygon, &read.polygon)
-                                >= 0.65
-                    }) {
-                        reads.push(read);
-                    }
-                }
-            }
-            (reads, limited)
-        }
+        QR_CODE => qr_detect::detect_group(image, width, height, regions, binary_images, effort),
         DATA_MATRIX => dm_detect::detect(
             width,
             height,
@@ -323,42 +294,6 @@ fn scan_with(
         lines: 0,
     }
 }
-fn sharpen(gray: &[u8], width: usize, height: usize) -> Vec<u8> {
-    let weights = [1_u32, 4, 6, 4, 1];
-    let mut horizontal = vec![0_u32; width * height];
-    for y in 0..height {
-        for x in 0..width {
-            horizontal[y * width + x] = weights
-                .iter()
-                .enumerate()
-                .map(|(i, &weight)| {
-                    let xx = x.saturating_add(i).saturating_sub(2).min(width - 1);
-                    u32::from(gray[y * width + xx]) * weight
-                })
-                .sum();
-        }
-    }
-    let mut output = vec![0_u8; width * height];
-    for y in 0..height {
-        for x in 0..width {
-            let smooth: u32 = weights
-                .iter()
-                .enumerate()
-                .map(|(i, &weight)| {
-                    let yy = y.saturating_add(i).saturating_sub(2).min(height - 1);
-                    horizontal[yy * width + x] * weight
-                })
-                .sum();
-            let center = i32::from(gray[y * width + x]);
-            let restored = center * 3
-                - i32::try_from((smooth + 128) / 256).expect("smoothed pixel fits i32") * 2;
-            output[y * width + x] =
-                u8::try_from(restored.clamp(0, 255)).expect("clamped pixel fits u8");
-        }
-    }
-    output
-}
-
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use super::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE, concurrent, scan_with};

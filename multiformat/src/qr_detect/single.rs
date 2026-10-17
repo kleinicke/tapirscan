@@ -31,10 +31,28 @@ const WORDS: [u32; 34] = {
     words
 };
 
+// The low six BCH bits distinguish all 34 supported exact version words.
+// Reject a missing prefix, then compare remaining samples as they arrive.
+// This changes neither sampling coordinates nor which complete words are accepted.
+const PREFIX_VERSION: [u8; 64] = {
+    let mut entries = [0; 64];
+    let mut index = 0;
+    let mut version = 7_u8;
+    while index < WORDS.len() {
+        let prefix = (WORDS[index] & 63) as usize;
+        assert!(entries[prefix] == 0);
+        entries[prefix] = version;
+        version += 1;
+        index += 1;
+    }
+    entries
+};
+
 fn qr_coordinate(value: usize) -> f32 {
     f32::from(u16::try_from(value).expect("validated QR coordinates fit u16"))
 }
 
+#[cfg(test)]
 fn version(word: u32) -> Option<usize> {
     // Exact version metadata is the inexpensive tier. More damaged headers
     // remain the responsibility of the unchanged multi-finder search.
@@ -80,13 +98,25 @@ fn pixel(image: &[bool], w: usize, h: usize, frame: &[f32; 6], x: f32, y: f32) -
 }
 
 fn header(image: &[bool], w: usize, h: usize, frame: &[f32; 6], offset: f32) -> Option<usize> {
-    let mut word = 0;
-    for bit in 0_u8..18 {
+    let mut prefix = 0usize;
+    for bit in 0_u8..6 {
         let x = f32::from(bit % 3) - 7. + offset;
         let y = f32::from(bit / 3) - 3. + offset;
-        word |= u32::from(pixel(image, w, h, frame, x, y)?) << bit;
+        prefix |= usize::from(pixel(image, w, h, frame, x, y)?) << bit;
     }
-    version(word)
+    let version = PREFIX_VERSION[prefix];
+    if version == 0 {
+        return None;
+    }
+    let expected = WORDS[usize::from(version - 7)];
+    for bit in 6_u8..18 {
+        let x = f32::from(bit % 3) - 7. + offset;
+        let y = f32::from(bit / 3) - 3. + offset;
+        if pixel(image, w, h, frame, x, y)? != ((expected >> bit) & 1 != 0) {
+            return None;
+        }
+    }
+    Some(usize::from(version))
 }
 
 #[expect(
@@ -436,6 +466,22 @@ mod tests {
             for bit in 0..18 {
                 assert_eq!(version(word ^ (1 << bit)), None);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod prefix_tests {
+    #[test]
+    fn every_eighteen_bit_header_matches_the_original_exact_lookup() {
+        let frame = [1., 0., 0., 1., 7., 3.];
+        for word in 0..1u32 << 18 {
+            let bits: [bool; 18] = std::array::from_fn(|bit| word & (1 << bit) != 0);
+            assert_eq!(
+                super::header(&bits, 3, 6, &frame, 0.),
+                super::version(word),
+                "{word:018b}"
+            );
         }
     }
 }

@@ -1,8 +1,9 @@
 //! Project-owned QR finder grouping, projective grid estimation and sampling.
+//! Mode-dependent choices arrive as a [`Policy`]: this crate has no mode features.
 mod alignment_cached;
+mod curved;
 mod finder_index;
 use crate::{Detection, qr};
-mod curved;
 mod partial;
 mod ring;
 mod single;
@@ -186,6 +187,100 @@ fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) ->
 }
 // Nearby triples bound dense-scene work without the cubic combinations of all
 // finders. Prefer compact, approximately orthogonal, similarly sized groups.
+/// Resample module centers in gray and threshold each module against the mean of
+/// its 7x7 module neighborhood, which follows shadows across the symbol; then
+/// decode. With `erasures`, also retry with the lowest-margin modules as erasures.
+fn gray_decode(
+    gray: &[u8],
+    [width, height]: [usize; 2],
+    n: usize,
+    transform: &[f32; 8],
+    hard: &[bool],
+    erasures: bool,
+) -> Option<qr::Payload> {
+    let mut values = Vec::with_capacity(n * n);
+    for y in 0..n {
+        for x in 0..n {
+            let point = map(
+                transform,
+                crate::numeric::usize_f32(x) + 0.5,
+                crate::numeric::usize_f32(y) + 0.5,
+            );
+            let xx = crate::numeric::f32_isize(point[0].floor());
+            let yy = crate::numeric::f32_isize(point[1].floor());
+            if xx < 0 || yy < 0 || xx >= width.cast_signed() || yy >= height.cast_signed() {
+                return None;
+            }
+            values.push(i32::from(
+                gray[yy.cast_unsigned() * width + xx.cast_unsigned()],
+            ));
+        }
+    }
+    // Module-space integral image for the neighborhood means.
+    let mut sum = vec![0_i32; (n + 1) * (n + 1)];
+    for y in 0..n {
+        for x in 0..n {
+            sum[(y + 1) * (n + 1) + x + 1] =
+                values[y * n + x] + sum[y * (n + 1) + x + 1] + sum[(y + 1) * (n + 1) + x]
+                    - sum[y * (n + 1) + x];
+        }
+    }
+    let radius = 3;
+    let mut bits = vec![false; n * n];
+    let mut margins = vec![0_i32; n * n];
+    for y in 0..n {
+        for x in 0..n {
+            let (x0, y0, x1, y1) = (
+                x.saturating_sub(radius),
+                y.saturating_sub(radius),
+                (x + radius + 1).min(n),
+                (y + radius + 1).min(n),
+            );
+            let area = i32::try_from((x1 - x0) * (y1 - y0)).ok()?;
+            let total = sum[y1 * (n + 1) + x1] - sum[y0 * (n + 1) + x1] - sum[y1 * (n + 1) + x0]
+                + sum[y0 * (n + 1) + x0];
+            let value = values[y * n + x] * area;
+            bits[y * n + x] = value < total;
+            margins[y * n + x] = (value - total).abs() / area;
+        }
+    }
+    // Match the polarity of the threshold image the grid was found in.
+    if bits.iter().zip(hard).filter(|(a, b)| a == b).count() * 2 < n * n {
+        for bit in &mut bits {
+            *bit = !*bit;
+        }
+    }
+    // Optionally retry with the weakest twelfth of the modules as erasures.
+    let uncertain = erasures.then(|| {
+        let mut order: Vec<usize> = (0..n * n).collect();
+        let weakest = n * n / 12;
+        order.select_nth_unstable_by_key(weakest, |&i| (margins[i], i));
+        let mut uncertain = vec![false; n * n];
+        for &i in &order[..weakest] {
+            uncertain[i] = true;
+        }
+        uncertain
+    });
+    for mirror in [false, true] {
+        let transpose = |v: &[bool]| -> Vec<bool> {
+            if mirror {
+                (0..n * n).map(|i| v[(i % n) * n + i / n]).collect()
+            } else {
+                v.to_vec()
+            }
+        };
+        let matrix = transpose(&bits);
+        if let Some(read) = qr::decode_matrix(&matrix, n) {
+            return Some(read);
+        }
+        if let Some(uncertain) = &uncertain
+            && let Some(read) = qr::decode_matrix_soft(&matrix, n, &transpose(uncertain))
+        {
+            return Some(read);
+        }
+    }
+    None
+}
 /// Lower is more plausible: distance in modules, right-angle error and module spread.
 fn triple_score(finders: &[Finder], triple: [usize; 3]) -> f32 {
     let f = triple.map(|i| &finders[i]);
@@ -405,6 +500,73 @@ fn finder_homography(tl: &Finder, tr: &Finder, bl: &Finder, n: f32) -> Option<[f
     }
     least_squares_homography(&pairs)
 }
+/// Block thresholds in the style of the `ZXing` hybrid binarizer: 8-pixel blocks,
+/// flat blocks inherit their neighbors' black point, and each block uses the mean
+/// black point of its 5x5 block neighborhood.
+///
+/// # Panics
+///
+/// Panics if `gray` is shorter than `w * h`.
+#[must_use]
+pub fn binarize_hybrid(gray: &[u8], w: usize, h: usize) -> Vec<bool> {
+    const BLOCK: usize = 8;
+    let (columns, rows) = (w.div_ceil(BLOCK), h.div_ceil(BLOCK));
+    if columns < 5 || rows < 5 {
+        return binarize(gray, w, h, true);
+    }
+    let offset = |block: usize, limit: usize| (block * BLOCK).min(limit - BLOCK);
+    let mut black = vec![0_u32; columns * rows];
+    for by in 0..rows {
+        let y0 = offset(by, h);
+        for bx in 0..columns {
+            let x0 = offset(bx, w);
+            let (mut sum, mut min, mut max) = (0_u32, 255_u8, 0_u8);
+            for y in y0..y0 + BLOCK {
+                for &pixel in &gray[y * w + x0..y * w + x0 + BLOCK] {
+                    sum += u32::from(pixel);
+                    min = min.min(pixel);
+                    max = max.max(pixel);
+                }
+            }
+            let mut average = sum >> 6;
+            if max - min <= 24 {
+                average = u32::from(min) / 2;
+                if by > 0 && bx > 0 {
+                    let neighbors = (black[(by - 1) * columns + bx]
+                        + 2 * black[by * columns + bx - 1]
+                        + black[(by - 1) * columns + bx - 1])
+                        / 4;
+                    if u32::from(min) < neighbors {
+                        average = neighbors;
+                    }
+                }
+            }
+            black[by * columns + bx] = average;
+        }
+    }
+    let mut out = vec![false; w * h];
+    for by in 0..rows {
+        let y0 = offset(by, h);
+        let top = by.clamp(2, rows - 3);
+        for bx in 0..columns {
+            let x0 = offset(bx, w);
+            let left = bx.clamp(2, columns - 3);
+            let mut sum = 0;
+            for ny in top - 2..=top + 2 {
+                for nx in left - 2..=left + 2 {
+                    sum += black[ny * columns + nx];
+                }
+            }
+            let threshold = sum / 25;
+            for y in y0..y0 + BLOCK {
+                for x in x0..x0 + BLOCK {
+                    out[y * w + x] = u32::from(gray[y * w + x]) <= threshold;
+                }
+            }
+        }
+    }
+    out
+}
 #[must_use]
 ///
 /// # Panics
@@ -550,79 +712,6 @@ fn alignment(
     alignment_cached::search(image, w, h, guess, ex, ey)
 }
 
-/// The direct search that the cached sampling tables reproduce exactly.
-#[cfg(test)]
-fn alignment_reference(
-    image: &[bool],
-    w: usize,
-    h: usize,
-    guess: [f32; 2],
-    ex: [f32; 2],
-    ey: [f32; 2],
-) -> Vec<[f32; 2]> {
-    let module = f32::midpoint(ex[0].hypot(ex[1]), ey[0].hypot(ey[1]));
-    let range = crate::numeric::f32_isize((module * 8.).ceil());
-    let step = crate::numeric::f32_usize((module * 0.4).round().max(1.));
-    let mut candidates = Vec::new();
-    for dy in (-range..=range).step_by(step) {
-        'locations: for dx in (-range..=range).step_by(step) {
-            let center = [
-                guess[0] + crate::numeric::isize_f32(dx),
-                guess[1] + crate::numeric::isize_f32(dy),
-            ];
-            let mut e = 0;
-            for y in -2i32..=2 {
-                for x in -2i32..=2 {
-                    let xx = crate::numeric::f32_isize(
-                        (center[0]
-                            + crate::numeric::f64_f32(f64::from(x)) * ex[0]
-                            + crate::numeric::f64_f32(f64::from(y)) * ey[0])
-                            .floor(),
-                    );
-                    let yy = crate::numeric::f32_isize(
-                        (center[1]
-                            + crate::numeric::f64_f32(f64::from(x)) * ex[1]
-                            + crate::numeric::f64_f32(f64::from(y)) * ey[1])
-                            .floor(),
-                    );
-                    let expect = x.abs().max(y.abs()) != 1;
-                    if xx < 0
-                        || yy < 0
-                        || xx >= (w).cast_signed()
-                        || yy >= (h).cast_signed()
-                        || image[(yy).cast_unsigned() * w + (xx).cast_unsigned()] != expect
-                    {
-                        e += 1;
-                        if e > 3 {
-                            continue 'locations;
-                        }
-                    }
-                }
-            }
-            if e <= 3 {
-                let d = crate::numeric::isize_f32(dx * dx + dy * dy) / module.powi(2);
-                candidates.push((
-                    crate::numeric::f64_f32(f64::from(e)) * 3. + d * 0.04,
-                    center,
-                ));
-            }
-        }
-    }
-    candidates.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let mut out: Vec<[f32; 2]> = Vec::new();
-    for (_, p) in candidates {
-        if out
-            .iter()
-            .all(|q| (p[0] - q[0]).hypot(p[1] - q[1]) > module)
-        {
-            out.push(p);
-        }
-        if out.len() == 4 {
-            break;
-        }
-    }
-    out
-}
 #[must_use]
 pub fn sample(
     image: &[bool],
@@ -659,20 +748,16 @@ fn finder_grid_valid(
     ey: [f32; 2],
 ) -> bool {
     let mut errors = 0;
-    for y in -3i32..=3 {
-        for x in -3i32..=3 {
-            let xx = crate::numeric::f32_isize(
-                (center[0]
-                    + crate::numeric::f64_f32(f64::from(x)) * ex[0]
-                    + crate::numeric::f64_f32(f64::from(y)) * ey[0])
-                    .floor(),
-            );
-            let yy = crate::numeric::f32_isize(
-                (center[1]
-                    + crate::numeric::f64_f32(f64::from(x)) * ex[1]
-                    + crate::numeric::f64_f32(f64::from(y)) * ey[1])
-                    .floor(),
-            );
+    // The error count does not depend on the cell order, so the cells run column
+    // by column with each column's base position computed once. Every position
+    // is `(center + x * ex) + y * ey`.
+    for x in -3i32..=3 {
+        let fx = crate::numeric::f64_f32(f64::from(x));
+        let base = [center[0] + fx * ex[0], center[1] + fx * ex[1]];
+        for y in -3i32..=3 {
+            let fy = crate::numeric::f64_f32(f64::from(y));
+            let xx = crate::numeric::f32_isize((base[0] + fy * ey[0]).floor());
+            let yy = crate::numeric::f32_isize((base[1] + fy * ey[1]).floor());
             let expected = x.abs().max(y.abs()) != 2;
             if xx < 0
                 || yy < 0
@@ -681,49 +766,166 @@ fn finder_grid_valid(
                 || image[(yy).cast_unsigned() * w + (xx).cast_unsigned()] != expected
             {
                 errors += 1;
-            }
-            if errors > 20 {
-                return false;
+                if errors > 20 {
+                    return false;
+                }
             }
         }
     }
     true
 }
+/// Decode attempts of a complete detection; reaching it starts partial recovery.
+pub const FULL_BUDGET: usize = 1200;
+/// Mode-dependent work limits and decoding retries of a QR detection. Callers
+/// choose them; the multi-format reader groups use [`Policy::MULTIFORMAT`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Policy {
+    /// Once a symbol is read, a threshold mode stops trying triples after this
+    /// many decode attempts without a further read. Further symbols' triples rank
+    /// early, so this skips the long tail of accidental triples; images without
+    /// any read keep the full attempt budget.
+    pub patience: usize,
+    /// Alignment searches per detection pass. Plausible but false triples on
+    /// textured frames reach this costly stage.
+    pub alignment_budget: usize,
+    /// Search for an alignment pattern whatever the format bits look like.
+    /// Otherwise search only where an affine fit from the finders reads intact
+    /// format information.
+    pub align_anyway: bool,
+    /// Retry the majority of the offset samplings with the modules on which they
+    /// disagree as erasures.
+    pub offset_erasures: bool,
+    /// The gray resampling retry after the threshold samplings.
+    pub gray: GrayRetry,
+}
+/// Resampling module centers in gray with module-space thresholds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GrayRetry {
+    /// No gray resampling.
+    Off,
+    /// Decode the gray resampling.
+    Hard,
+    /// Also retry the gray resampling with its weakest modules as erasures.
+    Erasures,
+}
+impl Policy {
+    /// The multi-format reader groups: flat patience, unbounded alignment
+    /// searches and hard decoding of the threshold samplings only.
+    pub const MULTIFORMAT: Self = Self {
+        patience: 100,
+        alignment_budget: usize::MAX,
+        align_anyway: true,
+        offset_erasures: false,
+        gray: GrayRetry::Off,
+    };
+}
+/// The threshold modes and budgets of one detection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pass {
+    /// Threshold modes of [`crate::binarization::Images`], in search order.
+    pub modes: std::ops::Range<usize>,
+    /// Also test bounded timing-guided curved grids (Very High effort).
+    pub curved: bool,
+    /// Decode attempts. A budget below [`FULL_BUDGET`] ends the pass without
+    /// partial recovery or a work-limited flag.
+    pub budget: usize,
+}
+impl Pass {
+    /// The standard threshold modes; `extended` adds the foreground split and
+    /// `curved` the curved grids.
+    #[must_use]
+    pub fn effort(extended: bool, curved: bool) -> Self {
+        Self {
+            modes: 0..if extended { 6 } else { 4 },
+            curved,
+            budget: FULL_BUDGET,
+        }
+    }
+}
+/// Detect QR symbols in the threshold modes of `pass` under `policy`.
 ///
 /// # Panics
 ///
 /// Panics if a supplied binary image or region dimensions are inconsistent.
-pub fn detect(
+pub fn detect_with(
     w: usize,
     h: usize,
     regions: &mut crate::regions::Regions,
     binary_images: &mut crate::binarization::Images<'_>,
+    policy: Policy,
+    pass: Pass,
 ) -> (Vec<Detection>, bool) {
-    detect_with_recovery(w, h, regions, binary_images, false, false)
+    detect_with_recovery(w, h, regions, binary_images, policy, pass)
 }
-/// Higher-effort QR search retains the standard passes and adds a foreground threshold.
-pub fn detect_extended(
+/// The QR reader of the multi-format groups under [`Policy::MULTIFORMAT`]:
+/// effort 2 adds the foreground split and effort 3 the curved grids. Above
+/// effort 1, frames up to one megapixel are searched again after sharpening;
+/// its reads join unless the same payload already covers that area.
+///
+/// # Panics
+///
+/// Panics if a supplied binary image or region dimensions are inconsistent.
+pub fn detect_group(
+    image: &[u8],
     w: usize,
     h: usize,
     regions: &mut crate::regions::Regions,
     binary_images: &mut crate::binarization::Images<'_>,
+    effort: usize,
 ) -> (Vec<Detection>, bool) {
-    detect_with_recovery(w, h, regions, binary_images, true, false)
+    let pass = Pass::effort(effort > 1, effort > 2);
+    let (mut reads, mut limited) = detect_with_recovery(
+        w,
+        h,
+        regions,
+        binary_images,
+        Policy::MULTIFORMAT,
+        pass.clone(),
+    );
+    if effort > 1 && w * h <= 1_048_576 {
+        let enhanced = crate::qr_enhance::sharpen(image, w, h);
+        let mut recovery = crate::binarization::Images::new(&enhanced, w, h);
+        let (extra, extra_limited) =
+            detect_with_recovery(w, h, regions, &mut recovery, Policy::MULTIFORMAT, pass);
+        limited |= extra_limited;
+        for read in extra {
+            if !reads.iter().any(|prior| {
+                prior.text == read.text
+                    && prior.structured_append == read.structured_append
+                    && crate::regions::overlap(&prior.polygon, &read.polygon) >= 0.65
+            }) {
+                reads.push(read);
+            }
+        }
+    }
+    (reads, limited)
 }
-/// Very-high-effort QR search also tests bounded timing-guided curved grids.
-pub fn detect_curved(
-    w: usize,
-    h: usize,
-    regions: &mut crate::regions::Regions,
-    binary_images: &mut crate::binarization::Images<'_>,
-) -> (Vec<Detection>, bool) {
-    detect_with_recovery(w, h, regions, binary_images, true, true)
+/// Sampling offsets, in modules, of the three grids tried for every transform.
+const GRID_OFFSETS: [f32; 3] = [0., -0.2, 0.2];
+/// Whether any of the transforms reads intact format information.
+fn format_intact_under(
+    image: &[bool],
+    [w, h]: [usize; 2],
+    n: usize,
+    transforms: &[[f32; 8]],
+) -> bool {
+    transforms.iter().any(|t| {
+        GRID_OFFSETS.into_iter().any(|offset| {
+            let read = |x: usize, y: usize| {
+                let p = map(
+                    t,
+                    crate::numeric::usize_f32(x) + 0.5 + offset,
+                    crate::numeric::usize_f32(y) + 0.5 + offset,
+                );
+                let xx = crate::numeric::f32_isize(p[0].floor());
+                let yy = crate::numeric::f32_isize(p[1].floor());
+                (xx >= 0 && yy >= 0 && xx < w.cast_signed() && yy < h.cast_signed())
+                    .then(|| image[yy.cast_unsigned() * w + xx.cast_unsigned()])
+            };
+            qr::format_intact(n, read)
+        })
+    })
 }
-/// Once a symbol is read, a threshold mode stops trying triples after this many
-/// decode attempts without a further read. Further symbols' triples rank early,
-/// so this skips the long tail of accidental triples; images without any read
-/// keep the full attempt budget.
-const PATIENCE: usize = 100;
 #[expect(
     clippy::too_many_lines,
     reason = "QR detection preserves its ordered finder hypotheses and shared work budgets in one transaction."
@@ -733,11 +935,16 @@ fn detect_with_recovery(
     h: usize,
     regions: &mut crate::regions::Regions,
     binary_images: &mut crate::binarization::Images<'_>,
-    extended: bool,
-    curved_recovery: bool,
+    policy: Policy,
+    Pass {
+        modes,
+        curved: curved_recovery,
+        budget,
+    }: Pass,
 ) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
     let mut attempts = 0;
+    let mut align_calls = 0_usize;
     let mut curved_attempts = 0;
     let mut curved_limited = false;
     let mut single_attempts = 0;
@@ -746,10 +953,15 @@ fn detect_with_recovery(
     let mut used: Vec<Finder> = Vec::new();
     let mut prior_count = 0;
     let mut partial_modes: Vec<(usize, Vec<Finder>)> = Vec::new();
-    for mode in 0..if extended { 6 } else { 4 } {
+    // The offset samplings are kept only for the retries that use them.
+    let keep_samples = policy.offset_erasures || policy.gray != GrayRetry::Off;
+    for mode in modes {
         let mut read_count = results.len();
         let mut last_read = attempts;
-        if mode >= 4 && !binary_images.has_qr_contrast() {
+        if (4..6).contains(&mode) && !binary_images.has_qr_contrast() {
+            continue;
+        }
+        if mode >= 6 && !binary_images.has_qr_upper_contrast() {
             continue;
         }
         if binary_images.is_duplicate(mode) && results.len() == prior_count {
@@ -757,6 +969,7 @@ fn detect_with_recovery(
         }
         prior_count = results.len();
         let step = (h / 600).max(1);
+        let gray = binary_images.gray();
         let (image, row_cache) = binary_images.get_with_runs(mode, step);
         let (mut finders, capped) = finders_with_rows(image, w, h, Some(row_cache));
         regions.limited |= capped;
@@ -785,7 +998,7 @@ fn detect_with_recovery(
                 read_count = results.len();
                 last_read = attempts;
             }
-            if read_count > 0 && attempts - last_read > PATIENCE {
+            if read_count > 0 && attempts - last_read > policy.patience {
                 // The remaining triples were skipped: report limited work.
                 regions.limited = true;
                 break;
@@ -868,6 +1081,7 @@ fn detect_with_recovery(
                 let br = [tr.x + bl.x - tl.x, tr.y + bl.y - tl.y];
                 let mut any_valid = affine_valid;
                 // Preserve transform and offset order while avoiding unused geometric fits.
+                let mut early: Vec<[f32; 8]> = Vec::new();
                 for stage in 0..4 {
                     let mut transforms = Vec::new();
                     if stage == 0 && affine_valid {
@@ -935,7 +1149,15 @@ fn detect_with_recovery(
                     if stage == 3 && !any_valid {
                         break;
                     }
-                    if stage == 3 && version > 1 {
+                    if stage < 3 {
+                        early.extend_from_slice(&transforms);
+                    }
+                    if stage == 3
+                        && version > 1
+                        && align_calls < policy.alignment_budget
+                        && (policy.align_anyway || format_intact_under(image, [w, h], n, &early))
+                    {
+                        align_calls += 1;
                         let guess = [br[0] - 3. * (ex[0] + ey[0]), br[1] - 3. * (ex[1] + ey[1])];
                         for align in alignment(image, w, h, guess, ex, ey) {
                             if let Some(t) = homography(
@@ -952,9 +1174,14 @@ fn detect_with_recovery(
                         }
                     }
                     for t in transforms {
-                        for (offset_index, offset) in [0., -0.2, 0.2].into_iter().enumerate() {
+                        let mut samples: Vec<Vec<bool>> = Vec::new();
+                        for (offset_index, offset) in GRID_OFFSETS.into_iter().enumerate() {
                             attempts += 1;
-                            if attempts > 1200 {
+                            if attempts > budget && budget < FULL_BUDGET {
+                                // A bounded extra pass stops quietly.
+                                return (results, false);
+                            }
+                            if attempts > budget {
                                 partial::recover(
                                     image,
                                     w,
@@ -1029,6 +1256,9 @@ fn detect_with_recovery(
                             let Some(matrix) = sample(image, w, h, n, &t, offset) else {
                                 continue;
                             };
+                            if keep_samples {
+                                samples.push(matrix.clone());
+                            }
                             for mirror in [false, true] {
                                 let matrix = if mirror {
                                     (0..n * n).map(|i| matrix[(i % n) * n + i / n]).collect()
@@ -1063,6 +1293,81 @@ fn detect_with_recovery(
                                 }
                             }
                         }
+                        // Modules on which the offset samplings disagree are
+                        // uncertain; their codewords become erasures.
+                        if policy.offset_erasures && samples.len() >= 2 {
+                            let majority: Vec<bool> = (0..n * n)
+                                .map(|i| {
+                                    samples.iter().filter(|m| m[i]).count() * 2 > samples.len()
+                                })
+                                .collect();
+                            let uncertain: Vec<bool> = (0..n * n)
+                                .map(|i| samples.iter().any(|m| m[i] != samples[0][i]))
+                                .collect();
+                            // Without uncertain modules this repeats the hard decode.
+                            let mirrors: &[bool] = if uncertain.contains(&true) {
+                                &[false, true]
+                            } else {
+                                &[]
+                            };
+                            for &mirror in mirrors {
+                                let transpose = |v: &[bool]| -> Vec<bool> {
+                                    if mirror {
+                                        (0..n * n).map(|i| v[(i % n) * n + i / n]).collect()
+                                    } else {
+                                        v.to_vec()
+                                    }
+                                };
+                                if let Some(read) = qr::decode_matrix_soft(
+                                    &transpose(&majority),
+                                    n,
+                                    &transpose(&uncertain),
+                                ) {
+                                    used.extend(finder_triple.iter().map(|p| (*p).clone()));
+                                    results.push(Detection {
+                                        bytes: Some(read.bytes),
+                                        structured_append: read.structured_append,
+                                        reader_initialization: false,
+                                        addon: None,
+                                        format: "QRCode".into(),
+                                        text: read.text,
+                                        polygon: [[0., 0.], [nf, 0.], [nf, nf], [0., nf]]
+                                            .map(|[x, y]| map(&t, x, y)),
+                                        support: tl.support.min(tr.support).min(bl.support),
+                                        error: crate::numeric::usize_f32(read.corrected),
+                                        gs1: read.gs1,
+                                    });
+                                    break 'versions;
+                                }
+                            }
+                        }
+                        if policy.gray != GrayRetry::Off
+                            && !samples.is_empty()
+                            && let Some(read) = gray_decode(
+                                gray,
+                                [w, h],
+                                n,
+                                &t,
+                                &samples[0],
+                                policy.gray == GrayRetry::Erasures,
+                            )
+                        {
+                            used.extend(finder_triple.iter().map(|p| (*p).clone()));
+                            results.push(Detection {
+                                bytes: Some(read.bytes),
+                                structured_append: read.structured_append,
+                                reader_initialization: false,
+                                addon: None,
+                                format: "QRCode".into(),
+                                text: read.text,
+                                polygon: [[0., 0.], [nf, 0.], [nf, nf], [0., nf]]
+                                    .map(|[x, y]| map(&t, x, y)),
+                                support: tl.support.min(tr.support).min(bl.support),
+                                error: crate::numeric::usize_f32(read.corrected),
+                                gs1: read.gs1,
+                            });
+                            break 'versions;
+                        }
                     }
                 }
             }
@@ -1085,8 +1390,187 @@ fn detect_with_recovery(
 }
 
 #[cfg(test)]
+mod gray_decode_tests {
+    use super::gray_decode;
+
+    #[test]
+    fn module_space_thresholds_read_a_symbol_under_an_illumination_gradient() {
+        // Version 1-M "TAPIRSCAN" under a strong illumination gradient.
+        let rows = [
+            "111111101101001111111",
+            "100000101100001000001",
+            "101110100011001011101",
+            "101110101110101011101",
+            "101110100001001011101",
+            "100000100111101000001",
+            "111111101010101111111",
+            "000000001111100000000",
+            "101101110111101001011",
+            "000001001001111100011",
+            "011110110111000001001",
+            "100011010001001011111",
+            "001100100010100100000",
+            "000000001101001010111",
+            "111111101111100101101",
+            "100000101010000110100",
+            "101110100010111000111",
+            "101110101101001101010",
+            "101110101000101100000",
+            "100000100110010100100",
+            "111111101000010011010",
+        ];
+        let n = 21;
+        let bits: Vec<bool> = rows
+            .iter()
+            .flat_map(|r| r.bytes().map(|b| b == b'1'))
+            .collect();
+        let (scale, margin) = (6, 4);
+        let w = (n + 2 * margin) * scale;
+        let gray: Vec<u8> = (0..w * w)
+            .map(|i| {
+                let (x, y) = (i % w / scale, i / w / scale);
+                let dark = x >= margin
+                    && y >= margin
+                    && x < n + margin
+                    && y < n + margin
+                    && bits[(y - margin) * n + x - margin];
+                // Illumination falls from full on the right to a fifth on the left.
+                let value: usize = if dark { 40 } else { 220 };
+                let light = 20 + 80 * (i % w) / w;
+                u8::try_from(value * light / 100).unwrap()
+            })
+            .collect();
+        let offset = crate::numeric::usize_f32(margin * scale);
+        let step = crate::numeric::usize_f32(scale);
+        let t = [step, 0., offset, 0., step, offset, 0., 0.];
+        // A single global cut turns the dim light modules dark.
+        let global: Vec<bool> = (0..n * n)
+            .map(|i| gray[((i / n + margin) * scale + 3) * w + (i % n + margin) * scale + 3] < 128)
+            .collect();
+        assert!(crate::qr::decode_matrix(&global, n).is_none());
+        let read =
+            gray_decode(&gray, [w, w], n, &t, &bits, false).expect("gray decode reads the symbol");
+        assert_eq!(read.text, "TAPIRSCAN");
+        // A light-on-dark symbol: the inverted threshold image marks its light
+        // modules, and the polarity check follows that.
+        let inverted_gray: Vec<u8> = gray.iter().map(|v| 255 - v).collect();
+        assert_eq!(
+            gray_decode(&inverted_gray, [w, w], n, &t, &bits, false).map(|r| r.text),
+            Some("TAPIRSCAN".into())
+        );
+    }
+}
+
+#[cfg(test)]
 mod rolling_binarize_tests {
-    use super::binarize;
+    use super::{binarize, binarize_hybrid};
+
+    /// Per-pixel restatement: a pixel belongs to the last block covering it.
+    fn hybrid_reference(gray: &[u8], w: usize, h: usize) -> Vec<bool> {
+        let (columns, rows) = (w.div_ceil(8), h.div_ceil(8));
+        let start = |block: usize, limit: usize| (block * 8).min(limit - 8);
+        let block_of = |v: usize, count: usize, limit: usize| {
+            (0..count).rev().find(|&b| start(b, limit) <= v).unwrap()
+        };
+        let mut black = vec![vec![0_u32; columns]; rows];
+        for by in 0..rows {
+            for bx in 0..columns {
+                let pixels: Vec<u8> = (0..64)
+                    .map(|i| gray[(start(by, h) + i / 8) * w + start(bx, w) + i % 8])
+                    .collect();
+                let (min, max) = (*pixels.iter().min().unwrap(), *pixels.iter().max().unwrap());
+                let mut value = pixels.iter().map(|&p| u32::from(p)).sum::<u32>() / 64;
+                if max - min <= 24 {
+                    value = u32::from(min) / 2;
+                    if by > 0 && bx > 0 {
+                        let neighbors =
+                            (black[by - 1][bx] + 2 * black[by][bx - 1] + black[by - 1][bx - 1]) / 4;
+                        if u32::from(min) < neighbors {
+                            value = neighbors;
+                        }
+                    }
+                }
+                black[by][bx] = value;
+            }
+        }
+        (0..w * h)
+            .map(|i| {
+                let (bx, by) = (block_of(i % w, columns, w), block_of(i / w, rows, h));
+                let (left, top) = (bx.clamp(2, columns - 3), by.clamp(2, rows - 3));
+                let sum: u32 = (top - 2..=top + 2)
+                    .flat_map(|y| (left - 2..=left + 2).map(move |x| (x, y)))
+                    .map(|(x, y)| black[y][x])
+                    .sum();
+                u32::from(gray[i]) <= sum / 25
+            })
+            .collect()
+    }
+
+    #[test]
+    fn hybrid_thresholds_match_the_per_pixel_reference() {
+        let mut state = 0x2545_f491_u32;
+        for (w, h) in [(40, 40), (41, 33), (39, 47), (57, 40), (64, 72), (101, 53)] {
+            let gray: Vec<u8> = (0..w * h)
+                .map(|i| {
+                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    // Flat patches and noisy patches exercise both block rules.
+                    let flat = (i % w / 9 + i / w / 7) % 3 == 0;
+                    if flat {
+                        200
+                    } else {
+                        u8::try_from(state >> 24).unwrap()
+                    }
+                })
+                .collect();
+            assert_eq!(
+                binarize_hybrid(&gray, w, h),
+                hybrid_reference(&gray, w, h),
+                "{w}x{h}"
+            );
+        }
+    }
+
+    #[test]
+    fn hybrid_thresholds_follow_a_shadow_edge() {
+        // 5-pixel checker squares, so blocks contain module edges as in real
+        // symbols; the left half lies in shadow, where dark is
+        // 20 and light is 90, while the right half has 110 and 230. One global
+        // cut cannot separate both halves.
+        let (w, h) = (192, 96);
+        let gray: Vec<u8> = (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                let dark = (x / 5 + y / 5) % 2 == 0;
+                match (x < w / 2, dark) {
+                    (true, true) => 20,
+                    (true, false) => 90,
+                    (false, true) => 110,
+                    (false, false) => 230,
+                }
+            })
+            .collect();
+        let bits = binarize_hybrid(&gray, w, h);
+        for (i, &bit) in bits.iter().enumerate() {
+            let (x, y) = (i % w, i / w);
+            // Block neighborhoods span 40 pixels; next to the edge they mix both sides.
+            if x.abs_diff(w / 2) < 24 {
+                continue;
+            }
+            assert_eq!(bit, (x / 5 + y / 5) % 2 == 0, "pixel {x},{y}");
+        }
+        assert!(
+            binarize(&gray, w, h, false)
+                .iter()
+                .enumerate()
+                .any(|(i, &bit)| { bit != ((i % w / 24 + i / w / 24) % 2 == 0) })
+        );
+        // Too small for 5x5 blocks: the local mean decides.
+        let small = vec![128; 30 * 30];
+        assert_eq!(
+            binarize_hybrid(&small, 30, 30),
+            binarize(&small, 30, 30, true)
+        );
+    }
 
     fn integral_reference(gray: &[u8], w: usize, h: usize) -> Vec<bool> {
         let mut sum = vec![0_u64; (w + 1) * (h + 1)];
@@ -1179,6 +1663,78 @@ mod limit_tests {
 }
 
 #[cfg(test)]
+fn alignment_reference(
+    image: &[bool],
+    w: usize,
+    h: usize,
+    guess: [f32; 2],
+    ex: [f32; 2],
+    ey: [f32; 2],
+) -> Vec<[f32; 2]> {
+    let module = f32::midpoint(ex[0].hypot(ex[1]), ey[0].hypot(ey[1]));
+    let range = crate::numeric::f32_isize((module * 8.).ceil());
+    let step = crate::numeric::f32_usize((module * 0.4).round().max(1.));
+    let mut candidates = Vec::new();
+    for dy in (-range..=range).step_by(step) {
+        'locations: for dx in (-range..=range).step_by(step) {
+            let center = [
+                guess[0] + crate::numeric::isize_f32(dx),
+                guess[1] + crate::numeric::isize_f32(dy),
+            ];
+            let mut e = 0;
+            for y in -2i32..=2 {
+                for x in -2i32..=2 {
+                    let xx = crate::numeric::f32_isize(
+                        (center[0]
+                            + crate::numeric::f64_f32(f64::from(x)) * ex[0]
+                            + crate::numeric::f64_f32(f64::from(y)) * ey[0])
+                            .floor(),
+                    );
+                    let yy = crate::numeric::f32_isize(
+                        (center[1]
+                            + crate::numeric::f64_f32(f64::from(x)) * ex[1]
+                            + crate::numeric::f64_f32(f64::from(y)) * ey[1])
+                            .floor(),
+                    );
+                    let expect = x.abs().max(y.abs()) != 1;
+                    if xx < 0
+                        || yy < 0
+                        || xx >= (w).cast_signed()
+                        || yy >= (h).cast_signed()
+                        || image[(yy).cast_unsigned() * w + (xx).cast_unsigned()] != expect
+                    {
+                        e += 1;
+                        if e > 3 {
+                            continue 'locations;
+                        }
+                    }
+                }
+            }
+            if e <= 3 {
+                let d = crate::numeric::isize_f32(dx * dx + dy * dy) / module.powi(2);
+                candidates.push((
+                    crate::numeric::f64_f32(f64::from(e)) * 3. + d * 0.04,
+                    center,
+                ));
+            }
+        }
+    }
+    candidates.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut out: Vec<[f32; 2]> = Vec::new();
+    for (_, p) in candidates {
+        if out
+            .iter()
+            .all(|q| (p[0] - q[0]).hypot(p[1] - q[1]) > module)
+        {
+            out.push(p);
+        }
+        if out.len() == 4 {
+            break;
+        }
+    }
+    out
+}
+#[cfg(test)]
 mod alignment_cache_tests {
     #[test]
     fn sampling_tables_preserve_exact_ranked_centers() {
@@ -1207,5 +1763,84 @@ mod alignment_cache_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    reason = "Test arithmetic on small pixel coordinates."
+)]
+mod finder_grid_tests {
+    use super::finder_grid_valid;
+
+    /// Cell-by-cell reference for the column-wise check.
+    fn reference(
+        image: &[bool],
+        w: usize,
+        h: usize,
+        center: [f32; 2],
+        ex: [f32; 2],
+        ey: [f32; 2],
+    ) -> bool {
+        let mut errors = 0;
+        for y in -3i32..=3 {
+            for x in -3i32..=3 {
+                let (fx, fy) = (x as f32, y as f32);
+                let xx = (center[0] + fx * ex[0] + fy * ey[0]).floor() as isize;
+                let yy = (center[1] + fx * ex[1] + fy * ey[1]).floor() as isize;
+                let expected = x.abs().max(y.abs()) != 2;
+                if xx < 0
+                    || yy < 0
+                    || xx >= w as isize
+                    || yy >= h as isize
+                    || image[yy as usize * w + xx as usize] != expected
+                {
+                    errors += 1;
+                }
+                if errors > 20 {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn column_order_keeps_every_decision() {
+        let (w, h) = (48, 40);
+        let mut state = 0x2545_f491_u32;
+        let mut next = move || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 8) as f32 / (1_u32 << 24) as f32
+        };
+        let mut valid = 0;
+        for round in 0..6000 {
+            // Mostly noise; every third image is a finder pattern at a random pose.
+            let mut image: Vec<bool> = (0..w * h).map(|_| next() < 0.5).collect();
+            let angle = next() * std::f32::consts::TAU;
+            let module = 1. + next() * 2.;
+            let ex = [angle.cos() * module, angle.sin() * module];
+            let ey = [-ex[1] * (0.8 + next() * 0.4), ex[0] * (0.8 + next() * 0.4)];
+            let center = [10. + next() * 28., 10. + next() * 20.];
+            if round % 3 == 0 {
+                for y in -3i32..=3 {
+                    for x in -3i32..=3 {
+                        let px = (center[0] + x as f32 * ex[0] + y as f32 * ey[0]).floor();
+                        let py = (center[1] + x as f32 * ex[1] + y as f32 * ey[1]).floor();
+                        if (0. ..w as f32).contains(&px) && (0. ..h as f32).contains(&py) {
+                            image[py as usize * w + px as usize] = x.abs().max(y.abs()) != 2;
+                        }
+                    }
+                }
+            }
+            let expected = reference(&image, w, h, center, ex, ey);
+            valid += usize::from(expected);
+            assert_eq!(finder_grid_valid(&image, w, h, center, ex, ey), expected);
+        }
+        assert!(valid > 500, "the test must exercise both outcomes");
     }
 }
