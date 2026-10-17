@@ -59,7 +59,14 @@ fn run_reader(
             }
             (reads, limited)
         }
-        1024 => dm_detect::detect(width, height, regions, binary_images, effort > 1),
+        1024 => dm_detect::detect(
+            width,
+            height,
+            regions,
+            binary_images,
+            effort > 1,
+            crate::MODE_ID as usize,
+        ),
         4096 => {
             let mut search = barcode_research_core::aztec_frontend::Search::default();
             for mode in 0..4 {

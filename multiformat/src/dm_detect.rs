@@ -1314,15 +1314,29 @@ fn near_result(results: &[Detection], quad: &[Point; 4]) -> bool {
         (c[0] - d[0]).hypot(c[1] - d[1]) < 8.
     })
 }
-/// Detect; `refine` also refines the corners of every fair hypothesis.
+/// Detect with the retry limits of a scanner `mode` (0 Low, 1 Medium, 2 High, 3 Very
+/// High); `refine` also refines the corners of every fair hypothesis.
 pub fn detect(
     w: usize,
     h: usize,
     regions: &mut crate::regions::Regions,
     binary_images: &mut crate::binarization::Images<'_>,
     refine: bool,
+    mode: usize,
 ) -> (Vec<Detection>, bool) {
-    detect_with_retries(w, h, regions, binary_images, refine, RETRIES)
+    let mode = mode.min(2);
+    detect_with_retries(
+        w,
+        h,
+        regions,
+        binary_images,
+        refine,
+        Retries {
+            gray: GRAY_ATTEMPTS[mode],
+            crops: CROP_RETRIES[mode],
+            candidates: RETRY_CANDIDATES[mode],
+        },
+    )
 }
 /// Limits of the retries of one frame.
 #[derive(Clone, Copy)]
@@ -1331,16 +1345,22 @@ struct Retries {
     gray: usize,
     /// Unread candidate boxes retried on area-averaged or enlarged crops.
     crops: usize,
+    /// Failing candidates kept for the retries, which spend their work on the best-scoring
+    /// ones; gathering a candidate costs little.
+    candidates: usize,
 }
-/// Every mode shares them, since the matrix group runs at one effort level.
-const RETRIES: Retries = Retries { gray: 3, crops: 1 };
-/// Failing candidates kept per frame for the retries, which spend their work on the
-/// best-scoring ones; gathering a candidate costs little.
-const RETRY_CANDIDATES: usize = 64;
+/// Retry limits per frame for Low, Medium and High (and Very High).
+const GRAY_ATTEMPTS: [usize; 3] = [3, 3, 6];
+const CROP_RETRIES: [usize; 3] = [1, 1, 2];
+const RETRY_CANDIDATES: [usize; 3] = [64, 64, 64];
 /// Sizes per candidate that the grayscale refinement tries.
 const GRAY_SIZES_PER_CANDIDATE: usize = 2;
 /// The detection on a crop retries only a little itself and never crops again.
-const CROP_PASS: Retries = Retries { gray: 3, crops: 0 };
+const CROP_PASS: Retries = Retries {
+    gray: 3,
+    crops: 0,
+    candidates: 64,
+};
 #[expect(
     clippy::too_many_lines,
     reason = "The Data Matrix search shares proposal ordering, hypothesis caps and undecoded coverage across its sampling passes."
@@ -1519,7 +1539,7 @@ fn detect_with_retries(
                     }
                 }
             }
-            if results.len() == before && failed.len() < RETRY_CANDIDATES {
+            if results.len() == before && failed.len() < retries.candidates {
                 failed.push((orientations, mode));
             }
         }

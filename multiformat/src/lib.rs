@@ -417,19 +417,46 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
     scan_observed(image, width, height, mask, effort, |_, _| {})
 }
 
+/// [`scan`] for a scanner `mode` (0 Low, 1 Medium, 2 High, 3 Very High) whose retry limits
+/// for Data Matrix differ although its `effort` does not.
+#[must_use]
+pub fn scan_for_mode(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    mask: u32,
+    effort: usize,
+    mode: usize,
+) -> Scan {
+    scan_observed_for_mode(image, width, height, mask, effort, mode, |_, _| {})
+}
+
 /// Native diagnostic hook called after each enabled stage. The normal scanner
 /// uses a no-op callback; no clocks or profiling allocations enter that path.
 /// `limited` includes previously raised shared work-limit signals, not a timeout.
-#[expect(
-    clippy::too_many_lines,
-    reason = "The scanner orchestrator keeps reader order, deduplication and aggregate unfinished-work accounting in one transaction."
-)]
 pub fn scan_observed(
     image: &[u8],
     width: usize,
     height: usize,
     mask: u32,
     effort: usize,
+    observe: impl FnMut(&'static str, bool),
+) -> Scan {
+    scan_observed_for_mode(image, width, height, mask, effort, effort, observe)
+}
+
+/// [`scan_observed`] for a scanner `mode`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "The scanner orchestrator keeps reader order, deduplication and aggregate unfinished-work accounting in one transaction."
+)]
+pub fn scan_observed_for_mode(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    mask: u32,
+    effort: usize,
+    mode: usize,
     mut observe: impl FnMut(&'static str, bool),
 ) -> Scan {
     if width == 0 || height == 0 || width.checked_mul(height).is_none_or(|n| n > image.len()) {
@@ -475,8 +502,14 @@ pub fn scan_observed(
         (vec![], false)
     };
     if mask & 1024 != 0 {
-        let (mut reads, limited) =
-            dm_detect::detect(width, height, &mut regions, &mut binary_images, effort > 1);
+        let (mut reads, limited) = dm_detect::detect(
+            width,
+            height,
+            &mut regions,
+            &mut binary_images,
+            effort > 1,
+            mode,
+        );
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
         observe("DataMatrix", matrix_unfinished || regions.limited);

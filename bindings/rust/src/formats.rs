@@ -1849,7 +1849,14 @@ pub(crate) fn scan_reader(
     } else if mask == 512 {
         barcode_research_core::qr_frontend::scan_with_effort(pixels, width, height, effort)
     } else {
-        barcode_multiformat::scan(pixels, width, height, mask, effort)
+        barcode_multiformat::scan_for_mode(
+            pixels,
+            width,
+            height,
+            mask,
+            effort,
+            crate::MODE_ID as usize,
+        )
     }
 }
 

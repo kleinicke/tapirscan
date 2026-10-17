@@ -50,12 +50,13 @@
   perspective shortens one axis), by tuning the grid corners on gray values and
   thresholding modules against the border levels (bloomed or blurred ink merges the L in
   the binary image), and, when their border looked clean, on an area-averaged crop of a
-  large candidate or a bilinear enlargement of a tiny one. On 1,578 real development
-  images, Data Matrix reads rise from 544 to 644 (Low), 604 to 661 (Medium) and 661 to
-  700 (High), with unchanged reads of every other format and no new wrong reads; on the
-  181 Data Matrix variation frames Low reads 151 instead of 124 and Medium and High 160
-  instead of 154. In Chrome with `common`, Low costs about 1% more on retail photos;
-  Medium and High are unchanged within 1%.
+  large candidate or a bilinear enlargement of a tiny one. The retries scale with the
+  mode: Low and Medium try three grid refinements and one crop, High six and two. On
+  1,578 real development images, Data Matrix reads rise from 544 to 644 (Low), 604 to
+  661 (Medium) and 661 to 710 (High), with unchanged reads of every other format and no
+  new wrong reads; on the 181 Data Matrix variation frames Low reads 151 instead of 124
+  and Medium and High 160 instead of 154. In Chrome with `common`, Low costs about 1%
+  more on retail photos, Medium is unchanged within 1% and High costs about 1% more.
 - PDF417 reads more symbols: Macro PDF417 control blocks (structured append with segment
   index, count and file id), ECI codewords 925 and 926, and byte runs of five codewords;
   guard ends are followed along their bar so perspective photos rectify correctly. On
