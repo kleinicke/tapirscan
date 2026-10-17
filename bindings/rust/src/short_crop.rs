@@ -57,7 +57,7 @@ pub(crate) fn recover(
         let extra = crate::fast_linear::recover_proposals_contrast(
             image,
             &refined,
-            mask & 0b1100,
+            mask & crate::formats::SHORT_RETAIL,
             sampler,
             0.0,
         )?

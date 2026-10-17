@@ -17,7 +17,7 @@ pub(crate) fn contrast_bounds(values: &mut [f32]) -> (f32, f32) {
     (lo, hi)
 }
 
-pub const MAX_IMAGE_BYTES: usize = 1024 * 1024 * 1024;
+pub use barcode_multiformat::MAX_IMAGE_BYTES;
 pub const PROFILE_LEN: usize = 512;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {

@@ -1,5 +1,6 @@
 //! Matrix reader orchestration with shared baseline thresholds and bounded Aztec recovery.
 //! Reader order and non-Aztec policies mirror the pinned multiformat orchestrator.
+use barcode_multiformat::formats::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE};
 use barcode_multiformat::{
     Detection, Scan, binarization, dm_detect, maxicode_detect, pdf417, qr_detect, regions,
 };
@@ -12,7 +13,7 @@ type ReaderRun = (Vec<Detection>, bool, regions::Regions);
 
 /// The matrix readers selected by `mask`, in their fixed result order.
 fn readers(mask: u32) -> Vec<u32> {
-    [512, 1024, 4096, 131_072, 2048]
+    [QR_CODE, DATA_MATRIX, AZTEC, MAXI_CODE, PDF417]
         .into_iter()
         .filter(|bit| mask & bit != 0)
         .collect()
@@ -29,7 +30,7 @@ fn run_reader(
     binary_images: &mut binarization::Images<'_>,
 ) -> (Vec<Detection>, bool) {
     match bit {
-        512 => {
+        QR_CODE => {
             let (mut reads, mut limited) = if effort > 2 {
                 qr_detect::detect_curved(width, height, regions, binary_images)
             } else if effort > 1 {
@@ -59,7 +60,7 @@ fn run_reader(
             }
             (reads, limited)
         }
-        1024 => dm_detect::detect(
+        DATA_MATRIX => dm_detect::detect(
             width,
             height,
             regions,
@@ -67,7 +68,7 @@ fn run_reader(
             effort > 1,
             crate::MODE_ID as usize,
         ),
-        4096 => {
+        AZTEC => {
             let mut search = barcode_research_core::aztec_frontend::Search::default();
             for mode in 0..4 {
                 if binary_images.is_duplicate(mode) {
@@ -93,7 +94,7 @@ fn run_reader(
             search.upscaled(image, width, height, crate::MODE_ID as usize);
             (search.reads, search.limited)
         }
-        131_072 => maxicode_detect::detect(width, height, regions, binary_images),
+        MAXI_CODE => maxicode_detect::detect(width, height, regions, binary_images),
         _ => pdf417::detect(image, width, height, regions, crate::MODE_ID as usize),
     }
 }
@@ -116,7 +117,7 @@ fn parallel_readers(
     // shared read-only (cloning the cache shares the images); binarization is
     // deterministic, so each reader sees what a fresh cache would compute.
     let mut shared = binarization::Images::new(image, width, height);
-    if bits.iter().any(|&bit| bit != 2048) {
+    if bits.iter().any(|&bit| bit != PDF417) {
         // A second thresholding thread pays off from about one megapixel.
         if width * height >= 1 << 20 {
             shared.prefill_parallel();
@@ -130,7 +131,7 @@ fn parallel_readers(
     let shared = &shared;
     let run = |bit: u32| {
         let mut regions = regions::Regions::default();
-        let mut binary_images = if bit == 2048 {
+        let mut binary_images = if bit == PDF417 {
             binarization::Images::new(image, width, height)
         } else {
             shared.clone()
@@ -345,7 +346,7 @@ fn sharpen(gray: &[u8], width: usize, height: usize) -> Vec<u8> {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use super::{concurrent, scan_with};
+    use super::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE, concurrent, scan_with};
 
     fn report(scan: &barcode_multiformat::Scan) -> String {
         format!(
@@ -399,7 +400,11 @@ mod tests {
         }
         for image in &images {
             for effort in 0..4 {
-                for mask in [512 | 1024, 512 | 1024 | 4096 | 131_072 | 2048, 1024 | 2048] {
+                for mask in [
+                    QR_CODE | DATA_MATRIX,
+                    QR_CODE | DATA_MATRIX | AZTEC | MAXI_CODE | PDF417,
+                    DATA_MATRIX | PDF417,
+                ] {
                     assert_eq!(
                         report(&scan_with(image, width, height, mask, effort, true)),
                         report(&scan_with(image, width, height, mask, effort, false)),

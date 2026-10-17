@@ -1,4 +1,5 @@
 //! Source-gray sampling hypotheses around already localized matrix candidates.
+use barcode_multiformat::formats::{AZTEC, DATA_MATRIX};
 use barcode_multiformat::numeric::{f32_usize, usize_f32, usize_f64};
 use barcode_multiformat::{Detection, Scan, datamatrix, qr, qr_detect};
 use barcode_research_core::aztec_frontend::decoder as aztec;
@@ -121,7 +122,12 @@ fn detection(read: qr::Payload, q: Quad, mask: u32, support: usize) -> Detection
         structured_append: read.structured_append,
         reader_initialization: read.reader_initialization,
         addon: None,
-        format: if mask == 1024 { "DataMatrix" } else { "Aztec" }.into(),
+        format: if mask == DATA_MATRIX {
+            "DataMatrix"
+        } else {
+            "Aztec"
+        }
+        .into(),
         text: read.text,
         polygon: q,
         support,
@@ -143,7 +149,7 @@ pub(crate) fn recover(
 ) -> Scan {
     let mut reads: Vec<Detection> = Vec::new();
     let mut attempts = 0;
-    let sizes: Vec<_> = if mask == 1024 {
+    let sizes: Vec<_> = if mask == DATA_MATRIX {
         datamatrix::SIZES.iter().map(|s| (s.w, s.h)).collect()
     } else {
         let mut values: Vec<_> = (1..=32)
@@ -195,13 +201,13 @@ pub(crate) fn recover(
                             continue;
                         };
                         let bits = threshold(&values);
-                        let error = if mask == 1024 {
+                        let error = if mask == DATA_MATRIX {
                             dm_border(&bits, cols, rows)
                         } else {
                             0
                         };
-                        if (mask == 1024 && error * 5 > (cols + rows) * 2)
-                            || (mask == 4096 && !aztec_size(&bits, cols))
+                        if (mask == DATA_MATRIX && error * 5 > (cols + rows) * 2)
+                            || (mask == AZTEC && !aztec_size(&bits, cols))
                         {
                             continue;
                         }
@@ -214,7 +220,7 @@ pub(crate) fn recover(
                             }
                             direct_attempts += 1;
                             attempts += 1;
-                            let read = if mask == 1024 {
+                            let read = if mask == DATA_MATRIX {
                                 datamatrix::decode_matrix(&bits, cols, rows)
                             } else {
                                 aztec::decode_matrix(&bits, cols)
@@ -223,7 +229,7 @@ pub(crate) fn recover(
                                 reads.push(detection(read, q, mask, region.support));
                                 continue 'region;
                             }
-                            if mask == 4096
+                            if mask == AZTEC
                                 && let Some((read, refined)) =
                                     refine_aztec(pixels, width, height, q, cols, budget)
                             {
@@ -240,7 +246,7 @@ pub(crate) fn recover(
         hypotheses.sort_by_key(|h| h.0);
         for (_, cols, rows, bits, q) in hypotheses.into_iter().take(24 - direct_attempts) {
             attempts += 1;
-            let read = if mask == 1024 {
+            let read = if mask == DATA_MATRIX {
                 datamatrix::decode_matrix(&bits, cols, rows)
             } else {
                 aztec::decode_matrix(&bits, cols)
@@ -343,7 +349,7 @@ pub(crate) fn resolve_runes(
                                 };
                                 let full = threshold(&values);
                                 if let Some(read) = aztec::decode_matrix(&full, n) {
-                                    *candidate = detection(read, full_q, 4096, candidate.support);
+                                    *candidate = detection(read, full_q, AZTEC, candidate.support);
                                     break 'found;
                                 }
                                 {
@@ -351,7 +357,7 @@ pub(crate) fn resolve_runes(
                                         refine_aztec(pixels, width, height, full_q, n, budget)
                                     {
                                         *candidate =
-                                            detection(read, refined, 4096, candidate.support);
+                                            detection(read, refined, AZTEC, candidate.support);
                                         break 'found;
                                     }
                                 }

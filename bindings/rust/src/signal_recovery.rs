@@ -90,7 +90,9 @@ pub(crate) fn region_retries(
             };
             let mut retry = crate::formats::scan_reader(&image, w * scale, h * scale, mask, effort);
             retry.barcodes.retain(|r| {
-                !(mask == 4096 && r.text.len() == 3 && r.text.bytes().all(|v| v.is_ascii_digit()))
+                !(mask == barcode_multiformat::formats::AZTEC
+                    && r.text.len() == 3
+                    && r.text.bytes().all(|v| v.is_ascii_digit()))
             });
             for polygon in retry
                 .barcodes

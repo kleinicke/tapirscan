@@ -6,6 +6,8 @@ use crate::{
     geometry::lerp,
     read::{Read, ReaderPayload},
 };
+#[cfg(feature = "low")]
+use barcode_multiformat::formats::{COMMON_LINEAR_MASK, RETAIL_MASK};
 use barcode_multiformat::linear;
 use barcode_research_core::numeric::usize_f64;
 
@@ -311,7 +313,7 @@ pub(crate) fn scan(
     };
     reads.extend(border_reads);
     lines += border_lines;
-    if mask & !127 != 0 {
+    if mask & !COMMON_LINEAR_MASK != 0 {
         let (additional, regions) = crate::formats::fast_additional(scanner, image, options, mask)?;
         reads.extend(additional);
         unread.extend(regions);
@@ -368,7 +370,7 @@ pub(crate) fn scan(
     }
     // Turbo2 runs the same contrast and high-pass hypotheses on its strongest proposal
     // only, without deghosting, to keep empty frames cheap.
-    if matches!(TIER, 0 | 2) && reads.is_empty() && mask & 15 != 0 {
+    if matches!(TIER, 0 | 2) && reads.is_empty() && mask & RETAIL_MASK != 0 {
         let mut recovered = Vec::new();
         let mut unused = Vec::new();
         let mut remaining = 32_768;
@@ -387,7 +389,7 @@ pub(crate) fn scan(
                 restored: false,
                 profile,
                 localized: true,
-                mask: mask & 15,
+                mask: mask & RETAIL_MASK,
                 remaining,
                 observations: Vec::new(),
                 row_positions: Vec::new(),
@@ -403,7 +405,7 @@ pub(crate) fn scan(
         // Camera shake: undo a ghost on either side of the strongest box (EAN-13 only). Blur
         // hides the source evidence, so five supporting rows may replace source agreement.
         let mut ghosted = Vec::new();
-        if TIER == 0 && recovered.is_empty() && mask & 1 != 0 {
+        if TIER == 0 && recovered.is_empty() && mask & linear::EAN13 != 0 {
             for backward in [false, true] {
                 if let Some(proposal) = proposals.first().filter(|_| local_count > 0) {
                     let mut candidate = Candidate {
@@ -480,7 +482,7 @@ pub(crate) fn scan(
             restored: false,
             profile: SourceProfile::Gray(1.5),
             localized: true,
-            mask: mask & 15,
+            mask: mask & RETAIL_MASK,
             remaining: 32768,
             observations: Vec::new(),
             row_positions: Vec::new(),
@@ -560,7 +562,7 @@ fn finalize_reads(
     let mut reads = drop_nested_short_retail(keep_one_per_symbol(
         crate::linear_duplicates::merge_fast(reads, image),
     ));
-    if mask & !127 != 0 {
+    if mask & !COMMON_LINEAR_MASK != 0 {
         remove_decoded_regions(unread, &reads);
     }
     snap_integer_coordinates(&mut reads);
@@ -886,7 +888,7 @@ impl Candidate<'_> {
                 || (self.profile.contrast() > 0.
                     && (matches!(o.read.format.as_str(), "ITF" | "Code39")
                         || (!cfg!(feature = "low")
-                            && self.mask == 1
+                            && self.mask == linear::EAN13
                             && o.original_rows.count_ones() < 3)))
             {
                 4
@@ -1140,7 +1142,7 @@ fn sample_line_density(
         // Code39 has no mandatory checksum. Restored narrow bars can turn H
         // into B consistently across rows, so only original profiles may add it.
         let active_mask = if method >= 3 {
-            candidate.mask & !32
+            candidate.mask & !linear::CODE39
         } else {
             candidate.mask
         };
@@ -1169,7 +1171,12 @@ fn sample_line_density(
             supplement_ean(&sampler.runs, first, active_mask, &mut decoded);
             #[cfg(any(feature = "low", feature = "medium"))]
             if TIER == 0 && enhanced && decoded.is_empty() {
-                supplement_ean8_visual(&sampler.runs, first, active_mask & 4, &mut decoded);
+                supplement_ean8_visual(
+                    &sampler.runs,
+                    first,
+                    active_mask & linear::EAN8,
+                    &mut decoded,
+                );
             }
             let endpoints = if reverse { [b, a] } else { [a, b] };
             decoded.retain(|read| {
@@ -1259,21 +1266,23 @@ fn sample_candidate_profile(
             im,
             a,
             b,
-            if !cfg!(feature = "low") && candidate.profile.wide() && candidate.mask == 1 {
+            if !cfg!(feature = "low") && candidate.profile.wide() && candidate.mask == linear::EAN13
+            {
                 2.0
             } else if !cfg!(feature = "low")
                 && candidate.profile.contrast() > 0.
-                && candidate.mask == 1
+                && candidate.mask == linear::EAN13
             {
                 1.0
             } else {
                 DENSITY
             },
-            if !cfg!(feature = "low") && candidate.profile.wide() && candidate.mask == 1 {
+            if !cfg!(feature = "low") && candidate.profile.wide() && candidate.mask == linear::EAN13
+            {
                 limit.min(1536)
             } else if !cfg!(feature = "low")
                 && candidate.profile.contrast() > 0.
-                && candidate.mask == 1
+                && candidate.mask == linear::EAN13
             {
                 limit.min(768)
             } else {
@@ -1376,10 +1385,10 @@ fn supplement_ean(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<line
         }
         if let Some(e) = barcode_research_core::run_ean::decode_evidence(widths) {
             let mut text: String = e.digits.iter().map(|d| char::from(b'0' + d)).collect();
-            let format = if e.digits[0] == 0 && mask & 2 != 0 {
+            let format = if e.digits[0] == 0 && mask & linear::UPCA != 0 {
                 text.remove(0);
                 "UPCA"
-            } else if mask & 1 != 0 {
+            } else if mask & linear::EAN13 != 0 {
                 "EAN13"
             } else {
                 continue;
@@ -1400,7 +1409,7 @@ fn supplement_ean(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<line
 
 #[cfg(any(feature = "low", feature = "medium"))]
 fn supplement_ean8_visual(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<linear::Read>) {
-    if mask & 4 == 0 {
+    if mask & linear::EAN8 == 0 {
         return;
     }
     let mut attempts = 0;

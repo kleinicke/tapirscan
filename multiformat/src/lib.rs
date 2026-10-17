@@ -9,6 +9,7 @@ pub mod dm_gray;
 pub mod encoding;
 mod encoding_tables;
 pub mod expanded;
+pub mod formats;
 pub mod linear;
 mod linear_geometry;
 pub mod maxicode;
@@ -30,7 +31,17 @@ pub mod reed_solomon;
 pub mod regions;
 mod retail_gray;
 mod retail_profile;
+use formats::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE};
 use serde::Serialize;
+
+/// Largest accepted image side, in pixels.
+pub const MAX_IMAGE_SIDE: usize = 65_535;
+/// Largest accepted image area, in pixels: 256 megapixels.
+pub const MAX_IMAGE_PIXELS: usize = 256 * 1024 * 1024;
+/// Largest accepted pixel-buffer layout, in bytes: 1 GiB.
+pub const MAX_IMAGE_BYTES: usize = 1024 * 1024 * 1024;
+/// EAN/UPC, Code 128, Code 39 and ITF: the formats the nested-threshold row pass reads.
+const NESTED_PASS_FORMATS: u32 = formats::COMMON_LINEAR_MASK;
 
 /// One symbol in a structured-append sequence; index is one-based. Assembly is
 /// deliberately left to callers because distinct frames can contain repeats.
@@ -469,7 +480,7 @@ pub fn scan_observed_for_mode(
     }
     let mut regions = regions::Regions::default();
     let mut binary_images = binarization::Images::new(image, width, height);
-    let (mut matrix_results, mut matrix_unfinished) = if mask & 512 != 0 {
+    let (mut matrix_results, mut matrix_unfinished) = if mask & QR_CODE != 0 {
         let (mut reads, mut limited) = if effort > 2 {
             qr_detect::detect_curved(width, height, &mut regions, &mut binary_images)
         } else if effort > 1 {
@@ -501,7 +512,7 @@ pub fn scan_observed_for_mode(
     } else {
         (vec![], false)
     };
-    if mask & 1024 != 0 {
+    if mask & DATA_MATRIX != 0 {
         let (mut reads, limited) = dm_detect::detect(
             width,
             height,
@@ -514,27 +525,27 @@ pub fn scan_observed_for_mode(
         matrix_unfinished |= limited;
         observe("DataMatrix", matrix_unfinished || regions.limited);
     }
-    if mask & 4096 != 0 {
+    if mask & AZTEC != 0 {
         let (mut reads, limited) =
             aztec_detect::detect(width, height, &mut regions, &mut binary_images);
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
         observe("Aztec", matrix_unfinished || regions.limited);
     }
-    if mask & 131_072 != 0 {
+    if mask & MAXI_CODE != 0 {
         let (mut reads, limited) =
             maxicode_detect::detect(width, height, &mut regions, &mut binary_images);
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
         observe("MaxiCode", matrix_unfinished || regions.limited);
     }
-    if mask & 2048 != 0 {
+    if mask & PDF417 != 0 {
         let (mut reads, limited) = pdf417::detect(image, width, height, &mut regions, mode);
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
         observe("PDF417", matrix_unfinished || regions.limited);
     }
-    if mask & (511 | 8192 | 16384 | linear::MSI_PLESSEY) == 0 {
+    if mask & formats::ENGINE_LINEAR_MASK == 0 {
         linear_geometry::distinct(&mut matrix_results);
         let (regions, limited) = regions.finish(&matrix_results);
         return Scan {
@@ -563,8 +574,7 @@ pub fn scan_observed_for_mode(
     }
     // Effort 1 without retail formats is the Code 128/ITF sweep of High and Very High: twice
     // as many lines on large frames keep short fields of label photos between two lines.
-    let dense =
-        effort == 1 && mask & (linear::EAN13 | linear::UPCA | linear::EAN8 | linear::UPCE) == 0;
+    let dense = effort == 1 && mask & formats::RETAIL_MASK == 0;
     let step = crate::numeric::usize_f32(
         (width.min(height) / if effort > 0 { 120 } else { 64 })
             .clamp(2, if dense { 8 } else { 16 }),
@@ -763,7 +773,7 @@ pub fn scan_observed_for_mode(
                         2
                     };
                     let mut nested_upper = None;
-                    let passes = if effort > 0 && mask & 127 != 0 {
+                    let passes = if effort > 0 && mask & NESTED_PASS_FORMATS != 0 {
                         ordinary_passes + 1
                     } else {
                         ordinary_passes
@@ -816,7 +826,9 @@ pub fn scan_observed_for_mode(
                             }
                         }
                         let mask = if nested {
-                            mask & (127 | linear::ADDON_READ | linear::ADDON_REQUIRE)
+                            mask & (NESTED_PASS_FORMATS
+                                | linear::ADDON_READ
+                                | linear::ADDON_REQUIRE)
                         } else if mode >= 2 {
                             let retail = linear::EAN8
                                 | if effort > 1 && mode >= 3 {
@@ -1111,7 +1123,7 @@ pub unsafe extern "C" fn multi_prepare(s: *mut Session, w: usize, h: usize) -> u
     let Some(n) = w.checked_mul(h) else {
         return 2;
     };
-    if n > 256 * 1024 * 1024 || w.max(h) > 65_535 || w < 1 || h < 1 {
+    if n > MAX_IMAGE_PIXELS || w.max(h) > MAX_IMAGE_SIDE || w < 1 || h < 1 {
         return 2;
     }
     s.input.resize(n, 0);

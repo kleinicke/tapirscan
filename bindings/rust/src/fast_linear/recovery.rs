@@ -415,7 +415,7 @@ fn bridge_line(
         if !sampler.has_contrast() {
             return false;
         }
-        for method in 0..if mask == 32 { 3 } else { 6 } {
+        for method in 0..if mask == linear::CODE39 { 3 } else { 6 } {
             if method == 3 {
                 sampler.restore_contrast(strength);
             }

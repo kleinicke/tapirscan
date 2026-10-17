@@ -1,4 +1,5 @@
 use crate::Error;
+use crate::engine::multiformat::{MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE};
 
 /// Borrowed 8-bit pixels. RGB/RGBA are in RGB order; alpha is ignored.
 /// Rows are packed unless [`Self::with_stride`] supplies a byte stride.
@@ -77,7 +78,7 @@ impl<'a> Image<'a> {
             .checked_mul(self.stride)
             .and_then(|n| n.checked_add(row))
             .ok_or(Error::InvalidImage("buffer size overflow"))?;
-        if size > 1024 * 1024 * 1024 || self.data.len() < size {
+        if size > MAX_IMAGE_BYTES || self.data.len() < size {
             return Err(Error::InvalidImage(
                 "buffer is too short or exceeds the 1 GiB layout limit",
             ));
@@ -90,10 +91,10 @@ impl<'a> Image<'a> {
 pub(crate) fn validate_size(width: usize, height: usize) -> Result<(), Error> {
     if width < 3
         || height < 3
-        || width.max(height) > 65_535
+        || width.max(height) > MAX_IMAGE_SIDE
         || width
             .checked_mul(height)
-            .is_none_or(|n| n > 256 * 1024 * 1024)
+            .is_none_or(|n| n > MAX_IMAGE_PIXELS)
     {
         return Err(Error::InvalidImage(
             "dimensions must be 3 to 65,535 pixels per side and at most 256 megapixels",

@@ -1,20 +1,22 @@
 //! Independent run-length decoders. Tables describe standardized symbol patterns;
 //! no `ZXing` reader implementation or runtime is used.
 
-pub const EAN13: u32 = 1;
-pub const UPCA: u32 = 2;
-pub const EAN8: u32 = 4;
-pub const UPCE: u32 = 8;
-pub const CODE128: u32 = 16;
-pub const CODE39: u32 = 32;
-pub const ITF: u32 = 64;
-pub const CODABAR: u32 = 128;
-pub const CODE93: u32 = 256;
-pub const DATABAR: u32 = 8192;
-pub const DATABAR_EXPANDED: u32 = 16384;
-pub const ADDON_READ: u32 = 32768;
-pub const ADDON_REQUIRE: u32 = 65536;
-pub const MSI_PLESSEY: u32 = 1_048_576;
+// Format bits as the linear decoders name them; the values come from the
+// generated `crate::formats`.
+pub const EAN13: u32 = crate::formats::EAN13;
+pub const UPCA: u32 = crate::formats::UPCA;
+pub const EAN8: u32 = crate::formats::EAN8;
+pub const UPCE: u32 = crate::formats::UPCE;
+pub const CODE128: u32 = crate::formats::CODE128;
+pub const CODE39: u32 = crate::formats::CODE39;
+pub const ITF: u32 = crate::formats::ITF;
+pub const CODABAR: u32 = crate::formats::CODABAR;
+pub const CODE93: u32 = crate::formats::CODE93;
+pub const DATABAR: u32 = crate::formats::DATA_BAR;
+pub const DATABAR_EXPANDED: u32 = crate::formats::DATA_BAR_EXPANDED;
+pub const ADDON_READ: u32 = crate::formats::EAN_ADDON_READ_FLAG;
+pub const ADDON_REQUIRE: u32 = crate::formats::EAN_ADDON_REQUIRE_FLAG;
+pub const MSI_PLESSEY: u32 = crate::formats::MSI_PLESSEY;
 
 pub(crate) const DIGITS: [[u8; 4]; 10] = [
     [3, 2, 1, 1],
@@ -1247,7 +1249,7 @@ fn decode_impl(
                 read
             }
         };
-        if quiet && mask & 15 != 0 {
+        if quiet && mask & crate::formats::RETAIL_MASK != 0 {
             found = accepted(ean(r, s, mask, retain_failed));
         }
         if found.is_none()
