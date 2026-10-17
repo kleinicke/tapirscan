@@ -217,10 +217,21 @@ impl Scanner {
                         found.extend(extra);
                     }
                 }
-                // Without retail, these selections are localized by segment voting; frames it
-                // reads nothing on fall back to the stripe boxes, which keep thin and partial
-                // symbols (sparse search in Medium, full search from High up).
-                if primary.is_none() && oriented_mask != 0 && reads.is_empty() && found.is_empty() {
+                // Segment voting (and the retail boxes, on its 768-pixel raster) can miss thin
+                // and partial symbols, such as rows of small labels on a large sheet. Frames
+                // without a linear read fall back to the stripe boxes (sparse search in Medium,
+                // full search from High up); reads of 2D formats do not stop it. With retail
+                // selected, only frames above twice that raster take it.
+                let linear_read = reads.iter().chain(found.iter()).any(|read| {
+                    !matches!(
+                        read.format.as_str(),
+                        "QRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
+                    )
+                });
+                if (primary.is_none() || image.width.max(image.height) > 1536)
+                    && oriented_mask != 0
+                    && !linear_read
+                {
                     let im = crate::ImageView::new(
                         image.data,
                         image.width,

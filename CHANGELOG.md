@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Medium reads rows of small Code 128 (and other 1D) labels on large sheets with any
+  format selection, not only with that format alone: the stripe-box fallback for thin
+  symbols that segment voting misses now runs when no 1D symbol was read (a PDF417 or QR
+  read no longer stops it) and, with retail selected, on frames above 1536 pixels. On a
+  20-megapixel sheet of eleven labels, Medium read ten of them with Code 128 alone and none
+  with PDF417, retail, `common` or `all`; it now reads ten with each. On the 1,578
+  development images, Medium Code 128 reads rise from 1,135 to 1,154 with all formats,
+  with no new wrong reads; Chrome cost is unchanged within 1%.
 - High and Very High no longer run the stripe localizer on retail scans of frames that
   are not tiny: they box symbols by segment voting and never used its short-fragment
   hints. Reads are identical; High is about 8% faster on retail photos, 5% with all 1D
