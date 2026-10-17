@@ -39,31 +39,24 @@ geometry and timing can differ from 1.3.0. See the
 
 ### Scanner behavior
 
-- **Linear formats** read largely the same whatever else is selected. Medium and
-  above localize non-retail linear selections by segment voting, which follows
-  rotated and warped bars, sweep Code 128 and Code 39 also when retail formats
-  are selected, and decode thin symbols from stripe boxes after a 2D read. High
-  and Very High also localize at finer scale on frames longer than 1536 pixels.
-  Small Code 128 fields on large label photos and sheets are read far more often.
-  ITF tolerates ink spread in its start and stop patterns.
-- **Retail:** High and Very High run Medium's retail recoveries on frames they
-  leave unread, so they read at least what Medium reads on retail photos. Medium
-  reads more labels on large photos with many EAN-13 or UPC-A symbols. Low no
-  longer reports a UPC-E or EAN-8 decoded from part of an EAN-13 or UPC-A it also
-  reads.
+- **Linear formats** read nearly the same whatever else is selected, follow rotated
+  and warped bars from Medium up, and find small Code 128 fields on large label
+  photos and sheets far more often. ITF tolerates ink spread.
+- **Retail:** High and Very High read at least what Medium reads on retail
+  photos. Medium reads more labels on large photos with many EAN-13 or UPC-A
+  symbols. Low no longer reports a UPC-E or EAN-8 decoded from part of an EAN-13
+  or UPC-A it also reads.
 - **QR Code** reads more distorted, blurred, shadowed, tiny and large-frame
   symbols. In mixed selections QR runs as its own reader group and reads
   almost like a QR-only scan, in Low and Medium also when EAN add-ons are read.
 - **Data Matrix** reads more phone photos, industrial marks and foreshortened,
-  tiny, blurred and large close-up symbols. High and Very High retry unread frames
-  on reduced copies and refine each data region of large symbols separately.
-- **PDF417** reads more perspective, blurred and border-clipped symbols; High and
-  Very High also match blurred rows against codeword templates. When two
+  tiny, blurred and large close-up symbols.
+- **PDF417** reads more perspective, blurred and border-clipped symbols. When two
   different payloads decode at the same place, the one needing more corrections
   is dropped.
-- **Aztec:** Medium and above retry small symbols on an enlarged window.
-- **MaxiCode** runs as its own reader group in mixed selections; High and Very
-  High retry large unread frames on reduced copies, as Medium does.
+- **Aztec** reads small symbols from Medium up.
+- **MaxiCode:** High and Very High retry large unread frames on reduced copies,
+  as Medium does.
 
 ### Performance
 
