@@ -172,19 +172,8 @@ impl Scanner {
                 let proposals = if let Some(primary) = primary {
                     primary.proposals.clone()
                 } else {
-                    let im = crate::ImageView::new(
-                        image.data,
-                        image.width,
-                        image.height,
-                        image.channels,
-                        image.stride,
-                    )?;
-                    if crate::MODE_ID == 1 && mask == 16384 {
-                        self.localizer.detect_sparse(im, 768.)?.proposals
-                    } else {
-                        // Low's segment-voting boxes, which follow rotated and warped bars.
-                        crate::pipeline::segment_voting::localize(image).proposals
-                    }
+                    // Low's segment-voting boxes, which follow rotated and warped bars.
+                    crate::pipeline::segment_voting::localize(image).proposals
                 };
                 // A broad mask can turn a short UPC-E interpretation of EAN-13 into a
                 // false extra read. The new rare-format recovery requires explicit
@@ -200,23 +189,6 @@ impl Scanner {
                     oriented_mask,
                     sampler,
                 )?;
-                // The quick localizer misses a few severely rotated expanded symbols.
-                // Preserve the full proposal search only when this selected reader has
-                // no value after the source pass, keeping the common case bounded.
-                if crate::MODE_ID == 1 && mask == 16384 && reads.is_empty() && found.is_empty() {
-                    let im = crate::ImageView::new(
-                        image.data,
-                        image.width,
-                        image.height,
-                        image.channels,
-                        image.stride,
-                    )?;
-                    let full = self.localizer.detect(im)?.proposals;
-                    let (extra, regions) =
-                        crate::fast_linear::recover_proposals(image, &full, mask, sampler)?;
-                    found.extend(extra);
-                    pending.extend(regions);
-                }
                 // Retail boxes span the full bar height; rows near their edges can keep
                 // checksum-free formats below their row support. Decode the central band of
                 // unread boxes, which stripe localization would have proposed on its own.
@@ -248,12 +220,7 @@ impl Scanner {
                 // Without retail, these selections are localized by segment voting; frames it
                 // reads nothing on fall back to the stripe boxes, which keep thin and partial
                 // symbols (sparse search in Medium, full search from High up).
-                if primary.is_none()
-                    && mask != 16384
-                    && oriented_mask != 0
-                    && reads.is_empty()
-                    && found.is_empty()
-                {
+                if primary.is_none() && oriented_mask != 0 && reads.is_empty() && found.is_empty() {
                     let im = crate::ImageView::new(
                         image.data,
                         image.width,

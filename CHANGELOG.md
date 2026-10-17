@@ -11,12 +11,13 @@
   development images. In Chrome, Medium costs within 1% more, High about 4% on retail
   photos with Aztec selected.
 - Medium, High and Very High localize linear selections without retail formats (Code 128,
-  Code 39, ITF, Codabar, Code 93, DataBar) by segment voting, as Low does, and decode the
+  Code 39, ITF, Codabar, Code 93, DataBar, DataBar Expanded) by segment voting, as Low does, and decode the
   central band of unread boxes; only frames that read nothing fall back to the stripe
   search (sparse in Medium, full from High up). Medium is 25 to 45% faster on these
   selections in Chrome and High up to 18%. On 340 variation images per format selected
   alone, Medium reads ITF 203 instead of 181, Code 93 311 instead of 291, Code 128 75
-  instead of 64, Code 39 48 instead of 43 and Codabar 338 instead of 337, and High reads
+  instead of 64, Code 39 48 instead of 43, Codabar 338 instead of 337 and DataBar
+  Expanded 322 instead of 292 (as Low and High), and High reads
   slightly more as well, with no wrong reads. Scans with a retail format are unchanged.
 - Medium reads rotated and warped GS1 DataBar again when `DataBar` is selected alone: it
   now runs localized recovery on Low's segment-voting boxes. On the 340 DataBar variation
