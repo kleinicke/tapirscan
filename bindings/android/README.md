@@ -1,10 +1,15 @@
 # Tapirscan for Android
 
+> **Preview:** built from source; the API may change in minor releases.
+
 A small Java API over the Tapirscan C library through JNI, usable from Kotlin and
-Java on Android (API 24+, 64-bit ABIs arm64-v8a and x86_64). It scans camera planes
-and pixel buffers and returns every decoded barcode with its text, format and
-source-image polygon. (The JVM binding in `bindings/java` needs the Foreign Function
-& Memory API, which Android lacks.)
+Java on Android (API 24+, 64-bit ABIs arm64-v8a and x86_64). It follows the shape of
+the [Java binding](../java/README.md): `scan` returns a `ScanResult` with `values()`,
+`barcodes()` and `best()`, and `inspect` returns an `InspectionResult` that adds
+undecoded regions, image size, mode, elapsed time and diagnostics. Shared semantics
+(support, undecoded regions, geometry, image limits) are in
+[API design](../../docs/API_DESIGN.md). (The JVM binding in `bindings/java` needs the
+Foreign Function & Memory API, which Android lacks.)
 
 ## Setup
 
@@ -23,13 +28,40 @@ dependencies {
 }
 ```
 
+## Scan
+
+```kotlin
+val options = ScannerOptions.defaults()
+    .withMode(Mode.LOW)
+    .withFormats(setOf(Format.EAN13, Format.QR_CODE))
+Scanner(options).use { scanner ->
+    val result = scanner.scan(pixels, width, height, 1, 0)   // ByteBuffer or ByteArray
+    for (barcode in result.barcodes()) println("${barcode.format()} ${barcode.text()} ${barcode.rect()}")
+}
+```
+
+`ScannerOptions` holds the `Mode` (default `MEDIUM`), a `Set<Format>` (default
+`Format.RETAIL`) and the `EanAddOnPolicy` (default `IGNORE`), fixed when the scanner
+is created. `Format` is generated from `config/formats.json` with the presets
+`RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX` and `ALL`. A per-call
+`ScanOptions.defaults().withFormats(...)` overrides the scanner's formats for that
+call only.
+
+Each `Barcode` has `text()`, `format()`, `polygon()`, `rect()`, `support()`,
+`payloadBytes()`, `eanAddOn()`, `gs1()`, `readerInitialization()` and
+`structuredAppend()`; optional fields are `Optional`s, empty when unavailable.
+The class is named `Scanner` like its Java counterpart; import it by name rather
+than with `java.util.*`.
+
 ## CameraX
 
 Scan the luma (Y) plane of each `ImageAnalysis` frame in place. Reuse one scanner,
 and keep CameraX's default `STRATEGY_KEEP_ONLY_LATEST` so a slow scan skips frames:
 
 ```kotlin
-val scanner = BarcodeScanner(BarcodeScanner.MODE_LOW, Formats.EAN13 or Formats.QR_CODE)
+val scanner = Scanner(
+    ScannerOptions.defaults().withMode(Mode.LOW).withFormats(setOf(Format.EAN13, Format.QR_CODE))
+)
 
 val analysis = ImageAnalysis.Builder()
     .setResolutionSelector(
@@ -42,24 +74,45 @@ val analysis = ImageAnalysis.Builder()
     .build()
 analysis.setAnalyzer(executor) { image ->
     val luma = image.planes[0]
-    val barcodes = scanner.scan(luma.buffer, image.width, image.height, 1, luma.rowStride)
+    val result = scanner.scan(luma.buffer, image.width, image.height, 1, luma.rowStride)
     image.close()
-    if (barcodes.isNotEmpty()) runOnUiThread { /* show barcodes */ }
+    if (result.barcodes().isNotEmpty()) runOnUiThread { /* show result.barcodes() */ }
 }
 // Call scanner.close() when the camera is unbound.
 ```
 
-## Structured content
-
-`barcode.content()` returns the named fields of GS1, Wi-Fi, contact, payment
-and similar payloads, or `null`; `Content.parse(text, gs1)` parses any text.
+## Inspection
 
 ```java
-Content content = barcode.content();
-if (content != null && content.kind() == Content.Kind.WIFI) connect(content.get("ssid"), content.get("password"));
+InspectionResult inspection = scanner.inspect(luma.getBuffer(), width, height, 1, luma.getRowStride());
+inspection.undecoded();    // localized regions without a decode
+inspection.elapsedMs();
+inspection.diagnostics();  // unstable engine JSON
 ```
 
-Kinds and fields: [structured content](../../docs/CONTENT.md).
+## Errors
+
+Calls throw `ScannerException`. Its `code` is the C status and `codeName()` is the
+name shared with the Python and JavaScript bindings: `"invalid_input"`, `"disposed"`
+or `"engine"`. Using a closed scanner throws `IllegalStateException`. No detection is
+an empty result, not an error.
+
+## Structured content
+
+`Tapirscan.parseContent(barcode)` returns the named fields of GS1, Wi-Fi, contact,
+payment and similar payloads as an `Optional<Content>`, empty for plain text;
+`Tapirscan.parseContent(text, gs1)` parses any text.
+
+```java
+Tapirscan.parseContent(barcode).ifPresent(content -> {
+    if (content.kind() == ContentKind.WIFI) {
+        connect(content.get("ssid").orElse(""), content.get("password").orElse(""));
+    }
+});
+```
+
+`Content.getAll(name)` returns every value of a repeated field. Kinds and fields:
+[structured content](../../docs/CONTENT.md).
 
 ## Other inputs
 
@@ -67,13 +120,12 @@ Kinds and fields: [structured content](../../docs/CONTENT.md).
 place, starting at its position) or a `byte[]`, with 1 (gray), 3 (RGB) or 4 (RGBA,
 alpha ignored) channels; `stride` 0 means packed rows. For a `Bitmap`, copy its
 pixels with `copyPixelsToBuffer` into a reused direct buffer (`ARGB_8888` bitmaps
-store RGBA bytes) and scan with 4 channels. Errors are thrown as
-`TapirscanException` with the library's message.
+store RGBA bytes) and scan with 4 channels.
 
 ## Fast scanning
 
 - Select only the formats you need; each enabled 2D format searches the whole image.
-- Use `MODE_LOW` and 720p or 1080p frames for live scanning; reuse one scanner.
+- Use `Mode.LOW` and 720p or 1080p frames for live scanning; reuse one scanner.
 - The camera's Y plane is the cheapest camera input: it is read in place, with no
   color conversion on your side. Requesting RGBA frames from CameraX adds a
   conversion per frame.

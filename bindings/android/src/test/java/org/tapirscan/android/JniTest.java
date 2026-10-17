@@ -1,7 +1,11 @@
 package org.tapirscan.android;
 
 import java.nio.ByteBuffer;
-import java.util.List;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Optional;
+import java.util.Set;
 
 /** Runs the JNI bridge on a desktop JVM: java -Djava.library.path=... JniTest */
 public final class JniTest {
@@ -31,7 +35,7 @@ public final class JniTest {
         bits.append("101");
         int width = bits.length() * MODULE + 2 * QUIET;
         byte[] pixels = new byte[width * HEIGHT];
-        java.util.Arrays.fill(pixels, (byte) 255);
+        Arrays.fill(pixels, (byte) 255);
         for (int i = 0; i < bits.length(); i++) {
             if (bits.charAt(i) != '1') continue;
             for (int y = 10; y < HEIGHT - 10; y++) {
@@ -46,16 +50,29 @@ public final class JniTest {
         if (!condition) throw new AssertionError(message);
     }
 
+    private static Set<Format> only(Format... formats) {
+        return EnumSet.copyOf(Arrays.asList(formats));
+    }
+
     public static void main(String[] args) {
         int[] size = new int[1];
         byte[] pixels = ean13(size);
         int width = size[0];
-        try (BarcodeScanner scanner = new BarcodeScanner(BarcodeScanner.MODE_LOW, Formats.EAN13 | Formats.QR_CODE)) {
-            List<Barcode> fromArray = scanner.scan(pixels, width, HEIGHT, 1, 0);
-            check(fromArray.size() == 1 && fromArray.get(0).text().equals(TEXT), "array scan " + fromArray);
-            check(fromArray.get(0).format().equals("EAN13"), "format");
-            check(fromArray.get(0).polygon().length == 8, "polygon");
-            check(fromArray.get(0).content() == null, "retail text has no content");
+        ScannerOptions low = ScannerOptions.defaults().withMode(Mode.LOW)
+                .withFormats(only(Format.EAN13, Format.QR_CODE));
+        try (Scanner scanner = new Scanner(low)) {
+            check(scanner.options().equals(low), "options");
+            ScanResult fromArray = scanner.scan(pixels, width, HEIGHT, 1, 0);
+            check(fromArray.values().equals(Collections.singletonList(TEXT)), "array scan " + fromArray);
+            Barcode barcode = fromArray.best().get();
+            check(barcode.text().equals(TEXT) && barcode.format() == Format.EAN13, "format");
+            check("EAN13".equals(barcode.format().toString()), "format name");
+            check(barcode.polygon().size() == 4, "polygon");
+            Rect rect = barcode.rect();
+            check(rect.left() >= 0 && rect.width() > 0 && rect.height() > 0
+                    && rect.left() + rect.width() <= width && rect.top() + rect.height() <= HEIGHT, "rect " + rect);
+            check(!barcode.eanAddOn().isPresent() && !barcode.structuredAppend().isPresent(), "optional fields");
+            check(!Tapirscan.parseContent(barcode).isPresent(), "retail text has no content");
             // A direct buffer with padded rows, as camera planes have, is read in place.
             int stride = width + 16;
             ByteBuffer direct = ByteBuffer.allocateDirect(stride * HEIGHT + 5);
@@ -65,29 +82,76 @@ public final class JniTest {
                 direct.put(pixels, y * width, width);
             }
             direct.position(5);
-            List<Barcode> fromDirect = scanner.scan(direct, width, HEIGHT, 1, stride);
-            check(fromDirect.size() == 1 && fromDirect.get(0).text().equals(TEXT), "direct scan " + fromDirect);
-            check(scanner.scan(new byte[width * HEIGHT], width, HEIGHT, 1, 0).isEmpty(), "blank");
+            ScanResult fromDirect = scanner.scan(direct, width, HEIGHT, 1, stride);
+            check(fromDirect.equals(fromArray), "direct scan " + fromDirect);
+            check(scanner.scan(new byte[width * HEIGHT], width, HEIGHT, 1, 0).barcodes().isEmpty(), "blank");
+            check(!scanner.scan(new byte[width * HEIGHT], width, HEIGHT, 1, 0).best().isPresent(), "blank best");
+
+            InspectionResult inspection = scanner.inspect(pixels, width, HEIGHT, 1, 0);
+            check(inspection.barcodes().equals(fromArray.barcodes()), "inspect barcodes");
+            check(inspection.width() == width && inspection.height() == HEIGHT, "inspect size");
+            check(inspection.mode() == Mode.LOW && inspection.elapsedMs() >= 0, "inspect mode");
+            check(inspection.diagnostics().startsWith("{"), "diagnostics");
+            check(inspection.values().equals(fromArray.values()), "inspect values");
+            check(scanner.inspect(direct, width, HEIGHT, 1, stride).barcodes().equals(fromArray.barcodes()),
+                    "direct inspect");
+
             try {
                 scanner.scan(new byte[2], 3, 3, 1, 0);
                 throw new AssertionError("short buffer accepted");
-            } catch (TapirscanException expected) {
-                check(!expected.getMessage().isEmpty(), "message");
+            } catch (ScannerException expected) {
+                check(!expected.getMessage().isEmpty() && expected.code == 1, "message");
+                check("invalid_input".equals(expected.codeName()), "code name");
+            }
+            try {
+                scanner.scan(new byte[2], -3, 3, 1, 0);
+                throw new AssertionError("negative width accepted");
+            } catch (ScannerException expected) {
+                check(expected.code == 1, "negative width code");
             }
         }
+        // A per-call selection overrides the scanner's formats for that call only.
+        try (Scanner qr = new Scanner(ScannerOptions.defaults().withFormats(only(Format.QR_CODE)))) {
+            check(qr.scan(pixels, width, HEIGHT, 1, 0).barcodes().isEmpty(), "qr scanner ignores EAN-13");
+            ScanOptions ean = ScanOptions.defaults().withFormats(only(Format.EAN13));
+            check(qr.scan(pixels, width, HEIGHT, 1, 0, ean).values().equals(Collections.singletonList(TEXT)),
+                    "override");
+            check(qr.scan(pixels, width, HEIGHT, 1, 0).barcodes().isEmpty(), "override is per call");
+            try {
+                new ScanOptions(Optional.of(Collections.<Format>emptySet()));
+                throw new AssertionError("empty override accepted");
+            } catch (IllegalArgumentException expected) {
+                // formats must be nonempty
+            }
+        }
+        Scanner closed = new Scanner();
+        closed.close();
+        closed.close();
         try {
-            new BarcodeScanner(BarcodeScanner.MODE_MEDIUM, 0);
+            closed.scan(pixels, width, HEIGHT, 1, 0);
+            throw new AssertionError("closed scanner accepted a scan");
+        } catch (IllegalStateException expected) {
+            // use after close
+        }
+        try {
+            new ScannerOptions(Mode.MEDIUM, Collections.<Format>emptySet(), EanAddOnPolicy.IGNORE);
             throw new AssertionError("empty formats accepted");
-        } catch (TapirscanException expected) {
+        } catch (IllegalArgumentException expected) {
             // formats must be nonempty
         }
-        // Opt-in formats are accepted by name.
-        new BarcodeScanner(BarcodeScanner.MODE_LOW, Formats.CODE32 | Formats.PZN | Formats.MSI_PLESSEY).close();
-        Content wifi = Content.parse("WIFI:S:Café;T:WPA;P:secret;;", false);
-        check(wifi != null && wifi.kind() == Content.Kind.WIFI && "WiFi".equals(wifi.kind().toString()), "wifi kind");
-        check("Café".equals(wifi.get("ssid")) && wifi.get("hidden") == null && wifi.fields().size() == 3, "wifi fields");
-        check(Content.parse("0109506000134352", true).getAll("01").equals(List.of("09506000134352")), "gs1");
-        check(Content.parse("0109506000134352", false) == null, "plain digits");
+        // Presets and opt-in formats.
+        check(Format.LINEAR.contains(Format.CODE93) && !Format.LINEAR.contains(Format.QR_CODE), "linear preset");
+        check(Format.MATRIX.contains(Format.AZTEC) && !Format.MATRIX.contains(Format.EAN13), "matrix preset");
+        check(!Format.ALL.contains(Format.PZN) && Format.ALL.contains(Format.MAXI_CODE), "all preset");
+        new Scanner(new ScannerOptions(Mode.LOW, only(Format.CODE32, Format.PZN, Format.MSI_PLESSEY),
+                EanAddOnPolicy.READ)).close();
+        Content wifi = Tapirscan.parseContent("WIFI:S:Café;T:WPA;P:secret;;", false).get();
+        check(wifi.kind() == ContentKind.WIFI && "WiFi".equals(wifi.kind().toString()), "wifi kind");
+        check("Café".equals(wifi.get("ssid").get()) && !wifi.get("hidden").isPresent()
+                && wifi.fields().size() == 3, "wifi fields");
+        check(Tapirscan.parseContent("0109506000134352", true).get().getAll("01")
+                .equals(Collections.singletonList("09506000134352")), "gs1");
+        check(!Tapirscan.parseContent("0109506000134352", false).isPresent(), "plain digits");
         System.out.println("android JNI bridge: OK");
     }
 }
