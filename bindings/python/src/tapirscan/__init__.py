@@ -16,10 +16,11 @@ if TYPE_CHECKING:
     import os
     from collections.abc import Iterable
 
+from ._content_registry import ContentKind
 from ._images import MAX_IMAGE_BYTES, _cpu_count, _size, image_bytes
 from ._library import ABI_VERSION as ABI_VERSION
-from ._library import ScannerError, library_path, load
-from .content import Content, ContentField, ContentKind, parse_content
+from ._library import ScannerError, Signatures, bind, check, library_path, load
+from .content import Content, ContentField, parse_content
 from .formats import (
     FORMAT_BITS,
     Format,
@@ -122,7 +123,7 @@ class _Point(c.Structure):
     _fields_ = [("x", c.c_double), ("y", c.c_double)]
 
 
-class _Summary(c.Structure):
+class _ResultSummary(c.Structure):
     _fields_ = [
         ("barcode_count", c.c_uint64),
         ("undecoded_count", c.c_uint64),
@@ -267,8 +268,7 @@ class Scanner:
         self._mode = mode
         u64 = c.c_uint64
         ptr = c.POINTER
-        signatures = {
-            "tapirscan_status_message": ([c.c_int32], c.c_char_p),
+        signatures: Signatures = {
             "tapirscan_scanner_create": (
                 [ptr(_ScannerOptions), ptr(u64), c.c_void_p],
                 c.c_int32,
@@ -283,7 +283,7 @@ class Scanner:
                 c.c_int32,
             ),
             "tapirscan_result_count": ([u64, ptr(u64)], c.c_int32),
-            "tapirscan_result_info": ([u64, ptr(_Summary)], c.c_int32),
+            "tapirscan_result_info": ([u64, ptr(_ResultSummary)], c.c_int32),
             "tapirscan_result_barcode": ([u64, u64, ptr(_Barcode)], c.c_int32),
             "tapirscan_result_undecoded": ([u64, u64, ptr(_Region)], c.c_int32),
             "tapirscan_result_copy": (
@@ -294,10 +294,7 @@ class Scanner:
             "tapirscan_result_copy_json": ([u64, c.c_void_p, u64], c.c_int32),
             "tapirscan_result_destroy": ([u64], c.c_int32),
         }
-        for name, (args, result) in signatures.items():
-            fn = getattr(self._lib, name)
-            fn.argtypes = args
-            fn.restype = result
+        bind(self._lib, signatures)
         options = _ScannerOptions(
             _MODES.index(mode),
             format_mask(self._formats),
@@ -305,17 +302,13 @@ class Scanner:
             _PARALLEL_DEFAULT if parallel is None else int(bool(parallel)),
         )
         error = c.create_string_buffer(512)
-        self._check(
+        check(
+            self._lib,
             self._lib.tapirscan_scanner_create(
                 c.byref(options), c.byref(self._handle), error
             ),
             error.value.decode(),
         )
-
-    def _check(self, code: int, detail: str = "") -> None:
-        if code:
-            message = detail or self._lib.tapirscan_status_message(code).decode()
-            raise ScannerError(code, message)
 
     @property
     def mode(self) -> Mode:
@@ -414,7 +407,8 @@ class Scanner:
             pixels = _Image(address, length, width, height, channels, stride)
             result = c.c_uint64()
             error = c.create_string_buffer(512)
-            self._check(
+            check(
+                self._lib,
                 (self._lib.tapirscan_inspect if inspect else self._lib.tapirscan_scan)(
                     self._handle,
                     c.byref(pixels),
@@ -427,24 +421,28 @@ class Scanner:
             try:
                 return self._read(result.value, inspect=inspect)
             finally:
-                self._check(self._lib.tapirscan_result_destroy(result))
+                check(self._lib, self._lib.tapirscan_result_destroy(result))
 
     def _read(self, result: int, *, inspect: bool) -> ScanResult:
         """Build public results from typed accessors; JSON only feeds diagnostics."""
         count = c.c_uint64()
-        self._check(self._lib.tapirscan_result_count(result, c.byref(count)))
+        check(self._lib, self._lib.tapirscan_result_count(result, c.byref(count)))
         barcodes = tuple(self._barcode(result, i) for i in range(count.value))
         if not inspect:
             return ScanResult(barcodes)
-        info = _Summary()
-        self._check(self._lib.tapirscan_result_info(result, c.byref(info)))
+        info = _ResultSummary()
+        check(self._lib, self._lib.tapirscan_result_info(result, c.byref(info)))
         undecoded = tuple(
             self._undecoded(result, i) for i in range(info.undecoded_count)
         )
         length = c.c_uint64()
-        self._check(self._lib.tapirscan_result_json_length(result, c.byref(length)))
+        check(
+            self._lib, self._lib.tapirscan_result_json_length(result, c.byref(length))
+        )
         output = c.create_string_buffer(length.value + 1)
-        self._check(self._lib.tapirscan_result_copy_json(result, output, len(output)))
+        check(
+            self._lib, self._lib.tapirscan_result_copy_json(result, output, len(output))
+        )
         return InspectionResult(
             barcodes,
             cast("Mode", _MODES[info.mode]),
@@ -456,22 +454,29 @@ class Scanner:
 
     def _undecoded(self, result: int, index: int) -> UndecodedRegion:
         region = _Region()
-        self._check(
-            self._lib.tapirscan_result_undecoded(result, index, c.byref(region))
+        check(
+            self._lib,
+            self._lib.tapirscan_result_undecoded(result, index, c.byref(region)),
         )
         name = _FORMAT_NAMES.get(region.format, "Unknown")
         return UndecodedRegion(_points(region.polygon), name)
 
     def _barcode(self, result: int, index: int) -> Barcode:
         native = _Barcode()
-        self._check(self._lib.tapirscan_result_barcode(result, index, c.byref(native)))
+        check(
+            self._lib,
+            self._lib.tapirscan_result_barcode(result, index, c.byref(native)),
+        )
 
         def field(kind: int, length: int) -> bytes | None:
             if length == _ABSENT:
                 return None
             buffer = c.create_string_buffer(length + 1)
-            self._check(
-                self._lib.tapirscan_result_copy(result, index, kind, buffer, length + 1)
+            check(
+                self._lib,
+                self._lib.tapirscan_result_copy(
+                    result, index, kind, buffer, length + 1
+                ),
             )
             return buffer.raw[:length]
 
@@ -508,7 +513,7 @@ class Scanner:
                 handle = self._handle.value
                 self._handle.value = 0
                 self._staging = None
-                self._check(self._lib.tapirscan_scanner_destroy(handle))
+                check(self._lib, self._lib.tapirscan_scanner_destroy(handle))
 
     def __enter__(self) -> Self:
         """Return this scanner if it is still open."""

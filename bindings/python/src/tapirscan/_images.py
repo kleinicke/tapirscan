@@ -139,30 +139,34 @@ def _single_image_batch(shape: tuple[int, ...], layout: Layout) -> bool:
     )
 
 
-def _numpy_layout(image: NDArray[np.generic], layout: Layout) -> NDArray[np.generic]:
-    if _single_image_batch(tuple(image.shape), layout):
-        image = image[0]
-    if image.ndim == HW_DIMENSIONS:
+def _resolve_layout(
+    shape: tuple[int, ...], layout: Layout, source: str
+) -> tuple[bool, Layout]:
+    """Return whether to drop a batch axis and the image's HW, CHW or HWC layout.
+
+    `source` names the input kind, such as "array", in error messages.
+    """
+    batch = _single_image_batch(shape, layout)
+    if batch:
+        shape = shape[1:]
+    if len(shape) == HW_DIMENSIONS:
         if layout not in ("auto", "HW"):
-            msg = "2D arrays require HW layout"
+            msg = f"2D {source}s require HW layout"
             raise ValueError(msg)
-        image = image[:, :, None]
-    elif image.ndim == COLOR_DIMENSIONS:
-        if layout == "auto":
-            first, last = image.shape[0] in CHANNELS, image.shape[2] in CHANNELS
-            if first == last:
-                msg = "Ambiguous array shape; specify layout='CHW' or 'HWC'"
-                raise ValueError(msg)
-            layout = "CHW" if first else "HWC"
-        if layout == "CHW":
-            image = image.transpose(1, 2, 0)
-        elif layout != "HWC":
-            msg = "3D arrays require CHW or HWC layout"
-            raise ValueError(msg)
-    else:
+        return batch, "HW"
+    if len(shape) != COLOR_DIMENSIONS:
         msg = "Expected one HW, CHW or HWC image (optional batch dimension of size 1)"
         raise ValueError(msg)
-    return image
+    if layout == "auto":
+        first, last = shape[0] in CHANNELS, shape[2] in CHANNELS
+        if first == last:
+            msg = f"Ambiguous {source} shape; specify layout='CHW' or 'HWC'"
+            raise ValueError(msg)
+        return batch, "CHW" if first else "HWC"
+    if layout not in ("CHW", "HWC"):
+        msg = f"3D {source}s require CHW or HWC layout"
+        raise ValueError(msg)
+    return batch, layout
 
 
 def _numpy_bytes(
@@ -173,7 +177,13 @@ def _numpy_bytes(
 ) -> tuple[memoryview, int, int, int]:
     import numpy as np
 
-    image = _numpy_layout(image, layout)
+    batch, layout = _resolve_layout(tuple(image.shape), layout, "array")
+    if batch:
+        image = image[0]
+    if layout == "HW":
+        image = image[:, :, None]
+    elif layout == "CHW":
+        image = image.transpose(1, 2, 0)
     height, width, channels = map(int, image.shape)
     if channels not in CHANNELS:
         msg = "Array must have 1, 3 or 4 channels"
@@ -285,34 +295,6 @@ def _round_bytes(
     return pixels
 
 
-def _tensor_layout(image: Tensor, layout: Layout) -> Tensor:
-    if _single_image_batch(tuple(image.shape), layout):
-        image = image[0]
-    if image.ndim == HW_DIMENSIONS:
-        if layout not in ("auto", "HW"):
-            msg = "2D tensors require HW layout"
-            raise ValueError(msg)
-        return image.unsqueeze(-1)
-    if image.ndim != COLOR_DIMENSIONS:
-        msg = "Expected one HW, CHW or HWC image (optional batch dimension of size 1)"
-        raise ValueError(msg)
-    if layout == "auto":
-        first, last = image.shape[0] in CHANNELS, image.shape[2] in CHANNELS
-        if first == last:
-            msg = "Ambiguous tensor shape; specify layout='CHW' or 'HWC'"
-            raise ValueError(msg)
-        layout = "CHW" if first else "HWC"
-    if layout == "CHW":
-        image = image.permute(1, 2, 0)
-    elif layout != "HWC":
-        msg = "3D tensors require CHW or HWC layout"
-        raise ValueError(msg)
-    if image.shape[2] not in CHANNELS:
-        msg = "Tensor must have 1, 3 or 4 channels"
-        raise ValueError(msg)
-    return image
-
-
 def _tensor_pixels(image: Tensor, value_range: ValueRange) -> Tensor:
     import torch
 
@@ -382,8 +364,17 @@ def _tensor_bytes(
     ):
         msg = "Tensor must contain dense, real, non-quantized image pixels"
         raise ValueError(msg)
-    image = _tensor_layout(image, layout)
+    batch, layout = _resolve_layout(tuple(image.shape), layout, "tensor")
+    if batch:
+        image = image[0]
+    if layout == "HW":
+        image = image.unsqueeze(-1)
+    elif layout == "CHW":
+        image = image.permute(1, 2, 0)
     height, width, channels = map(int, image.shape)
+    if channels not in CHANNELS:
+        msg = "Tensor must have 1, 3 or 4 channels"
+        raise ValueError(msg)
     _size(width, height, channels)
     pixels = _tensor_pixels(image, value_range)
     if color_order == "BGR" and channels != 1:

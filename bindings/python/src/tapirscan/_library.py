@@ -1,4 +1,4 @@
-"""Locate and version-check the native library shared by scanners and parsing."""
+"""Locate, version-check and bind the native library shared by scanners and parsing."""
 
 from __future__ import annotations
 
@@ -6,10 +6,14 @@ import ctypes as c
 import os
 import sys
 from pathlib import Path
+from typing import Any, TypeAlias
 
 ABI_VERSION = 7
 
 _ERROR_CODES = {1: "invalid_input", 2: "disposed", 3: "engine", 4: "engine"}
+
+# Native function name -> (argument types, result type).
+Signatures: TypeAlias = dict[str, tuple[list[Any], Any]]
 
 
 class ScannerError(RuntimeError):
@@ -59,4 +63,20 @@ def load(path: Path) -> c.CDLL:
             "Rebuild the native library or reinstall a matching wheel."
         )
         raise RuntimeError(msg)
+    bind(lib, {"tapirscan_status_message": ([c.c_int32], c.c_char_p)})
     return lib
+
+
+def bind(lib: c.CDLL, signatures: Signatures) -> None:
+    """Declare the argument and result types of native functions."""
+    for name, (args, result) in signatures.items():
+        fn = getattr(lib, name)
+        fn.argtypes = args
+        fn.restype = result
+
+
+def check(lib: c.CDLL, code: int, detail: str = "") -> None:
+    """Raise `ScannerError` for a nonzero native status."""
+    if code:
+        message = detail or lib.tapirscan_status_message(code).decode()
+        raise ScannerError(code, message)

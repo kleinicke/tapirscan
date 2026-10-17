@@ -25,7 +25,9 @@ sys.path.insert(
 )
 import tapirscan as barcode
 from tapirscan import Barcode, PixelImage, Scanner, StructuredAppend
+from tapirscan._content_registry import CONTENT_KINDS
 from tapirscan._images import image_bytes
+from tapirscan._library import bind, check, library_path, load
 from tapirscan.results import _diagnostics
 
 decode = barcode.inspect
@@ -255,6 +257,18 @@ class Images(unittest.TestCase):
         )
         with self.assertRaises(FrozenInstanceError):
             vcard.kind = "URL"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+
+    def test_content_kind_names(self) -> None:
+        """Every generated content kind matches the native name for its number."""
+        lib = load(library_path(LIBS))
+        bind(lib, {"tapirscan_content_kind_name": ([ctypes.c_uint32], ctypes.c_char_p)})
+        self.assertEqual(
+            set(CONTENT_KINDS.values()), set(typing.get_args(barcode.ContentKind))
+        )
+        for code, name in CONTENT_KINDS.items():
+            self.assertEqual(lib.tapirscan_content_kind_name(code), name.encode())
+        self.assertIsNone(lib.tapirscan_content_kind_name(0))
+        self.assertIsNone(lib.tapirscan_content_kind_name(len(CONTENT_KINDS) + 1))
 
     def test_supplement_policy(self) -> None:
         """Policy is opt-in, creation-only and forwarded by one-shot scanning."""
@@ -786,22 +800,22 @@ class Images(unittest.TestCase):
 
     def test_native_error_messages(self) -> None:
         """Errors carry a shared code name, the native status and its message."""
-        with Scanner(library_dir=LIBS) as scanner:
-            for status, code, message in (
-                (1, "invalid_input", "Invalid scanner arguments"),
-                (2, "disposed", "handle"),
-                (3, "engine", "buffer is too small"),
-                (4, "engine", "Internal scanner"),
-                (99, "engine", "Unknown scanner status"),
-            ):
-                with self.subTest(status=status):
-                    with self.assertRaises(barcode.ScannerError) as raised:
-                        scanner._check(status)  # noqa: SLF001
-                    self.assertIsInstance(raised.exception, RuntimeError)
-                    self.assertEqual(raised.exception.code, code)
-                    self.assertEqual(raised.exception.status, status)
-                    self.assertIn(message, str(raised.exception))
-                    self.assertIn(f"status {status}", str(raised.exception))
+        lib = load(library_path(LIBS))
+        for status, code, message in (
+            (1, "invalid_input", "Invalid scanner arguments"),
+            (2, "disposed", "handle"),
+            (3, "engine", "buffer is too small"),
+            (4, "engine", "Internal scanner"),
+            (99, "engine", "Unknown scanner status"),
+        ):
+            with self.subTest(status=status):
+                with self.assertRaises(barcode.ScannerError) as raised:
+                    check(lib, status)
+                self.assertIsInstance(raised.exception, RuntimeError)
+                self.assertEqual(raised.exception.code, code)
+                self.assertEqual(raised.exception.status, status)
+                self.assertIn(message, str(raised.exception))
+                self.assertIn(f"status {status}", str(raised.exception))
 
     def test_invalid(self) -> None:
         """Verify invalid."""
