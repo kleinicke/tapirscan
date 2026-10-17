@@ -286,6 +286,30 @@ impl Scanner {
                     }
                 }
                 reads.extend(found);
+                // Batch frames (shelves, cartons) of many EAN-13 or UPC-A symbols lose the
+                // smaller ones on the 768-pixel raster: once a large frame read eight, Medium
+                // also decodes the boxes of one half-scale raster (High upscales crops).
+                #[cfg(feature = "medium")]
+                if mask & 3 != 0
+                    && image.width.max(image.height) > 1536
+                    && reads
+                        .iter()
+                        .filter(|read| matches!(read.format.as_str(), "EAN13" | "UPCA"))
+                        .count()
+                        >= 8
+                {
+                    let boxes = half_scale_proposals(&mut self.localizer, image, &proposals)?;
+                    let (extra, _) =
+                        crate::fast_linear::recover_proposals(image, &boxes, mask & 15, sampler)?;
+                    for read in extra {
+                        if !reads
+                            .iter()
+                            .any(|old| overlap_quads(&old.polygon, &read.polygon).0 > 0.)
+                        {
+                            reads.push(read);
+                        }
+                    }
+                }
                 // Independent short-code source hypothesis, bounded to unresolved proposals.
                 if reads.is_empty() && mask & 0b1100 != 0 {
                     let unresolved: Vec<_> = proposals.iter().take(4).copied().collect();

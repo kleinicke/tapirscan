@@ -53,6 +53,12 @@
   symbols); read texts are identical on the development images and user-project photos in
   High and Very High. In Chrome, High is about 14% faster on retail photos than before this
   step, 6% on frames without a barcode and 4% with `common`; Very High 4 to 10%.
+- Medium reads more of the symbols on batch photos (shelves, cartons of many EAN-13 or
+  UPC-A labels): once a frame longer than 1536 pixels has read eight of them, it also decodes
+  the boxes of one half-scale localization raster, on which the smaller labels that the
+  768-pixel raster loses stay apart. On a 12-megapixel photo of 70 bottles Medium reads 46
+  instead of 40 (High 65); the 929 user-project retail photos and 600 retail parity photos
+  are otherwise unchanged, and Chrome cost on retail photos is unchanged.
 - Low no longer reports a UPC-E or EAN-8 decoded from part of an EAN-13 or UPC-A it also
   reads. Selections beyond `common1D` (Codabar, Code 93, DataBar or any 2D format) produced
   such fragments on many retail photos. On 929 real development photos with `all`, photos
