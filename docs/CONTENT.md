@@ -19,8 +19,8 @@ if content and content.kind == "WiFi":
 | Java       | `Tapirscan.parseContent(barcode)`, `Tapirscan.parseContent(text, gs1)`                                              |
 | C++        | `tapirscan::parse_content(barcode)`, `parse_content(text, gs1)`                                                     |
 | C          | `tapirscan_parse_content`, a handle (0 = no content); see the [C guide](../bindings/c/README.md#structured-content) |
-| Swift      | `barcode.content`, `parseContent(text, gs1:)`                                                                       |
-| Android    | `barcode.content()`, `Content.parse(text, gs1)`                                                                     |
+| Swift      | `try barcode.content`, `parseContent(text, gs1:)`                                                                   |
+| Android    | `Tapirscan.parseContent(barcode)`, `Tapirscan.parseContent(text, gs1)`                                              |
 
 A `Content` has a `kind` and `fields` in payload order. Each field is a
 `name`/`value` pair; a name repeats when the payload repeats it, such as a

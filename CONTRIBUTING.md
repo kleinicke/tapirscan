@@ -47,8 +47,9 @@ capabilities; patch releases fix bugs.
 Decoder improvements can change reads, geometry, ordering and runtime on a given
 image. Those outputs are not bit-for-bit compatibility promises. Supported format variants and limitations are documented in [format coverage](docs/FORMATS.md).
 Experimental APIs may change or be removed in minor releases: the JavaScript
-`experimentalTurbo` option and the content kinds marked experimental in
-[structured content](docs/CONTENT.md#kinds).
+`experimentalTurbo` option, the content kinds marked experimental in
+[structured content](docs/CONTENT.md#kinds), and the Swift and Android bindings,
+which are a preview built from source.
 
 Undocumented internal counters, private modules and generated build paths are not
 public interfaces. The C ABI is version 7; Rust binary ABI stability is not

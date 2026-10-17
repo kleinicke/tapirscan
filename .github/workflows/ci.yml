@@ -154,3 +154,46 @@ jobs:
             build/wheels/*.whl
             build/crates/tapirscan/target/package/*.crate
           if-no-files-found: error
+  swift:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the Rust compiler from rust-toolchain.toml
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
+      - run: cargo fetch --locked --manifest-path multiformat/Cargo.toml
+      - run: cargo fetch --locked --manifest-path bindings/rust/Cargo.toml
+      - run: cargo fetch --locked --manifest-path core/Cargo.toml
+      - name: Build the XCFramework
+        run: python3 scripts/build_apple.py
+      - name: Test the Swift package
+        run: swift test
+        working-directory: bindings/swift
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Install the Rust compiler from rust-toolchain.toml
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
+      - run: cargo fetch --locked --manifest-path multiformat/Cargo.toml
+      - run: cargo fetch --locked --manifest-path bindings/rust/Cargo.toml
+      - run: cargo fetch --locked --manifest-path core/Cargo.toml
+      - name: Build the AAR with the preinstalled Android NDK
+        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" python3 scripts/build_android.py
+      - name: Check the AAR contents
+        run: |
+          for entry in classes.jar jni/arm64-v8a/libtapirscan_jni.so jni/x86_64/libtapirscan_jni.so; do
+            unzip -l build/android/tapirscan-android.aar | grep -q " $entry$"
+          done
+      - run: python3 scripts/build_native.py
+      - name: Test the JNI bridge on the desktop JVM
+        run: python3 scripts/test_android_jni.py
