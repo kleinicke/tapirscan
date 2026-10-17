@@ -5,7 +5,7 @@
 //! by Rust's cast semantics. Integer extraction keeps low bits where requested.
 //! These functions do not add input limits, validation failures or rounding steps.
 
-/// Truncate a f32 toward zero and saturate to usize; NaN maps to zero.
+/// Truncate an f32 toward zero and saturate to usize; NaN maps to zero.
 #[inline]
 #[must_use]
 #[expect(
@@ -17,7 +17,7 @@ pub const fn f32_usize(value: f32) -> usize {
     value as usize
 }
 
-/// Round a usize coordinate/count to the existing f32 representation.
+/// Round a usize coordinate or count to the nearest f32.
 #[inline]
 #[must_use]
 #[expect(
@@ -39,7 +39,7 @@ pub const fn f64_f32(value: f64) -> f32 {
     value as f32
 }
 
-/// Truncate a f32 toward zero and saturate to isize; NaN maps to zero.
+/// Truncate an f32 toward zero and saturate to isize; NaN maps to zero.
 #[inline]
 #[must_use]
 #[expect(
@@ -50,7 +50,7 @@ pub const fn f32_isize(value: f32) -> isize {
     value as isize
 }
 
-/// Round a isize coordinate/count to the existing f32 representation.
+/// Round an isize coordinate or count to the nearest f32.
 #[inline]
 #[must_use]
 #[expect(
@@ -61,7 +61,7 @@ pub const fn isize_f32(value: isize) -> f32 {
     value as f32
 }
 
-/// Truncate a f32 toward zero and saturate to u8; NaN maps to zero.
+/// Truncate an f32 toward zero and saturate to u8; NaN maps to zero.
 #[inline]
 #[must_use]
 #[expect(
@@ -89,7 +89,7 @@ pub const fn usize_u32(value: usize) -> u32 {
     u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
-/// Round a usize coordinate/count to the existing f64 representation.
+/// Round a usize coordinate or count to the nearest f64.
 #[inline]
 #[must_use]
 #[expect(
@@ -100,7 +100,7 @@ pub const fn usize_f64(value: usize) -> f64 {
     value as f64
 }
 
-/// Truncate a f32 toward zero and saturate to i32; NaN maps to zero.
+/// Truncate an f32 toward zero and saturate to i32; NaN maps to zero.
 #[inline]
 #[must_use]
 #[expect(
@@ -122,7 +122,7 @@ pub const fn i32_usize(value: i32) -> usize {
     value as usize
 }
 
-/// Round a u64 coordinate/count to the existing f64 representation.
+/// Round a u64 coordinate or count to the nearest f64.
 #[inline]
 #[must_use]
 #[expect(
@@ -133,7 +133,7 @@ pub const fn u64_f64(value: u64) -> f64 {
     value as f64
 }
 
-/// Truncate a f64 toward zero and saturate to isize; NaN maps to zero.
+/// Truncate an f64 toward zero and saturate to isize; NaN maps to zero.
 #[inline]
 #[must_use]
 #[expect(
@@ -144,7 +144,7 @@ pub const fn f64_isize(value: f64) -> isize {
     value as isize
 }
 
-/// Round a isize coordinate/count to the existing f64 representation.
+/// Round an isize coordinate or count to the nearest f64.
 #[inline]
 #[must_use]
 #[expect(
@@ -155,7 +155,7 @@ pub const fn isize_f64(value: isize) -> f64 {
     value as f64
 }
 
-/// Truncate a f64 toward zero and saturate to u8; NaN maps to zero.
+/// Truncate an f64 toward zero and saturate to u8; NaN maps to zero.
 #[inline]
 #[must_use]
 #[expect(
@@ -175,7 +175,7 @@ pub const fn usize_i32(value: usize) -> i32 {
     i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
-/// Truncate a f64 toward zero and saturate to u32; NaN maps to zero.
+/// Truncate an f64 toward zero and saturate to u32; NaN maps to zero.
 #[inline]
 #[must_use]
 #[expect(
@@ -187,7 +187,7 @@ pub const fn f64_u32(value: f64) -> u32 {
     value as u32
 }
 
-/// Truncate a f64 toward zero and saturate to usize; NaN maps to zero.
+/// Truncate an f64 toward zero and saturate to usize; NaN maps to zero.
 #[inline]
 #[must_use]
 #[expect(
@@ -199,7 +199,7 @@ pub const fn f64_usize(value: f64) -> usize {
     value as usize
 }
 
-/// Truncate a f64 toward zero and saturate to i32; NaN maps to zero.
+/// Truncate an f64 toward zero and saturate to i32; NaN maps to zero.
 #[inline]
 #[must_use]
 #[expect(
@@ -210,7 +210,7 @@ pub const fn f64_i32(value: f64) -> i32 {
     value as i32
 }
 
-/// Round a u64 coordinate/count to the existing f32 representation.
+/// Round a u64 coordinate or count to the nearest f32.
 #[inline]
 #[must_use]
 #[expect(
@@ -219,17 +219,6 @@ pub const fn f64_i32(value: f64) -> i32 {
 )]
 pub const fn u64_f32(value: u64) -> f32 {
     value as f32
-}
-
-/// Truncate a f64 toward zero and saturate to i64; NaN maps to zero.
-#[inline]
-#[must_use]
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "Sampling uses Rust float-to-integer saturation and truncation; negatives, infinities and NaN retain their established conversion behavior."
-)]
-pub fn f64_i64(value: f64) -> i64 {
-    value as i64
 }
 
 #[cfg(test)]

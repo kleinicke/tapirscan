@@ -2,7 +2,7 @@ use crate::{Error, Result as ScanResult};
 use serde_json::{Value, json};
 
 /// Build the shared schema without serializing and reparsing the complete result.
-/// Detailed frame evidence remains owned by the pinned core serializer because its
+/// Detailed frame evidence stays with the core serializer because its
 /// feature-dependent metadata is intentionally opaque to this facade.
 pub(crate) fn value(
     result: &ScanResult,

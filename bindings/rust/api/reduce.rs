@@ -217,7 +217,7 @@ mod tests {
         }
     }
 
-    /// The whole-image reduction loop before rows could be streamed.
+    /// Reduces the whole image in one loop, as a reference for the streamed rows.
     fn whole_image_reference(image: Image<'_>) -> Vec<u8> {
         let mut reduction = Reduction::new(image.width, image.height, image.channels).unwrap();
         let (width, height) = (reduction.width, reduction.height);

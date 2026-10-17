@@ -92,7 +92,7 @@ impl<'a> ImageView<'a> {
         not(feature = "mode-high"),
         expect(
             clippy::inline_always,
-            reason = "The pinned sampling experiment forces these inner pixel operations inline; retain its code-generation policy and validate with paired end-to-end measurements."
+            reason = "Inlining these inner pixel operations is measurably faster; validate any change with paired end-to-end timing."
         ),
         inline(always)
     )]
@@ -151,7 +151,7 @@ impl<'a> ImageView<'a> {
         not(feature = "mode-high"),
         expect(
             clippy::inline_always,
-            reason = "The pinned sampling experiment forces these inner pixel operations inline; retain its code-generation policy and validate with paired end-to-end measurements."
+            reason = "Inlining these inner pixel operations is measurably faster; validate any change with paired end-to-end timing."
         ),
         inline(always)
     )]

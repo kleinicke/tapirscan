@@ -434,8 +434,9 @@ fn direction_agrees(image: &[u8], width: usize, height: usize, group: &Group) ->
 /// Scan a row-major grayscale image for the formats selected by `mask`.
 ///
 /// Effort 0 uses axial scanlines; 1 adds diagonal and adaptive-threshold retries,
-/// and larger values add intermediate angles. Invalid dimensions or a short
-/// image buffer return an empty scan. Results include qualified unread regions.
+/// and larger values add intermediate angles. `effort` also serves as the mode of
+/// [`scan_for_mode`]. Invalid dimensions or a short image buffer return an empty
+/// scan. Results include qualified unread regions.
 #[must_use]
 pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize) -> Scan {
     scan_observed(image, width, height, mask, effort, |_, _| {})

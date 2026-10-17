@@ -20,7 +20,7 @@
 pub(super) struct ModePolicy {
     // Whole-image linear sweep (`scan_additional`).
     /// The sweep reads every selected linear format. Otherwise it keeps only the
-    /// formats localized recovery cannot read (`SWEPT`); for the rest it only added
+    /// formats localized recovery cannot read (`SWEPT`); for the rest it only adds
     /// wrong reads and time. EAN add-on reading always sweeps every format.
     pub sweep_all_linear: bool,
     /// Sweep effort without EAN add-on reading.

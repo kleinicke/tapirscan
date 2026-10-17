@@ -1,4 +1,4 @@
-//! Opt-in format readers. EAN-13/UPC-A keep the selected pinned scanner path.
+//! Format readers around the primary EAN-13/UPC-A scanner.
 //!
 //! Pass order of [`Scanner::scan_formats_typed_with_addons`] per mode (L, M, H, V:
 //! Low, Medium, High, Very High). `cfg` marks passes compiled into only some modes;
@@ -1334,7 +1334,7 @@ pub(crate) fn fast_additional(
     Ok((reads, distinct_regions(unread)))
 }
 
-/// Linear formats that Medium and above still read with the whole-image sweep:
+/// Linear formats that Medium and above read only with the whole-image sweep:
 /// GS1 `DataBar` (stacked rows), `DataBar` Expanded and the opt-in MSI Plessey.
 const SWEPT: u32 = DATA_BAR | DATA_BAR_EXPANDED | ENGINE_OPT_IN_MASK;
 

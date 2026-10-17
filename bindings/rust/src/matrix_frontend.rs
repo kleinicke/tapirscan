@@ -1,5 +1,5 @@
 //! Matrix reader orchestration with shared baseline thresholds and bounded Aztec recovery.
-//! Reader order and non-Aztec policies mirror the pinned multiformat orchestrator.
+//! Reader order and non-Aztec policies mirror `barcode_multiformat::scan_observed_for_mode`.
 use barcode_multiformat::formats::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE};
 use barcode_multiformat::{
     Detection, Scan, aztec_detect, binarization, dm_detect, maxicode_detect, pdf417, qr_detect,

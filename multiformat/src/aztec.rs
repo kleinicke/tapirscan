@@ -1,7 +1,6 @@
 //! Independent Aztec compact/full matrix decoder, including mode-message ECC.
 use crate::{qr::Payload, reed_binary::Field};
-// Every field is immutable after construction. Reuse exactly the pinned tables;
-// syndrome arithmetic and correction limits remain unchanged.
+// The five Aztec Galois fields, each built once and shared read-only.
 fn field(bits: usize, poly: usize) -> &'static Field {
     static F4: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
     static F6: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
