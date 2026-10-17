@@ -3,14 +3,13 @@
 ## Unreleased
 
 - Medium, High and Very High localize linear selections without retail formats (Code 128,
-  Code 39, ITF, Codabar, Code 93, DataBar) by segment voting, as Low does, and decodes the central band
-  of unread boxes; only frames that read nothing fall back to the stripe search (sparse in
-  Medium, full from High up). High is up to 18% faster on these selections and reads ITF,
-  Code 93, Code 128 and Code 39 a little more often.
-  It is 25 to 45% faster on those selections in Chrome and reads more of the 340
-  variation images per format selected alone: ITF 203 instead of 181, Code 93 311
-  instead of 291, Code 128 75 instead of 64, Code 39 48 instead of 43, Codabar 338
-  instead of 337, with no wrong reads. Scans with a retail format are unchanged.
+  Code 39, ITF, Codabar, Code 93, DataBar) by segment voting, as Low does, and decode the
+  central band of unread boxes; only frames that read nothing fall back to the stripe
+  search (sparse in Medium, full from High up). Medium is 25 to 45% faster on these
+  selections in Chrome and High up to 18%. On 340 variation images per format selected
+  alone, Medium reads ITF 203 instead of 181, Code 93 311 instead of 291, Code 128 75
+  instead of 64, Code 39 48 instead of 43 and Codabar 338 instead of 337, and High reads
+  slightly more as well, with no wrong reads. Scans with a retail format are unchanged.
 - Medium reads rotated and warped GS1 DataBar again when `DataBar` is selected alone: it
   now runs localized recovery on Low's segment-voting boxes. On the 340 DataBar variation
   images Medium reads 198 instead of 158 (1.2.2: 170), with no wrong reads. This
@@ -31,18 +30,19 @@
   reads on the 4,619-image QR development selection are unchanged (4,242 with QR alone,
   4,233 with EAN-13 and QR); in Chrome, Medium with `common` is about 5% faster on
   retail photos and frames without a barcode, and EAN-13 with QR about 8%.
-- Data Matrix reads more phone photos, industrial marks and foreshortened symbols in
-  every mode. A candidate that passed the L-border gate but did not decode is retried with
-  a wider side-ratio window (strong perspective shortens one axis), by tuning the grid
-  corners on gray values and thresholding modules against the border levels (bloomed or
-  blurred ink merges the L in the binary image), and, when large and its border looked
-  clean, on an area-averaged crop. Medium keeps two failing candidates per frame, High
-  twelve; every retry has explicit limits. On 1,578 real development images, Data Matrix
-  reads rise from 544 to 567 (Low), 604 to 622 (Medium) and 661 to 672 (High) with
-  unchanged reads of every other format and no new wrong reads; large phone photos
-  (3,500 px and up) go from 63 to 72 (Medium) and 96 to 102 (High). In Chrome with
-  `common`, Low and Medium cost about 1 to 2% on retail photos and 1% on frames without a
-  barcode, High about 1.5%; scans without Data Matrix are unchanged.
+- Data Matrix reads more phone photos, industrial marks, foreshortened and tiny symbols in
+  every mode. Candidates whose clock-track sides are flat (solid blocks, rules, blank
+  areas) are rejected before the size search. Candidates that pass the L-border gate but
+  do not decode are retried, best border first: with a wider side-ratio window (strong
+  perspective shortens one axis), by tuning the grid corners on gray values and
+  thresholding modules against the border levels (bloomed or blurred ink merges the L in
+  the binary image), and, when their border looked clean, on an area-averaged crop of a
+  large candidate or a bilinear enlargement of a tiny one. On 1,578 real development
+  images, Data Matrix reads rise from 544 to 644 (Low), 604 to 661 (Medium) and 661 to
+  700 (High), with unchanged reads of every other format and no new wrong reads; on the
+  181 Data Matrix variation frames Low reads 151 instead of 124 and Medium and High 160
+  instead of 154. In Chrome with `common`, Low costs about 1% more on retail photos;
+  Medium and High are unchanged within 1%.
 - PDF417 reads more symbols: Macro PDF417 control blocks (structured append with segment
   index, count and file id), ECI codewords 925 and 926, and byte runs of five codewords;
   guard ends are followed along their bar so perspective photos rectify correctly. On

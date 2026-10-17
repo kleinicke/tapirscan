@@ -1010,6 +1010,64 @@ fn possible_l_border(image: &[bool], w: usize, h: usize, q: [Point; 4]) -> bool 
     let solid = l_border_edges(image, w, h, q);
     (0..4).any(|i| solid[i] >= 18 && solid[(i + 1) % 4] >= 18)
 }
+/// Whether the binary image just inside one open side of a candidate is a flat line.
+/// A clock track alternates along its whole length, so it shows at least five
+/// transitions at one of several depths; solid blocks, rules and blank areas do not.
+/// A side that leaves the frame is not called flat, so nothing is rejected on a guess.
+fn clock_track_is_flat(
+    image: &[bool],
+    (width, height): (usize, usize),
+    start: Point,
+    end: Point,
+    toward: Point,
+) -> bool {
+    const DEPTHS: [f32; 5] = [0.75, 1.5, 3., 5., 8.];
+    const STEPS: usize = 160;
+    let along = [end[0] - start[0], end[1] - start[1]];
+    let length = along[0].hypot(along[1]);
+    if length < 12. {
+        return false;
+    }
+    let direction = [along[0] / length, along[1] / length];
+    // Component of the direction to the opposite side that is perpendicular to the side.
+    let dot = toward[0] * direction[0] + toward[1] * direction[1];
+    let perpendicular = [
+        toward[0] - dot * direction[0],
+        toward[1] - dot * direction[1],
+    ];
+    let norm = perpendicular[0].hypot(perpendicular[1]);
+    if norm < 1e-3 {
+        return false;
+    }
+    let inward = [perpendicular[0] / norm, perpendicular[1] / norm];
+    let steps = crate::numeric::f32_usize(length).clamp(16, STEPS);
+    for depth in DEPTHS {
+        let mut transitions = 0;
+        let mut previous = false;
+        for step in 0..steps {
+            let at =
+                (crate::numeric::usize_f32(step) + 0.5) / crate::numeric::usize_f32(steps) * length;
+            let column = crate::numeric::f32_isize(
+                (start[0] + direction[0] * at + inward[0] * depth).floor(),
+            );
+            let row = crate::numeric::f32_isize(
+                (start[1] + direction[1] * at + inward[1] * depth).floor(),
+            );
+            if column < 0 || row < 0 || column >= width.cast_signed() || row >= height.cast_signed()
+            {
+                return false;
+            }
+            let bit = image[row.cast_unsigned() * width + column.cast_unsigned()];
+            transitions += usize::from(step > 0 && bit != previous);
+            previous = bit;
+        }
+        // The two outer runs are cut by the ends of the quad.
+        if transitions >= 5 {
+            return false;
+        }
+    }
+    true
+}
 fn l_border_edges(image: &[bool], w: usize, h: usize, quad: [Point; 4]) -> [usize; 4] {
     let center = quad
         .iter()
@@ -1256,6 +1314,7 @@ fn near_result(results: &[Detection], quad: &[Point; 4]) -> bool {
         (c[0] - d[0]).hypot(c[1] - d[1]) < 8.
     })
 }
+/// Detect; `refine` also refines the corners of every fair hypothesis.
 pub fn detect(
     w: usize,
     h: usize,
@@ -1263,50 +1322,42 @@ pub fn detect(
     binary_images: &mut crate::binarization::Images<'_>,
     refine: bool,
 ) -> (Vec<Detection>, bool) {
-    detect_with_crops(
-        w,
-        h,
-        regions,
-        binary_images,
-        refine,
-        if refine {
-            CROP_RETRIES_REFINED
-        } else {
-            CROP_RETRIES
-        },
-    )
+    detect_with_retries(w, h, regions, binary_images, refine, RETRIES)
 }
-/// Unread candidate boxes retried on an area-averaged crop: Medium and High limits.
-const CROP_RETRIES: usize = 1;
-/// Failing candidates kept for the retries, per frame: Medium and High.
-const RETRY_CANDIDATES: usize = 2;
-const RETRY_CANDIDATES_REFINED: usize = 12;
+/// Limits of the retries of one frame.
+#[derive(Clone, Copy)]
+struct Retries {
+    /// Grayscale refinements.
+    gray: usize,
+    /// Unread candidate boxes retried on area-averaged or enlarged crops.
+    crops: usize,
+}
+/// Every mode shares them, since the matrix group runs at one effort level.
+const RETRIES: Retries = Retries { gray: 3, crops: 1 };
+/// Failing candidates kept per frame for the retries, which spend their work on the
+/// best-scoring ones; gathering a candidate costs little.
+const RETRY_CANDIDATES: usize = 64;
 /// Sizes per candidate that the grayscale refinement tries.
 const GRAY_SIZES_PER_CANDIDATE: usize = 2;
-const CROP_RETRIES_REFINED: usize = 2;
+/// The detection on a crop retries only a little itself and never crops again.
+const CROP_PASS: Retries = Retries { gray: 3, crops: 0 };
 #[expect(
     clippy::too_many_lines,
     reason = "The Data Matrix search shares proposal ordering, hypothesis caps and undecoded coverage across its sampling passes."
 )]
-fn detect_with_crops(
+fn detect_with_retries(
     w: usize,
     h: usize,
     regions: &mut crate::regions::Regions,
     binary_images: &mut crate::binarization::Images<'_>,
     refine: bool,
-    crop_retries: usize,
+    retries: Retries,
 ) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
     let mut attempts = 0;
     let mut refinements = 0;
     let gray = binary_images.gray();
-    let mut gray_attempts = if crop_retries == 0 {
-        3
-    } else if refine {
-        8
-    } else {
-        2
-    };
+    let mut gray_attempts = retries.gray;
     let mut failed: Vec<(Vec<[Point; 4]>, usize)> = Vec::new();
     let mut unread: Vec<[Point; 4]> = Vec::new();
     for mode in 0..4 {
@@ -1333,6 +1384,7 @@ fn detect_with_crops(
             }) {
                 continue;
             }
+            let mut flat: [Option<bool>; 4] = [None; 4];
             let mut hypotheses = Vec::new();
             let mut orientations: Vec<[Point; 4]> = Vec::new();
             for mirror in [false, true] {
@@ -1348,6 +1400,27 @@ fn detect_with_crops(
                     let q: [Point; 4] = std::array::from_fn(|i| {
                         original[(rotation + if mirror { 4 - i } else { i }) % 4]
                     });
+                    // A real symbol alternates along both open sides.
+                    let (top, right) = if mirror {
+                        ((rotation + 3) % 4, (rotation + 2) % 4)
+                    } else {
+                        (rotation, (rotation + 1) % 4)
+                    };
+                    if [top, right].into_iter().any(|index| {
+                        *flat[index].get_or_insert_with(|| {
+                            let (start, end) = (original[index], original[(index + 1) % 4]);
+                            let opposite = original[(index + 2) % 4];
+                            clock_track_is_flat(
+                                image,
+                                (w, h),
+                                start,
+                                end,
+                                [opposite[0] - start[0], opposite[1] - start[1]],
+                            )
+                        })
+                    }) {
+                        continue;
+                    }
                     orientations.push(q);
                     let dx = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]);
                     let dy = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
@@ -1446,14 +1519,7 @@ fn detect_with_crops(
                     }
                 }
             }
-            if results.len() == before
-                && failed.len()
-                    < if refine {
-                        RETRY_CANDIDATES_REFINED
-                    } else {
-                        RETRY_CANDIDATES
-                    }
-            {
+            if results.len() == before && failed.len() < RETRY_CANDIDATES {
                 failed.push((orientations, mode));
             }
         }
@@ -1571,13 +1637,13 @@ fn detect_with_crops(
             });
         }
     }
-    if crop_retries > 0 {
+    if retries.crops > 0 {
         results.extend(crop_retries_for(
             gray,
             (w, h),
             &unread,
             &results,
-            crop_retries,
+            retries.crops,
         ));
     }
     (results, false)
@@ -1603,6 +1669,39 @@ fn padded_box(quad: &[Point; 4], pad: f32, (w, h): (usize, usize)) -> Option<[us
         clamp(y1 + py, h),
     ];
     (result[2] > result[0] + 8 && result[3] > result[1] + 8).then_some(result)
+}
+
+/// Longest side of an unread candidate box that is enlarged instead of reduced.
+const SMALL_BOX: usize = 96;
+
+/// Bilinear enlargement of a crop by an integer factor.
+fn upscale_crop(
+    gray: &[u8],
+    stride: usize,
+    [x0, y0, x1, y1]: [usize; 4],
+    factor: usize,
+) -> Vec<u8> {
+    let (cw, ch) = (x1 - x0, y1 - y0);
+    let (out_w, out_h) = (cw * factor, ch * factor);
+    let scale = crate::numeric::usize_f32(factor);
+    let mut out = vec![0_u8; out_w * out_h];
+    for y in 0..out_h {
+        let fy = ((crate::numeric::usize_f32(y) + 0.5) / scale - 0.5)
+            .clamp(0., crate::numeric::usize_f32(ch - 1));
+        let (ya, wy) = (crate::numeric::f32_usize(fy.floor()), fy.fract());
+        let yb = (ya + 1).min(ch - 1);
+        for x in 0..out_w {
+            let fx = ((crate::numeric::usize_f32(x) + 0.5) / scale - 0.5)
+                .clamp(0., crate::numeric::usize_f32(cw - 1));
+            let (xa, wx) = (crate::numeric::f32_usize(fx.floor()), fx.fract());
+            let xb = (xa + 1).min(cw - 1);
+            let at = |row: usize, column: usize| f32::from(gray[(y0 + row) * stride + x0 + column]);
+            let top = at(ya, xa) * (1. - wx) + at(ya, xb) * wx;
+            let bottom = at(yb, xa) * (1. - wx) + at(yb, xb) * wx;
+            out[y * out_w + x] = crate::numeric::f32_u8((top * (1. - wy) + bottom * wy).round());
+        }
+    }
+    out
 }
 
 /// Area-average a crop to the given size.
@@ -1641,9 +1740,39 @@ fn average_crop(
     out
 }
 
+/// Reads of a small candidate box, detected on a bilinear enlargement and mapped back to
+/// source coordinates.
+fn enlarged_reads(gray: &[u8], stride: usize, candidate: [usize; 4]) -> Vec<Detection> {
+    let (cw, ch) = (candidate[2] - candidate[0], candidate[3] - candidate[1]);
+    let factor = (160 / cw.max(ch)).clamp(2, 8);
+    let (out_w, out_h) = (cw * factor, ch * factor);
+    let large = upscale_crop(gray, stride, candidate, factor);
+    let mut crop_regions = crate::regions::Regions::default();
+    let mut images = crate::binarization::Images::new(&large, out_w, out_h);
+    let (mut reads, _) = detect_with_retries(
+        out_w,
+        out_h,
+        &mut crop_regions,
+        &mut images,
+        true,
+        CROP_PASS,
+    );
+    let scale = crate::numeric::usize_f32(factor);
+    for read in &mut reads {
+        for point in &mut read.polygon {
+            *point = [
+                crate::numeric::usize_f32(candidate[0]) + point[0] / scale,
+                crate::numeric::usize_f32(candidate[1]) + point[1] / scale,
+            ];
+        }
+    }
+    reads
+}
+
 /// Large symbols whose modules span tens of pixels leave candidates that do not
-/// decode at full resolution. Retry the most extensive unread candidates on
-/// area-averaged crops, which both removes the module blur and keeps the cost
+/// decode at full resolution, and tiny ones with two-pixel modules leave candidates the
+/// binary pass cannot sample. Retry the most extensive unread candidates on
+/// area-averaged crops and the small ones on enlarged crops, which both removes the module blur and keeps the cost
 /// proportional to the candidate, not the frame.
 pub(crate) fn crop_retries_for(
     gray: &[u8],
@@ -1653,8 +1782,9 @@ pub(crate) fn crop_retries_for(
     limit: usize,
 ) -> Vec<Detection> {
     const TARGETS: [usize; 2] = [192, 96];
-    let targets = &TARGETS[..if limit > CROP_RETRIES { 2 } else { 1 }];
+    let targets = &TARGETS[..if limit > 1 { 2 } else { 1 }];
     let mut boxes: Vec<[usize; 4]> = Vec::new();
+    let mut smalls: Vec<[usize; 4]> = Vec::new();
     for quad in unread {
         if near_result(results, quad) {
             continue;
@@ -1663,6 +1793,12 @@ pub(crate) fn crop_retries_for(
             continue;
         };
         let (cw, ch) = (candidate[2] - candidate[0], candidate[3] - candidate[1]);
+        if cw.max(ch) <= SMALL_BOX && cw.max(ch) >= 20 && cw.max(ch) <= 3 * cw.min(ch) {
+            if let Some(wide) = padded_box(quad, 0.3, (w, h)) {
+                smalls.push(wide);
+            }
+            continue;
+        }
         if cw.max(ch) < TARGETS[0] * 3 / 2 || cw.max(ch) > 3 * cw.min(ch) {
             continue;
         }
@@ -1695,8 +1831,14 @@ pub(crate) fn crop_retries_for(
             let small = average_crop(gray, w, candidate, (out_w, out_h));
             let mut crop_regions = crate::regions::Regions::default();
             let mut images = crate::binarization::Images::new(&small, out_w, out_h);
-            let (reads, _) =
-                detect_with_crops(out_w, out_h, &mut crop_regions, &mut images, true, 0);
+            let (reads, _) = detect_with_retries(
+                out_w,
+                out_h,
+                &mut crop_regions,
+                &mut images,
+                true,
+                CROP_PASS,
+            );
             let scale = [
                 crate::numeric::usize_f32(cw) / crate::numeric::usize_f32(out_w),
                 crate::numeric::usize_f32(ch) / crate::numeric::usize_f32(out_h),
@@ -1719,6 +1861,17 @@ pub(crate) fn crop_retries_for(
             }
             if found.len() > before {
                 break;
+            }
+        }
+    }
+    smalls.sort_by_key(|b| std::cmp::Reverse((b[2] - b[0]) * (b[3] - b[1])));
+    smalls.dedup_by(|a, b| {
+        (a[0].abs_diff(b[0]) + a[1].abs_diff(b[1])) * 4 < (a[2] - a[0]).max(a[3] - a[1])
+    });
+    for candidate in smalls.into_iter().take(limit) {
+        for read in enlarged_reads(gray, w, candidate) {
+            if !near_result(&found, &read.polygon) && !near_result(results, &read.polygon) {
+                found.push(read);
             }
         }
     }
@@ -1754,6 +1907,36 @@ mod geometry_tests {
                 }
             }
         }
+    }
+    #[test]
+    fn only_alternating_sides_are_clock_tracks() {
+        let (w, h) = (64, 64);
+        let side = ([8., 8.], [56., 8.], [0., 40.]);
+        let mut image = vec![false; w * h];
+        // A solid rule, then a blank area.
+        for x in 8..56 {
+            for y in 8..16 {
+                image[y * w + x] = true;
+            }
+        }
+        let flat = |image: &[bool]| clock_track_is_flat(image, (w, h), side.0, side.1, side.2);
+        assert!(flat(&image));
+        assert!(flat(&vec![false; w * h]));
+        // Alternating modules of four pixels, the clock track of a 12-module symbol.
+        for x in 8..56 {
+            for y in 8..16 {
+                image[y * w + x] = (x - 8) / 4 % 2 == 0;
+            }
+        }
+        assert!(!flat(&image));
+        // A side that leaves the frame is never called flat.
+        assert!(!clock_track_is_flat(
+            &image,
+            (w, h),
+            [8., 62.],
+            [56., 62.],
+            [0., 40.]
+        ));
     }
     #[test]
     fn enclosing_edge_budget_reports_only_truncation() {

@@ -95,10 +95,11 @@ Effort levels select the following bounded searches:
 
 Data Matrix and Aztec get an additional grid-recovery pass for localized symbols
 from Medium up, and Aztec uses smaller refinement budgets in Low. Data Matrix
-candidates that do not decode are retried with a wider side-ratio window, a grayscale
-corner refinement and, when large, an averaged crop (Medium: two candidates, one crop;
-High: twelve, two crops). Frames without a read are also retried on reduced copies in
-High (two scales) and Very High (four), which reads large blurred close-ups. PDF417 uses
+candidates with flat clock-track sides are rejected early; the others that do not decode
+are retried with a wider side-ratio window, a grayscale corner refinement (three tries
+per frame) and, in every mode, an averaged crop of one large or an enlarged crop of one
+tiny candidate. Frames without a read are also retried on reduced copies in High (two
+scales) and Very High (four), which reads large blurred close-ups. PDF417 uses
 the same effort in every mode; MaxiCode reads the same way in every mode, and from
 Medium up retries large unread frames (over 1920 pixels) on reduced copies.
 

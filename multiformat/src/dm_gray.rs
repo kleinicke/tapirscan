@@ -311,4 +311,20 @@ mod tests {
                 .is_empty()
         );
     }
+
+    #[test]
+    fn an_unread_two_pixel_symbol_reads_from_an_enlarged_crop() {
+        let module = 2;
+        let (gray, side) = blurred_symbol(module, 0);
+        let (lo, hi) = (usize_f32(3 * module), usize_f32(19 * module));
+        let candidate = [[lo, lo], [hi, lo], [hi, hi], [lo, hi]];
+        let reads = crate::dm_detect::crop_retries_for(&gray, (side, side), &[candidate], &[], 1);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].text, "TAPIRSCAN-DM-42");
+        let centre = reads[0]
+            .polygon
+            .iter()
+            .fold([0., 0.], |s, p| [s[0] + p[0] / 4., s[1] + p[1] / 4.]);
+        assert!((centre[0] - usize_f32(11 * module)).abs() < usize_f32(module) * 2.);
+    }
 }
