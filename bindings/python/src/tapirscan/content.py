@@ -26,6 +26,7 @@ ContentKind: TypeAlias = Literal[
     "WiFi",
     "Contact",
     "Calendar",
+    # Experimental kinds: they may change in minor releases.
     "SwissQRBill",
     "EPCPayment",
     "HIBC",

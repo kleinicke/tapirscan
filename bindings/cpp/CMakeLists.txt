@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Tapirscan VERSION 1.3.0 LANGUAGES C CXX)
+project(Tapirscan VERSION 1.4.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 set(TAPIRSCAN_NATIVE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../build/native" CACHE PATH "Directory containing the native library")

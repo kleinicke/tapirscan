@@ -74,7 +74,11 @@ export interface StructuredAppend {
   readonly id?: string;
   readonly parity?: number;
 }
-/** Kind of structured payload recognized in decoded text. */
+/**
+ * Kind of structured payload recognized in decoded text. `SwissQRBill`,
+ * `EPCPayment`, `HIBC`, `VIN` and `AAMVA` are experimental and may change in
+ * minor releases.
+ */
 export type ContentKind =
   | "GS1"
   | "URL"

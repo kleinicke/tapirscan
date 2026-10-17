@@ -20,15 +20,15 @@ public enum ContentKind {
     CONTACT(8, "Contact"),
     /** Calendar event (iCalendar {@code VEVENT}). */
     CALENDAR(9, "Calendar"),
-    /** Swiss QR-bill payment part. */
+    /** Swiss QR-bill payment part. Experimental: may change in minor releases. */
     SWISS_QR_BILL(10, "SwissQRBill"),
-    /** EPC/SEPA credit transfer. */
+    /** EPC/SEPA credit transfer. Experimental: may change in minor releases. */
     EPC_PAYMENT(11, "EPCPayment"),
-    /** Health Industry Bar Code. */
+    /** Health Industry Bar Code. Experimental: may change in minor releases. */
     HIBC(12, "HIBC"),
-    /** Vehicle identification number with a valid check digit. */
+    /** Vehicle identification number with a valid check digit. Experimental: may change in minor releases. */
     VIN(13, "VIN"),
-    /** AAMVA driver's license or identification card. */
+    /** AAMVA driver's license or identification card. Experimental: may change in minor releases. */
     AAMVA(14, "AAMVA");
 
     private final int code;

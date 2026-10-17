@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased
+## 1.4.0
 
 Native consumers must rebuild for ABI 7; existing calls keep working. Reads,
 geometry and timing can differ from 1.3.0. See the
@@ -15,7 +15,8 @@ geometry and timing can differ from 1.3.0. See the
 - Structured content in every binding: GS1 element strings and Digital Link,
   URLs, email, phone, SMS, geo, Wi-Fi, contacts, calendar events, Swiss
   QR-bills, EPC payments, HIBC, VINs and AAMVA driver's licenses. JavaScript
-  barcodes carry `content`; the other bindings add `parse_content`. See
+  barcodes carry `content`; the other bindings add `parse_content`. Swiss
+  QR-bill, EPC, HIBC, VIN and AAMVA parsing is experimental. See
   [structured content](docs/CONTENT.md).
 - Opt-in formats `Code32` and `PZN` (pharmacy numbers in Code 39) and
   `MSIPlessey` (with a mod-10 check digit). No preset, `all` included, selects
@@ -30,6 +31,8 @@ geometry and timing can differ from 1.3.0. See the
   returns results in input order.
 - Browser: `scan(pixels, { transfer: true })` hands the pixel buffer to the worker
   instead of copying it; the buffer is detached.
+- Rust: `Format` and `ContentKind` are `#[non_exhaustive]`, and `Format::ALL` is
+  a slice, so later formats and kinds are not breaking changes.
 - Rust: `Image::try_from(&dynamic_image)` borrows an 8-bit `image::DynamicImage`
   without copying, and `Format` implements `Display` with the names used by every
   binding (`EAN13`, `QRCode`).

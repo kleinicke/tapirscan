@@ -454,6 +454,7 @@ enum class ContentKind : std::uint32_t {
     Wifi = TAPIRSCAN_CONTENT_WIFI,
     Contact = TAPIRSCAN_CONTENT_CONTACT,
     Calendar = TAPIRSCAN_CONTENT_CALENDAR,
+    // SwissQrBill to Aamva are experimental and may change in minor releases.
     SwissQrBill = TAPIRSCAN_CONTENT_SWISS_QR_BILL,
     EpcPayment = TAPIRSCAN_CONTENT_EPC_PAYMENT,
     Hibc = TAPIRSCAN_CONTENT_HIBC,

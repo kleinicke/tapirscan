@@ -164,6 +164,7 @@ typedef enum tapirscan_content_kind {
     TAPIRSCAN_CONTENT_WIFI = 7,
     TAPIRSCAN_CONTENT_CONTACT = 8,      /* vCard or MECARD */
     TAPIRSCAN_CONTENT_CALENDAR = 9,     /* iCalendar VEVENT */
+    /* Kinds 10-14 are experimental and may change in minor releases. */
     TAPIRSCAN_CONTENT_SWISS_QR_BILL = 10,
     TAPIRSCAN_CONTENT_EPC_PAYMENT = 11, /* EPC/SEPA credit transfer */
     TAPIRSCAN_CONTENT_HIBC = 12,

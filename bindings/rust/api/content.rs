@@ -8,7 +8,10 @@
 use serde::Serialize;
 
 /// Kind of structured payload recognized in decoded text.
+///
+/// New kinds may be added in minor releases.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize)]
+#[non_exhaustive]
 #[repr(u32)]
 pub enum ContentKind {
     /// GS1 element string or GS1 Digital Link URI; fields are named by AI.
@@ -33,26 +36,26 @@ pub enum ContentKind {
     Contact = 8,
     /// Calendar event (iCalendar `VEVENT`).
     Calendar = 9,
-    /// Swiss QR-bill payment part (`SPC`).
+    /// Swiss QR-bill payment part (`SPC`). Experimental: may change in minor releases.
     #[serde(rename = "SwissQRBill")]
     SwissQrBill = 10,
-    /// EPC/SEPA credit transfer (`BCD`), the European payment QR code.
+    /// EPC/SEPA credit transfer (`BCD`), the European payment QR code. Experimental: may change in minor releases.
     #[serde(rename = "EPCPayment")]
     EpcPayment = 11,
-    /// Health Industry Bar Code primary and/or secondary data.
+    /// Health Industry Bar Code primary and/or secondary data. Experimental: may change in minor releases.
     #[serde(rename = "HIBC")]
     Hibc = 12,
-    /// Vehicle identification number with a valid check digit.
+    /// Vehicle identification number with a valid check digit. Experimental: may change in minor releases.
     #[serde(rename = "VIN")]
     Vin = 13,
-    /// AAMVA driver's license or identification card.
+    /// AAMVA driver's license or identification card. Experimental: may change in minor releases.
     #[serde(rename = "AAMVA")]
     Aamva = 14,
 }
 
 impl ContentKind {
     /// Every kind in numeric order.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: &[Self] = &[
         Self::Gs1,
         Self::Url,
         Self::Email,

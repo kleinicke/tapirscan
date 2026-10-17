@@ -34,22 +34,25 @@ pass `gs1 = true`.
 
 ## Kinds
 
-| Kind          | Recognized by                                                      |
-| ------------- | ------------------------------------------------------------------ |
-| `GS1`         | GS1 flag; `]C1`, `]d2`, `]Q3`, `]e0`, `]J1`; `(01)…`; Digital Link |
-| `URL`         | `http://`, `https://`                                              |
-| `Email`       | `mailto:`, `MATMSG:`                                               |
-| `Phone`       | `tel:`                                                             |
-| `SMS`         | `SMSTO:`, `MMSTO:`, `sms:`                                         |
-| `Geo`         | `geo:`                                                             |
-| `WiFi`        | `WIFI:`                                                            |
-| `Contact`     | vCard, `MECARD:`                                                   |
-| `Calendar`    | iCalendar `VEVENT`                                                 |
-| `SwissQRBill` | `SPC` with an `EPD` trailer                                        |
-| `EPCPayment`  | SEPA credit transfer, `BCD`                                        |
-| `HIBC`        | `+` and a valid mod-43 check character                             |
-| `VIN`         | 17 characters with a valid check digit                             |
-| `AAMVA`       | `@` and an `ANSI ` or `AAMVA` header                               |
+Kinds marked _experimental_ may change their fields or recognition, or be
+removed, in minor releases. The other kinds and their field names are stable.
+
+| Kind                         | Recognized by                                                      |
+| ---------------------------- | ------------------------------------------------------------------ |
+| `GS1`                        | GS1 flag; `]C1`, `]d2`, `]Q3`, `]e0`, `]J1`; `(01)…`; Digital Link |
+| `URL`                        | `http://`, `https://`                                              |
+| `Email`                      | `mailto:`, `MATMSG:`                                               |
+| `Phone`                      | `tel:`                                                             |
+| `SMS`                        | `SMSTO:`, `MMSTO:`, `sms:`                                         |
+| `Geo`                        | `geo:`                                                             |
+| `WiFi`                       | `WIFI:`                                                            |
+| `Contact`                    | vCard, `MECARD:`                                                   |
+| `Calendar`                   | iCalendar `VEVENT`                                                 |
+| `SwissQRBill` (experimental) | `SPC` with an `EPD` trailer                                        |
+| `EPCPayment` (experimental)  | SEPA credit transfer, `BCD`                                        |
+| `HIBC` (experimental)        | `+` and a valid mod-43 check character                             |
+| `VIN` (experimental)         | 17 characters with a valid check digit                             |
+| `AAMVA` (experimental)       | `@` and an `ANSI ` or `AAMVA` header                               |
 
 ## Fields
 

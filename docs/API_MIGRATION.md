@@ -9,6 +9,9 @@ headers, binding and library must come from the same release. The new formats
 `Code32`, `PZN` and `MSIPlessey` are opt-in: no preset, `all` included, selects
 them.
 
+In Rust, `Format` and `ContentKind` are `#[non_exhaustive]`: a `match` on them
+needs a wildcard arm. `Format::ALL` is a slice (`&[Format]`) instead of an array.
+
 ## Upgrading from 1.2.2
 
 Version 1.3.0 changes the application API in every binding, as an explicit
