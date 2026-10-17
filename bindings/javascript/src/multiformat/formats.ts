@@ -1,4 +1,4 @@
-/** Explicit opt-in formats for the independent Medium extension. */
+/** Format presets and validation of format selections. */
 import {
   commonFormats,
   commonLinearFormats,

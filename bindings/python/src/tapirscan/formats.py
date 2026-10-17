@@ -1,79 +1,35 @@
-"""Explicit opt-in barcode formats, matching the native ABI."""
+"""Format names, presets and validation of format selections."""
 
 from typing import Literal, TypeAlias, cast
 
-Format: TypeAlias = Literal[
-    "EAN13",
-    "UPCA",
-    "EAN8",
-    "UPCE",
-    "Code128",
-    "Code39",
-    "ITF",
-    "Codabar",
-    "Code93",
-    "QRCode",
-    "DataMatrix",
-    "PDF417",
-    "Aztec",
-    "DataBar",
-    "DataBarExpanded",
-    "MaxiCode",
-    "Code32",
-    "PZN",
-    "MSIPlessey",
-]
-FORMAT_BITS: dict[str, int] = {
-    "EAN13": 1,
-    "UPCA": 2,
-    "EAN8": 4,
-    "UPCE": 8,
-    "Code128": 16,
-    "Code39": 32,
-    "ITF": 64,
-    "Codabar": 128,
-    "Code93": 256,
-    "QRCode": 512,
-    "DataMatrix": 1024,
-    "PDF417": 2048,
-    "Aztec": 4096,
-    "DataBar": 8192,
-    "DataBarExpanded": 16384,
-    "MaxiCode": 131072,
-    # Opt-in: selected by name, in no preset.
-    "Code32": 262144,
-    "PZN": 524288,
-    "MSIPlessey": 1048576,
-}
+from ._format_registry import (
+    FORMAT_BITS,
+    Format,
+    common_formats,
+    common_linear_formats,
+    linear_formats,
+    matrix_formats,
+    retail_formats,
+)
 
+__all__ = [
+    "FORMAT_BITS",
+    "Format",
+    "FormatSelection",
+    "common_formats",
+    "common_linear_formats",
+    "format_mask",
+    "linear_formats",
+    "matrix_formats",
+    "resolve_formats",
+    "retail_formats",
+]
 
 FormatSelection: TypeAlias = (
     Format
     | tuple[Format, ...]
     | list[Format]
     | Literal["retail", "common1D", "common", "1D", "2D", "all"]
-)
-retail_formats: tuple[Format, ...] = ("EAN13", "UPCA", "EAN8", "UPCE")
-common_linear_formats: tuple[Format, ...] = (
-    *retail_formats,
-    "Code128",
-    "Code39",
-    "ITF",
-)
-common_formats: tuple[Format, ...] = (*common_linear_formats, "QRCode", "DataMatrix")
-linear_formats: tuple[Format, ...] = (
-    *common_linear_formats,
-    "Codabar",
-    "Code93",
-    "DataBar",
-    "DataBarExpanded",
-)
-matrix_formats: tuple[Format, ...] = (
-    "QRCode",
-    "DataMatrix",
-    "PDF417",
-    "Aztec",
-    "MaxiCode",
 )
 
 

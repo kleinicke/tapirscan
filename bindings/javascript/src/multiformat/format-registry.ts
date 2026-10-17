@@ -63,7 +63,5 @@ export const matrixFormats: readonly Format[] = Object.freeze([
   "Aztec",
   "MaxiCode",
 ]);
-/** Selected only by name, never by a preset or `"all"`. */
-export const optInFormats: readonly Format[] = Object.freeze(["Code32", "PZN", "MSIPlessey"]);
 export const eanAddOnReadFlag = 32768;
 export const eanAddOnRequireFlag = 65536;

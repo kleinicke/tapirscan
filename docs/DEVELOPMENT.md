@@ -136,7 +136,7 @@ session. Keep scanner decisions in Rust so changes apply to every binding.
 
 Format names, native bits, ordered presets and reserved add-on flags are declared
 in `config/formats.json`. Run `python3 scripts/generate_formats.py` after changing
-it, then `python3 scripts/generate_formats.py --check`. Generated Rust and
-TypeScript declarations are checked in; `verify_sources.py` also checks for drift.
+it, then `python3 scripts/generate_formats.py --check`. The generated declarations
+of every binding are checked in; `verify_sources.py` also checks for drift.
 Changing a format bit is an API/ABI change, not a routine registry edit. Adding a
 format also needs a reader in `multiformat/`.
