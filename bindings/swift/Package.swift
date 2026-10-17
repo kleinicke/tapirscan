@@ -9,6 +9,6 @@ let package = Package(
     targets: [
         .binaryTarget(name: "TapirscanC", path: "TapirscanC.xcframework"),
         .target(name: "Tapirscan", dependencies: ["TapirscanC"]),
-        .testTarget(name: "TapirscanTests", dependencies: ["Tapirscan"]),
+        .testTarget(name: "TapirscanTests", dependencies: ["Tapirscan", "TapirscanC"]),
     ]
 )

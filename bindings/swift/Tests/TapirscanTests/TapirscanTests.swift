@@ -1,5 +1,6 @@
 import CoreGraphics
 import CoreVideo
+import TapirscanC
 import XCTest
 @testable import Tapirscan
 
@@ -35,25 +36,86 @@ final class TapirscanTests: XCTestCase {
 
     func testScansGrayPixelsAndReusesTheScanner() throws {
         let (pixels, width, height) = ean13(text)
-        let scanner = try BarcodeScanner(formats: [.ean13, .qrCode])
+        let scanner = try BarcodeScanner(options: ScannerOptions(formats: [.ean13, .qrCode]))
         for _ in 0..<3 {
-            let barcodes = try scanner.scan(pixels, width: width, height: height, channels: 1)
-            XCTAssertEqual(barcodes.map(\.text), [text])
-            XCTAssertEqual(barcodes.first?.format, "EAN13")
-            XCTAssertEqual(barcodes.first?.polygon.count, 4)
+            let result = try scanner.scan(pixels, width: width, height: height, channels: 1)
+            XCTAssertEqual(result.values, [text])
+            let barcode = try XCTUnwrap(result.best)
+            XCTAssertEqual(barcode.format, .ean13)
+            XCTAssertEqual(barcode.polygon.count, 4)
+            XCTAssertNil(barcode.eanAddOn)
+            XCTAssertNil(barcode.structuredAppend)
+            XCTAssertNil(try barcode.content)
+            let rect = barcode.rect
+            XCTAssertTrue(rect.left >= 0 && rect.top >= 0 && rect.width > 0 && rect.height > 0)
+            XCTAssertTrue(rect.left + rect.width <= width && rect.top + rect.height <= height)
         }
         let blank = [UInt8](repeating: 255, count: width * height)
-        XCTAssertEqual(try scanner.scan(blank, width: width, height: height, channels: 1).count, 0)
+        let empty = try scanner.scan(blank, width: width, height: height, channels: 1)
+        XCTAssertTrue(empty.barcodes.isEmpty)
+        XCTAssertNil(empty.best)
     }
 
-    func testRejectsInvalidImagesWithTheLibraryMessage() throws {
+    func testPerCallFormatsOverrideTheScannerFormats() throws {
+        let (pixels, width, height) = ean13(text)
+        let scanner = try BarcodeScanner(options: ScannerOptions(formats: .qrCode))
+        XCTAssertEqual(scanner.options.formats, .qrCode)
+        XCTAssertTrue(try scanner.scan(pixels, width: width, height: height, channels: 1).barcodes.isEmpty)
+        let override = ScanOptions(formats: .ean13)
+        XCTAssertEqual(
+            try scanner.scan(pixels, width: width, height: height, channels: 1, options: override).values,
+            [text])
+        // The override is per call: the scanner's own formats apply again afterwards.
+        XCTAssertTrue(try scanner.scan(pixels, width: width, height: height, channels: 1).barcodes.isEmpty)
+        XCTAssertThrowsError(try scanner.scan(
+            pixels, width: width, height: height, channels: 1, options: ScanOptions(formats: []))
+        ) { XCTAssertEqual(($0 as? TapirscanError)?.code, .invalidInput) }
+    }
+
+    func testInspectionReportsTheSameBarcodesAndMetadata() throws {
+        let (pixels, width, height) = ean13(text)
+        let scanner = try BarcodeScanner(options: ScannerOptions(mode: .high))
+        let inspection = try scanner.inspect(pixels, width: width, height: height, channels: 1)
+        XCTAssertEqual(
+            inspection.barcodes,
+            try scanner.scan(pixels, width: width, height: height, channels: 1).barcodes)
+        XCTAssertEqual(inspection.values, [text])
+        XCTAssertEqual(inspection.best?.text, text)
+        XCTAssertEqual(inspection.width, width)
+        XCTAssertEqual(inspection.height, height)
+        XCTAssertEqual(inspection.mode, .high)
+        XCTAssertTrue(inspection.elapsedMs >= 0)
+        XCTAssertTrue(inspection.diagnostics.hasPrefix("{"))
+    }
+
+    func testErrorsCarryTheStatusAndNamedCode() throws {
         let scanner = try BarcodeScanner()
         XCTAssertThrowsError(try scanner.scan([0, 0], width: 3, height: 3, channels: 1)) { error in
-            XCTAssertFalse((error as? TapirscanError)?.message.isEmpty ?? true)
+            let failure = error as? TapirscanError
+            XCTAssertFalse(failure?.message.isEmpty ?? true)
+            XCTAssertEqual(failure?.status, Int32(TAPIRSCAN_INVALID_ARGUMENT.rawValue))
+            XCTAssertEqual(failure?.code, .invalidInput)
         }
         // Out-of-range sizes reach the library as errors instead of trapping.
         XCTAssertThrowsError(try scanner.scan([0, 0], width: 3, height: 3, channels: Int.max))
         XCTAssertThrowsError(try scanner.scan([0, 0], width: -3, height: 3, channels: 1))
+        XCTAssertThrowsError(try BarcodeScanner(options: ScannerOptions(formats: []))) {
+            XCTAssertEqual(($0 as? TapirscanError)?.code, .invalidInput)
+        }
+        XCTAssertEqual(TapirscanError(status: Int32(TAPIRSCAN_INVALID_HANDLE.rawValue)).code, .disposed)
+        XCTAssertEqual(TapirscanError(status: Int32(TAPIRSCAN_INTERNAL_ERROR.rawValue)).code, .engine)
+    }
+
+    func testGeneratedFormatsMatchTheCHeader() {
+        XCTAssertEqual(Formats.retail.rawValue, TAPIRSCAN_FORMATS_RETAIL)
+        XCTAssertEqual(Formats.common1D.rawValue, TAPIRSCAN_FORMATS_COMMON_1D)
+        XCTAssertEqual(Formats.common.rawValue, TAPIRSCAN_FORMATS_COMMON)
+        XCTAssertEqual(Formats.linear.rawValue, TAPIRSCAN_FORMATS_LINEAR)
+        XCTAssertEqual(Formats.matrix.rawValue, TAPIRSCAN_FORMATS_MATRIX)
+        XCTAssertEqual(Formats.all.rawValue, TAPIRSCAN_FORMATS_ALL)
+        for format in Format.allCases {
+            XCTAssertEqual(format.name, String(cString: tapirscan_format_name(format.rawValue)))
+        }
     }
 
     func testScansCGImages() throws {
@@ -65,7 +127,9 @@ final class TapirscanTests: XCTestCase {
             bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
             provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent
         )!
-        XCTAssertEqual(try BarcodeScanner().scan(image).map(\.text), [text])
+        let scanner = try BarcodeScanner()
+        XCTAssertEqual(try scanner.scan(image).values, [text])
+        XCTAssertEqual(try scanner.inspect(image).values, [text])
     }
 
     func testScansCameraPixelBuffers() throws {
@@ -93,7 +157,8 @@ final class TapirscanTests: XCTestCase {
                 }
             }
             CVPixelBufferUnlockBaseAddress(frame, [])
-            XCTAssertEqual(try scanner.scan(frame).map(\.text), [text], "format \(format)")
+            XCTAssertEqual(try scanner.scan(frame).values, [text], "format \(format)")
+            XCTAssertEqual(try scanner.inspect(frame).values, [text], "format \(format)")
         }
     }
 
@@ -105,7 +170,9 @@ final class TapirscanTests: XCTestCase {
         XCTAssertNil(wifi["hidden"])
         XCTAssertEqual(try parseContent("0109506000134352", gs1: true)?.all("01"), ["09506000134352"])
         XCTAssertNil(try parseContent("0109506000134352"))
-        let barcode = Barcode(text: "geo:47.37,8.54", format: "QRCode", polygon: [], support: 1, gs1: nil)
-        XCTAssertEqual(barcode.content?.kind, .geo)
+        let barcode = Barcode(
+            text: "geo:47.37,8.54", format: .qrCode, polygon: [], support: 1, payloadBytes: nil,
+            eanAddOn: nil, gs1: nil, readerInitialization: nil, structuredAppend: nil)
+        XCTAssertEqual(try barcode.content?.kind, .geo)
     }
 }
