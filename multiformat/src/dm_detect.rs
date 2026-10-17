@@ -1333,6 +1333,7 @@ pub fn detect(
         refine,
         Retries {
             gray: GRAY_ATTEMPTS[mode],
+            region_grids: mode >= 2,
             crops: CROP_RETRIES[mode],
             candidates: RETRY_CANDIDATES[mode],
             ranked: RANKED_CANDIDATES[mode],
@@ -1344,6 +1345,8 @@ pub fn detect(
 struct Retries {
     /// Grayscale refinements.
     gray: usize,
+    /// Whether the grayscale refinement refines the data regions of large symbols apart.
+    region_grids: bool,
     /// Unread candidate boxes retried on area-averaged or enlarged crops.
     crops: usize,
     /// Failing candidates kept for the retries, which spend their work on the best-scoring
@@ -1366,6 +1369,7 @@ const GRAY_SIZES_PER_CANDIDATE: usize = 2;
 /// The detection on a crop retries only a little itself and never crops again.
 const CROP_PASS: Retries = Retries {
     gray: 3,
+    region_grids: false,
     crops: 0,
     candidates: 64,
     ranked: false,
@@ -1669,7 +1673,9 @@ fn detect_with_retries(
             continue;
         }
         gray_attempts -= 1;
-        if let Some((read, polygon)) = crate::dm_gray::recover(gray, (w, h), q, size, inverted) {
+        if let Some((read, polygon)) =
+            crate::dm_gray::recover(gray, (w, h), q, size, inverted, retries.region_grids)
+        {
             results.push(Detection {
                 bytes: Some(read.bytes),
                 structured_append: read.structured_append,

@@ -63,11 +63,13 @@
   thresholding modules against the border levels (bloomed or blurred ink merges the L in
   the binary image), and on an area-averaged crop of a large candidate or a bilinear
   enlargement of a tiny one. Low and Medium try three grid refinements and one crop, High
-  six and two, and High also retries boxes of 97 to 287 pixels on a crop at source scale.
+  six and two, and High also retries boxes of 97 to 287 pixels on a crop at source scale
+  and refines each data region of a large symbol (32 x 32 and up) on its own L and clock
+  tracks, which follows curvature and lens distortion that one grid cannot.
   Medium keeps its four best-ranked failing candidates (busy frames filled the list with
   bare L borders of the first thresholds) and, once a frame leaves a Data Matrix candidate
   region, takes High's averaged scales. On the 1,578 development images, Data Matrix reads
-  rise from 544 to 644 (Low), 604 to 671 (Medium) and 661 to 715 (High), with no new wrong
+  rise from 544 to 644 (Low), 604 to 671 (Medium) and 661 to 716 (High), with no new wrong
   reads; on 315 Data Matrix variation images Low reads 163 instead of 129, Medium 180
   instead of 168 and High 179 instead of 168. In Chrome with `common`, Low costs about 1%
   more on retail photos, Medium and High about 2%.
