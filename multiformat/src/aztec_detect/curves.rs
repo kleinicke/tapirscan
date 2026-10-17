@@ -1,5 +1,5 @@
-use super::decoder as aztec;
-use barcode_multiformat::{
+use crate::aztec;
+use crate::{
     Detection,
     numeric::{f32_usize, usize_f32, usize_f64},
     qr_detect,

@@ -6,7 +6,7 @@
 //! window around each such candidate, resampled with Catmull-Rom weights, and
 //! accepts a read only when its center coincides with the candidate.
 use super::{Center, Search, binarization, detect};
-use barcode_multiformat::{Detection, numeric, regions};
+use crate::{Detection, numeric, regions};
 
 /// Most unresolved bullseye candidates a search remembers.
 pub(super) const MAX_UNRESOLVED: usize = 32;
@@ -225,8 +225,15 @@ impl Search {
             );
             let mut images = binarization::Images::new(&larger, out_width, out_height);
             let mut ignored = regions::Regions::default();
-            let (reads, limited) =
-                detect(out_width, out_height, &mut ignored, &larger, &mut images, 0);
+            let (reads, limited) = detect(
+                out_width,
+                out_height,
+                &mut ignored,
+                &larger,
+                &mut images,
+                self.policy,
+                0,
+            );
             self.limited |= limited;
             let scale = numeric::usize_f32(factor);
             let mapped = reads.into_iter().filter_map(|mut read: Detection| {
@@ -259,6 +266,7 @@ impl Search {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::aztec_detect::Policy;
 
     /// A 27-module compact symbol (4 layers), generated independently with ZXing-C++.
     const ROWS: [&str; 27] = [
@@ -319,7 +327,10 @@ mod tests {
         (gray, [center, center])
     }
 
-    fn read(gray: &[u8], side: usize, effort: usize) -> Vec<Detection> {
+    /// The policies of the scanner modes.
+    const POLICIES: [Policy; 2] = [Policy::LOW, Policy::STANDARD];
+
+    fn read(gray: &[u8], side: usize, policy: Policy, effort: usize) -> Vec<Detection> {
         let mut images = binarization::Images::new(gray, side, side);
         detect(
             side,
@@ -327,6 +338,7 @@ mod tests {
             &mut regions::Regions::default(),
             gray,
             &mut images,
+            policy,
             effort,
         )
         .0
@@ -338,17 +350,23 @@ mod tests {
         // Modules of 1.3 pixels leave the grid samplers unable to read the symbol
         // although its bullseye is found.
         let (gray, center) = frame(1.3, side);
-        assert!(read(&gray, side, 0).is_empty());
-        let retried = read(&gray, side, 1);
-        assert_eq!(retried.len(), 1);
-        assert_eq!(retried[0].text, TEXT);
-        let at = center_of(&retried[0].polygon);
-        assert!((at[0] - center[0]).hypot(at[1] - center[1]) < 2.6);
-        // Neighboring sizes never produce a different text.
-        for pixels in [1.2, 1.4, 1.5] {
-            let (gray, _) = frame(pixels, side);
-            for effort in [1, 2] {
-                assert!(read(&gray, side, effort).iter().all(|r| r.text == TEXT));
+        for policy in POLICIES {
+            assert!(read(&gray, side, policy, 0).is_empty());
+            let retried = read(&gray, side, policy, 1);
+            assert_eq!(retried.len(), 1);
+            assert_eq!(retried[0].text, TEXT);
+            let at = center_of(&retried[0].polygon);
+            assert!((at[0] - center[0]).hypot(at[1] - center[1]) < 2.6);
+            // Neighboring sizes never produce a different text.
+            for pixels in [1.2, 1.4, 1.5] {
+                let (gray, _) = frame(pixels, side);
+                for effort in [1, 2] {
+                    assert!(
+                        read(&gray, side, policy, effort)
+                            .iter()
+                            .all(|r| r.text == TEXT)
+                    );
+                }
             }
         }
     }
@@ -365,10 +383,12 @@ mod tests {
                 }
             })
             .collect();
-        let mut search = Search::default();
-        search.upscaled(&gray, side, side, 2);
-        assert!(search.reads.is_empty() && !search.limited);
-        assert!(read(&gray, side, 2).is_empty());
+        for policy in POLICIES {
+            let mut search = Search::new(policy);
+            search.upscaled(&gray, side, side, 2);
+            assert!(search.reads.is_empty() && !search.limited);
+            assert!(read(&gray, side, policy, 2).is_empty());
+        }
     }
 
     #[test]

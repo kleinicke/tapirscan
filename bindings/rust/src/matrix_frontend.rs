@@ -2,7 +2,8 @@
 //! Reader order and non-Aztec policies mirror the pinned multiformat orchestrator.
 use barcode_multiformat::formats::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE};
 use barcode_multiformat::{
-    Detection, Scan, binarization, dm_detect, maxicode_detect, pdf417, qr_detect, regions,
+    Detection, Scan, aztec_detect, binarization, dm_detect, maxicode_detect, pdf417, qr_detect,
+    regions,
 };
 /// Stack for reader threads, sized like a typical main-thread stack.
 #[cfg(not(target_family = "wasm"))]
@@ -47,32 +48,18 @@ fn run_reader(
             effort > 1,
             crate::MODE_ID as usize,
         ),
-        AZTEC => {
-            let mut search = barcode_research_core::aztec_frontend::Search::default();
-            for mode in 0..4 {
-                if binary_images.is_duplicate(mode) {
-                    continue;
-                }
-                let (bits, rows) = binary_images.get_with_runs(mode, (height / 600).max(1));
-                search.threshold(
-                    barcode_research_core::aztec_frontend::Threshold {
-                        bits,
-                        gray: image,
-                        width,
-                        height,
-                        mode,
-                    },
-                    regions,
-                    &|y, row, out| rows.copy_or_extract(y, row, out),
-                );
-            }
-            search.contrast(image, width, height, regions);
-            // The enlarged retry costs a scan of its own and follows the compiled
-            // mode (the matrix group's `effort` is 1 in every mode): none in Low,
-            // which keeps to live-camera cost, a narrow one in Medium.
-            search.upscaled(image, width, height, crate::MODE_ID as usize);
-            (search.reads, search.limited)
-        }
+        // The enlarged retry costs a scan of its own and follows the compiled
+        // mode (the matrix group's `effort` is 1 in every mode): none in Low,
+        // which keeps to live-camera cost, a narrow one in Medium.
+        AZTEC => aztec_detect::detect(
+            width,
+            height,
+            regions,
+            image,
+            binary_images,
+            aztec_detect::Policy::for_mode(crate::MODE_ID as usize),
+            crate::MODE_ID as usize,
+        ),
         MAXI_CODE => maxicode_detect::detect(width, height, regions, binary_images),
         _ => pdf417::detect(image, width, height, regions, crate::MODE_ID as usize),
     }

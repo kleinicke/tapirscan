@@ -1,8 +1,7 @@
 //! Source-gray sampling hypotheses around already localized matrix candidates.
 use barcode_multiformat::formats::{AZTEC, DATA_MATRIX};
 use barcode_multiformat::numeric::{f32_usize, usize_f32, usize_f64};
-use barcode_multiformat::{Detection, Scan, datamatrix, qr, qr_detect};
-use barcode_research_core::aztec_frontend::decoder as aztec;
+use barcode_multiformat::{Detection, Scan, aztec, datamatrix, qr, qr_detect};
 type Quad = [[f32; 2]; 4];
 
 #[expect(

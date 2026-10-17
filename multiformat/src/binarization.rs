@@ -204,6 +204,18 @@ pub(crate) fn has_two_directions(
     y: f32,
     radius: f32,
 ) -> bool {
+    has_two_directions_by(&|at| bits[at], width, height, x, y, radius)
+}
+/// [`has_two_directions`] for pixels given by `bits(index)`, such as a threshold
+/// applied lazily to gray.
+pub(crate) fn has_two_directions_by(
+    bits: &impl Fn(usize) -> bool,
+    width: usize,
+    height: usize,
+    x: f32,
+    y: f32,
+    radius: f32,
+) -> bool {
     if width < 3 || height < 3 {
         return true;
     }
@@ -220,8 +232,8 @@ pub(crate) fn has_two_directions(
     for y in (top..bottom).step_by(step) {
         for x in (left..right).step_by(step) {
             let at = y * width + x;
-            let dx = i32::from(bits[at + 1]) - i32::from(bits[at - 1]);
-            let dy = i32::from(bits[at + width]) - i32::from(bits[at - width]);
+            let dx = i32::from(bits(at + 1)) - i32::from(bits(at - 1));
+            let dy = i32::from(bits(at + width)) - i32::from(bits(at - width));
             xx += dx * dx;
             yy += dy * dy;
             xy += dx * dy;

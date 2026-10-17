@@ -521,8 +521,15 @@ pub fn scan_observed_for_mode(
         observe("DataMatrix", matrix_unfinished || regions.limited);
     }
     if mask & AZTEC != 0 {
-        let (mut reads, limited) =
-            aztec_detect::detect(width, height, &mut regions, &mut binary_images);
+        let (mut reads, limited) = aztec_detect::detect(
+            width,
+            height,
+            &mut regions,
+            image,
+            &mut binary_images,
+            aztec_detect::Policy::MULTIFORMAT,
+            0,
+        );
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
         observe("Aztec", matrix_unfinished || regions.limited);

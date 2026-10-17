@@ -1,4 +1,4 @@
-use barcode_multiformat::{
+use crate::{
     numeric::{f32_usize, usize_f32},
     qr_detect,
 };

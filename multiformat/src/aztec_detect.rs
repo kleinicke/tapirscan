@@ -1,6 +1,67 @@
 //! Bullseye localization and independent Aztec grid sampling.
-use crate::{Detection, aztec, qr_detect};
+//!
+//! One detector serves every caller. Mode-dependent recovery arrives as a
+//! [`Policy`], since this crate has no mode features: the scanner modes select
+//! [`Policy::LOW`] or [`Policy::STANDARD`], the multi-format scan
+//! [`Policy::MULTIFORMAT`].
+use crate::{Detection, aztec, binarization, qr_detect};
 mod center_index;
+mod curves;
+mod refinement;
+mod upscale;
+
+/// Mode-dependent Aztec recovery and its work budgets.
+#[derive(Clone, Copy, Debug)]
+pub struct Policy {
+    /// Source-gray recovery: refined transforms, confirmation of corrected Runes
+    /// and curved-grid sampling. Without it a Rune is accepted on its first decode.
+    pub gray_recovery: bool,
+    /// Retry unread bullseyes on the foreground thresholds of the source gray.
+    pub contrast: bool,
+    /// Sampled pixels for refining the strongest transforms on source gray.
+    pub refine_budget: usize,
+    /// Modules sampled for curved-grid hypotheses.
+    pub curve_budget: usize,
+    /// Modules sampled for bowed-grid hypotheses.
+    pub bow_budget: usize,
+    /// Modules sampled with module-local thresholds.
+    pub adaptive_budget: usize,
+}
+
+impl Policy {
+    /// Low: live-camera budgets, without bowed or adaptive sampling.
+    pub const LOW: Self = Self {
+        gray_recovery: true,
+        contrast: true,
+        refine_budget: 10_000,
+        curve_budget: 20_000,
+        bow_budget: 0,
+        adaptive_budget: 0,
+    };
+    /// Medium, High and Very High.
+    pub const STANDARD: Self = Self {
+        gray_recovery: true,
+        contrast: true,
+        refine_budget: 100_000,
+        curve_budget: 150_000,
+        bow_budget: 50_000,
+        adaptive_budget: 50_000,
+    };
+    /// The multi-format scan: threshold images only.
+    pub const MULTIFORMAT: Self = Self {
+        gray_recovery: false,
+        contrast: false,
+        refine_budget: 0,
+        curve_budget: 0,
+        bow_budget: 0,
+        adaptive_budget: 0,
+    };
+    /// The policy of scanner mode `mode` (0 Low, 1 Medium, 2 High, 3 Very High).
+    #[must_use]
+    pub const fn for_mode(mode: usize) -> Self {
+        if mode == 0 { Self::LOW } else { Self::STANDARD }
+    }
+}
 #[derive(Clone)]
 struct Center {
     x: f32,
@@ -9,7 +70,7 @@ struct Center {
     support: usize,
 }
 fn cross(
-    bits: &[bool],
+    bits: &impl Fn(usize) -> bool,
     w: usize,
     h: usize,
     x: usize,
@@ -17,15 +78,15 @@ fn cross(
     vertical: bool,
     expected: f32,
 ) -> Option<(f32, f32)> {
-    if !bits[y * w + x] {
+    if !bits(y * w + x) {
         return None;
     }
     let limit = if vertical { h } else { w };
     let pixel = |at: usize| {
         if vertical {
-            bits[at * w + x]
+            bits(at * w + x)
         } else {
-            bits[y * w + at]
+            bits(y * w + at)
         }
     };
     let mut start = if vertical { y } else { x };
@@ -78,15 +139,25 @@ fn cross(
     }
     Some((center, module))
 }
-#[cfg(not(target_arch = "wasm32"))]
-fn centers(bits: &[bool], w: usize, h: usize) -> Vec<Center> {
-    centers_with_rows(bits, w, h, None)
+fn centers_with_rows(bits: &[bool], w: usize, h: usize, row_cache: &RowCache<'_>) -> Vec<Center> {
+    centers_from_runs(w, h, &|i| bits[i], |y, out| {
+        row_cache(y, &bits[y * w..(y + 1) * w], out);
+    })
 }
-fn centers_with_rows(
-    bits: &[bool],
+fn centers_gray(gray: &[u8], w: usize, h: usize, cut: u8) -> Vec<Center> {
+    let mut row = vec![false; w];
+    centers_from_runs(w, h, &|i| gray[i] <= cut, |y, out| {
+        for (target, &value) in row.iter_mut().zip(&gray[y * w..(y + 1) * w]) {
+            *target = value <= cut;
+        }
+        crate::transition_offsets_into(&row, out);
+    })
+}
+fn centers_from_runs(
     w: usize,
     h: usize,
-    row_cache: Option<&crate::binarization::RowOffsets>,
+    bits: &impl Fn(usize) -> bool,
+    mut copy_rows: impl FnMut(usize, &mut Vec<usize>),
 ) -> Vec<Center> {
     let mut found = center_index::Index::new(w, h);
     let mut refined = center_index::Index::new(w, h);
@@ -94,12 +165,7 @@ fn centers_with_rows(
     let mut offsets = Vec::new();
     let mut runs = Vec::new();
     for y in (0..h).step_by(step) {
-        let row = &bits[y * w..(y + 1) * w];
-        if let Some(cache) = row_cache {
-            cache.copy_or_extract(y, row, &mut offsets);
-        } else {
-            crate::transition_offsets_into(row, &mut offsets);
-        }
+        copy_rows(y, &mut offsets);
         runs.clear();
         #[expect(
             clippy::cast_precision_loss,
@@ -108,7 +174,7 @@ fn centers_with_rows(
         let widths = offsets.windows(2).map(|pair| (pair[1] - pair[0]) as f32);
         runs.extend(widths);
         for i in 0..runs.len().saturating_sub(8) {
-            if !row[offsets[i]] {
+            if !bits(y * w + offsets[i]) {
                 continue;
             }
             let module = runs[i + 1..i + 8].iter().sum::<f32>() / 7.;
@@ -181,7 +247,7 @@ fn centers_with_rows(
         }
     }
     found.retain(|c| {
-        crate::binarization::has_two_directions(bits, w, h, c.x, c.y, c.module * 5.)
+        binarization::has_two_directions_by(bits, w, h, c.x, c.y, c.module * 5.)
             && has_oblique_rings(bits, w, h, c, 3)
     });
     found.sort_by_key(|c| std::cmp::Reverse(c.support));
@@ -189,7 +255,13 @@ fn centers_with_rows(
 }
 // Parallel stripes can satisfy both axis scans at 45 degrees. A bullseye also
 // crosses several rings in both diagonal directions, independent of its pose.
-fn has_oblique_rings(bits: &[bool], w: usize, h: usize, center: &Center, required: usize) -> bool {
+fn has_oblique_rings(
+    bits: &impl Fn(usize) -> bool,
+    w: usize,
+    h: usize,
+    center: &Center,
+    required: usize,
+) -> bool {
     let diagonal = std::f32::consts::FRAC_1_SQRT_2;
     for (dx, dy) in [(diagonal, diagonal), (-diagonal, diagonal)] {
         for sign in [-1., 1.] {
@@ -203,7 +275,7 @@ fn has_oblique_rings(bits: &[bool], w: usize, h: usize, center: &Center, require
                 if x < 0 || y < 0 || x >= (w).cast_signed() || y >= (h).cast_signed() {
                     break;
                 }
-                let bit = bits[(y).cast_unsigned() * w + (x).cast_unsigned()];
+                let bit = bits((y).cast_unsigned() * w + (x).cast_unsigned());
                 if previous.is_some_and(|p| p != bit) {
                     transitions += 1;
                 }
@@ -218,17 +290,6 @@ fn has_oblique_rings(bits: &[bool], w: usize, h: usize, center: &Center, require
         }
     }
     true
-}
-/// Native diagnostic only; exposes the actual production bullseye proposals.
-#[cfg(not(target_arch = "wasm32"))]
-#[must_use]
-pub fn diagnostic_centers(bits: &[bool], w: usize, h: usize) -> serde_json::Value {
-    serde_json::Value::Array(
-        centers(bits, w, h)
-            .iter()
-            .map(|c| serde_json::json!({"x":c.x,"y":c.y,"module":c.module,"support":c.support}))
-            .collect(),
-    )
 }
 fn transform(c: &Center, theta: f32, module: f32, n: usize) -> [f32; 8] {
     let a = theta.cos() * module;
@@ -290,6 +351,24 @@ fn template_error(bits: &[bool], w: usize, h: usize, t: &[f32; 8], limit: usize)
 }
 fn ring_error(bits: &[bool], w: usize, h: usize, c: &Center, theta: f32, module: f32) -> usize {
     template_error(bits, w, h, &transform(c, theta, module, 9), 81)
+}
+/// Smallest ring mismatch of a bullseye candidate over the sampled poses.
+fn ring_fit(bits: &[bool], w: usize, h: usize, c: &Center) -> usize {
+    (0..90)
+        .step_by(15)
+        .map(|a| {
+            let theta = crate::numeric::f64_f32(f64::from(a)).to_radians();
+            ring_error(
+                bits,
+                w,
+                h,
+                c,
+                theta,
+                c.module * theta.cos().abs().max(theta.sin().abs()),
+            )
+        })
+        .min()
+        .unwrap_or(81)
 }
 fn centered(t: &[f32; 8], n: usize) -> [f32; 8] {
     let half = crate::numeric::usize_f32(n) * 0.5;
@@ -468,43 +547,77 @@ fn refine_reference(
     }
     best
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "The bounded Aztec search keeps transform ranking, retries and limit reporting together so every exit shares the same work budget."
-)]
-pub fn detect(
-    w: usize,
-    h: usize,
-    regions: &mut crate::regions::Regions,
-    binary_images: &mut crate::binarization::Images<'_>,
-) -> (Vec<Detection>, bool) {
-    let mut results: Vec<Detection> = Vec::new();
-    let mut limited = false;
-    for mode in 0..4 {
-        if binary_images.is_duplicate(mode) {
-            continue;
+type RowCache<'a> = dyn Fn(usize, &[bool], &mut Vec<usize>) + 'a;
+
+/// Threshold pixels and source grayscale share source-image coordinates.
+#[derive(Clone, Copy)]
+pub struct Threshold<'a> {
+    pub bits: &'a [bool],
+    pub gray: &'a [u8],
+    pub width: usize,
+    pub height: usize,
+    pub mode: usize,
+}
+/// Shared Aztec state across threshold passes for one reader invocation.
+/// The facade may invoke the reader again within its own bounded recovery stage.
+pub struct Search {
+    pub reads: Vec<Detection>,
+    pub limited: bool,
+    /// Bullseye candidates that no threshold pass turned into a read.
+    unresolved: Vec<(usize, Center)>,
+    refine_budget: usize,
+    curve_budget: usize,
+    bow_budget: usize,
+    rune_gray_budget: usize,
+    adaptive_budget: usize,
+    policy: Policy,
+}
+impl Search {
+    #[must_use]
+    pub fn new(policy: Policy) -> Self {
+        Self {
+            reads: Vec::new(),
+            limited: false,
+            unresolved: Vec::new(),
+            refine_budget: policy.refine_budget,
+            curve_budget: policy.curve_budget,
+            bow_budget: policy.bow_budget,
+            rune_gray_budget: 8_192,
+            adaptive_budget: policy.adaptive_budget,
+            policy,
         }
-        let step = (h / 600).max(1);
-        let (bits, row_cache) = binary_images.get_with_runs(mode, step);
-        let mut candidates = centers_with_rows(bits, w, h, Some(row_cache));
-        candidates.sort_by_cached_key(|c| {
-            let error = (0..90)
-                .step_by(15)
-                .map(|a| {
-                    let theta = crate::numeric::f64_f32(f64::from(a)).to_radians();
-                    ring_error(
-                        bits,
-                        w,
-                        h,
-                        c,
-                        theta,
-                        c.module * theta.cos().abs().max(theta.sin().abs()),
-                    )
-                })
-                .min()
-                .unwrap_or(81);
-            (error, std::cmp::Reverse(c.support))
-        });
+    }
+    pub fn threshold(
+        &mut self,
+        input: Threshold<'_>,
+        regions: &mut crate::regions::Regions,
+        row_cache: &RowCache<'_>,
+    ) {
+        self.threshold_candidates(input, regions, row_cache, None);
+    }
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Keeps the ordered, bounded candidate hypotheses together; their order affects recovery and multi-symbol coverage."
+    )]
+    fn threshold_candidates(
+        &mut self,
+        input: Threshold<'_>,
+        regions: &mut crate::regions::Regions,
+        row_cache: &RowCache<'_>,
+        prepared: Option<Vec<Center>>,
+    ) {
+        let Threshold {
+            bits,
+            gray,
+            width: w,
+            height: h,
+            mode,
+        } = input;
+        let mut results = std::mem::take(&mut self.reads);
+        let mut limited = self.limited;
+        let mut refine_budget = self.refine_budget;
+        let mut candidates = prepared.unwrap_or_else(|| centers_with_rows(bits, w, h, row_cache));
+        candidates.sort_by_cached_key(|c| (ring_fit(bits, w, h, c), std::cmp::Reverse(c.support)));
         if candidates.len() > 64 {
             limited = true;
             candidates.truncate(64);
@@ -584,31 +697,159 @@ pub fn detect(
                 }
             }
             let mut reference_retries = Vec::new();
-            for base_transform in transforms {
-                let rune_transform = centered(&base_transform, 11);
-                if let Some(grid) = qr_detect::sample(bits, w, h, 11, &rune_transform, 0.) {
-                    for mirror in [false, true] {
-                        for turn in 0..4 {
-                            if !aztec::orientation_valid(&grid, 11, true, turn, mirror) {
-                                continue;
-                            }
-                            if let Some(read) =
-                                aztec::decode_rune(&rotate(&grid, 11, turn, mirror), 11)
-                            {
-                                results.push(Detection {
-                                    bytes: Some(read.bytes),
-                                    structured_append: read.structured_append,
-                                    reader_initialization: read.reader_initialization,
-                                    addon: None,
-                                    format: "Aztec".into(),
-                                    text: read.text,
-                                    polygon: [[0., 0.], [11., 0.], [11., 11.], [0., 11.]]
-                                        .map(|[x, y]| qr_detect::map(&rune_transform, x, y)),
-                                    support: c.support,
-                                    error: crate::numeric::usize_f32(read.corrected),
-                                    gs1: false,
-                                });
-                                continue 'candidate;
+            let mut curve_seeds = Vec::new();
+            let mut pending_rune = None;
+            let mut refine_seeds = Vec::new();
+            let mut next_transform = 0;
+            let original_count = transforms.len();
+            loop {
+                if next_transform == original_count && self.policy.gray_recovery {
+                    let mut ranked: Vec<_> = transforms
+                        .iter()
+                        .take(12)
+                        .map(|t| (refinement::score(gray, w, h, t, mode), *t))
+                        .collect();
+                    ranked.sort_by(|a, b| a.0.total_cmp(&b.0));
+                    refine_seeds.extend(ranked.into_iter().take(2).map(|(_, t)| t));
+                }
+                if next_transform >= original_count + refine_seeds.len() {
+                    break;
+                }
+                let base_transform = if next_transform < original_count {
+                    transforms[next_transform]
+                } else {
+                    let seed = refine_seeds[next_transform - original_count];
+                    let Some(refined) =
+                        refinement::refine(gray, w, h, seed, c.module, mode, &mut refine_budget)
+                    else {
+                        limited = true;
+                        break;
+                    };
+                    refined
+                };
+                next_transform += 1;
+                if pending_rune.is_none() {
+                    let rune_transform = centered(&base_transform, 11);
+                    if let Some(grid) = qr_detect::sample(bits, w, h, 11, &rune_transform, 0.) {
+                        for mirror in [false, true] {
+                            for turn in 0..4 {
+                                if !aztec::orientation_valid(&grid, 11, true, turn, mirror) {
+                                    continue;
+                                }
+                                if let Some(read) =
+                                    aztec::decode_rune(&rotate(&grid, 11, turn, mirror), 11)
+                                {
+                                    if !self.policy.gray_recovery {
+                                        results.push(Detection {
+                                            bytes: Some(read.bytes),
+                                            structured_append: read.structured_append,
+                                            reader_initialization: read.reader_initialization,
+                                            addon: None,
+                                            format: "Aztec".into(),
+                                            text: read.text,
+                                            polygon: [[0., 0.], [11., 0.], [11., 11.], [0., 11.]]
+                                                .map(|[x, y]| {
+                                                    qr_detect::map(&rune_transform, x, y)
+                                                }),
+                                            support: c.support,
+                                            error: crate::numeric::usize_f32(read.corrected),
+                                            gs1: false,
+                                        });
+                                        continue 'candidate;
+                                    }
+                                    if template_error(bits, w, h, &centered(&base_transform, 9), 8)
+                                        + read.corrected * 3
+                                        > 8
+                                    {
+                                        regions.add(
+                                            "Aztec",
+                                            [[0., 0.], [11., 0.], [11., 11.], [0., 11.]].map(
+                                                |[x, y]| qr_detect::map(&rune_transform, x, y),
+                                            ),
+                                            0.5,
+                                            c.support,
+                                        );
+                                        limited = true;
+                                        continue;
+                                    }
+                                    if mode >= 4 && read.corrected > 1 {
+                                        continue;
+                                    }
+                                    if read.corrected > 0 {
+                                        let agree = [-0.12, 0.12].into_iter().any(|offset| {
+                                            qr_detect::sample(
+                                                bits,
+                                                w,
+                                                h,
+                                                11,
+                                                &rune_transform,
+                                                offset,
+                                            )
+                                            .and_then(|grid| {
+                                                aztec::decode_rune(
+                                                    &rotate(&grid, 11, turn, mirror),
+                                                    11,
+                                                )
+                                            })
+                                            .is_some_and(|other| {
+                                                other.bytes == read.bytes
+                                                    && other.corrected <= read.corrected
+                                            })
+                                        });
+                                        let gray_agree = agree
+                                            || curves::sample_rune(
+                                                curves::Input {
+                                                    gray,
+                                                    width: w,
+                                                    height: h,
+                                                    mode,
+                                                },
+                                                &rune_transform,
+                                                &mut self.rune_gray_budget,
+                                                &mut limited,
+                                            )
+                                            .and_then(|grid| {
+                                                aztec::decode_rune(
+                                                    &rotate(&grid, 11, turn, mirror),
+                                                    11,
+                                                )
+                                            })
+                                            .is_some_and(|other| {
+                                                other.bytes == read.bytes
+                                                    && other.corrected < read.corrected
+                                            });
+                                        if !gray_agree {
+                                            regions.add(
+                                                "Aztec",
+                                                [[0., 0.], [11., 0.], [11., 11.], [0., 11.]].map(
+                                                    |[x, y]| qr_detect::map(&rune_transform, x, y),
+                                                ),
+                                                0.5,
+                                                c.support,
+                                            );
+                                            limited = true;
+                                            continue;
+                                        }
+                                    }
+                                    pending_rune = Some(Detection {
+                                        bytes: Some(read.bytes),
+                                        structured_append: read.structured_append,
+                                        reader_initialization: read.reader_initialization,
+                                        addon: None,
+                                        format: "Aztec".into(),
+                                        text: read.text,
+                                        polygon: [[0., 0.], [11., 0.], [11., 11.], [0., 11.]]
+                                            .map(|[x, y]| qr_detect::map(&rune_transform, x, y)),
+                                        support: c.support,
+                                        error: crate::numeric::usize_f32(read.corrected),
+                                        gs1: false,
+                                    });
+                                    if pending_rune.as_ref().is_some_and(|r| r.error == 0.) {
+                                        results.push(pending_rune.take().expect("accepted Rune"));
+                                        continue 'candidate;
+                                    }
+                                    break;
+                                }
                             }
                         }
                     }
@@ -626,10 +867,10 @@ pub fn detect(
                         }
                         let mode_grid = rotate(&mode_grid, 15, turn, mirror);
                         for compact in [true, false] {
-                            let Some(mode) = aztec::read_mode(&mode_grid, 15, compact) else {
+                            let Some(descriptor) = aztec::read_mode(&mode_grid, 15, compact) else {
                                 continue;
                             };
-                            let layers = mode.layers;
+                            let layers = descriptor.layers;
                             let base = layers * 4 + if compact { 11 } else { 14 };
                             let n = if compact {
                                 base
@@ -678,6 +919,25 @@ pub fn detect(
                                 });
                                 continue 'candidate;
                             }
+                            if n <= 63 && self.policy.gray_recovery {
+                                curves::retain(
+                                    &mut curve_seeds,
+                                    curves::Input {
+                                        gray,
+                                        width: w,
+                                        height: h,
+                                        mode,
+                                    },
+                                    curves::Grid {
+                                        t,
+                                        n,
+                                        turn,
+                                        mirror,
+                                        compact,
+                                        descriptor,
+                                    },
+                                );
+                            }
                             if !compact && n >= 35 {
                                 let score = reference_error(bits, w, h, &t, n);
                                 if score < 0.35 {
@@ -717,7 +977,181 @@ pub fn detect(
                     continue 'candidate;
                 }
             }
+            if let Some(read) = curves::recover(
+                curves::Input {
+                    gray,
+                    width: w,
+                    height: h,
+                    mode,
+                },
+                &curve_seeds,
+                c.support,
+                &mut self.curve_budget,
+                &mut self.bow_budget,
+                &mut self.adaptive_budget,
+                &mut limited,
+            ) {
+                results.push(read);
+                continue 'candidate;
+            }
+            if let Some(rune) = pending_rune {
+                results.push(rune);
+            } else if self.unresolved.len() < upscale::MAX_UNRESOLVED {
+                let fit = ring_fit(bits, w, h, &c);
+                self.unresolved.push((fit, c));
+            }
+        }
+        self.reads = results;
+        self.limited = limited;
+        self.refine_budget = refine_budget;
+    }
+    /// Additional thresholds reuse one histogram and skip unavailable splits.
+    pub fn contrast(
+        &mut self,
+        gray: &[u8],
+        w: usize,
+        h: usize,
+        regions: &mut crate::regions::Regions,
+    ) {
+        if !self.policy.contrast {
+            return;
+        }
+        let mut images = binarization::Images::new(gray, w, h);
+        for mode in [4, 6] {
+            let Some(cut) = images.foreground_cut(mode) else {
+                continue;
+            };
+            let candidates = centers_gray(gray, w, h, cut);
+            let unresolved = candidates.iter().any(|c| {
+                !self.reads.iter().any(|d| {
+                    let p = d
+                        .polygon
+                        .iter()
+                        .fold([0., 0.], |a, p| [a[0] + p[0] * 0.25, a[1] + p[1] * 0.25]);
+                    (p[0] - c.x).hypot(p[1] - c.y) < c.module * 3.
+                })
+            });
+            if !unresolved {
+                self.limited |= candidates.len() > 64;
+                continue;
+            }
+            let bits = images.get(mode);
+            self.threshold_candidates(
+                Threshold {
+                    bits,
+                    gray,
+                    width: w,
+                    height: h,
+                    mode,
+                },
+                regions,
+                &|_, row, out| crate::transition_offsets_into(row, out),
+                Some(candidates),
+            );
         }
     }
-    (results, limited)
+}
+/// Read Aztec symbols with the shared threshold images: the four base
+/// thresholds, then the policy's contrast retries and, for `effort` above 0, the
+/// enlarged retry of [`Search::upscaled`].
+pub fn detect(
+    w: usize,
+    h: usize,
+    regions: &mut crate::regions::Regions,
+    gray: &[u8],
+    images: &mut binarization::Images<'_>,
+    policy: Policy,
+    effort: usize,
+) -> (Vec<Detection>, bool) {
+    let mut search = Search::new(policy);
+    for mode in 0..4 {
+        if images.is_duplicate(mode) {
+            continue;
+        }
+        let (bits, rows) = images.get_with_runs(mode, (h / 600).max(1));
+        search.threshold(
+            Threshold {
+                bits,
+                gray,
+                width: w,
+                height: h,
+                mode,
+            },
+            regions,
+            &|y, row, out| rows.copy_or_extract(y, row, out),
+        );
+    }
+    search.contrast(gray, w, h, regions);
+    search.upscaled(gray, w, h, effort);
+    (search.reads, search.limited)
+}
+
+/// Native diagnostic only; exposes the actual production bullseye proposals.
+#[cfg(not(target_arch = "wasm32"))]
+#[must_use]
+pub fn diagnostic_centers(bits: &[bool], w: usize, h: usize) -> serde_json::Value {
+    serde_json::Value::Array(
+        centers_with_rows(bits, w, h, &|_, row, out| {
+            crate::transition_offsets_into(row, out);
+        })
+        .iter()
+        .map(|c| serde_json::json!({"x":c.x,"y":c.y,"module":c.module,"support":c.support}))
+        .collect(),
+    )
+}
+
+#[cfg(test)]
+mod lazy_threshold_tests {
+    use super::*;
+    fn compare(gray: &[u8], w: usize, h: usize, cut: u8) -> usize {
+        let bits: Vec<_> = gray.iter().map(|&v| v <= cut).collect();
+        let eager = centers_with_rows(&bits, w, h, &|_, row, out| {
+            crate::transition_offsets_into(row, out);
+        });
+        let lazy = centers_gray(gray, w, h, cut);
+        let values = |v: Vec<Center>| {
+            v.into_iter()
+                .map(|c| (c.x, c.y, c.module, c.support))
+                .collect::<Vec<_>>()
+        };
+        let count = eager.len();
+        assert_eq!(values(eager), values(lazy));
+        count
+    }
+    #[test]
+    fn lazy_threshold_preserves_bullseyes_and_exact_cluster_order() {
+        let (w, h) = (147, 123);
+        for scale in [1_usize, 2, 3, 5] {
+            let mut gray = vec![240_u8; w * h];
+            for [cx, cy] in [[29_usize, 29], [105, 85]] {
+                for y in cy - 5 * scale..=cy + 5 * scale {
+                    for x in cx - 5 * scale..=cx + 5 * scale {
+                        let r = x.abs_diff(cx).max(y.abs_diff(cy)) / scale;
+                        gray[y * w + x] = if r <= 4 && r % 2 == 0 { 32 } else { 160 };
+                    }
+                }
+            }
+            for cut in [0, 31, 32, 80, 159, 160, 239, 240, 255] {
+                let count = compare(&gray, w, h, cut);
+                if cut == 80 {
+                    assert!(count >= 2, "two bullseye proposals at scale {scale}");
+                }
+            }
+        }
+    }
+    #[test]
+    fn lazy_threshold_preserves_dense_noise_and_sparse_row_schedules() {
+        let mut seed = 123_456_u32;
+        for (w, h) in [(1, 1), (3, 9), (97, 121), (129, 1204)] {
+            let gray: Vec<_> = (0..w * h)
+                .map(|_| {
+                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    seed.to_le_bytes()[3]
+                })
+                .collect();
+            for cut in [0, 17, 80, 128, 209, 255] {
+                compare(&gray, w, h, cut);
+            }
+        }
+    }
 }

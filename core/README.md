@@ -16,11 +16,13 @@ public scanner, see [the architecture overview](../docs/ARCHITECTURE.md).
 
 ## Stage boundaries
 
-- `aztec_frontend` owns Medium/High/Very High Aztec finder recovery, bounded
-  source-gray refinement and sampling, and Rune confirmation. Its payload
-  decoder reuses immutable error-correction fields. The facade's
-  `matrix_frontend` shares the original threshold images and row runs with
-  Data Matrix, PDF417 and Aztec; QR and MaxiCode are separate reader groups.
+- Aztec has one reader, `multiformat/src/aztec_detect.rs` (bullseye localization,
+  bounded source-gray refinement and sampling, Rune confirmation and the enlarged
+  retry) with the decoder `multiformat/src/aztec.rs`. The facade's
+  `matrix_frontend` runs it under `Policy::for_mode` (Low has smaller budgets and
+  no bowed or adaptive sampling), sharing the original threshold images and row
+  runs with Data Matrix and PDF417; QR and MaxiCode are separate reader groups.
+  The multi-format scan runs it under `Policy::MULTIFORMAT`, on threshold images only.
 
 - `qr_frontend` runs the QR-only reader: the multiformat QR detector
   (`multiformat/src/qr_detect.rs`) under this mode's `Policy`, then bounded

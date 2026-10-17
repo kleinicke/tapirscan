@@ -1,5 +1,23 @@
 //! Independent Aztec compact/full matrix decoder, including mode-message ECC.
 use crate::{qr::Payload, reed_binary::Field};
+// Every field is immutable after construction. Reuse exactly the pinned tables;
+// syndrome arithmetic and correction limits remain unchanged.
+fn field(bits: usize, poly: usize) -> &'static Field {
+    static F4: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
+    static F6: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
+    static F8: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
+    static F10: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
+    static F12: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
+    let cache = match (bits, poly) {
+        (4, 0x13) => &F4,
+        (6, 0x43) => &F6,
+        (8, 0x12d) => &F8,
+        (10, 0x409) => &F10,
+        (12, 0x1069) => &F12,
+        _ => unreachable!("fixed Aztec fields"),
+    };
+    cache.get_or_init(|| Field::new(bits, poly))
+}
 fn value(bits: &[bool]) -> u16 {
     bits.iter().fold(0, |v, &b| (v << 1) | u16::from(b))
 }
@@ -111,7 +129,7 @@ pub fn decode_rune(matrix: &[bool], n: usize) -> Option<Payload> {
     for word in &mut words {
         *word ^= 0xA;
     }
-    let corrected = Field::new(4, 0x13).correct(&mut words, 5, 1)?;
+    let corrected = field(4, 0x13).correct(&mut words, 5, 1)?;
     let value = (words[0] << 4) | words[1];
     let text = format!("{value:03}");
     Some(Payload {
@@ -123,6 +141,7 @@ pub fn decode_rune(matrix: &[bool], n: usize) -> Option<Payload> {
         gs1: false,
     })
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Mode {
     pub layers: usize,
     pub data_words: usize,
@@ -130,10 +149,12 @@ pub struct Mode {
 }
 #[must_use]
 pub fn read_mode(matrix: &[bool], n: usize, compact: bool) -> Option<Mode> {
-    let mut words = mode_words(matrix, n, compact)?;
+    mode_from_words(mode_words(matrix, n, compact)?, compact)
+}
+fn mode_from_words(mut words: Vec<u16>, compact: bool) -> Option<Mode> {
     let data = if compact { 2 } else { 4 };
     let length = words.len();
-    Field::new(4, 0x13).correct(&mut words, length - data, 1)?;
+    field(4, 0x13).correct(&mut words, length - data, 1)?;
     let info = words[..data]
         .iter()
         .fold(0usize, |v, &b| (v << 4) | b as usize);
@@ -164,7 +185,32 @@ pub fn read_mode(matrix: &[bool], n: usize, compact: bool) -> Option<Mode> {
         reader_initialization,
     })
 }
+#[must_use]
 pub fn decode_matrix(matrix: &[bool], n: usize) -> Option<Payload> {
+    decode_matrix_impl(matrix, n, None)
+}
+/// Recovery must preserve the separately decoded symbol configuration.
+/// Compact and full symbols can share a size, so dimension agreement alone is insufficient.
+pub(crate) fn decode_consistent(
+    matrix: &[bool],
+    n: usize,
+    compact: bool,
+    mode: &Mode,
+) -> Option<Payload> {
+    decode_matrix_impl(matrix, n, Some((compact, mode)))
+}
+fn symbol_dimension(base: usize, compact: bool) -> usize {
+    if compact {
+        base
+    } else {
+        base + 1 + 2 * ((base / 2 - 1) / 15)
+    }
+}
+fn decode_matrix_impl(
+    matrix: &[bool],
+    n: usize,
+    expected: Option<(bool, &Mode)>,
+) -> Option<Payload> {
     if n == 11 {
         return decode_rune(matrix, n);
     }
@@ -172,18 +218,19 @@ pub fn decode_matrix(matrix: &[bool], n: usize) -> Option<Payload> {
         return None;
     }
     for compact in [true, false] {
+        if expected.is_some_and(|(wanted, _)| wanted != compact) {
+            continue;
+        }
         let Some(mode) = read_mode(matrix, n, compact) else {
             continue;
         };
+        if expected.is_some_and(|(_, wanted)| *wanted != mode) {
+            continue;
+        }
         let layers = mode.layers;
         let data_words = mode.data_words;
         let base = layers * 4 + if compact { 11 } else { 14 };
-        let expected = if compact {
-            base
-        } else {
-            base + 1 + 2 * ((base / 2 - 1) / 15)
-        };
-        if expected != n {
+        if symbol_dimension(base, compact) != n {
             continue;
         }
         let map: Vec<usize> = if compact {
@@ -227,7 +274,7 @@ pub fn decode_matrix(matrix: &[bool], n: usize) -> Option<Payload> {
             continue;
         }
         let ecc = words.len() - data_words;
-        let Some(corrected) = Field::new(word_bits, poly).correct(&mut words, ecc, 1) else {
+        let Some(corrected) = field(word_bits, poly).correct(&mut words, ecc, 1) else {
             continue;
         };
         let max = (1u16 << word_bits) - 1;
@@ -484,5 +531,117 @@ mod tests {
             })
         );
         assert!(parse(&bits(&[(29, 5), (29, 5), (27, 5), (3, 5), (2, 5)])).is_none());
+    }
+}
+
+#[cfg(test)]
+mod field_cache_tests {
+    use super::*;
+    #[test]
+    fn cached_fields_match_fresh_correction_and_remain_immutable() {
+        let mut seed = 73491_u32;
+        for (bits, poly) in [(4, 0x13), (6, 0x43), (8, 0x12d), (10, 0x409), (12, 0x1069)] {
+            let size = (1_usize << bits) - 1;
+            for trial in 0..30 {
+                let n = size.min(31);
+                let ecc = (n / 3).max(2);
+                let mut code = vec![0_u16; n];
+                for word in code.iter_mut().take(trial % 6) {
+                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    *word = u16::try_from(usize::try_from(seed).expect("u32 fits usize") % size)
+                        .expect("Aztec field word");
+                }
+                let mut fresh = code.clone();
+                let mut cached = code.clone();
+                let expected = Field::new(bits, poly).correct(&mut fresh, ecc, 1);
+                assert_eq!(expected, field(bits, poly).correct(&mut cached, ecc, 1));
+                assert_eq!(fresh, cached);
+                let mut repeated = code;
+                assert_eq!(expected, field(bits, poly).correct(&mut repeated, ecc, 1));
+                assert_eq!(fresh, repeated);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod mode_consistency_tests {
+    use super::*;
+    fn fixture() -> (Vec<bool>, usize) {
+        let rows = [
+            "010001010000110101101000011",
+            "110011100100001001101011100",
+            "010010101101000011110111101",
+            "001001001101011100000001101",
+            "001010001110111000110110000",
+            "000100100111110010011110001",
+            "101000010111101011100010101",
+            "100001111011101011100110011",
+            "010000101111101110101111011",
+            "100110001111111111111010000",
+            "000011101100000001111111000",
+            "001011011101111101100100101",
+            "010000001101000101010000000",
+            "001010010101010101001110010",
+            "100111000101000101110000000",
+            "000000010101111101101001110",
+            "100000110100000001101000001",
+            "010101110111111111101001000",
+            "001110000000111100000001000",
+            "001101011110110000001010000",
+            "010101000010111100101110011",
+            "110011011101010111010100100",
+            "110111111001001010011010110",
+            "011110000101101011000011110",
+            "000000111010110010000100000",
+            "111100001011010110000101000",
+            "000001110101100100001001101",
+        ];
+        let n = rows.len();
+        let bits: Vec<_> = rows
+            .iter()
+            .flat_map(|row| row.bytes().map(|b| b == b'1'))
+            .collect();
+        (bits, n)
+    }
+    #[test]
+    fn recovery_requires_the_independently_decoded_mode() {
+        // Independently generated with ZXing-C++ write_barcode, quiet_zone=0.
+        let (bits, n) = fixture();
+        let ordinary = decode_matrix(&bits, n).expect("valid independently encoded fixture");
+        assert_eq!(
+            ordinary.text,
+            "MODE-CONSISTENCY-MODE-CONSISTENCY-MODE-CONSISTENCY-MODE-CONSISTENCY-"
+        );
+        let (compact, mode) = [true, false]
+            .into_iter()
+            .find_map(|compact| {
+                let mode = read_mode(&bits, n, compact)?;
+                decode_consistent(&bits, n, compact, &mode).map(|_| (compact, mode))
+            })
+            .expect("valid mode");
+        assert_eq!(
+            decode_consistent(&bits, n, compact, &mode)
+                .expect("consistent mode")
+                .bytes,
+            ordinary.bytes
+        );
+        assert!(decode_consistent(&bits, n, !compact, &mode).is_none());
+        for wrong in [
+            Mode {
+                layers: mode.layers + 1,
+                ..mode
+            },
+            Mode {
+                data_words: mode.data_words + 1,
+                ..mode
+            },
+            Mode {
+                reader_initialization: !mode.reader_initialization,
+                ..mode
+            },
+        ] {
+            assert!(decode_consistent(&bits, n, compact, &wrong).is_none());
+        }
     }
 }
