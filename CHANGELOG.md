@@ -8,11 +8,11 @@
   read no longer stops it) and, with retail selected, on frames above 1536 pixels. On a
   20-megapixel sheet of eleven labels, Medium read ten of them with Code 128 alone and none
   with PDF417, retail, `common` or `all`; it now reads ten with each. On frames whose
-  shorter side exceeds 1536 pixels, one Code 128 read also takes the stripe boxes, since
-  label sheets carry many such fields (High localizes those frames again at half scale).
-  On the 1,578 development images, Medium Code 128 reads rise from 1,135 to 1,236 with all
-  formats (High reads 1,238), with no new wrong reads; Chrome cost is unchanged within 1%,
-  and 1.4% higher on the PDF417 label sheets that gain the reads.
+  shorter side exceeds 1536 pixels, one Code 128 read also takes the stripe boxes (in
+  Medium and above), since label sheets carry many such fields. On the 1,578 development
+  images, Code 128 reads with all formats rise from 1,135 to 1,236 in Medium and from 1,238
+  to 1,243 in High, with no new wrong reads; Chrome cost is unchanged within 1%, and 1–1.4%
+  higher on the PDF417 label sheets that gain the reads.
 - High and Very High no longer run the stripe localizer on retail scans of frames that
   are not tiny: they box symbols by segment voting and never used its short-fragment
   hints. Reads are identical; High is about 8% faster on retail photos, 5% with all 1D
