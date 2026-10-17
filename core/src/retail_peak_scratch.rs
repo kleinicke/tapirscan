@@ -84,7 +84,7 @@ impl Scratch {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::retail_pipeline::peaks;
+    use barcode_multiformat::retail_profile as peaks;
     #[test]
     fn identical_runs_to_frozen_peak_recipe() {
         let mut scratch = Scratch::default();

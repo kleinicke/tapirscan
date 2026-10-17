@@ -1,7 +1,9 @@
 //! Local peak/valley crossings preserve narrow retail bars lost by a whole-row
 //! threshold under blur. Guards, digit ambiguity, checksum and multi-row support
 //! are still checked by the retail reader.
-pub(crate) fn runs(row: &[u8]) -> (Vec<bool>, Vec<f32>, Vec<usize>) {
+/// Bar colors, run widths and run start offsets of `row` from local crossings.
+#[must_use]
+pub fn runs(row: &[u8]) -> (Vec<bool>, Vec<f32>, Vec<usize>) {
     if row.is_empty() {
         return (vec![], vec![], vec![0]);
     }
@@ -72,7 +74,13 @@ pub(crate) fn runs(row: &[u8]) -> (Vec<bool>, Vec<f32>, Vec<usize>) {
     )
 }
 
-pub(crate) fn sharpen_row(row: &[u8]) -> Vec<u8> {
+/// `row` sharpened with an exact integer unsharp mask.
+///
+/// # Panics
+///
+/// Never: each output is clamped to a byte before conversion.
+#[must_use]
+pub fn sharpen_row(row: &[u8]) -> Vec<u8> {
     let mut output = Vec::with_capacity(row.len());
     let sharpen = |a: u8, b: u8, c: u8, d: u8, e: u8| {
         let numerator =

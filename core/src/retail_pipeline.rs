@@ -26,8 +26,7 @@ mod protection;
 const PROTECT: bool = true;
 #[path = "retail_peak_scratch.rs"]
 mod peak_scratch;
-#[path = "retail_peaks.rs"]
-mod peaks;
+use barcode_multiformat::retail_profile as peaks;
 #[path = "retail_roi.rs"]
 mod roi;
 #[cfg(feature = "mode-low")]

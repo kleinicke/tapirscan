@@ -30,7 +30,7 @@ pub mod reed_prime;
 pub mod reed_solomon;
 pub mod regions;
 mod retail_gray;
-mod retail_profile;
+pub mod retail_profile;
 use formats::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE};
 use serde::Serialize;
 
