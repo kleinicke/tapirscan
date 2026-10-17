@@ -181,11 +181,9 @@ impl Scanner {
                     )?;
                     if crate::MODE_ID == 1 && mask == 16384 {
                         self.localizer.detect_sparse(im, 768.)?.proposals
-                    } else if crate::MODE_ID == 1 {
+                    } else {
                         // Low's segment-voting boxes, which follow rotated and warped bars.
                         crate::pipeline::segment_voting::localize(image).proposals
-                    } else {
-                        self.localizer.detect(im)?.proposals
                     }
                 };
                 // A broad mask can turn a short UPC-E interpretation of EAN-13 into a
@@ -219,31 +217,10 @@ impl Scanner {
                     found.extend(extra);
                     pending.extend(regions);
                 }
-                // Warped symbols that Low reads from its segment-voting boxes (DataBar
-                // Expanded, ITF, Code 93), tried in High and Very High when no retail format is
-                // selected and stripe boxes were found but none read. Whole-frame voting would
-                // cost Medium about 40% on single-format selections.
-                if cfg!(any(feature = "high", feature = "very-high"))
-                    && primary.is_none()
-                    && oriented_mask != 0
-                    && reads.is_empty()
-                    && found.is_empty()
-                    && !pending.is_empty()
-                {
-                    let voted = crate::pipeline::segment_voting::localize(image).proposals;
-                    let (extra, regions) = crate::fast_linear::recover_proposals(
-                        image,
-                        &voted,
-                        oriented_mask,
-                        sampler,
-                    )?;
-                    found.extend(extra);
-                    pending.extend(regions);
-                }
                 // Retail boxes span the full bar height; rows near their edges can keep
                 // checksum-free formats below their row support. Decode the central band of
                 // unread boxes, which stripe localization would have proposed on its own.
-                if (primary.is_some() || crate::MODE_ID == 1) && oriented_mask & 0x01F0 != 0 {
+                if oriented_mask & 0x01F0 != 0 {
                     let cores: Vec<_> = proposals
                         .iter()
                         .filter(|p| {
@@ -268,10 +245,10 @@ impl Scanner {
                         found.extend(extra);
                     }
                 }
-                // Medium localizes these selections by segment voting; frames it reads nothing
-                // on fall back to the stripe boxes, which keep thin and partial symbols.
-                if crate::MODE_ID == 1
-                    && primary.is_none()
+                // Without retail, these selections are localized by segment voting; frames it
+                // reads nothing on fall back to the stripe boxes, which keep thin and partial
+                // symbols (sparse search in Medium, full search from High up).
+                if primary.is_none()
                     && mask != 16384
                     && oriented_mask != 0
                     && reads.is_empty()
@@ -284,7 +261,11 @@ impl Scanner {
                         image.channels,
                         image.stride,
                     )?;
-                    let stripes = self.localizer.detect_sparse(im, 768.)?.proposals;
+                    let stripes = if crate::MODE_ID == 1 {
+                        self.localizer.detect_sparse(im, 768.)?.proposals
+                    } else {
+                        self.localizer.detect(im)?.proposals
+                    };
                     let (extra, regions) = crate::fast_linear::recover_proposals(
                         image,
                         &stripes,

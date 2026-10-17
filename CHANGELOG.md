@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- Medium localizes linear selections without retail formats (Code 128, Code 39, ITF,
-  Codabar, Code 93, DataBar) by segment voting, as Low does, and decodes the central band
-  of unread boxes; only frames that read nothing fall back to the sparse stripe search.
+- Medium, High and Very High localize linear selections without retail formats (Code 128,
+  Code 39, ITF, Codabar, Code 93, DataBar) by segment voting, as Low does, and decodes the central band
+  of unread boxes; only frames that read nothing fall back to the stripe search (sparse in
+  Medium, full from High up). High is up to 18% faster on these selections and reads ITF,
+  Code 93, Code 128 and Code 39 a little more often.
   It is 25 to 45% faster on those selections in Chrome and reads more of the 340
   variation images per format selected alone: ITF 203 instead of 181, Code 93 311
   instead of 291, Code 128 75 instead of 64, Code 39 48 instead of 43, Codabar 338
