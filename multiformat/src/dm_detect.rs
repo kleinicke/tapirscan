@@ -1324,21 +1324,7 @@ pub fn detect(
     refine: bool,
     mode: usize,
 ) -> (Vec<Detection>, bool) {
-    let mode = mode.min(2);
-    detect_with_retries(
-        w,
-        h,
-        regions,
-        binary_images,
-        refine,
-        Retries {
-            gray: GRAY_ATTEMPTS[mode],
-            region_grids: mode >= 2,
-            crops: CROP_RETRIES[mode],
-            candidates: RETRY_CANDIDATES[mode],
-            ranked: RANKED_CANDIDATES[mode],
-        },
-    )
+    detect_with_retries(w, h, regions, binary_images, refine, mode_retries(mode))
 }
 /// Limits of the retries of one frame.
 #[derive(Clone, Copy)]
@@ -1357,13 +1343,36 @@ struct Retries {
     /// than bare L borders, so only a short list is ranked.
     ranked: bool,
 }
-/// Retry limits per frame for Low, Medium and High (and Very High). Medium retries only
-/// its four best-ranked candidates; Low and High retry the first 64 unranked, because
-/// ranking costs more than it finds there.
-const GRAY_ATTEMPTS: [usize; 3] = [3, 3, 6];
-const CROP_RETRIES: [usize; 3] = [1, 1, 2];
-const RETRY_CANDIDATES: [usize; 3] = [64, 4, 64];
-const RANKED_CANDIDATES: [bool; 3] = [false, true, false];
+/// Retry limits per frame for Low, Medium and High; modes beyond the table (Very High)
+/// use its last entry. Medium retries only its four best-ranked candidates; Low and
+/// High retry the first 64 unranked, because ranking costs more than it finds there.
+const MODE_RETRIES: [Retries; 3] = [
+    Retries {
+        gray: 3,
+        region_grids: false,
+        crops: 1,
+        candidates: 64,
+        ranked: false,
+    },
+    Retries {
+        gray: 3,
+        region_grids: false,
+        crops: 1,
+        candidates: 4,
+        ranked: true,
+    },
+    Retries {
+        gray: 6,
+        region_grids: true,
+        crops: 2,
+        candidates: 64,
+        ranked: false,
+    },
+];
+/// The retry limits of a scanner `mode`.
+fn mode_retries(mode: usize) -> Retries {
+    MODE_RETRIES[mode.min(MODE_RETRIES.len() - 1)]
+}
 /// Sizes per candidate that the grayscale refinement tries.
 const GRAY_SIZES_PER_CANDIDATE: usize = 2;
 /// The detection on a crop retries only a little itself and never crops again.

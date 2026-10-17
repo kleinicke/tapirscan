@@ -127,14 +127,41 @@ const SPARE: usize = 8;
 /// Check codewords a decode with erasures must leave unused: spending every
 /// check codeword on erasures leaves nothing to confirm the result.
 const MIN_SPARE: usize = 2;
-/// Most proposals per scan that get the costlier column-count re-read, for Low, Medium and
-/// High (and Very High): about one read per dense sheet, at a tenth of a second there.
-const MAX_TOLERANT: [usize; 3] = [0, 0, 48];
-/// Most proposals per scan that get the template-matched re-read, same modes.
-const MAX_GRID: [usize; 3] = [0, 0, 24];
-/// Most proposals per scan touching the image border that get the re-read once the
-/// budget above is spent.
-const MAX_BORDER: [usize; 3] = [2, 2, 8];
+/// Per-scan re-read budgets for the localized proposals of one scanner mode.
+#[derive(Clone, Copy)]
+struct ProposalRereads {
+    /// Most proposals that get the costlier column-count re-read: about one read per
+    /// dense sheet, at a tenth of a second there.
+    tolerant: usize,
+    /// Most proposals that get the template-matched re-read.
+    grid: usize,
+    /// Most proposals touching the image border that get the column-count re-read
+    /// once the tolerant budget is spent.
+    border: usize,
+}
+/// Re-read budgets for Low, Medium and High; modes beyond the table (Very High) use
+/// its last entry.
+const MODE_REREADS: [ProposalRereads; 3] = [
+    ProposalRereads {
+        tolerant: 0,
+        grid: 0,
+        border: 2,
+    },
+    ProposalRereads {
+        tolerant: 0,
+        grid: 0,
+        border: 2,
+    },
+    ProposalRereads {
+        tolerant: 48,
+        grid: 24,
+        border: 8,
+    },
+];
+/// The re-read budgets of a scanner `mode`.
+fn mode_rereads(mode: usize) -> ProposalRereads {
+    MODE_REREADS[mode.min(MODE_REREADS.len() - 1)]
+}
 /// Cells a symbol that runs to the image border may lose before its row is still read.
 const MAX_CLIPPED: usize = 2;
 /// Marks a codeword value chosen by nearest-pattern search rather than exact match.
@@ -1087,6 +1114,7 @@ pub fn detect(
     }
     let (proposals, capped) = crate::pdf_localize::proposals(gray, w, h);
     limited |= capped;
+    let rereads = mode_rereads(mode);
     let mut tolerant_attempts = 0;
     let mut border_attempts = 0;
     let mut grid_attempts = 0;
@@ -1108,10 +1136,9 @@ pub fn detect(
         limited |= capped || crop_regions.limited;
         // A symbol cut by the image border has no end bar or stop pattern for
         // the strict reader: such crops get the re-read in every mode.
-        let tolerant = tolerant_attempts < MAX_TOLERANT[mode.min(2)];
+        let tolerant = tolerant_attempts < rereads.tolerant;
         if found.is_empty()
-            && (tolerant
-                || touches_border(&polygon, w, h) && border_attempts < MAX_BORDER[mode.min(2)])
+            && (tolerant || touches_border(&polygon, w, h) && border_attempts < rereads.border)
             && let Some(columns) = crop_columns(&pixels, width, height)
         {
             if tolerant {
@@ -1132,7 +1159,7 @@ pub fn detect(
             limited |= capped;
             found = reread;
         }
-        if found.is_empty() && grid_attempts < MAX_GRID[mode.min(2)] {
+        if found.is_empty() && grid_attempts < rereads.grid {
             grid_attempts += 1;
             found = grid::read(&pixels, width, height);
         }
