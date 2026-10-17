@@ -132,6 +132,11 @@ const MIN_SPARE: usize = 2;
 const MAX_TOLERANT: [usize; 3] = [0, 0, 48];
 /// Most proposals per scan that get the template-matched re-read, same modes.
 const MAX_GRID: [usize; 3] = [0, 0, 24];
+/// Most proposals per scan touching the image border that get the re-read once the
+/// budget above is spent.
+const MAX_BORDER: [usize; 3] = [2, 2, 8];
+/// Cells a symbol that runs to the image border may lose before its row is still read.
+const MAX_CLIPPED: usize = 2;
 /// Marks a codeword value chosen by nearest-pattern search rather than exact match.
 const GUESS: usize = 1024;
 fn nearest_symbol(r: &[f32], cluster: usize) -> Option<usize> {
@@ -253,6 +258,47 @@ fn read_row(bits: &[bool], gray: &[u8], reversed: bool, y: f32) -> Vec<Row> {
     let mut refined = Vec::new();
     read_row_reuse(bits, gray, reversed, y, None, &mut offsets, &mut refined)
 }
+/// A symbol cut by the image border loses its last cells, right indicator and
+/// stop pattern: with the column count known, a row that shows all but a few of
+/// its cells is kept, the missing cells as erasures.
+fn clipped_row(
+    r: &[f32],
+    mut at: usize,
+    (left, cluster): (usize, usize),
+    count: usize,
+    mut values: Vec<Option<(usize, usize)>>,
+    ((x0, x1), y): ((usize, usize), f32),
+) -> Option<Row> {
+    if values.len() >= count || count - values.len() > MAX_CLIPPED {
+        return None;
+    }
+    while values.len() < count {
+        let cell = if at + 8 <= r.len() {
+            symbol(&r[at..])
+                .or_else(|| nearest_symbol(&r[at..], cluster).map(|v| (v + GUESS, cluster)))
+        } else {
+            None
+        };
+        values.push(cell);
+        at += 8;
+    }
+    Some(Row {
+        left: Some(left),
+        right: None,
+        cluster,
+        values: values
+            .iter()
+            .map(|v| v.and_then(|(value, c)| (c == cluster).then_some(value)))
+            .collect(),
+        x0: crate::numeric::usize_f32(x0),
+        x1: crate::numeric::usize_f32(x1),
+        y,
+    })
+}
+#[expect(
+    clippy::too_many_lines,
+    reason = "Row traversal keeps the guard walk, cell reads and the three row endings (stop pattern, Compact bar, image border) in one pass over the shared run state."
+)]
 fn read_row_reuse(
     bits: &[bool],
     gray: &[u8],
@@ -356,6 +402,19 @@ fn read_row_reuse(
                 });
             }
             at += 8;
+        }
+        if let (Some(count), Some((left, cluster))) = (columns, left_symbol)
+            && at + 9 > r.len()
+        {
+            let extent = (offsets[s], offsets[offsets.len() - 1]);
+            out.extend(clipped_row(
+                r,
+                at,
+                (left, cluster),
+                count,
+                values,
+                (extent, y),
+            ));
         }
         s += 2;
     }
@@ -970,8 +1029,22 @@ fn crop_columns(gray: &[u8], w: usize, h: usize) -> Option<usize> {
     let (best, &count) = votes.iter().enumerate().max_by_key(|(_, count)| **count)?;
     (count >= 3 && count * 2 > votes.iter().sum::<usize>()).then_some(best + 1)
 }
+/// Whether a quadrilateral reaches within a few pixels of the image border.
+fn touches_border(polygon: &[[f32; 2]; 4], w: usize, h: usize) -> bool {
+    let margin = 8.;
+    polygon.iter().any(|p| {
+        p[0] < margin
+            || p[1] < margin
+            || p[0] > crate::numeric::usize_f32(w) - margin
+            || p[1] > crate::numeric::usize_f32(h) - margin
+    })
+}
 /// Whole-image rows plus guard-guided rectification at arbitrary in-plane angles, with the
 /// retry limits of a scanner `mode` (0 Low, 1 Medium, 2 High, 3 Very High).
+#[expect(
+    clippy::too_many_lines,
+    reason = "Whole-image rows, dense retry and the per-proposal rereads share the result list and work-limit flags."
+)]
 pub fn detect(
     gray: &[u8],
     w: usize,
@@ -1015,6 +1088,7 @@ pub fn detect(
     let (proposals, capped) = crate::pdf_localize::proposals(gray, w, h);
     limited |= capped;
     let mut tolerant_attempts = 0;
+    let mut border_attempts = 0;
     let mut grid_attempts = 0;
     for (polygon, support) in proposals {
         if results
@@ -1032,14 +1106,22 @@ pub fn detect(
         let mut crop_regions = crate::regions::Regions::default();
         let (mut found, capped) = detect_axes(&pixels, width, height, &mut crop_regions, 500, None);
         limited |= capped || crop_regions.limited;
+        // A symbol cut by the image border has no end bar or stop pattern for
+        // the strict reader: such crops get the re-read in every mode.
+        let tolerant = tolerant_attempts < MAX_TOLERANT[mode.min(2)];
         if found.is_empty()
-            && tolerant_attempts < MAX_TOLERANT[mode.min(2)]
+            && (tolerant
+                || touches_border(&polygon, w, h) && border_attempts < MAX_BORDER[mode.min(2)])
             && let Some(columns) = crop_columns(&pixels, width, height)
         {
-            tolerant_attempts += 1;
+            if tolerant {
+                tolerant_attempts += 1;
+            } else {
+                border_attempts += 1;
+            }
             // The guards localized a symbol the strict row reader could not
             // finish: read each row for the column count its indicators give.
-            let (tolerant, capped) = detect_axes(
+            let (reread, capped) = detect_axes(
                 &pixels,
                 width,
                 height,
@@ -1048,7 +1130,7 @@ pub fn detect(
                 Some(columns),
             );
             limited |= capped;
-            found = tolerant;
+            found = reread;
         }
         if found.is_empty() && grid_attempts < MAX_GRID[mode.min(2)] {
             grid_attempts += 1;
@@ -1124,6 +1206,25 @@ mod tests {
             out[index] += 1.;
         }
         out
+    }
+
+    #[test]
+    fn a_row_cut_by_the_image_border_keeps_its_visible_cells() {
+        // Cluster 0 values 7 and 300 are visible; the last of four cells is cut off.
+        let shown: Vec<f32> = [7, 300]
+            .iter()
+            .flat_map(|&value| widths(CODES[0][value]))
+            .collect();
+        let known = vec![Some((5, 0)), Some((7, 0))];
+        let row = clipped_row(&shown, 8, (3, 0), 4, known.clone(), ((1, 90), 4.))
+            .expect("one missing cell is within the limit");
+        assert_eq!(row.values, [Some(5), Some(7), Some(300), None]);
+        assert_eq!((row.left, row.right, row.y), (Some(3), None, 4.));
+        // Cells that are no longer visible at all stay erasures, up to the limit.
+        let row = clipped_row(&shown[..8], 8, (3, 0), 4, known.clone(), ((1, 90), 4.))
+            .expect("two missing cells are within the limit");
+        assert_eq!(row.values, [Some(5), Some(7), None, None]);
+        assert!(clipped_row(&[], 0, (3, 0), 5, known, ((1, 90), 4.)).is_none());
     }
 
     #[test]

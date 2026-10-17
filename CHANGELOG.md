@@ -77,15 +77,18 @@
   print gain, so perspective and blurred photos rectify; a start guard without a matched
   stop guard also proposes the full-symbol width, a second walk along the guard bar proposes
   taller crops, and the proposal cap rises from 24 to 96 (sheets of 12 or more labels).
-  Decodes with erasures must leave two check codewords unused. In High and Very High, a
+  Decodes with erasures must leave two check codewords unused. A symbol cut off at the image
+  border is re-read for the column count its row indicators give, with the one or two
+  clipped cells of each row as erasures (in Low and Medium for up to two proposals at the
+  border). In High and Very High, a
   localized symbol the strict row reader cannot finish is re-read for the column count its
   row indicators give, with nearest-codeword guesses (guessed groups keep 8 check codewords
   unused), and then matched cell by cell against blurred codeword templates, so a symbol
   with error-correction level 0 to 2 must decode without corrections. On zxing-cpp's
   60-file PDF417 sample set, 44 become 55 in every mode (zxing-cpp reads 60). On the 1,578
-  development images, PDF417 reads rise from 383 to 468 in Low and Medium and to 504 in
+  development images, PDF417 reads rise from 383 to 471 in Low and Medium and to 507 in
   High, with no new wrong reads. In Chrome with all formats, frames with PDF417 cost about
-  6% more in Low, 3% in Medium and 8% in High; other frames cost the same.
+  7% more in Low, 4% in Medium and 9% in High; other frames cost the same.
 - QR costs less in Low and Medium with identical Medium reads. Medium tries at most 25
   alignment-pattern searches per threshold pass (was 150), which false finder triples on
   textured photos used up; Low searches only where an affine fit from the three finders

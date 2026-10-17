@@ -304,14 +304,16 @@ fn match_cell(
     origin: f32,
     offsets: &[isize],
     clusters: std::ops::Range<usize>,
-) -> Option<(f32, usize, usize)> {
+) -> Option<(f32, usize, usize, isize)> {
     let quarter = numeric::f32_isize((origin * 4.).round());
     offsets
         .iter()
-        .filter_map(|offset| {
+        .filter_map(|&offset| {
             let at = quarter + offset;
             let set = bank.get(usize::try_from(at.rem_euclid(4)).unwrap_or(0));
-            set.best(line, at.div_euclid(4) + set.first, clusters.clone())
+            let (error, cluster, value) =
+                set.best(line, at.div_euclid(4) + set.first, clusters.clone())?;
+            Some((error, cluster, value, offset))
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
 }
@@ -329,14 +331,18 @@ fn read_line(
     let cells = layout.columns + 1 + usize::from(layout.full);
     let mut values = Vec::with_capacity(cells);
     let mut total = 0.;
+    // Each cell is found where the one before it was, so a grid that drifts
+    // from the straight-edge model is followed.
+    let mut shift = 0.;
     for cell in 0..cells {
-        let (error, _, value) = match_cell(
+        let (error, _, value, offset) = match_cell(
             bank,
             line,
-            layout.origin(y, cell),
+            layout.origin(y, cell) + shift,
             offsets,
             cluster..cluster + 1,
         )?;
+        shift += numeric::isize_f32(offset) / 4.;
         values.push(value);
         total += error;
     }
@@ -350,7 +356,10 @@ fn read_lines(lines: &[Scanline], layout: &Layout, module: f32) -> Vec<Row> {
     let first: Vec<Option<(f32, usize, usize)>> = lines
         .iter()
         .enumerate()
-        .map(|(y, line)| match_cell(&bank, &line.pixels, layout.origin(y, 0), &[0], 0..3))
+        .map(|(y, line)| {
+            match_cell(&bank, &line.pixels, layout.origin(y, 0), &[0], 0..3)
+                .map(|m| (m.0, m.1, m.2))
+        })
         .collect();
     // Row indicators repeat per cluster: cluster 2 carries the column count and
     // the others one value each for the whole symbol. A line that disagrees lies
@@ -448,6 +457,22 @@ struct Crop {
 }
 
 impl Crop {
+    /// The column count that most cluster-2 left row indicators spell.
+    fn indicator_columns(&self) -> Option<usize> {
+        let bank = Bank::new(self.module);
+        let mut votes = [0usize; 30];
+        for &y in &self.aligned {
+            let origin = self.left.at(y) + self.module * 17.;
+            if let Some((_, 2, value, _)) =
+                match_cell(&bank, &self.lines[y].pixels, origin, &[0], 0..3)
+            {
+                votes[value % 30] += 1;
+            }
+        }
+        let (best, &count) = votes.iter().enumerate().max_by_key(|(_, n)| **n)?;
+        (count >= MIN_LINES && count * 2 > votes.iter().sum::<usize>()).then_some(best + 1)
+    }
+
     fn new(gray: &[u8], w: usize, h: usize, mirrored: bool) -> Option<Self> {
         let lines: Vec<Scanline> = (0..h)
             .map(|y| {
@@ -513,10 +538,15 @@ impl Crop {
                                 && before >= 0.7 * module
                                 && after >= 2. * module
                         })
+                        // The stop pattern's inner bars qualify too: prefer the bar
+                        // with the widest light run after it, then the nearest.
                         .min_by(|a, b| {
-                            (a[0] - predicted)
-                                .abs()
-                                .total_cmp(&(b[0] - predicted).abs())
+                            let room = |bar: &[f32; 4]| bar[3].min(5. * module);
+                            room(b).total_cmp(&room(a)).then_with(|| {
+                                (a[0] - predicted)
+                                    .abs()
+                                    .total_cmp(&(b[0] - predicted).abs())
+                            })
                         })
                         // Print gain widens the bar on both sides.
                         .map(|bar| (y, bar[0] - (bar[1] - module) / 2.))
@@ -570,7 +600,14 @@ fn read_oriented(gray: &[u8], w: usize, h: usize, mirrored: bool) -> Option<Dete
         if share < 0.3 {
             break;
         }
-        let full = crop.is_full(right);
+        // The indicators settle whether the last cell is a right indicator
+        // before a stop pattern (full) or a data column (compact); blur can hide
+        // the stop pattern's wide bar from the darkness test.
+        let full = match crop.indicator_columns() {
+            Some(c) if c + 4 == span => true,
+            Some(c) if c + 2 == span => false,
+            _ => crop.is_full(right),
+        };
         let Some(columns) = span
             .checked_sub(if full { 4 } else { 2 })
             .filter(|&c| c > 0)
