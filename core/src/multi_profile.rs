@@ -1,7 +1,8 @@
 //! Bounded multi-symbol run decoding. Separate source intervals are separate
 //! observations, even when they contain equal text. No image-wide early exit.
 #![forbid(unsafe_code)]
-use crate::{profile::Error, run_profile::Read};
+use crate::{SHORT_RETAIL, profile::Error, run_profile::Read};
+use barcode_multiformat::formats::{EAN13, RETAIL_MASK};
 #[derive(Clone, Debug)]
 pub struct Reads {
     pub(crate) run_visual: Vec<crate::invalid_visual::RunVisual>,
@@ -695,7 +696,7 @@ pub fn decode_retail_profile(
     scratch: &mut RetailScratch,
 ) -> Result<RetailReads, Error> {
     // This first adapter always keeps EAN13 enabled. UPC-A is an output alias.
-    if mask & 1 == 0 || mask & !15 != 0 {
+    if mask & EAN13 == 0 || mask & !RETAIL_MASK != 0 {
         return Err(Error::Value);
     }
     let ean13 = decode_local_variants(p, max_symbols, guard_bias, &mut scratch.primary)?;
@@ -727,7 +728,7 @@ pub(crate) fn short_from_existing(
     starts: &mut Vec<usize>,
 ) -> retail_short::ShortReads {
     let mut out = retail_short::ShortReads::default();
-    if mask & 0b1100 != 0 {
+    if mask & SHORT_RETAIL != 0 {
         let fractional_covered = retail_short::fully_covered(&runs.fractional, ean13);
         let integer_covered = retail_short::fully_covered(&runs.integer, ean13);
         if fractional_covered && integer_covered {
@@ -776,7 +777,7 @@ pub(crate) fn short_from_extrema(
     primary: &Reads,
     out: &mut retail_short::ShortReads,
 ) {
-    if mask & 0b1100 != 0 && !scratch.capped && !scratch.ambiguous {
+    if mask & SHORT_RETAIL != 0 && !scratch.capped && !scratch.ambiguous {
         retail_short::decode_runs(&scratch.runs, mask, max_symbols, primary, out);
     }
 }

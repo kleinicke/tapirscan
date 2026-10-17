@@ -1,12 +1,14 @@
 //! Safe independent supplied-region scanner. Localization is a caller provider.
 //! Confidence is uncalibrated. Work exhaustion is retained in the frame result.
 #![forbid(unsafe_code)]
+use crate::SHORT_RETAIL;
 pub use crate::{
     frame::{Barcode, Frame},
     multi_scan::Policy,
     sampling::{Error, ImageView},
     scan::Quad,
 };
+use barcode_multiformat::formats::{EAN13, RETAIL_MASK};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CandidateFailure {
     InvalidGeometry,
@@ -63,13 +65,13 @@ impl RegionScanner {
     /// # Errors
     /// Rejects unsupported family bits.
     pub fn retail_configure(&mut self, mask: u32) -> Result<(), Error> {
-        if mask & 1 == 0 || mask & !15 != 0 {
+        if mask & EAN13 == 0 || mask & !RETAIL_MASK != 0 {
             return Err(Error::Parameters);
         }
         self.engine.retail.mask = mask;
-        self.engine.retail.use_raw = mask & 0b1100 != 0;
-        self.engine.retail.use_peaks = mask & 0b1100 != 0;
-        self.engine.retail.peak_retry = mask & 0b1100 != 0;
+        self.engine.retail.use_raw = mask & SHORT_RETAIL != 0;
+        self.engine.retail.use_peaks = mask & SHORT_RETAIL != 0;
+        self.engine.retail.peak_retry = mask & SHORT_RETAIL != 0;
         self.engine.retail.reset();
         Ok(())
     }
@@ -79,7 +81,7 @@ impl RegionScanner {
         frame: &Frame,
         diagnostics: bool,
     ) -> Option<crate::retail_pipeline::RetailResult> {
-        if self.engine.retail.mask & 0b1100 == 0 {
+        if self.engine.retail.mask & SHORT_RETAIL == 0 {
             return None;
         }
         self.engine.retail.set_primary(frame);

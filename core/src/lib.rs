@@ -18,6 +18,9 @@ compile_error!("Select one core mode; use mode-medium for the default policy.");
 compile_error!(
     "Core modes are mutually exclusive; pass --no-default-features when selecting a mode."
 );
+use barcode_multiformat::formats::{EAN8, UPCE};
+/// The short retail formats, EAN-8 and UPC-E, read by their own retail stages.
+pub(crate) const SHORT_RETAIL: u32 = EAN8 | UPCE;
 pub mod association;
 pub mod bands;
 pub mod continuity;

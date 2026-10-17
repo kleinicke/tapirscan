@@ -10,7 +10,9 @@
     clippy::trivially_copy_pass_by_ref
 )]
 use super::{Position, Reads};
+use crate::SHORT_RETAIL;
 use crate::run_ean::{digit, digit_pair};
+use barcode_multiformat::formats::{EAN8, UPCE};
 
 const UPC_PARITY: [u8; 10] = [56, 52, 50, 49, 44, 38, 35, 42, 41, 37];
 #[derive(Clone, Debug)]
@@ -67,7 +69,7 @@ pub fn expand_upce(d: &[u8; 8]) -> [u8; 12] {
     out
 }
 fn decode_widths_base(w: &[f32], format: u32, calls: &mut usize) -> Option<([u8; 8], f32, f32)> {
-    let (modules, guards): (f32, &[usize]) = if format == 4 {
+    let (modules, guards): (f32, &[usize]) = if format == EAN8 {
         (67., &[0, 1, 2, 19, 20, 21, 22, 23, 40, 41, 42])
     } else {
         (51., &[0, 1, 2, 27, 28, 29, 30, 31, 32])
@@ -76,9 +78,9 @@ fn decode_widths_base(w: &[f32], format: u32, calls: &mut usize) -> Option<([u8;
     if module < 0.8 || guards.iter().any(|&i| (w[i] / module - 1.).abs() > 0.65) {
         return None;
     }
-    let count = if format == 4 { 8 } else { 6 };
+    let count = if format == EAN8 { 8 } else { 6 };
     for i in 0..count {
-        let at = 3 + i * 4 + if format == 4 && i >= 4 { 5 } else { 0 };
+        let at = 3 + i * 4 + if format == EAN8 && i >= 4 { 5 } else { 0 };
         let scale = w[at..at + 4].iter().sum::<f32>() / 7.;
         if !(0.55 * module..=1.8 * module).contains(&scale)
             || w[at..at + 4]
@@ -89,7 +91,7 @@ fn decode_widths_base(w: &[f32], format: u32, calls: &mut usize) -> Option<([u8;
         }
     }
     *calls += 1;
-    if format == 4 {
+    if format == EAN8 {
         let mut digits = [0; 8];
         let (mut cost, mut max, mut gap) = (0f32, 0f32, f32::INFINITY);
         for (i, output) in digits.iter_mut().enumerate() {
@@ -238,7 +240,7 @@ fn decode_indices<T: Position>(
         if quiet < 1.2 * guard_max {
             continue;
         }
-        for (format, count, modules) in [(4, 43, 67.), (8, 33, 51.)] {
+        for (format, count, modules) in [(EAN8, 43, 67.), (UPCE, 33, 51.)] {
             if mask & format == 0 || start + count >= runs.len() {
                 continue;
             }
@@ -249,9 +251,9 @@ fn decode_indices<T: Position>(
             // Actual exterior white runs on both ends; no crop-edge exception.
             if module < 0.8
                 || runs[start - 1].1.value() - runs[start - 1].0.value()
-                    < (if format == 4 { 2. } else { 4. }) * module
+                    < (if format == EAN8 { 2. } else { 4. }) * module
                 || runs[end].1.value() - runs[end].0.value()
-                    < (if format == 4 { 2. } else { 4. }) * module
+                    < (if format == EAN8 { 2. } else { 4. }) * module
             {
                 continue;
             }
@@ -279,7 +281,7 @@ fn decode_indices<T: Position>(
                 if let Some((digits, cost, gap)) =
                     decode_widths(&widths[..count], format, &mut out.digit_calls)
                 {
-                    if format == 8 && !confirms_upce(&widths[..count], &digits) {
+                    if format == UPCE && !confirms_upce(&widths[..count], &digits) {
                         continue;
                     }
                     insert(
@@ -319,7 +321,7 @@ fn guard_gain(w: &[f32], start: usize, count: usize) -> f32 {
 }
 fn decode_widths(w: &[f32], format: u32, calls: &mut usize) -> Option<([u8; 8], f32, f32)> {
     let original = decode_widths_base(w, format, calls);
-    if original.is_some() || format != 4 {
+    if original.is_some() || format != EAN8 {
         return original;
     }
     let mut gains = [
@@ -386,7 +388,7 @@ pub(crate) fn legacy_runs(
         } else {
             runs[0].2
         };
-        for r in barcode_multiformat::linear::decode(&widths, dark, mask & 0b1100) {
+        for r in barcode_multiformat::linear::decode(&widths, dark, mask & SHORT_RETAIL) {
             if r.error > 0.14 {
                 continue;
             }
@@ -418,7 +420,7 @@ pub(crate) fn legacy_runs(
                 out,
                 ShortRead {
                     digits,
-                    format: if r.format == "EAN8" { 4 } else { 8 },
+                    format: if r.format == "EAN8" { EAN8 } else { UPCE },
                     left,
                     right,
                     cost: 0.12,
@@ -438,7 +440,7 @@ fn confirms_upce(w: &[f32], digits: &[u8; 8]) -> bool {
     input.push(8. * module);
     // Exterior whites have already passed the shared reader's actual-pixel gate;
     // these padding widths isolate agreement on the symbol's observed runs.
-    barcode_multiformat::linear::decode(&input, false, 8)
+    barcode_multiformat::linear::decode(&input, false, UPCE)
         .iter()
         .any(|r| {
             r.text

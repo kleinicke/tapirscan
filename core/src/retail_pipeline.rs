@@ -12,12 +12,14 @@
     clippy::too_many_lines,
     clippy::type_complexity
 )]
+use crate::SHORT_RETAIL;
 use crate::{
     candidate_scanner::{AssociationBudget, Observation, Work},
     multi_profile::{self, Reads, retail_short::ShortReads},
     sampling::ImageView,
     scan::Quad,
 };
+use barcode_multiformat::formats::EAN8;
 use std::fmt::Write;
 #[path = "retail_anchors.rs"]
 mod anchors;
@@ -91,7 +93,7 @@ impl Collector {
         lo: f64,
         hi: f64,
     ) {
-        if self.mask & 4 == 0 {
+        if self.mask & EAN8 == 0 {
             return;
         }
         if self.gray_calls >= 64 {
@@ -127,7 +129,7 @@ impl Collector {
                 &mut out,
                 multi_profile::retail_short::ShortRead {
                     digits,
-                    format: 4,
+                    format: EAN8,
                     left,
                     right,
                     cost: 0.12,
@@ -161,7 +163,7 @@ impl Collector {
         self.capped = false;
     }
     pub fn coverage(&mut self, q: Quad) {
-        if self.mask & 0b1100 == 0 {
+        if self.mask & SHORT_RETAIL == 0 {
             return;
         }
         if let Some(i) = self.groups.iter().position(|(a, _)| *a == q) {
@@ -175,7 +177,7 @@ impl Collector {
         }
     }
     pub fn peaks(&mut self, p: &[f32], primary: &Reads, axis: usize, f: f64, lo: f64, hi: f64) {
-        if self.mask & 0b1100 == 0 || !self.use_peaks {
+        if self.mask & SHORT_RETAIL == 0 || !self.use_peaks {
             return;
         }
         if self.groups.is_empty()
@@ -262,7 +264,7 @@ impl Collector {
                     .collect();
                 multi_profile::retail_short::decode_runs(
                     &adjusted,
-                    self.mask & 4,
+                    self.mask & EAN8,
                     64,
                     primary,
                     &mut out,
@@ -272,7 +274,7 @@ impl Collector {
         if out.symbols.is_empty() {
             multi_profile::retail_short::legacy_runs(
                 runs,
-                self.mask & 0b1100,
+                self.mask & SHORT_RETAIL,
                 64,
                 primary,
                 &mut out,
@@ -290,7 +292,7 @@ impl Collector {
         hi: f64,
         n: usize,
     ) {
-        if self.mask & 0b1100 == 0 || !self.use_raw {
+        if self.mask & SHORT_RETAIL == 0 || !self.use_raw {
             return;
         }
         let mut out = ShortReads::default();
@@ -307,7 +309,7 @@ impl Collector {
         hi: f64,
         n: usize,
     ) {
-        if self.mask & 0b1100 == 0 {
+        if self.mask & SHORT_RETAIL == 0 {
             return;
         }
         let mut out =
