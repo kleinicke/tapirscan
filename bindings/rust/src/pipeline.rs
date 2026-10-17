@@ -911,6 +911,7 @@ fn recover(
         image,
         &mut scan.frame.barcodes,
         &mut scanner.recovery,
+        &mut scanner.recovery_scratch,
         coverage,
         retail,
         super::detail::RecoveryOptions {

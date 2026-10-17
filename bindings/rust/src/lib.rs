@@ -112,6 +112,8 @@ pub struct Scanner {
     shared_linear: bool,
     #[cfg(not(feature = "low"))]
     recovery: recovery_core::region_scan::RegionScanner,
+    #[cfg(not(feature = "low"))]
+    recovery_scratch: detail::Scratch,
 }
 impl Scanner {
     /// Scanning effort is independent of output options: every candidate is attempted.

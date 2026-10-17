@@ -47,8 +47,12 @@
   854 photos correctly instead of 841, like Medium, and photos with a wrong value drop
   from 10 to 8. High no longer runs the stripe localizer on retail scans of frames that
   are not tiny (only Medium uses its short-fragment hints) and tries one direction per seed
-  in its upscaled retail crops, as Medium does. In Chrome, High costs about 3% more on
-  retail photos than before these changes and 6% less on frames without a barcode.
+  in its upscaled retail crops, as Medium does. Those 3x crops are built from widened rows
+  with byte-identical pixels, about 2.3 times faster, and their wide 512-pixel pass is
+  skipped once every read so far has a support of at least 10 (it then only re-read
+  symbols); read texts are identical on the development images and user-project photos in
+  High and Very High. In Chrome, High is about 14% faster on retail photos than before this
+  step, 6% on frames without a barcode and 4% with `common`; Very High 4 to 10%.
 - Low no longer reports a UPC-E or EAN-8 decoded from part of an EAN-13 or UPC-A it also
   reads. Selections beyond `common1D` (Codabar, Code 93, DataBar or any 2D format) produced
   such fragments on many retail photos. On 929 real development photos with `all`, photos

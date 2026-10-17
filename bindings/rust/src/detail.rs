@@ -324,67 +324,97 @@ fn span(p: Quad) -> f64 {
 // It cannot land on a half-integer (minimum distance 1/18). At the bounded
 // 512-pixel crop size, legacy f64 coordinate/interpolation error is far below
 // that margin, so integer rounding gives the identical output byte.
-#[allow(clippy::many_single_char_names)]
-fn upscale(im: Image<'_>, x: usize, y: usize, w: usize, h: usize) -> Vec<u8> {
+//
+// Output column 3x takes thirds from source columns x-1 and x (weights 1, 2),
+// column 3x+1 is source column x, and column 3x+2 takes x and x+1 (weights 2, 1);
+// the first output column and the last source column repeat their pixel.
+// Output rows follow the same pattern over source rows.
+fn widen_row(im: Image<'_>, source: usize, x: usize, w: usize, out: &mut [u16]) {
+    let row = &im.data[source * im.stride + x * im.channels..];
+    let pixel = |index: usize| -> [u16; 3] {
+        let at = index * im.channels;
+        if im.channels == 1 {
+            [u16::from(row[at]); 3]
+        } else {
+            [row[at], row[at + 1], row[at + 2]].map(u16::from)
+        }
+    };
+    let (mut previous, mut current) = (pixel(0), pixel(0));
+    for (column, triple) in out.as_chunks_mut::<9>().0.iter_mut().take(w).enumerate() {
+        let next = if column + 1 < w {
+            pixel(column + 1)
+        } else {
+            current
+        };
+        for channel in 0..3 {
+            triple[channel] = if column == 0 {
+                3 * current[channel]
+            } else {
+                previous[channel] + 2 * current[channel]
+            };
+            triple[3 + channel] = 3 * current[channel];
+            triple[6 + channel] = 2 * current[channel] + next[channel];
+        }
+        (previous, current) = (current, next);
+    }
+}
+// Combine two widened rows; (n + 4) / 9 equals ((n + 4) * 7282) >> 16 for n <= 2295.
+fn blend_rows(top: &[u16], bottom: &[u16], fraction: u32, output: &mut [u8]) {
+    let pixels = output.len() / 4;
+    let (top, bottom) = (&top[..pixels * 3], &bottom[..pixels * 3]);
+    for ((a, b), rgba) in top
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(bottom.as_chunks::<3>().0)
+        .zip(output.as_chunks_mut::<4>().0)
+    {
+        for channel in 0..3 {
+            let sum = u32::from(a[channel]) * (3 - fraction) + u32::from(b[channel]) * fraction;
+            rgba[channel] = (((sum + 4) * 7282) >> 16) as u8;
+        }
+        rgba[3] = 255;
+    }
+}
+fn upscale(im: Image<'_>, x: usize, y: usize, w: usize, h: usize, data: &mut Vec<u8>) {
     debug_assert!((1..=512).contains(&w) && (1..=512).contains(&h));
-    let axis = |index: usize, length: usize| {
-        let base = index / 3;
-        let phase = index % 3;
-        let left = if phase == 0 {
+    let output_width = w * 3;
+    let mut top = vec![0_u16; output_width * 3];
+    let mut bottom = vec![0_u16; output_width * 3];
+    let mut cached_row = None;
+    // Every output byte is written below, so retained storage needs no clearing.
+    data.resize(w * h * 9 * 4, 0);
+    for row in 0..h * 3 {
+        let base = row / 3;
+        let phase = row % 3;
+        let y0 = if phase == 0 {
             base.saturating_sub(1)
         } else {
             base
         };
-        let fraction = if index == 0 { 0_u16 } else { [2, 0, 1][phase] };
-        (left, (left + 1).min(length - 1), fraction)
-    };
-    let output_width = w * 3;
-    let columns: Vec<_> = (0..output_width)
-        .map(|col| {
-            let (left, right, fraction) = axis(col, w);
-            (
-                (x + left) * im.channels,
-                (x + right) * im.channels,
-                fraction,
-            )
-        })
-        .collect();
-    let horizontal = |source_row: usize, values: &mut [[u16; 3]]| {
-        let row = &im.data[source_row * im.stride..];
-        for (&(left, right, fraction), rgb) in columns.iter().zip(values) {
-            for (channel, value) in rgb.iter_mut().enumerate() {
-                let channel = if im.channels == 1 { 0 } else { channel };
-                *value = u16::from(row[left + channel]) * (3 - fraction)
-                    + u16::from(row[right + channel]) * fraction;
-            }
-        }
-    };
-    let mut top = vec![[0; 3]; output_width];
-    let mut bottom = vec![[0; 3]; output_width];
-    let mut cached_row = None;
-    let mut data = vec![0; w * h * 9 * 4];
-    for row in 0..h * 3 {
-        let (y0, y1, fraction) = axis(row, h);
+        let y1 = (y0 + 1).min(h - 1);
+        let fraction = if row == 0 { 0 } else { [2, 0, 1][phase] };
         if cached_row != Some(y0) {
             if cached_row.is_some_and(|previous| previous + 1 == y0) {
                 std::mem::swap(&mut top, &mut bottom);
             } else {
-                horizontal(y + y0, &mut top);
+                widen_row(im, y + y0, x, w, &mut top);
             }
-            horizontal(y + y1, &mut bottom);
+            widen_row(im, y + y1, x, w, &mut bottom);
             cached_row = Some(y0);
         }
         let output = &mut data[row * output_width * 4..(row + 1) * output_width * 4];
-        for ((a, b), rgba) in top.iter().zip(&bottom).zip(output.as_chunks_mut::<4>().0) {
-            for channel in 0..3 {
-                rgba[channel] =
-                    ((a[channel] * (3 - fraction) + b[channel] * fraction + 4) / 9) as u8;
-            }
-            rgba[3] = 255;
-        }
+        blend_rows(&top, &bottom, fraction, output);
     }
-    data
 }
+/// Crop storage kept across scans: the enlarged pixels and the stripe detector's rasters.
+#[derive(Default)]
+pub(crate) struct Scratch {
+    pixels: Vec<u8>,
+    detector: recovery_core::stripes::Detector,
+}
+/// Weakest read support at which the wide crop pass is skipped.
+const WIDE_MIN_SUPPORT: usize = 10;
 #[derive(Clone, Copy)]
 pub(super) struct RecoveryOptions {
     pub directions: usize,
@@ -400,6 +430,7 @@ pub fn recover(
     im: Image<'_>,
     primary: &mut Vec<Barcode>,
     scanner: &mut recovery_core::region_scan::RegionScanner,
+    scratch: &mut Scratch,
     coverage: &[Quad],
     known_retail: &[Read],
     options: RecoveryOptions,
@@ -424,6 +455,19 @@ pub fn recover(
         .take(if crate::MODE_ID >= 2 { 2 } else { 1 })
     {
         for seed in seeds.iter().take(if wide { 3 } else { 2 }) {
+            // The wide pass rescues frames that are unread or weakly read. When every read
+            // so far is well supported it only re-reads them: on the development sets it
+            // never changed a read text and rarely their support.
+            if wide
+                && known_retail
+                    .iter()
+                    .map(|read| usize::try_from(read.support).unwrap_or(usize::MAX))
+                    .chain(primary.iter().map(|b| b.detection.support))
+                    .min()
+                    .is_some_and(|support| support >= WIDE_MIN_SUPPORT)
+            {
+                continue;
+            }
             if coverage
                 .iter()
                 .any(|quad| crate::formats::contains_point([seed.x, seed.y], quad))
@@ -468,11 +512,15 @@ pub fn recover(
             let y = (seed.y - h as f64 / 2.)
                 .round()
                 .clamp(0., (im.height - h) as f64) as usize;
-            let pixels = upscale(im, x, y, w, h);
-            let view = recovery_core::sampling::ImageView::new(&pixels, w * 3, h * 3, 4, w * 12)
-                .map_err(|_| Error::Parameters)?;
+            upscale(im, x, y, w, h, &mut scratch.pixels);
+            let view =
+                recovery_core::sampling::ImageView::new(&scratch.pixels, w * 3, h * 3, 4, w * 12)
+                    .map_err(|_| Error::Parameters)?;
             if wide {
-                let found = recovery_core::stripes::detect(view).map_err(|_| Error::Parameters)?;
+                let found = scratch
+                    .detector
+                    .detect(view)
+                    .map_err(|_| Error::Parameters)?;
                 for proposal in found.proposals.iter().take(2) {
                     if let Some(p) = recovery_core::shear::refine(view, proposal.polygon) {
                         quads.push(
@@ -681,7 +729,7 @@ mod tests {
                         stride: width,
                     };
                     assert_eq!(
-                        upscale(image, 0, 0, width, height),
+                        upscaled(image, 0, 0, width, height),
                         reference_upscale(image, 0, 0, width, height)
                     );
                 }
@@ -697,9 +745,16 @@ mod tests {
                 stride: 2,
             };
             assert_eq!(
-                upscale(image, 0, 0, 2, 2),
+                upscaled(image, 0, 0, 2, 2),
                 reference_upscale(image, 0, 0, 2, 2)
             );
+        }
+    }
+
+    #[test]
+    fn reciprocal_division_by_nine_is_exact_for_blend_sums() {
+        for sum in 0..=255 * 9_u32 {
+            assert_eq!(((sum + 4) * 7282) >> 16, (sum + 4) / 9);
         }
     }
 
@@ -739,11 +794,18 @@ mod tests {
                     stride,
                 };
                 assert_eq!(
-                    upscale(image, 2, 3, width, height),
+                    upscaled(image, 2, 3, width, height),
                     reference_upscale(image, 2, 3, width, height)
                 );
             }
         }
+    }
+
+    fn upscaled(im: Image<'_>, x: usize, y: usize, w: usize, h: usize) -> Vec<u8> {
+        // Stale bytes from a larger previous crop must not leak into the output.
+        let mut data = vec![0xA5; w * h * 9 * 4 + 100];
+        upscale(im, x, y, w, h, &mut data);
+        data
     }
 
     #[allow(clippy::many_single_char_names)]
