@@ -261,17 +261,19 @@ impl Scanner {
                 }
                 // The localizer works on a 768-pixel raster: in large frames small
                 // symbols fall below its minimum group size. Localize again at half
-                // scale (High) or on overlapping windows (Very High) and decode only
-                // the new proposals. Medium keeps its cost on large retail photos.
+                // scale (High and Very High), then on overlapping windows (Very High),
+                // and decode only the new proposals. Very High reads what High reads plus
+                // what the windows add. Medium keeps its cost on large retail photos.
                 if crate::MODE_ID >= 2
                     && oriented_mask != 0
                     && image.width.max(image.height) > WINDOW_SIDE
                 {
-                    let windowed = if crate::MODE_ID == 2 {
-                        half_scale_proposals(&mut self.localizer, image, &proposals)?
-                    } else {
-                        windowed_proposals(&mut self.localizer, image, &proposals)?
-                    };
+                    let mut windowed =
+                        half_scale_proposals(&mut self.localizer, image, &proposals)?;
+                    if crate::MODE_ID == 3 {
+                        let known: Vec<_> = proposals.iter().chain(&windowed).copied().collect();
+                        windowed.extend(windowed_proposals(&mut self.localizer, image, &known)?);
+                    }
                     if !windowed.is_empty() {
                         let (extra, regions) = crate::fast_linear::recover_proposals(
                             image,

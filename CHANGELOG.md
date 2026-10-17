@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Very High reads at least what High reads on large frames: it localizes linear symbols
+  again at half scale, as High does, and then on overlapping 1536-pixel windows for what
+  that missed. The windows alone lost Code 128 fields of label sheets that High read
+  (45 on the development images). With all formats, Very High reads 3,160 symbols of the
+  1,578 development images instead of 3,129 (High 3,115), with unchanged wrong reads, and
+  costs about 2 to 4% more on retail photos in Chrome.
 - Medium and High read many more Code 128 symbols on large label photos and sheets, with
   any format selection. Code 128 and Code 39 are swept over the whole image also when
   retail formats are selected (Medium on frames longer than 1536 pixels), and High and
