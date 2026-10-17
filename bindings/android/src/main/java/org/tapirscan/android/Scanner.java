@@ -23,12 +23,13 @@ public final class Scanner implements AutoCloseable {
         System.loadLibrary("tapirscan_jni");
     }
 
+    /** {@code TAPIRSCAN_PARALLEL_DEFAULT}: follow the process default. */
+    private static final int PARALLEL_DEFAULT = 2;
+
     private final ScannerOptions options;
     private long handle;
 
     /** Medium effort, Retail formats and ignored supplements. */
-    private static final int PARALLEL_DEFAULT = 2;
-
     public Scanner() {
         this(ScannerOptions.defaults());
     }

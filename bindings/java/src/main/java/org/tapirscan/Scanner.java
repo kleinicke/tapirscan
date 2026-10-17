@@ -23,6 +23,8 @@ import java.util.OptionalInt;
  */
 public final class Scanner implements AutoCloseable {
     private static final int TEXT = 0, PAYLOAD_BYTES = 1, EAN_ADD_ON = 2, STRUCTURED_APPEND_ID = 3;
+    /** {@code TAPIRSCAN_PARALLEL_DEFAULT}: follow the process default. */
+    private static final int PARALLEL_DEFAULT = 2;
     private final Native lib = Native.get();
     private final ScannerOptions options;
     private long handle;
@@ -43,7 +45,7 @@ public final class Scanner implements AutoCloseable {
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "formats"), Format.mask(options.formats()));
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "addonPolicy"), options.eanAddOnPolicy().code());
             Boolean parallel = options.parallel();
-            config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "parallel"), parallel == null ? 2 : parallel ? 1 : 0);
+            config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "parallel"), parallel == null ? PARALLEL_DEFAULT : parallel ? 1 : 0);
             MemorySegment out = arena.allocate(JAVA_LONG);
             MemorySegment error = arena.allocate(Native.ERROR);
             lib.check(Native.call(lib.create, config, out, error), error);

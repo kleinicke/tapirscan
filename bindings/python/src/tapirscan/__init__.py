@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     import os
     from collections.abc import Iterable
 
-from ._images import _cpu_count, _size, image_bytes
+from ._images import MAX_IMAGE_BYTES, _cpu_count, _size, image_bytes
 from ._library import ABI_VERSION as ABI_VERSION
 from ._library import ScannerError, library_path, load
 from .content import Content, ContentField, ContentKind, parse_content
@@ -85,9 +85,10 @@ __all__ = [
     "scan",
     "scan_many",
 ]
-MAX_IMAGE_BYTES = 1024 * 1024 * 1024
 _MODES = ("low", "medium", "high", "very-high")
 _ADDON_POLICIES = ("ignore", "read", "require")
+# TAPIRSCAN_PARALLEL_DEFAULT: follow the process default.
+_PARALLEL_DEFAULT = 2
 
 
 # Native ABI 7 structures from bindings/c/include/tapirscan.h.
@@ -301,7 +302,7 @@ class Scanner:
             _MODES.index(mode),
             format_mask(self._formats),
             _ADDON_POLICIES.index(ean_add_on_policy),
-            2 if parallel is None else int(bool(parallel)),
+            _PARALLEL_DEFAULT if parallel is None else int(bool(parallel)),
         )
         error = c.create_string_buffer(512)
         self._check(
@@ -386,6 +387,7 @@ class Scanner:
         color_order: ColorOrder,
     ) -> ScanResult:
         mask = format_mask(self.formats if formats is None else formats)
+        # Fail before converting the image, and again once the native call is locked.
         with self._lock:
             if not self._handle.value:
                 msg = "Scanner is closed"

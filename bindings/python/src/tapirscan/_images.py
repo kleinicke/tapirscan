@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from .inputs import ImageInput
     from .results import ColorOrder, Layout, ValueRange
 
-LIMIT = 1024 * 1024 * 1024
+MAX_IMAGE_BYTES = 1024 * 1024 * 1024
 MAX_IMAGE_PIXELS = 256 * 1024 * 1024
 MAX_SIDE = 65_535
 MAX_PIXEL = 255
@@ -57,7 +57,7 @@ def _size(width: object, height: object, channels: int = 1) -> tuple[int, int]:
     if width * height > MAX_IMAGE_PIXELS:
         msg = "Image exceeds 256 megapixel limit (268,435,456 pixels)"
         raise ValueError(msg)
-    if width * height * channels > LIMIT:
+    if width * height * channels > MAX_IMAGE_BYTES:
         msg = "Image exceeds 1 GiB limit"
         raise ValueError(msg)
     return width, height
