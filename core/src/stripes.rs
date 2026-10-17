@@ -1,4 +1,4 @@
-//! Bounded component-preserving Scharr localizer. TS037 reference port.
+//! Bounded component-preserving Scharr localizer.
 #![forbid(unsafe_code)]
 use crate::{
     oriented::Proposal,
@@ -70,9 +70,10 @@ pub struct Result {
 }
 
 // For finite Scharr gradients, max(|dx|,|dy|) <= hypot <= |dx|+|dy|.
-// These one-sided bounds only reject edges the original tests must reject;
-// Nano computes the bounded gradient norm directly; image gradients cannot
-// overflow or underflow. This changes last-bit rounding versus hypot.
+// These one-sided bounds only reject edges the exact norm test below rejects.
+// Low and Very High compute the norm directly (image gradients cannot overflow
+// or underflow); Medium and High use `hypot`. The forms differ in the last bit,
+// so each mode keeps its own to keep borderline decisions stable.
 fn edge_weight(dx: f64, dy: f64, ax: f64, ay: f64) -> Option<f64> {
     let (x, y) = (dx.abs(), dy.abs());
     if x + y <= 18. {
@@ -89,7 +90,8 @@ fn edge_weight(dx: f64, dy: f64, ax: f64, ay: f64) -> Option<f64> {
 
     (weight > 18. && projection > 0.85 * weight).then_some(weight)
 }
-// Preserve each mode's original floating-point evaluation order.
+// Each mode keeps its own evaluation (direct square root or `hypot`); the forms
+// differ in the last bit and can change borderline decisions.
 fn tensor_magnitude(xx: f64, xy: f64, yy: f64) -> f64 {
     #[cfg(any(feature = "mode-low", feature = "mode-very-high"))]
     {
@@ -245,7 +247,7 @@ impl Detector {
         quick::detect(&mut self.raster, im, dimension.clamp(64., 768.), false)
     }
     /// Sparse proposals plus at most one omitted merged group for an empty-scan retry.
-    /// The original first 24 proposals and their order are preserved.
+    /// The first 24 sparse proposals and their order are preserved.
     /// # Errors
     /// Rejects unsupported image dimensions.
     pub fn detect_sparse_with_recovery(
@@ -288,7 +290,7 @@ pub fn detect_with_observer(
 ) -> std::result::Result<Result, Error> {
     Detector::default().detect_grid(im, 768., false, observe)
 }
-/// Pixel-only supplementary grid. The original detector remains the first pass.
+/// Pixel-only supplementary grid. The primary detector remains the first pass.
 /// # Errors
 /// Rejects unsupported image dimensions.
 pub fn detect_secondary(im: ImageView<'_>) -> std::result::Result<Result, Error> {

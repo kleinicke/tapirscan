@@ -22,7 +22,7 @@ pub(super) fn interior_bounds(n: usize, lo: f64, hi: f64) -> (usize, usize) {
     (lower(false), lower(true))
 }
 impl CandidateScanner {
-    /// Diagnostic export uses exactly the scanner's original sampling/normalization.
+    /// Diagnostic export through exactly the scanner's own sampling and normalization.
     /// # Errors
     /// Returns `Path` for an invalid axis or sampling interval and `Geometry` for invalid quadrilaterals or projections; propagates sampling errors.
     pub fn diagnostic_profile(
@@ -261,8 +261,8 @@ impl CandidateScanner {
         true
     }
 
-    /// Bounded original-image straight segment sampling. Uses the same bilinear
-    /// grayscale and percentile normalization as the frozen fixed sampler.
+    /// Sample `n` evenly spaced points of one straight path in source-image pixels
+    /// and normalize them between the shared 5th/95th percentile contrast bounds.
     #[expect(
         clippy::too_many_arguments,
         reason = "The sampling entry point forwards explicit geometry, output size and shared accounting to the timed implementation."
@@ -332,10 +332,11 @@ impl CandidateScanner {
         }
         work.samples += count;
         self.signal.resize(count, 0.);
-        // `axis` and the cross-path fraction do not vary within one segment. Keep
-        // the legacy arithmetic order, but select the coordinate layout once rather
-        // than branching through `point` for each source pixel. The finite check is
-        // intentionally retained at the exact point where the old helper made it.
+        // `axis` and the cross-path fraction do not vary within one segment, so the
+        // coordinate layout is selected once instead of per pixel. Each coordinate
+        // uses the expression and operation order of `candidate_scanner::point`, so
+        // sampled positions agree exactly with coverage geometry. A non-finite
+        // coordinate fails the segment before its pixel is read.
         let nearest = (76..=384).contains(&count);
         if axis == 0 {
             for (i, v) in self.signal.iter_mut().enumerate() {

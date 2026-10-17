@@ -280,8 +280,8 @@ fn payload_mode(words: &[usize], reset_separator: bool) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
-// Older Expanded fixtures retain the alphanumeric state across FNC1;
-// current GS1 encoding switches to numeric. Resolve differing parses only
+// Some Expanded encoders keep the alphanumeric state across FNC1, others
+// switch to numeric as GS1 specifies. Resolve differing parses only
 // when exactly one has a valid known GS1 element-string structure. Never use
 // a reference decoder or the fixture's expected value to choose the parse.
 fn known_gs1(text: &str) -> bool {

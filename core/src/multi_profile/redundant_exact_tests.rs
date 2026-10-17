@@ -53,8 +53,8 @@ fn reference_local_variants(
         reads
     };
 
-    // Short native-scale profiles only. Keep the historical full relative arm
-    // distinct, and never evaluate the same model twice when both are enabled.
+    // Add reads from the profile with weak equal-polarity excursions removed. The
+    // reads above still veto conflicting values when they are merged.
 
     let reads = {
         if let Some(cleaned) = weak_excursions(p, &scratch.integer) {

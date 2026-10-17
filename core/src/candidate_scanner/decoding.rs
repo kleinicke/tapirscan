@@ -607,8 +607,9 @@ impl CandidateScanner {
         let long_profiles_allowed = self.threshold_recovery;
         #[cfg(not(any(feature = "mode-high", feature = "mode-very-high")))]
         let long_profiles_allowed = cfg!(feature = "mode-medium");
-        // Preserve the original short/fixed512 routes. Only unresolved longer
-        // profiles receive the bounded extra threshold attempts.
+        // Profiles up to 384 samples take the bounded extra threshold attempts;
+        // fixed 512-sample profiles never do, and longer native profiles only
+        // when this mode allows them and they are still unresolved.
         if cleanup
             && (self.signal.len() <= 384 || long_profiles_allowed)
             && (self.signal.len() <= 384 || (self.signal.len() != 512 && reads.symbols.is_empty()))
@@ -664,9 +665,9 @@ impl CandidateScanner {
             || (self.signal.len() <= 384
                 && reads.symbols.is_empty()
                 && (30..=85).contains(&self.runs.len()));
-        // Medium's extra native-length fit is limited to unresolved short
-        // profiles with barcode-like transition counts. Fixed512 keeps its
-        // existing path. Run ambiguity still vetoes the single-result fallback.
+        // Medium limits the extra native-length fit to unresolved short profiles
+        // with barcode-like transition counts; fixed 512-sample profiles always
+        // take it. Run ambiguity still vetoes the single-result fallback.
         #[cfg(any(feature = "mode-low", feature = "mode-medium", feature = "mode-high"))]
         {
             if (self.signal.len() == 512
@@ -709,8 +710,10 @@ impl CandidateScanner {
                 && reads.ambiguous_intervals == 0
                 && extra_profile_allowed
             {
-                // A same-window legacy/blur contradiction must not be resurrected by
-                // Many's retained run reads. Preserve disjoint source intervals.
+                // Intervals the forward-blur profile decoder rejected as contradictory
+                // in this window also veto run reads there, so a run read cannot
+                // reinstate a value the profile evidence contradicts. Reads in
+                // disjoint source intervals are kept.
                 for &(left, right) in &self.blur_rejected_intervals {
                     reads.rejected_intervals.push((left, right));
                     reads.symbols.retain(|r| r.right <= left || r.left >= right);
@@ -718,9 +721,9 @@ impl CandidateScanner {
             }
         }
 
-        // Medium's extra native-length fit is limited to unresolved short
-        // profiles with barcode-like transition counts. Fixed512 keeps its
-        // existing path. Run ambiguity still vetoes the single-result fallback.
+        // Medium limits the extra native-length fit to unresolved short profiles
+        // with barcode-like transition counts; fixed 512-sample profiles always
+        // take it. Run ambiguity still vetoes the single-result fallback.
         #[cfg(feature = "mode-very-high")]
         {
             if (self.signal.len() == 512
@@ -763,8 +766,10 @@ impl CandidateScanner {
                 && reads.ambiguous_intervals == 0
                 && extra_profile_allowed
             {
-                // A same-window legacy/blur contradiction must not be resurrected by
-                // Many's retained run reads. Preserve disjoint source intervals.
+                // Intervals the forward-blur profile decoder rejected as contradictory
+                // in this window also veto run reads there, so a run read cannot
+                // reinstate a value the profile evidence contradicts. Reads in
+                // disjoint source intervals are kept.
                 for &(left, right) in &self.blur_rejected_intervals {
                     reads.rejected_intervals.push((left, right));
                     reads.symbols.retain(|r| r.right <= left || r.left >= right);
@@ -940,7 +945,7 @@ mod cache_tests {
             assert_eq!(format!("{first:?}"), format!("{cached:?}"));
             assert_eq!(format!("{work_first:?}"), format!("{work_cached:?}"));
             assert_eq!(rejected, scanner.blur_rejected_intervals);
-            // Interleave the other profile size, then verify the original evidence again.
+            // Interleave the other profile size, then verify the first profile's result again.
             scanner.signal = profile(if signal.len() == 512 { 119 } else { 512 }, false);
             let _ = scanner.cached_profile_decode();
             scanner.signal = signal;

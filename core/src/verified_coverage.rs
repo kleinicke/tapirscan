@@ -259,8 +259,9 @@ fn extension_correlation(
     }
     let norm = norm.sqrt();
     let corr = dot / norm;
-    // Preserve the original decision if floating-point reassociation is close
-    // enough to the threshold to matter. No sampling or budget changes.
+    // The correlation is defined on normalized samples. `dot / norm` skips that
+    // pass but rounds differently, so within 1e-12 of the threshold the normalized
+    // form decides. No sampling or budget changes.
     if (corr - 0.98).abs() < 1e-12 {
         for v in &mut r {
             *v /= norm;

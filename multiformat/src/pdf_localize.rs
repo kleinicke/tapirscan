@@ -3,8 +3,8 @@
 use crate::linear::pattern_error;
 type Quad = [[f32; 2]; 4];
 fn zero_degree_exact(w: usize, h: usize, generated_width: usize, generated_height: usize) -> bool {
-    // Every sampled integer coordinate is exactly representable below 2^24.
-    // Larger valid images retain the original affine sampling behavior.
+    // At 0 degrees on the image's own grid, below 2^24, every rotated coordinate
+    // is an exact pixel index, so the row is copied; otherwise rows are sampled.
     generated_width == w && generated_height == h && w <= (1usize << 24) && h <= (1usize << 24)
 }
 
@@ -333,8 +333,8 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
         let mut row = Vec::with_capacity(width);
         let mut run_buffers: [(Vec<f32>, Vec<usize>); 2] =
             std::array::from_fn(|_| (Vec::new(), Vec::new()));
-        // `original` split into its column and row products, computed once each;
-        // every sample still subtracts and adds exactly the same f32 values.
+        // The rotated coordinates split into column and row products, computed
+        // once each; every sample subtracts and adds exactly these f32 values.
         let columns: Vec<[f32; 2]> = (0..width)
             .map(|x| {
                 let x = crate::numeric::usize_f32(x) + amin;

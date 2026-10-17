@@ -85,9 +85,9 @@ pub fn sharpen_row(row: &[u8]) -> Vec<u8> {
     let sharpen = |a: u8, b: u8, c: u8, d: u8, e: u8| {
         let numerator =
             18 * i32::from(c) - i32::from(a) - 4 * i32::from(b) - 4 * i32::from(d) - i32::from(e);
-        // The old float kernel has an exact eighth-integer result. Add four
-        // before division for its positive round-to-nearest rule; negatives
-        // are clipped to zero in both kernels.
+        // The exact kernel result is a multiple of 1/8. Adding four before the
+        // division rounds positive values to nearest (halves up); negative
+        // results clip to zero.
         u8::try_from(((numerator + 4) / 8).clamp(0, 255)).unwrap()
     };
     for i in 0..row.len().min(2) {

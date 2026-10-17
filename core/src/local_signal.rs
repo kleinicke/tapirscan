@@ -73,8 +73,8 @@ impl Scratch {
 
         {
             // Block prefix/suffix extrema produce the identical centered min/max
-            // window with predictable contiguous passes. Equal extrema retain the latest
-            // source value, including signed zero, as in the original monotone queues.
+            // window with predictable contiguous passes. Equal extrema keep the latest
+            // source value, including signed zero, exactly as monotone queues would.
             let profile_len = p.len();
             let window_len = radius * 2 + 1;
             let last_block = (profile_len - 1) / window_len * window_len;
@@ -171,7 +171,7 @@ pub(crate) fn decode_reusing(
     );
     Ok(reads)
 }
-/// Private caller has just validated the unchanged original signal with
+/// Private caller has just validated the unchanged input signal with
 /// `sample_runs`; normalized output is generated internally and remains valid.
 pub(crate) fn decode_reusing_validated(
     p: &[f32],

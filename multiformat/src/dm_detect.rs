@@ -214,8 +214,8 @@ struct Component {
     y0: usize,
     y1: usize,
     // The initial run stays inline, avoiding a heap allocation for every
-    // isolated texture run. Reducing all retained runs to the leftmost and
-    // rightmost point of each row below is exactly the legacy boundary.
+    // isolated texture run. The hull needs only each row's leftmost and
+    // rightmost point, which `component_hull` reduces the spans to.
     first_span: Span,
     spans: Vec<Span>,
 }
@@ -444,7 +444,7 @@ fn fast_components_impl(
     done
 }
 
-// The flood-fill extractor the streaming labeller replaced; tests compare the two.
+// Flood-fill reference extractor; tests check the streaming labeller against it.
 #[cfg(test)]
 fn legacy_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
     legacy_components_impl(image, w, h, false)
@@ -572,9 +572,9 @@ fn component_hull(
     touched_rows: &mut Vec<usize>,
 ) -> Vec<Point> {
     // A union may append older child rows behind newer parent rows, so spans
-    // are not necessarily ordered. The legacy extractor retains exactly these
-    // per-row extrema. Reuse image-height scratch rather than sorting all raw
-    // spans and allocating a boundary sized to their unreduced count.
+    // are not necessarily ordered. `hull` sorts its input and depends only on
+    // these per-row extrema, so reduce them in image-height scratch rather than
+    // sorting all raw spans and allocating a boundary sized to their count.
     for span in component
         .spans
         .iter()
@@ -803,7 +803,7 @@ mod component_fastpath_tests {
             },
             // Late root unions can put the same row in non-adjacent entries.
             // Include repeated endpoints and collinear rows so `hull` receives
-            // precisely the old sorted input set after row reduction.
+            // the same point set as `sorted_component_hull_reference`.
             spans: vec![
                 Span {
                     y: 9,
@@ -1205,7 +1205,7 @@ fn border_with_limit(
 /// Hypotheses whose border is fair but not clean usually come from a hull quad a
 /// few pixels off a blurred or strongly tilted symbol. Coordinate descent on
 /// the corners, scored on five samples per border module, tightens the grid;
-/// the refined hypothesis competes next to the original ones.
+/// the refined hypothesis competes next to the unrefined ones.
 const REFINE_LIMIT: usize = 24;
 const REFINE_SEED_LIMIT: f32 = 0.32;
 

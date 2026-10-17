@@ -247,8 +247,8 @@ fn adaptive_threshold_into(row: &[u8], radius: usize, bits: &mut Vec<bool>) {
     if row.is_empty() {
         return;
     }
-    // A short row has no fixed-size interior. Keep the original expanding /
-    // shrinking recurrence as one bounded fallback.
+    // A short row has no fixed-size interior. Use the expanding / shrinking
+    // window recurrence instead; such rows are bounded by the radius.
     if row.len() <= radius * 2 + 1 {
         let mut sum: u32 = row.iter().take(radius + 1).map(|&v| u32::from(v)).sum();
         let mut count: u32 = row.iter().take(radius + 1).map(|_| 1).sum();
@@ -638,8 +638,8 @@ pub fn scan_observed_for_mode(
             bmin = bmin.min(-x * sin_angle + y * cos_angle);
             bmax = bmax.max(-x * sin_angle + y * cos_angle);
         }
-        // These products depend only on the angle and along-line index. Keep
-        // the original f32 operation order, but share them across scanlines.
+        // These products depend only on the angle and along-line index. Share
+        // them across scanlines with the per-sample f32 operation order.
         along_points.clear();
         #[expect(
             clippy::float_cmp,
@@ -690,9 +690,9 @@ pub fn scan_observed_for_mode(
                 let x = crate::numeric::f32_usize((-b).round());
                 row.extend((0..height).map(|y| image[y * width + x]));
             } else {
-                // Intersect this scanline with the image before sampling. Keep
-                // a one-pixel conservative margin and the original rounded
-                // coordinate checks, preserving the exact previous row grid.
+                // Intersect this scanline with the image before sampling. A
+                // one-pixel conservative margin plus the per-sample rounded
+                // coordinate checks keep the sampled row grid unchanged.
                 let mut lo = amin;
                 let mut hi = amax;
                 for (coefficient, offset, extent) in [
@@ -1083,9 +1083,8 @@ pub fn scan_observed_for_mode(
     }
 }
 
-/// Host routing capabilities supported by this frozen scanner version.
-/// Bit 0 enables the shared all-format retail pass; absent exports in older
-/// WASM keep the legacy host route for reproducible archived comparisons.
+/// Host routing capabilities supported by this scanner build.
+/// Bit 0 enables the shared all-format retail pass.
 /// Bit 1 applies a stricter acceptance gate to supplemental retail reads.
 /// Bit 2 supports packed RGBA upload and exact integer-luma preparation.
 /// Bit 3 supports timing-guided curved QR grids at effort >=3.

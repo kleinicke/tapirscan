@@ -96,8 +96,9 @@ fn decode_fractional_mode(p: &[f32], max_symbols: usize, guard_bias: bool) -> Re
     for i in 1..=p.len() {
         let next = i < p.len() && p[i] >= 0.5;
         if i == p.len() || next != black {
-            // Run coordinates include a half-sample offset, matching the legacy
-            // integer boundary convention. Output endpoints subtract it below.
+            // Sample k covers [k, k + 1), so crossings carry a half-sample offset
+            // and the last run ends at the profile length, the convention of the
+            // integer runs from `sample_runs_validated`. Output endpoints subtract it.
             let end = if i == p.len() {
                 crate::numeric::usize_f64(i)
             } else {
@@ -183,8 +184,8 @@ pub fn decode_relative_edges(
     let runs: Vec<_> = (0..starts.len() - 1)
         .map(|i| (edges[i], edges[i + 1], profile[starts[i]] >= 0.5))
         .collect();
-    // A non-monotone model has no physical interpretation. Retain the original
-    // decoder's evidence in the caller instead of accepting crossed boundaries.
+    // A non-monotone model has no physical interpretation. Return no reads, so
+    // the caller keeps the threshold-run evidence instead of crossed boundaries.
     if runs.iter().any(|r| r.1 <= r.0) {
         return Ok(decode_positions::<f64>(&[], max_symbols, false));
     }
@@ -291,8 +292,8 @@ pub(crate) fn decode_local_variants_validated(
         reads
     };
 
-    // Short native-scale profiles only. Keep the historical full relative arm
-    // distinct, and never evaluate the same model twice when both are enabled.
+    // Add reads from the profile with weak equal-polarity excursions removed. The
+    // reads above still veto conflicting values when they are merged.
 
     let reads = {
         if let Some(cleaned) = weak_excursions(p, &scratch.integer) {
@@ -314,7 +315,8 @@ pub(crate) fn decode_local_variants_validated(
     Ok(reads)
 }
 /// Remove only weak, sub-half-module threshold excursions between strong
-/// equal-polarity flanks. Original hypotheses still veto conflicting reads.
+/// equal-polarity flanks. Hypotheses from the unmodified runs still veto
+/// conflicting reads.
 /// No digit information is used and no missing transition is inserted.
 fn weak_excursions(
     profile: &[f32],
@@ -675,7 +677,7 @@ mod extrema_runs;
 pub(crate) use extrema_runs::{ExtremaScratch, decode_extrema, decode_extrema_validated};
 #[cfg(test)]
 mod folded_boundary_tests;
-/// Research adapter: original EAN13 decisions and evidence remain intact.
+/// EAN-13 decisions and evidence are exactly those of the local-profile stage.
 /// Short layouts consume the same extracted runs, with a separate output cap.
 #[derive(Default)]
 pub struct RetailScratch {
@@ -709,7 +711,8 @@ pub fn decode_retail_profile(
     );
     Ok(RetailReads { ean13, short })
 }
-/// Baseline access to the original local-profile stage and its scratch reuse.
+/// The local-profile stage alone (the EAN-13 part of `decode_retail_profile`),
+/// reusing its scratch.
 /// # Errors
 /// Rejects invalid profile geometry or unsupported family masks.
 pub fn decode_legacy_local(

@@ -386,8 +386,8 @@ mod tests {
 
     #[test]
     fn checksum_cannot_select_a_weaker_visual_parity() {
-        // Deterministic noisy invalid-checksum fixture. The old decoder selected
-        // a worse parity/digit combination solely because its checksum passed.
+        // Deterministic noisy invalid-checksum fixture. A checksum-first decoder
+        // would select a worse parity/digit combination because its checksum passes.
         let mut p = encode(&[5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 8]);
         let mut state = 23u32;
         for v in &mut p {

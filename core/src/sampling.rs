@@ -86,8 +86,10 @@ impl<'a> ImageView<'a> {
         })
     }
     /// Share the clamped integer coordinates and row offsets of a bilinear
-    /// footprint, retaining the legacy grayscale and interpolation order.
-    /// Low and Very High take an unclamped path for interior footprints.
+    /// footprint. Each pixel is converted to gray before interpolation, and rows
+    /// are blended horizontally before vertically. Changing either order changes
+    /// rounding and can flip borderline decisions (core/README.md, Numerical
+    /// rules). Low and Very High take an unclamped path for interior footprints.
     #[cfg_attr(
         not(feature = "mode-high"),
         expect(

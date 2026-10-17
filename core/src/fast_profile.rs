@@ -5,7 +5,7 @@ use crate::{
 };
 
 // Image-derived profiles are finite nonnegative values. Medium uses direct
-// comparisons; the retained Turbo switch preserves its independent policy.
+// comparisons; Turbo builds opt into them with TAPIRSCAN_TURBO_FINITE_EXTREMA.
 fn minimum(a: f32, b: f32) -> f32 {
     if cfg!(feature = "mode-medium") || option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
         if a < b { a } else { b }

@@ -49,8 +49,9 @@ pub(super) fn finish(im: ImageView<'_>, scale: f64, groups: Groups, fitted: Fitt
             }
         }
     }
-    // All original041 regions stay first. Additional growth proposals must
-    // earn source-axis extension evidence before admission to the decoder.
+    // Proposals admitted before extension stay first, in order. Additional growth
+    // proposals must earn source-axis extension evidence before admission to the
+    // decoder.
     proposals = original_proposals;
     proposals.extend(extended);
     proposals.extend(angle_bands);
@@ -473,7 +474,7 @@ fn extent_plan(proposals: &[Proposal], eligible_budget: bool) -> (Vec<usize>, us
     let count = eligible.len();
     (scheduled, count, proposals.len() - count)
 }
-/// Signed source-pixel multiline edge evidence, ported from061/extent.mts.
+/// Signed source-pixel multiline edge evidence.
 #[expect(
     clippy::too_many_lines,
     reason = "The bounded stripe pass shares ordered geometry refinement, source-evidence gates and work accounting."
@@ -1532,8 +1533,9 @@ mod secondary_sampler_tests {
                 let mut histogram = [[0usize; 256]; 4];
                 secondary_gray(im, w, h, &mut actual, &mut histogram);
                 let mut gray = vec![0f32; w * h];
-                // Diagnostic antialiased working-raster hypothesis; decoder source pixels
-                // stay untouched. Same legacy RGB weights, bilinear center sampling.
+                // Reference: the f64 bilinear working raster of Low, Medium and High
+                // (77/150/29 /256 weights, output-pixel centers). `secondary_gray`
+                // must match it exactly.
                 let luminance = |x: usize, y: usize| {
                     let i = y * im.stride + x * im.channels;
                     if im.channels == 1 {

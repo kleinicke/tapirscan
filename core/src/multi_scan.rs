@@ -1,5 +1,5 @@
 //! Bounded find-all research policy. Work limits describe sampling effort, never
-//! expected symbol counts. All original candidates receive the fixed pass before
+//! expected symbol counts. All initial candidates receive the fixed pass before
 //! round-robin retries, including candidates that already produced a read.
 #![forbid(unsafe_code)]
 mod execution;

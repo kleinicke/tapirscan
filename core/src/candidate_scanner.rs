@@ -271,7 +271,9 @@ pub const CONFIGS: [Config; 5] = [
         fixed3: false,
     },
 ];
-// Exact contiguous selection using the same coordinate expression as the legacy scan.
+// Map a path position (`u` along `axis`, `fraction` across it) to pixel-center
+// coordinates. The expression and operation order match the inlined loop in
+// `sample_segment_inner`, so coverage endpoints land exactly on sampled positions.
 
 pub(crate) fn point(
     matrix: [f64; 9],
@@ -527,8 +529,9 @@ impl CandidateScanner {
 // Invalid vetoes require three physically separated paths, and full interval
 // containment so a broad unsupported row cannot borrow a narrow track's support.
 
-/// Diagnose whether old global module evidence can decode an accepted run's
-/// boundaries. Never used in acceptance or search; no expected digits supplied.
+/// Diagnose whether a uniform 95-module grid between an accepted run's
+/// boundaries decodes on its own. Never used in acceptance or search; no expected
+/// digits supplied.
 #[must_use]
 pub fn profile_at_run_boundary(p: &[f32], left: f64, right: f64) -> Option<[u8; 13]> {
     if p.len() < 2

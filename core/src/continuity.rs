@@ -99,8 +99,8 @@ impl Continuity {
         Ok(evidence)
     }
     /// Final read consolidation requires at least 75% of anchor contrast at
-    /// every bridge sample. The legacy 50% threshold can pass a one-pixel white
-    /// gap when bilinear samples straddle it at half-pixel phase.
+    /// every bridge sample. A 50% threshold can pass a one-pixel white gap when
+    /// bilinear samples straddle it at half-pixel phase.
     /// # Errors
     /// Returns `Geometry` for invalid quadrilaterals or projected paths; propagates sampling errors.
     pub fn check_strict(

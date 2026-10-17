@@ -28,7 +28,8 @@ fn region(q: Quad, axis: usize) -> Option<Quad> {
     let b = [q[3][0] - q[0][0], q[3][1] - q[0][1]];
     let width = a[0].hypot(a[1]);
     let height = b[0].hypot(b[1]);
-    // Below 0.3 px/module the earlier experiment contained unstable inversions.
+    // Below 0.3 px/module (28.5 px across 95 modules) the fit produces unstable
+    // inversions.
     // Wider regions belong to existing readers, not this expensive fallback.
     if !(28.5..=114.).contains(&width) || !(12. ..=160.).contains(&height) {
         return None;

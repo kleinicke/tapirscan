@@ -47,8 +47,8 @@ pub(super) fn scaled_plan_density(
     let original = scaled_plan_allowance(m, policy, work, symbol_width, scaled, dense, 128)?;
 
     if scaled && symbol_width.is_none() && policy.max_retry_paths_per_candidate > 128 {
-        // Preserve the complete original exploratory prefix, including its
-        // original row/tile order. Append only previously unscheduled work.
+        // Keep the complete 128-path exploratory prefix in its row/tile order and
+        // append only work it did not schedule.
         // Both plans count the same full set as pending; never count it twice.
         let supplemental = scaled_plan_allowance(
             m,
@@ -148,7 +148,7 @@ pub(super) fn scaled_plan_allowance(
     });
     let mut paths = Vec::new();
     // Unknown-scale prefixes alternate whole rows and spatially spread tiles.
-    // Known-scale control keeps the previous complete-row ordering.
+    // Known-scale plans schedule every row of one tile before the next tile.
     let tile_orders: [Vec<usize>; 2] = std::array::from_fn(|axis| spread_order(dimensions[axis].3));
     let unknown = scaled && symbol_width.is_none();
     let schedule: Box<dyn Iterator<Item = (usize, usize, usize)>> =

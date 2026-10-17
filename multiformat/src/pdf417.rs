@@ -1082,7 +1082,7 @@ pub fn detect(
     let mut coarse_regions = crate::regions::Regions::default();
     let (mut results, mut limited) = detect_axes(gray, w, h, &mut coarse_regions, 96, None);
     // A localized band without a covering payload may contain dense rows or
-    // multiple symbols. Retry the original full-frame density, even if another
+    // multiple symbols. Retry the full frame at dense density, even if another
     // barcode has already decoded elsewhere. Sparse search is an effort
     // policy, not proof that an absent format is impossible.
     let dense_retry = coarse_regions.limited

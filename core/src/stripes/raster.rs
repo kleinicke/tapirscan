@@ -56,8 +56,9 @@ impl Raster {
         let (working_width, working_height) = (self.width, self.height);
         let gray = &mut self.gray;
 
-        // Diagnostic antialiased working-raster hypothesis; decoder source pixels
-        // stay untouched. Same legacy RGB weights, bilinear center sampling.
+        // Antialiased working raster: bilinear sampling at output-pixel centers with
+        // the 77/150/29 (/256) luminance weights of the nearest-neighbour raster.
+        // It only feeds localization; decoders sample source pixels themselves.
         #[cfg(any(feature = "mode-low", feature = "mode-medium", feature = "mode-high"))]
         let luminance = |x: usize, y: usize| {
             let i = y * im.stride + x * im.channels;
@@ -111,8 +112,8 @@ impl Raster {
         let (working_width, working_height) = (self.width, self.height);
         let gray = &mut self.gray;
 
-        // Source-column mapping is invariant across all output rows. Integer RGB
-        // weights are exactly the legacy binary-fraction luminance, not a new filter.
+        // Source-column mapping is invariant across all output rows. The integer
+        // 77/150/29 weights over 256 give exactly the f64 binary-fraction luminance.
         let columns: Vec<_> = (0..working_width)
             .map(|x| {
                 crate::numeric::f64_usize(
@@ -165,7 +166,8 @@ impl Raster {
 
         let weight = if sparse { 4. } else { 1. };
         for y in 1..working_height - 1 {
-            // Enumerate the exact quarter lattice in its original x order.
+            // Sparse rows visit a row-dependent quarter lattice, two columns per
+            // 8-pixel block, in ascending x. Tile sums accumulate in this order.
 
             let [a, bin_index] = [[0usize, 3], [1, 6], [4, 7], [2, 5]][(4 - (y + y / 2) % 4) % 4];
 
@@ -180,7 +182,7 @@ impl Raster {
                         let i = y * working_width + x;
                         // Unconditioned samples are exact multiples of 1/256. Every Scharr
                         // intermediate fits within 20 significant bits, so f32 is exact.
-                        // Conditioned low-light samples retain the original f64 arithmetic.
+                        // Conditioned and bilinear samples are not 1/256 multiples; use f64.
                         let (dx, dy) = if !conditioned && !bilinear {
                             let g = |i: usize| gray[i];
                             (
@@ -236,8 +238,9 @@ impl Raster {
         }
     }
 }
-// Column geometry is invariant across rows. The integer RGB dot product is
-// exactly the former f64 sum: bounded integer inputs and binary denominator256.
+// Column geometry is invariant across rows. The integer RGB dot product equals
+// the f64 weighted sum of the bilinear raster exactly: bounded integer inputs
+// and a binary denominator 256.
 #[cfg(feature = "mode-very-high")]
 pub(super) fn secondary_gray(
     im: ImageView<'_>,

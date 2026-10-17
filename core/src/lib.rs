@@ -1,5 +1,5 @@
 //! Production scanner kernels. Select one effort mode at compile time.
-//! Algorithm edits belong in this tree; historical recipes are never applied here.
+//! Algorithm changes are made directly in this tree.
 #[cfg(not(any(
     feature = "mode-low",
     feature = "mode-medium",

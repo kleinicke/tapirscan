@@ -54,7 +54,7 @@ fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort
     let mut regions = barcode_multiformat::regions::Regions::default();
     let mut binary = binarization::Images::new(image, width, height);
     // The foreground retry tries only the additional foreground splits; the
-    // original passes remain owned by the caller.
+    // base threshold passes remain owned by the caller.
     let pass = if foreground {
         Pass {
             modes: 4..8,

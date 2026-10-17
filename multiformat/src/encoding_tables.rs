@@ -1,7 +1,6 @@
 // Standard CP437 upper-half mapping, transposed from Zint's encoder eci_sb.h.
 // Copyright (C) 2021-2025 Robin Stuart. BSD-3-Clause; see THIRD_PARTY_NOTICES.md.
 // Source SHA-256: 07c25ab1b5b55b4e35c839af4941258d2b79717d87d424dc4b073504f0d5d25a
-// Regenerate with benchmark/scripts/multiformat_20260913/generate_encoding_tables.py.
 pub const CP437: [u16; 128] = [
     0x00c7, 0x00fc, 0x00e9, 0x00e2, 0x00e4, 0x00e0, 0x00e5, 0x00e7, 0x00ea, 0x00eb, 0x00e8, 0x00ef,
     0x00ee, 0x00ec, 0x00c4, 0x00c5, 0x00c9, 0x00e6, 0x00c6, 0x00f4, 0x00f6, 0x00f2, 0x00fb, 0x00f9,
