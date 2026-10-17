@@ -13,7 +13,7 @@
     clippy::cast_sign_loss,
     reason = "Sampling uses Rust float-to-integer saturation and truncation; negatives, infinities and NaN retain their established conversion behavior."
 )]
-pub fn f32_usize(value: f32) -> usize {
+pub const fn f32_usize(value: f32) -> usize {
     value as usize
 }
 
@@ -24,7 +24,7 @@ pub fn f32_usize(value: f32) -> usize {
     clippy::cast_precision_loss,
     reason = "Scanner geometry and scores intentionally round integer coordinates; preserving the existing IEEE conversion avoids changing sampling."
 )]
-pub fn usize_f32(value: usize) -> f32 {
+pub const fn usize_f32(value: usize) -> f32 {
     value as f32
 }
 
@@ -35,7 +35,7 @@ pub fn usize_f32(value: usize) -> f32 {
     clippy::cast_possible_truncation,
     reason = "The scanner stores geometry in f32; this explicit rounding boundary preserves the original precision and overflow behavior."
 )]
-pub fn f64_f32(value: f64) -> f32 {
+pub const fn f64_f32(value: f64) -> f32 {
     value as f32
 }
 
@@ -46,7 +46,7 @@ pub fn f64_f32(value: f64) -> f32 {
     clippy::cast_possible_truncation,
     reason = "Sampling uses Rust float-to-integer saturation and truncation; negatives, infinities and NaN retain their established conversion behavior."
 )]
-pub fn f32_isize(value: f32) -> isize {
+pub const fn f32_isize(value: f32) -> isize {
     value as isize
 }
 
@@ -57,7 +57,7 @@ pub fn f32_isize(value: f32) -> isize {
     clippy::cast_precision_loss,
     reason = "Scanner geometry and scores intentionally round integer coordinates; preserving the existing IEEE conversion avoids changing sampling."
 )]
-pub fn isize_f32(value: isize) -> f32 {
+pub const fn isize_f32(value: isize) -> f32 {
     value as f32
 }
 
@@ -69,14 +69,14 @@ pub fn isize_f32(value: isize) -> f32 {
     clippy::cast_sign_loss,
     reason = "Sampling uses Rust float-to-integer saturation and truncation; negatives, infinities and NaN retain their established conversion behavior."
 )]
-pub fn f32_u8(value: f32) -> u8 {
+pub const fn f32_u8(value: f32) -> u8 {
     value as u8
 }
 
 /// Extract the low 16 bits of a word without changing wraparound semantics.
 #[inline]
 #[must_use]
-pub fn usize_u16(value: usize) -> u16 {
+pub const fn usize_u16(value: usize) -> u16 {
     let bytes = value.to_le_bytes();
     u16::from_le_bytes([bytes[0], bytes[1]])
 }
@@ -84,7 +84,7 @@ pub fn usize_u16(value: usize) -> u16 {
 /// Extract the low 32 bits of a word without changing wraparound semantics.
 #[inline]
 #[must_use]
-pub fn usize_u32(value: usize) -> u32 {
+pub const fn usize_u32(value: usize) -> u32 {
     let bytes = value.to_le_bytes();
     u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
@@ -96,7 +96,7 @@ pub fn usize_u32(value: usize) -> u32 {
     clippy::cast_precision_loss,
     reason = "Scanner geometry and scores intentionally round integer coordinates; preserving the existing IEEE conversion avoids changing sampling."
 )]
-pub fn usize_f64(value: usize) -> f64 {
+pub const fn usize_f64(value: usize) -> f64 {
     value as f64
 }
 
@@ -107,19 +107,19 @@ pub fn usize_f64(value: usize) -> f64 {
     clippy::cast_possible_truncation,
     reason = "Sampling uses Rust float-to-integer saturation and truncation; negatives, infinities and NaN retain their established conversion behavior."
 )]
-pub fn f32_i32(value: f32) -> i32 {
+pub const fn f32_i32(value: f32) -> i32 {
     value as i32
 }
 
-/// Sign-extend a signed 32-bit offset into the target word, preserving its bit pattern.
-///
-/// # Panics
-/// Only on unsupported targets with pointers narrower than 32 bits.
+/// Sign-extend an offset and reinterpret it as an unsigned pointer-sized word.
 #[inline]
 #[must_use]
-pub fn i32_usize(value: i32) -> usize {
-    let signed = isize::try_from(value).expect("scanner targets have at least 32-bit pointers");
-    signed.cast_unsigned()
+#[expect(
+    clippy::cast_sign_loss,
+    reason = "Offset arithmetic intentionally preserves the two's-complement wrapping representation."
+)]
+pub const fn i32_usize(value: i32) -> usize {
+    value as usize
 }
 
 /// Round a u64 coordinate/count to the existing f64 representation.
@@ -129,8 +129,107 @@ pub fn i32_usize(value: i32) -> usize {
     clippy::cast_precision_loss,
     reason = "Scanner geometry and scores intentionally round integer coordinates; preserving the existing IEEE conversion avoids changing sampling."
 )]
-pub fn u64_f64(value: u64) -> f64 {
+pub const fn u64_f64(value: u64) -> f64 {
     value as f64
+}
+
+/// Truncate a f64 toward zero and saturate to isize; NaN maps to zero.
+#[inline]
+#[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Sampling uses Rust float-to-integer saturation and truncation; negatives, infinities and NaN retain their established conversion behavior."
+)]
+pub const fn f64_isize(value: f64) -> isize {
+    value as isize
+}
+
+/// Round a isize coordinate/count to the existing f64 representation.
+#[inline]
+#[must_use]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "Scanner geometry and scores intentionally round integer coordinates; preserving the existing IEEE conversion avoids changing sampling."
+)]
+pub const fn isize_f64(value: isize) -> f64 {
+    value as f64
+}
+
+/// Truncate a f64 toward zero and saturate to u8; NaN maps to zero.
+#[inline]
+#[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "Sampling uses Rust float-to-integer saturation and truncation; negatives, infinities and NaN retain their established conversion behavior."
+)]
+pub const fn f64_u8(value: f64) -> u8 {
+    value as u8
+}
+
+/// Extract the low 32 bits of a word without changing wraparound semantics.
+#[inline]
+#[must_use]
+pub const fn usize_i32(value: usize) -> i32 {
+    let bytes = value.to_le_bytes();
+    i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+}
+
+/// Truncate a f64 toward zero and saturate to u32; NaN maps to zero.
+#[inline]
+#[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "Sampling uses Rust float-to-integer saturation and truncation; negatives, infinities and NaN retain their established conversion behavior."
+)]
+pub const fn f64_u32(value: f64) -> u32 {
+    value as u32
+}
+
+/// Truncate a f64 toward zero and saturate to usize; NaN maps to zero.
+#[inline]
+#[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "Sampling uses Rust float-to-integer saturation and truncation; negatives, infinities and NaN retain their established conversion behavior."
+)]
+pub const fn f64_usize(value: f64) -> usize {
+    value as usize
+}
+
+/// Truncate a f64 toward zero and saturate to i32; NaN maps to zero.
+#[inline]
+#[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Sampling uses Rust float-to-integer saturation and truncation; negatives, infinities and NaN retain their established conversion behavior."
+)]
+pub const fn f64_i32(value: f64) -> i32 {
+    value as i32
+}
+
+/// Round a u64 coordinate/count to the existing f32 representation.
+#[inline]
+#[must_use]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "Scanner geometry and scores intentionally round integer coordinates; preserving the existing IEEE conversion avoids changing sampling."
+)]
+pub const fn u64_f32(value: u64) -> f32 {
+    value as f32
+}
+
+/// Truncate a f64 toward zero and saturate to i64; NaN maps to zero.
+#[inline]
+#[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "Sampling uses Rust float-to-integer saturation and truncation; negatives, infinities and NaN retain their established conversion behavior."
+)]
+pub fn f64_i64(value: f64) -> i64 {
+    value as i64
 }
 
 #[cfg(test)]
@@ -169,5 +268,15 @@ mod tests {
         assert_eq!(f32_u8(256.), 255);
         assert_eq!(f32_u8(-1.), 0);
         assert_eq!(f32_i32(-3.99), -3);
+    }
+
+    #[test]
+    fn byte_samples_saturate_instead_of_wrapping() {
+        assert_eq!(f64_u8(-1.), 0);
+        assert_eq!(f64_u8(255.99), 255);
+        assert_eq!(f64_u8(256.), 255);
+        assert_eq!(f64_u8(f64::NAN), 0);
+        assert_eq!(usize_i32(0xffff_ffff), -1);
+        assert_eq!(f64_i32(-3.99), -3);
     }
 }
