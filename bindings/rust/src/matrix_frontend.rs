@@ -80,6 +80,10 @@ fn run_reader(
                 );
             }
             search.contrast(image, width, height, regions);
+            // The enlarged retry costs a scan of its own and follows the compiled
+            // mode (the matrix group's `effort` is 1 in every mode): none in Low,
+            // which keeps to live-camera cost, a narrow one in Medium.
+            search.upscaled(image, width, height, crate::MODE_ID as usize);
             (search.reads, search.limited)
         }
         131_072 => maxicode_detect::detect(width, height, regions, binary_images),

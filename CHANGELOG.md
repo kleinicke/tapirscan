@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Aztec reads small symbols (about 1.5 to 2 pixels per module) in Medium, High and Very
+  High: a bullseye candidate with a well-fitting ring that no threshold pass turned into a
+  read is retried on an enlarged window around it, and a read must be centered on the
+  candidate (short Rune-like numbers are not accepted from enlarged windows). Low is
+  unchanged. On all 315 Aztec variation images Medium reads 156 instead of 137 and High
+  159, with no new wrong reads and unchanged reads of every format on the 1,578
+  development images. In Chrome, Medium costs within 1% more, High about 4% on retail
+  photos with Aztec selected.
 - Medium, High and Very High localize linear selections without retail formats (Code 128,
   Code 39, ITF, Codabar, Code 93, DataBar) by segment voting, as Low does, and decode the
   central band of unread boxes; only frames that read nothing fall back to the stripe

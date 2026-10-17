@@ -7,6 +7,7 @@ mod curves;
 pub mod decoder;
 mod geometry;
 mod refinement;
+mod upscale;
 #[derive(Clone)]
 struct Center {
     x: f32,
@@ -343,6 +344,24 @@ fn template_error(bits: &[bool], w: usize, h: usize, t: &[f32; 8], limit: usize)
 fn ring_error(bits: &[bool], w: usize, h: usize, c: &Center, theta: f32, module: f32) -> usize {
     template_error(bits, w, h, &transform(c, theta, module, 9), 81)
 }
+/// Smallest ring mismatch of a bullseye candidate over the sampled poses.
+fn ring_fit(bits: &[bool], w: usize, h: usize, c: &Center) -> usize {
+    (0..90)
+        .step_by(15)
+        .map(|a| {
+            let theta = barcode_multiformat::numeric::f64_f32(f64::from(a)).to_radians();
+            ring_error(
+                bits,
+                w,
+                h,
+                c,
+                theta,
+                c.module * theta.cos().abs().max(theta.sin().abs()),
+            )
+        })
+        .min()
+        .unwrap_or(81)
+}
 fn centered(t: &[f32; 8], n: usize) -> [f32; 8] {
     let half = barcode_multiformat::numeric::usize_f32(n) * 0.5;
     let d = 1. - half * (t[6] + t[7]);
@@ -542,6 +561,8 @@ pub struct Threshold<'a> {
 pub struct Search {
     pub reads: Vec<Detection>,
     pub limited: bool,
+    /// Bullseye candidates that no threshold pass turned into a read.
+    unresolved: Vec<(usize, Center)>,
     refine_budget: usize,
     curve_budget: usize,
     bow_budget: usize,
@@ -553,6 +574,7 @@ impl Default for Search {
         Self {
             reads: Vec::new(),
             limited: false,
+            unresolved: Vec::new(),
             refine_budget: if cfg!(feature = "mode-low") {
                 10_000
             } else {
@@ -608,24 +630,7 @@ impl Search {
         let mut limited = self.limited;
         let mut refine_budget = self.refine_budget;
         let mut candidates = prepared.unwrap_or_else(|| centers_with_rows(bits, w, h, row_cache));
-        candidates.sort_by_cached_key(|c| {
-            let error = (0..90)
-                .step_by(15)
-                .map(|a| {
-                    let theta = barcode_multiformat::numeric::f64_f32(f64::from(a)).to_radians();
-                    ring_error(
-                        bits,
-                        w,
-                        h,
-                        c,
-                        theta,
-                        c.module * theta.cos().abs().max(theta.sin().abs()),
-                    )
-                })
-                .min()
-                .unwrap_or(81);
-            (error, std::cmp::Reverse(c.support))
-        });
+        candidates.sort_by_cached_key(|c| (ring_fit(bits, w, h, c), std::cmp::Reverse(c.support)));
         if candidates.len() > 64 {
             limited = true;
             candidates.truncate(64);
@@ -994,6 +999,9 @@ impl Search {
             }
             if let Some(rune) = pending_rune {
                 results.push(rune);
+            } else if self.unresolved.len() < upscale::MAX_UNRESOLVED {
+                let fit = ring_fit(bits, w, h, &c);
+                self.unresolved.push((fit, c));
             }
         }
         self.reads = results;
@@ -1043,12 +1051,14 @@ impl Search {
         }
     }
 }
+/// `effort` selects the enlarged retry of [`Search::upscaled`]; 0 leaves it out.
 fn detect(
     w: usize,
     h: usize,
     regions: &mut barcode_multiformat::regions::Regions,
     gray: &[u8],
     images: &mut binarization::Images<'_>,
+    effort: usize,
 ) -> (Vec<Detection>, bool) {
     let mut search = Search::default();
     for mode in 0..4 {
@@ -1069,6 +1079,7 @@ fn detect(
         );
     }
     search.contrast(gray, w, h, regions);
+    search.upscaled(gray, w, h, effort);
     (search.reads, search.limited)
 }
 
@@ -1085,7 +1096,7 @@ pub fn scan(image: &[u8], width: usize, height: usize) -> barcode_multiformat::S
     }
     let mut regions = barcode_multiformat::regions::Regions::default();
     let mut binary = binarization::Images::new(image, width, height);
-    let (mut reads, limited) = detect(width, height, &mut regions, image, &mut binary);
+    let (mut reads, limited) = detect(width, height, &mut regions, image, &mut binary, 0);
     reads.sort_by_key(|r| std::cmp::Reverse(r.support));
     let mut distinct: Vec<Detection> = Vec::new();
     for read in reads {
