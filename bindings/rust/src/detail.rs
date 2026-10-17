@@ -1,11 +1,6 @@
 //! Detail recovery: upscaled crops around seeded bar-like cells, rescanned by the
 //! core. Raw crop frames keep local indices.
 //! Coordinate arithmetic uses validated image bounds (at most 256 Mi pixels).
-#![allow(
-    clippy::cast_precision_loss,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss
-)]
 use crate::read::{Read, Recovery, Region};
 use crate::{Barcode, Error, Image, Proposal, Quad};
 use serde_json::{Value, json};
@@ -20,15 +15,23 @@ fn pixel(im: Image<'_>, x: usize, y: usize, c: usize) -> f64 {
         f64::from(im.data[y * im.stride + x * im.channels + channel])
     }
 }
-// The legacy weighted sum is an exact integer <=65280, followed by an
-// exact power-of-two division. Integer accumulation preserves every bit.
+// The 77/150/29 weighted sum is an exact integer <=65280, followed by an
+// exact power-of-two division, so integer accumulation gives the f64 result bit
+// for bit.
 fn gray(im: Image<'_>, x: usize, y: usize) -> f64 {
     im.fixed_luminance(y * im.stride + x * im.channels)
 }
 
 // Keep the equations and their operation order: reordered floating-point steps change
 // borderline reads.
-#[allow(clippy::many_single_char_names, clippy::manual_midpoint)]
+#[expect(
+    clippy::many_single_char_names,
+    clippy::manual_midpoint,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "Quad corners a-d and segment ends p, q follow the geometry; `(lo + hi) / 2.` keeps the written operation order; sample counts are clamped to 64..=2048 and luminance samples lie in 0..=255."
+)]
 fn evidence(im: Image<'_>, polygon: Quad, local: bool, target: usize) -> usize {
     let mut best = 0;
     for axis in 0..2 {
@@ -134,6 +137,10 @@ struct Seed {
     y: f64,
     score: f64,
 }
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "Cell centers are pixel indices within the validated image bounds (at most 256 Mi pixels), exact in f64."
+)]
 fn seeds(im: Image<'_>) -> Vec<Seed> {
     let mut cells = Vec::new();
     for y in (1..im.height.saturating_sub(24)).step_by(24) {
@@ -182,7 +189,12 @@ fn seeds(im: Image<'_>) -> Vec<Seed> {
 }
 // Keep the equations and their operation order: reordered floating-point steps change
 // borderline reads.
-#[allow(clippy::many_single_char_names)]
+#[expect(
+    clippy::many_single_char_names,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a-h name the eight Scharr stencil neighbours around the center pixel; seeds are nonnegative pixel positions within the validated image bounds (at most 256 Mi pixels)."
+)]
 fn refined_angle(im: Image<'_>, seed: Seed) -> f64 {
     let (mut xx, mut yy, mut xy, mut sx, mut sy, mut n) = (0., 0., 0., 0., 0., 0.);
     for y in ((seed.y.round() as usize).saturating_sub(12).max(1))
@@ -225,7 +237,13 @@ fn contains(point: Point, q: Quad) -> bool {
     hit
 }
 // Image-bounded coordinates cannot overflow; preserve upstream arithmetic.
-#[allow(clippy::manual_midpoint)]
+#[expect(
+    clippy::manual_midpoint,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "Edge midpoints keep the written `(a + b) / 2.` operation order; sample positions and counts are bounded by the validated image bounds (at most 256 Mi pixels)."
+)]
 fn continuous(im: Image<'_>, point: Point, p: Quad) -> bool {
     let left = [(p[0][0] + p[3][0]) / 2., (p[0][1] + p[3][1]) / 2.];
     let right = [(p[1][0] + p[2][0]) / 2., (p[1][1] + p[2][1]) / 2.];
@@ -312,8 +330,8 @@ fn span(p: Quad) -> f64 {
 // Threefold center sampling has weights 0, 1/3 and 2/3. For byte pixels,
 // the two-dimensional numerator is an integer in 0..=2295 over denominator 9.
 // It cannot land on a half-integer (minimum distance 1/18). At the bounded
-// 512-pixel crop size, legacy f64 coordinate/interpolation error is far below
-// that margin, so integer rounding gives the identical output byte.
+// 512-pixel crop size, f64 coordinate/interpolation error is far below that
+// margin, so integer rounding gives the same output byte as f64 interpolation.
 //
 // Output column 3x takes thirds from source columns x-1 and x (weights 1, 2),
 // column 3x+1 is source column x, and column 3x+2 takes x and x+1 (weights 2, 1);
@@ -349,6 +367,10 @@ fn widen_row(im: Image<'_>, source: usize, x: usize, w: usize, out: &mut [u16]) 
     }
 }
 // Combine two widened rows; (n + 4) / 9 equals ((n + 4) * 7282) >> 16 for n <= 2295.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "The blended sum is at most 2295, so the shifted quotient fits in a byte."
+)]
 fn blend_rows(top: &[u16], bottom: &[u16], fraction: u32, output: &mut [u8]) {
     let pixels = output.len() / 4;
     let (top, bottom) = (&top[..pixels * 3], &bottom[..pixels * 3]);
@@ -416,7 +438,14 @@ pub(super) struct RecoveryOptions {
 /// Runtime evidence is returned separately to preserve each crop's candidate namespace.
 // Keep the equations and their operation order: reordered floating-point steps change
 // borderline reads.
-#[allow(clippy::many_single_char_names, clippy::too_many_lines)]
+#[expect(
+    clippy::many_single_char_names,
+    clippy::too_many_lines,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "Crop coordinates are clamped to the validated image bounds (at most 256 Mi pixels). One bounded pass seeds, crops, rescans and maps results back; x, y, w, h name the crop, c, s the rotation and p, q points."
+)]
 pub fn recover(
     im: Image<'_>,
     primary: &mut Vec<Barcode>,
@@ -706,6 +735,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "Palette values are at most 15 * 17 = 255."
+    )]
     fn integer_upscale_exhaustive_pairs_and_two_dimensional_palette() {
         for a in 0..=255_u8 {
             for b in 0..=255_u8 {
@@ -798,7 +831,13 @@ mod tests {
         data
     }
 
-    #[allow(clippy::many_single_char_names)]
+    #[expect(
+        clippy::many_single_char_names,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss,
+        reason = "Crop origin, size and source coordinates mirror `upscale`; crops are at most 512 pixels per side."
+    )]
     fn reference_upscale(im: Image<'_>, x: usize, y: usize, w: usize, h: usize) -> Vec<u8> {
         let mut data = vec![0; w * h * 9 * 4];
         for row in 0..h * 3 {
