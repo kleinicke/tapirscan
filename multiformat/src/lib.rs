@@ -1,7 +1,7 @@
 pub mod aztec;
 pub mod aztec_detect;
 pub mod binarization;
-mod component_geometry;
+pub mod component_geometry;
 pub mod databar;
 pub mod datamatrix;
 pub mod dm_detect;

@@ -95,7 +95,9 @@ pub(crate) fn quad(
 ) -> Option<Quad> {
     crate::dm_detect::quad(outline(bits, width, seed, bounds, count_range)?)
 }
-pub(crate) fn quads(
+/// The quadrilaterals of the component at `seed`: its hull reduced to four
+/// vertices and the enclosing quadrilateral of supporting hull edges.
+pub fn quads(
     bits: &[bool],
     width: usize,
     seed: [usize; 2],

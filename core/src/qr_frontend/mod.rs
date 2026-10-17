@@ -1,8 +1,6 @@
 //! QR-only production frontend: the shared multiformat detector under this
 //! mode's [`Policy`], plus block-threshold and sharpened retries. The
 //! multi-format groups use the same detector under `Policy::MULTIFORMAT`.
-pub(crate) mod component_geometry;
-pub(crate) mod dm_detect;
 use barcode_multiformat::qr_detect::{self, FULL_BUDGET, GrayRetry, Pass, Policy};
 use barcode_multiformat::{Detection, Scan, binarization, qr_enhance};
 

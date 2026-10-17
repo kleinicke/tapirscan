@@ -5,7 +5,7 @@ use decoder as aztec;
 mod center_index;
 mod curves;
 pub mod decoder;
-mod geometry;
+
 mod refinement;
 mod upscale;
 #[derive(Clone)]
@@ -411,7 +411,7 @@ fn ring_quads(
     let bottom =
         (barcode_multiformat::numeric::f32_isize(center.y.ceil()) + radius).min((h).cast_signed());
     let expected_area = module * module * 8. * barcode_multiformat::numeric::usize_f32(ring);
-    let quads = geometry::quads(
+    let quads = barcode_multiformat::component_geometry::quads(
         bits,
         w,
         [(x).cast_unsigned(), (y).cast_unsigned()],
