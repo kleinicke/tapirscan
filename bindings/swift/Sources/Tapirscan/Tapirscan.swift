@@ -19,47 +19,6 @@ public enum EanAddOnPolicy: UInt32, Sendable {
     case ignore = 0, read, require
 }
 
-/// A set of barcode formats. Enable only the formats you need: each 2D format
-/// searches the whole image.
-public struct Formats: OptionSet, Sendable {
-    public let rawValue: UInt32
-    public init(rawValue: UInt32) { self.rawValue = rawValue }
-
-    public static let ean13 = Formats(rawValue: 1)
-    public static let upcA = Formats(rawValue: 2)
-    public static let ean8 = Formats(rawValue: 4)
-    public static let upcE = Formats(rawValue: 8)
-    public static let code128 = Formats(rawValue: 16)
-    public static let code39 = Formats(rawValue: 32)
-    public static let itf = Formats(rawValue: 64)
-    public static let codabar = Formats(rawValue: 128)
-    public static let code93 = Formats(rawValue: 256)
-    public static let qrCode = Formats(rawValue: 512)
-    public static let dataMatrix = Formats(rawValue: 1024)
-    public static let pdf417 = Formats(rawValue: 2048)
-    public static let aztec = Formats(rawValue: 4096)
-    public static let dataBar = Formats(rawValue: 8192)
-    public static let dataBarExpanded = Formats(rawValue: 16384)
-    public static let maxiCode = Formats(rawValue: 131_072)
-    /// Italian pharmacy code, a Code 39 symbol reported as its 9-digit number. Opt-in: not in `all`.
-    public static let code32 = Formats(rawValue: 262_144)
-    /// German pharmacy number (PZN), a Code 39 symbol reported without the leading `-`. Opt-in: not in `all`.
-    public static let pzn = Formats(rawValue: 524_288)
-    /// MSI Plessey with a mod-10 check digit. Opt-in: not in `all`.
-    public static let msiPlessey = Formats(rawValue: 1_048_576)
-
-    /// EAN-13, UPC-A, EAN-8 and UPC-E (the default).
-    public static let retail = Formats(rawValue: 15)
-    /// Retail plus Code 128, Code 39 and ITF.
-    public static let common1D = Formats(rawValue: 127)
-    /// Common linear formats plus QR Code and Data Matrix.
-    public static let common = Formats(rawValue: 1663)
-    public static let linear = Formats(rawValue: 25087)
-    public static let matrix = Formats(rawValue: 138_752)
-    /// Every format except the opt-in `code32`, `pzn` and `msiPlessey`.
-    public static let all = Formats(rawValue: 163_839)
-}
-
 /// A point in source-image pixels, origin top-left.
 public struct Point: Equatable, Sendable {
     public let x: Double

@@ -8,7 +8,7 @@ this checklist.
    truth, and check `tapirscan_abi_version()` against `TAPIRSCAN_ABI_VERSION`
    when loading the library.
 2. **Formats.** Do not hand-write format bits or presets. Add an output target to
-   `scripts/generate_formats.py` (it currently writes C, C++ and Java) so the
+   `scripts/generate_formats.py` (it currently writes C, C++, Java, Swift and Android) so the
    constants are generated from `config/formats.json`.
 3. **API shape.** Follow [API design](API_DESIGN.md) and the field names in
    [native bindings](NATIVE_BINDINGS.md#result-fields): `scan` and `inspect`,

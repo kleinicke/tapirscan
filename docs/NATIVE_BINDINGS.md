@@ -5,7 +5,7 @@ One shared library, built with `python3 scripts/build_native.py`, contains all
 four effort modes; every binding selects the mode when it creates a scanner.
 The header is [`tapirscan.h`](../bindings/c/include/tapirscan.h). Format bits and
 presets are generated from `config/formats.json` into `tapirscan_formats.h`,
-the C++ `Format` enum and the Java `Format` enum.
+the C++, Java, Swift and Android `Format` types.
 
 Per-binding guides: [C](../bindings/c/README.md), [C++](../bindings/cpp/README.md),
 [Java](../bindings/java/README.md) and [Python](../bindings/python/README.md).
