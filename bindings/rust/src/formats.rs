@@ -1017,7 +1017,7 @@ fn scaled_matrix_retry(
     scan
 }
 
-#[cfg(any(feature = "high", feature = "very-high"))]
+#[cfg(not(feature = "low"))]
 /// Whether a scan read a symbol of this format.
 fn has_format_read(scan: &barcode_multiformat::Scan, format: &str) -> bool {
     scan.barcodes.iter().any(|read| read.format == format)
@@ -1025,7 +1025,7 @@ fn has_format_read(scan: &barcode_multiformat::Scan, format: &str) -> bool {
 
 /// Scan an area-averaged copy whose long side is `target_long`, with polygons
 /// mapped back to source coordinates.
-#[cfg(any(feature = "high", feature = "very-high"))]
+#[cfg(not(feature = "low"))]
 fn averaged_matrix_retry(
     pixels: &[u8],
     width: usize,
@@ -1492,11 +1492,16 @@ fn scan_additional(
     // Large, blurred Data Matrix symbols span tens of pixels per module, far
     // beyond what the module-scale localizer expects. Unread frames are retried
     // on area-averaged copies, which also take the corner-refining search.
-    // High tries the two cheap scales; Medium keeps its cost on large photos.
-    #[cfg(any(feature = "high", feature = "very-high"))]
+    // High tries the two cheap scales; Medium tries them only after the frame left a
+    // Data Matrix candidate region, so frames without one keep their cost.
+    #[cfg(not(feature = "low"))]
     if matrix & 1024 != 0
         && addons == EanAddOnPolicy::Ignore
         && !scans.iter().any(|scan| has_format_read(scan, "DataMatrix"))
+        && (crate::MODE_ID >= 2
+            || scans
+                .iter()
+                .any(|scan| has_format_region(scan, "DataMatrix")))
     {
         let long = image.width.max(image.height);
         let targets: &[usize] = if crate::MODE_ID == 3 {
@@ -1569,9 +1574,15 @@ fn has_qr_read(scan: &barcode_multiformat::Scan) -> bool {
 }
 
 #[cfg(not(feature = "low"))]
+/// Whether a scan left a candidate region of this format.
+fn has_format_region(scan: &barcode_multiformat::Scan, format: &str) -> bool {
+    scan.regions.iter().any(|region| region.format == format)
+}
+
+#[cfg(not(feature = "low"))]
 /// Whether a scan left a QR candidate region.
 fn has_qr_region(scan: &barcode_multiformat::Scan) -> bool {
-    scan.regions.iter().any(|region| region.format == "QRCode")
+    has_format_region(scan, "QRCode")
 }
 
 /// EAN-13, UPC-A, EAN-8 and UPC-E.

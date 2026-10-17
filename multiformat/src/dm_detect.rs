@@ -1335,6 +1335,7 @@ pub fn detect(
             gray: GRAY_ATTEMPTS[mode],
             crops: CROP_RETRIES[mode],
             candidates: RETRY_CANDIDATES[mode],
+            ranked: RANKED_CANDIDATES[mode],
         },
     )
 }
@@ -1348,11 +1349,18 @@ struct Retries {
     /// Failing candidates kept for the retries, which spend their work on the best-scoring
     /// ones; gathering a candidate costs little.
     candidates: usize,
+    /// Whether the list keeps the best-ranked candidates with a possible orientation
+    /// instead of the first ones found. Real-looking candidates cost more retry work
+    /// than bare L borders, so only a short list is ranked.
+    ranked: bool,
 }
-/// Retry limits per frame for Low, Medium and High (and Very High).
+/// Retry limits per frame for Low, Medium and High (and Very High). Medium retries its
+/// four best candidates; Low and High the first 64 (High ranking them cost about 3% in
+/// Chrome on retail photos for no read).
 const GRAY_ATTEMPTS: [usize; 3] = [3, 3, 6];
 const CROP_RETRIES: [usize; 3] = [1, 1, 2];
-const RETRY_CANDIDATES: [usize; 3] = [64, 64, 64];
+const RETRY_CANDIDATES: [usize; 3] = [64, 4, 64];
+const RANKED_CANDIDATES: [bool; 3] = [false, true, false];
 /// Sizes per candidate that the grayscale refinement tries.
 const GRAY_SIZES_PER_CANDIDATE: usize = 2;
 /// The detection on a crop retries only a little itself and never crops again.
@@ -1360,6 +1368,7 @@ const CROP_PASS: Retries = Retries {
     gray: 3,
     crops: 0,
     candidates: 64,
+    ranked: false,
 };
 #[expect(
     clippy::too_many_lines,
@@ -1378,7 +1387,7 @@ fn detect_with_retries(
     let mut refinements = 0;
     let gray = binary_images.gray();
     let mut gray_attempts = retries.gray;
-    let mut failed: Vec<(Vec<[Point; 4]>, usize)> = Vec::new();
+    let mut failed: Vec<(Vec<[Point; 4]>, usize, f32)> = Vec::new();
     let mut unread: Vec<[Point; 4]> = Vec::new();
     for mode in 0..4 {
         if binary_images.is_duplicate(mode) {
@@ -1407,6 +1416,7 @@ fn detect_with_retries(
             let mut flat: [Option<bool>; 4] = [None; 4];
             let mut hypotheses = Vec::new();
             let mut orientations: Vec<[Point; 4]> = Vec::new();
+            let mut strength = 0;
             for mirror in [false, true] {
                 for rotation in 0..4 {
                     // A valid orientation puts the solid L on the bottom and
@@ -1442,6 +1452,7 @@ fn detect_with_retries(
                         continue;
                     }
                     orientations.push(q);
+                    strength = strength.max(solid[left_edge] + solid[bottom_edge]);
                     let dx = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]);
                     let dy = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
                     for size in datamatrix::SIZES {
@@ -1494,6 +1505,11 @@ fn detect_with_retries(
                 refine_hypotheses(image, w, h, &mut hypotheses, &mut refinements);
             }
             regions.limited |= hypotheses.len() > 12;
+            // Rank failures by their best hypothesis, then by the strength of their L.
+            let best_score = hypotheses.first().map_or_else(
+                || 1. + (36. - crate::numeric::usize_f32(strength)) / 36.,
+                |h| h.0,
+            );
             let before = results.len();
             for (score, size, t, polygon) in hypotheses.into_iter().take(12) {
                 attempts += 1;
@@ -1539,8 +1555,19 @@ fn detect_with_retries(
                     }
                 }
             }
-            if results.len() == before && failed.len() < retries.candidates {
-                failed.push((orientations, mode));
+            // Busy frames fill the list with bare Ls of earlier thresholds. A ranked list
+            // skips candidates without a possible orientation (never retried) and, when
+            // full, gives its worst entry to a better one.
+            if results.len() == before && (!retries.ranked || !orientations.is_empty()) {
+                if failed.len() < retries.candidates {
+                    failed.push((orientations, mode, best_score));
+                } else if retries.ranked
+                    && let Some(worst) =
+                        (0..failed.len()).max_by(|&a, &b| failed[a].2.total_cmp(&failed[b].2))
+                    && failed[worst].2 > best_score
+                {
+                    failed[worst] = (orientations, mode, best_score);
+                }
             }
         }
     }
@@ -1548,7 +1575,7 @@ fn detect_with_retries(
     // ratio window of the first pass; unread candidates retry with a wider one.
     // Fair but unclean borders queue for the grayscale refinement below.
     let mut queue: Vec<(f32, datamatrix::Size, [Point; 4], bool)> = Vec::new();
-    for (orientations, mode) in failed {
+    for (orientations, mode, _) in failed {
         if orientations
             .first()
             .is_some_and(|first| near_result(&results, first))
@@ -1760,11 +1787,15 @@ fn average_crop(
     out
 }
 
-/// Reads of a small candidate box, detected on a bilinear enlargement and mapped back to
-/// source coordinates.
-fn enlarged_reads(gray: &[u8], stride: usize, candidate: [usize; 4]) -> Vec<Detection> {
+/// Reads of a candidate box, detected on a bilinear enlargement by `factor` (1 is the
+/// source scale) and mapped back to source coordinates.
+fn enlarged_reads(
+    gray: &[u8],
+    stride: usize,
+    candidate: [usize; 4],
+    factor: usize,
+) -> Vec<Detection> {
     let (cw, ch) = (candidate[2] - candidate[0], candidate[3] - candidate[1]);
-    let factor = (160 / cw.max(ch)).clamp(2, 8);
     let (out_w, out_h) = (cw * factor, ch * factor);
     let large = upscale_crop(gray, stride, candidate, factor);
     let mut crop_regions = crate::regions::Regions::default();
@@ -1789,6 +1820,29 @@ fn enlarged_reads(gray: &[u8], stride: usize, candidate: [usize; 4]) -> Vec<Dete
     reads
 }
 
+/// Retry the largest small or mid-size boxes (with their enlargement factors) that no
+/// read covers, adding what they read to `found`.
+fn enlarged_retries(
+    gray: &[u8],
+    stride: usize,
+    mut boxes: Vec<([usize; 4], usize)>,
+    limit: usize,
+    results: &[Detection],
+    found: &mut Vec<Detection>,
+) {
+    boxes.sort_by_key(|(b, _)| std::cmp::Reverse((b[2] - b[0]) * (b[3] - b[1])));
+    boxes.dedup_by(|(a, _), (b, _)| {
+        (a[0].abs_diff(b[0]) + a[1].abs_diff(b[1])) * 4 < (a[2] - a[0]).max(a[3] - a[1])
+    });
+    for (candidate, factor) in boxes.into_iter().take(limit) {
+        for read in enlarged_reads(gray, stride, candidate, factor) {
+            if !near_result(found, &read.polygon) && !near_result(results, &read.polygon) {
+                found.push(read);
+            }
+        }
+    }
+}
+
 /// Large symbols whose modules span tens of pixels leave candidates that do not
 /// decode at full resolution, and tiny ones with two-pixel modules leave candidates the
 /// binary pass cannot sample. Retry the most extensive unread candidates on
@@ -1804,7 +1858,7 @@ pub(crate) fn crop_retries_for(
     const TARGETS: [usize; 2] = [192, 96];
     let targets = &TARGETS[..if limit > 1 { 2 } else { 1 }];
     let mut boxes: Vec<[usize; 4]> = Vec::new();
-    let mut smalls: Vec<[usize; 4]> = Vec::new();
+    let mut smalls: Vec<([usize; 4], usize)> = Vec::new();
     for quad in unread {
         if near_result(results, quad) {
             continue;
@@ -1815,11 +1869,24 @@ pub(crate) fn crop_retries_for(
         let (cw, ch) = (candidate[2] - candidate[0], candidate[3] - candidate[1]);
         if cw.max(ch) <= SMALL_BOX && cw.max(ch) >= 20 && cw.max(ch) <= 3 * cw.min(ch) {
             if let Some(wide) = padded_box(quad, 0.3, (w, h)) {
-                smalls.push(wide);
+                let long = (wide[2] - wide[0]).max(wide[3] - wide[1]);
+                smalls.push((wide, (160 / long).clamp(2, 8)));
             }
             continue;
         }
-        if cw.max(ch) < TARGETS[0] * 3 / 2 || cw.max(ch) > 3 * cw.min(ch) {
+        if cw.max(ch) < TARGETS[0] * 3 / 2 {
+            // Between the two sizes, a crop at source scale gets a threshold of its own
+            // (from High up, which retries two boxes).
+            if limit > 1
+                && cw.max(ch) > SMALL_BOX
+                && cw.max(ch) <= 3 * cw.min(ch)
+                && let Some(wide) = padded_box(quad, 0.3, (w, h))
+            {
+                smalls.push((wide, 1));
+            }
+            continue;
+        }
+        if cw.max(ch) > 3 * cw.min(ch) {
             continue;
         }
         let covered = |outer: &[usize; 4]| {
@@ -1884,17 +1951,7 @@ pub(crate) fn crop_retries_for(
             }
         }
     }
-    smalls.sort_by_key(|b| std::cmp::Reverse((b[2] - b[0]) * (b[3] - b[1])));
-    smalls.dedup_by(|a, b| {
-        (a[0].abs_diff(b[0]) + a[1].abs_diff(b[1])) * 4 < (a[2] - a[0]).max(a[3] - a[1])
-    });
-    for candidate in smalls.into_iter().take(limit) {
-        for read in enlarged_reads(gray, w, candidate) {
-            if !near_result(&found, &read.polygon) && !near_result(results, &read.polygon) {
-                found.push(read);
-            }
-        }
-    }
+    enlarged_retries(gray, w, smalls, limit, results, &mut found);
     found
 }
 

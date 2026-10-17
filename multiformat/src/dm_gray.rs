@@ -327,4 +327,18 @@ mod tests {
             .fold([0., 0.], |s, p| [s[0] + p[0] / 4., s[1] + p[1] / 4.]);
         assert!((centre[0] - usize_f32(11 * module)).abs() < usize_f32(module) * 2.);
     }
+
+    #[test]
+    fn an_unread_mid_size_symbol_reads_from_a_crop_at_source_scale_from_high_up() {
+        let module = 10;
+        let (gray, side) = blurred_symbol(module, 2);
+        let (lo, hi) = (usize_f32(3 * module), usize_f32(19 * module));
+        let candidate = [[lo, lo], [hi, lo], [hi, hi], [lo, hi]];
+        // Low and Medium retry one box and skip mid-size ones; High retries two.
+        let one = crate::dm_detect::crop_retries_for(&gray, (side, side), &[candidate], &[], 1);
+        assert!(one.is_empty());
+        let reads = crate::dm_detect::crop_retries_for(&gray, (side, side), &[candidate], &[], 2);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].text, "TAPIRSCAN-DM-42");
+    }
 }

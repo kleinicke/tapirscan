@@ -6,6 +6,17 @@
   High keeps two). On the 929 user-project retail photos and 600 retail parity photos
   High's reads are identical, and one of 1,360 retail variation images is lost; High is
   about 2% faster on retail photos and 9% on frames without a barcode in Chrome.
+- Data Matrix reads more blurred, small and crowded-frame symbols in Medium and High. On
+  busy frames the unread candidates kept for the retries filled with bare L borders of the
+  first thresholds, so symbols found only by a later threshold never retried: Medium now
+  keeps its four best-ranked candidates with a possible orientation. Medium also takes
+  High's averaged scales (400 and 256 pixels) once the frame left a Data Matrix candidate
+  region. In High, boxes between 97 and 287 pixels, which neither the averaged nor the
+  enlarged crop covered, are retried on a crop at source scale with its own threshold. On
+  the 1,578 development images, Data Matrix reads rise from 661 to 671 in Medium and from
+  710 to 715 in High (Low unchanged), with no new wrong reads and unchanged reads of every
+  other format. In Chrome with `common`, Medium costs about 1.7% more on retail photos and
+  High 0.8%; frames without a barcode and Low are unchanged.
 - Medium reads rows of small Code 128 (and other 1D) labels on large sheets with any
   format selection, not only with that format alone: the stripe-box fallback for thin
   symbols that segment voting misses now runs when no 1D symbol was read (a PDF417 or QR
