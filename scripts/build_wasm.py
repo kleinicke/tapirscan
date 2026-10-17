@@ -103,9 +103,7 @@ def arguments() -> argparse.Namespace:
     args = parser.parse_args()
     if not args.development and any(
         key == "TAPIRSCAN_LOW_CLASSIC"
-        or key.startswith(
-            ("TAPIRSCAN_TURBO_", "TAPIRSCAN_EXPERIMENT_", "TAPIRSCAN_EXPERIMENTAL_")
-        )
+        or key.startswith(("TAPIRSCAN_TURBO_", "TAPIRSCAN_EXPERIMENTAL_"))
         for key in os.environ
     ):
         parser.error("private policy overrides require --development")

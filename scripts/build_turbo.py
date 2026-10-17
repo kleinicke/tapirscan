@@ -20,9 +20,7 @@ def environment(tier: str) -> dict[str, str]:
         key: value
         for key, value in os.environ.items()
         if key != "TAPIRSCAN_LOW_CLASSIC"
-        and not key.startswith(
-            ("TAPIRSCAN_TURBO_", "TAPIRSCAN_EXPERIMENT_", "TAPIRSCAN_EXPERIMENTAL_")
-        )
+        and not key.startswith(("TAPIRSCAN_TURBO_", "TAPIRSCAN_EXPERIMENTAL_"))
     }
     env["TAPIRSCAN_EXPERIMENTAL_TURBO"] = "1"
     env["TAPIRSCAN_TURBO_TIER"] = "0" if tier == "original" else tier
@@ -30,7 +28,7 @@ def environment(tier: str) -> dict[str, str]:
         for key in (
             "TAPIRSCAN_TURBO_LEGACY_OUTLINES",
             "TAPIRSCAN_TURBO_BAND_OUTLINES",
-            "TAPIRSCAN_EXPERIMENT_TILE_CACHE",
+            "TAPIRSCAN_TURBO_TILE_CACHE",
             "TAPIRSCAN_TURBO_FINITE_EXTREMA",
         ):
             env[key] = "1"

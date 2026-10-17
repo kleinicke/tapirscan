@@ -27,6 +27,12 @@ class PrivateTurboTests(unittest.TestCase):
         self.assertEqual(tier["TAPIRSCAN_TURBO_DIRECT_SAMPLE"], "1")
         self.assertNotIn("32", TIERS)
 
+    def test_every_preset_caches_tiles(self) -> None:
+        """All four Turbo presets build with the tile cache."""
+        for preset in ("2", "4", "8", "16"):
+            self.assertEqual(environment(preset)["TAPIRSCAN_TURBO_TILE_CACHE"], "1")
+        self.assertNotIn("TAPIRSCAN_TURBO_TILE_CACHE", environment("original"))
+
     def test_package_build_rejects_private_selection(self) -> None:
         """Never build a private Low-slot scanner into the package assets."""
         with (

@@ -13,7 +13,7 @@ struct Tile {
     active: bool,
     growable: bool,
 }
-const CACHE_TILES: bool = option_env!("TAPIRSCAN_EXPERIMENT_TILE_CACHE").is_some();
+const CACHE_TILES: bool = option_env!("TAPIRSCAN_TURBO_TILE_CACHE").is_some();
 impl Tile {
     fn classify(&mut self, threshold: f64) {
         self.classify_policy(threshold, CACHE_TILES);
