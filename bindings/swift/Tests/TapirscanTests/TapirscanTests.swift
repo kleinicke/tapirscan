@@ -72,6 +72,16 @@ final class TapirscanTests: XCTestCase {
         ) { XCTAssertEqual(($0 as? TapirscanError)?.code, .invalidInput) }
     }
 
+    func testParallelOptionLeavesResultsUnchanged() throws {
+        let (pixels, width, height) = ean13(text)
+        let formats: Formats = [.ean13, .qrCode, .dataMatrix]
+        let reads = try [nil, false, true].map { parallel in
+            try BarcodeScanner(options: ScannerOptions(formats: formats, parallel: parallel))
+                .scan(pixels, width: width, height: height, channels: 1).values
+        }
+        XCTAssertEqual(reads, [[text], [text], [text]])
+    }
+
     func testInspectionReportsTheSameBarcodesAndMetadata() throws {
         let (pixels, width, height) = ean13(text)
         let scanner = try BarcodeScanner(options: ScannerOptions(mode: .high))

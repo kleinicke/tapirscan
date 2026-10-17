@@ -41,8 +41,10 @@ Scanner(options).use { scanner ->
 ```
 
 `ScannerOptions` holds the `Mode` (default `MEDIUM`), a `Set<Format>` (default
-`Format.RETAIL`) and the `EanAddOnPolicy` (default `IGNORE`), fixed when the scanner
-is created. `Format` is generated from `config/formats.json` with the presets
+`Format.RETAIL`), the `EanAddOnPolicy` (default `IGNORE`) and `parallel`, fixed when
+the scanner is created. `withParallel(false)` keeps each scan on the calling thread,
+for apps that already scan on several threads; unset, the
+[process default](../../docs/PERFORMANCE.md#threads-and-servers) applies. `Format` is generated from `config/formats.json` with the presets
 `RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX` and `ALL`. A per-call
 `ScanOptions.defaults().withFormats(...)` overrides the scanner's formats for that
 call only.

@@ -35,8 +35,11 @@ for barcode in result.barcodes {
 }
 ```
 
-`ScannerOptions` holds `mode` (default `.medium`), `formats` (default `.retail`)
-and `eanAddOnPolicy` (default `.ignore`), fixed when the scanner is created.
+`ScannerOptions` holds `mode` (default `.medium`), `formats` (default `.retail`),
+`eanAddOnPolicy` (default `.ignore`) and `parallel`, fixed when the scanner is
+created. `parallel: false` keeps each scan on the calling thread, for apps that
+already scan on several threads; `nil` uses the
+[process default](../../docs/PERFORMANCE.md#threads-and-servers).
 `Formats` is an option set of the `Format` cases with the presets `retail`,
 `common1D`, `common`, `linear`, `matrix` and `all`; all of them are generated from
 `config/formats.json`. A per-call `ScanOptions(formats:)` overrides the scanner's

@@ -38,15 +38,20 @@ public struct ScannerOptions: Equatable, Sendable {
     public var mode: Mode
     public var formats: Formats
     public var eanAddOnPolicy: EanAddOnPolicy
+    /// Run one scan's formats on separate threads; results are identical either way.
+    /// `nil` follows the process default: on unless `TAPIRSCAN_THREADS` is 0 or 1.
+    public var parallel: Bool?
 
     public init(
         mode: Mode = .medium,
         formats: Formats = .retail,
-        eanAddOnPolicy: EanAddOnPolicy = .ignore
+        eanAddOnPolicy: EanAddOnPolicy = .ignore,
+        parallel: Bool? = nil
     ) {
         self.mode = mode
         self.formats = formats
         self.eanAddOnPolicy = eanAddOnPolicy
+        self.parallel = parallel
     }
 }
 

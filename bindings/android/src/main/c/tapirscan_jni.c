@@ -22,12 +22,13 @@ static void throw_error(JNIEnv *env, int32_t status, const char *message) {
 }
 
 JNIEXPORT jlong JNICALL Java_org_tapirscan_android_Scanner_nativeCreate(
-    JNIEnv *env, jclass type, jint mode, jint formats, jint add_on_policy) {
+    JNIEnv *env, jclass type, jint mode, jint formats, jint add_on_policy, jint parallel) {
     (void)type;
     tapirscan_scanner_options options = TAPIRSCAN_SCANNER_OPTIONS_INIT;
     options.mode = (uint32_t)mode;
     options.formats = (uint32_t)formats;
     options.ean_add_on_policy = (uint32_t)add_on_policy;
+    options.parallel = (uint32_t)parallel;
     tapirscan_scanner scanner = 0;
     tapirscan_error error = {{0}};
     int32_t status = tapirscan_scanner_create(&options, &scanner, &error);

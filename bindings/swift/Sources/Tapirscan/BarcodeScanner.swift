@@ -48,7 +48,9 @@ public final class BarcodeScanner: @unchecked Sendable {
         var native = tapirscan_scanner_options(
             mode: options.mode.rawValue,
             formats: options.formats.rawValue,
-            ean_add_on_policy: options.eanAddOnPolicy.rawValue
+            ean_add_on_policy: options.eanAddOnPolicy.rawValue,
+            parallel: (options.parallel.map { $0 ? TAPIRSCAN_PARALLEL_ON : TAPIRSCAN_PARALLEL_OFF }
+                ?? TAPIRSCAN_PARALLEL_DEFAULT).rawValue
         )
         var out = tapirscan_scanner()
         var error = tapirscan_error()

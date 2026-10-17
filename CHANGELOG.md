@@ -72,9 +72,9 @@ geometry and timing can differ from 1.3.0. See the
 
 - Native builds (C, C++, Java, Python, Rust) run a scan's 1D formats and enabled
   2D readers on separate threads, with identical results: with all formats, Low
-  is 1.7-1.9× and Medium 1.35-1.55× faster on 960×960 photos. The new scanner
-  option `parallel` (default on) turns this off per scanner; `scan_many` keeps
-  its scanners single-threaded. WebAssembly stays single-threaded.
+  is 1.7-1.9× and Medium 1.35-1.55× faster on 960×960 photos. The scanner
+  option `parallel` turns this off per scanner, and `TAPIRSCAN_THREADS=1` for
+  the process; `scan_many` keeps its scanners single-threaded. WebAssembly stays single-threaded.
 - x86-64 native libraries target x86-64-v2 (SSE4.2, POPCNT) and scan 20-30%
   faster. They no longer load on CPUs older than Intel Nehalem (2008) or AMD
   Bulldozer (2011).

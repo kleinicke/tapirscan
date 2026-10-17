@@ -26,7 +26,7 @@ def rust_toolchain() -> str:
     if match is None:
         message = "rust-toolchain.toml has no channel"
         raise ValueError(message)
-    return match.group(1)
+    return str(match[1])
 
 
 def wasm_flags() -> list[str]:

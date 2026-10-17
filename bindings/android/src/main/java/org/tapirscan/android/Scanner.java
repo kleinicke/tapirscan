@@ -27,6 +27,8 @@ public final class Scanner implements AutoCloseable {
     private long handle;
 
     /** Medium effort, Retail formats and ignored supplements. */
+    private static final int PARALLEL_DEFAULT = 2;
+
     public Scanner() {
         this(ScannerOptions.defaults());
     }
@@ -34,7 +36,12 @@ public final class Scanner implements AutoCloseable {
     public Scanner(ScannerOptions options) {
         this.options = Objects.requireNonNull(options);
         handle = nativeCreate(options.mode().code(), Format.mask(options.formats()),
-                options.eanAddOnPolicy().code());
+                options.eanAddOnPolicy().code(), parallelCode(options.parallel()));
+    }
+
+    /** The native tapirscan_parallel value: off, on, or the process default. */
+    private static int parallelCode(Boolean parallel) {
+        return parallel == null ? PARALLEL_DEFAULT : parallel ? 1 : 0;
     }
 
     public ScannerOptions options() {
@@ -138,7 +145,7 @@ public final class Scanner implements AutoCloseable {
                 new String((byte[]) raw[3], StandardCharsets.UTF_8));
     }
 
-    private static native long nativeCreate(int mode, int formats, int addOnPolicy);
+    private static native long nativeCreate(int mode, int formats, int addOnPolicy, int parallel);
 
     private static native void nativeDestroy(long handle);
 

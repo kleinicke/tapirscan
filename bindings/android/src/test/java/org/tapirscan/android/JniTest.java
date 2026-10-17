@@ -95,6 +95,11 @@ public final class JniTest {
             check(inspection.values().equals(fromArray.values()), "inspect values");
             check(scanner.inspect(direct, width, HEIGHT, 1, stride).barcodes().equals(fromArray.barcodes()),
                     "direct inspect");
+            for (boolean parallel : new boolean[] {false, true}) {
+                try (Scanner threads = new Scanner(low.withParallel(parallel))) {
+                    check(threads.scan(pixels, width, HEIGHT, 1, 0).equals(fromArray), "parallel " + parallel);
+                }
+            }
 
             try {
                 scanner.scan(new byte[2], 3, 3, 1, 0);
