@@ -1,6 +1,7 @@
 import TapirscanC
 
-/// Kind of structured payload recognized by `parseContent`.
+/// Kind of structured payload recognized by `parseContent`. `swissQRBill`, `epcPayment`,
+/// `hibc`, `vin` and `aamva` are experimental and may change in minor releases.
 public enum ContentKind: UInt32, Sendable, CustomStringConvertible {
     case gs1 = 1, url, email, phone, sms, geo, wifi, contact, calendar, swissQRBill, epcPayment,
         hibc, vin, aamva
