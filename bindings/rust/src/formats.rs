@@ -181,6 +181,9 @@ impl Scanner {
                     )?;
                     if crate::MODE_ID == 1 && mask == 16384 {
                         self.localizer.detect_sparse(im, 768.)?.proposals
+                    } else if crate::MODE_ID == 1 && mask == 8192 {
+                        // Low's segment-voting boxes, which follow rotated DataBar.
+                        crate::pipeline::segment_voting::localize(image).proposals
                     } else {
                         self.localizer.detect(im)?.proposals
                     }
@@ -560,7 +563,7 @@ impl Scanner {
         #[cfg(not(feature = "low"))]
         let mut deferred_reads = Vec::new();
         #[cfg(not(feature = "low"))]
-        if (mask & (511 | ENGINE_OPT_IN_MASK) != 0 || mask == 16384)
+        if (mask & (511 | ENGINE_OPT_IN_MASK) != 0 || matches!(mask, 8192 | 16384))
             && addons == EanAddOnPolicy::Ignore
         {
             deferred_reads = self.recover_linear_regions(

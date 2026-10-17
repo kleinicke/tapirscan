@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Medium reads rotated and warped GS1 DataBar again when `DataBar` is selected alone: it
+  now runs localized recovery on Low's segment-voting boxes. On the 340 DataBar variation
+  images Medium reads 198 instead of 158 (1.2.2: 170), with no wrong reads. This
+  selection costs about 5 ms more per frame with other barcodes (it ran no recovery
+  before); other selections are unchanged.
 - High and Very High also try segment voting's alternative boxes for unread retail
   clusters with barcode evidence, as Medium does. On the 929 retail photos of the
   user-project evaluation, High now reads 854 like Medium (was 852), with no new wrong
