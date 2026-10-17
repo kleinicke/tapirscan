@@ -2,6 +2,8 @@
 use crate::{Detection, pdf417_tables::CODES, reed_prime};
 use std::{collections::BTreeMap, sync::OnceLock};
 
+mod grid;
+
 // PDF417 codewords are 17-bit patterns with a fixed one at the MSB and zero
 // at the LSB. Removing those fixed bits leaves a dense 15-bit table index.
 fn lookup(pattern: u32) -> Option<(usize, usize)> {
@@ -128,6 +130,8 @@ const MIN_SPARE: usize = 2;
 /// Most proposals per scan that get the costlier column-count re-read, for Low, Medium and
 /// High (and Very High): about one read per dense sheet, at a tenth of a second there.
 const MAX_TOLERANT: [usize; 3] = [0, 0, 48];
+/// Most proposals per scan that get the template-matched re-read, same modes.
+const MAX_GRID: [usize; 3] = [0, 0, 24];
 /// Marks a codeword value chosen by nearest-pattern search rather than exact match.
 const GUESS: usize = 1024;
 fn nearest_symbol(r: &[f32], cluster: usize) -> Option<usize> {
@@ -1011,6 +1015,7 @@ pub fn detect(
     let (proposals, capped) = crate::pdf_localize::proposals(gray, w, h);
     limited |= capped;
     let mut tolerant_attempts = 0;
+    let mut grid_attempts = 0;
     for (polygon, support) in proposals {
         if results
             .iter()
@@ -1044,6 +1049,10 @@ pub fn detect(
             );
             limited |= capped;
             found = tolerant;
+        }
+        if found.is_empty() && grid_attempts < MAX_GRID[mode.min(2)] {
+            grid_attempts += 1;
+            found = grid::read(&pixels, width, height);
         }
         for mut read in found {
             read.polygon = read.polygon.map(|p| crate::qr_detect::map(&t, p[0], p[1]));

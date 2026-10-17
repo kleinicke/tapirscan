@@ -17,6 +17,21 @@
   710 to 715 in High (Low unchanged), with no new wrong reads and unchanged reads of every
   other format. In Chrome with `common`, Medium costs about 1.7% more on retail photos and
   High 0.8%; frames without a barcode and Low are unchanged.
+- High and Very High read blurred and dense PDF417 labels whose row run lengths no longer
+  spell codewords (print gain or blur fills the narrow gaps, so whole rows read as nothing):
+  a localized symbol the run reader and the column-count re-read could not finish is now
+  matched cell by cell. The start guards fix the left edge and module width, the lone end
+  bar fixes the column count (compact or full), and each codeword is the pattern whose
+  blurred rendering fits the pixels best; the best lines of each row vote, and the
+  existing check-codeword reserve for guessed cells applies, so a symbol with level 0 to 2
+  error correction must decode without any correction. Low and Medium are unchanged. On
+  the 1,578 development images PDF417 reads are 468 (Low), 468 (Medium) and 504 (High, was
+  475), all in compact Ericsson-style label sheets and similar; High loses no read and no
+  other format changes, and wrong reads stay at one per mode. Sixteen of the added reads
+  are on label sheets whose other symbols are labelled without payload; they are
+  consecutive serial numbers of the same label series. In Chrome with all formats, High
+  costs about 3% more on PDF417 frames and the same on retail photos and frames without a
+  barcode.
 - Medium reads rows of small Code 128 (and other 1D) labels on large sheets with any
   format selection, not only with that format alone: the stripe-box fallback for thin
   symbols that segment voting misses now runs when no 1D symbol was read (a PDF417 or QR
