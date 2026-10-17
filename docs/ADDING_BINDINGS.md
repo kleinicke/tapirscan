@@ -7,9 +7,10 @@ this checklist.
    [`tapirscan.h`](../bindings/c/include/tapirscan.h), the signature source of
    truth, and check `tapirscan_abi_version()` against `TAPIRSCAN_ABI_VERSION`
    when loading the library.
-2. **Formats.** Do not hand-write format bits or presets. Add an output target to
-   `scripts/generate_formats.py` (it writes every binding's declarations) so the
-   constants are generated from `config/formats.json`.
+2. **Formats.** Do not hand-write format bits, presets or content kinds. Add
+   output targets to `scripts/generate_formats.py` (it writes every binding's
+   declarations) so the constants are generated from `config/formats.json` and
+   `config/content_kinds.json`.
 3. **API shape.** Follow [API design](API_DESIGN.md) and the field names in
    [native bindings](NATIVE_BINDINGS.md#result-fields): `scan` and `inspect`,
    scanner options (mode, formats, supplement policy, `parallel` for native

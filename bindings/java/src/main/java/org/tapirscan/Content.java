@@ -51,7 +51,7 @@ public record Content(ContentKind kind, List<ContentField> fields) {
             try {
                 MemorySegment summary = arena.allocate(Native.CONTENT_SUMMARY);
                 lib.check(Native.call(lib.contentInfo, content, summary));
-                ContentKind kind = ContentKind.fromCode(summary.get(JAVA_INT, Native.offset(Native.CONTENT_SUMMARY, "kind")));
+                ContentKind kind = ContentKind.of(summary.get(JAVA_INT, Native.offset(Native.CONTENT_SUMMARY, "kind")));
                 long count = summary.get(JAVA_LONG, Native.offset(Native.CONTENT_SUMMARY, "fieldCount"));
                 List<ContentField> fields = new ArrayList<>();
                 MemorySegment lengths = arena.allocate(Native.CONTENT_LENGTHS);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the repository boundary and generated format declarations."""
+"""Verify the repository boundary and generated format and content-kind declarations."""
 
 import subprocess
 import sys
@@ -15,4 +15,4 @@ if (root / "config/formats.json").exists():
         [sys.executable, str(root / "scripts/generate_formats.py"), "--check"],
         check=True,
     )
-print("Verified repository boundary and generated formats")
+print("Verified repository boundary and generated formats and content kinds")

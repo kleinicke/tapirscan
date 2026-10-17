@@ -5,6 +5,7 @@ import {
   type Format,
   type FormatSelection,
 } from "./multiformat/formats.js";
+import type { ContentKind } from "./content-kind.js";
 import { freeze, type ReadonlyDeep } from "./freeze.js";
 import { pixelLayout } from "./layout.js";
 import { registerRowScan } from "./row-scan.js";
@@ -18,6 +19,7 @@ export {
   retailFormats,
 } from "./multiformat/formats.js";
 export type { Format, FormatSelection } from "./multiformat/formats.js";
+export type { ContentKind } from "./content-kind.js";
 export { ScannerError } from "./rust-session.js";
 
 export type Quad = readonly [
@@ -74,26 +76,6 @@ export interface StructuredAppend {
   readonly id?: string;
   readonly parity?: number;
 }
-/**
- * Kind of structured payload recognized in decoded text. `SwissQRBill`,
- * `EPCPayment`, `HIBC`, `VIN` and `AAMVA` are experimental and may change in
- * minor releases.
- */
-export type ContentKind =
-  | "GS1"
-  | "URL"
-  | "Email"
-  | "Phone"
-  | "SMS"
-  | "Geo"
-  | "WiFi"
-  | "Contact"
-  | "Calendar"
-  | "SwissQRBill"
-  | "EPCPayment"
-  | "HIBC"
-  | "VIN"
-  | "AAMVA";
 /** One named value; names repeat where the payload repeats them. */
 export interface ContentField {
   /** GS1 application identifier such as "01", otherwise a camelCase name such as "ssid". */

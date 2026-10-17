@@ -2,6 +2,7 @@
 #define TAPIRSCAN_H
 #include <stdint.h>
 #include "tapirscan_formats.h"
+#include "tapirscan_content_kinds.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -168,24 +169,6 @@ int32_t tapirscan_result_destroy(tapirscan_result result);
 
 /* Structured content of decoded text (docs/CONTENT.md). Parsing is independent
    of scanning and works on any UTF-8 text. */
-typedef enum tapirscan_content_kind {
-    TAPIRSCAN_CONTENT_GS1 = 1,          /* GS1 element string or Digital Link; fields named by AI */
-    TAPIRSCAN_CONTENT_URL = 2,
-    TAPIRSCAN_CONTENT_EMAIL = 3,
-    TAPIRSCAN_CONTENT_PHONE = 4,
-    TAPIRSCAN_CONTENT_SMS = 5,
-    TAPIRSCAN_CONTENT_GEO = 6,
-    TAPIRSCAN_CONTENT_WIFI = 7,
-    TAPIRSCAN_CONTENT_CONTACT = 8,      /* vCard or MECARD */
-    TAPIRSCAN_CONTENT_CALENDAR = 9,     /* iCalendar VEVENT */
-    /* Kinds 10-14 are experimental and may change in minor releases. */
-    TAPIRSCAN_CONTENT_SWISS_QR_BILL = 10,
-    TAPIRSCAN_CONTENT_EPC_PAYMENT = 11, /* EPC/SEPA credit transfer */
-    TAPIRSCAN_CONTENT_HIBC = 12,
-    TAPIRSCAN_CONTENT_VIN = 13,
-    TAPIRSCAN_CONTENT_AAMVA = 14        /* driver's license / ID card */
-} tapirscan_content_kind;
-
 typedef struct tapirscan_content_summary {
     uint32_t kind;        /* tapirscan_content_kind */
     uint64_t field_count;

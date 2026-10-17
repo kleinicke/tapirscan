@@ -185,4 +185,12 @@ final class TapirscanTests: XCTestCase {
             eanAddOn: nil, gs1: nil, readerInitialization: nil, structuredAppend: nil)
         XCTAssertEqual(try barcode.content?.kind, .geo)
     }
+
+    func testContentKindNamesMatchTheNativeLibrary() {
+        for kind in ContentKind.allCases {
+            XCTAssertEqual(kind.name, String(cString: tapirscan_content_kind_name(kind.rawValue)))
+        }
+        XCTAssertNil(tapirscan_content_kind_name(0))
+        XCTAssertNil(tapirscan_content_kind_name(UInt32(ContentKind.allCases.count + 1)))
+    }
 }

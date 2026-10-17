@@ -1,0 +1,107 @@
+{
+  "kinds": [
+    {
+      "code": 1,
+      "name": "GS1",
+      "rust": "Gs1",
+      "swift": "gs1",
+      "description": "GS1 element string or GS1 Digital Link URI; fields are named by application identifier."
+    },
+    {
+      "code": 2,
+      "name": "URL",
+      "rust": "Url",
+      "swift": "url",
+      "description": "Web address (`http:` or `https:`)."
+    },
+    {
+      "code": 3,
+      "name": "Email",
+      "rust": "Email",
+      "swift": "email",
+      "description": "E-mail (`mailto:`, `MATMSG:`)."
+    },
+    {
+      "code": 4,
+      "name": "Phone",
+      "rust": "Phone",
+      "swift": "phone",
+      "description": "Telephone number (`tel:`)."
+    },
+    {
+      "code": 5,
+      "name": "SMS",
+      "rust": "Sms",
+      "swift": "sms",
+      "description": "Text message (`SMSTO:`, `sms:`, `MMSTO:`)."
+    },
+    {
+      "code": 6,
+      "name": "Geo",
+      "rust": "Geo",
+      "swift": "geo",
+      "description": "Geographic location (`geo:`)."
+    },
+    {
+      "code": 7,
+      "name": "WiFi",
+      "rust": "Wifi",
+      "swift": "wifi",
+      "description": "Wi-Fi network configuration (`WIFI:`)."
+    },
+    {
+      "code": 8,
+      "name": "Contact",
+      "rust": "Contact",
+      "swift": "contact",
+      "description": "Contact card (vCard or `MECARD:`)."
+    },
+    {
+      "code": 9,
+      "name": "Calendar",
+      "rust": "Calendar",
+      "swift": "calendar",
+      "description": "Calendar event (iCalendar `VEVENT`)."
+    },
+    {
+      "code": 10,
+      "name": "SwissQRBill",
+      "rust": "SwissQrBill",
+      "swift": "swissQRBill",
+      "description": "Swiss QR-bill payment part (`SPC`).",
+      "experimental": true
+    },
+    {
+      "code": 11,
+      "name": "EPCPayment",
+      "rust": "EpcPayment",
+      "swift": "epcPayment",
+      "description": "EPC/SEPA credit transfer (`BCD`), the European payment QR code.",
+      "experimental": true
+    },
+    {
+      "code": 12,
+      "name": "HIBC",
+      "rust": "Hibc",
+      "swift": "hibc",
+      "description": "Health Industry Bar Code primary and/or secondary data.",
+      "experimental": true
+    },
+    {
+      "code": 13,
+      "name": "VIN",
+      "rust": "Vin",
+      "swift": "vin",
+      "description": "Vehicle identification number with a valid check digit.",
+      "experimental": true
+    },
+    {
+      "code": 14,
+      "name": "AAMVA",
+      "rust": "Aamva",
+      "swift": "aamva",
+      "description": "AAMVA driver's license or identification card.",
+      "experimental": true
+    }
+  ]
+}

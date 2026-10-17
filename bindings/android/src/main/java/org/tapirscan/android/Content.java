@@ -51,7 +51,7 @@ public final class Content {
             fields.add(new ContentField(new String(parts[i], StandardCharsets.UTF_8),
                     new String(parts[i + 1], StandardCharsets.UTF_8)));
         }
-        return Optional.of(new Content(ContentKind.fromName(new String(parts[0], StandardCharsets.UTF_8)), fields));
+        return Optional.of(new Content(ContentKind.of(new String(parts[0], StandardCharsets.UTF_8)), fields));
     }
 
     @Override

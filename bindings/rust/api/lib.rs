@@ -4,6 +4,7 @@
 // Internal engine; its items are documented in core/README.md, not rustdoc.
 mod code39_variants;
 mod content;
+mod content_kind;
 #[allow(missing_docs)]
 #[path = "../generated/mod.rs"]
 mod engine;

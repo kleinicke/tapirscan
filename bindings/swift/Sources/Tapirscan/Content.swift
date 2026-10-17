@@ -1,17 +1,5 @@
 import TapirscanC
 
-/// Kind of structured payload recognized by `parseContent`. `swissQRBill`, `epcPayment`,
-/// `hibc`, `vin` and `aamva` are experimental and may change in minor releases.
-public enum ContentKind: UInt32, Sendable, CustomStringConvertible {
-    case gs1 = 1, url, email, phone, sms, geo, wifi, contact, calendar, swissQRBill, epcPayment,
-        hibc, vin, aamva
-
-    /// Stable name shared with the other bindings, such as `"WiFi"`.
-    public var name: String { String(cString: tapirscan_content_kind_name(rawValue)) }
-
-    public var description: String { name }
-}
-
 /// One named value; names repeat where the payload repeats them.
 public struct ContentField: Equatable, Sendable {
     /// GS1 application identifier such as `"01"`, otherwise a camelCase name such as `"ssid"`.

@@ -1,6 +1,7 @@
 // Tapirscan for C++17: a header-only wrapper over the native C ABI.
 #pragma once
 #include <tapirscan.h>
+#include <tapirscan/content_kind.hpp>
 #include <tapirscan/format.hpp>
 
 #include <array>
@@ -449,25 +450,6 @@ inline ScanResult scan(const Image& image, const ScannerOptions& scanner = {},
 inline InspectionResult inspect(const Image& image, const ScannerOptions& scanner = {}, const ScanOptions& options = {}) {
     return Scanner(scanner).inspect(image, options);
 }
-
-/// Kind of structured payload recognized by `parse_content`.
-enum class ContentKind : std::uint32_t {
-    Gs1 = TAPIRSCAN_CONTENT_GS1,
-    Url = TAPIRSCAN_CONTENT_URL,
-    Email = TAPIRSCAN_CONTENT_EMAIL,
-    Phone = TAPIRSCAN_CONTENT_PHONE,
-    Sms = TAPIRSCAN_CONTENT_SMS,
-    Geo = TAPIRSCAN_CONTENT_GEO,
-    Wifi = TAPIRSCAN_CONTENT_WIFI,
-    Contact = TAPIRSCAN_CONTENT_CONTACT,
-    Calendar = TAPIRSCAN_CONTENT_CALENDAR,
-    // SwissQrBill to Aamva are experimental and may change in minor releases.
-    SwissQrBill = TAPIRSCAN_CONTENT_SWISS_QR_BILL,
-    EpcPayment = TAPIRSCAN_CONTENT_EPC_PAYMENT,
-    Hibc = TAPIRSCAN_CONTENT_HIBC,
-    Vin = TAPIRSCAN_CONTENT_VIN,
-    Aamva = TAPIRSCAN_CONTENT_AAMVA,
-};
 
 /// Stable name shared with the other bindings, such as "WiFi".
 inline std::string_view to_string(ContentKind kind) {
