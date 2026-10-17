@@ -1,5 +1,6 @@
 //! Bounded original-gray QR resampling around an existing qualified region.
-use barcode_multiformat::numeric::{f32_usize, usize_f32};
+use barcode_multiformat::gray_sample::bilinear;
+use barcode_multiformat::numeric::usize_f32;
 use barcode_multiformat::{Detection, Scan, qr, qr_detect};
 type Quad = [[f32; 2]; 4];
 const BASE_OFFSETS: &[(f32, f32)] = &[(0., 0.), (-0.15, -0.15), (0.15, 0.15)];
@@ -15,34 +16,6 @@ const HIGH_OFFSETS: &[(f32, f32)] = &[
     (0., 0.3),
 ];
 
-fn value(
-    pixels: &[u8],
-    width: usize,
-    height: usize,
-    projection: &[f32; 8],
-    x: f32,
-    y: f32,
-) -> Option<f32> {
-    let [px, py] = qr_detect::map(projection, x, y);
-    let (sx, sy) = (px - 0.5, py - 0.5);
-    if !sx.is_finite()
-        || !sy.is_finite()
-        || sx < 0.
-        || sy < 0.
-        || sx > usize_f32(width - 1)
-        || sy > usize_f32(height - 1)
-    {
-        return None;
-    }
-    let (x0, y0) = (f32_usize(sx), f32_usize(sy));
-    let (x1, y1) = ((x0 + 1).min(width - 1), (y0 + 1).min(height - 1));
-    let (fx, fy) = (sx - usize_f32(x0), sy - usize_f32(y0));
-    let first =
-        f32::from(pixels[y0 * width + x0]) * (1. - fx) + f32::from(pixels[y0 * width + x1]) * fx;
-    let second =
-        f32::from(pixels[y1 * width + x0]) * (1. - fx) + f32::from(pixels[y1 * width + x1]) * fx;
-    Some(first * (1. - fy) + second * fy)
-}
 fn transform(quad: Quad, size: usize) -> Option<[f32; 8]> {
     let size = usize_f32(size);
     qr_detect::homography([[0., 0.], [size, 0.], [size, size], [0., size]], quad)
@@ -80,7 +53,7 @@ fn grid_quality(
     let mut counts = [0usize; 2];
     let mut observations = Vec::new();
     for (x, y, black) in values {
-        let intensity = value(
+        let intensity = bilinear(
             pixels,
             width,
             height,
@@ -153,7 +126,7 @@ pub fn recover(
                 let mut bits = Vec::with_capacity(size * size);
                 for y in 0..size {
                     for x in 0..size {
-                        let Some(intensity) = value(
+                        let Some(intensity) = bilinear(
                             pixels,
                             width,
                             height,
@@ -231,23 +204,6 @@ fn contains_point(point: [f64; 2], quad: &[[f64; 2]; 4]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn bilinear_source_samples_preserve_pixel_centers_and_reject_outside_points() {
-        let pixels = [0, 10, 20, 30];
-        let identity = [1., 0., 0., 0., 1., 0., 0., 0.];
-        for (x, y, expected) in [(0.5, 0.5, 0.), (1., 1., 15.), (1.5, 1.5, 30.)] {
-            let actual = super::value(&pixels, 2, 2, &identity, x, y).unwrap();
-            assert!((actual - expected).abs() < f32::EPSILON);
-        }
-        for (x, y) in [
-            (0.49, 0.5),
-            (1.51, 1.5),
-            (f32::NAN, 1.),
-            (1., f32::INFINITY),
-        ] {
-            assert!(super::value(&pixels, 2, 2, &identity, x, y).is_none());
-        }
-    }
     #[test]
     fn insufficient_sample_budget_does_not_start_a_grid() {
         let pixels = vec![128; 21 * 21];

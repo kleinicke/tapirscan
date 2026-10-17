@@ -10,6 +10,7 @@ pub mod encoding;
 mod encoding_tables;
 pub mod expanded;
 pub mod formats;
+pub mod gray_sample;
 pub mod linear;
 mod linear_geometry;
 pub mod maxicode;

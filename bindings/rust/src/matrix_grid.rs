@@ -1,7 +1,7 @@
 //! Source-gray sampling hypotheses around already localized matrix candidates.
 use barcode_multiformat::formats::{AZTEC, DATA_MATRIX};
 use barcode_multiformat::numeric::{f32_usize, usize_f32, usize_f64};
-use barcode_multiformat::{Detection, Scan, aztec, datamatrix, qr, qr_detect};
+use barcode_multiformat::{Detection, Scan, aztec, datamatrix, gray_sample, qr, qr_detect};
 type Quad = [[f32; 2]; 4];
 
 #[expect(
@@ -35,33 +35,16 @@ fn sample(
     let mut values = Vec::with_capacity(cols * rows);
     for y in 0..rows {
         for x in 0..cols {
-            let [px, py] =
-                qr_detect::map(&t, usize_f32(x) + 0.5 + offset, usize_f32(y) + 0.5 + offset);
-            // Pixels are areas centered at half-integer source coordinates.
-            let sx = px - 0.5;
-            let sy = py - 0.5;
-            if !sx.is_finite()
-                || !sy.is_finite()
-                || sx < 0.
-                || sy < 0.
-                || sx > usize_f32(width - 1)
-                || sy > usize_f32(height - 1)
-            {
-                return None;
-            }
-            let x0 = f32_usize(sx.floor());
-            let y0 = f32_usize(sy.floor());
-            let x1 = (x0 + 1).min(width - 1);
-            let y1 = (y0 + 1).min(height - 1);
-            let fx = sx - usize_f32(x0);
-            let fy = sy - usize_f32(y0);
-            let a = f32::from(pixels[y0 * width + x0]) * (1. - fx)
-                + f32::from(pixels[y0 * width + x1]) * fx;
-            let b = f32::from(pixels[y1 * width + x0]) * (1. - fx)
-                + f32::from(pixels[y1 * width + x1]) * fx;
+            let value = gray_sample::bilinear(
+                pixels,
+                width,
+                height,
+                &t,
+                usize_f32(x) + 0.5 + offset,
+                usize_f32(y) + 0.5 + offset,
+            )?;
             values.push(
-                u8::try_from(f32_usize((a * (1. - fy) + b * fy).round().clamp(0., 255.)))
-                    .expect("clamped pixel"),
+                u8::try_from(f32_usize(value.round().clamp(0., 255.))).expect("clamped pixel"),
             );
         }
     }

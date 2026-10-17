@@ -4,7 +4,7 @@
 //! merge the dark L with neighboring modules in the binary image. The gray values of the
 //! border modules still separate: the corners are tuned to maximize that separation and the
 //! interior is classified against a threshold learned from the border.
-use crate::{datamatrix, numeric::usize_f32, qr_detect::map};
+use crate::{datamatrix, gray_sample::bilinear, numeric::usize_f32, qr_detect::map};
 
 type Point = [f32; 2];
 
@@ -25,26 +25,7 @@ struct Frame<'a> {
 impl Frame<'_> {
     /// Bilinear gray value at the grid position `at`, or `None` off the frame.
     fn sample(&self, transform: &[f32; 8], at: [f32; 2]) -> Option<f32> {
-        let [px, py] = map(transform, at[0], at[1]);
-        // Pixels are areas centered at half-integer source coordinates.
-        let (sx, sy) = (px - 0.5, py - 0.5);
-        if !(sx.is_finite() && sy.is_finite())
-            || sx < 0.
-            || sy < 0.
-            || sx > usize_f32(self.width - 1)
-            || sy > usize_f32(self.height - 1)
-        {
-            return None;
-        }
-        let left = crate::numeric::f32_usize(sx.floor());
-        let top = crate::numeric::f32_usize(sy.floor());
-        let right = (left + 1).min(self.width - 1);
-        let bottom = (top + 1).min(self.height - 1);
-        let (fx, fy) = (sx - usize_f32(left), sy - usize_f32(top));
-        let value = |column: usize, row: usize| f32::from(self.gray[row * self.width + column]);
-        let upper = value(left, top) * (1. - fx) + value(right, top) * fx;
-        let lower = value(left, bottom) * (1. - fx) + value(right, bottom) * fx;
-        let mixed = upper * (1. - fy) + lower * fy;
+        let mixed = bilinear(self.gray, self.width, self.height, transform, at[0], at[1])?;
         Some(if self.inverted { 255. - mixed } else { mixed })
     }
 
