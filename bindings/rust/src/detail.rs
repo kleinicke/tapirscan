@@ -25,18 +25,6 @@ fn gray(im: Image<'_>, x: usize, y: usize) -> f64 {
     im.fixed_luminance(y * im.stride + x * im.channels)
 }
 
-fn sample(im: Image<'_>, x: f64, y: f64) -> f64 {
-    let x = x.clamp(0., (im.width - 1) as f64);
-    let y = y.clamp(0., (im.height - 1) as f64);
-    let x0 = x.floor() as usize;
-    let y0 = y.floor() as usize;
-    let x1 = (x0 + 1).min(im.width - 1);
-    let y1 = (y0 + 1).min(im.height - 1);
-    let fx = x - x0 as f64;
-    let fy = y - y0 as f64;
-    (gray(im, x0, y0) * (1. - fx) + gray(im, x1, y0) * fx) * (1. - fy)
-        + (gray(im, x0, y1) * (1. - fx) + gray(im, x1, y1) * fx) * fy
-}
 // Keep the pinned JavaScript equations and operation order directly comparable.
 #[allow(clippy::many_single_char_names, clippy::manual_midpoint)]
 fn evidence(im: Image<'_>, polygon: Quad, local: bool, target: usize) -> usize {
@@ -55,7 +43,7 @@ fn evidence(im: Image<'_>, polygon: Quad, local: bool, target: usize) -> usize {
             let mut hi = 0_f64;
             for i in 0..n {
                 let t = -0.125 + 1.25 * i as f64 / (n - 1) as f64;
-                let v = sample(im, p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t);
+                let v = im.bilinear_luminance(p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t);
                 samples.push(f64::from(v as f32));
                 lo = lo.min(v);
                 hi = hi.max(v);
@@ -257,8 +245,7 @@ fn continuous(im: Image<'_>, point: Point, p: Quad) -> bool {
         let (mut sum, mut energy) = (0., 0.);
         for i in 0..count {
             let fraction = 0.02 + 0.96 * i as f64 / (count - 1) as f64;
-            let v = sample(
-                im,
+            let v = im.bilinear_luminance(
                 left[0] + dx * fraction + nx * displacement,
                 left[1] + dy * fraction + ny * displacement,
             );

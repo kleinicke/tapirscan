@@ -111,7 +111,8 @@ impl Upright {
                 let mut sum = 0.;
                 for &dy in offsets {
                     for &dx in offsets {
-                        sum += bilinear(image, self.source([usize_f64(x) + dx, usize_f64(y) + dy]));
+                        let [sx, sy] = self.source([usize_f64(x) + dx, usize_f64(y) + dy]);
+                        sum += image.bilinear_luminance(sx, sy);
                     }
                 }
                 self.rows[y * self.width + x] = sum / weight;
@@ -168,22 +169,6 @@ fn pixels(rows: &[f64]) -> Vec<u8> {
     rows.iter()
         .map(|v| f64_u8(v.clamp(0., 255.).round()))
         .collect()
-}
-
-/// Edge-clamped bilinear luminance.
-fn bilinear(image: Image<'_>, p: [f64; 2]) -> f64 {
-    let max_x = usize_f64(image.width - 1);
-    let max_y = usize_f64(image.height - 1);
-    let (x, y) = (p[0].clamp(0., max_x), p[1].clamp(0., max_y));
-    let (x0, y0) = (f64_usize(x), f64_usize(y));
-    let (x1, y1) = (
-        (x0 + 1).min(image.width - 1),
-        (y0 + 1).min(image.height - 1),
-    );
-    let (fx, fy) = (x - usize_f64(x0), y - usize_f64(y0));
-    let at = |x: usize, y: usize| image.fixed_luminance(y * image.stride + x * image.channels);
-    (at(x0, y0) * (1. - fx) + at(x1, y0) * fx) * (1. - fy)
-        + (at(x0, y1) * (1. - fx) + at(x1, y1) * fx) * fy
 }
 
 /// Invert a ghost `lag` pixels behind each sample (ahead of it when `backward`), per row.

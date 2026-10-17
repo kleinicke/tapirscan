@@ -47,6 +47,20 @@ impl Image<'_> {
             ) / 256.
         }
     }
+    /// Edge-clamped bilinear [`Self::fixed_luminance`] at the source position (`x`, `y`).
+    #[cfg(not(feature = "low"))]
+    #[inline]
+    pub(crate) fn bilinear_luminance(self, x: f64, y: f64) -> f64 {
+        use barcode_research_core::numeric::{f64_usize, usize_f64};
+        let x = x.clamp(0., usize_f64(self.width - 1));
+        let y = y.clamp(0., usize_f64(self.height - 1));
+        let (x0, y0) = (f64_usize(x), f64_usize(y));
+        let (x1, y1) = ((x0 + 1).min(self.width - 1), (y0 + 1).min(self.height - 1));
+        let (fx, fy) = (x - usize_f64(x0), y - usize_f64(y0));
+        let at = |x: usize, y: usize| self.fixed_luminance(y * self.stride + x * self.channels);
+        (at(x0, y0) * (1. - fx) + at(x1, y0) * fx) * (1. - fy)
+            + (at(x0, y1) * (1. - fx) + at(x1, y1) * fx) * fy
+    }
 }
 #[derive(Clone, Copy, Debug)]
 #[expect(
