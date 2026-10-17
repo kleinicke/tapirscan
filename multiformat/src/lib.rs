@@ -440,8 +440,8 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
     scan_observed(image, width, height, mask, effort, |_, _| {})
 }
 
-/// [`scan`] for a scanner `mode` (0 Low, 1 Medium, 2 High, 3 Very High) whose retry limits
-/// for Data Matrix differ although its `effort` does not.
+/// [`scan`] for a scanner `mode` (0 Low, 1 Medium, 2 High, 3 Very High) whose QR policy and
+/// retry limits for Data Matrix differ although its `effort` does not.
 #[must_use]
 pub fn scan_for_mode(
     image: &[u8],
@@ -499,6 +499,7 @@ pub fn scan_observed_for_mode(
             height,
             &mut regions,
             &mut binary_images,
+            qr_detect::Policy::for_mode(mode),
             effort,
         );
         observe("QRCode", limited || regions.limited);

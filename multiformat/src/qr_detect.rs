@@ -776,8 +776,8 @@ fn finder_grid_valid(
 }
 /// Decode attempts of a complete detection; reaching it starts partial recovery.
 pub const FULL_BUDGET: usize = 1200;
-/// Mode-dependent work limits and decoding retries of a QR detection. Callers
-/// choose them; the multi-format reader groups use [`Policy::MULTIFORMAT`].
+/// Mode-dependent work limits and decoding retries of a QR detection. Every QR
+/// reader, alone or in a multi-format group, uses [`Policy::for_mode`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Policy {
     /// Once a symbol is read, a threshold mode stops trying triples after this
@@ -809,15 +809,32 @@ pub enum GrayRetry {
     Erasures,
 }
 impl Policy {
-    /// The multi-format reader groups: flat patience, unbounded alignment
-    /// searches and hard decoding of the threshold samplings only.
-    pub const MULTIFORMAT: Self = Self {
-        patience: 100,
-        alignment_budget: usize::MAX,
-        align_anyway: true,
-        offset_erasures: false,
-        gray: GrayRetry::Off,
-    };
+    /// The policy of scanner `mode` (0 Low, 1 Medium, 2 High, 3 Very High).
+    #[must_use]
+    pub const fn for_mode(mode: usize) -> Self {
+        Self {
+            // Low serves live camera frames, where the next frame is another chance.
+            patience: if mode == 0 { 50 } else { 100 },
+            // Low and Medium bound the alignment searches per pass; High keeps searching.
+            alignment_budget: match mode {
+                0 => 150,
+                1 => 25,
+                _ => usize::MAX,
+            },
+            // Low checks the format bits first: false triples would otherwise use up
+            // its budget. Medium's budget is small enough that the check would save
+            // nothing.
+            align_anyway: mode != 0,
+            offset_erasures: true,
+            // Low keeps its live-frame budget without the gray resampling pass. In
+            // Medium its erasure retry read nothing extra.
+            gray: match mode {
+                0 => GrayRetry::Off,
+                1 => GrayRetry::Hard,
+                _ => GrayRetry::Erasures,
+            },
+        }
+    }
 }
 /// The threshold modes and budgets of one detection.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -857,8 +874,8 @@ pub fn detect_with(
 ) -> (Vec<Detection>, bool) {
     detect_with_recovery(w, h, regions, binary_images, policy, pass)
 }
-/// The QR reader of the multi-format groups under [`Policy::MULTIFORMAT`]:
-/// effort 2 adds the foreground split and effort 3 the curved grids. Above
+/// The QR reader of the multi-format groups under `policy`: effort 2 adds the
+/// foreground split and effort 3 the curved grids. Above
 /// effort 1, frames up to one megapixel are searched again after sharpening;
 /// its reads join unless the same payload already covers that area.
 ///
@@ -871,22 +888,17 @@ pub fn detect_group(
     h: usize,
     regions: &mut crate::regions::Regions,
     binary_images: &mut crate::binarization::Images<'_>,
+    policy: Policy,
     effort: usize,
 ) -> (Vec<Detection>, bool) {
     let pass = Pass::effort(effort > 1, effort > 2);
-    let (mut reads, mut limited) = detect_with_recovery(
-        w,
-        h,
-        regions,
-        binary_images,
-        Policy::MULTIFORMAT,
-        pass.clone(),
-    );
+    let (mut reads, mut limited) =
+        detect_with_recovery(w, h, regions, binary_images, policy, pass.clone());
     if effort > 1 && w * h <= 1_048_576 {
         let enhanced = crate::qr_enhance::sharpen(image, w, h);
         let mut recovery = crate::binarization::Images::new(&enhanced, w, h);
         let (extra, extra_limited) =
-            detect_with_recovery(w, h, regions, &mut recovery, Policy::MULTIFORMAT, pass);
+            detect_with_recovery(w, h, regions, &mut recovery, policy, pass);
         limited |= extra_limited;
         for read in extra {
             if !reads.iter().any(|prior| {

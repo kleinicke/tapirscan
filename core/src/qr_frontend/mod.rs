@@ -1,35 +1,19 @@
 //! QR-only production frontend: the shared multiformat detector under this
 //! mode's [`Policy`], plus block-threshold and sharpened retries. The
-//! multi-format groups use the same detector under `Policy::MULTIFORMAT`.
-use barcode_multiformat::qr_detect::{self, FULL_BUDGET, GrayRetry, Pass, Policy};
+//! multi-format groups use the same detector and policy.
+use barcode_multiformat::qr_detect::{self, FULL_BUDGET, Pass, Policy};
 use barcode_multiformat::{Detection, Scan, binarization, qr_enhance};
 
 /// This mode's QR detection choices.
-const POLICY: Policy = Policy {
-    // Low serves live camera frames, where the next frame is another chance.
-    patience: if cfg!(feature = "mode-low") { 50 } else { 100 },
-    // Low and Medium bound the alignment searches per pass; High keeps searching.
-    alignment_budget: if cfg!(feature = "mode-low") {
-        150
-    } else if cfg!(feature = "mode-medium") {
-        25
-    } else {
-        usize::MAX
-    },
-    // Low checks the format bits first: false triples would otherwise use up its
-    // budget. Medium's budget is small enough that the check would save nothing.
-    align_anyway: !cfg!(feature = "mode-low"),
-    offset_erasures: true,
-    // Low keeps its live-frame budget without the gray resampling pass. In
-    // Medium its erasure retry read nothing extra.
-    gray: if cfg!(feature = "mode-low") {
-        GrayRetry::Off
-    } else if cfg!(feature = "mode-medium") {
-        GrayRetry::Hard
-    } else {
-        GrayRetry::Erasures
-    },
-};
+const POLICY: Policy = Policy::for_mode(if cfg!(feature = "mode-low") {
+    0
+} else if cfg!(feature = "mode-medium") {
+    1
+} else if cfg!(feature = "mode-high") {
+    2
+} else {
+    3
+});
 /// Run one detection pass under this mode's policy.
 fn detect(
     width: usize,

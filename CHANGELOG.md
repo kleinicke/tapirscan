@@ -55,7 +55,7 @@ geometry and timing can differ from 1.3.0. See the
   and retried with uncertain modules as erasures; unread frames get a
   block-threshold pass, tiny images an enlarged retry and large frames retries at
   1280 pixels. In mixed selections QR runs as its own reader group and reads
-  almost like a QR-only scan.
+  almost like a QR-only scan, in Low and Medium also when EAN add-ons are read.
 - **Data Matrix** reads more phone photos, industrial marks and foreshortened,
   tiny, blurred and large close-up symbols. High and Very High retry unread frames
   on reduced copies and refine each data region of large symbols separately.

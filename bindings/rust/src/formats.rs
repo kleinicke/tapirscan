@@ -2041,7 +2041,12 @@ pub(crate) fn scan_reader(
 ) -> barcode_multiformat::Scan {
     if mask & AZTEC != 0 && mask & !MATRIX_MASK == 0 {
         crate::matrix_frontend::scan(pixels, width, height, mask, effort)
-    } else if mask == QR_CODE {
+    } else if mask == QR_CODE
+        || (crate::MODE_ID < 2 && mask & !(EAN_ADDON_READ_FLAG | EAN_ADDON_REQUIRE_FLAG) == QR_CODE)
+    {
+        // EAN add-on flags do not concern QR. In Low and Medium its group reads as in a
+        // QR-only scan; High's QR-only reader adds block thresholds on every unread frame,
+        // which made add-on retail scans 5% slower, so High keeps the group reader there.
         barcode_research_core::qr_frontend::scan_with_effort(pixels, width, height, effort)
     } else {
         barcode_multiformat::scan_for_mode(

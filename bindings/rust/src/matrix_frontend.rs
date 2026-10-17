@@ -30,7 +30,15 @@ fn run_reader(
     binary_images: &mut binarization::Images<'_>,
 ) -> (Vec<Detection>, bool) {
     match bit {
-        QR_CODE => qr_detect::detect_group(image, width, height, regions, binary_images, effort),
+        QR_CODE => qr_detect::detect_group(
+            image,
+            width,
+            height,
+            regions,
+            binary_images,
+            qr_detect::Policy::for_mode(crate::MODE_ID as usize),
+            effort,
+        ),
         DATA_MATRIX => dm_detect::detect(
             width,
             height,

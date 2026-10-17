@@ -25,7 +25,7 @@ public scanner, see [the architecture overview](../docs/ARCHITECTURE.md).
 - `qr_frontend` runs the QR-only reader: the multiformat QR detector
   (`multiformat/src/qr_detect.rs`) under this mode's `Policy`, then bounded
   block-threshold, foreground-threshold and sharpened retries. The multi-format
-  reader groups run the same detector under `Policy::MULTIFORMAT`; there is one
+  reader groups run the same detector under the same `Policy::for_mode`; there is one
   detector and one threshold cache. `qr_grid` resamples unresolved regions from original
   grayscale pixels. The Rust facade selects QR-only reader groups and enforces
   the mode-specific frame retry limits.
