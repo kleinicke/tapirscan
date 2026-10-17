@@ -23,7 +23,7 @@ pub(super) const SELECTED: Effort = [
         fit_limit: 4,
         proposal_limit: 32,
         #[cfg(not(feature = "low"))]
-        recovery_directions: 2,
+        recovery_directions: 1,
     },
     Effort {
         fit_limit: 1,

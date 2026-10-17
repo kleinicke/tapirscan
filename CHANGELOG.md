@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- High tries one direction per seed in its upscaled retail crops, as Medium does (Very
+  High keeps two). On the 929 user-project retail photos and 600 retail parity photos
+  High's reads are identical, and one of 1,360 retail variation images is lost; High is
+  about 2% faster on retail photos and 9% on frames without a barcode in Chrome.
 - Medium reads rows of small Code 128 (and other 1D) labels on large sheets with any
   format selection, not only with that format alone: the stripe-box fallback for thin
   symbols that segment voting misses now runs when no 1D symbol was read (a PDF417 or QR
