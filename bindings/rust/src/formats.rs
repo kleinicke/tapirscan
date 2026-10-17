@@ -181,8 +181,8 @@ impl Scanner {
                     )?;
                     if crate::MODE_ID == 1 && mask == 16384 {
                         self.localizer.detect_sparse(im, 768.)?.proposals
-                    } else if crate::MODE_ID == 1 && mask == 8192 {
-                        // Low's segment-voting boxes, which follow rotated DataBar.
+                    } else if crate::MODE_ID == 1 {
+                        // Low's segment-voting boxes, which follow rotated and warped bars.
                         crate::pipeline::segment_voting::localize(image).proposals
                     } else {
                         self.localizer.detect(im)?.proposals
@@ -243,7 +243,7 @@ impl Scanner {
                 // Retail boxes span the full bar height; rows near their edges can keep
                 // checksum-free formats below their row support. Decode the central band of
                 // unread boxes, which stripe localization would have proposed on its own.
-                if primary.is_some() && oriented_mask & 0x01F0 != 0 {
+                if (primary.is_some() || crate::MODE_ID == 1) && oriented_mask & 0x01F0 != 0 {
                     let cores: Vec<_> = proposals
                         .iter()
                         .filter(|p| {
@@ -267,6 +267,32 @@ impl Scanner {
                         )?;
                         found.extend(extra);
                     }
+                }
+                // Medium localizes these selections by segment voting; frames it reads nothing
+                // on fall back to the stripe boxes, which keep thin and partial symbols.
+                if crate::MODE_ID == 1
+                    && primary.is_none()
+                    && mask != 16384
+                    && oriented_mask != 0
+                    && reads.is_empty()
+                    && found.is_empty()
+                {
+                    let im = crate::ImageView::new(
+                        image.data,
+                        image.width,
+                        image.height,
+                        image.channels,
+                        image.stride,
+                    )?;
+                    let stripes = self.localizer.detect_sparse(im, 768.)?.proposals;
+                    let (extra, regions) = crate::fast_linear::recover_proposals(
+                        image,
+                        &stripes,
+                        oriented_mask,
+                        sampler,
+                    )?;
+                    found.extend(extra);
+                    pending.extend(regions);
                 }
                 // The localizer works on a 768-pixel raster: in large frames small
                 // symbols fall below its minimum group size. Localize again at half
@@ -1933,9 +1959,10 @@ mod upscale_tests {
 mod finer_localization_tests {
     /// Code 39 `-02532876` at two pixels per module and 30 rows in a 3200x2400
     /// frame: on the 768-pixel localization raster it is below the minimum
-    /// stripe-group size, so only High and Very High read it.
+    /// stripe-group size. High and Very High localize at finer scale, Medium finds it
+    /// through its segment-voting boxes; Low does not read it.
     #[test]
-    fn small_linear_symbol_in_large_frame_reads_from_high_up() {
+    fn small_linear_symbol_in_large_frame_reads_from_medium_up() {
         let bits = "1001011011010100101011011010100110110101011001010110110100110101011011001010101011001010110110100101101010100101101101011001101010100101101101";
         let (width, height) = (3200, 2400);
         let mut data = vec![255; width * height];
@@ -1965,7 +1992,7 @@ mod finer_localization_tests {
             )
             .unwrap();
         let texts: Vec<_> = scan.barcodes.iter().map(|b| b.text.as_str()).collect();
-        if crate::MODE_ID >= 2 {
+        if crate::MODE_ID >= 1 {
             assert_eq!(texts, ["-02532876"]);
         } else {
             assert!(texts.is_empty(), "{texts:?}");
