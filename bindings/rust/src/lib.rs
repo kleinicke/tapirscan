@@ -1,4 +1,4 @@
-//! Safe full-image facade for one pinned, compile-time-selected scanner mode.
+//! Safe full-image facade for one compile-time-selected scanner mode.
 #![forbid(unsafe_code)]
 #[cfg(not(feature = "low"))]
 mod detail;
@@ -287,12 +287,12 @@ mod tests {
     }
 }
 
-// Low now selects the original Turbo policy. Classic is a demo-only build recipe;
+// Low uses the Turbo fast path. Low Classic is a demo-only build recipe;
 // higher effort modes must never inherit the bounded Low policy.
 pub(crate) const LOW_FAST_PATH: bool =
     cfg!(feature = "low") && option_env!("TAPIRSCAN_LOW_CLASSIC").is_none();
 
-/// Compiled effort identity, matching the pinned JavaScript host policy.
+/// Compiled effort mode, as its index in `config/modes.json`: 0 Low to 3 Very High.
 pub const MODE_ID: u32 = if cfg!(feature = "low") {
     0
 } else if cfg!(feature = "high") {
@@ -303,6 +303,8 @@ pub const MODE_ID: u32 = if cfg!(feature = "low") {
     1
 };
 pub const MODE: &str = ["low", "medium", "high", "very-high"][MODE_ID as usize];
+/// High or Very High: the modes with the larger fixed recovery budgets.
+pub(crate) const HIGH_EFFORT: bool = cfg!(any(feature = "high", feature = "very-high"));
 
 pub mod formats;
 #[cfg(not(feature = "low"))]

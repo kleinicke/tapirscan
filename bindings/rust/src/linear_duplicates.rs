@@ -3,6 +3,15 @@ use crate::{Image, Quad, geometry::distance};
 mod area;
 mod footprint;
 
+// High and Very High trace bars further on large source images, without relaxing
+// the continuity proof.
+/// Longest distance, in pixels along the bar, that a trace may need.
+const TRACE_DISTANCE: f64 = if crate::HIGH_EFFORT { 1024. } else { 384. };
+/// Steps one trace may take.
+const TRACE_STEPS: usize = if crate::HIGH_EFFORT { 2048 } else { 768 };
+/// Sample budget of the ownership pass over unresolved results.
+const OWNED_PASS_BUDGET: usize = if crate::HIGH_EFFORT { 524_288 } else { 32_768 };
+
 fn midpoint(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
     [a[0].midpoint(b[0]), a[1].midpoint(b[1])]
 }
@@ -556,23 +565,12 @@ impl Evidence<'_> {
         let start = signed(from);
         let tangent = [-normal[1], normal[0]];
         let rate = (tangent[0] * v[1] - tangent[1] * v[0]) / length;
-        if rate.abs() < 0.8
-            || (start / rate).abs()
-                > if matches!(crate::MODE_ID, 2 | 3) {
-                    1024.
-                } else {
-                    384.
-                }
-        {
+        if rate.abs() < 0.8 || (start / rate).abs() > TRACE_DISTANCE {
             return false;
         }
         let direction = -(start / rate).signum();
         let mut point = from;
-        for _ in 0..if matches!(crate::MODE_ID, 2 | 3) {
-            2048
-        } else {
-            768
-        } {
+        for _ in 0..TRACE_STEPS {
             let d = signed(point);
             if d.abs() <= 0.5 || d * start < 0. {
                 let f = ((point[0] - target[0][0]) * v[0] + (point[1] - target[0][1]) * v[1])
@@ -652,7 +650,7 @@ impl Evidence<'_> {
         {
             return None;
         }
-        let count = if matches!(crate::MODE_ID, 2 | 3) {
+        let count = if crate::HIGH_EFFORT {
             usize::try_from((aw.ceil().clamp(256., 2048.)) as u32).ok()?
         } else {
             256
@@ -764,7 +762,7 @@ fn conflicts<T>(weak: &Read<T>, strong: &Read<T>) -> bool {
         && weak.support <= 2
         && strong.support >= 3
         && matches!(strong.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE"))
-        || (matches!(crate::MODE_ID, 2 | 3)
+        || (crate::HIGH_EFFORT
             && weak.format == "UPCE"
             && weak.support <= strong.support
             && strong.support >= 3
@@ -838,16 +836,11 @@ fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
 }
 
 fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
-    // Preserve the original proofs and their budget. Only unresolved results
-    // enter this separately bounded ownership pass. Higher modes allow longer
-    // traces on large source images without relaxing the continuity proof.
+    // Only unresolved results enter this separately bounded ownership pass; the
+    // earlier proofs keep their own budget.
     let mut evidence = Evidence {
         image,
-        remaining: if matches!(crate::MODE_ID, 2 | 3) {
-            524_288
-        } else {
-            32_768
-        },
+        remaining: OWNED_PASS_BUDGET,
     };
     let mut owned: Vec<Read<T>> = Vec::new();
     for read in extended {
@@ -858,10 +851,10 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
                     && let Some(polygon) = evidence
                         .owned_bars(other.polygon, read.polygon, false)
                         .or_else(|| {
-                            if matches!(crate::MODE_ID, 1..=3) {
-                                evidence.owned_bars(read.polygon, other.polygon, false)
-                            } else {
+                            if cfg!(feature = "low") {
                                 None
+                            } else {
+                                evidence.owned_bars(read.polygon, other.polygon, false)
                             }
                         })
                 {

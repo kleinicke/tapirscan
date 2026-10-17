@@ -25,12 +25,12 @@ fn detect(
     qr_detect::detect_with(width, height, regions, binary, POLICY, pass)
 }
 
-/// Scan ordinary QR effort with unchanged finder and recovery work budgets.
+/// Scan QR at effort 0.
 #[must_use]
 pub fn scan(image: &[u8], width: usize, height: usize) -> Scan {
     scan_impl(image, width, height, false, 0)
 }
-/// Scan QR with the existing effort-specific thresholds, sharpening and curved grids.
+/// Scan QR with the block thresholds, sharpening and curved grids of `effort`.
 #[must_use]
 pub fn scan_with_effort(image: &[u8], width: usize, height: usize, effort: usize) -> Scan {
     scan_impl(image, width, height, false, effort)

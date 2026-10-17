@@ -1,4 +1,5 @@
-//! Port of the pinned source-detail JS composition. Raw crop frames keep local indices.
+//! Detail recovery: upscaled crops around seeded bar-like cells, rescanned by the
+//! core. Raw crop frames keep local indices.
 //! Coordinate arithmetic uses validated image bounds (at most 256 Mi pixels).
 #![allow(
     clippy::cast_precision_loss,
@@ -25,7 +26,8 @@ fn gray(im: Image<'_>, x: usize, y: usize) -> f64 {
     im.fixed_luminance(y * im.stride + x * im.channels)
 }
 
-// Keep the pinned JavaScript equations and operation order directly comparable.
+// Keep the equations and their operation order: reordered floating-point steps change
+// borderline reads.
 #[allow(clippy::many_single_char_names, clippy::manual_midpoint)]
 fn evidence(im: Image<'_>, polygon: Quad, local: bool, target: usize) -> usize {
     let mut best = 0;
@@ -172,13 +174,14 @@ fn seeds(im: Image<'_>) -> Vec<Seed> {
             continue;
         }
         selected.push(c);
-        if selected.len() == if crate::MODE_ID >= 2 { 8 } else { 2 } {
+        if selected.len() == if crate::HIGH_EFFORT { 8 } else { 2 } {
             break;
         }
     }
     selected
 }
-// Keep the pinned JavaScript equations and operation order directly comparable.
+// Keep the equations and their operation order: reordered floating-point steps change
+// borderline reads.
 #[allow(clippy::many_single_char_names)]
 fn refined_angle(im: Image<'_>, seed: Seed) -> f64 {
     let (mut xx, mut yy, mut xy, mut sx, mut sy, mut n) = (0., 0., 0., 0., 0., 0.);
@@ -411,7 +414,8 @@ pub(super) struct RecoveryOptions {
 }
 
 /// Runtime evidence is returned separately to preserve each crop's candidate namespace.
-// Keep the pinned JavaScript equations and operation order directly comparable.
+// Keep the equations and their operation order: reordered floating-point steps change
+// borderline reads.
 #[allow(clippy::many_single_char_names, clippy::too_many_lines)]
 pub fn recover(
     im: Image<'_>,
@@ -435,11 +439,11 @@ pub fn recover(
     let mut additions = Vec::new();
     let mut unread = Vec::new();
     let mut retail_reads = Vec::new();
-    // Keep the original two small-crop attempts first: increasing crop size
-    // changes proposal geometry and can lose otherwise readable symbols.
+    // Small crops come first: a larger crop changes proposal geometry and can
+    // lose otherwise readable symbols. High and Very High add the wide pass.
     for wide in [false, true]
         .into_iter()
-        .take(if crate::MODE_ID >= 2 { 2 } else { 1 })
+        .take(if crate::HIGH_EFFORT { 2 } else { 1 })
     {
         for seed in seeds.iter().take(if wide { 3 } else { 2 }) {
             // The wide pass rescues frames that are unread or weakly read. When every read
