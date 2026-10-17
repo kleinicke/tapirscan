@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- High and Very High also try segment voting's alternative boxes for unread retail
+  clusters with barcode evidence, as Medium does. On the 929 retail photos of the
+  user-project evaluation, High now reads 854 like Medium (was 852), with no new wrong
+  values; High costs about 4.6% more on retail photos.
 - Medium reads many more Code 128 fields on large label photos: when its whole-image
   sweep of a frame whose shorter side exceeds 1536 pixels reads one Code 128, it sweeps
   again with twice the lines and diagonal angles. On the 1,578 development images, Medium

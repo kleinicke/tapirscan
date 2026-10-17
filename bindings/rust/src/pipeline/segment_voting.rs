@@ -51,7 +51,7 @@ const SMALL_MEMBERS: usize = 10;
 pub(crate) struct Localized {
     pub proposals: Vec<Proposal>,
     /// Alternative boxes per primary box, tried only for unread clusters.
-    #[cfg(feature = "medium")]
+    #[cfg(not(feature = "low"))]
     pub alternatives: Vec<(Quad, Vec<Quad>)>,
 }
 
@@ -509,11 +509,11 @@ fn clusters(segs: &[Segment], w: usize, h: usize, s: f64) -> Localized {
     let frame = w as f64 * h as f64 / (s * s);
     out.retain(|(p, n)| *n >= SMALL_MEMBERS || quad_area(&p.polygon) >= SMALL_BOX * frame);
     alternatives.retain(|(q, _)| out.iter().any(|(p, _)| p.polygon == *q));
-    #[cfg(not(feature = "medium"))]
+    #[cfg(feature = "low")]
     let _ = alternatives;
     Localized {
         proposals: out.into_iter().map(|(p, _)| p).collect(),
-        #[cfg(feature = "medium")]
+        #[cfg(not(feature = "low"))]
         alternatives,
     }
 }
@@ -694,7 +694,7 @@ pub(crate) fn localize(image: Image<'_>) -> Localized {
     if segs.is_empty() {
         return Localized {
             proposals: Vec::new(),
-            #[cfg(feature = "medium")]
+            #[cfg(not(feature = "low"))]
             alternatives: Vec::new(),
         };
     }

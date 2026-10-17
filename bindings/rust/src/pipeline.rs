@@ -21,8 +21,8 @@ pub(crate) use source_evidence::source_contradiction;
 
 struct Localization {
     proposals: Vec<Proposal>,
-    /// Medium: alternative boxes per segment-voting cluster, tried only while it stays unread.
-    #[cfg(feature = "medium")]
+    /// Alternative boxes per segment-voting cluster, tried only while it stays unread.
+    #[cfg(not(feature = "low"))]
     alternatives: Vec<(Quad, Vec<Quad>)>,
     short_fragments: Option<Vec<Proposal>>,
     omitted: usize,
@@ -152,7 +152,7 @@ fn scan_prepared_impl(
         scan = scanner.regions.scan(im, &candidates, policy)?;
         retail = finish_retail(&mut scan, &mut scanner.regions, im);
     }
-    #[cfg(feature = "medium")]
+    #[cfg(not(feature = "low"))]
     scan_alternatives(
         scanner,
         image,
@@ -720,7 +720,7 @@ fn localize(
         detector.detect(im)?
     };
     #[cfg(any(feature = "high", feature = "very-high"))]
-    let found = high_boxes(found, image);
+    let (found, alternatives) = high_boxes(found, image);
     #[cfg(feature = "medium")]
     let short_fragments = capture_short_fragments.then(Vec::new);
     #[cfg(not(feature = "medium"))]
@@ -765,6 +765,8 @@ fn localize(
         proposals,
         #[cfg(feature = "medium")]
         alternatives: voted.alternatives,
+        #[cfg(any(feature = "high", feature = "very-high"))]
+        alternatives,
         short_fragments,
         omitted: found.omitted + count - examined + secondary_omitted,
         work_limited: found.limited
@@ -778,10 +780,14 @@ fn localize(
 /// High and Very High also box symbols by segment voting; the stripe pass still supplies
 /// short-fragment hints and stripe evidence, and boxes for tiny frames.
 #[cfg(any(feature = "high", feature = "very-high"))]
-fn high_boxes(mut found: stripes::Result, image: Image<'_>) -> stripes::Result {
+fn high_boxes(
+    mut found: stripes::Result,
+    image: Image<'_>,
+) -> (stripes::Result, Vec<(Quad, Vec<Quad>)>) {
+    let voted = segment_voting::localize(image);
     if tiny_stripes(image) {
         // Voting has few segments on tiny frames; keep distinct stripe boxes after its boxes.
-        let mut proposals = segment_voting::localize(image).proposals;
+        let mut proposals = voted.proposals;
         for p in std::mem::take(&mut found.proposals) {
             if !proposals
                 .iter()
@@ -791,14 +797,17 @@ fn high_boxes(mut found: stripes::Result, image: Image<'_>) -> stripes::Result {
             }
         }
         proposals.truncate(SELECTED.proposal_limit - SELECTED.fit_limit - 12);
-        stripes::Result { proposals, ..found }
+        (stripes::Result { proposals, ..found }, voted.alternatives)
     } else {
-        stripes::Result {
-            proposals: segment_voting::localize(image).proposals,
-            omitted: 0,
-            limited: false,
-            trace: found.trace,
-        }
+        (
+            stripes::Result {
+                proposals: voted.proposals,
+                omitted: 0,
+                limited: false,
+                trace: found.trace,
+            },
+            voted.alternatives,
+        )
     }
 }
 
@@ -1051,7 +1060,7 @@ mod independent_source_rows_tests;
 /// Try alternative boxes of segment-voting clusters whose own box produced no read but whose
 /// candidate showed retail evidence (guard patterns or blurred-symbol windows). Reads from
 /// alternative geometry must not be contradicted by the source image.
-#[cfg(feature = "medium")]
+#[cfg(not(feature = "low"))]
 #[allow(clippy::too_many_arguments)] // one ordered pipeline transaction over shared scan state
 fn scan_alternatives(
     scanner: &mut Scanner,
