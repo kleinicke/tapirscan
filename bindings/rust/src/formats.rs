@@ -221,16 +221,24 @@ impl Scanner {
                 // and partial symbols, such as rows of small labels on a large sheet. Frames
                 // without a linear read fall back to the stripe boxes (sparse search in Medium,
                 // full search from High up); reads of 2D formats do not stop it. With retail
-                // selected, only frames above twice that raster take it.
+                // selected, only frames above twice that raster take it. Large label sheets
+                // carry many short Code 128 fields: in Medium, one read there also takes the
+                // stripe boxes (High localizes those frames again at half scale).
                 let linear_read = reads.iter().chain(found.iter()).any(|read| {
                     !matches!(
                         read.format.as_str(),
                         "QRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
                     )
                 });
+                let label_sheet = crate::MODE_ID == 1
+                    && image.width.min(image.height) > 1536
+                    && reads
+                        .iter()
+                        .chain(found.iter())
+                        .any(|read| read.format == "Code128");
                 if (primary.is_none() || image.width.max(image.height) > 1536)
                     && oriented_mask != 0
-                    && !linear_read
+                    && (!linear_read || label_sheet)
                 {
                     let im = crate::ImageView::new(
                         image.data,
