@@ -8,6 +8,7 @@ import {
   type PixelImage,
   type ScanOptions,
 } from "./index.js";
+import { validSize } from "./layout.js";
 import { scanRows, workingPixels, type RowImage, type RowReader } from "./row-scan.js";
 
 /** Scanner options that can cross the worker boundary. */
@@ -112,12 +113,7 @@ async function decode(source: WorkerSource): Promise<Decoded> {
   try {
     const { width, height } = bitmap;
     // Reject before allocating a canvas; the scanner enforces the same limits.
-    if (
-      width < 3 ||
-      height < 3 ||
-      Math.max(width, height) > 65_535 ||
-      width * height > 256 * 1024 * 1024
-    )
+    if (!validSize(width, height))
       throw new TypeError(
         `Images must be 3 to 65,535 pixels per side and at most 256 megapixels, got ${String(width)}×${String(height)}`,
       );

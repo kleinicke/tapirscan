@@ -20,6 +20,21 @@ export interface PixelLayout {
   readonly addressed: number;
 }
 
+/**
+ * Whether an image size is within the scanner limits: 3 to 65,535 pixels per
+ * side and at most 256 megapixels.
+ */
+export function validSize(width: number, height: number): boolean {
+  return (
+    Number.isSafeInteger(width) &&
+    Number.isSafeInteger(height) &&
+    width >= 3 &&
+    height >= 3 &&
+    Math.max(width, height) <= 65_535 &&
+    width * height <= 256 * 1024 * 1024
+  );
+}
+
 /** Validate decoded pixels against the scanner limits without copying them. */
 export function pixelLayout(image: unknown): PixelLayout {
   if (image === null || typeof image !== "object" || !("data" in image))
@@ -32,12 +47,7 @@ export function pixelLayout(image: unknown): PixelLayout {
   const stride = (explicit ? (image as PixelInput).stride : undefined) ?? width * (channels ?? 0);
   const addressed = (height - 1) * stride + width * (channels ?? 0);
   if (
-    !Number.isSafeInteger(width) ||
-    !Number.isSafeInteger(height) ||
-    width < 3 ||
-    height < 3 ||
-    Math.max(width, height) > 65_535 ||
-    width * height > 256 * 1024 * 1024 ||
+    !validSize(width, height) ||
     (channels !== 1 && channels !== 3 && channels !== 4) ||
     !Number.isSafeInteger(stride) ||
     stride < width * channels ||
