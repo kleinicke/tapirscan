@@ -18,21 +18,8 @@ private struct Pixels {
     let stride: Int
 }
 
-/// One native operation and how it reads its owned result.
-private struct Call<Output> {
-    let isInspection: Bool
-    let read: (tapirscan_result) throws -> Output
-}
-
-extension Call where Output == ScanResult {
-    static var scan: Self {
-        Call(isInspection: false) { ScanResult(barcodes: try readBarcodes($0)) }
-    }
-}
-
-extension Call where Output == InspectionResult {
-    static var inspect: Self { Call(isInspection: true, read: readInspection) }
-}
+/// Lends pixels to the native call for the duration of the call.
+private typealias PixelSource = (_ call: (Pixels) throws -> tapirscan_result) throws -> tapirscan_result
 
 /// A reusable barcode scanner (named apart from `Foundation.Scanner`). Create one and
 /// reuse it for every frame; calls on one scanner run one at a time, and separate
@@ -41,7 +28,7 @@ public final class BarcodeScanner: @unchecked Sendable {
     public let options: ScannerOptions
     private let handle: tapirscan_scanner
     private let lock = NSLock()
-    /// Reused RGBA conversion buffer for `CGImage` and BGRA inputs.
+    /// Reused RGBA conversion buffer for `CGImage` and BGRA inputs, guarded by `lock`.
     private var rgba: [UInt8] = []
 
     public init(options: ScannerOptions = ScannerOptions()) throws {
@@ -74,7 +61,7 @@ public final class BarcodeScanner: @unchecked Sendable {
         stride: Int = 0,
         options: ScanOptions = ScanOptions()
     ) throws -> ScanResult {
-        try run(.scan, options) {
+        try run(inspect: false, options, read: readScan) {
             try $0(Pixels(buffer: pixels, width: width, height: height, channels: channels, stride: stride))
         }
     }
@@ -103,7 +90,7 @@ public final class BarcodeScanner: @unchecked Sendable {
         stride: Int = 0,
         options: ScanOptions = ScanOptions()
     ) throws -> InspectionResult {
-        try run(.inspect, options) {
+        try run(inspect: true, options, read: readInspection) {
             try $0(Pixels(buffer: pixels, width: width, height: height, channels: channels, stride: stride))
         }
     }
@@ -125,36 +112,54 @@ public final class BarcodeScanner: @unchecked Sendable {
 
     // MARK: Native call
 
-    /// Run one call under the scanner lock. `source` hands the borrowed pixels to the body.
+    /// Scan or inspect the pixels lent by `source` under the scanner lock, then copy
+    /// the owned native result with `read`.
     private func run<Output>(
-        _ call: Call<Output>,
+        inspect: Bool,
         _ options: ScanOptions,
-        _ source: (_ body: (Pixels) throws -> Output) throws -> Output
+        read: (tapirscan_result) throws -> Output,
+        _ source: PixelSource
     ) throws -> Output {
-        let formats = try options.mask()
+        var native = tapirscan_scan_options(formats: try options.mask())
         lock.lock()
-        defer { lock.unlock() }
-        return try source { try native(call, $0, formats) }
+        let result: tapirscan_result
+        do {
+            defer { lock.unlock() }
+            result = try source { pixels in
+                var image = tapirscan_image(
+                    data: pixels.buffer.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                    length: UInt64(pixels.buffer.count),
+                    width: UInt64(clamping: pixels.width),
+                    height: UInt64(clamping: pixels.height),
+                    channels: UInt32(clamping: pixels.channels),
+                    stride: UInt64(clamping: pixels.stride)
+                )
+                var result = tapirscan_result()
+                var error = tapirscan_error()
+                let status = inspect
+                    ? tapirscan_inspect(handle, &image, &native, &result, &error)
+                    : tapirscan_scan(handle, &image, &native, &result, &error)
+                guard status == 0 else { throw TapirscanError(status: status, error: &error) }
+                return result
+            }
+        }
+        defer { tapirscan_result_destroy(result) }
+        return try read(result)
     }
 
-    private func native<Output>(_ call: Call<Output>, _ pixels: Pixels, _ formats: UInt32) throws -> Output {
-        var image = tapirscan_image(
-            data: pixels.buffer.baseAddress?.assumingMemoryBound(to: UInt8.self),
-            length: UInt64(pixels.buffer.count),
-            width: UInt64(clamping: pixels.width),
-            height: UInt64(clamping: pixels.height),
-            channels: UInt32(clamping: pixels.channels),
-            stride: UInt64(clamping: pixels.stride)
-        )
-        var options = tapirscan_scan_options(formats: formats)
-        var result = tapirscan_result()
-        var error = tapirscan_error()
-        let status = call.isInspection
-            ? tapirscan_inspect(handle, &image, &options, &result, &error)
-            : tapirscan_scan(handle, &image, &options, &result, &error)
-        guard status == 0 else { throw TapirscanError(status: status, error: &error) }
-        defer { tapirscan_result_destroy(result) }
-        return try call.read(result)
+    /// Fill the reused RGBA buffer with `fill` and lend it to `call`; the caller holds the lock.
+    private func withRGBA(
+        width: Int,
+        height: Int,
+        fill: (UnsafeMutableRawBufferPointer) throws -> Void,
+        _ call: (Pixels) throws -> tapirscan_result
+    ) throws -> tapirscan_result {
+        let count = width * height * 4
+        if rgba.count != count { rgba = [UInt8](repeating: 0, count: count) }
+        try rgba.withUnsafeMutableBytes(fill)
+        return try rgba.withUnsafeBytes {
+            try call(Pixels(buffer: $0, width: width, height: height, channels: 4, stride: 0))
+        }
     }
 
     #if canImport(CoreGraphics)
@@ -162,36 +167,28 @@ public final class BarcodeScanner: @unchecked Sendable {
 
     /// Scan a `CGImage` (for example `UIImage.cgImage`), composited onto white.
     public func scan(_ image: CGImage, options: ScanOptions = ScanOptions()) throws -> ScanResult {
-        try run(.scan, options) { try withPixels(of: image, $0) }
+        try run(inspect: false, options, read: readScan) { try render(image, $0) }
     }
 
     /// Like `scan(_:options:)` for a `CGImage`, with unread regions and diagnostics.
     public func inspect(_ image: CGImage, options: ScanOptions = ScanOptions()) throws -> InspectionResult {
-        try run(.inspect, options) { try withPixels(of: image, $0) }
+        try run(inspect: true, options, read: readInspection) { try render(image, $0) }
     }
 
-    /// Render into the reused RGBA buffer; the caller holds the lock.
-    private func withPixels<Output>(of image: CGImage, _ body: (Pixels) throws -> Output) throws -> Output {
+    /// Render the image onto white in the RGBA buffer; the caller holds the lock.
+    private func render(_ image: CGImage, _ call: (Pixels) throws -> tapirscan_result) throws -> tapirscan_result {
         let (width, height) = (image.width, image.height)
-        if rgba.count != width * height * 4 {
-            rgba = [UInt8](repeating: 0, count: width * height * 4)
-        }
-        let drawn: Bool = rgba.withUnsafeMutableBytes { buffer in
+        return try withRGBA(width: width, height: height, fill: { buffer in
             guard let context = CGContext(
                 data: buffer.baseAddress, width: width, height: height,
                 bitsPerComponent: 8, bytesPerRow: width * 4,
                 space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return false }
+            ) else { throw TapirscanError.invalidInput("Could not render the CGImage") }
             context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard drawn else { throw TapirscanError.invalidInput("Could not render the CGImage") }
-        return try rgba.withUnsafeBytes {
-            try body(Pixels(buffer: $0, width: width, height: height, channels: 4, stride: 0))
-        }
+        }, call)
     }
     #endif
 
@@ -201,16 +198,16 @@ public final class BarcodeScanner: @unchecked Sendable {
     /// Scan a camera frame. Bi-planar YUV frames (the camera default) are read in
     /// place through their luma plane; 32-bit BGRA frames are converted to RGBA.
     public func scan(_ pixelBuffer: CVPixelBuffer, options: ScanOptions = ScanOptions()) throws -> ScanResult {
-        try run(.scan, options) { try withPixels(of: pixelBuffer, $0) }
+        try run(inspect: false, options, read: readScan) { try lend(pixelBuffer, $0) }
     }
 
     /// Like `scan(_:options:)` for a camera frame, with unread regions and diagnostics.
     public func inspect(_ pixelBuffer: CVPixelBuffer, options: ScanOptions = ScanOptions()) throws -> InspectionResult {
-        try run(.inspect, options) { try withPixels(of: pixelBuffer, $0) }
+        try run(inspect: true, options, read: readInspection) { try lend(pixelBuffer, $0) }
     }
 
-    /// Lock the frame and expose its luma plane or a converted copy; the caller holds the lock.
-    private func withPixels<Output>(of pixelBuffer: CVPixelBuffer, _ body: (Pixels) throws -> Output) throws -> Output {
+    /// Lock the frame and lend its luma plane or an RGBA copy; the caller holds the lock.
+    private func lend(_ pixelBuffer: CVPixelBuffer, _ call: (Pixels) throws -> tapirscan_result) throws -> tapirscan_result {
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
         switch CVPixelBufferGetPixelFormatType(pixelBuffer) {
@@ -223,7 +220,7 @@ public final class BarcodeScanner: @unchecked Sendable {
                 throw TapirscanError.invalidInput("The pixel buffer has no luma plane")
             }
             let plane = UnsafeRawBufferPointer(start: base, count: stride * height)
-            return try body(Pixels(buffer: plane, width: width, height: height, channels: 1, stride: stride))
+            return try call(Pixels(buffer: plane, width: width, height: height, channels: 1, stride: stride))
         case kCVPixelFormatType_32BGRA:
             let width = CVPixelBufferGetWidth(pixelBuffer)
             let height = CVPixelBufferGetHeight(pixelBuffer)
@@ -231,25 +228,20 @@ public final class BarcodeScanner: @unchecked Sendable {
             guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else {
                 throw TapirscanError.invalidInput("The pixel buffer has no pixels")
             }
-            if rgba.count != width * height * 4 {
-                rgba = [UInt8](repeating: 0, count: width * height * 4)
-            }
-            rgba.withUnsafeMutableBytes { out in
+            return try withRGBA(width: width, height: height, fill: { out in
                 let source = base.assumingMemoryBound(to: UInt8.self)
+                let target = out.baseAddress!.assumingMemoryBound(to: UInt8.self)
                 for y in 0..<height {
                     let row = source + y * stride
-                    let target = out.baseAddress!.assumingMemoryBound(to: UInt8.self) + y * width * 4
+                    let pixel = target + y * width * 4
                     for x in 0..<width {
-                        target[x * 4] = row[x * 4 + 2]
-                        target[x * 4 + 1] = row[x * 4 + 1]
-                        target[x * 4 + 2] = row[x * 4]
-                        target[x * 4 + 3] = 255
+                        pixel[x * 4] = row[x * 4 + 2]
+                        pixel[x * 4 + 1] = row[x * 4 + 1]
+                        pixel[x * 4 + 2] = row[x * 4]
+                        pixel[x * 4 + 3] = 255
                     }
                 }
-            }
-            return try rgba.withUnsafeBytes {
-                try body(Pixels(buffer: $0, width: width, height: height, channels: 4, stride: 0))
-            }
+            }, call)
         default:
             throw TapirscanError.invalidInput("Unsupported pixel format; use bi-planar YUV or 32-bit BGRA")
         }
@@ -258,6 +250,10 @@ public final class BarcodeScanner: @unchecked Sendable {
 }
 
 // MARK: Reading results
+
+private func readScan(_ result: tapirscan_result) throws -> ScanResult {
+    ScanResult(barcodes: try readBarcodes(result))
+}
 
 private func points(_ polygon: (tapirscan_point, tapirscan_point, tapirscan_point, tapirscan_point)) -> [Point] {
     [polygon.0, polygon.1, polygon.2, polygon.3].map { Point(x: $0.x, y: $0.y) }
