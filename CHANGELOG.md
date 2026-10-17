@@ -2,61 +2,93 @@
 
 ## Unreleased
 
-- High tries one direction per seed in its upscaled retail crops, as Medium does (Very
-  High keeps two). On the 929 user-project retail photos and 600 retail parity photos
-  High's reads are identical, and one of 1,360 retail variation images is lost; High is
-  about 2% faster on retail photos and 9% on frames without a barcode in Chrome.
-- Data Matrix reads more blurred, small and crowded-frame symbols in Medium and High. On
-  busy frames the unread candidates kept for the retries filled with bare L borders of the
-  first thresholds, so symbols found only by a later threshold never retried: Medium now
-  keeps its four best-ranked candidates with a possible orientation. Medium also takes
-  High's averaged scales (400 and 256 pixels) once the frame left a Data Matrix candidate
-  region. In High, boxes between 97 and 287 pixels, which neither the averaged nor the
-  enlarged crop covered, are retried on a crop at source scale with its own threshold. On
-  the 1,578 development images, Data Matrix reads rise from 661 to 671 in Medium and from
-  710 to 715 in High (Low unchanged), with no new wrong reads and unchanged reads of every
-  other format. In Chrome with `common`, Medium costs about 1.7% more on retail photos and
-  High 0.8%; frames without a barcode and Low are unchanged.
-- High and Very High read blurred and dense PDF417 labels whose row run lengths no longer
-  spell codewords (print gain or blur fills the narrow gaps, so whole rows read as nothing):
-  a localized symbol the run reader and the column-count re-read could not finish is now
-  matched cell by cell. The start guards fix the left edge and module width, the lone end
-  bar fixes the column count (compact or full), and each codeword is the pattern whose
-  blurred rendering fits the pixels best; the best lines of each row vote, and the
-  existing check-codeword reserve for guessed cells applies, so a symbol with level 0 to 2
-  error correction must decode without any correction. Low and Medium are unchanged. On
-  the 1,578 development images PDF417 reads are 468 (Low), 468 (Medium) and 504 (High, was
-  475), all in compact Ericsson-style label sheets and similar; High loses no read and no
-  other format changes, and wrong reads stay at one per mode. Sixteen of the added reads
-  are on label sheets whose other symbols are labelled without payload; they are
-  consecutive serial numbers of the same label series. In Chrome with all formats, High
-  costs about 3% more on PDF417 frames and the same on retail photos and frames without a
-  barcode.
-- Medium reads rows of small Code 128 (and other 1D) labels on large sheets with any
-  format selection, not only with that format alone: the stripe-box fallback for thin
-  symbols that segment voting misses now runs when no 1D symbol was read (a PDF417 or QR
-  read no longer stops it) and, with retail selected, on frames above 1536 pixels. On a
-  20-megapixel sheet of eleven labels, Medium read ten of them with Code 128 alone and none
-  with PDF417, retail, `common` or `all`; it now reads ten with each. On frames whose
-  shorter side exceeds 1536 pixels, one Code 128 read also takes the stripe boxes (in
-  Medium and above), since label sheets carry many such fields. On the 1,578 development
-  images, Code 128 reads with all formats rise from 1,135 to 1,236 in Medium and from 1,238
-  to 1,243 in High, with no new wrong reads; Chrome cost is unchanged within 1%, and 1–1.4%
-  higher on the PDF417 label sheets that gain the reads.
-- High and Very High no longer run the stripe localizer on retail scans of frames that
-  are not tiny: they box symbols by segment voting and never used its short-fragment
-  hints. Reads are identical; High is about 8% faster on retail photos, 5% with all 1D
-  formats and 3% on frames without a barcode.
-- Low is about 3% faster with QR selected and 6 to 8% with EAN-13 and QR: it searches for
-  an alignment pattern only where an affine fit from the three finders reads intact
-  format information (both copies of one orientation within three bit errors of the same
-  code, or one copy within one). False finder triples on retail photos otherwise used up
-  its 150 searches, the largest single QR cost in Low. QR reads on the 4,619-image QR
-  selection rise from 4,165 to 4,169 in Low (5 images gained, one very degraded image
-  lost) and stay at 4,242 (QR alone) and 4,233 (with EAN-13) in Medium, whose code path
-  is unchanged; reads of every format on the 1,578 development images are identical in
-  all modes. The finder-pattern grid check also visits its cells column by column with
-  identical results (checked against the cell-by-cell form on random inputs).
+- Medium and High read many more Code 128 symbols on large label photos and sheets, with
+  any format selection. Code 128 and Code 39 are swept over the whole image also when
+  retail formats are selected (Medium on frames longer than 1536 pixels), and High and
+  Very High sweep large frames with twice as many lines. Once a frame whose shorter side
+  exceeds 1536 pixels reads one Code 128, Medium sweeps it again with twice the lines and
+  diagonal angles, and Medium and above also decode its stripe boxes, which keep the thin
+  fields that the 768-pixel localization raster loses. On the 1,578 development images of
+  the 15 October 2026 labels with all formats, Code 128 reads rise from 365 to 1,236 in
+  Medium and from 366 to 1,243 in High (Low 786, zxing-cpp 704), with no new wrong reads.
+  Medium costs about 4% more on retail photos with all 1D formats; retail-only scans and
+  `common` are unchanged.
+- Linear formats read the same whatever else is selected. With retail selected, Code 39,
+  Code 128, Code 93, Codabar and ITF are also decoded from the central band of up to four
+  unread retail boxes: these span the full bar height, and rows near their edges could
+  leave a symbol without enough row support (for example a noisy Code 39 patch code on a
+  scanned page). A read of a 2D format no longer stops the stripe-box fallback for thin 1D
+  symbols: on a 20-megapixel sheet of eleven Code 128 labels next to PDF417 symbols, Medium
+  read ten with Code 128 alone and none with PDF417, retail, `common` or `all`, and now
+  reads ten with each. On the development images, Medium and High each lose one read
+  between a format selected alone and all formats.
+- Medium, High and Very High localize linear selections without retail formats (Code 128,
+  Code 39, ITF, Codabar, Code 93, DataBar, DataBar Expanded) by segment voting, as Low does,
+  which follows rotated and warped bars, and decode the central band of unread boxes;
+  frames without a 1D read fall back to the stripe search (sparse in Medium, full from High
+  up). ITF and Code 128 keep a whole-image sweep, and ITF start and stop patterns tolerate
+  ink spread (such reads need at least six digits). Medium is 25 to 45% faster on these
+  selections in Chrome and High up to 18%. On 340 variation images per format selected
+  alone, Medium (High) reads against 1.3.0: ITF 203 (205) instead of 166, Code 93 311 (311)
+  instead of 291, Code 128 75 (77) instead of 56, Code 39 48 (53) instead of 43, DataBar
+  198 (202) instead of 158 (177) and DataBar Expanded 322 (322) instead of 292 (279), with
+  no wrong reads. Nine of these images that 1.3.0 Medium read are read in no mode (Code 128
+  four, Code 93 three, ITF two).
+- High and Very High read retail photos at least as well as Medium: frames their own
+  retries leave unread also get Medium's retail recoveries (contrast, high-pass, wide and
+  band profiles; deferred proposals; late crops), and unread clusters try segment voting's
+  alternative boxes. On the 929 retail photos of the user-project evaluation, High reads
+  854 photos correctly instead of 841, like Medium, and photos with a wrong value drop
+  from 10 to 8. High no longer runs the stripe localizer on retail scans of frames that
+  are not tiny (only Medium uses its short-fragment hints) and tries one direction per seed
+  in its upscaled retail crops, as Medium does. In Chrome, High costs about 3% more on
+  retail photos than before these changes and 6% less on frames without a barcode.
+- Low no longer reports a UPC-E or EAN-8 decoded from part of an EAN-13 or UPC-A it also
+  reads. Selections beyond `common1D` (Codabar, Code 93, DataBar or any 2D format) produced
+  such fragments on many retail photos. On 929 real development photos with `all`, photos
+  with a wrong retail value drop from 16 to 6 (retail selection: 7 to 5), with identical
+  correct reads and unchanged EAN-8/UPC-E reads on 751 images of those formats. Medium,
+  High and Very High are unchanged.
+- Data Matrix reads more phone photos, industrial marks, foreshortened, tiny, blurred and
+  crowded-frame symbols. Candidates whose clock-track sides are flat (solid blocks, rules,
+  blank areas) are rejected before the size search. Candidates that pass the L-border gate
+  but do not decode are retried, best border first: with a wider side-ratio window (strong
+  perspective shortens one axis), by tuning the grid corners on gray values and
+  thresholding modules against the border levels (bloomed or blurred ink merges the L in
+  the binary image), and on an area-averaged crop of a large candidate or a bilinear
+  enlargement of a tiny one. Low and Medium try three grid refinements and one crop, High
+  six and two, and High also retries boxes of 97 to 287 pixels on a crop at source scale.
+  Medium keeps its four best-ranked failing candidates (busy frames filled the list with
+  bare L borders of the first thresholds) and, once a frame leaves a Data Matrix candidate
+  region, takes High's averaged scales. On the 1,578 development images, Data Matrix reads
+  rise from 544 to 644 (Low), 604 to 671 (Medium) and 661 to 715 (High), with no new wrong
+  reads; on 315 Data Matrix variation images Low reads 163 instead of 129, Medium 180
+  instead of 168 and High 179 instead of 168. In Chrome with `common`, Low costs about 1%
+  more on retail photos, Medium and High about 2%.
+- PDF417 reads more symbols. Macro PDF417 control blocks (structured append with segment
+  index, count and file id), ECI codewords 925 and 926 and byte runs of five codewords are
+  decoded. Guard ends are followed along their bar and guards are also matched after undoing
+  print gain, so perspective and blurred photos rectify; a start guard without a matched
+  stop guard also proposes the full-symbol width, a second walk along the guard bar proposes
+  taller crops, and the proposal cap rises from 24 to 96 (sheets of 12 or more labels).
+  Decodes with erasures must leave two check codewords unused. In High and Very High, a
+  localized symbol the strict row reader cannot finish is re-read for the column count its
+  row indicators give, with nearest-codeword guesses (guessed groups keep 8 check codewords
+  unused), and then matched cell by cell against blurred codeword templates, so a symbol
+  with error-correction level 0 to 2 must decode without corrections. On zxing-cpp's
+  60-file PDF417 sample set, 44 become 55 in every mode (zxing-cpp reads 60). On the 1,578
+  development images, PDF417 reads rise from 383 to 468 in Low and Medium and to 504 in
+  High, with no new wrong reads. In Chrome with all formats, frames with PDF417 cost about
+  6% more in Low, 3% in Medium and 8% in High; other frames cost the same.
+- QR costs less in Low and Medium with identical Medium reads. Medium tries at most 25
+  alignment-pattern searches per threshold pass (was 150), which false finder triples on
+  textured photos used up; Low searches only where an affine fit from the three finders
+  reads intact format information (both copies of one orientation within three bit errors
+  of the same code, or one copy within one). In Chrome, Medium with `common` is about 5%
+  faster on retail photos and frames without a barcode, and EAN-13 with QR about 8%; Low
+  is about 3% faster with `common` and 6% with EAN-13 and QR. On the 4,619-image QR
+  development selection Medium reads 4,242 known codes (4,233 with EAN-13) as before and
+  Low 4,169 instead of 4,165.
 - Aztec reads small symbols (about 1.5 to 2 pixels per module) in Medium, High and Very
   High: a bullseye candidate with a well-fitting ring that no threshold pass turned into a
   read is retried on an enlarged window around it, and a read must be centered on the
@@ -65,83 +97,6 @@
   159, with no new wrong reads and unchanged reads of every format on the 1,578
   development images. In Chrome, Medium costs within 1% more, High about 4% on retail
   photos with Aztec selected.
-- Medium, High and Very High localize linear selections without retail formats (Code 128,
-  Code 39, ITF, Codabar, Code 93, DataBar, DataBar Expanded) by segment voting, as Low does, and decode the
-  central band of unread boxes; only frames that read nothing fall back to the stripe
-  search (sparse in Medium, full from High up). Medium is 25 to 45% faster on these
-  selections in Chrome and High up to 18%. On 340 variation images per format selected
-  alone, Medium reads ITF 203 instead of 181, Code 93 311 instead of 291, Code 128 75
-  instead of 64, Code 39 48 instead of 43, Codabar 338 instead of 337 and DataBar
-  Expanded 322 instead of 292 (as Low and High), and High reads
-  slightly more as well, with no wrong reads. Scans with a retail format are unchanged.
-- Medium reads rotated and warped GS1 DataBar again when `DataBar` is selected alone: it
-  now runs localized recovery on Low's segment-voting boxes. On the 340 DataBar variation
-  images Medium reads 198 instead of 158 (1.2.2: 170), with no wrong reads. This
-  selection costs about 5 ms more per frame with other barcodes (it ran no recovery
-  before); other selections are unchanged.
-- High and Very High also try segment voting's alternative boxes for unread retail
-  clusters with barcode evidence, as Medium does. On the 929 retail photos of the
-  user-project evaluation, High now reads 854 like Medium (was 852), with no new wrong
-  values; High costs about 4.6% more on retail photos.
-- Medium reads many more Code 128 fields on large label photos: when its whole-image
-  sweep of a frame whose shorter side exceeds 1536 pixels reads one Code 128, it sweeps
-  again with twice the lines and diagonal angles. On the 1,578 development images, Medium
-  reads 1,135 instead of 778 Code 128 symbols (High 1,238, zxing-cpp 704) with no wrong
-  reads; frames without a Code 128 do not pay, so Chrome timing is unchanged on retail,
-  other-1D and non-target sets.
-- Medium is faster with QR selected: it tries at most 25 alignment-pattern searches per
-  threshold pass (was 150), which false finder triples on textured photos used up. QR
-  reads on the 4,619-image QR development selection are unchanged (4,242 with QR alone,
-  4,233 with EAN-13 and QR); in Chrome, Medium with `common` is about 5% faster on
-  retail photos and frames without a barcode, and EAN-13 with QR about 8%.
-- Data Matrix reads more phone photos, industrial marks, foreshortened and tiny symbols in
-  every mode. Candidates whose clock-track sides are flat (solid blocks, rules, blank
-  areas) are rejected before the size search. Candidates that pass the L-border gate but
-  do not decode are retried, best border first: with a wider side-ratio window (strong
-  perspective shortens one axis), by tuning the grid corners on gray values and
-  thresholding modules against the border levels (bloomed or blurred ink merges the L in
-  the binary image), and, when their border looked clean, on an area-averaged crop of a
-  large candidate or a bilinear enlargement of a tiny one. The retries scale with the
-  mode: Low and Medium try three grid refinements and one crop, High six and two. On
-  1,578 real development images, Data Matrix reads rise from 544 to 644 (Low), 604 to
-  661 (Medium) and 661 to 710 (High), with unchanged reads of every other format and no
-  new wrong reads; on the 181 Data Matrix variation frames Low reads 151 instead of 124
-  and Medium and High 160 instead of 154. In Chrome with `common`, Low costs about 1%
-  more on retail photos, Medium is unchanged within 1% and High costs about 1% more.
-- PDF417 reads more symbols: Macro PDF417 control blocks (structured append with segment
-  index, count and file id), ECI codewords 925 and 926, and byte runs of five codewords;
-  guard ends are followed along their bar so perspective photos rectify correctly. On
-  zxing-cpp's 60-file PDF417 sample set, 44 become 55 in every mode (zxing-cpp reads 60). On
-  162 real PDF417 photos, expected reads 382 become 452 of 1,344 in every mode; six
-  reads in dense multi-label photos swap to a neighbouring symbol of the same photo.
-  Runtime is unchanged within noise.
-- PDF417 reads more real-world symbols. Guards are also matched after undoing print gain
-  (on their own strips, so exact matches are undisturbed); a start guard without a matched
-  stop guard also proposes the full-symbol width, not only the Compact one; a second, more
-  patient walk along the guard bar proposes taller crops of the same symbol; and the
-  proposal cap rises from 24 to 96, which had hidden symbols on sheets of 12 or more labels.
-  In High and Very High, a localized symbol the strict row reader cannot finish is re-read
-  for the column count its row indicators give, with nearest-codeword guesses for unmatched
-  cells and extra erasures of the least certain cells. Guessed groups must keep at least 8
-  check codewords unused, and any decode with erasures at least 2, so a symbol whose check
-  codewords are all spent on erasures (which confirms nothing) is not reported. On the
-  1,578 development photos, PDF417 reads go from 453 to 468 in Low and Medium and to 475 in
-  High (one read of 17 on one dense sheet is lost), other formats and wrong reads
-  unchanged. In Chrome with all formats, frames without PDF417 cost the same; frames with
-  PDF417 cost about 6% more in Low, 3% in Medium and 5% in High.
-- Low no longer reports a UPC-E or EAN-8 decoded from part of an EAN-13 or UPC-A it also
-  reads. Selections beyond `common1D` (Codabar, Code 93, DataBar or any 2D format) produced
-  such fragments on many retail photos. On 929 real development photos with `all`, photos
-  with a wrong retail value drop from 16 to 6 (retail selection: 7 to 5), with identical
-  correct reads and unchanged EAN-8/UPC-E reads on 751 images of those formats. Medium,
-  High and Very High are unchanged.
-- High and Very High now run Medium's retail recoveries (contrast, high-pass, wide and
-  band profiles; deferred proposals; late crops) on frames their own retries leave
-  unread. High had fallen behind Medium on retail photos. On 929 real development
-  photos, High reads 841 → 850 and Very High 848 → 857 with no lost reads, and
-  photos with a wrong value drop from 10 to 8 (Medium: 852). Low and Medium return
-  identical results. In Chrome, High costs about 5% more on retail scans and 2–4% on
-  frames without a barcode; scans that also select other linear formats are within 2%.
 - Content parsing in every binding: GS1 element strings, Wi-Fi, contacts,
   payment slips, HIBC, VINs, driver's licenses and more. JavaScript barcodes
   carry `content`; the other bindings add `parse_content`. See
@@ -172,45 +127,6 @@
   instead of 249 Code 128 symbols and Very High 525 instead of 274. Medium is
   unchanged; on large retail photos High with `common1D` costs about 15% more
   (`common` 7%), Very High about 35% (14%), without changing their reads.
-- High and Very High read warped linear symbols as Low does: when no retail format is
-  selected and their stripe boxes read nothing, they also decode Low's segment-voting
-  boxes; with `DataBarExpanded` alone they now run localized recovery like Medium. On
-  340 variation images per format selected alone, High reads ITF 202 instead of 188,
-  Code 93 305 instead of 291, Code 39 48 instead of 43, Code 128 68 instead of 65 and
-  DataBar Expanded 322 instead of 279 (Low: ITF 182, DataBar Expanded 322), with no
-  wrong reads. These selections cost High about 30% more on frames with other
-  barcodes (about 10% with all non-retail 1D formats); Medium, where whole-frame
-  voting would cost about 40%, is unchanged.
-- ITF start and stop patterns tolerate ink spread: when every bar prints wider than
-  every space (or narrower), the guards are checked with that bias removed; such reads
-  need at least six digits. High and Very High also sweep large frames with twice as
-  many lines for Code 128 and ITF. With ITF alone, Medium reads 181 instead of 172 of
-  340 synthetic variations and High 188 instead of 179 (Low 182); parcel-label ITF
-  codes that only zxing-cpp read before are now read in every mode. High reads 1,238
-  instead of 1,009 Code 128 symbols on the 15 October 2026 development labels.
-- Code 128 and Code 39 are swept over the whole image in Medium (frames longer than
-  1536 pixels), High and Very High also when retail formats are selected (Code 39 adds
-  two reads on the development labels, which Low already read). Retail boxes come from a
-  768-pixel localization raster, on which the many small Code 128 fields of large
-  label photos vanish, so Medium read fewer of them than Low. On the 1,578
-  development images of the 15 October 2026 real-image labels with all formats,
-  Code 128 reads rise from 418 to 778 (Medium) and from 617 to 1,009 (High), against
-  786 for Low and 704 for zxing-cpp, with no wrong reads. Medium costs about 3% more
-  on retail photos with all 1D formats, High about 6%; retail-only scans are
-  unchanged.
-- Linear formats read the same whether or not retail formats are selected with
-  them. With retail selected, Code 39, Code 128, Code 93, Codabar and ITF are now
-  also decoded from the central band of up to four unread retail boxes: these
-  boxes span the full bar height, and rows near their edges could leave a symbol
-  that reads alone without enough row support (lost since 1.3.0, for example a
-  noisy Code 39 patch code on a scanned page). Without retail, ITF and Code 128
-  get back their whole-image sweep (Medium at Low's effort, High and Very High
-  at the next). On 2380 synthetic variation images with all 1D formats, Medium
-  and High each read 9 more symbols; with ITF alone Medium reads 172 instead of
-  166 of 340 and High 179, with Code 128 alone 64 and 65 instead of 56; no wrong
-  reads were added. Medium costs about 2% more on retail photos with all 1D
-  formats and about 4% more with ITF or Code 128 alone; retail-only scans are
-  unchanged.
 - PDF417: when two different payloads are decoded at the same place, the one that
   needed more error corrections is dropped. Low error-correction levels let a
   damaged row group correct into another valid codeword. On 198 labelled PDF417
