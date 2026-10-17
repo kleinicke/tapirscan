@@ -10,7 +10,7 @@ link here instead of repeating them. For moving from an earlier version see
 `scan` returns a lightweight `ScanResult`: decoded strings through `values` and
 their locations through `barcodes`. Each barcode has a format, a source-image
 polygon, `support` and optional payload metadata. Results are not iterable; use
-`barcodes`. There is no public `debug` option.
+`barcodes`.
 
 Inspection is explicit and returns an `InspectionResult` with:
 
@@ -74,8 +74,9 @@ list the conversions.
 
 ## Configuration
 
-Defaults are Medium effort, retail formats and ignored supplements. Effort and
-supplement policy are fixed when a scanner is created. A per-call `formats`
+Defaults are Medium effort, retail formats and ignored supplements. Effort,
+supplement policy and, in native bindings, `parallel` are fixed when a scanner is
+created. A per-call `formats`
 selection overrides the scanner's formats for that call only and never changes
 the configuration, in every binding. Input validation and errors follow each
 language's conventions.

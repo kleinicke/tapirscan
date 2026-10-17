@@ -12,7 +12,8 @@ this checklist.
    constants are generated from `config/formats.json`.
 3. **API shape.** Follow [API design](API_DESIGN.md) and the field names in
    [native bindings](NATIVE_BINDINGS.md#result-fields): `scan` and `inspect`,
-   scanner options (mode, formats, supplement policy), per-call formats,
+   scanner options (mode, formats, supplement policy, `parallel` for native
+   bindings), per-call formats,
    barcodes with source-image polygons, `values`, and undecoded regions for
    inspection.
 4. **Ownership and errors.** Copy variable-length fields with explicit lengths

@@ -39,8 +39,8 @@ language packages carry the same version. Follow the compatibility policy in
   out of Git. Public demo assets have separate provenance and usage information.
 - Before any model training or scanner evaluation, consult
   `../tapirscan-datasets/datasets/TESTSET_OVERVIEW.md` and
-  `../tapirscan-datasets/datasets/metadata/testset_catalog.json`. The all-format
-  variation test set and other listed suites are development evaluation data,
+  `../tapirscan-datasets/datasets/metadata/testset_catalog.json`. The listed
+  test suites are development evaluation data,
   not untouched holdouts. Exclude their source groups and derivatives from
   training when claiming unseen results.
 - The demo is a separate application and is excluded from language packages.

@@ -157,10 +157,6 @@ export default defineConfig({
 });
 ```
 
-CI builds the [Vite example](examples/vite/) from the packed package and scans an
-uploaded photo with the production build in Chrome. The Next.js and Vite 7–8 setups
-were verified by hand.
-
 - **Sources:** a `File` or `Blob` (any image the browser decodes), `<img>`,
   `<video>` (its current frame), `<canvas>`, `OffscreenCanvas`, `ImageBitmap`,
   `VideoFrame`, `ImageData`, or decoded pixels as in the core API. Inputs are not
@@ -383,6 +379,7 @@ custom loaders manage their own caching. Each scanner owns its own WASM instance
 | `wasmBaseUrl`       | Creation        | Module-relative assets | Directory URL for the packaged WASM files.                                                                                                 |
 | `loadWasm`          | Creation        | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`.                                                                                                      |
 | `experimentalTurbo` | Creation        | Unset                  | **Experimental:** `2`, `4`, `8` or `16`. Mutually exclusive with `mode`.                                                                   |
+| `transfer`          | Browser scan    | `false`                | `true` hands a decoded-pixel buffer to the worker instead of copying it; the buffer is detached.                                           |
 
 `"retail"` selects EAN13, UPCA, EAN8 and UPCE. `"common1D"` adds Code128,
 Code39 and ITF; `"common"` adds QRCode and DataMatrix. `"1D"` and `"2D"`

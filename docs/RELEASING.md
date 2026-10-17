@@ -94,7 +94,7 @@ The separate `publish.yml` workflow publishes only when explicitly selected.
 
 1. Set the intended version in the package manifests and push the release commit.
 2. Run **Prepare or publish release** (`publish.yml`) on that branch or tag. Enter
-   the version without `v` (for example `1.3.0`) and select `all`, or a single
+   the version without `v` (for example `1.4.0`) and select `all`, or a single
    registry. Use `none` for a build-only rehearsal.
 3. The workflow checks the version and existing tag before building, then runs
    **Validate scanner and bindings** and all five Python wheel builds in parallel.
@@ -148,7 +148,7 @@ text fixtures and provenance.
 ## Demo deployment
 
 After publishing a new npm version, add it to the demo with one alias, for
-example `pnpm --dir ../tapirscan-web/demo add tapirscan-1-3-0@npm:tapirscan@1.3.0`. The newest
+example `pnpm --dir ../tapirscan-web/demo add tapirscan-1-4-0@npm:tapirscan@1.4.0`. The newest
 alias becomes the demo's main Tapirscan and earlier ones move under
 "Previous releases"; the `-next` readers always show the current repository build.
 Rebuild and test `../tapirscan-web/demo/dist`, then deploy to your selected Netlify site:
@@ -168,6 +168,6 @@ unapproved photographs during a release.
 ## Web application repository
 
 The demo is maintained and built in `../../tapirscan-web/demo`. Library release
-checks no longer require the demo or synchronize its application version. Follow
+checks do not require the demo and do not change its application version. Follow
 the web repository README for app validation. Deployment remains a separate,
 explicitly authorized operation. Run demo commands from the web repository.

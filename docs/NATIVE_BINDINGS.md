@@ -17,7 +17,7 @@ Shared semantics (support, undecoded regions, image limits) are in
 
 ## Result fields
 
-Scanner options are mode, formats and supplement policy; per-call options are
+Scanner options are mode, formats, supplement policy and `parallel`; per-call options are
 formats only. Variable-length C fields are copied into caller buffers with
 explicit lengths and preserve embedded NUL bytes. This table is the single
 reference for naming differences.

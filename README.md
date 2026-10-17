@@ -4,7 +4,7 @@
 
 **Find barcodes at their own angle.**
 
-Orientation-aware barcode scanning for JavaScript, Python, Rust, C, C++ and Java.
+Orientation-aware barcode scanning for JavaScript, Python, Rust, C, C++, Java, Swift and Android.
 
 [Documentation](https://tapirscan.f-kleinicke.de/docs/) · [Try the live demo](https://tapirscan.f-kleinicke.de) · [npm](https://www.npmjs.com/package/tapirscan) · [PyPI](https://pypi.org/project/tapirscan/) · [JavaScript](bindings/javascript/README.md) · [Python](bindings/python/README.md) · [How it works](docs/ARCHITECTURE.md) · [Compare scanners](docs/COMPARISON.md)
 
@@ -25,7 +25,7 @@ enabled by default; select additional formats as needed. See
   payment and other structured payloads into named fields.
 - **Choose the effort.** `low`, `medium` (default), `high`, or `very-high`.
 - **Run locally.** No API key, hosted decoder, neural model, or image upload.
-- **Use the same core.** Browser/Node WASM and native Python, Rust, C, C++, and Java bindings.
+- **Use the same core.** Browser/Node WASM and native Python, Rust, C, C++, Java, Swift and Android bindings.
 
 ## Try it
 
@@ -51,10 +51,10 @@ compare the readers.
 | Swift (iOS, macOS)      | Swift package over an XCFramework; camera frames. Preview: built from source; the API may change in minor releases | [Swift](bindings/swift/README.md)      |
 | Android (Kotlin, Java)  | AAR with a JNI bridge; CameraX frames. Preview: built from source; the API may change in minor releases            | [Android](bindings/android/README.md)  |
 
-Every binding offers all four effort modes and the same results. JavaScript and
+Every binding offers all four effort modes of the same scanner. JavaScript and
 Python install from [npm](https://www.npmjs.com/package/tapirscan) and
 [PyPI](https://pypi.org/project/tapirscan/); the other guides explain how to build
-from source. Java, C and C++ use the native library.
+from source. Java, C, C++, Swift and Android use the native library.
 
 Want another language? Bindings build on the C ABI; the [binding checklist](docs/ADDING_BINDINGS.md)
 lists what a new one needs.
@@ -203,7 +203,9 @@ and refined the evaluation process.
 ## Project status
 
 Tapirscan supports the linear and 2D formats listed in [format coverage](docs/FORMATS.md).
-Turbo presets are experimental. Release artifacts are published only for
+Turbo presets, the content kinds marked experimental in
+[structured content](docs/CONTENT.md#kinds) and the Swift and Android previews may
+change in minor releases. Release artifacts are published only for
 platforms whose release workflows pass. No general claim of superiority over
 ZXing or ZBar is made without a reproducible paired benchmark. See the
 [compatibility policy](CONTRIBUTING.md#api-stability) for API stability.

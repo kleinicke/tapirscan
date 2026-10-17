@@ -31,8 +31,7 @@ input path for each environment.
 
 ## What it costs
 
-Per-scan times on 960×960 photo crops from the project's variation set (mixed
-formats), native library, one scan at a time. With several 2D formats enabled,
+Per-scan times on 960×960 photo crops with mixed formats, native library, one scan at a time. With several 2D formats enabled,
 native builds run those readers on separate threads ("parallel", the default; see
 [threads](#threads-and-servers)):
 
@@ -107,8 +106,8 @@ example `sharp(file).raw()` with `channels: info.channels`.
   large arrays); Pillow images (one `tobytes()` copy). CUDA tensors are converted
   on the GPU and transferred once, so scan tensors where they already are. Moving
   a CPU tensor to the GPU only for scanning does not help uint8 tensors; for a
-  large float tensor it saved about 9 ms at 12 MP on a Ryzen 7 5800X with an
-  RTX 5060 Ti (the upload costs almost as much as the CPU conversion).
+  large float tensor it saves about 9 ms at 12 MP (Ryzen 7 5800X, RTX 5060 Ti),
+  because the upload costs almost as much as the CPU conversion.
 - **OpenCV** images are BGR. `cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)` is the
   fastest way to scan them (12 MP: about 15 ms in total on an M1, against 32 ms
   with `color_order="BGR"`, which reorders the channels in Python).
@@ -154,8 +153,8 @@ readers on separate threads, which shortens a single scan with all formats by
 1.35-1.9× on 960×960 photos and up to 2.9× on 12-megapixel images. On
 servers that already run one scanner per core, create the scanner with the
 `parallel` option off (`parallel=False` in Python, `ScannerOptions { parallel:
-false, .. }` in Rust, `withParallel(false)` in Java, `parallel = false` in C++,
-`TAPIRSCAN_PARALLEL_OFF` in C); this saves the few percent of extra CPU time that
+false, .. }` in Rust, `withParallel(false)` in Java and Android, `parallel = false`
+in C++, `parallel: false` in Swift, `TAPIRSCAN_PARALLEL_OFF` in C); this saves the few percent of extra CPU time that
 the parallel readers cost. Results are identical either way. Without the option,
 `TAPIRSCAN_THREADS=0` or `1` in the process environment is the default for every
 scanner; it is read once, at the first use. WebAssembly scans always use one

@@ -199,8 +199,8 @@ into a pixel buffer it reuses, as large as the largest image so far, until
 | `color_order`       | Scan, arrays/tensors only | `"RGB"`         | `"BGR"` for OpenCV BGR/BGRA pixels. Grayscale is unaffected.                                                                                               |
 | `library_dir`       | Creation / one-shot       | Bundled library | Directory of a custom native build. Lookup order: this argument, `TAPIRSCAN_LIBRARY_DIR`, then the wheel's library.                                        |
 
-Effort modes tune EAN/UPC, common linear formats, QR Code, Data Matrix and Aztec;
-PDF417 and MaxiCode use a fixed effort. Format group exports: `retail_formats`, `common_linear_formats`,
+Effort modes tune every format; see
+[effort levels](../../docs/FORMATS.md#effort-levels). Format group exports: `retail_formats`, `common_linear_formats`,
 `common_formats`, `linear_formats`, `matrix_formats`. Resizing, cropping, rotation
 and camera capture are up to the caller.
 

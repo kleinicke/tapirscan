@@ -14,8 +14,8 @@ geometry and timing can differ from 1.3.0. See the
   `CVPixelBuffer`s on Apple platforms, CameraX Y planes on Android.
 - Structured content in every binding: GS1 element strings and Digital Link,
   URLs, email, phone, SMS, geo, Wi-Fi, contacts, calendar events, Swiss
-  QR-bills, EPC payments, HIBC, VINs and AAMVA driver's licenses. JavaScript
-  barcodes carry `content`; the other bindings add `parse_content`. Swiss
+  QR-bills, EPC payments, HIBC, VINs and AAMVA driver's licenses. Every binding
+  adds `parse_content`; JavaScript, Rust and Swift barcodes also carry `content`. Swiss
   QR-bill, EPC, HIBC, VIN and AAMVA parsing is experimental. See
   [structured content](docs/CONTENT.md).
 - Opt-in formats `Code32` and `PZN` (pharmacy numbers in Code 39) and
@@ -51,10 +51,8 @@ geometry and timing can differ from 1.3.0. See the
   reads more labels on large photos with many EAN-13 or UPC-A symbols. Low no
   longer reports a UPC-E or EAN-8 decoded from part of an EAN-13 or UPC-A it also
   reads.
-- **QR Code:** finder triples rank by shape; failed grids are resampled in gray
-  and retried with uncertain modules as erasures; unread frames get a
-  block-threshold pass, tiny images an enlarged retry and large frames retries at
-  1280 pixels. In mixed selections QR runs as its own reader group and reads
+- **QR Code** reads more distorted, blurred, shadowed, tiny and large-frame
+  symbols. In mixed selections QR runs as its own reader group and reads
   almost like a QR-only scan, in Low and Medium also when EAN add-ons are read.
 - **Data Matrix** reads more phone photos, industrial marks and foreshortened,
   tiny, blurred and large close-up symbols. High and Very High retry unread frames
@@ -66,15 +64,16 @@ geometry and timing can differ from 1.3.0. See the
 - **Aztec:** Medium and above retry small symbols on an enlarged window.
 - **MaxiCode** runs as its own reader group in mixed selections; High and Very
   High retry large unread frames on reduced copies, as Medium does.
-- Fixed an integer overflow in the WebAssembly QR retry for very large images.
 
 ### Performance
 
-- Native builds (C, C++, Java, Python, Rust) run a scan's 1D formats and enabled
-  2D readers on separate threads, with identical results: with all formats, Low
-  is 1.7-1.9× and Medium 1.35-1.55× faster on 960×960 photos. The scanner
-  option `parallel` turns this off per scanner, and `TAPIRSCAN_THREADS=1` for
-  the process; `scan_many` keeps its scanners single-threaded. WebAssembly stays single-threaded.
+- Native builds (C, C++, Java, Python, Rust, Swift, Android) run a scan's 1D
+  formats and enabled 2D readers on separate threads, with identical results:
+  with all formats, Low is 1.7-1.9× and Medium 1.35-1.55× faster on 960×960
+  photos. The scanner option `parallel` turns this off per scanner, and
+  `TAPIRSCAN_THREADS=1` for the process. Python's `scan_many` defaults to
+  `parallel=False`, since its worker threads already keep the cores busy.
+- WebAssembly stays single-threaded.
 - x86-64 native libraries target x86-64-v2 (SSE4.2, POPCNT) and scan 20-30%
   faster. They no longer load on CPUs older than Intel Nehalem (2008) or AMD
   Bulldozer (2011).
@@ -87,6 +86,10 @@ geometry and timing can differ from 1.3.0. See the
   one pixel buffer per scanner; browsers copy `ImageData` as bytes and decode
   large `Blob`s in bands; WebAssembly streams images above 32 megapixels into a
   reduced copy, and scanners created from loaded WASM reuse its compiled module.
+
+### Fixed
+
+- An integer overflow in the WebAssembly QR retry on very large images.
 
 ### Docs
 
