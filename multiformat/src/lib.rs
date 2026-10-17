@@ -43,6 +43,18 @@ pub const MAX_IMAGE_BYTES: usize = 1024 * 1024 * 1024;
 /// EAN/UPC, Code 128, Code 39 and ITF: the formats the nested-threshold row pass reads.
 const NESTED_PASS_FORMATS: u32 = formats::COMMON_LINEAR_MASK;
 
+// Threshold passes of one scanline, in order. Effort 0 takes only the global (Otsu)
+// threshold; higher efforts add the adaptive threshold. There, axial lines with
+// EAN-8, or UPC-E above effort 1, add three retail-only passes: retail profile runs,
+// then the sharpened row under the global and the adaptive threshold. A nested
+// threshold of the dark range follows last for the common linear formats.
+/// Global (Otsu) threshold of the row.
+const GLOBAL_PASS: usize = 0;
+/// Retail profile runs; the first retail-only pass.
+const RETAIL_PROFILE_PASS: usize = 2;
+/// The sharpened row under the global, then the adaptive threshold.
+const SHARPENED_PASS: usize = 3;
+
 /// One symbol in a structured-append sequence; index is one-based. Assembly is
 /// deliberately left to callers because distinct frames can contain repeats.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -760,11 +772,14 @@ pub fn scan_observed_for_mode(
                     } else {
                         ordinary_passes
                     };
-                    for mode in 0..passes {
-                        if mode == 2 && ordinary_passes > 2 && mask & linear::EAN8 == 0 {
+                    for pass in 0..passes {
+                        if pass == RETAIL_PROFILE_PASS
+                            && ordinary_passes > 2
+                            && mask & linear::EAN8 == 0
+                        {
                             continue;
                         }
-                        let nested = mode == ordinary_passes;
+                        let nested = pass == ordinary_passes;
                         if nested {
                             let Some(upper) = nested_upper else {
                                 continue;
@@ -772,20 +787,20 @@ pub fn scan_observed_for_mode(
                             nested_threshold_into(&row, upper, &mut bits);
                             run_offsets_into(&bits, &mut offsets);
                             refine_run_offsets_into(&offsets, &row, false, &mut refined);
-                        } else if mode == 2 {
+                        } else if pass == RETAIL_PROFILE_PASS {
                             let (profile_bits, profile_r, profile_offsets) =
                                 retail_profile::runs(&row);
                             bits = profile_bits;
                             refined = profile_r;
                             offsets = profile_offsets;
-                        } else if mode >= 3 {
+                        } else if pass >= SHARPENED_PASS {
                             let sharpened = sharpened_row
                                 .get_or_insert_with(|| retail_profile::sharpen_row(&row));
-                            threshold_into(sharpened, mode - 3, &mut bits);
+                            threshold_into(sharpened, pass - SHARPENED_PASS, &mut bits);
                             run_offsets_into(&bits, &mut offsets);
                             refine_run_offsets_into(&offsets, sharpened, false, &mut refined);
                         } else {
-                            threshold_into(&row, mode, &mut bits);
+                            threshold_into(&row, pass, &mut bits);
                             // Refinement is unnecessary when the exact existing
                             // duplicate-threshold check would discard this pass.
                             if bits == previous_bits {
@@ -794,7 +809,7 @@ pub fn scan_observed_for_mode(
                             run_offsets_into(&bits, &mut offsets);
                             refine_run_offsets_into(&offsets, &row, false, &mut refined);
                         }
-                        if mode == 0 && refined.len() < 16 {
+                        if pass == GLOBAL_PASS && refined.len() < 16 {
                             let mut lower = 255;
                             let mut upper = 0;
                             for (&value, &black) in row.iter().zip(&bits) {
@@ -811,9 +826,9 @@ pub fn scan_observed_for_mode(
                             mask & (NESTED_PASS_FORMATS
                                 | linear::ADDON_READ
                                 | linear::ADDON_REQUIRE)
-                        } else if mode >= 2 {
+                        } else if pass >= RETAIL_PROFILE_PASS {
                             let retail = linear::EAN8
-                                | if effort > 1 && mode >= 3 {
+                                | if effort > 1 && pass >= SHARPENED_PASS {
                                     linear::UPCE
                                 } else {
                                     0
@@ -884,7 +899,7 @@ pub fn scan_observed_for_mode(
                                 ));
                             }
                             for mut read in reads {
-                                if mode == 2
+                                if pass == RETAIL_PROFILE_PASS
                                     && !read.decoded
                                     && read.format == "EAN8"
                                     && let Some((text, error)) =
@@ -902,8 +917,9 @@ pub fn scan_observed_for_mode(
                                 } else {
                                     (offsets[read.start], offsets[read.end])
                                 };
+                                // Nested reads count as ordinary-pass reads.
                                 cached_reads.push((
-                                    if nested { 0 } else { mode },
+                                    if nested { GLOBAL_PASS } else { pass },
                                     read,
                                     left,
                                     right,
@@ -916,7 +932,7 @@ pub fn scan_observed_for_mode(
                         cached_row.clone_from(&row);
                     }
                 }
-                for &(mode, ref read, left, right) in &cached_reads {
+                for &(pass, ref read, left, right) in &cached_reads {
                     let lo = start + crate::numeric::usize_f32(left);
                     let hi = start + crate::numeric::usize_f32(right);
                     let length = hi - lo;
@@ -930,7 +946,7 @@ pub fn scan_observed_for_mode(
                             && (g.hi - hi).abs() < length * 0.25
                             && b - g.bottom <= step * 3.
                     }) {
-                        g.profile_only &= mode >= 2;
+                        g.profile_only &= pass >= RETAIL_PROFILE_PASS;
                         if g.last_line != line_id {
                             g.support += 1;
                             if read.addon.is_some() {
@@ -945,7 +961,7 @@ pub fn scan_observed_for_mode(
                         }
                     } else {
                         groups.push(Group {
-                            profile_only: mode >= 2,
+                            profile_only: pass >= RETAIL_PROFILE_PASS,
                             decoded: read.decoded,
                             addon_support: usize::from(read.addon.is_some()),
                             addon: read.addon.clone(),

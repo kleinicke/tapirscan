@@ -1,4 +1,40 @@
 //! Opt-in format readers. EAN-13/UPC-A keep the selected pinned scanner path.
+//!
+//! Pass order of [`Scanner::scan_formats_typed_with_addons`] per mode (L, M, H, V:
+//! Low, Medium, High, Very High). `cfg` marks passes compiled into only some modes;
+//! the others are switched and bounded by [`policy::POLICY`]. Every recovery runs
+//! only on what the earlier passes left unread.
+//!
+//! | Pass                                                         | L | M | H | V |
+//! |--------------------------------------------------------------|---|---|---|---|
+//! | Turbo fast path for linear selections (`cfg`)                | x |   |   |   |
+//! | EAN-13 alone: the primary scanner only                       | x | x | x | x |
+//! | **`scan_additional`**, the whole-image readers               |   |   |   |   |
+//! | linear sweep of every selected linear format                 | x |   |   |   |
+//! | linear sweep of `SWEPT`, plus a Code 128/39/ITF group        |   | x | x | x |
+//! | 2D reader groups; QR and MaxiCode apart from the other 2D    | x | x | x | x |
+//! | QR and MaxiCode reduced copies above Full HD (`cfg` per mode)| x | x | x | x |
+//! | enlarged QR thumbnails                                       | x | x | x | x |
+//! | pending matrix regions: grid and crop retries                |   | x | x | x |
+//! | QR grid projection of unresolved regions                     | x | x | x | x |
+//! | QR foreground thresholds, then sharpened (mixed: small only) |   | x | x | x |
+//! | Data Matrix area-averaged copies (M: after a candidate)      |   | x | x | x |
+//! | QR reduced copies                                            |   |   | x | x |
+//! | QR equalized and inverted copies (`cfg`)                     |   |   | x | x |
+//! | **primary retail scan** (EAN-13/UPC-A; M+ also EAN-8/UPC-E)  | x | x | x | x |
+//! | **`recover_linear_regions`**, inside localized boxes         |   | x | x | x |
+//! | other linear formats in retail boxes and their central bands |   | x | x | x |
+//! | stripe boxes for unread or label frames (M: sparse search)   |   | x | x | x |
+//! | large frames: half-scale localization                        |   |   | x | x |
+//! | large frames: window localization                            |   |   |   | x |
+//! | large batch frames: half-scale retail boxes                  |   | x |   |   |
+//! | short retail contrast hypothesis (H+: repeats withheld)      |   | x | x | x |
+//! | retail polarity probe                                        |   | x | x | x |
+//! | short retail from rejected narrow groups                     |   | x |   |   |
+//! | Code 128/39/ITF/93 contrast retries (8, 8, 16 proposals)     |   | x | x | x |
+//! | EAN-13/UPC-A source bands (`cfg`)                            |   |   | x | x |
+//! | short retail crops (`cfg`)                                   |   | x |   |   |
+//! | supplements, deduplication and ranking                       | x | x | x | x |
 use crate::format_registry::{
     ALL_FORMATS_MASK, EAN_ADDON_READ_FLAG, EAN_ADDON_REQUIRE_FLAG, ENGINE_OPT_IN_MASK, LINEAR_MASK,
 };
@@ -25,6 +61,9 @@ pub(crate) const SHORT_RETAIL: u32 = EAN8 | UPCE;
 #[cfg(not(feature = "low"))]
 const NON_RETAIL_LINEAR: u32 = CODE128 | CODE39 | ITF | CODABAR | CODE93;
 
+mod policy;
+use policy::POLICY;
+
 /// Frames whose long side exceeds twice the 768-pixel localization raster count
 /// as large: small symbols there fall below the localizer's minimum group size.
 const LARGE_FRAME_SIDE: usize = 1536;
@@ -32,6 +71,37 @@ const LARGE_FRAME_SIDE: usize = 1536;
 /// which carry many short Code 128 fields.
 #[cfg(not(feature = "low"))]
 const LABEL_SHEET_SHORT_SIDE: usize = 1536;
+/// Frames whose long side exceeds Full HD read QR and `MaxiCode` on reduced copies.
+const REDUCED_COPY_SIDE: usize = 1920;
+/// Frames of at most 512 x 512 pixels count as small: there a fixed-cost QR
+/// recovery stays cheap even when no QR is present.
+const SMALL_FRAME_PIXELS: usize = 262_144;
+/// The full-frame QR threshold recoveries are bounded to Full-HD-sized inputs.
+const QR_RECOVERY_MAX_PIXELS: usize = 2_097_152;
+/// EAN-13/UPC-A reads that mark a large frame as a batch frame (shelf, carton).
+#[cfg(not(feature = "low"))]
+const RETAIL_BATCH_READS: usize = 8;
+
+/// Whether the frame's long side exceeds [`LARGE_FRAME_SIDE`].
+fn is_large_frame(width: usize, height: usize) -> bool {
+    width.max(height) > LARGE_FRAME_SIDE
+}
+
+/// Whether the frame's short side exceeds [`LABEL_SHEET_SHORT_SIDE`].
+#[cfg(not(feature = "low"))]
+fn is_label_sheet_sized(width: usize, height: usize) -> bool {
+    width.min(height) > LABEL_SHEET_SHORT_SIDE
+}
+
+/// Whether EAN-8 and UPC-E move from the sweep into the primary retail scan.
+fn shares_short_retail(mask: u32, addons: EanAddOnPolicy) -> bool {
+    POLICY.shared_short_retail && addons == EanAddOnPolicy::Ignore && mask & SHORT_RETAIL != 0
+}
+
+/// Whether the frame's long side exceeds [`REDUCED_COPY_SIDE`].
+fn exceeds_full_hd(width: usize, height: usize) -> bool {
+    width.max(height) > REDUCED_COPY_SIDE
+}
 
 /// Whether a retail barcode needs its adjacent two- or five-digit supplement.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -195,7 +265,7 @@ impl Scanner {
                 image.channels,
                 image.stride,
             )?,
-            crate::MODE_ID == 1,
+            POLICY.source_profile_cache,
             |sampler| {
                 let mut deferred_reads = Vec::new();
                 let proposals = if let Some(primary) = primary {
@@ -263,12 +333,13 @@ impl Scanner {
                         "QRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
                     )
                 });
-                let label_sheet = image.width.min(image.height) > LABEL_SHEET_SHORT_SIDE
+                let large = is_large_frame(image.width, image.height);
+                let label_sheet = is_label_sheet_sized(image.width, image.height)
                     && reads
                         .iter()
                         .chain(found.iter())
                         .any(|read| read.format == "Code128");
-                if (primary.is_none() || image.width.max(image.height) > LARGE_FRAME_SIDE)
+                if (primary.is_none() || large)
                     && oriented_mask != 0
                     && (!linear_read || label_sheet)
                 {
@@ -279,7 +350,7 @@ impl Scanner {
                         image.channels,
                         image.stride,
                     )?;
-                    let stripes = if crate::MODE_ID == 1 {
+                    let stripes = if POLICY.sparse_stripe_fallback {
                         self.localizer.detect_sparse(im, 768.)?.proposals
                     } else {
                         self.localizer.detect(im)?.proposals
@@ -298,13 +369,10 @@ impl Scanner {
                 // scale (High and Very High), then on overlapping windows (Very High),
                 // and decode only the new proposals. Very High reads what High reads plus
                 // what the windows add. Medium keeps its cost on large retail photos.
-                if crate::MODE_ID >= 2
-                    && oriented_mask != 0
-                    && image.width.max(image.height) > LARGE_FRAME_SIDE
-                {
+                if POLICY.half_scale_proposals && oriented_mask != 0 && large {
                     let mut windowed =
                         half_scale_proposals(&mut self.localizer, image, &proposals)?;
-                    if crate::MODE_ID == 3 {
+                    if POLICY.window_proposals {
                         let known: Vec<_> = proposals.iter().chain(&windowed).copied().collect();
                         windowed.extend(windowed_proposals(&mut self.localizer, image, &known)?);
                     }
@@ -323,14 +391,14 @@ impl Scanner {
                 // Batch frames (shelves, cartons) of many EAN-13 or UPC-A symbols lose the
                 // smaller ones on the 768-pixel raster: once a large frame read eight, Medium
                 // also decodes the boxes of one half-scale raster (High upscales crops).
-                #[cfg(feature = "medium")]
-                if mask & PRIMARY_RETAIL != 0
-                    && image.width.max(image.height) > LARGE_FRAME_SIDE
+                if POLICY.retail_batch_half_scale
+                    && mask & PRIMARY_RETAIL != 0
+                    && large
                     && reads
                         .iter()
                         .filter(|read| matches!(read.format.as_str(), "EAN13" | "UPCA"))
                         .count()
-                        >= 8
+                        >= RETAIL_BATCH_READS
                 {
                     let boxes = half_scale_proposals(&mut self.localizer, image, &proposals)?;
                     let (extra, _) = crate::fast_linear::recover_proposals(
@@ -358,7 +426,7 @@ impl Scanner {
                         sampler,
                         1.5,
                     )?;
-                    if matches!(crate::MODE_ID, 2 | 3) {
+                    if POLICY.short_retail_withholds_repeats {
                         // Additional unresolved equal-payload claims remain provisional;
                         // an equal value alone cannot establish physical ownership.
                         extra = crate::linear_duplicates::merge(extra, image);
@@ -412,7 +480,8 @@ impl Scanner {
                     }
                 }
                 // Reuse rejected narrow groups only after ordinary Medium recovery fails.
-                if crate::MODE_ID == 1 && reads.is_empty() && mask & SHORT_RETAIL != 0 {
+                if POLICY.short_retail_narrow_groups && reads.is_empty() && mask & SHORT_RETAIL != 0
+                {
                     let hypotheses = if let Some(cached) =
                         primary.and_then(|p| p.short_fragments.as_ref())
                     {
@@ -480,7 +549,6 @@ impl Scanner {
                 // of that proposal; one read never ends scanning of the whole image.
                 let recovery_mask = mask & (CODE128 | CODE39 | ITF | CODE93);
                 if recovery_mask != 0 {
-                    let limit = [0, 8, 8, 16][crate::MODE_ID as usize];
                     let unresolved: Vec<_> = proposals
                         .iter()
                         .filter(|proposal| {
@@ -491,7 +559,7 @@ impl Scanner {
                                     .all(|point| contains_point(*point, &read.polygon))
                             })
                         })
-                        .take(limit)
+                        .take(POLICY.checksum_free_recovery_proposals)
                         .copied()
                         .collect();
                     let (extra, regions) = crate::fast_linear::recover_proposals_contrast(
@@ -593,8 +661,7 @@ impl Scanner {
             multiple: true,
             ..options
         };
-        let shared_retail =
-            crate::MODE_ID != 0 && addons == EanAddOnPolicy::Ignore && mask & SHORT_RETAIL != 0;
+        let shared_retail = shares_short_retail(mask, addons);
         let (extras, coverage) = scan_additional(
             image,
             mask & !(if shared_retail { SHORT_RETAIL } else { 0 }),
@@ -1295,7 +1362,7 @@ fn scan_additional(
     // whole-image sweep stays for DataBar (stacked rows) and, outside Medium's shared retail
     // scan, EAN-8 and UPC-E; for the rest it only added wrong reads and time. Low and EAN
     // add-on reading keep the full sweep.
-    let swept = if crate::MODE_ID == 0 || addons != EanAddOnPolicy::Ignore {
+    let swept = if POLICY.sweep_all_linear || addons != EanAddOnPolicy::Ignore {
         LINEAR_MASK
     } else {
         SWEPT
@@ -1307,12 +1374,11 @@ fn scan_additional(
     // label photos vanish. With retail selected, Medium sweeps only frames above twice that
     // raster. ITF joins the sweep only without retail; with retail selected, localized
     // recovery reads it at a fraction of the cost.
-    let large = image.width.max(image.height) > LARGE_FRAME_SIDE;
-    let preserved = if !cfg!(feature = "low") && addons == EanAddOnPolicy::Ignore {
+    let preserved = if POLICY.preserved_sweep && addons == EanAddOnPolicy::Ignore {
         enabled
             & if !retail {
                 ITF | CODE128
-            } else if large || cfg!(any(feature = "high", feature = "very-high")) {
+            } else if is_large_frame(image.width, image.height) || POLICY.preserved_sweep_any_size {
                 CODE128 | CODE39
             } else {
                 0
@@ -1321,11 +1387,11 @@ fn scan_additional(
         0
     };
     let effort = if addons == EanAddOnPolicy::Ignore {
-        [0, 0, 2, 2]
+        POLICY.sweep_effort
     } else {
-        [0, 1, 2, 2]
-    }[crate::MODE_ID as usize];
-    let qr_effort = [0, 1, 2, 3][crate::MODE_ID as usize];
+        POLICY.addon_sweep_effort
+    };
+    let qr_effort = POLICY.qr_effort;
     let pixels = if image.channels == 1 && image.stride == image.width {
         &image.data[..image.width * image.height]
     } else {
@@ -1347,10 +1413,7 @@ fn scan_additional(
         matrix & !(if qr_apart { QR_CODE } else { 0 } | if maxi_apart { MAXI_CODE } else { 0 });
     let groups: Vec<(u32, usize)> = [
         (linear & !preserved, effort),
-        (
-            preserved,
-            usize::from(cfg!(any(feature = "high", feature = "very-high"))),
-        ),
+        (preserved, POLICY.preserved_sweep_effort),
         (
             matrix_rest,
             if matrix_rest & QR_CODE != 0 {
@@ -1387,10 +1450,8 @@ fn scan_additional(
     };
     let first_scans = crate::matrix_frontend::concurrent(&groups, &first_scan);
     for (&(selected, level), scan) in groups.iter().zip(first_scans) {
-        #[cfg(any(feature = "high", feature = "very-high"))]
-        let _ = level;
         if selected & LINEAR_MASK != 0
-            && crate::MODE_ID != 0
+            && POLICY.sweep_coverage
             && mask & PRIMARY_RETAIL != 0
             && addons == EanAddOnPolicy::Ignore
         {
@@ -1415,7 +1476,7 @@ fn scan_additional(
             && selected == QR_CODE
             && addons == EanAddOnPolicy::Ignore
             && scan.barcodes.is_empty()
-            && image.width.max(image.height) > 1920
+            && exceeds_full_hd(image.width, image.height)
         {
             vec![scaled_matrix_retry(
                 pixels,
@@ -1439,40 +1500,15 @@ fn scan_additional(
             &scan,
         );
         #[cfg(any(feature = "high", feature = "very-high"))]
-        let retries = if selected == QR_CODE
-            && addons == EanAddOnPolicy::Ignore
-            && scan.barcodes.is_empty()
-            && image.width.max(image.height) > 1920
-        {
-            vec![scaled_matrix_retry(
-                pixels,
-                image.width,
-                image.height,
-                960,
-                selected,
-                1,
-            )]
-        } else if selected == MAXI_CODE
-            && addons == EanAddOnPolicy::Ignore
-            && scan.barcodes.is_empty()
-            && image.width.max(image.height) > 1920
-            && (matrix == MAXI_CODE || !scan.regions.is_empty())
-        {
-            // MaxiCode on large frames, as in Medium: reduced copies first.
-            let mut retries = Vec::new();
-            for target in [1600, 1200] {
-                let retry =
-                    scaled_matrix_retry(pixels, image.width, image.height, target, selected, level);
-                let decoded = !retry.barcodes.is_empty();
-                retries.push(retry);
-                if decoded {
-                    break;
-                }
-            }
-            retries
-        } else {
-            Vec::new()
-        };
+        let retries = high_retries(
+            pixels,
+            [image.width, image.height],
+            matrix,
+            selected,
+            level,
+            addons,
+            &scan,
+        );
         // Tiny frames (thumbnails, cropped symbols) whose modules span about two
         // pixels read better enlarged. Camera frames, 640x480 and up, never take
         // this pass: there it would add a whole scan to every frame without QR.
@@ -1498,61 +1534,45 @@ fn scan_additional(
         } else {
             Vec::new()
         };
-        let projected = if selected == QR_CODE
-            && !scan.regions.is_empty()
-            && (crate::MODE_ID != 0 || crate::LOW_FAST_PATH)
-        {
-            let known: Vec<_> = scan
-                .barcodes
-                .iter()
-                .chain(retries.iter().flat_map(|r| &r.barcodes))
-                .collect();
-            #[cfg(not(feature = "low"))]
-            let known: Vec<_> = known
-                .into_iter()
-                .chain(grid_retries.iter().flat_map(|r| &r.barcodes))
-                .collect();
-            Some(barcode_research_core::qr_grid::recover(
-                pixels,
-                image.width,
-                image.height,
-                &scan,
-                &known,
-            ))
-        } else {
-            None
-        };
+        let projected =
+            if selected == QR_CODE && !scan.regions.is_empty() && POLICY.qr_grid_projection {
+                let known: Vec<_> = scan
+                    .barcodes
+                    .iter()
+                    .chain(retries.iter().flat_map(|r| &r.barcodes))
+                    .collect();
+                #[cfg(not(feature = "low"))]
+                let known: Vec<_> = known
+                    .into_iter()
+                    .chain(grid_retries.iter().flat_map(|r| &r.barcodes))
+                    .collect();
+                Some(barcode_research_core::qr_grid::recover(
+                    pixels,
+                    image.width,
+                    image.height,
+                    &scan,
+                    &known,
+                ))
+            } else {
+                None
+            };
         scans.push(scan);
         scans.extend(retries);
         scans.extend(projected);
         #[cfg(not(feature = "low"))]
         scans.extend(grid_retries);
     }
-    // Extra foreground thresholds reach unresolved QR frames without a surviving
-    // region. Bound discovery to Full-HD-sized inputs; restoration has a smaller
-    // pixel budget because it introduces another image and threshold search.
-    // Mixed selections get this fixed-cost pass in High and Very High, and in
-    // Medium only on small frames, so Medium stays fast on camera frames without
-    // QR; QR-only scans keep it in Medium. Reads of other formats do not stop it.
+    // Foreground thresholds for unresolved QR frames. Restoration has a smaller pixel
+    // budget in Medium because it introduces another image and threshold search.
     #[cfg(not(feature = "low"))]
-    if (mask == QR_CODE
-        || (matrix & QR_CODE != 0
-            && (crate::MODE_ID >= 2 || image.width * image.height <= 262_144)))
-        && addons == EanAddOnPolicy::Ignore
-        && image.width * image.height <= 2_097_152
-        && !scans.iter().any(has_qr_read)
-        && (crate::MODE_ID >= 2 || !scans.iter().any(has_qr_region))
+    if addons == EanAddOnPolicy::Ignore
+        && qr_foreground_wanted(mask, matrix, image.width * image.height, &scans)
         && pixels.iter().any(|&value| value != 0 && value != 255)
     {
         let foreground =
             barcode_research_core::qr_frontend::scan_foreground(pixels, image.width, image.height);
-        let restoration_limit = if crate::MODE_ID >= 2 {
-            2_097_152
-        } else {
-            262_144
-        };
-        let restore =
-            foreground.barcodes.is_empty() && image.width * image.height <= restoration_limit;
+        let restore = foreground.barcodes.is_empty()
+            && image.width * image.height <= POLICY.qr_restoration_pixels;
         scans.push(foreground);
         if restore {
             let sharpened = crate::signal_recovery::sharpen(pixels, image.width, image.height, 2);
@@ -1562,7 +1582,7 @@ fn scan_additional(
                     image.width,
                     image.height,
                     QR_CODE,
-                    if crate::MODE_ID >= 2 { 2 } else { 1 },
+                    POLICY.qr_restoration_effort,
                 );
                 let retry_foreground = sharpened_scan.barcodes.is_empty();
                 scans.push(sharpened_scan);
@@ -1585,18 +1605,13 @@ fn scan_additional(
     if matrix & DATA_MATRIX != 0
         && addons == EanAddOnPolicy::Ignore
         && !scans.iter().any(|scan| has_format_read(scan, "DataMatrix"))
-        && (crate::MODE_ID >= 2
+        && (POLICY.data_matrix_averaged_without_region
             || scans
                 .iter()
                 .any(|scan| has_format_region(scan, "DataMatrix")))
     {
         let long = image.width.max(image.height);
-        let targets: &[usize] = if crate::MODE_ID == 3 {
-            &[400, 1008, 800, 256]
-        } else {
-            &[400, 256]
-        };
-        for &target in targets {
+        for &target in POLICY.data_matrix_averaged_scales {
             if long < target * 3 / 2 {
                 continue;
             }
@@ -1609,15 +1624,16 @@ fn scan_additional(
             }
         }
     }
-    #[cfg(any(feature = "high", feature = "very-high"))]
-    if matrix & QR_CODE != 0 && addons == EanAddOnPolicy::Ignore && !scans.iter().any(has_qr_read) {
+    // From High up, unread QR selections retry reduced copies, then equalized and
+    // inverted copies (whose code only High and Very High compile).
+    #[cfg(not(feature = "low"))]
+    if !POLICY.qr_reduced_scales.is_empty()
+        && matrix & QR_CODE != 0
+        && addons == EanAddOnPolicy::Ignore
+        && !scans.iter().any(has_qr_read)
+    {
         // Each finer scale runs only when the coarser one read nothing.
-        let targets: &[usize] = if crate::MODE_ID == 3 {
-            &[1200, 1280, 1600]
-        } else {
-            &[1200, 1280]
-        };
-        for &target in targets {
+        for &target in POLICY.qr_reduced_scales {
             if image.width.max(image.height) <= target {
                 continue;
             }
@@ -1632,7 +1648,7 @@ fn scan_additional(
     #[cfg(any(feature = "high", feature = "very-high"))]
     if matrix & QR_CODE != 0
         && addons == EanAddOnPolicy::Ignore
-        && image.width * image.height <= 2_097_152
+        && image.width * image.height <= QR_RECOVERY_MAX_PIXELS
         && !scans.iter().any(has_qr_read)
     {
         for method in 0..2 {
@@ -1653,6 +1669,68 @@ fn scan_additional(
         }
     }
     Ok((scans, coverage))
+}
+
+/// Whether the foreground-threshold QR pass runs. Extra foreground thresholds reach
+/// unresolved QR frames without a surviving region; discovery is bounded to
+/// Full-HD-sized inputs. QR-only selections always take this fixed-cost pass. Mixed
+/// selections take it in High and Very High, and in Medium only on small frames
+/// without a QR region, so Medium stays fast on camera frames without QR. Reads of
+/// other formats do not stop it.
+#[cfg(not(feature = "low"))]
+fn qr_foreground_wanted(
+    mask: u32,
+    matrix: u32,
+    pixel_count: usize,
+    scans: &[barcode_multiformat::Scan],
+) -> bool {
+    let selected = mask == QR_CODE
+        || (matrix & QR_CODE != 0
+            && (POLICY.qr_foreground_mixed_any_size || pixel_count <= SMALL_FRAME_PIXELS));
+    selected
+        && pixel_count <= QR_RECOVERY_MAX_PIXELS
+        && !scans.iter().any(has_qr_read)
+        && (POLICY.qr_foreground_with_region || !scans.iter().any(has_qr_region))
+}
+
+/// High and Very High retries of a single-format QR or `MaxiCode` reader group on
+/// frames above Full HD: QR once on a 960-pixel copy, `MaxiCode` as in Medium.
+#[cfg(any(feature = "high", feature = "very-high"))]
+fn high_retries(
+    pixels: &[u8],
+    [width, height]: [usize; 2],
+    matrix: u32,
+    selected: u32,
+    level: usize,
+    addons: EanAddOnPolicy,
+    scan: &barcode_multiformat::Scan,
+) -> Vec<barcode_multiformat::Scan> {
+    if selected == QR_CODE
+        && addons == EanAddOnPolicy::Ignore
+        && scan.barcodes.is_empty()
+        && exceeds_full_hd(width, height)
+    {
+        vec![scaled_matrix_retry(pixels, width, height, 960, selected, 1)]
+    } else if selected == MAXI_CODE
+        && addons == EanAddOnPolicy::Ignore
+        && scan.barcodes.is_empty()
+        && exceeds_full_hd(width, height)
+        && (matrix == MAXI_CODE || !scan.regions.is_empty())
+    {
+        // MaxiCode on large frames, as in Medium: reduced copies first.
+        let mut retries = Vec::new();
+        for target in [1600, 1200] {
+            let retry = scaled_matrix_retry(pixels, width, height, target, selected, level);
+            let decoded = !retry.barcodes.is_empty();
+            retries.push(retry);
+            if decoded {
+                break;
+            }
+        }
+        retries
+    } else {
+        Vec::new()
+    }
 }
 
 #[cfg(not(feature = "low"))]
@@ -1691,7 +1769,7 @@ fn medium_retries(
     if addons == EanAddOnPolicy::Ignore
         && mask & CODE128 != 0
         && mask & RETAIL_MASK == 0
-        && width.min(height) > LABEL_SHEET_SHORT_SIDE
+        && is_label_sheet_sized(width, height)
         && scan.barcodes.iter().any(|b| b.format == "Code128")
     {
         return vec![scan_reader(pixels, width, height, mask, 1)];
@@ -1707,7 +1785,8 @@ fn medium_retries(
     // A MaxiCode group of a mixed 2D selection retries only where it left a
     // candidate, so other selections do not pay for it on every large image.
     let maxi_candidate = matrix == MAXI_CODE || !scan.regions.is_empty();
-    if (mask == QR_CODE || (mask == MAXI_CODE && maxi_candidate)) && width.max(height) > 1920 {
+    if (mask == QR_CODE || (mask == MAXI_CODE && maxi_candidate)) && exceeds_full_hd(width, height)
+    {
         // QR: a second, finer scale when the coarse one reads nothing; shadowed
         // large photos often decode at one but not the other.
         let dimensions: &[usize] = if mask == QR_CODE {
@@ -1726,7 +1805,11 @@ fn medium_retries(
     }
     // Revisit an unresolved QR candidate with the existing extended reader.
     // Requiring a pending region avoids the expensive pass on blank misses.
-    if mask == QR_CODE && width.max(height) <= 1920 && scan.unfinished && !scan.regions.is_empty() {
+    if mask == QR_CODE
+        && !exceeds_full_hd(width, height)
+        && scan.unfinished
+        && !scan.regions.is_empty()
+    {
         retries.push(scan_reader(pixels, width, height, mask, 2));
     }
     retries
@@ -1828,9 +1911,8 @@ fn matrix_retries(
     mask: u32,
     scan: &mut barcode_multiformat::Scan,
 ) -> Vec<barcode_multiformat::Scan> {
-    let mode = crate::MODE_ID as usize;
-    let mut budget = [0, 250_000, 2_000_000, 4_000_000][mode];
-    let mut crop_budget = [0, 65_536, 131_072, 262_144][mode];
+    let mut budget = POLICY.matrix_grid_samples;
+    let mut crop_budget = POLICY.matrix_crop_pixels;
     let mut retries: Vec<barcode_multiformat::Scan> = Vec::new();
     if mask & AZTEC != 0 {
         crate::matrix_grid::resolve_runes(pixels, width, height, scan, &mut budget);
@@ -1900,7 +1982,7 @@ fn matrix_retries(
                 width,
                 height,
                 hinted,
-                [0, 1, 2, 3][mode],
+                POLICY.matrix_crop_effort,
                 &pending,
                 &mut crop_budget,
             ));
