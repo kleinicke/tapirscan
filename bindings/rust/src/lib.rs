@@ -61,6 +61,9 @@ pub struct ScanOptions {
     /// Include localization proposals, search windows and per-candidate evidence.
     pub include_regions: bool,
     pub retain_diagnostics: bool,
+    /// Run the formats of one scan on separate threads where the host allows it.
+    /// Results are identical either way; WebAssembly always scans on one thread.
+    pub parallel: bool,
 }
 impl Default for ScanOptions {
     fn default() -> Self {
@@ -69,6 +72,7 @@ impl Default for ScanOptions {
             multiple: true,
             include_regions: false,
             retain_diagnostics: false,
+            parallel: true,
         }
     }
 }
@@ -221,6 +225,7 @@ mod tests {
                     multiple: false,
                     include_regions: true,
                     retain_diagnostics: true,
+                    parallel: true,
                 },
             )
             .unwrap();

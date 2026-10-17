@@ -566,6 +566,18 @@ impl Scanner {
         mask: u32,
         addons: EanAddOnPolicy,
     ) -> Result<EngineScan, Error> {
+        crate::matrix_frontend::with_parallel(options.parallel, || {
+            self.scan_formats_inner(image, options, mask, addons)
+        })
+    }
+
+    fn scan_formats_inner(
+        &mut self,
+        image: Image<'_>,
+        options: ScanOptions,
+        mask: u32,
+        addons: EanAddOnPolicy,
+    ) -> Result<EngineScan, Error> {
         validate(image, mask)?;
         #[cfg(feature = "low")]
         if crate::fast_linear::enabled(options, mask, addons) {

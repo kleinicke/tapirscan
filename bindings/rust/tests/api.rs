@@ -721,3 +721,26 @@ fn foreshortened_data_matrix_reads_in_every_mode() {
         );
     }
 }
+
+#[test]
+fn parallel_option_leaves_results_unchanged() {
+    let (pixels, width, height) = fixture(true);
+    let image = Image::gray(&pixels, width, height);
+    for mode in compiled_modes() {
+        let reports: Vec<_> = [true, false]
+            .into_iter()
+            .map(|parallel| {
+                let mut scanner = Scanner::new(ScannerOptions {
+                    mode,
+                    formats: Formats::ALL,
+                    parallel,
+                    ..ScannerOptions::default()
+                });
+                assert_eq!(scanner.options().parallel, parallel);
+                scanner.scan(image).unwrap().barcodes
+            })
+            .collect();
+        assert_eq!(reports[0], reports[1], "{mode:?}");
+        assert_eq!(reports[0].len(), 2, "{mode:?}");
+    }
+}

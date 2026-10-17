@@ -34,6 +34,7 @@ int main(void) {
     tapirscan_result result = 123;
     tapirscan_scanner_options options = TAPIRSCAN_SCANNER_OPTIONS_INIT;
     assert(options.mode == TAPIRSCAN_MODE_MEDIUM && options.formats == TAPIRSCAN_FORMATS_RETAIL);
+    assert(options.parallel == TAPIRSCAN_PARALLEL_DEFAULT);
     options.mode = TAPIRSCAN_MODE_HIGH;
     assert(tapirscan_scanner_create(&options, &scanner, NULL) == TAPIRSCAN_OK);
     tapirscan_error error;
@@ -52,6 +53,22 @@ int main(void) {
     assert(tapirscan_inspect(scanner, &image, NULL, &result, NULL) == TAPIRSCAN_OK);
     assert(tapirscan_scanner_destroy(scanner) == TAPIRSCAN_OK);
     assert(tapirscan_scanner_destroy(scanner) == TAPIRSCAN_INVALID_HANDLE);
+
+    for (uint32_t parallel = TAPIRSCAN_PARALLEL_OFF; parallel <= TAPIRSCAN_PARALLEL_DEFAULT + 1; parallel++) {
+        tapirscan_scanner_options threads = TAPIRSCAN_SCANNER_OPTIONS_INIT;
+        threads.parallel = parallel;
+        tapirscan_scanner configured = 0;
+        tapirscan_result threaded = 0;
+        int32_t created = tapirscan_scanner_create(&threads, &configured, NULL);
+        if (parallel > TAPIRSCAN_PARALLEL_DEFAULT) {
+            assert(created == TAPIRSCAN_INVALID_ARGUMENT);
+            continue;
+        }
+        assert(created == TAPIRSCAN_OK);
+        assert(tapirscan_scan(configured, &image, NULL, &threaded, NULL) == TAPIRSCAN_OK);
+        assert(tapirscan_result_destroy(threaded) == TAPIRSCAN_OK);
+        assert(tapirscan_scanner_destroy(configured) == TAPIRSCAN_OK);
+    }
 
     /* Results outlive their scanner. */
     tapirscan_summary info;

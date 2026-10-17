@@ -39,7 +39,8 @@ provides it.
 ## Threading and ownership
 
 Input is borrowed for the duration of a call. Calls on one scanner serialize;
-separate scanners run concurrently. Results are independently owned. In C each
+separate scanners run concurrently; each scan runs its formats on separate
+threads unless the scanner's `parallel` option is off. Results are independently owned. In C each
 result and scanner must be destroyed; the other bindings release them through
 destructors, `close` or `dispose`.
 

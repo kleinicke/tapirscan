@@ -127,6 +127,23 @@ pub struct ScannerOptions {
     pub formats: Formats,
     /// Retail supplement policy, initially [`EanAddOnPolicy::Ignore`].
     pub ean_add_on_policy: EanAddOnPolicy,
+    /// Run one scan's formats on separate threads where the host allows it.
+    ///
+    /// Results are identical either way. Set `false` when you already run one
+    /// scanner per core. The default is `true` unless the process environment sets
+    /// `TAPIRSCAN_THREADS` to `0` or `1`. WebAssembly is single-threaded and
+    /// ignores the option.
+    pub parallel: bool,
+}
+/// The process-wide default of [`ScannerOptions::parallel`].
+fn default_parallel() -> bool {
+    static DEFAULT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *DEFAULT.get_or_init(|| {
+        std::env::var("TAPIRSCAN_THREADS")
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .is_none_or(|threads| threads > 1)
+    })
 }
 impl Default for ScannerOptions {
     fn default() -> Self {
@@ -134,6 +151,7 @@ impl Default for ScannerOptions {
             mode: Mode::Medium,
             formats: Formats::RETAIL,
             ean_add_on_policy: EanAddOnPolicy::Ignore,
+            parallel: default_parallel(),
         }
     }
 }

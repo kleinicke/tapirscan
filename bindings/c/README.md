@@ -93,6 +93,12 @@ tapirscan_inspect(scanner, &image, &scan, &result, NULL);
 | `mode`              | `TAPIRSCAN_MODE_MEDIUM`       | `_LOW`, `_MEDIUM`, `_HIGH`, `_VERY_HIGH`     |
 | `formats`           | `TAPIRSCAN_FORMATS_RETAIL`    | `TAPIRSCAN_FORMAT_*` bits combined with `\|` |
 | `ean_add_on_policy` | `TAPIRSCAN_EAN_ADD_ON_IGNORE` | `_IGNORE`, `_READ`, `_REQUIRE`               |
+| `parallel`          | `TAPIRSCAN_PARALLEL_DEFAULT`  | `_OFF`, `_ON`, `_DEFAULT`                    |
+
+`parallel` runs one scan's formats on separate threads where the host allows it;
+results are identical either way. Use `TAPIRSCAN_PARALLEL_OFF` when you already
+run one scanner per core. `_DEFAULT` (also selected by `NULL` options) is on
+unless the process environment sets `TAPIRSCAN_THREADS` to `0` or `1`.
 
 Presets: `TAPIRSCAN_FORMATS_RETAIL`, `_COMMON_1D`, `_COMMON`, `_LINEAR`,
 `_MATRIX` and `_ALL`, from the generated `tapirscan_formats.h`. See
@@ -156,7 +162,7 @@ conversion rules are in [API design](https://github.com/kleinicke/tapirscan/blob
 ## Threads and limits
 
 Calls are thread-safe. Scans on one scanner serialize; separate scanners run
-concurrently. Destroy each handle once; stale handles return
+concurrently, and each scan uses extra threads unless `parallel` is off. Destroy each handle once; stale handles return
 `TAPIRSCAN_INVALID_HANDLE`. Status failures never unwind into C; out-of-memory
 and invalid raw memory are outside that guarantee, and valid pointers remain the
 caller's responsibility. The library targets 64-bit platforms.

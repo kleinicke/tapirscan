@@ -58,6 +58,11 @@ public final class Smoke {
                 Image nativeImage = new Image(direct, image.width(), image.height(), image.channels(), image.stride());
                 if (!scanner.scan(nativeImage, options).equals(compact)) throw new AssertionError("Native input differs");
             }
+            for (boolean parallel : new boolean[] {true, false}) {
+                try (Scanner configured = new Scanner(ScannerOptions.defaults().withMode(mode).withParallel(parallel))) {
+                    if (!configured.scan(image, options).equals(compact)) throw new AssertionError("parallel=" + parallel + " differs");
+                }
+            }
             try {
                 scanner.scan(Image.gray(new byte[1], image.width(), image.height()));
                 throw new AssertionError("Short input accepted");

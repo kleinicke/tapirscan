@@ -65,6 +65,11 @@ scanner for one image.
 | `mode`              | `Mode::Medium`           | `Low`, `Medium`, `High`, `VeryHigh`         |
 | `formats`           | `Formats::retail()`      | One format, combinations with `\|`, presets |
 | `ean_add_on_policy` | `EanAddOnPolicy::Ignore` | `Ignore`, `Read`, `Require`                 |
+| `parallel`          | unset (process default)  | `true`, `false`; `std::optional<bool>`      |
+
+`parallel` runs one scan's formats on separate threads where the host allows it;
+results are identical either way. Unset is on unless the process environment sets
+`TAPIRSCAN_THREADS` to `0` or `1`.
 
 `Formats::from_bits` rejects empty or unknown bits with `std::invalid_argument`.
 
@@ -135,8 +140,8 @@ const auto result = scanner.scan(image);
 Create one `tapirscan::Scanner` and reuse it for every frame; the free functions
 create a scanner per call. Select only the formats you need, since each enabled 2D
 format searches the whole image, and use `Mode::Low` for camera frames. Use one
-scanner per thread; scans with several 2D formats also use extra threads
-internally (`TAPIRSCAN_THREADS=1` keeps each scan on one thread). See
+scanner per thread; scans with several formats also use extra threads
+internally (`options.parallel = false` keeps each scan on one thread). See
 [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).
 
 ## Building and installing

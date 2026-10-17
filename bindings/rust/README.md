@@ -49,9 +49,10 @@ Reuse one `Scanner` per thread; the free `scan` and `inspect` functions create o
 per call. Select only the formats you need, since each enabled 2D format searches
 the whole image, and use `Mode::Low` for camera frames. Pass the 8-bit buffer you
 already have; packed RGBA is the cheapest input for the retail formats (gray and
-RGB are copied to RGBA internally), so do not convert to gray for scanning. Scans with several 2D formats
-also use extra threads internally; set `TAPIRSCAN_THREADS=1` when you already run
-one scanner per core. See
+RGB are copied to RGBA internally), so do not convert to gray for scanning. Scans
+with several formats also use extra threads internally; set
+`ScannerOptions { parallel: false, .. }` when you already run one scanner per
+core. See
 [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).
 
 ## Reuse and configuration
@@ -85,6 +86,11 @@ configuration and `Scanner::default()` uses the defaults.
 | `mode`              | `Mode::Medium`           | `Low`, `Medium`, `High`, `VeryHigh`         |
 | `formats`           | `Formats::RETAIL`        | One format, combinations with `\|`, presets |
 | `ean_add_on_policy` | `EanAddOnPolicy::Ignore` | `Ignore`, `Read`, `Require`                 |
+| `parallel`          | `true`                   | `false` keeps each scan on one thread       |
+
+`parallel` defaults to `true` unless the process environment sets
+`TAPIRSCAN_THREADS` to `0` or `1`; results are identical either way, and
+WebAssembly ignores it.
 
 Presets: `Formats::RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX`, `ALL`
 (see [format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md)). `Read` accepts a supplement when

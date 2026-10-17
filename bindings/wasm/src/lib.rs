@@ -143,6 +143,7 @@ pub extern "C" fn tapirscan_create(mode: u32, format_mask: u32, addon_policy: u3
                     mode: MODE,
                     formats,
                     ean_add_on_policy,
+                    ..ScannerOptions::default()
                 }),
                 input: Vec::new(),
                 rows: None,

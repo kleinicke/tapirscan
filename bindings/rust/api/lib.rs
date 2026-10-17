@@ -295,6 +295,7 @@ impl Scanner {
                     include_regions: true,
                     retain_diagnostics: diagnostics,
                     finish_candidates: false,
+                    parallel: self.options.parallel,
                 };
                 let policy = match addons {
                     EanAddOnPolicy::Ignore => selected::formats::EanAddOnPolicy::Ignore,

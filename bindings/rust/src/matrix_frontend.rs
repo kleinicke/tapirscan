@@ -182,17 +182,32 @@ fn parallel_readers(
     Some((runs, merged))
 }
 
-/// Whether several matrix readers run on separate threads: on multi-core hosts
-/// unless `TAPIRSCAN_THREADS=1` (for servers already running one scanner per core).
+thread_local! {
+    static PARALLEL: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// Run `body` with threading allowed or not for scans started on this thread.
+///
+/// The scanner's `parallel` option reaches the deeply nested reader calls through
+/// this setting; threads spawned for readers inherit it explicitly.
+pub(crate) fn with_parallel<T>(allowed: bool, body: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PARALLEL.with(|cell| cell.set(self.0));
+        }
+    }
+    let _restore = Restore(PARALLEL.with(|cell| cell.replace(allowed)));
+    body()
+}
+
+/// Whether several matrix readers run on separate threads: when the scan allows
+/// it and the host has more than one core.
 fn parallel_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        let allowed = std::env::var("TAPIRSCAN_THREADS")
-            .ok()
-            .and_then(|value| value.trim().parse::<usize>().ok())
-            .is_none_or(|threads| threads > 1);
-        allowed && std::thread::available_parallelism().is_ok_and(|cores| cores.get() > 1)
-    })
+    static MULTI_CORE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    PARALLEL.with(std::cell::Cell::get)
+        && *MULTI_CORE
+            .get_or_init(|| std::thread::available_parallelism().is_ok_and(|cores| cores.get() > 1))
 }
 
 /// Run `scan` for each format group, concurrently on multi-core hosts. Groups are
@@ -213,7 +228,7 @@ pub(crate) fn concurrent(
                 .map(|&(selected, level)| {
                     std::thread::Builder::new()
                         .stack_size(READER_STACK)
-                        .spawn_scoped(scope, move || scan(selected, level))
+                        .spawn_scoped(scope, move || with_parallel(true, || scan(selected, level)))
                         .map_err(|_| (selected, level))
                 })
                 .collect();

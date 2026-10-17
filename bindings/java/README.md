@@ -54,11 +54,16 @@ or use try-with-resources. Scans on one scanner serialize; separate scanners run
 concurrently.
 `Tapirscan.inspect(image, options)` uses a temporary scanner for one image.
 
-| Scanner option   | Default                 | Choices                                 |
-| ---------------- | ----------------------- | --------------------------------------- |
-| `mode`           | `Mode.MEDIUM`           | `LOW`, `MEDIUM`, `HIGH`, `VERY_HIGH`    |
-| `formats`        | `Format.RETAIL`         | Any nonempty `Set<Format>`, or a preset |
-| `eanAddOnPolicy` | `EanAddOnPolicy.IGNORE` | `IGNORE`, `READ`, `REQUIRE`             |
+| Scanner option   | Default                  | Choices                                  |
+| ---------------- | ------------------------ | ---------------------------------------- |
+| `mode`           | `Mode.MEDIUM`            | `LOW`, `MEDIUM`, `HIGH`, `VERY_HIGH`     |
+| `formats`        | `Format.RETAIL`          | Any nonempty `Set<Format>`, or a preset  |
+| `eanAddOnPolicy` | `EanAddOnPolicy.IGNORE`  | `IGNORE`, `READ`, `REQUIRE`              |
+| `parallel`       | `null` (process default) | `true`, `false`; set with `withParallel` |
+
+`parallel` runs one scan's formats on separate threads where the host allows it;
+results are identical either way. `null` is on unless the process environment sets
+`TAPIRSCAN_THREADS` to `0` or `1`.
 
 Presets: `Format.RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX` and
 `ALL`. Set the supplement policy with `withEanAddOnPolicy`. See
@@ -119,9 +124,9 @@ not convert it to gray for scanning.
 
 Create one `Scanner` per thread and reuse it; `Tapirscan.scan` creates a scanner
 per call. Select only the formats you need, since each enabled 2D format searches
-the whole image, and use `Mode.LOW` for camera frames. Scans with several 2D
+the whole image, and use `Mode.LOW` for camera frames. Scans with several
 formats also use extra threads internally; on servers that already run one scanner
-per core, set `TAPIRSCAN_THREADS=1`. Kotlin on the JVM uses the same API. See
+per core, use `withParallel(false)`. Kotlin on the JVM uses the same API. See
 [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).
 
 ## Building and loading the native library

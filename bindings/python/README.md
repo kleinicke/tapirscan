@@ -110,15 +110,15 @@ runs on CPU. See [array and tensor inputs](#array-and-tensor-inputs).
   back to the original.
 - **Batches:** `tapirscan.scan_many(images, ...)` scans on all CPU cores with one
   scanner per thread, reading a generator only a few images ahead. It already
-  keeps every core busy, so with several 2D formats set `TAPIRSCAN_THREADS=1`
-  (before the first scan) for the highest throughput.
+  keeps every core busy, so its scanners run each scan on one thread
+  (`parallel=False`).
 - **Threads and servers:** scanning releases the GIL, so one scanner per thread
   scales with CPU cores. Create one per worker thread,
   for example with `threading.local()` or a `ThreadPoolExecutor` initializer. In
   FastAPI and other async frameworks, scan in a sync endpoint or thread pool so the
   event loop keeps running. With `multiprocessing`, create the scanner inside each
-  process. Scans with several 2D formats also use extra threads internally; set
-  `TAPIRSCAN_THREADS=1` when you already run one scanner per core.
+  process. Scans with several formats also use extra threads internally; pass
+  `parallel=False` when you already run one scanner per core.
 
 ```python
 import threading
@@ -161,15 +161,16 @@ Signatures (all settings are optional). `inspect` and `scanner.inspect` take the
 same arguments as their `scan` counterparts and return `InspectionResult`:
 
 ```text
-scan(image, *, mode="medium", formats=None, ean_add_on_policy="ignore",
+scan(image, *, mode="medium", formats=None, ean_add_on_policy="ignore", parallel=None,
      layout="auto", value_range="auto", color_order="RGB", library_dir=None) -> ScanResult
-Scanner(mode="medium", *, formats=None, ean_add_on_policy="ignore", library_dir=None)
+Scanner(mode="medium", *, formats=None, ean_add_on_policy="ignore", parallel=None,
+        library_dir=None)
 scanner.scan(image, *, formats=None,
              layout="auto", value_range="auto", color_order="RGB") -> ScanResult
 scanner.close()
 scan_many(images, *, mode="medium", formats=None, ean_add_on_policy="ignore",
-          layout="auto", value_range="auto", color_order="RGB", library_dir=None,
-          workers=None) -> list[ScanResult]
+          parallel=False, layout="auto", value_range="auto", color_order="RGB",
+          library_dir=None, workers=None) -> list[ScanResult]
 ```
 
 `scan_many` scans on `workers` threads (default: the CPU count), each with its own
@@ -187,15 +188,16 @@ into a pixel buffer it reuses, as large as the largest image so far, until
 
 ## All options
 
-| Option              | Where                     | Default         | Meaning                                                                                                                |
-| ------------------- | ------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `mode`              | Creation / one-shot       | `"medium"`      | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                          |
-| `formats`           | Creation / scan           | retail          | An identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty list/tuple of identifiers. |
-| `ean_add_on_policy` | Creation / one-shot       | `"ignore"`      | `"ignore"`, `"read"`, `"require"`; see [supplements](#eanupc-supplements).                                             |
-| `layout`            | Scan, arrays/tensors only | `"auto"`        | `"HW"`, `"HWC"`, `"CHW"`; specify when the channel position is ambiguous.                                              |
-| `value_range`       | Scan, arrays/tensors only | `"auto"`        | `"0_1"` or `"0_255"`. Auto uses [0,1] for floats and [0,255] for integers, independent of image contents.              |
-| `color_order`       | Scan, arrays/tensors only | `"RGB"`         | `"BGR"` for OpenCV BGR/BGRA pixels. Grayscale is unaffected.                                                           |
-| `library_dir`       | Creation / one-shot       | Bundled library | Directory of a custom native build. Lookup order: this argument, `TAPIRSCAN_LIBRARY_DIR`, then the wheel's library.    |
+| Option              | Where                     | Default         | Meaning                                                                                                                                                    |
+| ------------------- | ------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`              | Creation / one-shot       | `"medium"`      | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                                              |
+| `formats`           | Creation / scan           | retail          | An identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty list/tuple of identifiers.                                     |
+| `ean_add_on_policy` | Creation / one-shot       | `"ignore"`      | `"ignore"`, `"read"`, `"require"`; see [supplements](#eanupc-supplements).                                                                                 |
+| `parallel`          | Creation / one-shot       | `None`          | Run one scan's formats on separate threads; results are identical. `None` is on unless `TAPIRSCAN_THREADS` is `0` or `1`. `scan_many` defaults to `False`. |
+| `layout`            | Scan, arrays/tensors only | `"auto"`        | `"HW"`, `"HWC"`, `"CHW"`; specify when the channel position is ambiguous.                                                                                  |
+| `value_range`       | Scan, arrays/tensors only | `"auto"`        | `"0_1"` or `"0_255"`. Auto uses [0,1] for floats and [0,255] for integers, independent of image contents.                                                  |
+| `color_order`       | Scan, arrays/tensors only | `"RGB"`         | `"BGR"` for OpenCV BGR/BGRA pixels. Grayscale is unaffected.                                                                                               |
+| `library_dir`       | Creation / one-shot       | Bundled library | Directory of a custom native build. Lookup order: this argument, `TAPIRSCAN_LIBRARY_DIR`, then the wheel's library.                                        |
 
 Effort modes tune EAN/UPC, common linear formats, QR Code, Data Matrix and Aztec;
 PDF417 and MaxiCode use a fixed effort. Format group exports: `retail_formats`, `common_linear_formats`,

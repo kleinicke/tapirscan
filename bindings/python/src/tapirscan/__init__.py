@@ -96,6 +96,7 @@ class _ScannerOptions(c.Structure):
         ("mode", c.c_uint32),
         ("formats", c.c_uint32),
         ("ean_add_on_policy", c.c_uint32),
+        ("parallel", c.c_uint32),
     ]
 
 
@@ -243,6 +244,7 @@ class Scanner:
         *,
         formats: FormatSelection | None = None,
         ean_add_on_policy: EanAddOnPolicy = "ignore",
+        parallel: bool | None = None,
         library_dir: str | os.PathLike[str] | None = None,
     ) -> None:
         """Initialize the scanner state or native error code."""
@@ -253,6 +255,7 @@ class Scanner:
             msg = 'ean_add_on_policy must be "ignore", "read" or "require"'
             raise ValueError(msg)
         self._ean_add_on_policy = ean_add_on_policy
+        self._parallel = parallel
         self._formats = resolve_formats(formats)
         path = library_path(library_dir)
         self._lock = RLock()
@@ -298,6 +301,7 @@ class Scanner:
             _MODES.index(mode),
             format_mask(self._formats),
             _ADDON_POLICIES.index(ean_add_on_policy),
+            2 if parallel is None else int(bool(parallel)),
         )
         error = c.create_string_buffer(512)
         self._check(
@@ -321,6 +325,11 @@ class Scanner:
     def ean_add_on_policy(self) -> EanAddOnPolicy:
         """The EAN/UPC supplement policy selected at creation."""
         return self._ean_add_on_policy
+
+    @property
+    def parallel(self) -> bool | None:
+        """Requested threading; None follows the process default."""
+        return self._parallel
 
     @property
     def formats(self) -> tuple[Format, ...]:
@@ -522,6 +531,7 @@ def scan(
     *,
     mode: Mode = "medium",
     ean_add_on_policy: EanAddOnPolicy = "ignore",
+    parallel: bool | None = None,
     library_dir: str | os.PathLike[str] | None = None,
     formats: FormatSelection | None = None,
     layout: Layout = "auto",
@@ -533,6 +543,7 @@ def scan(
         mode,
         formats=formats,
         ean_add_on_policy=ean_add_on_policy,
+        parallel=parallel,
         library_dir=library_dir,
     ) as scanner:
         return scanner.scan(
@@ -548,6 +559,7 @@ def inspect(
     *,
     mode: Mode = "medium",
     ean_add_on_policy: EanAddOnPolicy = "ignore",
+    parallel: bool | None = None,
     library_dir: str | os.PathLike[str] | None = None,
     formats: FormatSelection | None = None,
     layout: Layout = "auto",
@@ -559,6 +571,7 @@ def inspect(
         mode,
         formats=formats,
         ean_add_on_policy=ean_add_on_policy,
+        parallel=parallel,
         library_dir=library_dir,
     ) as scanner:
         return scanner.inspect(
@@ -574,6 +587,7 @@ def scan_many(
     *,
     mode: Mode = "medium",
     ean_add_on_policy: EanAddOnPolicy = "ignore",
+    parallel: bool = False,
     library_dir: str | os.PathLike[str] | None = None,
     formats: FormatSelection | None = None,
     layout: Layout = "auto",
@@ -584,7 +598,9 @@ def scan_many(
     """Scan several images on worker threads; results keep the input order.
 
     Each worker thread uses its own Scanner, and scanning releases the GIL, so
-    throughput scales with CPU cores. ``workers`` defaults to the CPUs this process
+    throughput scales with CPU cores. Because the workers already keep every core
+    busy, each scanner runs its formats on one thread unless ``parallel`` is true.
+    ``workers`` defaults to the CPUs this process
     may use. Images are consumed lazily, at most two per worker ahead of the
     scans, so a yielded array must not be modified until ``scan_many`` returns;
     yield a new array per image. After an image fails, no further images are
@@ -605,6 +621,7 @@ def scan_many(
                 mode,
                 formats=formats,
                 ean_add_on_policy=ean_add_on_policy,
+                parallel=parallel,
                 library_dir=library_dir,
             )
             local.scanner = scanner

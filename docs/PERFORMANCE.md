@@ -152,11 +152,14 @@ A scanner serves one call at a time; separate scanners run concurrently, so use 
 per thread. Native builds additionally run one scan's 1D formats and enabled 2D
 readers on separate threads, which shortens a single scan with all formats by
 1.35-1.9× on 960×960 photos and up to 2.9× on 12-megapixel images. On
-servers that already run one scanner per core, set `TAPIRSCAN_THREADS=1` to keep
-each scan on one thread; this saves the few percent of extra CPU time that the
-parallel readers cost. The variable is read once, at the first scan in the process,
-and only `0` or `1` (one thread) and unset (parallel) differ. WebAssembly scans
-always use one thread.
+servers that already run one scanner per core, create the scanner with the
+`parallel` option off (`parallel=False` in Python, `ScannerOptions { parallel:
+false, .. }` in Rust, `withParallel(false)` in Java, `parallel = false` in C++,
+`TAPIRSCAN_PARALLEL_OFF` in C); this saves the few percent of extra CPU time that
+the parallel readers cost. Results are identical either way. Without the option,
+`TAPIRSCAN_THREADS=0` or `1` in the process environment is the default for every
+scanner; it is read once, at the first use. WebAssembly scans always use one
+thread and ignore the option.
 
 ## Mobile apps
 

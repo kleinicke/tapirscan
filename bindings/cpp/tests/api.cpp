@@ -40,6 +40,12 @@ int main() {
     auto image = tapirscan::Image::gray(pixels, 3, 3);
     const auto barcodes = scanner.scan(image);
     assert(barcodes.barcodes.empty() && barcodes.values().empty() && !barcodes.best());
+    for (const std::optional<bool> parallel : {std::optional<bool>(true), std::optional<bool>(false), std::optional<bool>()}) {
+        tapirscan::ScannerOptions options;
+        options.parallel = parallel;
+        tapirscan::Scanner configured(options);
+        assert(configured.scan(image).barcodes.empty());
+    }
     image.length = 1;
     try { (void)scanner.scan(image); assert(false); }
     catch (const tapirscan::Error& error) {

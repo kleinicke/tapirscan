@@ -308,6 +308,27 @@ class Images(unittest.TestCase):
             decode(image, formats="EAN13", library_dir=LIBS).values, [TEXT]
         )
 
+    def test_parallel_option(self) -> None:
+        """Threading is a scanner option that never changes the reads."""
+        image = PixelImage(RAW, width=W, height=H)
+        with Scanner(library_dir=LIBS) as scanner:
+            self.assertIsNone(scanner.parallel)
+        reads = []
+        for parallel in (True, False, None):
+            with Scanner(
+                "high", formats="all", parallel=parallel, library_dir=LIBS
+            ) as scanner:
+                self.assertEqual(scanner.parallel, parallel)
+                reads.append(scanner.inspect(image).barcodes)
+        self.assertEqual(reads[0], reads[1])
+        self.assertEqual(reads[0], reads[2])
+        self.assertEqual([read.text for read in reads[0]], [TEXT])
+        results = barcode.scan_many([image, image], parallel=True, library_dir=LIBS)
+        self.assertEqual([r.values for r in results], [[TEXT], [TEXT]])
+        self.assertEqual(
+            barcode.scan(image, parallel=False, library_dir=LIBS).values, [TEXT]
+        )
+
     def test_retail_and_common_presets(self) -> None:
         """Presets expose their exact selection and decode through the public API."""
         self.assertEqual(barcode.retail_formats, ("EAN13", "UPCA", "EAN8", "UPCE"))

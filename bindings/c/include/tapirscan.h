@@ -43,14 +43,26 @@ typedef enum tapirscan_ean_add_on_policy {
     TAPIRSCAN_EAN_ADD_ON_REQUIRE = 2
 } tapirscan_ean_add_on_policy;
 
+/* Whether one scan runs its formats on separate threads where the host allows
+   it. Results are identical either way. Use OFF when you already run one
+   scanner per core. DEFAULT is ON unless the process environment sets
+   TAPIRSCAN_THREADS to 0 or 1. */
+typedef enum tapirscan_parallel {
+    TAPIRSCAN_PARALLEL_OFF = 0,
+    TAPIRSCAN_PARALLEL_ON = 1,
+    TAPIRSCAN_PARALLEL_DEFAULT = 2
+} tapirscan_parallel;
+
 /* Scanner configuration. Passing NULL to tapirscan_scanner_create selects
-   TAPIRSCAN_MODE_MEDIUM, TAPIRSCAN_FORMATS_RETAIL and ..._ADD_ON_IGNORE. */
+   TAPIRSCAN_MODE_MEDIUM, TAPIRSCAN_FORMATS_RETAIL, ..._ADD_ON_IGNORE and
+   TAPIRSCAN_PARALLEL_DEFAULT. */
 typedef struct tapirscan_scanner_options {
     uint32_t mode;              /* tapirscan_mode */
     uint32_t formats;           /* nonempty TAPIRSCAN_FORMAT_* mask */
     uint32_t ean_add_on_policy; /* tapirscan_ean_add_on_policy */
+    uint32_t parallel;          /* tapirscan_parallel */
 } tapirscan_scanner_options;
-#define TAPIRSCAN_SCANNER_OPTIONS_INIT {TAPIRSCAN_MODE_MEDIUM, TAPIRSCAN_FORMATS_RETAIL, TAPIRSCAN_EAN_ADD_ON_IGNORE}
+#define TAPIRSCAN_SCANNER_OPTIONS_INIT {TAPIRSCAN_MODE_MEDIUM, TAPIRSCAN_FORMATS_RETAIL, TAPIRSCAN_EAN_ADD_ON_IGNORE, TAPIRSCAN_PARALLEL_DEFAULT}
 
 /* Optional caller-owned output for create/scan. Cleared on success; on failure
    holds NUL-terminated UTF-8, truncated at a character boundary if necessary.

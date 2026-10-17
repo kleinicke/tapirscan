@@ -42,6 +42,8 @@ public final class Scanner implements AutoCloseable {
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "mode"), options.mode().code());
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "formats"), Format.mask(options.formats()));
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "addonPolicy"), options.eanAddOnPolicy().code());
+            Boolean parallel = options.parallel();
+            config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "parallel"), parallel == null ? 2 : parallel ? 1 : 0);
             MemorySegment out = arena.allocate(JAVA_LONG);
             MemorySegment error = arena.allocate(Native.ERROR);
             lib.check(Native.call(lib.create, config, out, error), error);

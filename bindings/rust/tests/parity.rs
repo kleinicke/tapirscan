@@ -42,6 +42,7 @@ fn native_parity() {
                 EanAddOnPolicy::Read,
                 EanAddOnPolicy::Require,
             ][case.addons],
+            ..ScannerOptions::default()
         });
         let result = scanner.inspect(image).unwrap();
         let plain = scanner.scan(image).unwrap();

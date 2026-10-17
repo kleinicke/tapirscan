@@ -98,6 +98,11 @@ struct ScannerOptions {
     Mode mode = Mode::Medium;
     Formats formats = Formats::retail();
     EanAddOnPolicy ean_add_on_policy = EanAddOnPolicy::Ignore;
+    /// Run one scan's formats on separate threads where the host allows it.
+    /// Results are identical either way; `false` suits servers that already run
+    /// one scanner per core. Unset follows the process default: on unless
+    /// `TAPIRSCAN_THREADS` is 0 or 1.
+    std::optional<bool> parallel;
 };
 
 /// Borrowed gray8, RGB8 or RGBA8 view (alpha ignored). Keep the backing buffer
@@ -386,7 +391,9 @@ public:
         }
         const tapirscan_scanner_options native{static_cast<std::uint32_t>(options.mode),
                                                options.formats.bits(),
-                                               static_cast<std::uint32_t>(options.ean_add_on_policy)};
+                                               static_cast<std::uint32_t>(options.ean_add_on_policy),
+                                               options.parallel ? (*options.parallel ? TAPIRSCAN_PARALLEL_ON : TAPIRSCAN_PARALLEL_OFF)
+                                                                : TAPIRSCAN_PARALLEL_DEFAULT};
         tapirscan_error error{};
         auto status = tapirscan_scanner_create(&native, &handle_, &error);
         if (status != TAPIRSCAN_OK) throw Error(status, error.message);

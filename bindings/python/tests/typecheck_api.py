@@ -12,6 +12,7 @@ def consumer(image: ImageInput, scanner: barcode.Scanner) -> None:
     assert_type(barcode.scan_many([image, image], workers=2), list[ScanResult])
     result = barcode.inspect(image, ean_add_on_policy="read")
     assert_type(scanner.ean_add_on_policy, barcode.EanAddOnPolicy)
+    assert_type(scanner.parallel, bool | None)
     assert_type(result, InspectionResult)
     assert_type(result.values, list[str])
     assert_type(result.best, Barcode | None)

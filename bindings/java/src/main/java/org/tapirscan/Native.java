@@ -38,7 +38,8 @@ final class Native {
     static final MemoryLayout REGION = MemoryLayout.structLayout(
             POLYGON.withName("polygon"), JAVA_INT.withName("format"), MemoryLayout.paddingLayout(4));
     static final MemoryLayout SCANNER_OPTIONS = MemoryLayout.structLayout(
-            JAVA_INT.withName("mode"), JAVA_INT.withName("formats"), JAVA_INT.withName("addonPolicy"));
+            JAVA_INT.withName("mode"), JAVA_INT.withName("formats"), JAVA_INT.withName("addonPolicy"),
+            JAVA_INT.withName("parallel"));
     static final MemoryLayout SCAN_OPTIONS = MemoryLayout.structLayout(
             JAVA_INT.withName("formats"));
     static final MemoryLayout ERROR = MemoryLayout.sequenceLayout(512, JAVA_BYTE);

@@ -105,6 +105,7 @@ unsafe fn json(result: u64) -> String {
 
 #[test]
 fn layouts_match_the_header() {
+    assert_eq!(std::mem::size_of::<ScannerOptionsC>(), 16);
     assert_eq!(std::mem::size_of::<ImageC>(), 48);
     assert_eq!(std::mem::size_of::<ResultInfoC>(), 48);
     assert_eq!(std::mem::size_of::<BarcodeC>(), 136);
@@ -310,6 +311,7 @@ fn options_select_mode_formats_and_diagnostics() {
             mode: 2,
             formats: TAPIRSCAN_FORMAT_EAN8,
             ean_add_on_policy: 1,
+            parallel: 2,
         });
         let (status, result) = scan(scanner, &image, std::ptr::null());
         assert_eq!(status, 0);
@@ -340,21 +342,25 @@ fn rejects_invalid_arguments_without_partial_output() {
                 mode: 4,
                 formats: 15,
                 ean_add_on_policy: 0,
+                parallel: 2,
             },
             ScannerOptionsC {
                 mode: 1,
                 formats: 0,
                 ean_add_on_policy: 0,
+                parallel: 2,
             },
             ScannerOptionsC {
                 mode: 1,
                 formats: 1 << 30,
                 ean_add_on_policy: 0,
+                parallel: 2,
             },
             ScannerOptionsC {
                 mode: 1,
                 formats: 15,
                 ean_add_on_policy: 3,
+                parallel: 2,
             },
         ] {
             assert_eq!(
@@ -489,6 +495,7 @@ fn detailed_errors_are_per_call_and_cleared_on_success() {
             mode: 1,
             formats: 0,
             ean_add_on_policy: 0,
+            parallel: 2,
         };
         assert_eq!(
             tapirscan_scanner_create(&raw const options, &raw mut scanner, &raw mut error),
@@ -628,5 +635,50 @@ fn x86_64_builds_target_x86_64_v2() {
     assert!(
         cfg!(target_feature = "sse4.2") && cfg!(target_feature = "popcnt"),
         "build the native library with scripts/build_native.py (-C target-cpu=x86-64-v2)"
+    );
+}
+
+#[test]
+fn parallel_setting_leaves_results_unchanged() {
+    let (pixels, width, height) = ean13("4006381333931");
+    let image = gray(&pixels, width, height);
+    let reads = |parallel: u32| unsafe {
+        let scanner = create(&ScannerOptionsC {
+            mode: 1,
+            formats: 163_839, // every format except the opt-in ones
+            ean_add_on_policy: 0,
+            parallel,
+        });
+        let (status, result) = scan(scanner, &image, std::ptr::null());
+        assert_eq!(status, 0);
+        let count = info(result).barcode_count;
+        let reads: Vec<_> = (0..count)
+            .map(|index| {
+                let mut barcode = BarcodeC::default();
+                assert_eq!(tapirscan_result_barcode(result, index, &raw mut barcode), 0);
+                let polygon = barcode.polygon.map(|point| (point.x, point.y));
+                (barcode.format, barcode.support, polygon)
+            })
+            .collect();
+        assert_eq!(tapirscan_result_destroy(result), 0);
+        assert_eq!(tapirscan_scanner_destroy(scanner), 0);
+        reads
+    };
+    let on = reads(1);
+    assert_eq!(on.len(), 1);
+    assert_eq!(on, reads(0));
+    assert_eq!(on, reads(2));
+    let invalid = ScannerOptionsC {
+        mode: 1,
+        formats: 15,
+        ean_add_on_policy: 0,
+        parallel: 3,
+    };
+    let mut scanner = 0;
+    assert_eq!(
+        unsafe {
+            tapirscan_scanner_create(&raw const invalid, &raw mut scanner, std::ptr::null_mut())
+        },
+        ARG
     );
 }

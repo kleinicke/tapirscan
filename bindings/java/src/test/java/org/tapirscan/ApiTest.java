@@ -36,7 +36,7 @@ public final class ApiTest {
         check(new ScanResult(List.of()).best().isEmpty());
         check(Native.IMAGE.byteSize() == 48 && Native.SUMMARY.byteSize() == 48);
         check(Native.BARCODE.byteSize() == 136 && Native.REGION.byteSize() == 72);
-        check(Native.SCANNER_OPTIONS.byteSize() == 12 && Native.SCAN_OPTIONS.byteSize() == 4);
+        check(Native.SCANNER_OPTIONS.byteSize() == 16 && Native.SCAN_OPTIONS.byteSize() == 4);
         check(Native.offset(Native.IMAGE, "stride") == 40);
         check(Native.CONTENT_SUMMARY.byteSize() == 16 && Native.CONTENT_LENGTHS.byteSize() == 16);
         Content wifi = Tapirscan.parseContent("WIFI:S:Café;T:WPA;P:secret;;", false).orElseThrow();
