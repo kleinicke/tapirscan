@@ -53,7 +53,7 @@ fn windowed_proposals(
         starts
     };
     let (width, height) = (image.width.min(WINDOW_SIDE), image.height.min(WINDOW_SIDE));
-    let mut found: Vec<barcode_research_core::oriented::Proposal> = Vec::new();
+    let mut candidates = Vec::new();
     for y in starts(image.height) {
         for x in starts(image.width) {
             let offset = y * image.stride + x * image.channels;
@@ -69,21 +69,11 @@ fn windowed_proposals(
                     point[0] += barcode_research_core::numeric::usize_f64(x);
                     point[1] += barcode_research_core::numeric::usize_f64(y);
                 }
-                // Only a proposal of similar extent was already tried: a large
-                // full-frame region does not cover the small symbols inside it.
-                let new = !known.iter().chain(found.iter()).any(|old| {
-                    let (a, b) = overlap_quads(&old.polygon, &proposal.polygon);
-                    a.min(b) > 0.5
-                });
-                if new {
-                    found.push(proposal);
-                }
+                candidates.push(proposal);
             }
         }
     }
-    found.sort_by(|a, b| b.score.total_cmp(&a.score));
-    found.truncate(WINDOW_PROPOSALS);
-    Ok(found)
+    Ok(strongest_new_proposals(known, candidates))
 }
 
 /// Stripe proposals from one half-scale raster that no full-frame proposal covers.
@@ -101,8 +91,21 @@ fn half_scale_proposals(
         image.stride,
     )?;
     let side = barcode_research_core::numeric::usize_f64(image.width.max(image.height));
+    let candidates = localizer.detect_at(view, side * 0.5)?.proposals;
+    Ok(strongest_new_proposals(known, candidates))
+}
+
+/// The strongest `WINDOW_PROPOSALS` candidates, in order, that neither `known` nor
+/// an earlier kept candidate already covers.
+#[cfg(not(feature = "low"))]
+fn strongest_new_proposals(
+    known: &[barcode_research_core::oriented::Proposal],
+    candidates: Vec<barcode_research_core::oriented::Proposal>,
+) -> Vec<barcode_research_core::oriented::Proposal> {
     let mut found: Vec<barcode_research_core::oriented::Proposal> = Vec::new();
-    for proposal in localizer.detect_at(view, side * 0.5)?.proposals {
+    for proposal in candidates {
+        // Only a proposal of similar extent was already tried: a large
+        // full-frame region does not cover the small symbols inside it.
         let new = !known.iter().chain(found.iter()).any(|old| {
             let (a, b) = overlap_quads(&old.polygon, &proposal.polygon);
             a.min(b) > 0.5
@@ -113,7 +116,7 @@ fn half_scale_proposals(
     }
     found.sort_by(|a, b| b.score.total_cmp(&a.score));
     found.truncate(WINDOW_PROPOSALS);
-    Ok(found)
+    found
 }
 
 /// Unread retail boxes whose central band is decoded for the other linear formats.
