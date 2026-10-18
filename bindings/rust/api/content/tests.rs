@@ -48,6 +48,23 @@ fn gs1_element_strings() {
     for bad in ["0109506000134353", "2712345", "01095060001343"] {
         assert_eq!(parse_content(bad, true), None, "{bad}");
     }
+    // Keys with a serial part check the key; fixed-length bracketed values need their length.
+    assert_eq!(
+        parsed("(253)9506000000008ABC(8006)095060001343520102", false).1,
+        pairs(&[("253", "9506000000008ABC"), ("8006", "095060001343520102")])
+    );
+    for bad in [
+        "(253)9506000000009ABC",
+        "(255)9506000000008X",
+        "(8006)0950600013435201",
+        "(8003)19506000000008",
+        "(402)9506000000008",
+        "(17)2012",
+        "(01)",
+    ] {
+        assert_eq!(parse_content(bad, false), None, "{bad}");
+    }
+    assert!(!gs1_check_digit(""));
     // A GS1-flagged Digital Link URL is still recognized.
     assert_eq!(
         parsed("https://id.gs1.org/01/09506000134352", true).1[0],
@@ -78,6 +95,38 @@ fn gs1_digital_link() {
         parsed("https://example.com/01/9506000134352", false).1[0],
         ("01".into(), "09506000134352".into())
     );
+    // GTIN-8 and GTIN-12 are padded as well; SSCC and GLN keys are not.
+    for (gtin, padded) in [
+        ("96385074", "00000096385074"),
+        ("036000291452", "00036000291452"),
+    ] {
+        assert_eq!(
+            parsed(&format!("https://example.com/01/{gtin}"), false).1[0],
+            ("01".into(), padded.into())
+        );
+    }
+    assert_eq!(
+        parsed("https://example.com/414/9506000000008", false).1[0],
+        ("414".into(), "9506000000008".into())
+    );
+    // Digital Link follows the element rules: empty values, other lengths, wrong
+    // check digits and malformed attributes leave a plain URL.
+    for url in [
+        "https://example.com/01/",
+        "https://example.com/01/0",
+        "https://example.com/01/3600029145",
+        "https://example.com/01/009506000134352",
+        "https://example.com/01/09506000134353",
+        "https://example.com/00/10614141123456789",
+        "https://example.com/00/0106141411234567897",
+        "https://example.com/414/950600000000",
+        "https://example.com/414/09506000000008",
+        "https://example.com/01/09506000134352/10/",
+        "https://example.com/01/09506000134352?17=2012",
+        "https://example.com/01/09506000134352?17=",
+    ] {
+        assert_eq!(parsed(url, false).0, ContentKind::Url, "{url}");
+    }
     assert_eq!(
         parsed("https://example.com/shop/item?id=1", false),
         (

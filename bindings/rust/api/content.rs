@@ -185,9 +185,10 @@ fn ai_fixed_length(ai: &[u8]) -> Option<usize> {
     }
 }
 
-/// Digits with a valid GS1 mod-10 check digit (GTIN, SSCC, GLN).
+/// Nonempty digits with a valid GS1 mod-10 check digit (GTIN, SSCC, GLN).
 fn gs1_check_digit(digits: &str) -> bool {
-    digits.bytes().all(|b| b.is_ascii_digit())
+    !digits.is_empty()
+        && digits.bytes().all(|b| b.is_ascii_digit())
         && digits
             .bytes()
             .rev()
@@ -198,16 +199,41 @@ fn gs1_check_digit(digits: &str) -> bool {
             == 0
 }
 
+/// Whether `value` is valid data for `ai` (GS1 General Specifications, section 3):
+/// fixed-length numeric AIs need exactly their length, identification keys a valid
+/// check digit, and every element a value.
 fn gs1_element_valid(ai: &str, value: &str) -> bool {
+    let digits = |range: std::ops::Range<usize>| {
+        value
+            .get(range)
+            .is_some_and(|part| part.bytes().all(|b| b.is_ascii_digit()))
+    };
+    let keyed = |key: usize, max: usize| {
+        (key..=max).contains(&value.len()) && value.get(..key).is_some_and(gs1_check_digit)
+    };
     match ai {
-        "00" | "01" | "02" | "03" | "410" | "411" | "412" | "413" | "414" | "415" | "416" => {
-            gs1_check_digit(value)
+        // SSCC, GTIN, GLN, GSIN and GSRN: the whole value is the key.
+        "00" | "01" | "02" | "03" | "402" | "410" | "411" | "412" | "413" | "414" | "415"
+        | "416" | "417" | "8017" | "8018" => {
+            let length = match ai {
+                "00" | "8017" | "8018" => 18,
+                "01" | "02" | "03" => 14,
+                "402" => 17,
+                _ => 13,
+            };
+            value.len() == length && gs1_check_digit(value)
         }
-        _ => {
-            !value.is_empty()
-                && (ai_fixed_length(ai.as_bytes()).is_none()
-                    || value.bytes().all(|b| b.is_ascii_digit()))
-        }
+        // GDTI and GCN: a 13-digit key and an optional serial component.
+        "253" => keyed(13, 30),
+        "255" => keyed(13, 25) && digits(13..value.len()),
+        // GRAI: a zero, the 13-digit key and an optional serial component.
+        "8003" => keyed(14, 30) && value.starts_with('0'),
+        // ITIP: a GTIN and four piece digits.
+        "8006" => value.len() == 18 && keyed(14, 18) && digits(14..18),
+        _ => match ai_fixed_length(ai.as_bytes()) {
+            Some(length) => value.len() == length && digits(0..length),
+            None => !value.is_empty(),
+        },
     }
 }
 
@@ -255,9 +281,7 @@ fn gs1_bracketed(text: &str) -> Option<Content> {
         let after = &inner[close + 1..];
         let end = after.find('(').unwrap_or(after.len());
         let value = &after[..end];
-        if !gs1_element_valid(ai, value)
-            || ai_fixed_length(ai.as_bytes()).is_some_and(|n| n != value.len())
-        {
+        if !gs1_element_valid(ai, value) {
             return None;
         }
         content.push(ai, value);
@@ -301,7 +325,9 @@ fn digital_link(url: &str) -> Option<Content> {
         }
     }
     for (ai, mut value) in elements {
-        if ai == "01" && value.len() < 14 && value.bytes().all(|b| b.is_ascii_digit()) {
+        // GS1 Digital Link accepts GTIN-8, GTIN-12 and GTIN-13 as the GTIN key and
+        // reports them as GTIN-14.
+        if ai == "01" && matches!(value.len(), 8 | 12 | 13) {
             value = format!("{value:0>14}");
         }
         if ai_length(ai.as_bytes()) != Some(ai.len()) || !gs1_element_valid(&ai, &value) {

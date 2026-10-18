@@ -62,7 +62,11 @@ removed, in minor releases. The other kinds and their field names are stable.
 ## Fields
 
 - **GS1:** one field per element, named by its application identifier (`01`,
-  `17`, `10`, `3103`, …). Digital Link URLs add `url`.
+  `17`, `10`, `3103`, …). Every form applies the same element rules:
+  fixed-length values have exactly their length and identification keys (GTIN,
+  SSCC, GLN, …) a valid check digit, so an invalid element makes the text plain
+  (or a URL). Digital Link URLs add `url` and report a GTIN-8, -12 or -13 key
+  as 14 digits.
 - **URL:** `url`. **Phone:** `number`.
 - **Email:** `to` (repeated), `cc`, `bcc`, `subject`, `body`.
 - **SMS:** `number` (repeated), `message`.
