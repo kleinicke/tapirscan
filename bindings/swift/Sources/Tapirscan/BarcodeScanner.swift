@@ -126,6 +126,10 @@ public final class BarcodeScanner: @unchecked Sendable {
         do {
             defer { lock.unlock() }
             result = try source { pixels in
+                // Clamping would turn a negative stride into 0, which means packed rows.
+                guard pixels.stride >= 0 else {
+                    throw TapirscanError.invalidInput("stride must not be negative")
+                }
                 var image = tapirscan_image(
                     data: pixels.buffer.baseAddress?.assumingMemoryBound(to: UInt8.self),
                     length: UInt64(pixels.buffer.count),
