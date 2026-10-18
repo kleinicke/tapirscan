@@ -93,13 +93,12 @@ impl Axis {
     }
 
     /// The whole axis like [`Self::sample`], on the line `offset` pixels along bars whose
-    /// direction turns from the angle `fan[0]` against the box's sides at the start of the
-    /// axis to `fan[1]` at its end (a perspective fan).
+    /// direction follows `fan` (see [`Fan`]).
     fn sample_fan(
         &self,
         image: Image<'_>,
         offset: f64,
-        fan: [f64; 2],
+        fan: &[[f64; 2]],
         step: f64,
         out: &mut Vec<Option<f64>>,
     ) {
@@ -108,10 +107,12 @@ impl Axis {
         let count = f64_usize((self.length / step).ceil().max(0.));
         for i in 0..count {
             let d = usize_f64(i) * step;
-            let (sin, cos) = (fan[0] + (fan[1] - fan[0]) * d / self.length).sin_cos();
+            let t = fan_tangent(fan, d / self.length);
+            // The bars direction turned by the angle whose tangent is `t`.
+            let norm = (1. + t * t).sqrt();
             let bar = [
-                self.along[0] * cos - self.along[1] * sin,
-                self.along[0] * sin + self.along[1] * cos,
+                (self.along[0] - self.along[1] * t) / norm,
+                (self.along[1] + self.along[0] * t) / norm,
             ];
             let x = self.origin[0] + self.across[0] * d + bar[0] * offset;
             let y = self.origin[1] + self.across[1] * d + bar[1] * offset;
@@ -122,25 +123,37 @@ impl Axis {
         }
     }
 
-    /// Angle of `v` against the bars direction of the box, in (-pi/2, pi/2].
-    fn angle_to_along(&self, v: [f64; 2]) -> f64 {
+    /// Tangent of the angle of `v` against the bars direction of the box (infinite for a
+    /// perpendicular `v`). Bar directions have no sign, and the tangent has none either.
+    /// Directions are kept as tangents, without trigonometric functions, so that native and
+    /// WASM builds sample identical positions.
+    fn tangent_to_along(&self, v: [f64; 2]) -> f64 {
         let cross = self.along[0] * v[1] - self.along[1] * v[0];
         let dot = self.along[0] * v[0] + self.along[1] * v[1];
-        half_turn(cross.atan2(dot))
+        if dot == 0. {
+            f64::INFINITY
+        } else {
+            cross / dot
+        }
     }
 }
 
-/// `angle` folded into (-pi/2, pi/2]: bar directions have no sign.
-fn half_turn(angle: f64) -> f64 {
-    use std::f64::consts::{FRAC_PI_2, PI};
-    let mut a = angle;
-    while a > FRAC_PI_2 {
-        a -= PI;
+/// The bar direction along a read: knots of (position along the axis as a fraction of its
+/// length, tangent of the bar angle against the read's sides), with the tangent linear
+/// between knots and constant beyond the first and the last. Converging bars of a
+/// perspective fan change the tangent linearly along the axis.
+type Fan = Vec<[f64; 2]>;
+
+/// The tangent of `fan` at the fraction `t` of the axis.
+fn fan_tangent(fan: &[[f64; 2]], t: f64) -> f64 {
+    let Some(next) = fan.iter().position(|knot| knot[0] > t) else {
+        return fan.last().map_or(0., |knot| knot[1]);
+    };
+    if next == 0 {
+        return fan[0][1];
     }
-    while a <= -FRAC_PI_2 {
-        a += PI;
-    }
-    a
+    let ([t0, a0], [t1, a1]) = (fan[next - 1], fan[next]);
+    a0 + (a1 - a0) * (t - t0) / (t1 - t0)
 }
 
 /// Run lengths, in samples, of a profile split at a moving mean of `2 * window + 1`
@@ -973,18 +986,19 @@ const SLANT_STEP: f64 = 0.04;
 /// periodic or chirped texture.
 const REGULAR_RUNS: f64 = 0.85;
 
-/// Bar angles, in radians against the read's sides, below which a fan adds nothing to the
+/// Bar slant (tangent against the read's sides) below which a fan adds nothing to the
 /// slants that [`consistent_shifts`] tries.
 const FAN_MIN: f64 = 0.06;
 /// Remaining slant (tangent) tried around a followed bar direction.
 const FAN_SLANT: f64 = 0.08;
-/// Windows along the read in which [`bar_fan`] measures the bar direction.
+/// Windows along the read in which [`bar_windows`] measures the bar direction.
 const FAN_WINDOWS: usize = 8;
 /// Gradient coherence (0 for no preferred direction, 1 for parallel edges) a window needs to
 /// show a bar direction.
 const FAN_COHERENCE: f64 = 0.4;
-/// Largest bar angle against the read's sides that [`bar_fan`] reports (50 degrees).
-const FAN_LIMIT: f64 = 0.87;
+/// Largest bar slant against the read's sides that [`bar_fan`] reports (the tangent of 50
+/// degrees).
+const FAN_LIMIT: f64 = 1.19;
 
 /// Whether each pair of lines shifted along the bars (`shifted`, two per distance) holds the
 /// center line's pattern at one shared slant up to `slant` (tangent): the lines shift sideways
@@ -1016,18 +1030,17 @@ fn consistent_shifts(
     })
 }
 
-/// The bar direction a read's pixels show at its start and its end, as angles against the
-/// read's sides: a line fitted to the dominant edge direction of `FAN_WINDOWS` windows along
-/// the read. `None` when the edges have no dominant direction in a quarter of the windows
-/// (a two-dimensional pattern) or turn beyond `FAN_LIMIT`.
-fn bar_fan(image: Image<'_>, axis: &Axis, height: f64) -> Option<[f64; 2]> {
+/// The dominant bar direction of `FAN_WINDOWS` windows along a read, on three lines (its
+/// center and a quarter of its height to either side): (position along the read as a
+/// fraction of its length, tangent against the read's sides, weight) of each window whose
+/// gradients have a dominant direction.
+fn bar_windows(image: Image<'_>, axis: &Axis, height: f64) -> Vec<(f64, f64, f64)> {
     let (right, bottom) = (usize_f64(image.width - 1), usize_f64(image.height - 1));
     let lum = |x: f64, y: f64| {
         (x >= 1. && y >= 1. && x <= right - 1. && y <= bottom - 1.)
             .then(|| image.bilinear_luminance(x, y))
     };
-    // (position along the read, angle, weight) of each window with a dominant direction.
-    let mut fits: Vec<(f64, f64, f64)> = Vec::new();
+    let mut windows = Vec::new();
     let per_window = 0.9 / usize_f64(FAN_WINDOWS);
     let points = f64_usize((per_window * axis.length).max(1.)).min(MAX_SAMPLES / FAN_WINDOWS);
     for w in 0..FAN_WINDOWS {
@@ -1052,37 +1065,57 @@ fn bar_fan(image: Image<'_>, axis: &Axis, height: f64) -> Option<[f64; 2]> {
             }
         }
         let energy = xx + yy;
-        if energy <= 0. {
+        let spread = ((xx - yy) * (xx - yy) + 4. * xy * xy).sqrt();
+        if energy <= 0. || spread < FAN_COHERENCE * energy {
             continue;
         }
-        let coherence = (xx - yy).hypot(2. * xy) / energy;
-        if coherence < FAN_COHERENCE {
-            continue;
-        }
-        // Bars run perpendicular to the dominant gradient.
-        let gradient = 0.5 * (2. * xy).atan2(xx - yy);
-        let bar = [-gradient.sin(), gradient.cos()];
-        fits.push((
+        // The dominant gradient (cos, sin) at half the angle of (xx - yy, 2 xy); bars run
+        // perpendicular to it.
+        let cos2 = (xx - yy) / spread;
+        let gradient = [
+            f64::midpoint(1., cos2).sqrt(),
+            ((1. - cos2) / 2.).max(0.).sqrt().copysign(xy),
+        ];
+        windows.push((
             from + per_window / 2.,
-            axis.angle_to_along(bar),
-            energy * coherence,
+            axis.tangent_to_along([-gradient[1], gradient[0]]),
+            spread,
         ));
     }
-    // Angles near 90 degrees would wrap; such a read crosses no bars.
-    if fits.len() * 4 < FAN_WINDOWS * 3 || fits.iter().any(|f| f.1.abs() > FAN_LIMIT) {
+    windows
+}
+
+/// The bar direction a read's pixels show (see [`bar_windows`]), as a line fitted to the
+/// windows' tangents along the read. `None` when the edges have no dominant direction in a
+/// quarter of the windows (a two-dimensional pattern) or turn beyond `FAN_LIMIT`.
+fn bar_fan(windows: &[(f64, f64, f64)]) -> Option<Fan> {
+    // Slants near 90 degrees would wrap; such a read crosses no bars.
+    if windows.len() * 4 < FAN_WINDOWS * 3 || windows.iter().any(|f| f.1.abs() > FAN_LIMIT) {
         return None;
     }
-    let total: f64 = fits.iter().map(|f| f.2).sum();
-    let mean_t = fits.iter().map(|f| f.0 * f.2).sum::<f64>() / total;
-    let mean_a = fits.iter().map(|f| f.1 * f.2).sum::<f64>() / total;
+    let total: f64 = windows.iter().map(|f| f.2).sum();
+    let mean_t = windows.iter().map(|f| f.0 * f.2).sum::<f64>() / total;
+    let mean_a = windows.iter().map(|f| f.1 * f.2).sum::<f64>() / total;
     let (mut st, mut sta) = (0., 0.);
-    for (t, a, w) in &fits {
+    for (t, a, w) in windows {
         st += w * (t - mean_t) * (t - mean_t);
         sta += w * (t - mean_t) * (a - mean_a);
     }
     let slope = if st > 0. { sta / st } else { 0. };
     let fan = [mean_a - slope * mean_t, mean_a + slope * (1. - mean_t)];
-    (fan[0].abs().max(fan[1].abs()) <= FAN_LIMIT).then_some(fan)
+    (fan[0].abs().max(fan[1].abs()) <= FAN_LIMIT).then(|| vec![[0., fan[0]], [1., fan[1]]])
+}
+
+/// The bar direction of each window (see [`bar_windows`]) when a read crosses differently
+/// oriented bars along its length (a symbol crossed obliquely between stripes of another
+/// direction), which no fitted line follows: a knot per window. `None` when the fitted
+/// `fan` follows every window within `2 * FAN_SLANT`, or without a fitted fan.
+fn bar_steps(windows: &[(f64, f64, f64)], fan: Option<&Fan>) -> Option<Fan> {
+    let fan = fan?;
+    windows
+        .iter()
+        .any(|w| (w.1 - fan_tangent(fan, w.0)).abs() > 2. * FAN_SLANT)
+        .then(|| windows.iter().map(|w| [w.0, w.1]).collect())
 }
 
 /// Whether a read's pattern is constant along its bars: lines shifted along them on both
@@ -1114,12 +1147,20 @@ fn constant_along_bars(
     let height = (q[3][0] - q[0][0])
         .hypot(q[3][1] - q[0][1])
         .min((q[2][0] - q[1][0]).hypot(q[2][1] - q[1][1]));
+    let sides = [
+        axis.tangent_to_along([q[3][0] - q[0][0], q[3][1] - q[0][1]]),
+        axis.tangent_to_along([q[2][0] - q[1][0], q[2][1] - q[1][1]]),
+    ];
+    let windows = bar_windows(image, axis, height);
+    let fan = bar_fan(&windows);
+    let steps = bar_steps(&windows, fan.as_ref());
     let fans = [
-        Some([
-            axis.angle_to_along([q[3][0] - q[0][0], q[3][1] - q[0][1]]),
-            axis.angle_to_along([q[2][0] - q[1][0], q[2][1] - q[1][1]]),
-        ]),
-        bar_fan(image, axis, height),
+        sides
+            .iter()
+            .all(|t| t.is_finite())
+            .then(|| vec![[0., sides[0]], [1., sides[1]]]),
+        fan,
+        steps,
     ];
     let consistent = sets.iter().any(|distances| {
         if distances[0] < 1. {
@@ -1144,8 +1185,8 @@ fn constant_along_bars(
             || fans
                 .iter()
                 .flatten()
-                .filter(|fan| fan[0].abs().max(fan[1].abs()) >= FAN_MIN)
-                .any(|&fan| {
+                .filter(|fan| fan.iter().any(|knot| knot[1].abs() >= FAN_MIN))
+                .any(|fan| {
                     for (offset, line) in &mut shifted {
                         axis.sample_fan(image, *offset, fan, step, line);
                     }
@@ -1442,9 +1483,10 @@ mod tests {
         });
         let band = [[157., 147.], [442., 147.], [442., 153.], [157., 153.]];
         let image = view(&data, 600, 300);
-        let fan = bar_fan(image, &Axis::of(&band), 6.).unwrap();
+        let fan = bar_fan(&bar_windows(image, &Axis::of(&band), 6.)).unwrap();
+        let (start, end) = (fan[0][1], fan[1][1]);
         assert!(
-            fan[0] * fan[1] < 0. && fan[0].abs().min(fan[1].abs()) > 0.3,
+            start * end < 0. && start.abs().min(end.abs()) > 0.3,
             "{fan:?}"
         );
         assert!(!texture_read(image, &band));
@@ -1458,6 +1500,31 @@ mod tests {
         });
         let band = [[60., 340.], [345., 55.], [347.8, 57.8], [62.8, 342.8]];
         assert!(!texture_read(view(&data, 400, 400), &band));
+    }
+
+    #[test]
+    fn oblique_read_between_stripes_is_not_a_texture() {
+        // High read a DataBar Expanded symbol with horizontal bars on vertical stripes along a
+        // 45-degree band that leaves the symbol into the stripes at both ends: the band
+        // crosses bars of two directions, which no fitted fan follows.
+        let bits = ean_bits();
+        let stripes = elements(300, 5);
+        let data = render(600, 600, |x, y| {
+            (220. ..380.)
+                .contains(&x)
+                .then(|| module(&bits, ((y - 100.) / 4.).floor()))
+                .flatten()
+                .unwrap_or(if dark(&stripes, 0., 2., x) == Some(true) {
+                    20.
+                } else {
+                    235.
+                })
+        });
+        let band = [[120., 160.], [480., 520.], [476., 524.], [116., 164.]];
+        let image = view(&data, 600, 600);
+        let windows = bar_windows(image, &Axis::of(&band), 5.66);
+        assert!(bar_steps(&windows, bar_fan(&windows).as_ref()).is_some());
+        assert!(!texture_read(image, &band));
     }
 
     #[test]
