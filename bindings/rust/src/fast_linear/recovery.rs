@@ -120,12 +120,43 @@ fn band_has_evidence(
     promising
 }
 
+/// [`recover_proposals`] that also returns the unread boxes whose rows decoded the
+/// selected formats too rarely for acceptance.
+#[cfg(not(feature = "low"))]
+pub(crate) fn recover_proposals_hinted(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    hinted: &mut Vec<Quad>,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    recover_variant(
+        image,
+        proposals,
+        mask,
+        sampler,
+        SourceProfile::Gray(0.),
+        hinted,
+    )
+}
+
 fn recover_proposals_variant(
     image: Image<'_>,
     proposals: &[crate::Proposal],
     mask: u32,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     profile: SourceProfile,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    recover_variant(image, proposals, mask, sampler, profile, &mut Vec::new())
+}
+
+fn recover_variant(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    profile: SourceProfile,
+    hinted: &mut Vec<Quad>,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
     let contrast = profile.contrast();
     let im = ImageView::new(
@@ -176,8 +207,12 @@ fn recover_proposals_variant(
             &mut dense_lines,
         );
         let before = reads.len() + refined.len();
+        let observed = !candidate.observations.is_empty();
         candidate.append_confirmed(refined_count > 0, &mut reads, &mut refined);
         if reads.len() + refined.len() == before {
+            if observed {
+                hinted.push(proposal.polygon);
+            }
             unread.push(Region::unknown(proposal.polygon));
         }
     }

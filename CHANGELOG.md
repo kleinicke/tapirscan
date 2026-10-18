@@ -45,14 +45,17 @@ geometry and timing can differ from 1.3.0. See the
 
 - **Linear formats** read nearly the same whatever else is selected, follow rotated
   and warped bars from Medium up, and find small Code 128 fields on large label
-  photos and sheets far more often. ITF tolerates ink spread.
+  photos and sheets far more often. ITF tolerates ink spread. Codabar and
+  Code 93 selections without retail formats read at least what Low reads from
+  Medium up.
 - **Retail:** High and Very High read at least what Medium reads on retail
   photos. Medium reads more labels on large photos with many EAN-13 or UPC-A
   symbols. Low no longer reports a UPC-E or EAN-8 decoded from part of an EAN-13
   or UPC-A it also reads.
 - **QR Code** reads more distorted, blurred, shadowed, tiny and large-frame
   symbols. In mixed selections QR runs as its own reader group and reads
-  almost like a QR-only scan. Reading EAN add-ons does not change 2D reads; it
+  almost like a QR-only scan. Once Low has read two QR symbols, it searches as
+  long as Medium for more. Reading EAN add-ons does not change 2D reads; it
   only adds supplement decoding time.
 - **Data Matrix** reads more phone photos, industrial marks and foreshortened,
   tiny, blurred and large close-up symbols.

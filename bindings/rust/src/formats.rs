@@ -25,6 +25,7 @@
 //! | **`recover_linear_regions`**, inside localized boxes         |   | x | x | x |
 //! | other linear formats in retail boxes and their central bands |   | x | x | x |
 //! | stripe boxes for unread or label frames (M: sparse search)   |   | x | x | x |
+//! | unread linear-only frames: Low's sweep (Codabar, Code 93)    |   | x | x | x |
 //! | large frames: half-scale localization                        |   |   | x | x |
 //! | large frames: window localization                            |   |   |   | x |
 //! | large batch frames: half-scale retail boxes                  |   | x |   |   |
@@ -40,7 +41,6 @@ use crate::format_registry::{
 };
 use crate::read::{Read, Region};
 use crate::{Error, Image, MODE, ScanOptions, Scanner, geometry::overlap_quads};
-#[cfg(any(feature = "low", feature = "medium"))]
 use barcode_multiformat::formats::COMMON_LINEAR_MASK;
 use barcode_multiformat::formats::{
     AZTEC, CODE39, CODE128, DATA_BAR, DATA_BAR_EXPANDED, EAN8, EAN13, ITF, MATRIX_MASK, MAXI_CODE,
@@ -247,6 +247,79 @@ fn central_band(q: &crate::Quad) -> crate::Quad {
     }
 }
 
+/// Unread boxes with unconfirmed rows that the whole-image linear reader retries on a
+/// linear-only frame (see `sweep_box`).
+#[cfg(not(feature = "low"))]
+const UNREAD_BOX_SWEEPS: usize = 2;
+
+/// Run the whole-image linear reader on the padded bounding rectangle of one box, with
+/// reads in source coordinates.
+#[cfg(not(feature = "low"))]
+fn sweep_box(
+    image: Image<'_>,
+    polygon: &crate::Quad,
+    mask: u32,
+    gray: &mut Vec<u8>,
+) -> Result<Vec<Read>, Error> {
+    let (mut low, mut high) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+    for point in polygon {
+        for axis in 0..2 {
+            low[axis] = low[axis].min(point[axis]);
+            high[axis] = high[axis].max(point[axis]);
+        }
+    }
+    let pad = (high[0] - low[0]).max(high[1] - low[1]) * 0.1 + 8.;
+    let clamp = |value: f64, limit: usize| {
+        barcode_research_core::numeric::f64_usize(
+            value.clamp(0., barcode_research_core::numeric::usize_f64(limit)),
+        )
+    };
+    let (x0, x1) = (
+        clamp((low[0] - pad).floor(), image.width),
+        clamp((high[0] + pad).ceil(), image.width),
+    );
+    let (y0, y1) = (
+        clamp((low[1] - pad).floor(), image.height),
+        clamp((high[1] + pad).ceil(), image.height),
+    );
+    if x1 <= x0 + 2 || y1 <= y0 + 2 {
+        return Ok(Vec::new());
+    }
+    let crop = Image {
+        data: &image.data[y0 * image.stride + x0 * image.channels..],
+        width: x1 - x0,
+        height: y1 - y0,
+        channels: image.channels,
+        stride: image.stride,
+    };
+    gray_image(crop, gray)?;
+    let scan = scan_reader(gray, crop.width, crop.height, mask, POLICY.sweep_effort);
+    let offset = [
+        barcode_multiformat::numeric::usize_f32(x0),
+        barcode_multiformat::numeric::usize_f32(y0),
+    ];
+    Ok(scan
+        .barcodes
+        .into_iter()
+        .map(|mut barcode| {
+            for point in &mut barcode.polygon {
+                point[0] += offset[0];
+                point[1] += offset[1];
+            }
+            Read::additional(barcode)
+        })
+        .collect())
+}
+
+/// Whether a read is of a linear format; 2D reads do not stop linear recovery.
+#[cfg(not(feature = "low"))]
+fn is_linear_read(read: &Read) -> bool {
+    !matches!(
+        read.format.as_str(),
+        "QRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
+    )
+}
+
 impl Scanner {
     #[cfg(not(feature = "low"))]
     #[expect(
@@ -293,11 +366,13 @@ impl Scanner {
                 let oriented_mask = mask
                     & (NON_RETAIL_LINEAR | DATA_BAR | DATA_BAR_EXPANDED | ENGINE_OPT_IN_MASK)
                     | selected_rare;
-                let (mut found, mut pending) = crate::fast_linear::recover_proposals(
+                let mut hinted = Vec::new();
+                let (mut found, mut pending) = crate::fast_linear::recover_proposals_hinted(
                     image,
                     &proposals,
                     oriented_mask,
                     sampler,
+                    &mut hinted,
                 )?;
                 // Retail boxes span the full bar height; rows near their edges can keep
                 // checksum-free formats below their row support. Decode the central band of
@@ -333,12 +408,7 @@ impl Scanner {
                 // full search from High up); reads of 2D formats do not stop it. With retail
                 // selected, only frames above twice that raster take it. Large label sheets
                 // carry many short Code 128 fields: one read there also takes the stripe boxes.
-                let linear_read = reads.iter().chain(found.iter()).any(|read| {
-                    !matches!(
-                        read.format.as_str(),
-                        "QRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
-                    )
-                });
+                let linear_read = reads.iter().chain(found.iter()).any(is_linear_read);
                 let large = is_large_frame(image.width, image.height);
                 let label_sheet = is_label_sheet_sized(image.width, image.height)
                     && reads
@@ -361,14 +431,38 @@ impl Scanner {
                     } else {
                         self.localizer.detect(im)?.proposals
                     };
-                    let (extra, regions) = crate::fast_linear::recover_proposals(
+                    let (extra, regions) = crate::fast_linear::recover_proposals_hinted(
                         image,
                         &stripes,
                         oriented_mask,
                         sampler,
+                        &mut hinted,
                     )?;
                     found.extend(extra);
                     pending.extend(regions);
+                }
+                // With Codabar or Code 93 selected, Low sweeps the whole image for every selected
+                // linear format; that reader decodes symbols whose rows the profiles decode too
+                // rarely to accept. Linear-only frames still unread here run that reader on the
+                // first boxes with such rows, for the formats not swept before. Sweeping the
+                // whole image or the first unread boxes cost Medium 3-14% on them in Chrome.
+                if primary.is_none()
+                    && oriented_mask & LINEAR_MASK & !COMMON_LINEAR_MASK & !SWEPT != 0
+                    && !reads.iter().chain(found.iter()).any(is_linear_read)
+                {
+                    let preserved = if POLICY.preserved_sweep {
+                        ITF | CODE128
+                    } else {
+                        0
+                    };
+                    for polygon in hinted.iter().take(UNREAD_BOX_SWEEPS) {
+                        found.extend(sweep_box(
+                            image,
+                            polygon,
+                            oriented_mask & LINEAR_MASK & !SWEPT & !preserved,
+                            &mut self.additional_gray,
+                        )?);
+                    }
                 }
                 // The localizer works on a 768-pixel raster: in large frames small
                 // symbols fall below its minimum group size. Localize again at half

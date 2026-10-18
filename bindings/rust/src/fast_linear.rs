@@ -17,7 +17,7 @@ mod recovery;
 pub(crate) use recovery::{
     append_recovered, recover_proposals, recover_proposals_band, recover_proposals_color,
     recover_proposals_contrast, recover_proposals_deghost, recover_proposals_highpass,
-    recover_proposals_inverted, recover_proposals_wide,
+    recover_proposals_hinted, recover_proposals_inverted, recover_proposals_wide,
 };
 
 // Build-only research selection, deliberately absent from every public API.

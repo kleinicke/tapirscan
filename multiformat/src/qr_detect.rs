@@ -846,6 +846,11 @@ pub struct Policy {
     /// early, so this skips the long tail of accidental triples; images without
     /// any read keep the full attempt budget.
     pub patience: usize,
+    /// The patience once two or more symbols are read. A frame that already
+    /// shows several symbols likely holds more, and on a sheet of codes over a
+    /// grainy background the false triples between two true ones can outlast
+    /// the single-read patience.
+    pub several_patience: usize,
     /// Alignment searches per detection pass. Plausible but false triples on
     /// textured frames reach this costly stage.
     pub alignment_budget: usize,
@@ -876,6 +881,7 @@ impl Policy {
         Self {
             // Low serves live camera frames, where the next frame is another chance.
             patience: if mode == 0 { 50 } else { 100 },
+            several_patience: 100,
             // Low and Medium bound the alignment searches per pass; High keeps searching.
             alignment_budget: match mode {
                 0 => 150,
@@ -1071,7 +1077,12 @@ fn detect_with_recovery(
                 read_count = results.len();
                 last_read = attempts;
             }
-            if read_count > 0 && attempts - last_read > policy.patience {
+            let patience = if read_count > 1 {
+                policy.several_patience
+            } else {
+                policy.patience
+            };
+            if read_count > 0 && attempts - last_read > patience {
                 // The remaining triples were skipped: report limited work.
                 regions.limited = true;
                 break;
@@ -2027,5 +2038,22 @@ mod bounded_work_tests {
                 "finder at {left},{top}"
             );
         }
+    }
+}
+#[cfg(test)]
+mod policy_tests {
+    use super::Policy;
+
+    #[test]
+    fn several_reads_get_medium_patience_in_every_mode() {
+        // Low stops early after a single read only; a sheet of several symbols
+        // gets Medium's patience, so Low does not read fewer of them.
+        let medium = Policy::for_mode(1);
+        for mode in 0..4 {
+            let policy = Policy::for_mode(mode);
+            assert!(policy.several_patience >= policy.patience, "mode {mode}");
+            assert!(policy.several_patience >= medium.patience, "mode {mode}");
+        }
+        assert!(Policy::for_mode(0).patience < medium.patience);
     }
 }
