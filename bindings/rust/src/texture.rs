@@ -15,6 +15,20 @@ use barcode_research_core::numeric::{f64_isize, f64_usize, isize_f64, usize_f64}
 const STEP: f64 = 0.5;
 /// Longest sampled profile; longer axes are sampled more coarsely.
 const MAX_SAMPLES: usize = 8192;
+/// Longest box side, in image diagonals, that the tests examine. Larger or non-finite boxes
+/// come from no localizer; they are kept untested rather than sampled without bound.
+const MAX_EXTENT: f64 = 4.;
+
+/// Whether every corner of `q` is finite and every side at most `MAX_EXTENT` image diagonals.
+fn measurable(image: Image<'_>, q: &Quad) -> bool {
+    let (width, height) = (usize_f64(image.width), usize_f64(image.height));
+    let limit = MAX_EXTENT * (width * width + height * height).sqrt();
+    q.iter().flatten().all(|v| v.is_finite())
+        && (0..4).all(|i| {
+            let (a, b) = (q[i], q[(i + 1) % 4]);
+            (b[0] - a[0]).hypot(b[1] - a[1]) <= limit
+        })
+}
 
 /// Center line of a box whose first edge runs across the bars.
 struct Axis {
@@ -407,7 +421,7 @@ fn parallel_edges(image: Image<'_>, axis: &Axis, height: f64) -> bool {
             .then(|| image.bilinear_luminance(p[0], p[1]))
     };
     let (mut across, mut along) = (0., 0.);
-    let points = f64_usize(axis.length / 4.);
+    let points = f64_usize(axis.length / 4.).min(MAX_SAMPLES);
     for offset in [-0.25, 0., 0.25] {
         for i in 0..points {
             let d = usize_f64(i) * 4.;
@@ -525,6 +539,9 @@ fn periodic_box(
 ///   bars run along the whole symbol, however loosely the box surrounds it, while text,
 ///   noise and bar patterns that change every few rows do not.
 pub(crate) fn texture_proposal(image: Image<'_>, q: &Quad) -> bool {
+    if !measurable(image, q) {
+        return false;
+    }
     let axis = Axis::of(q);
     let height = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
     if axis.length < 16. {
@@ -1012,7 +1029,7 @@ fn bar_fan(image: Image<'_>, axis: &Axis, height: f64) -> Option<[f64; 2]> {
     // (position along the read, angle, weight) of each window with a dominant direction.
     let mut fits: Vec<(f64, f64, f64)> = Vec::new();
     let per_window = 0.9 / usize_f64(FAN_WINDOWS);
-    let points = f64_usize((per_window * axis.length).max(1.));
+    let points = f64_usize((per_window * axis.length).max(1.)).min(MAX_SAMPLES / FAN_WINDOWS);
     for w in 0..FAN_WINDOWS {
         let (mut xx, mut xy, mut yy) = (0., 0., 0.);
         let from = 0.05 + usize_f64(w) * per_window;
@@ -1164,6 +1181,9 @@ fn constant_along_bars(
 /// run after run on the read line and beside it (stripes, rings and zone plates). Every
 /// printed linear symbol is constant along its bars and mixes narrow and wide elements.
 pub(crate) fn texture_read(image: Image<'_>, q: &Quad) -> bool {
+    if !measurable(image, q) {
+        return false;
+    }
     let axis = Axis::of(q);
     let length = axis.length;
     if length < 16. {
@@ -1285,6 +1305,29 @@ mod tests {
             [left, top + 120.],
         ];
         (data, width, height, quad)
+    }
+
+    #[test]
+    fn huge_and_non_finite_boxes_are_kept_untested() {
+        // Such boxes once sampled up to usize::MAX points (1e9-pixel boxes took seconds).
+        let data = render(640, 480, checkerboard(5));
+        let image = view(&data, 640, 480);
+        let start = std::time::Instant::now();
+        for size in [1e5, 1e9, 1e300, f64::INFINITY, f64::NAN] {
+            let quads = [
+                [[0., 0.], [size, 0.], [size, 100.], [0., 100.]],
+                [[0., 0.], [100., 0.], [100., size], [0., size]],
+                [[-size, -size], [size, -size], [size, size], [-size, size]],
+            ];
+            for quad in quads {
+                assert!(!texture_proposal(image, &quad), "{quad:?}");
+                assert!(!texture_read(image, &quad), "{quad:?}");
+            }
+        }
+        // A box of four image diagonals is still tested, with bounded work.
+        let long = [[-1000., 200.], [2200., 200.], [2200., 280.], [-1000., 280.]];
+        let _ = (texture_proposal(image, &long), texture_read(image, &long));
+        assert!(start.elapsed().as_secs_f64() < 2., "{:?}", start.elapsed());
     }
 
     #[test]
