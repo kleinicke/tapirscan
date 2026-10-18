@@ -583,6 +583,48 @@ fn barcode_json_preserves_optional_metadata() {
     assert_eq!(b["readerInitialization"], true);
     assert_eq!(b["eanAddOn"], "12");
     assert_eq!(b["structuredAppend"]["parity"], 7);
+    assert!(b.get("content").is_none());
+}
+
+#[test]
+fn json_carries_content_for_structured_text() {
+    let mut barcode = tapirscan_api::Barcode {
+        text: "WIFI:S:Cafe;T:WPA;P:secret;;".into(),
+        format: tapirscan_api::Format::QrCode,
+        polygon: [[0.0, 0.0]; 4],
+        support: 1,
+        payload_bytes: None,
+        ean_add_on: None,
+        gs1: None,
+        reader_initialization: None,
+        structured_append: None,
+    };
+    let output = Output {
+        barcodes: vec![barcode.clone()],
+        report: None,
+        json: OnceLock::new(),
+    };
+    let json: serde_json::Value = serde_json::from_slice(output.json()).unwrap();
+    assert_eq!(
+        json[0]["content"],
+        serde_json::json!({
+            "kind": "WiFi",
+            "fields": [
+                {"name": "ssid", "value": "Cafe"},
+                {"name": "security", "value": "WPA"},
+                {"name": "password", "value": "secret"},
+            ]
+        })
+    );
+    // Plain text has no content member.
+    barcode.text = "plain".into();
+    let output = Output {
+        barcodes: vec![barcode],
+        report: None,
+        json: OnceLock::new(),
+    };
+    let json: serde_json::Value = serde_json::from_slice(output.json()).unwrap();
+    assert!(json[0].get("content").is_none());
 }
 
 #[test]

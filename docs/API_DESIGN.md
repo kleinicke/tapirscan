@@ -23,7 +23,9 @@ Inspection is explicit and returns an `InspectionResult` with:
 In C, both operations return owned result handles. The count, barcode and copy
 accessors work for either; summary and undecoded-region accessors need an
 inspection result. JSON is serialized lazily: a barcode array for scans, a
-schema-2 engine report for inspections.
+schema-2 engine report for inspections. Barcode JSON includes the
+[structured `content`](CONTENT.md#json) of its text, parsed only while
+serializing.
 
 ### Semantic rules
 

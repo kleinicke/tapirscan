@@ -309,6 +309,9 @@ same fields plus the ones marked _inspect_. Results are immutable.
 
 Separate labels with the same value stay separate entries. `barcode.as_dict()`
 exports a single read, and `json.dumps(result.as_dict())` works directly.
+Each exported barcode has a `content` entry, `{"kind", "fields": [{"name",
+"value"}]}` or `None` for plain text. It is parsed when `as_dict()` runs, not
+while scanning.
 
 `support` is an uncalibrated, reader-specific ranking heuristic, not a
 probability, and is not comparable across formats. In a mixed-format image,

@@ -17,7 +17,9 @@ geometry and timing can differ from 1.3.0. See the
 - Structured content in every binding: GS1 element strings and Digital Link,
   URLs, email, phone, SMS, geo, Wi-Fi, contacts, calendar events, Swiss
   QR-bills, EPC payments, HIBC, VINs and AAMVA driver's licenses. Every binding
-  adds `parse_content`; JavaScript, Rust and Swift barcodes also carry `content`. Swiss
+  adds `parse_content`; JavaScript, Rust and Swift barcodes also carry `content`.
+  Every JSON form of a barcode (Rust serde, the C scan JSON, Python `as_dict()`,
+  JavaScript) includes `content`, parsed only when JSON is produced. Swiss
   QR-bill, EPC, HIBC, VIN and AAMVA parsing is experimental. See
   [structured content](docs/CONTENT.md).
 - Opt-in formats `Code32` and `PZN` (pharmacy numbers in Code 39) and

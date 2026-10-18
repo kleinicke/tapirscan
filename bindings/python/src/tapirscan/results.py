@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from math import ceil, floor
+from pathlib import Path  # noqa: TC003
 from typing import Any, Literal, NamedTuple, TypeAlias, cast
 
 from typing_extensions import override
+
+from .content import parse_content
 
 # Imported at runtime so typing.get_type_hints() and Pydantic can resolve fields.
 from .formats import Format  # noqa: TC001
@@ -65,9 +68,16 @@ class Barcode:
     structured_append: StructuredAppend | None = None
     ean_add_on: str | None = None
     payload_bytes: bytes | None = None
+    # Native library that scanned this barcode, used to parse its content.
+    _library_dir: Path | None = field(default=None, repr=False, compare=False)
 
     def as_dict(self) -> dict[str, JSONValue]:
-        """Return JSON-compatible public fields, with payload bytes as integers."""
+        """Return JSON-compatible public fields, with payload bytes as integers.
+
+        `content` is parsed here, not at scan time: `{"kind": ..., "fields":
+        [{"name": ..., "value": ...}]}`, or None for plain text.
+        """
+        content = parse_content(self, library_dir=self._library_dir)
         return {
             "text": self.text,
             "format": self.format,
@@ -90,6 +100,16 @@ class Barcode:
             "payload_bytes": list(self.payload_bytes)
             if self.payload_bytes is not None
             else None,
+            "content": (
+                {
+                    "kind": content.kind,
+                    "fields": [
+                        {"name": f.name, "value": f.value} for f in content.fields
+                    ],
+                }
+                if content
+                else None
+            ),
         }
 
     @property

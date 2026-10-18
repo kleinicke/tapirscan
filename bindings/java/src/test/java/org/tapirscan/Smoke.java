@@ -20,6 +20,18 @@ public final class Smoke {
         return out.append('"').toString();
     }
 
+    private static String content(Barcode barcode) {
+        return Tapirscan.parseContent(barcode).map(content -> {
+            StringBuilder out = new StringBuilder("{\"kind\":").append(quoted(content.kind().toString()))
+                    .append(",\"fields\":[");
+            for (ContentField f : content.fields()) {
+                if (out.charAt(out.length() - 1) != '[') out.append(',');
+                out.append("{\"name\":").append(quoted(f.name())).append(",\"value\":").append(quoted(f.value())).append('}');
+            }
+            return out.append("]}").toString();
+        }).orElse("null");
+    }
+
     private static String polygon(List<Point> points) {
         StringBuilder out = new StringBuilder("[");
         for (Point p : points) {
@@ -88,7 +100,8 @@ public final class Smoke {
             out.append(i == 0 ? "" : ",").append("{\"text\":").append(quoted(b.text()))
                     .append(",\"format\":").append(quoted(b.format().toString()))
                     .append(",\"support\":").append(b.support())
-                    .append(",\"polygon\":").append(polygon(b.polygon())).append('}');
+                    .append(",\"polygon\":").append(polygon(b.polygon()))
+                    .append(",\"content\":").append(content(b)).append('}');
         }
         out.append("],\"undecoded\":[");
         for (int i = 0; i < result.undecoded().size(); i++) {

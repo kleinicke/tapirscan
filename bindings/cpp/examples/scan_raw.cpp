@@ -33,6 +33,19 @@ std::string polygon(const tapirscan::Quad& quad) {
     return out.str();
 }
 
+std::string content(const tapirscan::Barcode& barcode) {
+    const auto parsed = tapirscan::parse_content(barcode);
+    if (!parsed) return "null";
+    std::ostringstream out;
+    out << "{\"kind\":" << json_string(tapirscan::to_string(parsed->kind)) << ",\"fields\":[";
+    for (std::size_t i = 0; i < parsed->fields.size(); ++i) {
+        out << (i ? "," : "") << "{\"name\":" << json_string(parsed->fields[i].name)
+            << ",\"value\":" << json_string(parsed->fields[i].value) << '}';
+    }
+    out << "]}";
+    return out.str();
+}
+
 tapirscan::Mode mode(std::string_view name) {
     if (name == "low") return tapirscan::Mode::Low;
     if (name == "high") return tapirscan::Mode::High;
@@ -78,7 +91,8 @@ int main(int argc, char** argv) {
             const auto& b = result.barcodes[i];
             std::cout << (i ? "," : "") << "{\"text\":" << json_string(b.text)
                       << ",\"format\":" << json_string(tapirscan::to_string(b.format))
-                      << ",\"support\":" << b.support << ",\"polygon\":" << polygon(b.polygon) << '}';
+                      << ",\"support\":" << b.support << ",\"polygon\":" << polygon(b.polygon)
+                      << ",\"content\":" << content(b) << '}';
         }
         std::cout << "],\"undecoded\":[";
         for (std::size_t i = 0; i < result.undecoded.size(); ++i) {

@@ -3,7 +3,7 @@
 use std::{cell::RefCell, collections::HashMap};
 use tapirscan::{
     Barcode, EanAddOnPolicy, Formats, Image, InspectionResult, Mode, RowInput, ScanOptions,
-    Scanner, ScannerOptions, StructuredAppend,
+    Scanner, ScannerOptions,
 };
 
 const OK: i32 = 0;
@@ -415,46 +415,21 @@ fn wire_result(result: &InspectionResult) -> serde_json::Value {
     wire
 }
 
+/// The shared serde schema, which includes `content`, under the JavaScript
+/// names, plus the derived `rect`.
 fn wire_barcode(barcode: &Barcode) -> serde_json::Value {
-    let rect = barcode.rect();
-    let mut value = serde_json::json!({
-        "text": barcode.text,
-        "format": barcode.format.as_str(),
-        "polygon": barcode.polygon,
-        "support": barcode.support,
-        "rect": rect,
-    });
+    let mut value = serde_json::to_value(barcode).expect("barcode serialization");
     let object = value.as_object_mut().expect("barcode JSON is an object");
-    optional(object, "payloadBytes", barcode.payload_bytes.as_ref());
-    optional(object, "eanAddOn", barcode.ean_add_on.as_ref());
-    optional(object, "gs1", barcode.gs1.as_ref());
-    optional(
-        object,
-        "readerInitialization",
-        barcode.reader_initialization.as_ref(),
-    );
-    if let Some(append) = &barcode.structured_append {
-        object.insert("structuredAppend".into(), wire_append(append));
+    object.insert("rect".into(), serde_json::json!(barcode.rect()));
+    if let Some(bytes) = object.remove("bytes") {
+        object.insert("payloadBytes".into(), bytes);
     }
-    optional(object, "content", barcode.content().as_ref());
-    value
-}
-
-fn optional<T: serde::Serialize>(
-    object: &mut serde_json::Map<String, serde_json::Value>,
-    name: &str,
-    value: Option<&T>,
-) {
-    if let Some(value) = value {
-        object.insert(name.into(), serde_json::json!(value));
+    if let Some(append) = object
+        .get_mut("structuredAppend")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        append.retain(|_, field| !field.is_null());
     }
-}
-
-fn wire_append(append: &StructuredAppend) -> serde_json::Value {
-    let mut value = serde_json::json!({ "index": append.index, "count": append.count });
-    let object = value.as_object_mut().expect("append JSON is an object");
-    optional(object, "id", append.id.as_ref());
-    optional(object, "parity", append.parity.as_ref());
     value
 }
 

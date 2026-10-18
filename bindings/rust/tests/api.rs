@@ -514,6 +514,52 @@ fn barcode_serialization_round_trips_and_omits_absent_metadata() {
     assert_eq!(serde_json::to_value(&barcode).unwrap(), json);
 }
 
+#[test]
+fn barcode_serialization_carries_content_in_payload_order() {
+    let wifi = serde_json::json!({
+        "text": "WIFI:S:Cafe;T:WPA;P:se:cret\\;;;", "format": "QRCode", "support": 1,
+        "polygon": [[1.0, 2.0], [5.0, 2.0], [5.0, 9.0], [1.0, 9.0]]
+    });
+    let barcode: tapirscan::Barcode = serde_json::from_value(wifi).unwrap();
+    let json = serde_json::to_value(&barcode).unwrap();
+    assert_eq!(
+        json["content"],
+        serde_json::json!({
+            "kind": "WiFi",
+            "fields": [
+                {"name": "ssid", "value": "Cafe"},
+                {"name": "security", "value": "WPA"},
+                {"name": "password", "value": "se:cret;"},
+            ]
+        })
+    );
+    // The serialized content is the typed one, and deserializing ignores it.
+    assert_eq!(
+        json["content"],
+        serde_json::to_value(barcode.content()).unwrap()
+    );
+    let round: tapirscan::Barcode = serde_json::from_value(json).unwrap();
+    assert_eq!(round, barcode);
+
+    // Plain text has no content key, and the GS1 flag selects element strings.
+    let mut plain = barcode.clone();
+    plain.text = "plain text".into();
+    assert!(
+        serde_json::to_value(&plain)
+            .unwrap()
+            .get("content")
+            .is_none()
+    );
+    let mut gs1 = barcode;
+    gs1.text = "0109506000134352".into();
+    assert!(serde_json::to_value(&gs1).unwrap().get("content").is_none());
+    gs1.gs1 = Some(true);
+    assert_eq!(
+        serde_json::to_value(&gs1).unwrap()["content"]["kind"],
+        "GS1"
+    );
+}
+
 /// Code 39 modules for `0CSSBD` (Code 32 of 012345676) and `-02532876` (PZN).
 const CODE32_BITS: &str = "1001011011010101001101101011011010010101011010110010101101011001010110100101101010110010110100101101101";
 const PZN_BITS: &str = "1001011011010100101011011010100110110101011001010110110100110101011011001010101011001010110110100101101010100101101101011001101010100101101101";

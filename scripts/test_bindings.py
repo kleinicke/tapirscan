@@ -72,11 +72,16 @@ def run(*args: object) -> dict[str, Any]:
 
 
 def harnesses(
-    mode: str, image: tuple[int, int, int, int, Path], *, debug: bool
+    mode: str,
+    image: tuple[int, int, int, int, Path],
+    *,
+    debug: bool,
+    formats: tuple[int, str] = (EAN13, "EAN13"),
 ) -> dict[str, dict[str, Any]]:
     """Scan one raw image with every non-Python binding's scan_raw harness."""
     w, h, c, stride, path = image
-    args = [mode, w, h, c, stride, path, int(debug), EAN13]
+    bits, name = formats
+    args = [mode, w, h, c, stride, path, int(debug), bits]
     classpath = os.pathsep.join([str(JAR), str(ROOT / "build/java/test-classes")])
     return {
         "rust": run(EXAMPLES / "scan_raw", *args),
@@ -94,7 +99,7 @@ def harnesses(
             "node",
             ROOT / "bindings/javascript/test/native_parity.mjs",
             *args[:7],
-            "EAN13",
+            name,
         ),
     }
 
@@ -115,6 +120,7 @@ def typed(result: InspectionResult) -> dict[str, Any]:
                 "format": b.format,
                 "support": b.support,
                 "polygon": [[p.x, p.y] for p in b.polygon],
+                "content": b.as_dict()["content"],
             }
             for b in result.barcodes
         ],
@@ -168,6 +174,51 @@ class Bindings(unittest.TestCase):
                                             self.assertEqual(
                                                 evidence[key], raw[key], (language, key)
                                             )
+
+    def test_content_json_agrees_across_languages(self) -> None:
+        """A GS1-128 symbol has the same content JSON in every binding.
+
+        Rust serde, C++ and Java parse it from the typed result, JavaScript
+        receives it in the WASM JSON, and Python exports it with `as_dict()`.
+        """
+        # Start C, FNC1, (01)09506000134352, check character and stop.
+        widths = (
+            "2112324111312221222212132311313141112122221221321123312133111311412331112"
+        )
+        width, height, scale = 480, 120, 3
+        pixels = bytearray([255]) * (width * height)
+        x = 40
+        for i, digit in enumerate(widths):
+            modules = int(digit) * scale
+            if i % 2 == 0:
+                for y in range(20, 100):
+                    pixels[y * width + x : y * width + x + modules] = bytes(modules)
+            x += modules
+        expected = {
+            "kind": "GS1",
+            "fields": [{"name": "01", "value": "09506000134352"}],
+        }
+        code128 = (16, "Code128")
+        with (
+            tempfile.TemporaryDirectory(prefix="tapirscan-content-") as temp,
+            Scanner("medium", formats="Code128", library_dir=LIBS) as scanner,
+        ):
+            path = Path(temp) / "pixels.raw"
+            path.write_bytes(bytes(pixels))
+            image = PixelImage(bytes(pixels), width=width, height=height)
+            result = scanner.inspect(image)
+            self.assertEqual(
+                [b.as_dict()["content"] for b in result.barcodes], [expected]
+            )
+            reference = typed(result)
+            for language, other in harnesses(
+                "medium", (width, height, 1, width, path), debug=False, formats=code128
+            ).items():
+                other.pop("debug")
+                if language == "js":
+                    assert_wasm_parity(other, reference, language)
+                else:
+                    self.assertEqual(other, reference, language)
 
     def test_python_validation_and_lifetime(self) -> None:
         """Invalid input is rejected and results outlive their scanner."""

@@ -37,6 +37,23 @@ unescaped but otherwise as encoded: dates, amounts and coordinates stay text.
 GS1 element strings carry no visible marker, so they are parsed only when the
 reader reported GS1 or you pass `gs1 = true`.
 
+## JSON
+
+Wherever a barcode is exported as JSON, `content` sits beside its other fields:
+Rust serde, the JSON of a C scan result (and so the C++ and Java accessors that
+return it), Python `as_dict()` and the JavaScript barcode. It has the same shape
+everywhere:
+
+```json
+{ "kind": "WiFi", "fields": [{ "name": "ssid", "value": "Cafe" }] }
+```
+
+Plain text has no `content` member (Python `as_dict()` has `None`, like its other
+unavailable metadata). The text is parsed when the JSON is produced, so typed
+scans do not pay for it; JavaScript produces it for every scan because the WASM
+adapter returns JSON. Inspection reports are unstable engine diagnostics and
+carry no `content`.
+
 ## Kinds
 
 Kinds marked _experimental_ may change their fields or recognition, or be

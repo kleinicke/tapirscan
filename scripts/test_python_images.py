@@ -276,6 +276,41 @@ class Images(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             vcard.kind = "URL"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
 
+    def test_as_dict_carries_content(self) -> None:
+        """`as_dict()` exports the content like the other bindings' JSON, or None."""
+        polygon = (barcode.Point(0.0, 0.0),) * 4
+        wifi = Barcode(
+            "WIFI:S:Cafe;T:WPA;P:se:cret\\;;;",
+            polygon,
+            "QRCode",
+            _library_dir=LIBS,
+        )
+        exported = wifi.as_dict()
+        self.assertEqual(
+            exported["content"],
+            {
+                "kind": "WiFi",
+                "fields": [
+                    {"name": "ssid", "value": "Cafe"},
+                    {"name": "security", "value": "WPA"},
+                    {"name": "password", "value": "se:cret;"},
+                ],
+            },
+        )
+        self.assertEqual(json.loads(json.dumps(exported)), exported)
+        plain = Barcode("plain text", polygon, "QRCode", _library_dir=LIBS)
+        self.assertIsNone(plain.as_dict()["content"])
+        gs1 = Barcode(
+            "0109506000134352", polygon, "Code128", gs1=True, _library_dir=LIBS
+        )
+        content = gs1.as_dict()["content"]
+        self.assertEqual(
+            content,
+            {"kind": "GS1", "fields": [{"name": "01", "value": "09506000134352"}]},
+        )
+        # The library directory is not part of a barcode's identity.
+        self.assertEqual(gs1, Barcode("0109506000134352", polygon, "Code128", gs1=True))
+
     def test_content_kind_names(self) -> None:
         """Every generated content kind matches the native name for its number."""
         lib = load(library_path(LIBS))
@@ -752,6 +787,7 @@ class Images(unittest.TestCase):
         for fields, (gs1, initialization, parity) in cases:
             reader = Scanner.__new__(Scanner)
             reader._lib = _TypedResult(fields, gs1, initialization, parity)  # noqa: SLF001  # ty: ignore[invalid-assignment]
+            reader._library_dir = LIBS  # noqa: SLF001
             read = reader._barcode(1, 0)  # noqa: SLF001
             text, payload, add_on, append_id = fields
             with self.subTest(text=text):

@@ -180,7 +180,10 @@ pub type Quad = [[f64; 2]; 4];
 /// Decoded barcode instance. Equal values at distinct locations remain separate.
 ///
 /// Serde uses the shared barcode schema; absent optional metadata is omitted.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+/// Serializing also parses [`content`](Barcode::content) and writes it as
+/// `{"kind": ..., "fields": [{"name": ..., "value": ...}]}`, omitted for plain
+/// text; deserializing ignores it, so a round trip recomputes it from `text`.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Barcode {
     /// Decoded text, excluding the separately reported retail supplement.
     pub text: String,
@@ -213,6 +216,46 @@ pub struct Barcode {
         skip_serializing_if = "Option::is_none"
     )]
     pub structured_append: Option<StructuredAppend>,
+}
+impl Serialize for Barcode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Content parsing runs only here, so scanning and typed access never pay for it.
+        #[derive(Serialize)]
+        struct Wire<'a> {
+            text: &'a str,
+            format: Format,
+            polygon: Quad,
+            support: u64,
+            #[serde(rename = "bytes", skip_serializing_if = "Option::is_none")]
+            payload_bytes: Option<&'a [u8]>,
+            #[serde(rename = "eanAddOn", skip_serializing_if = "Option::is_none")]
+            ean_add_on: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            gs1: Option<bool>,
+            #[serde(
+                rename = "readerInitialization",
+                skip_serializing_if = "Option::is_none"
+            )]
+            reader_initialization: Option<bool>,
+            #[serde(rename = "structuredAppend", skip_serializing_if = "Option::is_none")]
+            structured_append: Option<&'a StructuredAppend>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            content: Option<crate::Content>,
+        }
+        Wire {
+            text: &self.text,
+            format: self.format,
+            polygon: self.polygon,
+            support: self.support,
+            payload_bytes: self.payload_bytes.as_deref(),
+            ean_add_on: self.ean_add_on.as_deref(),
+            gs1: self.gs1,
+            reader_initialization: self.reader_initialization,
+            structured_append: self.structured_append.as_ref(),
+            content: self.content(),
+        }
+        .serialize(serializer)
+    }
 }
 impl Barcode {
     /// Structured content of the decoded text, such as GS1 elements, a Wi-Fi

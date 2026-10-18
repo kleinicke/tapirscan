@@ -262,6 +262,7 @@ class Scanner:
         self._parallel = parallel
         self._formats = resolve_formats(formats)
         path = library_path(library_dir)
+        self._library_dir = path.parent
         self._lock = RLock()
         # Reused snapshot of caller pixels; grows to the largest image until close().
         self._staging: c.Array[c.c_uint8] | None = None
@@ -510,6 +511,7 @@ class Scanner:
             append,
             add_on.decode() if add_on is not None else None,
             field(_PAYLOAD_BYTES, native.payload_bytes_length),
+            self._library_dir,
         )
 
     def close(self) -> None:

@@ -127,7 +127,9 @@ geometry excludes supplements.
 
 `Format`, `Barcode`, `StructuredAppend`, `Rect` and `ScanResult` implement serde
 `Serialize` and `Deserialize`; `UndecodedRegion` implements `Deserialize` only.
-`InspectionResult` is not serializable.
+`InspectionResult` is not serializable. A serialized `Barcode` also carries its
+`content` (see [structured content](#structured-content)); it is parsed during
+serialization only, never while scanning.
 
 ## Structured content
 

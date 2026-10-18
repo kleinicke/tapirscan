@@ -131,8 +131,10 @@ without an accepted decode; `format` is 0 when unknown.
 
 JSON is serialized on first use. Query `tapirscan_result_json_length(result,
 &length)`, allocate `length + 1` bytes, then call `tapirscan_result_copy_json`.
-For scans it is an array of the decoded barcodes; for inspections it is a
-schema-2 engine report whose fields may change.
+For scans it is an array of the decoded barcodes, each with its structured
+`content` unless the text is plain (parsed when the JSON is first requested);
+for inspections it is a schema-2 engine report whose fields may change and
+carries no `content`.
 
 ## Structured content
 
