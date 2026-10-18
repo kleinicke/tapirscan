@@ -144,7 +144,7 @@ fn print_content(barcode: &tapirscan::Barcode) {
 }
 ```
 
-Kinds and fields: [structured content](../../docs/CONTENT.md).
+Kinds and fields: [structured content](https://github.com/kleinicke/tapirscan/blob/main/docs/CONTENT.md).
 
 ## Images
 

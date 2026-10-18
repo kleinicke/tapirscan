@@ -200,7 +200,7 @@ into a pixel buffer it reuses, as large as the largest image so far, until
 | `library_dir`       | Creation / one-shot       | Bundled library | Directory of a custom native build. Lookup order: this argument, `TAPIRSCAN_LIBRARY_DIR`, then the wheel's library.                                        |
 
 Effort modes tune every format; see
-[effort levels](../../docs/FORMATS.md#effort-levels). Format group exports: `retail_formats`, `common_linear_formats`,
+[effort levels](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md#effort-levels). Format group exports: `retail_formats`, `common_linear_formats`,
 `common_formats`, `linear_formats`, `matrix_formats`. Resizing, cropping, rotation
 and camera capture are up to the caller.
 
@@ -342,7 +342,7 @@ if content and content.kind == "GS1":
     gtin, expiry = content.get("01"), content.get("17")
 ```
 
-Kinds and fields: [structured content](../../docs/CONTENT.md).
+Kinds and fields: [structured content](https://github.com/kleinicke/tapirscan/blob/main/docs/CONTENT.md).
 
 ## EAN/UPC supplements
 

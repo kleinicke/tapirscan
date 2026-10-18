@@ -20,6 +20,14 @@ const versions = [
   ["npm lockfile", lock.version],
   ["npm lockfile root", lock.packages?.[""].version],
 ];
+// Registry pages render these READMEs outside the repository, so relative links that
+// leave the package directory break there.
+const outsideLinks = ["javascript", "python", "rust"].flatMap((name) =>
+  [...read(`bindings/${name}/README.md`).matchAll(/\]\((\.\.\/[^)\s]*)\)/g)].map(
+    ([, target]) =>
+      `bindings/${name}/README.md links outside its package with ${target}; use an absolute URL`,
+  ),
+);
 const issues = [
   [
     npm.name === "tapirscan" && field(project, "name") === "tapirscan",
@@ -46,7 +54,8 @@ const issues = [
   ]),
 ]
   .filter(([ok]) => !ok)
-  .map(([, message]) => message);
+  .map(([, message]) => message)
+  .concat(outsideLinks);
 for (const issue of issues) console.error(`BLOCKED: ${issue}`);
 if (issues.length) process.exitCode = 1;
 else console.log(`Publication metadata ready for tapirscan ${npm.version}`);
