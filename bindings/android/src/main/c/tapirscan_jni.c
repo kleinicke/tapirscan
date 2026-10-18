@@ -152,6 +152,7 @@ static jdoubleArray region_array(JNIEnv *env, tapirscan_result result, uint64_t 
         tapirscan_region region;
         int32_t status = tapirscan_result_undecoded(result, i, &region);
         if (status != TAPIRSCAN_OK) {
+            (*env)->DeleteLocalRef(env, out);
             throw_error(env, status, NULL);
             return NULL;
         }
