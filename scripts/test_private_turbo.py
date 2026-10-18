@@ -6,7 +6,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from build_native import cargo_env
+from build_native import cargo_env, rustflags
 from build_turbo import TIERS, environment
 from build_wasm import arguments
 
@@ -52,6 +52,17 @@ class PrivateTurboTests(unittest.TestCase):
             turbo = cargo_env(ROOT / "build/x", turbo="8")
         self.assertEqual(turbo["TAPIRSCAN_TURBO_PROFILE_CAP"], "576")
         self.assertNotIn("TAPIRSCAN_LOW_CLASSIC", turbo)
+
+    def test_caller_rustflags_reach_host_builds_only(self) -> None:
+        """Host-only flags such as target-cpu=native stay out of cross builds."""
+        native = ["-C", "target-cpu=native"]
+        with patch.dict(os.environ, {"RUSTFLAGS": " ".join(native)}):
+            os.environ.pop("CARGO_ENCODED_RUSTFLAGS", None)
+            self.assertEqual(rustflags()[-2:], native)
+            self.assertEqual(rustflags("aarch64-apple-ios"), [])
+            self.assertEqual(
+                rustflags("x86_64-linux-android"), ["-C", "target-cpu=x86-64-v2"]
+            )
 
     def test_package_build_rejects_private_selection(self) -> None:
         """Never build a private Low-slot scanner into the package assets."""

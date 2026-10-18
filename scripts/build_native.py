@@ -20,18 +20,25 @@ TARGET = ROOT / "build/native-target"
 EXAMPLES = TARGET / "release/examples"
 # x86-64 builds target x86-64-v2 (SSE4.2, POPCNT): every Intel CPU since 2008 and
 # AMD since 2011. Scans are 20-30% faster than the baseline; AVX2 (v3) adds 2-4%.
-X86_64_RUSTFLAGS = "-C target-cpu=x86-64-v2"
+X86_64_RUSTFLAGS: str = "-C target-cpu=x86-64-v2"
 
 
 def rustflags(target: str | None = None) -> list[str]:
-    """Return a Rust target's fixed compiler flags followed by the caller's own.
+    """Return a Rust target's fixed compiler flags, plus the caller's for the host.
 
-    `target` defaults to the host. The caller's CARGO_ENCODED_RUSTFLAGS, which
-    cargo prefers, or else RUSTFLAGS comes after the fixed flag, so a caller can
-    still override it.
+    `target` is a Rust target triple for a cross build (iOS, Android, the other
+    macOS architecture) or None for the host library. Every x86-64 target gets
+    the fixed x86-64-v2 flag; the Android x86-64 ABI already requires it.
+
+    The caller's CARGO_ENCODED_RUSTFLAGS, which cargo prefers, or else RUSTFLAGS
+    applies to host builds only, after the fixed flag so a caller can still
+    override it. Cross builds ignore it: host-only flags such as
+    `-C target-cpu=native` would describe the build machine, not the device.
     """
     arch = target.split("-")[0] if target else platform.machine().lower()
     fixed = X86_64_RUSTFLAGS.split() if arch in ("x86_64", "amd64") else []
+    if target is not None:
+        return fixed
     encoded = os.environ.get("CARGO_ENCODED_RUSTFLAGS")
     if encoded is not None:
         caller = encoded.split("\x1f") if encoded else []
