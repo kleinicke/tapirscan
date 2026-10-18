@@ -41,6 +41,7 @@ fn cross(
     let limit = if vertical { h } else { w };
     let at = if vertical { y } else { x };
     let pixel = |i: usize| {
+        crate::count_finder_work(1);
         if vertical {
             image[i * w + x]
         } else {
@@ -86,6 +87,12 @@ fn cross(
     }
     Some((center, module))
 }
+/// Finder candidates verified per threshold image, by support.
+const MAX_FINDERS: usize = 512;
+/// Scanned row pixels per finder cross check. Real images need at most one check
+/// per 50 pixels; checkerboards and stripes pass the row ratio test at nearly every
+/// run.
+const PIXELS_PER_CHECK: usize = 16;
 #[cfg(not(target_arch = "wasm32"))]
 fn finders(image: &[bool], w: usize, h: usize) -> (Vec<Finder>, bool) {
     finders_with_rows(image, w, h, None)
@@ -99,7 +106,14 @@ fn finders_with_rows(
     let mut found = finder_index::Index::new(w, h);
     let step = (h / 600).max(1);
     let mut offsets = Vec::new();
+    // Cross checks are budgeted per scanned pixel. Half of the budget is available
+    // from the start and each row adds its share of the other half; unused checks
+    // carry over, so a textured band cannot exhaust the rows below it.
+    let rows = h.div_ceil(step);
+    let mut available = w * rows;
+    let mut cut = false;
     for y in (0..h).step_by(step) {
+        available += w;
         let row = &image[y * w..(y + 1) * w];
         if let Some(cache) = row_cache {
             cache.copy_or_extract(y, row, &mut offsets);
@@ -115,6 +129,11 @@ fn finders_with_rows(
             let Some(m) = ratio(&widths) else {
                 continue;
             };
+            let Some(left) = available.checked_sub(2 * PIXELS_PER_CHECK) else {
+                cut = true;
+                break;
+            };
+            available = left;
             let x = offsets[i] + widths[0] + widths[1] + widths[2] / 2;
             let Some((cy, my)) = cross(image, w, h, x, y, true, m) else {
                 continue;
@@ -136,10 +155,21 @@ fn finders_with_rows(
     }
     let mut found = found.into_centers();
     found.retain(|f| f.support >= 2);
-    found.retain(|f| crate::binarization::has_two_directions(image, w, h, f.x, f.y, f.module * 4.));
     found.sort_by_key(|f| std::cmp::Reverse(f.support));
-    let limited = found.len() > 512;
-    found.truncate(512);
+    // Check directions in support order and stop after one finder more than are
+    // kept: periodic textures produce tens of thousands of candidates, and beyond
+    // that count only `limited` depends on them.
+    let mut verified = 0;
+    found.retain(|f| {
+        if verified > MAX_FINDERS {
+            return false;
+        }
+        let kept = crate::binarization::has_two_directions(image, w, h, f.x, f.y, f.module * 4.);
+        verified += usize::from(kept);
+        kept
+    });
+    let limited = cut || found.len() > MAX_FINDERS;
+    found.truncate(MAX_FINDERS);
     for f in &mut found {
         f.quad = central_quad(image, w, h, f);
     }
@@ -1854,5 +1884,66 @@ mod finder_grid_tests {
             assert_eq!(finder_grid_valid(&image, w, h, center, ex, ey), expected);
         }
         assert!(valid > 500, "the test must exercise both outcomes");
+    }
+}
+
+#[cfg(test)]
+mod bounded_work_tests {
+    use super::*;
+    fn pattern(w: usize, h: usize, dark: impl Fn(usize, usize) -> bool) -> Vec<bool> {
+        (0..w * h).map(|i| dark(i % w, i / w)).collect()
+    }
+    #[test]
+    fn periodic_textures_spend_bounded_finder_work() {
+        let (w, h) = (640, 360);
+        // Without the check budget these read 2.2, 7.5 and 4.3 million pixels; the
+        // diagonal stripes also check the directions of thousands of candidates.
+        for (name, bits, limit) in [
+            (
+                "checkerboard",
+                pattern(w, h, |x, y| (x / 2 + y / 2) % 2 == 0),
+                6,
+            ),
+            (
+                "diagonal stripes",
+                pattern(w, h, |x, y| (x + y) / 3 % 2 == 0),
+                20,
+            ),
+            ("vertical stripes", pattern(w, h, |x, _| x / 2 % 2 == 0), 8),
+        ] {
+            crate::take_finder_work();
+            let (_, limited) = finders(&bits, w, h);
+            let work = crate::take_finder_work();
+            assert!(limited, "{name}: the check budget is exhausted");
+            assert!(work < limit * w * h, "{name}: {work} pixel reads");
+        }
+    }
+    #[test]
+    fn a_textured_band_leaves_checks_for_finders_below_it() {
+        let (w, h) = (640, 360);
+        let mut bits = pattern(w, h, |x, y| y < 120 && (x / 2 + y / 2) % 2 == 0);
+        // Three finder patterns of 4-pixel modules at the bottom.
+        for [left, top] in [[400_usize, 220_usize], [520, 220], [400, 320]] {
+            for y in 0..28_usize {
+                for x in 0..28_usize {
+                    let ring = (x / 4).abs_diff(3_usize).max((y / 4).abs_diff(3_usize));
+                    bits[(top + y) * w + left + x] = ring != 2;
+                }
+            }
+        }
+        let (found, limited) = finders(&bits, w, h);
+        assert!(limited, "the checkerboard band exhausts the initial checks");
+        for [left, top] in [[400_usize, 220_usize], [520, 220], [400, 320]] {
+            let (cx, cy) = (
+                crate::numeric::usize_f32(left + 14),
+                crate::numeric::usize_f32(top + 14),
+            );
+            assert!(
+                found
+                    .iter()
+                    .any(|f| (f.x - cx).abs() < 2. && (f.y - cy).abs() < 2.),
+                "finder at {left},{top}"
+            );
+        }
     }
 }

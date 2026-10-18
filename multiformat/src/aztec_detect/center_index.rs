@@ -1,6 +1,10 @@
 //! Preserve first-insertion clustering while restricting distance checks to nearby cells.
 use super::Center;
 
+/// Cell side in pixels. Matching radii are a few pixels, and on fine textures a
+/// cell holds one center per few pixels, so small cells keep each query short.
+pub(super) const CELL: usize = 8;
+
 pub(super) struct Index {
     pub centers: Vec<Center>,
     cells: Vec<Vec<usize>>,
@@ -9,8 +13,8 @@ pub(super) struct Index {
 }
 impl Index {
     pub fn new(w: usize, h: usize) -> Self {
-        let columns = w.div_ceil(32).max(1);
-        let rows = h.div_ceil(32).max(1);
+        let columns = w.div_ceil(CELL).max(1);
+        let rows = h.div_ceil(CELL).max(1);
         Self {
             centers: Vec::new(),
             cells: vec![Vec::new(); columns * rows],
@@ -19,8 +23,8 @@ impl Index {
         }
     }
     fn cell(&self, x: f32, y: f32) -> usize {
-        let column = (crate::numeric::f32_usize(x.max(0.)) / 32).min(self.columns - 1);
-        let row = (crate::numeric::f32_usize(y.max(0.)) / 32).min(self.rows - 1);
+        let column = (crate::numeric::f32_usize(x.max(0.)) / CELL).min(self.columns - 1);
+        let row = (crate::numeric::f32_usize(y.max(0.)) / CELL).min(self.rows - 1);
         row * self.columns + column
     }
     pub fn insert(&mut self, x: f32, y: f32, module: f32, radius: f32) {

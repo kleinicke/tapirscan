@@ -326,6 +326,24 @@ fn run_offsets_into(bits: &[bool], offsets: &mut Vec<usize>) {
         offsets.push(0);
     }
 }
+#[cfg(test)]
+thread_local! {
+    /// Pixel reads of the bounded finder loops on this thread, for work-bound tests.
+    static FINDER_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+/// Count finder pixel reads for the work-bound tests; a no-op outside tests.
+#[inline]
+pub(crate) fn count_finder_work(reads: usize) {
+    #[cfg(test)]
+    FINDER_WORK.with(|work| work.set(work.get() + reads));
+    #[cfg(not(test))]
+    let _ = reads;
+}
+/// Finder pixel reads counted on this thread since the previous call.
+#[cfg(test)]
+pub(crate) fn take_finder_work() -> usize {
+    FINDER_WORK.with(std::cell::Cell::take)
+}
 pub fn transition_offsets_into(bits: &[bool], offsets: &mut Vec<usize>) {
     offsets.clear();
     offsets.push(0);

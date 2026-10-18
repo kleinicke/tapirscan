@@ -231,6 +231,7 @@ pub(crate) fn has_two_directions_by(
     let (mut xx, mut yy, mut xy) = (0_i32, 0_i32, 0_i32);
     for y in (top..bottom).step_by(step) {
         for x in (left..right).step_by(step) {
+            crate::count_finder_work(4);
             let at = y * width + x;
             let dx = i32::from(bits(at + 1)) - i32::from(bits(at - 1));
             let dy = i32::from(bits(at + width)) - i32::from(bits(at - width));
