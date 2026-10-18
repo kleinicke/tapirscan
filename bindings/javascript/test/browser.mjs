@@ -158,6 +158,7 @@ test("errors keep their types, and disposal rejects queued work", async () => {
     const scanner = new Scanner();
     const results = {
       unknownOption: await failure((async () => new Scanner({ loadWasm: () => {} }))()),
+      unknownGeneric: await failure((async () => new Scanner({ transferr: true }))()),
       badMode: await failure(new Scanner({ mode: "ultra" }).ready),
       badModeScan: await failure(new Scanner({ mode: "ultra" }).scan(canvas)),
       badFormat: await failure(scanner.scan(canvas, { formats: "QR" })),
@@ -174,6 +175,7 @@ test("errors keep their types, and disposal rejects queued work", async () => {
     return results;
   });
   assert.match(outcome.unknownOption.join(" "), /^TypeError Unknown scanner option: loadWasm/);
+  assert.deepEqual(outcome.unknownGeneric, ["TypeError", "Unknown scanner option: transferr"]);
   assert.equal(outcome.badMode[0], "TypeError");
   assert.deepEqual(outcome.badModeScan, outcome.badMode);
   assert.match(outcome.badFormat.join(" "), /^TypeError Unsupported barcode format or preset: QR/);
@@ -278,6 +280,24 @@ test("images above the working size decode in bands with the same result", async
   assert.ok(outcome.proposals > 0, "expected localization proposals");
   assert.ok(outcome.inside, "diagnostic regions outside the source image");
   assert.ok(outcome.fullFrame, "full-frame search window does not span the source image");
+});
+
+test("one-shot scan and inspect accept the per-call transfer option", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { image, text, tapirscan } = globalThis.fixture;
+    const whole = { ...image, data: image.data.slice() };
+    const scanned = await tapirscan.scan(whole, { transfer: true, formats: "retail" });
+    const detached = whole.data.byteLength;
+    const again = { ...image, data: image.data.slice() };
+    const inspected = await tapirscan.inspect(again, { transfer: true });
+    let rejected = "";
+    await tapirscan.scan(image, { transfer: "yes" }).catch((error) => (rejected = error.name));
+    return { text, scanned: scanned.values, inspected: inspected.values, detached, rejected };
+  });
+  assert.deepEqual(outcome.scanned, [outcome.text]);
+  assert.deepEqual(outcome.inspected, [outcome.text]);
+  assert.equal(outcome.detached, 0);
+  assert.equal(outcome.rejected, "TypeError");
 });
 
 test("transfer moves whole pixel buffers to the worker and copies partial views", async () => {

@@ -105,6 +105,7 @@ export async function browserConsumer(file: File, video: HTMLVideoElement, image
     const fromFile: BrowserScanResult = await scanner.scan(file);
     const fromVideo: BrowserResult = await scanner.inspect(video, { formats: "EAN13" });
     const fromPixels: BrowserScanResult = await scanSource(image, { formats: "EAN13" });
+    await scanSource(image, { transfer: true, mode: "low" });
     // @ts-expect-error Results are frozen.
     fromFile.barcodes[0].text = "changed";
     // @ts-expect-error Functions cannot reach the worker; use the core entry.

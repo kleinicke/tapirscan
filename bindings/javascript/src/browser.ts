@@ -137,7 +137,9 @@ export class Scanner {
     for (const key of Object.keys(options))
       if (!scannerOptions.includes(key))
         throw new TypeError(
-          `Unknown scanner option: ${key}. Use the core "tapirscan" entry for loadWasm.`,
+          key === "loadWasm"
+            ? `Unknown scanner option: ${key}. Use the core "tapirscan" entry for loadWasm.`
+            : `Unknown scanner option: ${key}`,
         );
     if (typeof Worker === "undefined") {
       this.#closed = new Error(
@@ -294,11 +296,24 @@ export class Scanner {
 }
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
+/** Options of the one-shot helpers: the scanner options plus the per-call `transfer`. */
+export type OneShotOptions = ScannerOptions & Pick<ScanOptions, "transfer">;
+
+/** Split the per-call `transfer` off; the scanner constructor rejects it. */
+function splitOneShot(options: OneShotOptions): [ScannerOptions, ScanOptions] {
+  const input: unknown = options;
+  // Invalid values pass through for the constructor to reject.
+  if (input === null || typeof input !== "object" || Array.isArray(input)) return [options, {}];
+  const { transfer, ...scannerOptions } = options;
+  return [scannerOptions, transfer === undefined ? {} : { transfer }];
+}
+
 /** Scan one image with a temporary scanner. Reuse a Scanner for several images. */
-export async function scan(source: ImageSource, options: ScannerOptions = {}): Promise<ScanResult> {
-  const scanner = new Scanner(options);
+export async function scan(source: ImageSource, options: OneShotOptions = {}): Promise<ScanResult> {
+  const [scannerOptions, callOptions] = splitOneShot(options);
+  const scanner = new Scanner(scannerOptions);
   try {
-    return await scanner.scan(source);
+    return await scanner.scan(source, callOptions);
   } finally {
     scanner.dispose();
   }
@@ -307,11 +322,12 @@ export async function scan(source: ImageSource, options: ScannerOptions = {}): P
 /** Inspect one image with a temporary scanner. */
 export async function inspect(
   source: ImageSource,
-  options: ScannerOptions = {},
+  options: OneShotOptions = {},
 ): Promise<InspectionResult> {
-  const scanner = new Scanner(options);
+  const [scannerOptions, callOptions] = splitOneShot(options);
+  const scanner = new Scanner(scannerOptions);
   try {
-    return await scanner.inspect(source);
+    return await scanner.inspect(source, callOptions);
   } finally {
     scanner.dispose();
   }
