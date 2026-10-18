@@ -52,8 +52,8 @@ geometry and timing can differ from 1.3.0. See the
   or UPC-A it also reads.
 - **QR Code** reads more distorted, blurred, shadowed, tiny and large-frame
   symbols. In mixed selections QR runs as its own reader group and reads
-  almost like a QR-only scan; with EAN add-ons read, Low and Medium skip the
-  costly recoveries of unread frames.
+  almost like a QR-only scan. Reading EAN add-ons does not change 2D reads; it
+  only adds supplement decoding time.
 - **Data Matrix** reads more phone photos, industrial marks and foreshortened,
   tiny, blurred and large close-up symbols.
 - **PDF417** reads more perspective, blurred and border-clipped symbols. When two

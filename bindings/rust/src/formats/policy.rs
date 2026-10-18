@@ -85,9 +85,6 @@ pub(super) struct ModePolicy {
     /// 12-megapixel close-ups of large symbols are read by the finer copy without any
     /// candidate on the coarse one.
     pub data_matrix_averaged_needs_candidate: bool,
-    /// EAN add-on selections also run the 2D recoveries of unread frames without a
-    /// candidate region; otherwise they skip them to keep their cost.
-    pub addon_2d_recoveries: bool,
 
     // Localized linear recovery (`recover_linear_regions`, not compiled into Low).
     /// Exact source profiles are cached within one frame.
@@ -136,7 +133,6 @@ impl ModePolicy {
         data_matrix_averaged_without_region: false,
         data_matrix_averaged_scales: &[400, 256],
         data_matrix_averaged_needs_candidate: false,
-        addon_2d_recoveries: false,
         source_profile_cache: false,
         sparse_stripe_fallback: false,
         half_scale_proposals: false,
@@ -188,7 +184,6 @@ impl ModePolicy {
         // The cheap coarse copy runs first; the finer one only after it left a candidate.
         data_matrix_averaged_scales: &[256, 400],
         data_matrix_averaged_needs_candidate: true,
-        addon_2d_recoveries: true,
         source_profile_cache: false,
         sparse_stripe_fallback: false,
         half_scale_proposals: true,
