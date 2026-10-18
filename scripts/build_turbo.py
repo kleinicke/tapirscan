@@ -4,24 +4,18 @@
 import argparse
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from build import ROOT, clean_env
+
 TIERS = ("original", "2", "4", "8", "16")
 
 
 def environment(tier: str) -> dict[str, str]:
     """Use only the selected, validated private recipe."""
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if key != "TAPIRSCAN_LOW_CLASSIC"
-        and not key.startswith(("TAPIRSCAN_TURBO_", "TAPIRSCAN_EXPERIMENTAL_"))
-    }
+    env = clean_env()
     env["TAPIRSCAN_EXPERIMENTAL_TURBO"] = "1"
     env["TAPIRSCAN_TURBO_TIER"] = "0" if tier == "original" else tier
     if tier != "original":
@@ -65,7 +59,8 @@ def main() -> None:
             command.extend(["--development", "low"])
         else:
             # Turbo applies to Low; the native library contains every mode.
-            command.extend(["--output", str(destination)])
+            # build_native.py drops TAPIRSCAN_* switches unless told the preset.
+            command.extend(["--output", str(destination), "--turbo", args.tier])
         subprocess.run(command, cwd=ROOT, env=env, check=True)
         for source in sources.iterdir():
             if source.name == "low.wasm" or source.name.startswith(

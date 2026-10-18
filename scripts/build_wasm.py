@@ -14,7 +14,7 @@ from typing import TypedDict
 from build_turbo import environment as turbo_environment
 from prepare_rust import prepared_package, sync_tree, write_changed
 
-from build import MODES, ROOT, TURBO_PRESETS, rust_toolchain, wasm_flags
+from build import MODES, ROOT, TURBO_PRESETS, is_private, rust_toolchain, wasm_flags
 
 MANIFEST = ROOT / "bindings/javascript/wasm/build.json"
 PACKAGE = ROOT / "build/crates/tapirscan"
@@ -101,11 +101,7 @@ def arguments() -> argparse.Namespace:
         help="Build the selected modes under build/wasm-development without a manifest",
     )
     args = parser.parse_args()
-    if not args.development and any(
-        key == "TAPIRSCAN_LOW_CLASSIC"
-        or key.startswith(("TAPIRSCAN_TURBO_", "TAPIRSCAN_EXPERIMENTAL_"))
-        for key in os.environ
-    ):
+    if not args.development and any(is_private(key) for key in os.environ):
         parser.error("private policy overrides require --development")
     if set(args.modes) - set(MODES):
         parser.error("modes must be low, medium, high or very-high")

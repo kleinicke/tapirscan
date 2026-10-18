@@ -9,9 +9,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from build_turbo import TIERS as TURBO_TIERS
+from build_turbo import environment as turbo_environment
 from prepare_rust import prepared_package, sync_tree, write_changed
 
-from build import ROOT
+from build import ROOT, clean_env
 
 TARGET = ROOT / "build/native-target"
 # Rust examples used by the cross-language parity tests.
@@ -38,9 +40,23 @@ def rustflags(target: str | None = None) -> list[str]:
     return [*fixed, *caller]
 
 
-def cargo_env(target_dir: Path, target: str | None = None) -> dict[str, str]:
-    """Return the environment for cargo builds of a Rust target into `target_dir`."""
-    env = os.environ.copy()
+def cargo_env(
+    target_dir: Path, target: str | None = None, turbo: str | None = None
+) -> dict[str, str]:
+    """Return the environment for cargo builds of a Rust target into `target_dir`.
+
+    `target` None builds for the host; see `rustflags` for which compiler flags
+    each kind of build receives. Private compile-time switches (Turbo recipes,
+    Low Classic) are removed from the caller's environment; `turbo` names a
+    preset of scripts/build_turbo.py whose recipe is applied instead.
+    """
+    env = clean_env()
+    if turbo is not None:
+        env.update(
+            (key, value)
+            for key, value in turbo_environment(turbo).items()
+            if key.startswith("TAPIRSCAN_")
+        )
     env.pop("RUSTFLAGS", None)
     env.pop("CARGO_ENCODED_RUSTFLAGS", None)
     if flags := rustflags(target):
@@ -96,10 +112,10 @@ def prepare_native_crate(public_crate: Path) -> Path:
     return native
 
 
-def build(public_crate: Path, destination: Path) -> None:
+def build(public_crate: Path, destination: Path, turbo: str | None = None) -> None:
     """Build, test and install the native library and the Rust examples."""
     native = prepare_native_crate(public_crate)
-    env = cargo_env(TARGET)
+    env = cargo_env(TARGET, turbo=turbo)
     common = ["--offline", "--manifest-path", str(native / "Cargo.toml")]
     subprocess.run(["cargo", "test", *common], env=env, check=True)
     name = library_name()
@@ -139,7 +155,12 @@ if __name__ == "__main__":
         default=ROOT / "build/native",
         help="Separate output directory for private artifacts",
     )
+    parser.add_argument(
+        "--turbo",
+        choices=TURBO_TIERS,
+        help="Private Turbo recipe; used by build_turbo.py",
+    )
     args = parser.parse_args()
     public = ROOT / "build/crates/tapirscan"
     with prepared_package(public, refresh=public.exists()):
-        build(public, args.output)
+        build(public, args.output, args.turbo)

@@ -14,6 +14,24 @@ _CONFIG = json.loads((ROOT / "config/modes.json").read_text())
 # Mode order defines engine IDs; budgets live in bindings/rust/src/effort.rs.
 MODES = tuple(_CONFIG["modes"])
 TURBO_PRESETS = tuple(_CONFIG["experimentalTurbo"])
+# Build-time switches that the Rust sources read with `option_env!`, set only by
+# Turbo presets (scripts/build_turbo.py) or private Low Classic comparisons.
+PRIVATE_PREFIXES = ("TAPIRSCAN_TURBO_", "TAPIRSCAN_EXPERIMENTAL_")
+PRIVATE_VARIABLES = ("TAPIRSCAN_LOW_CLASSIC",)
+
+
+def is_private(key: str) -> bool:
+    """Whether an environment variable selects a private compile-time policy."""
+    return key in PRIVATE_VARIABLES or key.startswith(PRIVATE_PREFIXES)
+
+
+def clean_env() -> dict[str, str]:
+    """Return the environment without private policy switches.
+
+    Ordinary builds use it so that a variable left in the shell cannot silently
+    change the compiled scanner; Turbo builds add their recipe on top.
+    """
+    return {key: value for key, value in os.environ.items() if not is_private(key)}
 
 
 def rust_toolchain() -> str:
@@ -69,7 +87,7 @@ def main() -> None:
         )
         return
     env = dict(
-        os.environ,
+        clean_env(),
         CARGO_TARGET_DIR=str(ROOT / "build/core-target"),
         RUSTUP_TOOLCHAIN=rust_toolchain(),
     )

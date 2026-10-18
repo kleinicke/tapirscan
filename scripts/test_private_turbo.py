@@ -6,8 +6,17 @@ import os
 import unittest
 from unittest.mock import patch
 
+from build_native import cargo_env
 from build_turbo import TIERS, environment
 from build_wasm import arguments
+
+from build import ROOT, clean_env
+
+STRAY = {
+    "TAPIRSCAN_TURBO_TILE_CACHE": "1",
+    "TAPIRSCAN_EXPERIMENTAL_TURBO": "1",
+    "TAPIRSCAN_LOW_CLASSIC": "1",
+}
 
 
 class PrivateTurboTests(unittest.TestCase):
@@ -32,6 +41,17 @@ class PrivateTurboTests(unittest.TestCase):
         for preset in ("2", "4", "8", "16"):
             self.assertEqual(environment(preset)["TAPIRSCAN_TURBO_TILE_CACHE"], "1")
         self.assertNotIn("TAPIRSCAN_TURBO_TILE_CACHE", environment("original"))
+
+    def test_ordinary_builds_drop_stray_switches(self) -> None:
+        """A switch left in the shell never reaches a normal native or core build."""
+        with patch.dict(os.environ, STRAY):
+            self.assertFalse(set(STRAY) & set(clean_env()))
+            self.assertFalse(set(STRAY) & set(cargo_env(ROOT / "build/x")))
+            android = cargo_env(ROOT / "build/x", "aarch64-linux-android")
+            self.assertFalse(set(STRAY) & set(android))
+            turbo = cargo_env(ROOT / "build/x", turbo="8")
+        self.assertEqual(turbo["TAPIRSCAN_TURBO_PROFILE_CAP"], "576")
+        self.assertNotIn("TAPIRSCAN_LOW_CLASSIC", turbo)
 
     def test_package_build_rejects_private_selection(self) -> None:
         """Never build a private Low-slot scanner into the package assets."""

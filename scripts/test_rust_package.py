@@ -13,7 +13,7 @@ from fixture_data import fixtures
 from supplement_fixtures import generate as supplement_fixtures
 from test_detail import make_fixtures as detail_fixtures
 
-from build import ROOT, rust_toolchain
+from build import ROOT, clean_env, rust_toolchain
 
 sys.path.insert(0, str(ROOT / "bindings/python/src"))
 from tapirscan import Mode, PixelImage, Scanner
@@ -137,7 +137,7 @@ def check(package: Path) -> None:
             "--ignored",
             "--nocapture",
         ],
-        env={**os.environ, "TAPIRSCAN_PARITY_CASES": str(path)},
+        env={**clean_env(), "TAPIRSCAN_PARITY_CASES": str(path)},
         check=True,
     )
 
