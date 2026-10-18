@@ -4,9 +4,10 @@
 //! Code 39 reader; a read whose content is a valid number of that scheme is
 //! reported with that format and the number as text. The Code 39 content stays
 //! available as payload bytes. Other Code 39 reads are kept only when Code 39
-//! itself is selected.
+//! itself is selected; otherwise they and unread Code 39 regions are undecoded
+//! regions of the selected variant, or of unknown format when both are selected.
 
-use crate::{Barcode, Format, format::SUPPORTED_MASK};
+use crate::{Barcode, Format, UndecodedRegion, format::SUPPORTED_MASK};
 
 /// The opt-in formats read by the Code 39 reader. Other opt-in formats have
 /// their own readers.
@@ -25,8 +26,8 @@ pub(crate) const fn engine_bits(bits: u32) -> u32 {
     }
 }
 
-/// Reinterpret Code 39 reads for the selected opt-in formats.
-pub(crate) fn apply(bits: u32, barcodes: &mut Vec<Barcode>) {
+/// Reinterpret Code 39 reads and regions for the selected opt-in formats.
+pub(crate) fn apply(bits: u32, barcodes: &mut Vec<Barcode>, undecoded: &mut Vec<UndecodedRegion>) {
     debug_assert_eq!(bits & !SUPPORTED_MASK, 0);
     if bits & VARIANT_MASK == 0 {
         return;
@@ -49,7 +50,26 @@ pub(crate) fn apply(bits: u32, barcodes: &mut Vec<Barcode>) {
         }
     }
     if bits & code39 == 0 {
-        barcodes.retain(|b| b.format != Format::Code39);
+        // Report only selected formats: a Code 39 symbol that is no valid number
+        // of the selected scheme is an unread candidate for it.
+        let variant = [Format::Code32, Format::Pzn]
+            .into_iter()
+            .find(|format| bits & VARIANT_MASK == *format as u32);
+        for region in undecoded.iter_mut() {
+            if region.format == Some(Format::Code39) {
+                region.format = variant;
+            }
+        }
+        barcodes.retain(|barcode| {
+            let keep = barcode.format != Format::Code39;
+            if !keep {
+                undecoded.push(UndecodedRegion {
+                    format: variant,
+                    polygon: barcode.polygon,
+                });
+            }
+            keep
+        });
     }
 }
 
@@ -137,7 +157,7 @@ mod tests {
         let pzn = Format::Pzn as u32;
         let code39 = Format::Code39 as u32;
         let mut reads = vec![barcode("0CSSBD"), barcode("-02532876"), barcode("HELLO")];
-        apply(code32 | pzn, &mut reads);
+        apply(code32 | pzn, &mut reads, &mut Vec::new());
         let got: Vec<_> = reads.iter().map(|b| (b.format, b.text.as_str())).collect();
         assert_eq!(
             got,
@@ -146,7 +166,7 @@ mod tests {
         assert_eq!(reads[0].payload_bytes.as_deref(), Some(&b"0CSSBD"[..]));
 
         let mut reads = vec![barcode("0CSSBD"), barcode("-02532876"), barcode("HELLO")];
-        apply(pzn | code39, &mut reads);
+        apply(pzn | code39, &mut reads, &mut Vec::new());
         let got: Vec<_> = reads.iter().map(|b| (b.format, b.text.as_str())).collect();
         assert_eq!(
             got,
@@ -158,9 +178,44 @@ mod tests {
         );
 
         let mut reads = vec![barcode("-02532876")];
-        apply(code39, &mut reads);
+        apply(code39, &mut reads, &mut Vec::new());
         assert_eq!(reads[0].format, Format::Code39);
         assert_eq!(engine_bits(code32), code39);
         assert_eq!(engine_bits(code39 | 1), code39 | 1);
+    }
+
+    #[test]
+    fn undecoded_regions_name_only_selected_formats() {
+        let code32 = Format::Code32 as u32;
+        let pzn = Format::Pzn as u32;
+        let code39 = Format::Code39 as u32;
+        let region = |format| UndecodedRegion {
+            format: Some(format),
+            polygon: [[0., 0.], [10., 0.], [10., 5.], [0., 5.]],
+        };
+        let formats = |regions: &[UndecodedRegion]| -> Vec<_> {
+            regions.iter().map(|region| region.format).collect()
+        };
+        // A rejected Code 39 read and an unread Code 39 region become regions of
+        // the one selected variant; other formats keep theirs.
+        let mut reads = vec![barcode("HELLO")];
+        let mut regions = vec![region(Format::Code39), region(Format::Code128)];
+        apply(pzn | Format::Code128 as u32, &mut reads, &mut regions);
+        assert!(reads.is_empty());
+        assert_eq!(
+            formats(&regions),
+            [Some(Format::Pzn), Some(Format::Code128), Some(Format::Pzn)]
+        );
+        // With both variants it is unknown which one a region would have been.
+        let mut reads = vec![barcode("HELLO")];
+        let mut regions = vec![region(Format::Code39)];
+        apply(code32 | pzn, &mut reads, &mut regions);
+        assert_eq!(formats(&regions), [None, None]);
+        // Selecting Code 39 keeps its reads and regions.
+        let mut reads = vec![barcode("HELLO")];
+        let mut regions = vec![region(Format::Code39)];
+        apply(pzn | code39, &mut reads, &mut regions);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(formats(&regions), [Some(Format::Code39)]);
     }
 }

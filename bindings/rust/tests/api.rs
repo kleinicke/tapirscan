@@ -568,6 +568,20 @@ fn opt_in_pharmacy_formats_convert_code39_reads() {
     // pharmacy number is dropped when only the opt-in formats are selected.
     assert_eq!(reads(Formats::ALL, CODE32_BITS)[0].0, Format::Code39);
     assert_eq!(reads(Format::Code32.into(), PZN_BITS), Vec::new());
+    // It is reported as an unread region of the selected format, never as Code 39.
+    let (pixels, width, height) = code39_image(PZN_BITS);
+    let mut scanner = Scanner::new(ScannerOptions {
+        formats: Format::Code32.into(),
+        ..ScannerOptions::default()
+    });
+    let inspection = scanner
+        .inspect(Image::gray(&pixels, width, height))
+        .unwrap();
+    assert!(inspection.barcodes.is_empty());
+    assert!(!inspection.undecoded.is_empty());
+    for region in &inspection.undecoded {
+        assert_eq!(region.format, Some(Format::Code32), "{region:?}");
+    }
     assert_ne!(Formats::ALL | Format::Code32, Formats::ALL);
     assert_ne!(Formats::ALL | Format::Pzn, Formats::ALL);
     assert!(Formats::try_from(Format::Code32 as u32 | Format::Pzn as u32).is_ok());

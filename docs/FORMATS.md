@@ -64,7 +64,9 @@ reads them as raw content (`0CSSBD`, `-02532876`). Select `Code32` and/or `PZN`
 to get the pharmacy number instead: `012345676` (the printed `A` prefix is not
 part of it) and `02532876`. Only reads with a valid check digit are converted;
 the raw Code 39 text stays in the payload bytes. Other Code 39 reads are returned
-only if `Code39` is selected too.
+only if `Code39` is selected too; otherwise they, like unread Code 39 symbols,
+are inspection's undecoded regions with the selected format (unknown when both
+are selected), never `Code39`.
 
 Both formats are opt-in, because an arbitrary six-character Code 39 passes the
 Code 32 check about one time in ten: select them only where these codes are
