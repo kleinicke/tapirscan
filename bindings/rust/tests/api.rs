@@ -391,14 +391,23 @@ fn images_above_the_working_size_report_source_coordinates() {
     assert!(scanned[0].as_u64().unwrap() * scanned[1].as_u64().unwrap() <= 32 << 20);
     assert_diagnostics_in_source_coordinates(raw, &result.barcodes[0], [width, height]);
     // Rows delivered in uneven chunks give the same report as the whole image.
+    let delivery = std::time::Instant::now();
     let mut rows = tapirscan::RowInput::new(width, height, 1).unwrap().unwrap();
     for chunk in pixels.chunks(width * 777) {
         rows.push_rows(chunk).unwrap();
+        // The caller's time between pushes is not scan time.
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     assert_eq!(rows.remaining_rows(), 0);
     let streamed = Scanner::default()
         .inspect_rows(rows, ScanOptions::default(), true)
         .unwrap();
+    let waited = std::time::Duration::from_millis(100) * height.div_ceil(777).try_into().unwrap();
+    assert!(
+        streamed.elapsed + waited <= delivery.elapsed(),
+        "{:?} includes the delivery",
+        streamed.elapsed
+    );
     assert_eq!(streamed.barcodes, result.barcodes);
     assert_eq!(
         format!("{:?}", streamed.undecoded),

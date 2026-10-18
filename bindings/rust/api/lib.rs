@@ -26,7 +26,9 @@ pub use types::*;
 pub struct RowInput {
     reduction: reduce::Reduction,
     row: usize,
-    start: timer::Timer,
+    /// Time spent reducing pushed rows, counted as scan time; the time between
+    /// pushes belongs to the caller.
+    reducing: std::time::Duration,
 }
 
 impl RowInput {
@@ -45,7 +47,7 @@ impl RowInput {
             reduce::Reduction::new(width, height, channels).map(|reduction| Self {
                 reduction,
                 row: width * channels,
-                start: timer::Timer::start(),
+                reducing: std::time::Duration::ZERO,
             }),
         )
     }
@@ -61,9 +63,11 @@ impl RowInput {
         {
             return Err(Error::InvalidImage("rows end mid-row or exceed the image"));
         }
+        let start = timer::Timer::start();
         for row in rows.chunks_exact(self.row) {
             self.reduction.push_row(row);
         }
+        self.reducing += start.elapsed();
         Ok(())
     }
 
@@ -234,16 +238,21 @@ impl Scanner {
         if input.reduction.remaining_rows() != 0 {
             return Err(Error::InvalidImage("not all image rows were supplied"));
         }
+        let start = timer::Timer::start();
         let size = input.reduction.source_size();
         let reduced = input.reduction.finish();
-        self.run_source(
-            &input.start,
+        let mut result = self.run_source(
+            &start,
             reduced.image(),
             Some(&reduced),
             size,
             options,
             diagnostics,
-        )
+        )?;
+        // Like `inspect`, report the reduction and the scan, but not the caller's
+        // time spent producing rows.
+        result.elapsed += input.reducing;
+        Ok(result)
     }
 
     fn run(

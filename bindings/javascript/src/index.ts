@@ -9,7 +9,7 @@ import type { ContentKind } from "./content-kind.js";
 import { freeze, type ReadonlyDeep } from "./freeze.js";
 import { pixelLayout } from "./layout.js";
 import { registerRowScan } from "./row-scan.js";
-import { RustScannerSession, ScannerError } from "./rust-session.js";
+import { type RowReader, RustScannerSession, ScannerError } from "./rust-session.js";
 
 export {
   commonFormats,
@@ -283,10 +283,25 @@ export class Scanner {
     Object.freeze(configuredFormats);
     // The browser worker streams large decoded images through this internal path.
     registerRowScan(this, (image, read, options, inspect) => {
+      // Time spent producing rows (decoding, reading the canvas) is not scan time,
+      // so elapsedMs matches inspecting the same pixels as one buffer.
+      let reading = 0;
+      const timedRead: RowReader = (y, count, target) => {
+        const readStart = performance.now();
+        try {
+          read(y, count, target);
+        } finally {
+          reading += performance.now() - readStart;
+        }
+      };
       const start = performance.now();
-      const raw = this.host.scanRows(image, read, inspect ? 2 : 0, scanMask(options));
+      const raw = this.host.scanRows(image, timedRead, inspect ? 2 : 0, scanMask(options));
       return inspect
-        ? publicResult(wireResult(raw), performance.now() - start, this.experimentalTurbo)
+        ? publicResult(
+            wireResult(raw),
+            Math.max(0, performance.now() - start - reading),
+            this.experimentalTurbo,
+          )
         : scanResult(raw);
     });
   }
