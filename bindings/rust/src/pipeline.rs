@@ -28,6 +28,13 @@ struct Localization {
     omitted: usize,
     work_limited: bool,
     search_window: Quad,
+    /// Whether some boxes, fewer than were kept, were dropped as textures. Scanned, they
+    /// could have shown the retail evidence that gates later recoveries, which then also
+    /// searched the kept boxes and the whole frame; dropping them must not remove that work,
+    /// so they count as such evidence. On frames where most boxes are textures, the
+    /// recoveries would mostly search textures.
+    #[cfg(not(feature = "low"))]
+    stray_textures: bool,
 }
 
 pub(super) fn scan(
@@ -179,13 +186,14 @@ fn scan_prepared_impl(
     if allow_restoration
         && scan.frame.barcodes.is_empty()
         && retail.is_empty()
-        && scan.frame.candidates.iter().any(|c| {
-            if scanner.shared_linear {
-                c.work.guard_pass >= 4
-            } else {
-                c.work.guard_pass > 0 || c.work.forward_blur_windows >= 2
-            }
-        })
+        && (localization.stray_textures
+            || scan.frame.candidates.iter().any(|c| {
+                if scanner.shared_linear {
+                    c.work.guard_pass >= 4
+                } else {
+                    c.work.guard_pass > 0 || c.work.forward_blur_windows >= 2
+                }
+            }))
     {
         window_scanned = true;
         candidates.push(localization.search_window);
@@ -255,7 +263,9 @@ fn scan_prepared_impl(
     // symbols sharing the scan show stray guards, so they need repeated guard passes.
     #[cfg(any(feature = "high", feature = "very-high"))]
     let retail_unread = scan.frame.barcodes.is_empty()
-        && (!scanner.shared_linear || scan.frame.candidates.iter().any(|c| c.work.guard_pass >= 4));
+        && (!scanner.shared_linear
+            || localization.stray_textures
+            || scan.frame.candidates.iter().any(|c| c.work.guard_pass >= 4));
     #[cfg(any(feature = "high", feature = "very-high"))]
     if retail_unread {
         recover_primary_proposals(
@@ -790,6 +800,8 @@ fn localize(
     // Boxes on stripes, rings, random bar patterns and similar textures can hold no symbol;
     // retrying them costs most of the scan of such frames.
     let mut found = found;
+    #[cfg(not(feature = "low"))]
+    let localized = found.proposals.len();
     found.proposals.retain(|p| !source.texture(&p.polygon));
     let count = found.proposals.len();
     #[allow(
@@ -825,10 +837,17 @@ fn localize(
         add_secondary_proposals(detector, im, image, &mut proposals);
     // Envelope and secondary boxes get the same texture test.
     let mut index = 0;
+    #[cfg(not(feature = "low"))]
+    let added = proposals.len();
     proposals.retain(|p| {
         index += 1;
         index <= refined || !source.texture(&p.polygon)
     });
+    #[cfg(not(feature = "low"))]
+    let stray_textures = {
+        let dropped = localized - count + added - proposals.len();
+        dropped > 0 && dropped < proposals.len()
+    };
     if proposals.len() > SELECTED.proposal_limit {
         return Err(Error::Parameters);
     }
@@ -847,6 +866,8 @@ fn localize(
             || secondary_limited
             || secondary_omitted > 0,
         search_window: [[0., 0.], [right, 0.], [right, bottom], [0., bottom]],
+        #[cfg(not(feature = "low"))]
+        stray_textures,
     })
 }
 
