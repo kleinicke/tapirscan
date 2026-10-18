@@ -156,6 +156,19 @@ fn fan_tangent(fan: &[[f64; 2]], t: f64) -> f64 {
     a0 + (a1 - a0) * (t - t0) / (t1 - t0)
 }
 
+/// Contrast of a profile: the spread between its 5th and 95th percentiles, as [`runs`]
+/// measures it.
+fn contrast(profile: &[f64]) -> f64 {
+    let n = profile.len();
+    if n < 3 {
+        return 0.;
+    }
+    let mut sorted = profile.to_vec();
+    let high = *sorted.select_nth_unstable_by(n * 19 / 20, f64::total_cmp).1;
+    let low = *sorted.select_nth_unstable_by(n / 20, f64::total_cmp).1;
+    high - low
+}
+
 /// Run lengths, in samples, of a profile split at a moving mean of `2 * window + 1`
 /// samples with hysteresis. Run boundaries are the interpolated crossings of the mean;
 /// the first and last partial runs are dropped. Returns whether the first run is dark.
@@ -459,6 +472,9 @@ fn parallel_edges(image: Image<'_>, axis: &Axis, height: f64) -> bool {
 
 /// Correlation along the bars at which a part of a box holds printed bars.
 const COHERENT_WINDOW: f64 = 0.5;
+/// Contrast, relative to a box's periodic lines, of a line that crosses printed bars over a
+/// faint periodic background.
+const FAINT_BACKGROUND: f64 = 4.;
 
 /// Whether a box's lines repeat (see [`texture_proposal`]); also returns the three lines
 /// across it (its center and a quarter of its height to either side) and the number of
@@ -476,6 +492,7 @@ fn periodic_box(
     let mut repeats = [false; 3];
     // Lines with at least one run per `FINE_PERIOD`, which a fine period needs.
     let mut dense = [false; 3];
+    let mut contrasts = [0.; 3];
     let mut edged_outer = 0;
     for (i, (line, offset)) in lines.iter_mut().zip([0., -0.25, 0.25]).enumerate() {
         axis.sample(image, offset * height, (0., 1.), step, line);
@@ -483,13 +500,15 @@ fn periodic_box(
         profile.extend(line.iter().flatten());
         let first_dark = runs(&profile, window, &mut widths);
         repeats[i] = repeating(&widths, first_dark, JITTER / step);
+        contrasts[i] = contrast(&profile);
         dense[i] = usize_f64(widths.len()) * FINE_PERIOD >= usize_f64(profile.len()) * step;
         // Flat or nearly flat outer lines give no evidence of incoherence.
         edged_outer += usize::from(offset != 0. && widths.len() >= PERIODIC_RUNS);
     }
     // The costlier fine-period test runs only on dense lines that can still decide.
-    let mut repeating_lines = repeats.iter().filter(|&&r| r).count();
+    let mut periodic_lines = repeats;
     for (i, line) in lines.iter().enumerate() {
+        let repeating_lines = periodic_lines.iter().filter(|&&r| r).count();
         let open = repeats[i..].iter().filter(|&&r| !r).count();
         if repeating_lines >= 2 || repeating_lines + open < 2 {
             break;
@@ -497,9 +516,25 @@ fn periodic_box(
         if !repeats[i] && dense[i] {
             profile.clear();
             profile.extend(line.iter().flatten());
-            repeating_lines += usize::from(fine_period(&profile, step));
+            periodic_lines[i] = fine_period(&profile, step);
         }
     }
+    let repeating_lines = periodic_lines.iter().filter(|&&r| r).count();
+    // A faint periodic background (paper or carton texture) can surround a printed symbol
+    // whose bars have several times its contrast. Runs split at the symbol's contrast skip
+    // the background, so its stretches beside the symbol do not show; a line of such
+    // contrast that does not repeat crosses the symbol.
+    let background = periodic_lines
+        .iter()
+        .zip(contrasts)
+        .filter(|(periodic, _)| **periodic)
+        .map(|(_, c)| c)
+        .fold(0., f64::max);
+    let bars_over = |profile: &[f64], widths: &[f64], first_dark: bool| {
+        widths.len() >= SYMBOL_RUNS
+            && contrast(profile) >= FAINT_BACKGROUND * background
+            && !repeating(widths, first_dark, JITTER / step)
+    };
     // A box can lie mostly on a periodic background beside or around a symbol (a ribbed
     // carton): the symbol then interrupts the repetition along one of its lines, or along a
     // row elsewhere in the box (see [`symbol_stretch`]). Pixel-fine periods (see
@@ -511,8 +546,9 @@ fn periodic_box(
             !repeat && {
                 profile.clear();
                 profile.extend(line.iter().flatten());
-                runs(&profile, window, &mut widths);
-                symbol_stretch(&widths, step) && !fine_period(&profile, step)
+                let first_dark = runs(&profile, window, &mut widths);
+                (symbol_stretch(&widths, step) || bars_over(&profile, &widths, first_dark))
+                    && !fine_period(&profile, step)
             }
         })
         // A symbol shorter than the box can lie between the lines or at its edge: rows every
@@ -523,7 +559,7 @@ fn periodic_box(
             axis.sample(image, offset * height, (0., 1.), step, &mut line);
             profile.clear();
             profile.extend(line.iter().flatten());
-            runs(&profile, window, &mut widths);
+            let first_dark = runs(&profile, window, &mut widths);
             // Rows that leave and reenter the image join unrelated stretches.
             let inside = line.iter().skip_while(|v| v.is_none()).collect::<Vec<_>>();
             inside
@@ -531,7 +567,7 @@ fn periodic_box(
                 .rev()
                 .skip_while(|v| v.is_none())
                 .any(|v| v.is_none())
-                || !symbol_stretch(&widths, step)
+                || !(symbol_stretch(&widths, step) || bars_over(&profile, &widths, first_dark))
                 || fine_period(&profile, step)
         }));
     (periodic, lines, edged_outer)
@@ -1686,5 +1722,27 @@ mod tests {
         let quad = [[-90., -70.], [1370., -70.], [1370., 1030.], [-90., 1030.]];
         assert!(!texture_proposal(view(&with, 1280, 960), &quad));
         assert!(texture_proposal(view(&without, 1280, 960), &quad));
+    }
+
+    #[test]
+    fn wide_bars_over_faint_paper_stripes_are_kept() {
+        // A two-width symbol with 8-pixel modules on paper whose brightness varies by 15 gray
+        // levels every 22 pixels, parallel to the bars, between the lines of a frame-sized
+        // box (Medium lost an ITF-14 so; Low, High and Very High read it).
+        let widths: Vec<usize> = elements(30, 3).iter().map(|&e| 1 + 2 * (e % 2)).collect();
+        let paper = |x: f64| 225. + 15. * (x * std::f64::consts::TAU / 22.).sin();
+        let with = render(1600, 1200, |x, y| {
+            let bar = (300. ..590.).contains(&y) && dark(&widths, 400., 8., x) == Some(true);
+            if bar { 10. } else { paper(x) }
+        });
+        let without = render(1600, 1200, |x, _| paper(x));
+        let quad = [
+            [-150., -110.],
+            [1750., -110.],
+            [1750., 1310.],
+            [-150., 1310.],
+        ];
+        assert!(!texture_proposal(view(&with, 1600, 1200), &quad));
+        assert!(texture_proposal(view(&without, 1600, 1200), &quad));
     }
 }
