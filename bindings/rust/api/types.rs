@@ -337,11 +337,13 @@ impl InspectionResult {
             point[0] *= x;
             point[1] *= y;
         }
-        // Raw diagnostics keep the coordinates of the image the engine scanned.
         if let Some(Diagnostics {
             raw: serde_json::Value::Object(raw),
         }) = &mut self.diagnostics
         {
+            for value in raw.values_mut() {
+                restore_diagnostic_geometry(value, [x, y]);
+            }
             raw.insert("scannedImageSize".into(), serde_json::json!(scanned));
         }
     }
@@ -362,6 +364,48 @@ impl InspectionResult {
             elapsed,
             diagnostics,
         }
+    }
+}
+
+/// Scale the image geometry in raw diagnostics from the scanned to the supplied image:
+/// every `polygon` and `coverage` point list, and the `x`, `y`, `w`, `h` crop of a
+/// recovery attempt. A recovery attempt's nested `frame` describes the enlarged crop
+/// in its own coordinates and stays unchanged.
+fn restore_diagnostic_geometry(value: &mut serde_json::Value, [x, y]: [f64; 2]) {
+    use serde_json::Value;
+    let scale = |value: &mut Value, factor: f64| {
+        if let Some(number) = value.as_f64() {
+            *value = serde_json::json!(number * factor);
+        }
+    };
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                restore_diagnostic_geometry(item, [x, y]);
+            }
+        }
+        Value::Object(object) => {
+            let crop = ["x", "y", "w", "h"]
+                .iter()
+                .all(|key| object.get(*key).is_some_and(Value::is_number));
+            for (key, item) in object.iter_mut() {
+                match key.as_str() {
+                    "polygon" | "coverage" => {
+                        for point in item.as_array_mut().into_iter().flatten() {
+                            if let Some([px, py]) = point.as_array_mut().map(Vec::as_mut_slice) {
+                                scale(px, x);
+                                scale(py, y);
+                            }
+                        }
+                    }
+                    "x" | "w" if crop => scale(item, x),
+                    "y" | "h" if crop => scale(item, y),
+                    "frame" => {}
+                    _ => restore_diagnostic_geometry(item, [x, y]),
+                }
+            }
+        }
+        _ => {}
     }
 }
 

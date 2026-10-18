@@ -323,6 +323,33 @@ class Images(unittest.TestCase):
             decode(image, formats="EAN13", library_dir=LIBS).values, [TEXT]
         )
 
+    def test_reduced_scan_diagnostics_use_source_coordinates(self) -> None:
+        """Above 32 MP, diagnostic regions share the barcodes' source coordinates."""
+        scale = int(np.ceil(np.sqrt(34e6 / (W * H))))
+        large = np.kron(GRAY, np.ones((scale, scale), dtype=np.uint8))
+        height, width = large.shape
+        result = decode(large, library_dir=LIBS)
+        self.assertEqual(result.values, [TEXT])
+        regions = result.diagnostics.regions
+        assert regions is not None
+        assert regions.proposals and regions.search_windows is not None
+        polygons = [
+            *(p.polygon for p in regions.proposals),
+            *(w.polygon for w in regions.search_windows),
+            *(c.polygon for c in regions.candidates),
+        ]
+        for point in (point for polygon in polygons for point in polygon):
+            self.assertTrue(-1 <= point.x <= width + 1, point)
+            self.assertTrue(-1 <= point.y <= height + 1, point)
+        for window in regions.search_windows:
+            if window.kind == "full_frame_search":
+                self.assertEqual(
+                    (window.polygon[2].x, window.polygon[2].y), (width, height)
+                )
+        scanned = result.diagnostics.to_raw_dict()["scannedImageSize"]
+        assert isinstance(scanned, list) and isinstance(scanned[0], int)
+        self.assertLess(scanned[0], width)
+
     def test_parallel_option(self) -> None:
         """Threading is a scanner option that never changes the reads."""
         image = PixelImage(RAW, width=W, height=H)

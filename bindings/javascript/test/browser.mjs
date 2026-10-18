@@ -248,9 +248,22 @@ test("images above the working size decode in bands with the same result", async
       const fromPixels = await scanner.inspect(pixels);
       const fromBlob = await scanner.inspect(blob);
       const strip = ({ elapsedMs: _elapsed, diagnostics: _diagnostics, ...rest }) => rest;
+      // Diagnostic regions share the source coordinates of barcodes and undecoded regions.
+      const { proposals, searchWindows } = fromBlob.diagnostics.regions;
+      const points = [...proposals, ...searchWindows].flatMap(({ polygon }) => polygon);
       return {
         megapixels: (large.width * large.height) / 2 ** 20,
         same: JSON.stringify(strip(fromBlob)) === JSON.stringify(strip(fromPixels)),
+        sameRegions:
+          JSON.stringify(fromBlob.diagnostics.regions) ===
+          JSON.stringify(fromPixels.diagnostics.regions),
+        proposals: proposals.length,
+        inside: points.every(
+          ([x, y]) => x >= -1 && y >= -1 && x <= large.width + 1 && y <= large.height + 1,
+        ),
+        fullFrame: searchWindows
+          .filter(({ kind }) => kind === "full_frame_search")
+          .every(({ polygon }) => polygon[2][0] === large.width && polygon[2][1] === large.height),
         values: fromBlob.values,
       };
     } finally {
@@ -261,6 +274,10 @@ test("images above the working size decode in bands with the same result", async
   assert.ok(outcome.megapixels > 32, `${outcome.megapixels} MP`);
   assert.deepEqual(outcome.values, [text]);
   assert.ok(outcome.same, "banded Blob decoding changed the result");
+  assert.ok(outcome.sameRegions, "banded Blob decoding changed the diagnostic regions");
+  assert.ok(outcome.proposals > 0, "expected localization proposals");
+  assert.ok(outcome.inside, "diagnostic regions outside the source image");
+  assert.ok(outcome.fullFrame, "full-frame search window does not span the source image");
 });
 
 test("transfer moves whole pixel buffers to the worker and copies partial views", async () => {

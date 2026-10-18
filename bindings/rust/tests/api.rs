@@ -302,6 +302,66 @@ fn format_operators_combine_in_either_order() {
     );
 }
 
+/// Every polygon in reduced-scan diagnostics lies in the supplied image, the raw
+/// read matches the public barcode and full-frame windows span the supplied size.
+fn assert_diagnostics_in_source_coordinates(
+    raw: &serde_json::Value,
+    barcode: &tapirscan::Barcode,
+    [width, height]: [usize; 2],
+) {
+    #[allow(clippy::cast_precision_loss)] // test image sizes are far below 2^52
+    let (width, height) = (width as f64, height as f64);
+    let points = |polygon: &serde_json::Value| -> Vec<[f64; 2]> {
+        polygon
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|point| [point[0].as_f64().unwrap(), point[1].as_f64().unwrap()])
+            .collect()
+    };
+    fn polygons<'a>(value: &'a serde_json::Value, out: &mut Vec<&'a serde_json::Value>) {
+        match value {
+            serde_json::Value::Array(items) => items.iter().for_each(|item| polygons(item, out)),
+            serde_json::Value::Object(object) => {
+                for (key, item) in object {
+                    match key.as_str() {
+                        "polygon" | "coverage" => out.push(item),
+                        "frame" => {}
+                        _ => polygons(item, out),
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut all = Vec::new();
+    polygons(raw, &mut all);
+    let proposals = raw["localization"]["proposals"].as_array().unwrap();
+    assert!(!proposals.is_empty(), "expected localization proposals");
+    for [x, y] in all.into_iter().flat_map(points) {
+        assert!((-1.0..=width + 1.0).contains(&x), "x {x} outside {width}");
+        assert!((-1.0..=height + 1.0).contains(&y), "y {y} outside {height}");
+    }
+    let read = raw["scan"]["barcodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|read| read["text"] == barcode.text.as_str())
+        .unwrap();
+    for (a, b) in points(&read["polygon"]).iter().zip(barcode.polygon) {
+        assert!(
+            (a[0] - b[0]).abs() < 1e-6 && (a[1] - b[1]).abs() < 1e-6,
+            "{a:?} {b:?}"
+        );
+    }
+    for window in raw["searchWindows"].as_array().into_iter().flatten() {
+        if window["kind"] == "full_frame_search" {
+            let corners = points(&window["polygon"]);
+            assert_eq!(corners[2], [width, height], "{corners:?}");
+        }
+    }
+}
+
 #[test]
 fn images_above_the_working_size_report_source_coordinates() {
     // 20× the fixture is 34.6 MP, above the 32 MP working size.
@@ -329,6 +389,7 @@ fn images_above_the_working_size_report_source_coordinates() {
     let raw = &result.diagnostics.as_ref().unwrap().raw;
     let scanned = raw["scannedImageSize"].as_array().unwrap();
     assert!(scanned[0].as_u64().unwrap() * scanned[1].as_u64().unwrap() <= 32 << 20);
+    assert_diagnostics_in_source_coordinates(raw, &result.barcodes[0], [width, height]);
     // Rows delivered in uneven chunks give the same report as the whole image.
     let mut rows = tapirscan::RowInput::new(width, height, 1).unwrap().unwrap();
     for chunk in pixels.chunks(width * 777) {
@@ -344,10 +405,9 @@ fn images_above_the_working_size_report_source_coordinates() {
         format!("{:?}", result.undecoded)
     );
     assert_eq!(streamed.image_size, result.image_size);
-    assert_eq!(
-        streamed.diagnostics.unwrap().raw["scannedImageSize"],
-        raw["scannedImageSize"]
-    );
+    let streamed_raw = streamed.diagnostics.unwrap().raw;
+    assert_eq!(streamed_raw["scannedImageSize"], raw["scannedImageSize"]);
+    assert_diagnostics_in_source_coordinates(&streamed_raw, &result.barcodes[0], [width, height]);
     // Images that fit are scanned whole; incomplete or excess rows are rejected.
     assert!(tapirscan::RowInput::new(4000, 3000, 4).unwrap().is_none());
     assert!(tapirscan::RowInput::new(width, height, 2).is_err());

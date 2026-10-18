@@ -61,8 +61,9 @@ RGBA8, with alpha ignored. Limits, enforced by every binding:
   accepts it.
 
 Images above 32 megapixels are scanned as an area-averaged grayscale copy of
-about 32 megapixels. Results stay in the supplied image's coordinates; inspect
-diagnostics report the scanned size as `scannedImageSize`. A barcode that is
+about 32 megapixels. Results, undecoded regions and the geometry in inspect
+diagnostics stay in the supplied image's coordinates; diagnostics report the
+scanned size as `scannedImageSize`. A barcode that is
 small relative to such an image may be lost in the reduction; crop around it
 for full resolution.
 
