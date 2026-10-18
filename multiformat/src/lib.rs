@@ -9,6 +9,7 @@ pub mod dm_gray;
 pub mod encoding;
 mod encoding_tables;
 pub mod expanded;
+mod finder_budget;
 pub mod formats;
 pub mod gray_sample;
 pub mod linear;

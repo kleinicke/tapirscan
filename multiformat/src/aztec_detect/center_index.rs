@@ -27,7 +27,7 @@ impl Index {
         let row = (crate::numeric::f32_usize(y.max(0.)) / CELL).min(self.rows - 1);
         row * self.columns + column
     }
-    pub fn insert(&mut self, x: f32, y: f32, module: f32, radius: f32) {
+    pub fn insert(&mut self, x: f32, y: f32, module: f32, radius: f32, texture: bool) {
         let first = self.cell(x - radius, y - radius);
         let last = self.cell(x + radius, y + radius);
         let mut matched = None;
@@ -55,6 +55,7 @@ impl Index {
             c.y = (c.y * n + y) / (n + 1.);
             c.module = (c.module * n + module) / (n + 1.);
             c.support += 1;
+            c.texture &= texture;
             let after = self.cell(self.centers[index].x, self.centers[index].y);
             if before != after {
                 self.cells[before].retain(|&old| old != index);
@@ -68,6 +69,7 @@ impl Index {
                 y,
                 module,
                 support: 1,
+                texture,
             });
         }
     }
@@ -91,7 +93,7 @@ mod tests {
             let y = random() * 180.;
             let module = random() * 12. + 0.8;
             let radius = module * 1.5;
-            indexed.insert(x, y, module, radius);
+            indexed.insert(x, y, module, radius, false);
             if let Some(c) = expected
                 .iter_mut()
                 .find(|c| (c.x - x).hypot(c.y - y) < radius)
@@ -107,6 +109,7 @@ mod tests {
                     y,
                     module,
                     support: 1,
+                    texture: false,
                 });
             }
         }

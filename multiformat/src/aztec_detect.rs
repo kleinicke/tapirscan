@@ -58,6 +58,8 @@ struct Center {
     y: f32,
     module: f32,
     support: usize,
+    /// Whether every row window that found this center lay inside a texture.
+    texture: bool,
 }
 fn cross(
     bits: &impl Fn(usize) -> bool,
@@ -170,9 +172,14 @@ fn centers_from_runs(
 ) -> (Vec<Center>, bool) {
     let mut found = center_index::Index::new(w, h);
     let mut refined = center_index::Index::new(w, h);
-    let step = (h / 600).max(1);
+    let step = row_step(w, h);
     let mut offsets = Vec::new();
     let mut runs = Vec::new();
+    let mut windows = Vec::new();
+    let mut keys = Vec::new();
+    let mut streaks = crate::finder_budget::Streaks::default();
+    let mut starts = Vec::new();
+    let mut plans = crate::finder_budget::Rows::default();
     // Cross checks are budgeted per scanned pixel. Half of the budget is available
     // from the start and each row adds its share of the other half; unused checks
     // carry over, so a textured band cannot exhaust the rows below it.
@@ -189,23 +196,31 @@ fn centers_from_runs(
         )]
         let widths = offsets.windows(2).map(|pair| (pair[1] - pair[0]) as f32);
         runs.extend(widths);
-        for i in 0..runs.len().saturating_sub(8) {
-            if !bits(y * w + offsets[i]) {
-                continue;
+        // A short row skips windows inside periodic textures and checks the
+        // windows whose equal runs end first. A bullseye's end one run (compact)
+        // or three runs (full) beyond the window, unless the reference grid
+        // through a full symbol's center continues them to its edge.
+        let allowed = available / (2 * PIXELS_PER_CHECK);
+        let (first_dark, end) = (usize::from(!bits(y * w)), runs.len().saturating_sub(8));
+        let plan = plans.starts(&mut starts, &offsets, first_dark, end, (1, 7), allowed, y);
+        let short = plan.is_some();
+        limited |= plan == Some(true);
+        windows.clear();
+        crate::finder_budget::for_each_start(plan, &starts, first_dark, end, |i| {
+            if let Some(module) = equal_runs(&runs, i) {
+                windows.push((i, module));
             }
-            let module = runs[i + 1..i + 8].iter().sum::<f32>() / 7.;
-            if module < 0.8
-                || runs[i + 1..i + 8]
-                    .iter()
-                    .any(|v| (*v - module).abs() > module * 0.7)
-            {
-                continue;
-            }
-            let Some(left) = available.checked_sub(2 * PIXELS_PER_CHECK) else {
-                limited = true;
-                break;
-            };
-            available = left;
+        });
+        let mut measured = false;
+        if windows.len() > allowed {
+            limited = true;
+            measured = thin_windows(&mut windows, allowed, y, &offsets, &mut streaks, &mut keys);
+        }
+        // A short row spends its whole allowance, also what skipped texture windows
+        // leave over: banked, it would pay for checking the texture of later rows.
+        available -= if short { allowed } else { windows.len() } * 2 * PIXELS_PER_CHECK;
+        let mut inserts = 0;
+        for &(i, module) in &windows {
             let x = offsets[i + 4] + crate::numeric::f32_usize(runs[i + 4]) / 2;
             let Some((cy, my)) = cross(bits, w, h, x, y, true, module) else {
                 continue;
@@ -213,11 +228,24 @@ fn centers_from_runs(
             if my / module < 0.6 || my / module > 1.7 {
                 continue;
             }
+            // Centers remember whether texture windows found them. Rows with many
+            // centers measure their streaks once.
+            inserts += 1;
+            if inserts == 8 && !measured {
+                streaks.fill(&offsets);
+                measured = true;
+            }
+            let texture = if measured {
+                streaks.is_texture(i + 1, i + 7)
+            } else {
+                crate::finder_budget::inside_texture(&offsets, i + 1, i + 7)
+            };
             found.insert(
                 crate::numeric::usize_f32(offsets[i + 4]) + runs[i + 4] * 0.5,
                 cy,
                 f32::midpoint(my, module),
                 module * 1.5,
+                texture,
             );
             let Some((cx, mx)) = cross(
                 bits,
@@ -234,10 +262,47 @@ fn centers_from_runs(
                 continue;
             }
             let module = f32::midpoint(mx, my);
-            refined.insert(cx, cy, module, module * 1.5);
+            refined.insert(cx, cy, module, module * 1.5, texture);
         }
     }
-    let mut found = found.centers;
+    let mut found = merge_refined(found.centers, refined.centers, w, h);
+    found.sort_by_key(|c| std::cmp::Reverse(c.support));
+    if limited || found.len() > MAX_FITTED {
+        // Texture centers can outnumber the proposals that are fitted: rank the
+        // centers that some window outside a texture found first, by support.
+        found.sort_by_key(|c| c.texture);
+    }
+    (found, limited)
+}
+/// Keep the `allowed` windows whose equal runs end first ([`thin`]); returns
+/// whether it measured the row's streaks, which many windows do once.
+///
+/// [`thin`]: crate::finder_budget::thin
+fn thin_windows(
+    windows: &mut Vec<(usize, f32)>,
+    allowed: usize,
+    y: usize,
+    offsets: &[usize],
+    streaks: &mut crate::finder_budget::Streaks,
+    keys: &mut Vec<usize>,
+) -> bool {
+    let phase = crate::finder_budget::phase(y);
+    if windows.len() > 32 {
+        streaks.fill(offsets);
+        let streaks = &*streaks;
+        crate::finder_budget::thin(windows, allowed, phase, keys, |&(i, _)| {
+            streaks.around(i + 1, i + 7)
+        });
+        true
+    } else {
+        crate::finder_budget::thin(windows, allowed, phase, keys, |&(i, _)| {
+            crate::finder_budget::around(offsets, i + 1, i + 7, crate::finder_budget::STREAK_CAP)
+        });
+        false
+    }
+}
+/// `found` followed by the `refined` centers that duplicate none of them.
+fn merge_refined(mut found: Vec<Center>, refined: Vec<Center>, w: usize, h: usize) -> Vec<Center> {
     // Bucket kept centers in cells: a duplicate lies within `radius` on both
     // axes, so only the cells spanning that box can hold one.
     let columns = w.div_ceil(center_index::CELL).max(1);
@@ -248,7 +313,7 @@ fn centers_from_runs(
     for (i, c) in found.iter().enumerate() {
         cells[cell(c.y, rows) * columns + cell(c.x, columns)].push(i);
     }
-    for c in refined.centers {
+    for c in refined {
         let radius = c.module * 0.2;
         let duplicate = (cell(c.y - radius, rows)..=cell(c.y + radius, rows)).any(|row| {
             (cell(c.x - radius, columns)..=cell(c.x + radius, columns)).any(|column| {
@@ -268,8 +333,20 @@ fn centers_from_runs(
             found.push(c);
         }
     }
-    found.sort_by_key(|c| std::cmp::Reverse(c.support));
-    (found, limited)
+    found
+}
+/// The module of the seven equal runs after run `i`, if they are equal enough.
+fn equal_runs(runs: &[f32], i: usize) -> Option<f32> {
+    let module = runs[i + 1..i + 8].iter().sum::<f32>() / 7.;
+    (module >= 0.8
+        && runs[i + 1..i + 8]
+            .iter()
+            .all(|v| (*v - module).abs() <= module * 0.7))
+    .then_some(module)
+}
+/// Row step of the bullseye scans.
+fn row_step(w: usize, h: usize) -> usize {
+    crate::finder_budget::row_step(w, h, 600)
 }
 /// Scanned row pixels per bullseye cross check. Real images need at most one check
 /// per 35 pixels; checkerboards and stripes pass the row test at nearly every run.
@@ -1188,7 +1265,7 @@ pub fn detect(
         if images.is_duplicate(mode) {
             continue;
         }
-        let (bits, rows) = images.get_with_runs(mode, (h / 600).max(1));
+        let (bits, rows) = images.get_with_runs(mode, row_step(w, h));
         search.threshold(
             Threshold {
                 bits,
@@ -1283,8 +1360,49 @@ mod lazy_threshold_tests {
 #[cfg(test)]
 mod bounded_work_tests {
     use super::*;
+    /// Whether a texture pixel is dark.
+    type Texture = fn(usize, usize) -> bool;
     fn pattern(w: usize, h: usize, dark: impl Fn(usize, usize) -> bool) -> Vec<bool> {
         (0..w * h).map(|i| dark(i % w, i / w)).collect()
+    }
+    #[test]
+    fn bullseyes_right_of_and_inside_textures_are_checked() {
+        let (w, h) = (640, 360);
+        let (cx, cy) = (500_usize, 200_usize);
+        // A compact bullseye of 4-pixel modules (dark center, five rings) with a
+        // light margin.
+        let bullseye = |x: usize, y: usize| {
+            let ring = (x / 4).abs_diff(cx / 4).max((y / 4).abs_diff(cy / 4));
+            (ring <= 6).then_some(ring.is_multiple_of(2) && ring <= 4)
+        };
+        let textures: [(&str, Texture); 3] = [
+            ("checkerboard", |x, y| (x / 2 + y / 2) % 2 == 0),
+            ("vertical stripes", |x, _| x / 2 % 2 == 0),
+            ("dot grid", |x, y| x % 4 < 2 && y % 4 < 2),
+        ];
+        for (name, texture) in textures {
+            for (place, covered) in [
+                ("right of", (|x, _| x < 440) as fn(usize, usize) -> bool),
+                ("inside", |_, _| true),
+            ] {
+                let bits = pattern(w, h, |x, y| {
+                    bullseye(x, y).unwrap_or_else(|| covered(x, y) && texture(x, y))
+                });
+                let (proposals, limited) = centers_with_rows(&bits, w, h, &|_, row, out| {
+                    crate::transition_offsets_into(row, out);
+                });
+                assert!(limited, "{name}, {place}: the texture exhausts the checks");
+                let center = crate::numeric::usize_f32(cx / 4 * 4 + 2);
+                let middle = crate::numeric::usize_f32(cy / 4 * 4 + 2);
+                assert!(
+                    proposals
+                        .iter()
+                        .any(|c| (c.x - center).abs() < 2. && (c.y - middle).abs() < 2.),
+                    "{name}, {place}: bullseye among {} proposals",
+                    proposals.len()
+                );
+            }
+        }
     }
     #[test]
     fn selection_matches_a_stable_sort_of_verified_candidates() {
@@ -1304,6 +1422,7 @@ mod bounded_work_tests {
                     y: crate::numeric::usize_f32(20 + random(80) as usize),
                     module: 1. + crate::numeric::usize_f32(random(3) as usize),
                     support: 1 + random(4) as usize,
+                    texture: false,
                 })
                 .collect();
             let accept = |i: usize| i % 3 != 1;

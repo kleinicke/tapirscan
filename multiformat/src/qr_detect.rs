@@ -29,6 +29,19 @@ fn ratio(r: &[usize]) -> Option<f32> {
     }
     Some(module)
 }
+/// How far a window that passed [`ratio`] is from 1:1:3:1:1, as the largest run
+/// deviation in 1/1024 of its tolerance. Five equal runs score about 900.
+fn ratio_error(r: &[usize], module: f32) -> usize {
+    let worst = r.iter().enumerate().fold(0f32, |worst, (i, &n)| {
+        let (expected, tolerance) = if i == 2 { (3., 1.8) } else { (1., 0.85) };
+        worst.max((crate::numeric::usize_f32(n) - module * expected).abs() / (module * tolerance))
+    });
+    crate::numeric::f32_usize((worst * 1024.).round())
+}
+/// Row step of the finder scans.
+fn row_step(w: usize, h: usize) -> usize {
+    crate::finder_budget::row_step(w, h, 600)
+}
 fn cross(
     image: &[bool],
     w: usize,
@@ -104,8 +117,12 @@ fn finders_with_rows(
     row_cache: Option<&crate::binarization::RowOffsets>,
 ) -> (Vec<Finder>, bool) {
     let mut found = finder_index::Index::new(w, h);
-    let step = (h / 600).max(1);
+    let step = row_step(w, h);
     let mut offsets = Vec::new();
+    let mut windows = Vec::new();
+    let mut keys = Vec::new();
+    let mut starts = Vec::new();
+    let mut plans = crate::finder_budget::Rows::default();
     // Cross checks are budgeted per scanned pixel. Half of the budget is available
     // from the start and each row adds its share of the other half; unused checks
     // carry over, so a textured band cannot exhaust the rows below it.
@@ -120,21 +137,35 @@ fn finders_with_rows(
         } else {
             crate::transition_offsets_into(row, &mut offsets);
         }
-        for i in 0..offsets.len().saturating_sub(5) {
-            if !row[offsets[i]] {
-                continue;
-            }
+        // A short row skips windows inside periodic textures (equal runs pass the
+        // ratio test) and checks the windows closest to 1:1:3:1:1.
+        let allowed = available / (2 * PIXELS_PER_CHECK);
+        let (first_dark, end) = (usize::from(!row[0]), offsets.len().saturating_sub(5));
+        let plan = plans.starts(&mut starts, &offsets, first_dark, end, (0, 4), allowed, y);
+        let short = plan.is_some();
+        cut |= plan == Some(true);
+        windows.clear();
+        crate::finder_budget::for_each_start(plan, &starts, first_dark, end, |i| {
             let widths: [usize; 5] =
                 std::array::from_fn(|run| offsets[i + run + 1] - offsets[i + run]);
-            let Some(m) = ratio(&widths) else {
-                continue;
-            };
-            let Some(left) = available.checked_sub(2 * PIXELS_PER_CHECK) else {
-                cut = true;
-                break;
-            };
-            available = left;
-            let x = offsets[i] + widths[0] + widths[1] + widths[2] / 2;
+            if let Some(m) = ratio(&widths) {
+                windows.push((i, m));
+            }
+        });
+        if windows.len() > allowed {
+            cut = true;
+            let phase = crate::finder_budget::phase(y);
+            crate::finder_budget::thin(&mut windows, allowed, phase, &mut keys, |&(i, m)| {
+                let widths: [usize; 5] =
+                    std::array::from_fn(|run| offsets[i + run + 1] - offsets[i + run]);
+                ratio_error(&widths, m)
+            });
+        }
+        // A short row spends its whole allowance, also what skipped texture windows
+        // leave over: banked, it would pay for checking the texture of later rows.
+        available -= if short { allowed } else { windows.len() } * 2 * PIXELS_PER_CHECK;
+        for &(i, m) in &windows {
+            let x = offsets[i + 2] + (offsets[i + 3] - offsets[i + 2]) / 2;
             let Some((cy, my)) = cross(image, w, h, x, y, true, m) else {
                 continue;
             };
@@ -1010,7 +1041,7 @@ fn detect_with_recovery(
             continue;
         }
         prior_count = results.len();
-        let step = (h / 600).max(1);
+        let step = row_step(w, h);
         let gray = binary_images.gray();
         let (image, row_cache) = binary_images.get_with_runs(mode, step);
         let (mut finders, capped) = finders_with_rows(image, w, h, Some(row_cache));
@@ -1890,6 +1921,8 @@ mod finder_grid_tests {
 #[cfg(test)]
 mod bounded_work_tests {
     use super::*;
+    /// Whether a texture pixel is dark.
+    type Texture = fn(usize, usize) -> bool;
     fn pattern(w: usize, h: usize, dark: impl Fn(usize, usize) -> bool) -> Vec<bool> {
         (0..w * h).map(|i| dark(i % w, i / w)).collect()
     }
@@ -1916,6 +1949,55 @@ mod bounded_work_tests {
             let work = crate::take_finder_work();
             assert!(limited, "{name}: the check budget is exhausted");
             assert!(work < limit * w * h, "{name}: {work} pixel reads");
+        }
+    }
+    /// Three finder patterns of 4-pixel modules with their top-left corners at
+    /// `corners`, each with a 4-pixel light margin.
+    fn draw_finders(bits: &mut [bool], w: usize, corners: &[[usize; 2]]) {
+        for &[left, top] in corners {
+            for y in 0..36_usize {
+                for x in 0..36_usize {
+                    let (mx, my) = ((x / 4).abs_diff(4_usize), (y / 4).abs_diff(4_usize));
+                    let ring = mx.max(my);
+                    bits[(top + y - 4) * w + left + x - 4] = ring != 2 && ring != 4;
+                }
+            }
+        }
+    }
+    #[test]
+    fn finders_right_of_and_inside_textures_are_checked() {
+        let (w, h) = (640, 360);
+        let corners = [[420_usize, 120_usize], [540, 120], [420, 240]];
+        let quiet = |x: usize, y: usize| (400..600).contains(&x) && (100..300).contains(&y);
+        let textures: [(&str, Texture); 3] = [
+            ("checkerboard", |x, y| (x / 2 + y / 2) % 2 == 0),
+            ("vertical stripes", |x, _| x / 2 % 2 == 0),
+            ("diagonal stripes", |x, y| (x + y) / 3 % 2 == 0),
+        ];
+        for (name, texture) in textures {
+            for (place, covered) in [
+                // The texture fills every row left of the finders.
+                ("right of", (|x, _| x < 400) as fn(usize, usize) -> bool),
+                // The texture surrounds the finders' light box.
+                ("inside", |_, _| true),
+            ] {
+                let mut bits = pattern(w, h, |x, y| covered(x, y) && !quiet(x, y) && texture(x, y));
+                draw_finders(&mut bits, w, &corners);
+                let (found, limited) = finders(&bits, w, h);
+                assert!(limited, "{name}, {place}: the texture exhausts the checks");
+                for [left, top] in corners {
+                    let (cx, cy) = (
+                        crate::numeric::usize_f32(left + 14),
+                        crate::numeric::usize_f32(top + 14),
+                    );
+                    assert!(
+                        found
+                            .iter()
+                            .any(|f| (f.x - cx).abs() < 2. && (f.y - cy).abs() < 2.),
+                        "{name}, {place}: finder at {left},{top}"
+                    );
+                }
+            }
         }
     }
     #[test]

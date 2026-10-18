@@ -122,6 +122,19 @@ fn cross(
 fn walk_limit(pitch: f32) -> usize {
     crate::numeric::f32_usize((pitch * 3.).ceil()) + 1
 }
+/// How far the rings on both sides of the hole of the row window starting at run
+/// `i` differ, in quarter pitches up to 16: concentric rings are mirror-symmetric
+/// about the hole, a window of noise runs is not.
+fn asymmetry(runs: &[f32], i: usize, pitch: f32) -> usize {
+    let difference: f32 = (1..5)
+        .map(|k| (runs[i + 5 - k] - runs[i + 5 + k]).abs())
+        .sum();
+    crate::numeric::f32_usize((difference / pitch * 4.).round()).min(16)
+}
+/// Row step of the bullseye scans.
+fn row_step(w: usize, h: usize) -> usize {
+    crate::finder_budget::row_step(w, h, 700)
+}
 /// Bullseye checks a frame may spend per image column. Real images, including
 /// labels next to text and photos of textured products, need at most about seven;
 /// periodic textures (checkerboards, stripes, noise) pass the row test at nearly
@@ -138,15 +151,23 @@ fn centers_with_rows(
     row_cache: Option<&crate::binarization::RowOffsets>,
 ) -> (Vec<Center>, bool) {
     let mut index = CenterIndex::new(w, h);
-    let step = (h / 700).max(1);
+    let step = row_step(w, h);
     let mut offsets = Vec::new();
     let mut runs = Vec::new();
+    let mut windows = Vec::new();
+    let mut keys = Vec::new();
+    let mut starts = Vec::new();
+    let mut plans = crate::finder_budget::Rows::default();
     // Half of the budget is available from the start, for dense rows such as a
     // linear barcode near the top. Each scanned row adds an equal share of the
     // other half and unused checks carry over, so a textured band cannot exhaust
-    // the checks of the rows below it. Units are 1/rows checks, which keeps the
-    // accounting exact in integers.
+    // the checks of the rows below it. A check costs `charge` units, which keeps
+    // the accounting exact in integers. That is one unit per scanned row, except
+    // where the frame's area sets the row step (frames more than four times wider
+    // than tall): there the checks per column shrink with the share of rows
+    // scanned, so wide frames get the checks of a square frame of their area.
     let rows = h.div_ceil(step);
+    let charge = h.min(700).max(rows);
     let share = CHECKS_PER_COLUMN / 2 * w;
     let mut available = share * rows;
     let mut limited = false;
@@ -165,10 +186,15 @@ fn centers_with_rows(
         )]
         let widths = offsets.windows(2).map(|pair| (pair[1] - pair[0]) as f32);
         runs.extend(widths);
-        for i in 0..runs.len().saturating_sub(10) {
-            if !row[offsets[i]] {
-                continue;
-            }
+        // A short row skips windows inside periodic textures and checks the
+        // windows whose rings end soonest and are most symmetric about the hole.
+        let allowed = available / charge;
+        let (first_dark, end) = (usize::from(!row[0]), runs.len().saturating_sub(10));
+        let plan = plans.starts(&mut starts, &offsets, first_dark, end, (0, 10), allowed, y);
+        let short = plan.is_some();
+        limited |= plan == Some(true);
+        windows.clear();
+        crate::finder_budget::for_each_start(plan, &starts, first_dark, end, |i| {
             let mut widths = [0f32; 11];
             widths.copy_from_slice(&runs[i..i + 11]);
             let outer = widths[0].min(widths[10]);
@@ -177,19 +203,26 @@ fn centers_with_rows(
                 widths[10] = outer;
             }
             let pitch = widths.iter().sum::<f32>() / 9.;
-            if pitch < 1.
-                || !(0.6..=3.).contains(&(runs[i + 5] / pitch))
-                || (0..11)
+            if pitch >= 1.
+                && (0.6..=3.).contains(&(runs[i + 5] / pitch))
+                && (0..11)
                     .filter(|&k| k != 5)
-                    .any(|k| (widths[k] / pitch - 0.78453).abs() > 0.58)
+                    .all(|k| (widths[k] / pitch - 0.78453).abs() <= 0.58)
             {
-                continue;
+                windows.push((i, pitch));
             }
-            let Some(left) = available.checked_sub(rows) else {
-                limited = true;
-                break;
-            };
-            available = left;
+        });
+        if windows.len() > allowed {
+            limited = true;
+            let phase = crate::finder_budget::phase(y);
+            crate::finder_budget::thin(&mut windows, allowed, phase, &mut keys, |&(i, pitch)| {
+                crate::finder_budget::around(&offsets, i, i + 10, 8) + asymmetry(&runs, i, pitch)
+            });
+        }
+        // A short row spends its whole allowance, also what skipped texture windows
+        // leave over: banked, it would pay for checking the texture of later rows.
+        available -= if short { allowed } else { windows.len() } * charge;
+        for &(i, pitch) in &windows {
             let x = offsets[i + 5] + crate::numeric::f32_usize(runs[i + 5]) / 2;
             // A row through the hole spans at least 0.9 of the bullseye diameter, so
             // the vertical pitch of an accepted (at most 2:1 elliptic) bullseye stays
@@ -391,7 +424,7 @@ pub fn detect(
         if images.is_duplicate(mode) {
             continue;
         }
-        let step = (h / 700).max(1);
+        let step = row_step(w, h);
         let (bits, row_cache) = images.get_with_runs(mode, step);
         let (centers, cut) = centers_with_rows(bits, w, h, Some(row_cache));
         limited |= cut;
@@ -474,6 +507,8 @@ pub fn detect(
 #[cfg(test)]
 mod bounded_work_tests {
     use super::*;
+    /// Whether a texture pixel is dark.
+    type Texture = fn(usize, usize) -> bool;
     fn pattern(w: usize, h: usize, dark: impl Fn(usize, usize) -> bool) -> Vec<bool> {
         (0..w * h).map(|i| dark(i % w, i / w)).collect()
     }
@@ -533,6 +568,35 @@ mod bounded_work_tests {
             "bullseye below the band among {} centers",
             centers.len()
         );
+    }
+    #[test]
+    fn bullseyes_right_of_and_inside_textures_are_checked() {
+        let (w, h) = (640, 360);
+        let textures: [(&str, Texture); 3] = [
+            ("checkerboard", |x, y| (x / 2 + y / 2) % 2 == 0),
+            ("vertical stripes", |x, _| x / 2 % 2 == 0),
+            ("diagonal stripes", |x, y| (x + y) / 3 % 2 == 0),
+        ];
+        for (name, texture) in textures {
+            for (place, covered) in [
+                ("right of", (|x, _| x < 440) as fn(usize, usize) -> bool),
+                ("inside", |_, _| true),
+            ] {
+                // The bullseye's 61-pixel box sits in a light 81-pixel box.
+                let quiet = |x: usize, y: usize| x.abs_diff(500) <= 40 && y.abs_diff(200) <= 40;
+                let mut bits = pattern(w, h, |x, y| covered(x, y) && !quiet(x, y) && texture(x, y));
+                draw_bullseye(&mut bits, w, [500, 200]);
+                let (centers, limited) = centers_with_rows(&bits, w, h, None);
+                assert!(limited, "{name}, {place}: the texture exhausts the checks");
+                assert!(
+                    centers
+                        .iter()
+                        .any(|c| (c.x - 500.).abs() < 2. && (c.y - 200.).abs() < 2.),
+                    "{name}, {place}: bullseye among {} centers",
+                    centers.len()
+                );
+            }
+        }
     }
     #[test]
     fn indexed_clusters_match_first_match_linear_search() {
