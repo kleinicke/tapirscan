@@ -110,13 +110,13 @@ fn layouts_match_the_header() {
     assert_eq!(std::mem::size_of::<ResultInfoC>(), 48);
     assert_eq!(std::mem::size_of::<BarcodeC>(), 136);
     assert_eq!(std::mem::size_of::<RegionC>(), 72);
-    assert_eq!(std::mem::size_of::<ContentInfoC>(), 16);
-    assert_eq!(std::mem::size_of::<ContentFieldC>(), 16);
+    assert_eq!(std::mem::size_of::<ContentSummaryC>(), 16);
+    assert_eq!(std::mem::size_of::<ContentLengthsC>(), 16);
     assert_eq!(tapirscan_abi_version(), 7);
 }
 
 fn content_field(handle: u64, position: u64, part: u32) -> String {
-    let mut lengths = ContentFieldC::default();
+    let mut lengths = ContentLengthsC::default();
     assert_eq!(
         unsafe { tapirscan_content_field(handle, position, &raw mut lengths) },
         0
@@ -157,7 +157,7 @@ fn parses_content_through_owned_handles() {
             0
         );
         assert_eq!(error.message[0], 0);
-        let mut summary = ContentInfoC::default();
+        let mut summary = ContentSummaryC::default();
         assert_eq!(tapirscan_content_info(handle, &raw mut summary), 0);
         assert_eq!((summary.kind, summary.field_count), (7, 3));
         assert_eq!(
@@ -166,7 +166,7 @@ fn parses_content_through_owned_handles() {
         );
         assert_eq!(content_field(handle, 0, CONTENT_FIELD_NAME), "ssid");
         assert_eq!(content_field(handle, 2, CONTENT_FIELD_VALUE), "secret");
-        let mut lengths = ContentFieldC::default();
+        let mut lengths = ContentLengthsC::default();
         assert_eq!(tapirscan_content_field(handle, 3, &raw mut lengths), ARG);
         let mut byte = 0u8;
         assert_eq!(tapirscan_content_copy(handle, 0, 2, &raw mut byte, 1), ARG);

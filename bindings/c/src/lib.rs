@@ -159,15 +159,17 @@ pub struct RegionC {
     pub format: u32,
 }
 
+/// `tapirscan_content_summary`.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct ContentInfoC {
+pub struct ContentSummaryC {
     pub kind: u32,
     pub field_count: u64,
 }
+/// `tapirscan_content_lengths`.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct ContentFieldC {
+pub struct ContentLengthsC {
     pub name_length: u64,
     pub value_length: u64,
 }
@@ -698,15 +700,16 @@ fn content(id: u64) -> Result<Arc<Content>, i32> {
     registry()?.contents.get(&id).cloned().ok_or(HANDLE)
 }
 
+/// Kind and field count of parsed content.
 /// # Safety
 /// `out` must be null or writable and aligned for one `tapirscan_content_summary`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn tapirscan_content_info(handle: u64, out: *mut ContentInfoC) -> i32 {
+pub unsafe extern "C" fn tapirscan_content_info(handle: u64, out: *mut ContentSummaryC) -> i32 {
     boundary(|| {
         let out = unsafe { out.as_mut() }.ok_or(ARG)?;
-        *out = ContentInfoC::default();
+        *out = ContentSummaryC::default();
         let content = content(handle)?;
-        *out = ContentInfoC {
+        *out = ContentSummaryC {
             kind: content.kind as u32,
             field_count: content.fields.len() as u64,
         };
@@ -714,20 +717,21 @@ pub unsafe extern "C" fn tapirscan_content_info(handle: u64, out: *mut ContentIn
     })
 }
 
+/// Byte lengths of a field's name and value, excluding the NUL terminator.
 /// # Safety
 /// `out` must be null or writable and aligned for one `tapirscan_content_lengths`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tapirscan_content_field(
     handle: u64,
     position: u64,
-    out: *mut ContentFieldC,
+    out: *mut ContentLengthsC,
 ) -> i32 {
     boundary(|| {
         let out = unsafe { out.as_mut() }.ok_or(ARG)?;
-        *out = ContentFieldC::default();
+        *out = ContentLengthsC::default();
         let content = content(handle)?;
         let field = content.fields.get(index(position)?).ok_or(ARG)?;
-        *out = ContentFieldC {
+        *out = ContentLengthsC {
             name_length: field.name.len() as u64,
             value_length: field.value.len() as u64,
         };
