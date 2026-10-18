@@ -1,7 +1,7 @@
 //! Restored-contrast and threshold retries on bounded source crops.
 use super::{
-    Error, Image, Proposal, Quad, ScanOptions, Scanner, checked_image, protected_primary,
-    scan_prepared_impl, source_contradiction,
+    Error, Image, Proposal, Quad, ScanOptions, Scanner, TextureSource, checked_image,
+    protected_primary, scan_prepared_impl, source_contradiction,
 };
 #[cfg(not(feature = "low"))]
 use super::{recovered_ean_source_agreement, scan_policy};
@@ -74,6 +74,10 @@ pub(super) fn restore_with_kernel(image: Image<'_>, weights: &[u32]) -> Vec<u8> 
 }
 
 #[cfg(not(feature = "low"))]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Selection, crop restoration, rescan and source checks of one retry stay together."
+)]
 pub(super) fn recover_restored_regions(
     scanner: &mut Scanner,
     image: Image<'_>,
@@ -145,7 +149,16 @@ pub(super) fn recover_restored_regions(
         let local = p
             .polygon
             .map(|v| [v[0] - usize_f64(x), v[1] - usize_f64(y)]);
-        let (barcodes, _) = rescan_crop(scanner, enhanced, options, &crop_coverage, local, true)?;
+        let source = TextureSource::crop(image, [usize_f64(x), usize_f64(y)], 1.);
+        let (barcodes, _) = rescan_crop(
+            scanner,
+            enhanced,
+            options,
+            &crop_coverage,
+            local,
+            true,
+            source,
+        )?;
         for mut read in barcodes {
             if read.detection.support < 5 {
                 continue;
@@ -189,6 +202,7 @@ fn rescan_crop(
     coverage: &[Quad],
     local: Quad,
     consolidate: bool,
+    source: TextureSource<'_>,
 ) -> std::result::Result<(Vec<Barcode>, bool), Error> {
     #[cfg(feature = "medium")]
     if scanner.shared_linear {
@@ -209,7 +223,7 @@ fn rescan_crop(
     }
     #[cfg(not(feature = "medium"))]
     let _ = local;
-    let retry = scan_prepared_impl(scanner, crop, options, coverage, consolidate, false, false)?;
+    let retry = scan_prepared_impl(scanner, crop, options, coverage, consolidate, false, source)?;
     Ok((retry.scan.frame.barcodes, retry.scan.frame.unfinished))
 }
 
@@ -578,8 +592,15 @@ fn admit_reduced_reads(
             (v[1] - usize_f64(crop.y)) * crop.factor,
         ]
     });
-    let (barcodes, unfinished) =
-        rescan_crop(scanner, variant, options, crop.coverage, local, false)?;
+    let (barcodes, unfinished) = rescan_crop(
+        scanner,
+        variant,
+        options,
+        crop.coverage,
+        local,
+        false,
+        TextureSource::crop(image, [usize_f64(crop.x), usize_f64(crop.y)], crop.factor),
+    )?;
     scan.frame.unfinished |= unfinished;
     let mut accepted = false;
     for mut read in barcodes {

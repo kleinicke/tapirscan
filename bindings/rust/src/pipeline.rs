@@ -86,8 +86,52 @@ fn scan_prepared(
         coverage,
         consolidate,
         shared_retail,
-        true,
+        TextureSource::of(image),
     )
+}
+
+/// Original pixels behind a scanned image: point `p` of the scanned image lies at
+/// `origin + p / scale` in `image`. Recovery rescans of reduced or restored crops test
+/// textures on original pixels, where reduction cannot alias them.
+#[derive(Clone, Copy)]
+pub(super) struct TextureSource<'a> {
+    image: Image<'a>,
+    origin: [f64; 2],
+    scale: f64,
+    /// The scanned image is the whole frame, which alone runs the restoration retries.
+    frame: bool,
+}
+
+impl<'a> TextureSource<'a> {
+    pub(super) fn of(image: Image<'a>) -> Self {
+        Self {
+            image,
+            origin: [0., 0.],
+            scale: 1.,
+            frame: true,
+        }
+    }
+
+    /// A recovery rescan of a crop or reduced copy of `image`; Low has no such rescans.
+    #[cfg(not(feature = "low"))]
+    pub(super) fn crop(image: Image<'a>, origin: [f64; 2], scale: f64) -> Self {
+        Self {
+            image,
+            origin,
+            scale,
+            frame: false,
+        }
+    }
+
+    pub(super) fn texture(&self, q: &Quad) -> bool {
+        let q = q.map(|p| {
+            [
+                self.origin[0] + p[0] / self.scale,
+                self.origin[1] + p[1] / self.scale,
+            ]
+        });
+        super::texture::texture_proposal(self.image, &q)
+    }
 }
 
 #[expect(
@@ -101,10 +145,11 @@ fn scan_prepared_impl(
     coverage: &[Quad],
     consolidate: bool,
     shared_retail: bool,
-    allow_restoration: bool,
+    source: TextureSource<'_>,
 ) -> std::result::Result<Result, Error> {
+    let allow_restoration = source.frame;
     let im = checked_image(image)?;
-    let localization = localize(&mut scanner.localizer, im, image, shared_retail)?;
+    let localization = localize(&mut scanner.localizer, im, image, shared_retail, source)?;
     let mut candidates: Vec<_> = localization.proposals.iter().map(|p| p.polygon).collect();
     // Medium scans the full-frame window of a whole image only when its boxes read nothing but
     // show evidence (below). Crop rescans are small and always scan theirs.
@@ -174,6 +219,7 @@ fn scan_prepared_impl(
         options,
         shared_retail,
         &retail,
+        source,
     )?;
     #[cfg(feature = "low")]
     let recovery: Option<super::read::Recovery> = None;
@@ -371,7 +417,15 @@ fn recover_downscaled(
         .iter()
         .map(|q| q.map(|v| [v[0] * factor, v[1] * factor]))
         .collect();
-    let retry = scan_prepared_impl(scanner, reduced, options, &scaled, false, false, false)?;
+    let retry = scan_prepared_impl(
+        scanner,
+        reduced,
+        options,
+        &scaled,
+        false,
+        false,
+        TextureSource::crop(image, [0., 0.], factor),
+    )?;
     scan.frame.unfinished |= retry.scan.frame.unfinished;
     for mut read in retry.scan.frame.barcodes {
         if read.detection.support < 3 {
@@ -664,11 +718,16 @@ fn recover_primary_proposals_high(
     admit_primary_reads(image, scan, protected, extra.into_iter().chain(colored))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "Every mode's localizer, its periodic-texture filters and the shared refinements stay in one ordered sequence."
+)]
 fn localize(
     detector: &mut stripes::Detector,
     im: ImageView<'_>,
     image: Image<'_>,
     capture_short_fragments: bool,
+    source: TextureSource<'_>,
 ) -> std::result::Result<Localization, Error> {
     #[cfg(not(feature = "medium"))]
     let mut fragments = Vec::new();
@@ -728,6 +787,10 @@ fn localize(
     #[cfg(not(feature = "medium"))]
     let short_fragments =
         capture_short_fragments.then(|| fragments.into_iter().map(|(_, p)| p).collect());
+    // Boxes on stripes, rings, random bar patterns and similar textures can hold no symbol;
+    // retrying them costs most of the scan of such frames.
+    let mut found = found;
+    found.proposals.retain(|p| !source.texture(&p.polygon));
     let count = found.proposals.len();
     #[allow(
         clippy::unnecessary_min_or_max,
@@ -740,6 +803,8 @@ fn localize(
             proposals.push(p);
         }
     }
+    // Refinements of kept boxes cover the same bars and need no texture test.
+    let refined = proposals.len();
 
     // Small strongly sheared labels can have no accepted orthogonal stripe box.
     // Reuse the bounded pixel-only envelope fit before abandoning localization.
@@ -758,6 +823,12 @@ fn localize(
     }
     let (secondary_omitted, secondary_limited) =
         add_secondary_proposals(detector, im, image, &mut proposals);
+    // Envelope and secondary boxes get the same texture test.
+    let mut index = 0;
+    proposals.retain(|p| {
+        index += 1;
+        index <= refined || !source.texture(&p.polygon)
+    });
     if proposals.len() > SELECTED.proposal_limit {
         return Err(Error::Parameters);
     }
@@ -898,6 +969,10 @@ fn finish_retail(
 }
 
 #[cfg(not(feature = "low"))]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Forwards the scan state and the original-pixel texture source to detail recovery."
+)]
 fn recover(
     scanner: &mut Scanner,
     image: Image<'_>,
@@ -906,6 +981,7 @@ fn recover(
     options: ScanOptions,
     shared_retail: bool,
     retail: &[super::read::Read],
+    source: TextureSource<'_>,
 ) -> std::result::Result<Option<super::read::Recovery>, Error> {
     let result = super::detail::recover(
         image,
@@ -915,6 +991,7 @@ fn recover(
         coverage,
         retail,
         super::detail::RecoveryOptions {
+            texture: &|q| source.texture(q),
             directions: SELECTED.recovery_directions,
             complete: options.finish_candidates,
             shared_retail,

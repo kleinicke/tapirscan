@@ -664,7 +664,7 @@ impl Scanner {
         }
 
         if mask == EAN13 && addons == EanAddOnPolicy::Ignore {
-            return primary_result(&self.scan_with_options(image, options)?);
+            return primary_result(image, &self.scan_with_options(image, options)?);
         }
         let start = crate::timer::Timer::start();
         // Rank only after all selected readers have finished.
@@ -759,7 +759,7 @@ impl Scanner {
                 }));
             }
         }
-        typed_result(reads, unread, unfinished, raw)
+        typed_result(image, reads, unread, unfinished, raw)
     }
 }
 
@@ -789,7 +789,7 @@ impl Scanner {
     }
 }
 
-fn primary_result(result: &crate::Result) -> Result<EngineScan, Error> {
+fn primary_result(image: Image<'_>, result: &crate::Result) -> Result<EngineScan, Error> {
     let reads = primary_reads(result);
     let unread = unread_regions(result, &reads);
     let raw = result
@@ -797,7 +797,7 @@ fn primary_result(result: &crate::Result) -> Result<EngineScan, Error> {
         .retain_diagnostics
         .then(|| crate::result::value(result, MODE, 0.0))
         .transpose()?;
-    typed_result(reads, unread, result.unfinished(), raw)
+    typed_result(image, reads, unread, result.unfinished(), raw)
 }
 
 fn format_diagnostics(
@@ -872,12 +872,24 @@ fn drop_msi_prefixes(reads: &mut Vec<Read>) {
     reads.retain(|_| !prefix.next().unwrap_or(false));
 }
 
+/// Drop linear reads of periodic or two-dimensional textures (see [`crate::texture`]).
+fn drop_texture_reads(reads: &mut Vec<Read>, image: Image<'_>) {
+    reads.retain(|read| {
+        matches!(
+            read.format.as_str(),
+            "QRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
+        ) || !crate::texture::texture_read(image, &read.polygon)
+    });
+}
+
 pub(crate) fn typed_result(
+    image: Image<'_>,
     mut reads: Vec<Read>,
     unread: Vec<Region>,
     unfinished: bool,
     mut diagnostics: Option<Value>,
 ) -> Result<EngineScan, Error> {
+    drop_texture_reads(&mut reads, image);
     drop_msi_prefixes(&mut reads);
     if let Some(raw) = &mut diagnostics {
         raw["scan"]["barcodes"] = serde_json::to_value(&reads).map_err(|_| Error::OutputShape)?;
@@ -1928,6 +1940,9 @@ mod result_tests;
 
 #[cfg(test)]
 mod grayscale_reuse_tests;
+
+#[cfg(test)]
+mod texture_tests;
 
 fn retain_requested_primary(reads: &mut Vec<Read>, mask: u32) {
     reads.retain_mut(|read| {

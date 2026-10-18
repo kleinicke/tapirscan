@@ -428,7 +428,9 @@ pub(crate) struct Scratch {
 /// Weakest read support at which the wide crop pass is skipped.
 const WIDE_MIN_SUPPORT: usize = 10;
 #[derive(Clone, Copy)]
-pub(super) struct RecoveryOptions {
+pub(super) struct RecoveryOptions<'a> {
+    /// Whether a box lies on a texture without symbols, tested on original pixels.
+    pub texture: &'a dyn Fn(&Quad) -> bool,
     pub directions: usize,
     pub complete: bool,
     pub shared_retail: bool,
@@ -453,9 +455,10 @@ pub fn recover(
     scratch: &mut Scratch,
     coverage: &[Quad],
     known_retail: &[Read],
-    options: RecoveryOptions,
+    options: RecoveryOptions<'_>,
 ) -> Result<Recovery, Error> {
     let RecoveryOptions {
+        texture,
         directions,
         complete,
         shared_retail,
@@ -502,6 +505,7 @@ pub fn recover(
             }
             let angle = refined_angle(im, *seed);
             let mut quads = Vec::new();
+            let mut on_texture = true;
             for offset in [0_f64, -3., 3.] {
                 let angle = angle + offset * std::f64::consts::PI / 180.;
                 let (c, s) = (angle.cos(), angle.sin());
@@ -513,14 +517,17 @@ pub fn recover(
                     [-half_width, 24.],
                 ]
                 .map(|[u, v]| [seed.x + u * c - v * s, seed.y + u * s + v * c]);
-                if evidence(im, polygon, true, 32) >= 32 {
+                let textured = texture(&polygon);
+                on_texture &= textured;
+                if !textured && evidence(im, polygon, true, 32) >= 32 {
                     quads.push(polygon);
                 }
                 if quads.len() >= directions {
                     break;
                 }
             }
-            if quads.is_empty() && !wide {
+            // A seed whose every direction is a texture holds no symbol for either pass.
+            if on_texture || quads.is_empty() && !wide {
                 continue;
             }
             let w = (if wide { 512 } else { 256 }).min(im.width);
@@ -684,7 +691,9 @@ pub(crate) fn source_bands(im: Image<'_>, known: &[Read]) -> Vec<Proposal> {
         for half in [128., 256.] {
             let polygon = [[-half, -32.], [half, -32.], [half, 32.], [-half, 32.]]
                 .map(|[u, v]| [seed.x + u * c - v * s, seed.y + u * s + v * c]);
-            if evidence(im, polygon, true, 32) >= 32 {
+            if evidence(im, polygon, true, 32) >= 32
+                && !crate::texture::texture_proposal(im, &polygon)
+            {
                 out.push(Proposal {
                     polygon,
                     score: seed.score,

@@ -20,6 +20,7 @@ mod read;
 mod result;
 #[cfg(feature = "medium")]
 mod short_crop;
+mod texture;
 mod timer;
 pub use barcode_research_core::region_scan::{Error, ImageView, RegionScanner, ScanResult};
 pub use barcode_research_core::{frame::Barcode, oriented::Proposal, scan::Quad};
@@ -48,7 +49,6 @@ impl Image<'_> {
         }
     }
     /// Edge-clamped bilinear [`Self::fixed_luminance`] at the source position (`x`, `y`).
-    #[cfg(not(feature = "low"))]
     #[inline]
     pub(crate) fn bilinear_luminance(self, x: f64, y: f64) -> f64 {
         use barcode_research_core::numeric::{f64_usize, usize_f64};
