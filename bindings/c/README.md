@@ -143,8 +143,9 @@ contact, payment and similar payloads, or 0 for plain text. Pass the barcode's
 `gs1` flag.
 
 ```c
+/* `text` is the copied barcode text, a char *, and barcode.text_length its length. */
 tapirscan_content content = 0;
-tapirscan_parse_content(text, text_length, barcode.gs1, &content, NULL);
+tapirscan_parse_content((const uint8_t *)text, barcode.text_length, barcode.gs1, &content, NULL);
 if (content) {
     tapirscan_content_summary summary;
     tapirscan_content_info(content, &summary); /* kind, field_count */

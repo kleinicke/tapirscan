@@ -33,7 +33,22 @@ Rust needs source changes where code relied on the exact shape of public types:
 - `Format::ALL` is a slice (`&[Format]`) instead of an array; use `.len()` and
   iteration instead of a fixed array type.
 
-Python, JavaScript, Java and C++ callers need no source changes.
+Python and JavaScript callers need no source changes. Java and C++ need small ones:
+
+- Java: an exhaustive `switch` over `Format` handles `CODE32`, `PZN` and
+  `MSI_PLESSEY`, or has a `default`.
+- C++: a `switch` over `Format` warns under `-Wswitch` until it covers the new
+  values or has a `default`.
+- C and C++: three-value `tapirscan_scanner_options` initializers from 1.3.0 keep
+  working, but `-Wmissing-field-initializers` warns. Use
+  `TAPIRSCAN_SCANNER_OPTIONS_INIT` or a designated initializer.
+
+Two runtime changes affect every native binding:
+
+- Native scans use extra threads by default. A server that runs one scanner per
+  core can turn `parallel` off.
+- The x86-64 native libraries require x86-64-v2. On an older CPU the process
+  crashes with an illegal instruction instead of failing to load.
 
 ## Upgrading from 1.2.2
 

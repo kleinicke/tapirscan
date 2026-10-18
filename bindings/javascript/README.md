@@ -185,7 +185,7 @@ export default defineConfig({
   Chrome 91, Firefox 114, Safari 16.4 or later. The camera loop also needs
   `requestVideoFrameCallback`. Images may have at most 65,535 pixels per side and 256 megapixels.
 - **Deployment size:** bundlers emit all eight WASM files (four modes and four
-  Turbo presets, 1.8–2.5 MB each, about 16 MB together), so any can be selected
+  Turbo presets, 1.9–2.8 MB each, about 18 MB together), so any can be selected
   without configuration. A page downloads only the one its scanner uses.
 
 **Fast scanning in the browser:**
