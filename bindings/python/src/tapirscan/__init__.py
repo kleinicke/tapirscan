@@ -259,6 +259,7 @@ class Scanner:
         if ean_add_on_policy not in _ADDON_POLICIES:
             msg = 'ean_add_on_policy must be "ignore", "read" or "require"'
             raise ValueError(msg)
+        _check_parallel(parallel)
         self._ean_add_on_policy = ean_add_on_policy
         self._parallel = parallel
         self._formats = resolve_formats(formats)
@@ -599,6 +600,13 @@ def inspect(
         )
 
 
+def _check_parallel(parallel: object) -> None:
+    """Reject truthy non-bool values such as 1 or "yes"; None follows the default."""
+    if parallel is not None and not isinstance(parallel, bool):
+        msg = "parallel must be a bool or None"
+        raise ValueError(msg)
+
+
 def scan_many(
     images: Iterable[ImageInput],
     *,
@@ -624,9 +632,12 @@ def scan_many(
     consumed; images taken while the failing scan ran are still scanned, and the
     earliest failure in input order is raised once the started scans finish.
     """
-    if workers is not None and (isinstance(workers, bool) or workers < 1):
+    if workers is not None and (
+        not isinstance(workers, int) or isinstance(workers, bool) or workers < 1
+    ):
         msg = "workers must be a positive integer or None"
         raise ValueError(msg)
+    _check_parallel(parallel)
     count = workers or _cpu_count()
     local = threading.local()
     created: list[Scanner] = []

@@ -105,6 +105,17 @@ class Images(unittest.TestCase):
             self.assertGreater(reads.barcodes[0].rect.width, 0)
             self.assertEqual(len(reads.barcodes[0].polygon), 4)
 
+    def test_scanner_parallel_is_strict(self) -> None:
+        """Scanner(parallel=...) accepts only bool or None."""
+        for parallel in (True, False, None):
+            with barcode.Scanner(parallel=parallel, library_dir=LIBS) as scanner:
+                self.assertIs(scanner.parallel, parallel)
+        for parallel in (1, 0, "yes", ""):
+            with self.assertRaisesRegex(ValueError, "parallel must be a bool or None"):
+                barcode.Scanner(
+                    parallel=typing.cast("typing.Any", parallel), library_dir=LIBS
+                )
+
     def test_scan_many(self) -> None:
         """scan_many keeps input order, matches scan and reports errors."""
         blank = np.full_like(GRAY, 255)
@@ -116,9 +127,20 @@ class Images(unittest.TestCase):
                 [[TEXT], [], [TEXT], [], [TEXT]],
             )
         self.assertEqual(barcode.scan_many([], library_dir=LIBS), [])
-        for workers in (0, -1, True):
-            with self.assertRaises(ValueError):
-                barcode.scan_many(images, workers=workers, library_dir=LIBS)
+        for workers in (0, -1, True, 1.5, "2"):
+            with self.assertRaisesRegex(
+                ValueError, "workers must be a positive integer"
+            ):
+                barcode.scan_many(
+                    images, workers=typing.cast("typing.Any", workers), library_dir=LIBS
+                )
+        for parallel in (1, "yes", 0.5):
+            with self.assertRaisesRegex(ValueError, "parallel must be a bool or None"):
+                barcode.scan_many(
+                    images,
+                    parallel=typing.cast("typing.Any", parallel),
+                    library_dir=LIBS,
+                )
         with self.assertRaisesRegex(ValueError, "Image buffer is too short|dimensions"):
             barcode.scan_many(
                 [GRAY, PixelImage(b"", width=W, height=H)], library_dir=LIBS
