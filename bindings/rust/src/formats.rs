@@ -19,7 +19,7 @@
 //! | QR grid projection of unresolved regions                     | x | x | x | x |
 //! | QR foreground thresholds, then sharpened (mixed: small only) |   | x | x | x |
 //! | Data Matrix area-averaged copies (M: after a candidate)      |   | x | x | x |
-//! | QR reduced copies (mixed, large frames: dense square texture)|   |   | x | x |
+//! | QR reduced copies (mixed, large: dim frame or square texture)|   |   | x | x |
 //! | QR equalized and inverted copies (`cfg`)                     |   |   | x | x |
 //! | **primary retail scan** (EAN-13/UPC-A; M+ also EAN-8/UPC-E)  | x | x | x | x |
 //! | **`recover_linear_regions`**, inside localized boxes         |   | x | x | x |

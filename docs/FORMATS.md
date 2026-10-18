@@ -110,8 +110,8 @@ These are internal reader effort levels, not comparable work or confidence score
   When QR shares the scan with other formats, the threshold/sharpen and
   equalized/inverted retries run on frames above 262,144 pixels only where a QR
   candidate stayed unread, and the High and Very High reduced copies of large
-  frames only where a low-resolution copy shows a large square area of
-  module-like texture. EAN13-only scans run none of this.
+  frames only on underexposed frames or where a low-resolution copy shows a
+  large square area of module-like texture. EAN13-only scans run none of this.
 - **Data Matrix:** candidates that do not decode are retried with a wider
   side-ratio window, a grayscale corner refinement and a resampled crop, with
   twice the tries in High. Medium and above add a grid-recovery pass; High and
