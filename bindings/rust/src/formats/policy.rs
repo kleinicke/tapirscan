@@ -73,6 +73,9 @@ pub(super) struct ModePolicy {
     pub data_matrix_averaged_without_region: bool,
     /// Long sides of the area-averaged Data Matrix copies, in order.
     pub data_matrix_averaged_scales: &'static [usize],
+    /// EAN add-on selections also run the 2D recoveries of unread frames without a
+    /// candidate region; otherwise they skip them to keep their cost.
+    pub addon_2d_recoveries: bool,
 
     // Localized linear recovery (`recover_linear_regions`, not compiled into Low).
     /// Exact source profiles are cached within one frame.
@@ -119,6 +122,7 @@ impl ModePolicy {
         matrix_crop_effort: 0,
         data_matrix_averaged_without_region: false,
         data_matrix_averaged_scales: &[400, 256],
+        addon_2d_recoveries: false,
         source_profile_cache: false,
         sparse_stripe_fallback: false,
         half_scale_proposals: false,
@@ -166,6 +170,7 @@ impl ModePolicy {
         matrix_crop_pixels: 131_072,
         matrix_crop_effort: 2,
         data_matrix_averaged_without_region: true,
+        addon_2d_recoveries: true,
         source_profile_cache: false,
         sparse_stripe_fallback: false,
         half_scale_proposals: true,

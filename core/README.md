@@ -31,7 +31,8 @@ public scanner, see [the architecture overview](../docs/ARCHITECTURE.md).
   detector and one threshold cache. `qr_grid` resamples unresolved regions from original
   grayscale pixels. The Rust facade selects QR-only reader groups and enforces
   the mode-specific frame retry limits. EAN add-on selections run the same 2D reader
-  groups but skip the recoveries of unread frames that have no candidate region.
+  groups; in Low and Medium they skip the recoveries of unread frames that have no
+  candidate region.
 
 - `stripes::Detector` localizes candidates: `stripes/raster.rs` (sampling, contrast
   conditioning, gradients), `groups.rs`, `proposals.rs` and `refinement.rs` (source-pixel

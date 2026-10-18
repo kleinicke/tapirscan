@@ -99,11 +99,12 @@ fn shares_short_retail(mask: u32, addons: EanAddOnPolicy) -> bool {
 }
 
 /// Whether the 2D recoveries that run on unread frames without a candidate region
-/// run: reduced, enlarged, foreground-threshold, equalized and inverted copies. EAN
-/// add-on selections skip them to keep their cost; their 2D reader groups and the
-/// recoveries of candidate regions are the same as without add-ons.
+/// run: reduced, enlarged, foreground-threshold, equalized and inverted copies. In
+/// Low and Medium, EAN add-on selections skip them to keep their cost; from High up
+/// they run as without add-ons. The 2D reader groups and the recoveries of candidate
+/// regions are the same with or without add-ons in every mode.
 fn evidence_free_2d_recoveries(addons: EanAddOnPolicy) -> bool {
-    addons == EanAddOnPolicy::Ignore
+    addons == EanAddOnPolicy::Ignore || POLICY.addon_2d_recoveries
 }
 
 /// Whether the frame's long side exceeds [`REDUCED_COPY_SIDE`].
