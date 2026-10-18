@@ -47,11 +47,12 @@ typedef enum tapirscan_ean_add_on_policy {
 /* Whether one scan runs its formats on separate threads where the host allows
    it. Results are identical either way. Use OFF when you already run one
    scanner per core. DEFAULT is ON unless the process environment sets
-   TAPIRSCAN_THREADS to 0 or 1. */
+   TAPIRSCAN_THREADS to 0 or 1. DEFAULT is 0, so an options struct initialized
+   without this field, such as {mode, formats, policy}, keeps the default. */
 typedef enum tapirscan_parallel {
-    TAPIRSCAN_PARALLEL_OFF = 0,
-    TAPIRSCAN_PARALLEL_ON = 1,
-    TAPIRSCAN_PARALLEL_DEFAULT = 2
+    TAPIRSCAN_PARALLEL_DEFAULT = 0,
+    TAPIRSCAN_PARALLEL_OFF = 1,
+    TAPIRSCAN_PARALLEL_ON = 2
 } tapirscan_parallel;
 
 /* Scanner configuration. Passing NULL to tapirscan_scanner_create selects

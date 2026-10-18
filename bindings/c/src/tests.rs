@@ -311,7 +311,7 @@ fn options_select_mode_formats_and_diagnostics() {
             mode: 2,
             formats: TAPIRSCAN_FORMAT_EAN8,
             ean_add_on_policy: 1,
-            parallel: 2,
+            parallel: PARALLEL_DEFAULT,
         });
         let (status, result) = scan(scanner, &image, std::ptr::null());
         assert_eq!(status, 0);
@@ -342,25 +342,25 @@ fn rejects_invalid_arguments_without_partial_output() {
                 mode: 4,
                 formats: 15,
                 ean_add_on_policy: 0,
-                parallel: 2,
+                parallel: PARALLEL_DEFAULT,
             },
             ScannerOptionsC {
                 mode: 1,
                 formats: 0,
                 ean_add_on_policy: 0,
-                parallel: 2,
+                parallel: PARALLEL_DEFAULT,
             },
             ScannerOptionsC {
                 mode: 1,
                 formats: 1 << 30,
                 ean_add_on_policy: 0,
-                parallel: 2,
+                parallel: PARALLEL_DEFAULT,
             },
             ScannerOptionsC {
                 mode: 1,
                 formats: 15,
                 ean_add_on_policy: 3,
-                parallel: 2,
+                parallel: PARALLEL_DEFAULT,
             },
         ] {
             assert_eq!(
@@ -495,7 +495,7 @@ fn detailed_errors_are_per_call_and_cleared_on_success() {
             mode: 1,
             formats: 0,
             ean_add_on_policy: 0,
-            parallel: 2,
+            parallel: PARALLEL_DEFAULT,
         };
         assert_eq!(
             tapirscan_scanner_create(&raw const options, &raw mut scanner, &raw mut error),
@@ -664,15 +664,15 @@ fn parallel_setting_leaves_results_unchanged() {
         assert_eq!(tapirscan_scanner_destroy(scanner), 0);
         reads
     };
-    let on = reads(1);
+    let on = reads(PARALLEL_ON);
     assert_eq!(on.len(), 1);
-    assert_eq!(on, reads(0));
-    assert_eq!(on, reads(2));
+    assert_eq!(on, reads(PARALLEL_OFF));
+    assert_eq!(on, reads(PARALLEL_DEFAULT));
     let invalid = ScannerOptionsC {
         mode: 1,
         formats: 15,
         ean_add_on_policy: 0,
-        parallel: 3,
+        parallel: PARALLEL_ON + 1,
     };
     let mut scanner = 0;
     assert_eq!(

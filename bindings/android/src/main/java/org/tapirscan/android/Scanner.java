@@ -23,8 +23,8 @@ public final class Scanner implements AutoCloseable {
         System.loadLibrary("tapirscan_jni");
     }
 
-    /** {@code TAPIRSCAN_PARALLEL_DEFAULT}: follow the process default. */
-    private static final int PARALLEL_DEFAULT = 2;
+    /** {@code tapirscan_parallel}: {@code DEFAULT} follows the process default. */
+    private static final int PARALLEL_DEFAULT = 0, PARALLEL_OFF = 1, PARALLEL_ON = 2;
 
     private final ScannerOptions options;
     private long handle;
@@ -40,9 +40,9 @@ public final class Scanner implements AutoCloseable {
                 options.eanAddOnPolicy().code(), parallelCode(options.parallel()));
     }
 
-    /** The native tapirscan_parallel value: off, on, or the process default. */
-    private static int parallelCode(Boolean parallel) {
-        return parallel == null ? PARALLEL_DEFAULT : parallel ? 1 : 0;
+    /** The native tapirscan_parallel value: the process default, off or on. */
+    static int parallelCode(Boolean parallel) {
+        return parallel == null ? PARALLEL_DEFAULT : parallel ? PARALLEL_ON : PARALLEL_OFF;
     }
 
     public ScannerOptions options() {

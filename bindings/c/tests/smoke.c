@@ -54,13 +54,22 @@ int main(void) {
     assert(tapirscan_scanner_destroy(scanner) == TAPIRSCAN_OK);
     assert(tapirscan_scanner_destroy(scanner) == TAPIRSCAN_INVALID_HANDLE);
 
-    for (uint32_t parallel = TAPIRSCAN_PARALLEL_OFF; parallel <= TAPIRSCAN_PARALLEL_DEFAULT + 1; parallel++) {
+    /* An initializer written before the parallel field existed keeps the default. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+    tapirscan_scanner_options three_fields = {TAPIRSCAN_MODE_LOW, TAPIRSCAN_FORMATS_RETAIL, TAPIRSCAN_EAN_ADD_ON_IGNORE};
+#pragma GCC diagnostic pop
+    assert(three_fields.parallel == TAPIRSCAN_PARALLEL_DEFAULT);
+    tapirscan_scanner_options designated = {.mode = TAPIRSCAN_MODE_LOW, .formats = TAPIRSCAN_FORMATS_RETAIL};
+    assert(designated.parallel == TAPIRSCAN_PARALLEL_DEFAULT);
+
+    for (uint32_t parallel = TAPIRSCAN_PARALLEL_DEFAULT; parallel <= TAPIRSCAN_PARALLEL_ON + 1; parallel++) {
         tapirscan_scanner_options threads = TAPIRSCAN_SCANNER_OPTIONS_INIT;
         threads.parallel = parallel;
         tapirscan_scanner configured = 0;
         tapirscan_result threaded = 0;
         int32_t created = tapirscan_scanner_create(&threads, &configured, NULL);
-        if (parallel > TAPIRSCAN_PARALLEL_DEFAULT) {
+        if (parallel > TAPIRSCAN_PARALLEL_ON) {
             assert(created == TAPIRSCAN_INVALID_ARGUMENT);
             continue;
         }

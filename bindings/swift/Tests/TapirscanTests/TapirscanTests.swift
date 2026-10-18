@@ -80,6 +80,9 @@ final class TapirscanTests: XCTestCase {
                 .scan(pixels, width: width, height: height, channels: 1).values
         }
         XCTAssertEqual(reads, [[text], [text], [text]])
+        // Zeroed native options keep the process default.
+        XCTAssertEqual(tapirscan_scanner_options().parallel, TAPIRSCAN_PARALLEL_DEFAULT.rawValue)
+        XCTAssertEqual(TAPIRSCAN_PARALLEL_DEFAULT.rawValue, 0)
     }
 
     func testInspectionReportsTheSameBarcodesAndMetadata() throws {

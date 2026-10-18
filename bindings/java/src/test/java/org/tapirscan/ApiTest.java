@@ -37,6 +37,8 @@ public final class ApiTest {
         check(Native.IMAGE.byteSize() == 48 && Native.SUMMARY.byteSize() == 48);
         check(Native.BARCODE.byteSize() == 136 && Native.REGION.byteSize() == 72);
         check(Native.SCANNER_OPTIONS.byteSize() == 16 && Native.SCAN_OPTIONS.byteSize() == 4);
+        // tapirscan_parallel: 0 is the default, so zeroed native options keep it.
+        check(Scanner.parallelCode(null) == 0 && Scanner.parallelCode(false) == 1 && Scanner.parallelCode(true) == 2);
         check(Native.offset(Native.IMAGE, "stride") == 40);
         check(Native.CONTENT_SUMMARY.byteSize() == 16 && Native.CONTENT_LENGTHS.byteSize() == 16);
         Content wifi = Tapirscan.parseContent("WIFI:S:Café;T:WPA;P:secret;;").orElseThrow();

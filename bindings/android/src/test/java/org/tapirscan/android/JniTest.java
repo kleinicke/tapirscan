@@ -95,6 +95,9 @@ public final class JniTest {
             check(inspection.values().equals(fromArray.values()), "inspect values");
             check(scanner.inspect(direct, width, HEIGHT, 1, stride).barcodes().equals(fromArray.barcodes()),
                     "direct inspect");
+            // tapirscan_parallel: 0 is the default, so zeroed native options keep it.
+            check(Scanner.parallelCode(null) == 0 && Scanner.parallelCode(false) == 1
+                    && Scanner.parallelCode(true) == 2, "parallel codes");
             for (boolean parallel : new boolean[] {false, true}) {
                 try (Scanner threads = new Scanner(low.withParallel(parallel))) {
                     check(threads.scan(pixels, width, HEIGHT, 1, 0).equals(fromArray), "parallel " + parallel);

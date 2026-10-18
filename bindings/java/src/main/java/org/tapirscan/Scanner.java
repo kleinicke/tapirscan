@@ -23,8 +23,8 @@ import java.util.OptionalInt;
  */
 public final class Scanner implements AutoCloseable {
     private static final int TEXT = 0, PAYLOAD_BYTES = 1, EAN_ADD_ON = 2, STRUCTURED_APPEND_ID = 3;
-    /** {@code TAPIRSCAN_PARALLEL_DEFAULT}: follow the process default. */
-    private static final int PARALLEL_DEFAULT = 2;
+    /** {@code tapirscan_parallel}: {@code DEFAULT} follows the process default. */
+    private static final int PARALLEL_DEFAULT = 0, PARALLEL_OFF = 1, PARALLEL_ON = 2;
     private final Native lib = Native.get();
     private final ScannerOptions options;
     private long handle;
@@ -44,13 +44,17 @@ public final class Scanner implements AutoCloseable {
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "mode"), options.mode().code());
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "formats"), Format.mask(options.formats()));
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "addonPolicy"), options.eanAddOnPolicy().code());
-            Boolean parallel = options.parallel();
-            config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "parallel"), parallel == null ? PARALLEL_DEFAULT : parallel ? 1 : 0);
+            config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "parallel"), parallelCode(options.parallel()));
             MemorySegment out = arena.allocate(JAVA_LONG);
             MemorySegment error = arena.allocate(Native.ERROR);
             lib.check(Native.call(lib.create, config, out, error), error);
             handle = out.get(JAVA_LONG, 0);
         }
+    }
+
+    /** The native tapirscan_parallel value: the process default, off or on. */
+    static int parallelCode(Boolean parallel) {
+        return parallel == null ? PARALLEL_DEFAULT : parallel ? PARALLEL_ON : PARALLEL_OFF;
     }
 
     public ScannerOptions options() {

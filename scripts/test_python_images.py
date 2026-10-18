@@ -4,6 +4,7 @@
 import ctypes
 import json
 import os
+import re
 import sys
 import threading
 import typing
@@ -337,6 +338,11 @@ class Images(unittest.TestCase):
         self.assertEqual(reads[0], reads[1])
         self.assertEqual(reads[0], reads[2])
         self.assertEqual([read.text for read in reads[0]], [TEXT])
+        header = (ROOT / "bindings/c/include/tapirscan.h").read_text()
+        native = dict(re.findall(r"TAPIRSCAN_PARALLEL_(\w+) = (\d+)", header))
+        self.assertEqual(native["DEFAULT"], "0")  # zeroed options keep the default
+        for name, value in native.items():
+            self.assertEqual(getattr(barcode, f"_PARALLEL_{name}"), int(value))
         results = barcode.scan_many([image, image], parallel=True, library_dir=LIBS)
         self.assertEqual([r.values for r in results], [[TEXT], [TEXT]])
         self.assertEqual(

@@ -88,8 +88,10 @@ __all__ = [
 ]
 _MODES = ("low", "medium", "high", "very-high")
 _ADDON_POLICIES = ("ignore", "read", "require")
-# TAPIRSCAN_PARALLEL_DEFAULT: follow the process default.
-_PARALLEL_DEFAULT = 2
+# tapirscan_parallel: DEFAULT follows the process default.
+_PARALLEL_DEFAULT = 0
+_PARALLEL_OFF = 1
+_PARALLEL_ON = 2
 
 
 # Native ABI 7 structures from bindings/c/include/tapirscan.h.
@@ -299,7 +301,11 @@ class Scanner:
             _MODES.index(mode),
             format_mask(self._formats),
             _ADDON_POLICIES.index(ean_add_on_policy),
-            _PARALLEL_DEFAULT if parallel is None else int(bool(parallel)),
+            _PARALLEL_DEFAULT
+            if parallel is None
+            else _PARALLEL_ON
+            if parallel
+            else _PARALLEL_OFF,
         )
         error = c.create_string_buffer(512)
         check(

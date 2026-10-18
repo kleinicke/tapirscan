@@ -98,7 +98,8 @@ tapirscan_inspect(scanner, &image, &scan, &result, NULL);
 `parallel` runs one scan's formats on separate threads where the host allows it;
 results are identical either way. Use `TAPIRSCAN_PARALLEL_OFF` when you already
 run one scanner per core. `_DEFAULT` (also selected by `NULL` options) is on
-unless the process environment sets `TAPIRSCAN_THREADS` to `0` or `1`.
+unless the process environment sets `TAPIRSCAN_THREADS` to `0` or `1`. It is
+zero, so an initializer that leaves `parallel` out keeps the default.
 
 Presets: `TAPIRSCAN_FORMATS_RETAIL`, `_COMMON_1D`, `_COMMON`, `_LINEAR`,
 `_MATRIX` and `_ALL`, from the generated `tapirscan_formats.h`. See

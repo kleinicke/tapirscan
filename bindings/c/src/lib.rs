@@ -95,8 +95,11 @@ fn status_text(code: i32) -> &'static std::ffi::CStr {
     }
 }
 
-/// `tapirscan_scanner_options.parallel` value that selects the process default.
-const PARALLEL_DEFAULT: u32 = 2;
+/// `tapirscan_scanner_options.parallel` values. The default is zero so that initializers
+/// omitting the field keep the process default.
+const PARALLEL_DEFAULT: u32 = 0;
+const PARALLEL_OFF: u32 = 1;
+const PARALLEL_ON: u32 = 2;
 #[repr(C)]
 pub struct ScannerOptionsC {
     pub mode: u32,
@@ -311,9 +314,9 @@ pub unsafe extern "C" fn tapirscan_scanner_create(
                     _ => return Err(invalid("unknown EAN add-on policy")),
                 },
                 parallel: match options.parallel {
-                    0 => false,
-                    1 => true,
                     PARALLEL_DEFAULT => ScannerOptions::default().parallel,
+                    PARALLEL_OFF => false,
+                    PARALLEL_ON => true,
                     _ => return Err(invalid("unknown parallel setting")),
                 },
             },
