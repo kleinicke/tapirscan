@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import threading
+import time
 import typing
 import unittest
 import warnings
@@ -166,6 +167,22 @@ class Images(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "too short|dimensions"):
             barcode.scan_many(frames(), workers=2, library_dir=LIBS)
         self.assertLess(consumed, 20)
+
+        # A failure noticed while the window is still filling stops consumption
+        # at once instead of after the window's two images per worker.
+        consumed = 0
+
+        def slow_frames() -> typing.Iterator[np.ndarray[Any, Any] | PixelImage]:
+            nonlocal consumed
+            for index in range(1000):
+                consumed += 1
+                if index:
+                    time.sleep(0.2)  # time for the first scan to fail
+                yield short if index == 0 else GRAY
+
+        with self.assertRaisesRegex(ValueError, "too short|dimensions"):
+            barcode.scan_many(slow_frames(), workers=4, library_dir=LIBS)
+        self.assertEqual(consumed, 2)
 
         def broken() -> typing.Iterator[np.ndarray[Any, Any]]:
             yield GRAY
