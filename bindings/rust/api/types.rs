@@ -119,6 +119,16 @@ pub enum EanAddOnPolicy {
 }
 
 /// Scanner configuration; per-image settings live in [`ScanOptions`].
+///
+/// Minor releases may add fields with defaults, so build it from the defaults:
+///
+/// ```
+/// use tapirscan::{Mode, ScannerOptions};
+/// let options = ScannerOptions {
+///     mode: Mode::High,
+///     ..ScannerOptions::default()
+/// };
+/// ```
 #[derive(Clone, Copy, Debug)]
 pub struct ScannerOptions {
     /// Effort mode. Scanner configuration defaults to [`Mode::Medium`].
@@ -156,6 +166,9 @@ impl Default for ScannerOptions {
     }
 }
 /// Optional overrides for a single image.
+///
+/// Minor releases may add fields with defaults; build it with
+/// `..ScanOptions::default()`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ScanOptions {
     /// Per-call reader override; `None` (default) uses the scanner configuration.

@@ -42,7 +42,10 @@ See [upgrading from earlier versions](docs/API_MIGRATION.md) when moving between
 Apart from the experimental APIs below, documented
 functions, defaults, result fields, identifiers and ownership/error contracts
 stay compatible within a major version. Minor releases add compatible
-capabilities; patch releases fix bugs.
+capabilities; patch releases fix bugs. Compatible additions include new option
+fields with default values and new enum members: build Rust option structs with
+`..Default::default()`, give Rust matches on `#[non_exhaustive]` enums a wildcard
+arm, and initialize C option structs with their `_INIT` macro.
 
 Decoder improvements can change reads, geometry, ordering and runtime on a given
 image. Those outputs are not bit-for-bit compatibility promises. Supported format variants and limitations are documented in [format coverage](docs/FORMATS.md).

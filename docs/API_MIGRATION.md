@@ -2,15 +2,38 @@
 
 ## Upgrading from 1.3.0
 
-Existing calls keep working; rebuild native consumers. Native ABI 7 adds the
-[content parsing](CONTENT.md) functions and leaves the existing ones unchanged.
-C, C++, Python and Java check the ABI version when they load the library, so
-headers, binding and library must come from the same release. The new formats
-`Code32`, `PZN` and `MSIPlessey` are opt-in: no preset, `all` included, selects
-them.
+Rebuild native consumers. C, C++, Python and Java check the ABI version when
+they load the library, so headers, binding and library must come from the same
+release. Native ABI 7 adds the [content parsing](CONTENT.md) functions and a
+fourth `tapirscan_scanner_options` field, `parallel`. Its zero value is
+`TAPIRSCAN_PARALLEL_DEFAULT`, so C and C++ initializers written for 1.3.0, with
+three values or designated fields, keep their behaviour after recompiling; code
+that hard-codes the struct size or layout must be updated. The other functions
+are unchanged. The new formats `Code32`, `PZN` and `MSIPlessey` are opt-in: no
+preset, `all` included, selects them.
 
-In Rust, `Format` and `ContentKind` are `#[non_exhaustive]`: a `match` on them
-needs a wildcard arm. `Format::ALL` is a slice (`&[Format]`) instead of an array.
+Rust needs source changes where code relied on the exact shape of public types:
+
+- `ScannerOptions` has a new `parallel` field, so a struct literal that names
+  every 1.3.0 field fails with E0063. Add `..ScannerOptions::default()`; build
+  `ScanOptions` the same way, since option structs may gain fields with default
+  values in minor releases:
+
+  ```rust
+  let scanner = Scanner::new(ScannerOptions {
+      mode: Mode::High,
+      formats: Format::Ean13 | Format::QrCode,
+      ean_add_on_policy: EanAddOnPolicy::Ignore,
+      ..ScannerOptions::default()
+  });
+  ```
+
+- `Format` and `ContentKind` are `#[non_exhaustive]`: a `match` on them needs a
+  wildcard arm.
+- `Format::ALL` is a slice (`&[Format]`) instead of an array; use `.len()` and
+  iteration instead of a fixed array type.
+
+Python, JavaScript, Java and C++ callers need no source changes.
 
 ## Upgrading from 1.2.2
 

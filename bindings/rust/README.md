@@ -51,8 +51,8 @@ the whole image, and use `Mode::Low` for camera frames. Pass the 8-bit buffer yo
 already have; packed RGBA is the cheapest input for the retail formats (gray and
 RGB are copied to RGBA internally), so do not convert to gray for scanning. Scans
 with several formats also use extra threads internally; set
-`ScannerOptions { parallel: false, .. }` when you already run one scanner per
-core. See
+`ScannerOptions { parallel: false, ..ScannerOptions::default() }` when you
+already run one scanner per core. See
 [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).
 
 ## Reuse and configuration
@@ -68,7 +68,10 @@ fn main() -> Result<(), tapirscan::Error> {
     let pixels = vec![255; 320 * 240];
     let result = scanner.inspect_with_options(
         Image::gray(&pixels, 320, 240),
-        ScanOptions { formats: Some(Format::QrCode.into()) },
+        ScanOptions {
+            formats: Some(Format::QrCode.into()),
+            ..ScanOptions::default()
+        },
     )?;
     println!("{} reads", result.barcodes.len());
     Ok(())
@@ -80,6 +83,11 @@ time, so create one scanner per thread. The free functions `scan` and `inspect`
 create a scanner for each call; reuse a `Scanner` across frames. Scans borrow
 pixels synchronously and have no timeout. `scanner.options()` returns the
 configuration and `Scanner::default()` uses the defaults.
+
+Build `ScannerOptions` and `ScanOptions` from their defaults with
+`..ScannerOptions::default()` / `..ScanOptions::default()`, as above. Minor
+releases may add option fields with default values; a literal that names every
+field stops compiling when one is added.
 
 | Scanner option      | Default                  | Choices                                     |
 | ------------------- | ------------------------ | ------------------------------------------- |

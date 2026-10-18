@@ -153,7 +153,7 @@ readers on separate threads, which shortens a single scan with all formats by
 1.35-1.9× on 960×960 photos and up to 2.9× on 12-megapixel images. On
 servers that already run one scanner per core, create the scanner with the
 `parallel` option off (`parallel=False` in Python, `ScannerOptions { parallel:
-false, .. }` in Rust, `withParallel(false)` in Java and Android, `parallel = false`
+false, ..ScannerOptions::default() }` in Rust, `withParallel(false)` in Java and Android, `parallel = false`
 in C++, `parallel: false` in Swift, `TAPIRSCAN_PARALLEL_OFF` in C); this saves the few percent of extra CPU time that
 the parallel readers cost. Results are identical either way. Without the option,
 `TAPIRSCAN_THREADS=0` or `1` in the process environment is the default for every

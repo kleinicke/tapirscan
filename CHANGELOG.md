@@ -2,7 +2,9 @@
 
 ## 1.4.0
 
-Native consumers must rebuild for ABI 7; existing calls keep working. Reads,
+Native consumers must rebuild for ABI 7; existing C, C++, Java, Python and
+JavaScript calls keep working. Rust code that builds `ScannerOptions` with every
+field or matches `Format` exhaustively needs a small change. Reads,
 geometry and timing can differ from 1.3.0. See the
 [migration notes](docs/API_MIGRATION.md#upgrading-from-130).
 
@@ -65,7 +67,10 @@ geometry and timing can differ from 1.3.0. See the
   formats and enabled 2D readers on separate threads, with identical results:
   with all formats, Low is 1.7-1.9× and Medium 1.35-1.55× faster on 960×960
   photos. The scanner option `parallel` turns this off per scanner, and
-  `TAPIRSCAN_THREADS=1` for the process. Python's `scan_many` defaults to
+  `TAPIRSCAN_THREADS=1` for the process. In C, the new
+  `tapirscan_scanner_options.parallel` field is zero
+  (`TAPIRSCAN_PARALLEL_DEFAULT`) when an initializer leaves it out. Rust
+  `ScannerOptions` literals need `..ScannerOptions::default()`. Python's `scan_many` defaults to
   `parallel=False`, since its worker threads already keep the cores busy.
 - WebAssembly stays single-threaded.
 - x86-64 native libraries target x86-64-v2 (SSE4.2, POPCNT) and scan 20-30%
