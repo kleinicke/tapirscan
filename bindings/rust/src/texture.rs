@@ -19,6 +19,13 @@ const MAX_SAMPLES: usize = 8192;
 /// come from no localizer; they are kept untested rather than sampled without bound.
 const MAX_EXTENT: f64 = 4.;
 
+/// Length of `(x, y)`. A square root is exact in IEEE arithmetic, while `hypot` comes from
+/// the platform's math library: native and WASM builds then measure identical lengths and
+/// take identical sample counts.
+fn norm(x: f64, y: f64) -> f64 {
+    (x * x + y * y).sqrt()
+}
+
 /// Whether every corner of `q` is finite and every side at most `MAX_EXTENT` image diagonals.
 fn measurable(image: Image<'_>, q: &Quad) -> bool {
     let (width, height) = (usize_f64(image.width), usize_f64(image.height));
@@ -26,7 +33,7 @@ fn measurable(image: Image<'_>, q: &Quad) -> bool {
     q.iter().flatten().all(|v| v.is_finite())
         && (0..4).all(|i| {
             let (a, b) = (q[i], q[(i + 1) % 4]);
-            (b[0] - a[0]).hypot(b[1] - a[1]) <= limit
+            norm(b[0] - a[0], b[1] - a[1]) <= limit
         })
 }
 
@@ -44,7 +51,7 @@ impl Axis {
     fn of(q: &Quad) -> Self {
         let mid = |p: [f64; 2], r: [f64; 2]| [f64::midpoint(p[0], r[0]), f64::midpoint(p[1], r[1])];
         let (origin, end) = (mid(q[0], q[3]), mid(q[1], q[2]));
-        let length = (end[0] - origin[0]).hypot(end[1] - origin[1]);
+        let length = norm(end[0] - origin[0], end[1] - origin[1]);
         let across = if length > 0. {
             [(end[0] - origin[0]) / length, (end[1] - origin[1]) / length]
         } else {
@@ -54,7 +61,7 @@ impl Axis {
             (q[3][0] - q[0][0] + q[2][0] - q[1][0]) / 2.,
             (q[3][1] - q[0][1] + q[2][1] - q[1][1]) / 2.,
         ];
-        let height = side[0].hypot(side[1]);
+        let height = norm(side[0], side[1]);
         let along = if height >= 1. {
             [side[0] / height, side[1] / height]
         } else {
@@ -592,7 +599,7 @@ pub(crate) fn texture_proposal(image: Image<'_>, q: &Quad) -> bool {
         return false;
     }
     let axis = Axis::of(q);
-    let height = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
+    let height = norm(q[3][0] - q[0][0], q[3][1] - q[0][1]);
     if axis.length < 16. {
         return false;
     }
@@ -1180,9 +1187,8 @@ fn constant_along_bars(
         [shift, shift * 1.618, (length / 10.).max(shift * 2.6)],
         [module, module * 1.618, module * 2.5],
     ];
-    let height = (q[3][0] - q[0][0])
-        .hypot(q[3][1] - q[0][1])
-        .min((q[2][0] - q[1][0]).hypot(q[2][1] - q[1][1]));
+    let height =
+        norm(q[3][0] - q[0][0], q[3][1] - q[0][1]).min(norm(q[2][0] - q[1][0], q[2][1] - q[1][1]));
     let sides = [
         axis.tangent_to_along([q[3][0] - q[0][0], q[3][1] - q[0][1]]),
         axis.tangent_to_along([q[2][0] - q[1][0], q[2][1] - q[1][1]]),
