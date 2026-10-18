@@ -347,9 +347,11 @@ class Images(unittest.TestCase):
         height, width = large.shape
         result = decode(large, library_dir=LIBS)
         self.assertEqual(result.values, [TEXT])
+        if result.diagnostics is None or result.diagnostics.regions is None:
+            self.fail("Region evidence was requested")
         regions = result.diagnostics.regions
-        assert regions is not None
-        assert regions.proposals and regions.search_windows is not None
+        if not regions.proposals or regions.search_windows is None:
+            self.fail("Localization evidence was requested")
         polygons = [
             *(p.polygon for p in regions.proposals),
             *(w.polygon for w in regions.search_windows),
@@ -364,8 +366,8 @@ class Images(unittest.TestCase):
                     (window.polygon[2].x, window.polygon[2].y), (width, height)
                 )
         scanned = result.diagnostics.to_raw_dict()["scannedImageSize"]
-        assert isinstance(scanned, list) and isinstance(scanned[0], int)
-        self.assertLess(scanned[0], width)
+        self.assertIsInstance(scanned, list)
+        self.assertLess(typing.cast("list[int]", scanned)[0], width)
 
     def test_parallel_option(self) -> None:
         """Threading is a scanner option that never changes the reads."""

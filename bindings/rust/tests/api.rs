@@ -309,16 +309,6 @@ fn assert_diagnostics_in_source_coordinates(
     barcode: &tapirscan::Barcode,
     [width, height]: [usize; 2],
 ) {
-    #[allow(clippy::cast_precision_loss)] // test image sizes are far below 2^52
-    let (width, height) = (width as f64, height as f64);
-    let points = |polygon: &serde_json::Value| -> Vec<[f64; 2]> {
-        polygon
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|point| [point[0].as_f64().unwrap(), point[1].as_f64().unwrap()])
-            .collect()
-    };
     fn polygons<'a>(value: &'a serde_json::Value, out: &mut Vec<&'a serde_json::Value>) {
         match value {
             serde_json::Value::Array(items) => items.iter().for_each(|item| polygons(item, out)),
@@ -334,6 +324,16 @@ fn assert_diagnostics_in_source_coordinates(
             _ => {}
         }
     }
+    #[allow(clippy::cast_precision_loss)] // test image sizes are far below 2^52
+    let (width, height) = (width as f64, height as f64);
+    let points = |polygon: &serde_json::Value| -> Vec<[f64; 2]> {
+        polygon
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|point| [point[0].as_f64().unwrap(), point[1].as_f64().unwrap()])
+            .collect()
+    };
     let mut all = Vec::new();
     polygons(raw, &mut all);
     let proposals = raw["localization"]["proposals"].as_array().unwrap();
@@ -577,7 +577,7 @@ fn opt_in_pharmacy_formats_convert_code39_reads() {
     let inspection = scanner
         .inspect(Image::gray(&pixels, width, height))
         .unwrap();
-    assert!(inspection.barcodes.is_empty());
+    assert_eq!(inspection.barcodes.len(), 0);
     assert!(!inspection.undecoded.is_empty());
     for region in &inspection.undecoded {
         assert_eq!(region.format, Some(Format::Code32), "{region:?}");

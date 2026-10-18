@@ -201,7 +201,7 @@ mod tests {
         let mut reads = vec![barcode("HELLO")];
         let mut regions = vec![region(Format::Code39), region(Format::Code128)];
         apply(pzn | Format::Code128 as u32, &mut reads, &mut regions);
-        assert!(reads.is_empty());
+        assert_eq!(reads.len(), 0);
         assert_eq!(
             formats(&regions),
             [Some(Format::Pzn), Some(Format::Code128), Some(Format::Pzn)]
