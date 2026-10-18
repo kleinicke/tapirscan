@@ -155,9 +155,10 @@ pub(crate) struct Rows {
     wait: usize,
     /// Per run of the scanned row: whether it starts a new streak.
     breaks: Vec<bool>,
-    /// The last texture-scanned row's offsets, its starts outside textures and
-    /// whether it had texture windows: stripes and dot grids repeat rows.
-    previous: (Vec<usize>, Vec<usize>, bool),
+    /// The last texture-scanned row's offsets, its first dark run, its starts
+    /// outside textures and whether it had texture windows: stripes and dot grids
+    /// repeat rows. An inverted row with the same offsets has the other parity.
+    previous: (Vec<usize>, usize, Vec<usize>, bool),
 }
 impl Rows {
     /// Collect into `starts` the dark runs that start a row's windows: every
@@ -193,16 +194,17 @@ impl Rows {
         }
         let mut skipped = false;
         if self.wait == 0 {
-            if self.previous.0 == offsets {
-                starts.extend_from_slice(&self.previous.1);
-                skipped = self.previous.2;
+            if self.previous.0 == offsets && self.previous.1 == first_dark {
+                starts.extend_from_slice(&self.previous.2);
+                skipped = self.previous.3;
             } else {
                 skipped = self.texture_starts(starts, offsets, first_dark, end, span);
                 self.previous.0.clear();
                 self.previous.0.extend_from_slice(offsets);
-                self.previous.1.clear();
-                self.previous.1.extend_from_slice(starts);
-                self.previous.2 = skipped;
+                self.previous.1 = first_dark;
+                self.previous.2.clear();
+                self.previous.2.extend_from_slice(starts);
+                self.previous.3 = skipped;
             }
             self.wait = if skipped { 0 } else { TEXTURE_RECHECK };
         } else {
@@ -292,9 +294,16 @@ pub(crate) fn for_each_start(
 }
 
 /// A row-dependent phase for [`thin`] and [`Rows::starts`], so consecutive rows
-/// check different windows of a uniform texture.
+/// check different windows of a uniform texture. Computed in 32 bits so native
+/// and WASM builds pick the same windows.
 pub(crate) fn phase(y: usize) -> usize {
-    y.wrapping_mul(2_654_435_761)
+    // Rows are below 2^32; the wrap is the hash, identical on every target.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "row indices fit in 32 bits"
+    )]
+    let row = y as u32;
+    row.wrapping_mul(2_654_435_761) as usize
 }
 
 #[cfg(test)]

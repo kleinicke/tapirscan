@@ -62,6 +62,10 @@ geometry and timing can differ from 1.3.0. See the
 - **Aztec** reads small symbols from Medium up.
 - **MaxiCode:** High and Very High retry large unread frames on reduced copies,
   as Medium does.
+- **Textures:** striped, checkered, ringed and noisy backgrounds no longer
+  produce false linear reads, and the QR, Aztec and MaxiCode finders bound their
+  work on such textures instead of taking seconds per frame. A frame whose finder
+  budget binds is reported as unfinished.
 
 ### Performance
 
