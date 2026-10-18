@@ -79,8 +79,11 @@ pub(super) struct ModePolicy {
     pub data_matrix_averaged_without_region: bool,
     /// Long sides of the area-averaged Data Matrix copies, in order.
     pub data_matrix_averaged_scales: &'static [usize],
-    /// On mixed selections' frames above `SMALL_FRAME_PIXELS` without a Data Matrix
-    /// region, an averaged copy that leaves no Data Matrix candidate ends the copies.
+    /// On mixed selections' frames from `SMALL_FRAME_PIXELS` up to `CLOSE_UP_PIXELS`
+    /// without a Data Matrix region, an averaged copy that leaves no Data Matrix
+    /// candidate ends the copies. Frames of `CLOSE_UP_PIXELS` and more always try both:
+    /// 12-megapixel close-ups of large symbols are read by the finer copy without any
+    /// candidate on the coarse one.
     pub data_matrix_averaged_needs_candidate: bool,
     /// EAN add-on selections also run the 2D recoveries of unread frames without a
     /// candidate region; otherwise they skip them to keep their cost.

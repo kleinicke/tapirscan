@@ -116,8 +116,9 @@ These are internal reader effort levels, not comparable work or confidence score
   side-ratio window, a grayscale corner refinement and a resampled crop, with
   twice the tries in High. Medium and above add a grid-recovery pass; High and
   Very High also retry unread frames on reduced copies, which reads large blurred
-  close-ups. With other formats selected, High tries its finer copy of a large
-  frame only after the coarse copy left a Data Matrix candidate.
+  close-ups. With other formats selected, High tries its finer copy of a frame
+  between 262,144 and 8 million pixels only after the coarse copy left a Data
+  Matrix candidate.
 - **Aztec:** Medium and above add a grid-recovery pass and retry small symbols on
   an enlarged window; Low uses smaller refinement budgets.
 - **PDF417:** High and Very High re-read localized symbols that the row reader

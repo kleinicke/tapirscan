@@ -78,6 +78,10 @@ const REDUCED_COPY_SIDE: usize = 1920;
 /// Frames of at most 512 x 512 pixels count as small: there a fixed-cost QR
 /// recovery stays cheap even when no QR is present.
 const SMALL_FRAME_PIXELS: usize = 262_144;
+/// Frames of at least 8 million pixels (a phone's full sensor) hold close-up symbols
+/// whose coarse averaged copy shows no Data Matrix candidate, so they skip that gate.
+#[cfg(not(feature = "low"))]
+const CLOSE_UP_PIXELS: usize = 8_000_000;
 /// The full-frame QR threshold recoveries are bounded to Full-HD-sized inputs.
 const QR_RECOVERY_MAX_PIXELS: usize = 2_097_152;
 /// EAN-13/UPC-A reads that mark a large frame as a batch frame (shelf, carton).
@@ -1629,7 +1633,7 @@ fn scan_additional(
     // beyond what the module-scale localizer expects. Unread frames are retried
     // on area-averaged copies, which also take the corner-refining search.
     // High tries the two cheap scales, the finer one on mixed selections' large frames
-    // only after the coarse copy left a candidate; Medium tries them only after the
+    // below `CLOSE_UP_PIXELS` only after the coarse copy left a candidate; Medium tries them only after the
     // frame left a Data Matrix candidate region, so frames without one keep their cost.
     #[cfg(not(feature = "low"))]
     if matrix & DATA_MATRIX != 0
@@ -1642,7 +1646,7 @@ fn scan_additional(
         let long = image.width.max(image.height);
         let needs_candidate = POLICY.data_matrix_averaged_needs_candidate
             && mask != DATA_MATRIX
-            && image.width * image.height > SMALL_FRAME_PIXELS
+            && (SMALL_FRAME_PIXELS + 1..CLOSE_UP_PIXELS).contains(&(image.width * image.height))
             && !scans
                 .iter()
                 .any(|scan| has_format_region(scan, "DataMatrix"));
