@@ -7,10 +7,10 @@ import os
 import re
 import sys
 import threading
-import time
 import typing
 import unittest
 import warnings
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Any
@@ -20,6 +20,7 @@ import numpy as np
 import torch
 from fixture_data import TEXT, fixtures
 from PIL import Image
+from typing_extensions import override
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(
@@ -169,19 +170,49 @@ class Images(unittest.TestCase):
         self.assertLess(consumed, 20)
 
         # A failure noticed while the window is still filling stops consumption
-        # at once instead of after the window's two images per worker.
+        # at once instead of after the window's two images per worker. The
+        # failing scan is held until the second image is requested, and that
+        # image is handed over only after scan_many has seen the failure, so
+        # exactly two images are consumed whatever the thread timing.
         consumed = 0
+        submitted: list[Future[Any]] = []
+        release = threading.Event()
+        noticed = threading.Event()
+        real_scan = Scanner.scan
 
-        def slow_frames() -> typing.Iterator[np.ndarray[Any, Any] | PixelImage]:
+        class RecordingPool(ThreadPoolExecutor):
+            @override
+            def submit(self, *args: Any, **kwargs: Any) -> Future[Any]:
+                future = super().submit(*args, **kwargs)
+                submitted.append(future)
+                return future
+
+        def held_scan(self: Scanner, image: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            if image is short:
+                release.wait(30)
+            return real_scan(self, image, **kwargs)
+
+        def held_frames() -> typing.Iterator[np.ndarray[Any, Any] | PixelImage]:
             nonlocal consumed
-            for index in range(1000):
+            consumed += 1
+            yield short
+            consumed += 1
+            # scan_many registered its failure callback right after submitting
+            # the first image; callbacks run in order, so this one runs after it.
+            submitted[0].add_done_callback(lambda _: noticed.set())
+            release.set()
+            self.assertTrue(noticed.wait(30))
+            yield GRAY
+            for _ in range(1000):
                 consumed += 1
-                if index:
-                    time.sleep(0.2)  # time for the first scan to fail
-                yield short if index == 0 else GRAY
+                yield GRAY
 
-        with self.assertRaisesRegex(ValueError, "too short|dimensions"):
-            barcode.scan_many(slow_frames(), workers=4, library_dir=LIBS)
+        with (
+            patch.object(barcode, "ThreadPoolExecutor", RecordingPool),
+            patch.object(Scanner, "scan", held_scan),
+            self.assertRaisesRegex(ValueError, "too short|dimensions"),
+        ):
+            barcode.scan_many(held_frames(), workers=4, library_dir=LIBS)
         self.assertEqual(consumed, 2)
 
         def broken() -> typing.Iterator[np.ndarray[Any, Any]]:
