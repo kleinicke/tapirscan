@@ -671,6 +671,10 @@ fn large_backing_buffers_scan_only_the_addressed_layout() {
 
 #[test]
 #[cfg(target_arch = "x86_64")]
+#[expect(
+    clippy::assertions_on_constants,
+    reason = "cfg! reports the target features this test binary was compiled with, which is what it checks"
+)]
 fn x86_64_builds_target_x86_64_v2() {
     // scripts/build_native.py compiles for x86-64-v2; losing the flag makes scans
     // 20-30% slower without failing anything else.
