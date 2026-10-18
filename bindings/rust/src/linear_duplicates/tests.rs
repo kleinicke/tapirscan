@@ -356,6 +356,7 @@ fn footprints_arbitrate_different_payloads_only_on_connected_source_bars() {
         polygon: [[60., y - 2.], [252., y - 2.], [252., y + 2.], [60., y + 2.]],
         geometry_changed: false,
         allow_code93: false,
+        merged: Vec::new(),
         payload: (),
     };
     let scan = |p: &[u8]| {

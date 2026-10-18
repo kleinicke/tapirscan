@@ -729,9 +729,16 @@ struct Read<T> {
     polygon: Quad,
     geometry_changed: bool,
     allow_code93: bool,
+    /// Outlines of the reads of the same symbol merged into this one, and of theirs.
+    merged: Vec<Quad>,
     payload: T,
 }
 impl<T> Read<T> {
+    /// Record that `other`, a read of the same symbol, was merged into this one.
+    fn absorb(&mut self, other: &Self) {
+        self.merged.push(other.polygon);
+        self.merged.extend_from_slice(&other.merged);
+    }
     fn supported(&self) -> bool {
         !self.text.is_empty()
             && (matches!(
@@ -794,10 +801,12 @@ fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
                 if crate::geometry::overlap_quads(&other.polygon, &read.polygon).0 >= 0.65
                     || crate::geometry::adjacent_strips(&other.polygon, &read.polygon)
                 {
+                    other.absorb(&read);
                     merged = true;
                     break;
                 }
                 if let Some(polygon) = evidence.connected(other.polygon, read.polygon) {
+                    other.absorb(&read);
                     other.polygon = polygon;
                     other.geometry_changed = true;
                     merged = true;
@@ -821,6 +830,7 @@ fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
                     .connected_warped(other.polygon, read.polygon)
                     .or_else(|| evidence.connected_traces(other.polygon, read.polygon))
                 {
+                    other.absorb(&read);
                     other.polygon = polygon;
                     other.geometry_changed = true;
                     merged = true;
@@ -858,6 +868,7 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
                             }
                         })
                 {
+                    other.absorb(&read);
                     other.polygon = polygon;
                     other.geometry_changed = true;
                     merged = true;
@@ -915,6 +926,8 @@ fn trace_footprints<T>(
     let mut measured = vec![false; reads.len()];
     let mut keep = vec![true; reads.len()];
     let mut order: Vec<usize> = (0..reads.len()).collect();
+    // (owner, read) pairs of the same symbol where the owner's area takes the read.
+    let mut absorbed: Vec<(usize, usize)> = Vec::new();
     order.sort_by_key(|&i| std::cmp::Reverse(reads[i].support));
     for i in order {
         if !reads[i].supported() {
@@ -943,6 +956,9 @@ fn trace_footprints<T>(
                 && (a.same_symbol(b) || (a.support >= 3 && a.support >= b.support))
                 && owner.owns(b.polygon)
             {
+                if a.same_symbol(b) {
+                    absorbed.push((*j, i));
+                }
                 keep[i] = false;
                 break;
             }
@@ -963,6 +979,7 @@ fn trace_footprints<T>(
             if let Some(k) = joined {
                 owners[k].1.absorb(&grown);
                 let j = owners[k].0;
+                absorbed.push((j, i));
                 if geometry {
                     reads[j].polygon = owners[k].1.polygon;
                 }
@@ -979,6 +996,11 @@ fn trace_footprints<T>(
             }
             measured[i] = true;
         }
+    }
+    for (owner, read) in absorbed {
+        let (polygon, merged) = (reads[read].polygon, std::mem::take(&mut reads[read].merged));
+        reads[owner].merged.push(polygon);
+        reads[owner].merged.extend(merged);
     }
     // Display recovery follows strict ownership and never suppresses a read.
     for (index, read) in reads.iter_mut().enumerate() {
@@ -1032,26 +1054,41 @@ fn merge_reads(
 ) -> Vec<crate::read::Read> {
     let reads = reads
         .into_iter()
-        .map(|value| Read {
-            text: value.text.clone(),
-            format: value.format.clone(),
-            addon: value.addon.clone(),
-            gs1: value.gs1.unwrap_or(false),
-            reader_initialization: value.reader_initialization.unwrap_or(false),
-            support: value.support,
-            polygon: value.polygon,
-            geometry_changed: false,
-            allow_code93,
-            payload: value,
-        })
+        .map(|read| wrap(read, allow_code93))
         .collect();
     complete_footprints(consolidate(reads, image), image, geometry)
         .into_iter()
-        .map(|mut read| {
-            read.payload.polygon = read.polygon;
-            read.payload
-        })
+        .map(unwrap)
         .collect()
+}
+
+/// A typed read prepared for consolidation; the outlines merged into it earlier stay merged.
+fn wrap(value: crate::read::Read, allow_code93: bool) -> Read<crate::read::Read> {
+    Read {
+        text: value.text.clone(),
+        format: value.format.clone(),
+        addon: value.addon.clone(),
+        gs1: value.gs1.unwrap_or(false),
+        reader_initialization: value.reader_initialization.unwrap_or(false),
+        support: value.support,
+        polygon: value.polygon,
+        geometry_changed: false,
+        allow_code93,
+        merged: value.sources.clone(),
+        payload: value,
+    }
+}
+
+/// The typed read with its consolidated outline. The outline it entered with and those
+/// merged into it become its sources.
+fn unwrap(mut read: Read<crate::read::Read>) -> crate::read::Read {
+    let original = read.payload.polygon;
+    read.payload.sources = std::iter::once(original)
+        .chain(read.merged)
+        .filter(|q| *q != read.polygon)
+        .collect();
+    read.payload.polygon = read.polygon;
+    read.payload
 }
 
 /// Reuse the original pixel-continuity proof when joining fast observations.
@@ -1081,21 +1118,7 @@ pub(crate) fn merge_fast(
     reads: Vec<crate::read::Read>,
     image: Image<'_>,
 ) -> Vec<crate::read::Read> {
-    let reads = reads
-        .into_iter()
-        .map(|value| Read {
-            text: value.text.clone(),
-            format: value.format.clone(),
-            addon: value.addon.clone(),
-            gs1: value.gs1.unwrap_or(false),
-            reader_initialization: value.reader_initialization.unwrap_or(false),
-            support: value.support,
-            polygon: value.polygon,
-            geometry_changed: false,
-            allow_code93: false,
-            payload: value,
-        })
-        .collect();
+    let reads = reads.into_iter().map(|read| wrap(read, false)).collect();
     let reads = consolidate(reads, image);
     let ambiguous = reads
         .iter()
@@ -1124,13 +1147,7 @@ pub(crate) fn merge_fast(
     } else {
         reads
     };
-    reads
-        .into_iter()
-        .map(|mut read| {
-            read.payload.polygon = read.polygon;
-            read.payload
-        })
-        .collect()
+    reads.into_iter().map(unwrap).collect()
 }
 
 pub(crate) fn merge_primary(reads: &mut Vec<crate::Barcode>, image: Image<'_>) {
@@ -1154,6 +1171,7 @@ pub(crate) fn merge_primary(reads: &mut Vec<crate::Barcode>, image: Image<'_>) {
             polygon: read.detection.polygon,
             geometry_changed: false,
             allow_code93: false,
+            merged: Vec::new(),
             payload: read,
         })
         .collect();

@@ -1089,6 +1089,7 @@ impl Candidate<'_> {
                     error: Some(f64::from(found.error)),
                 },
                 rank: None,
+                sources: Vec::new(),
             },
         });
     }

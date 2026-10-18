@@ -969,13 +969,26 @@ fn drop_msi_prefixes(reads: &mut Vec<Read>) {
     reads.retain(|_| !prefix.next().unwrap_or(false));
 }
 
-/// Drop linear reads of periodic or two-dimensional textures (see [`crate::texture`]).
+/// Drop linear reads of periodic or two-dimensional textures (see [`crate::texture`]). A
+/// merged outline can cross the bars obliquely where none of the detections merged into it
+/// does: a read is kept when one of them passes, and then reports that outline.
 fn drop_texture_reads(reads: &mut Vec<Read>, image: Image<'_>) {
-    reads.retain(|read| {
-        matches!(
+    reads.retain_mut(|read| {
+        if matches!(
             read.format.as_str(),
             "QRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
         ) || !crate::texture::texture_read(image, &read.polygon)
+        {
+            return true;
+        }
+        let source = read
+            .sources
+            .iter()
+            .find(|q| !crate::texture::texture_read(image, q));
+        source.copied().is_some_and(|q| {
+            read.polygon = q;
+            true
+        })
     });
 }
 

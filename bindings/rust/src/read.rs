@@ -30,6 +30,10 @@ pub(crate) struct Read {
     pub payload: ReaderPayload,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rank: Option<usize>,
+    /// Outlines of the detections merged into this read (see
+    /// [`crate::linear_duplicates`]), which the texture filter may judge instead.
+    #[serde(skip)]
+    pub sources: Vec<Quad>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -60,6 +64,7 @@ impl Read {
             structured_append: None,
             payload: ReaderPayload::default(),
             rank: None,
+            sources: Vec::new(),
         }
     }
 
@@ -95,6 +100,7 @@ impl Read {
                 error: Some(f64::from(value.error)),
             },
             rank: None,
+            sources: Vec::new(),
         }
     }
 

@@ -201,3 +201,40 @@ fn fine_ring_and_stripe_frames_keep_few_retail_proposals() {
         assert!(result.barcodes().is_empty(), "{name}");
     }
 }
+
+/// A merged outline across a checkerboard beside the symbol fails the read filter; the
+/// detection merged into it that covers the symbol keeps the read and its outline.
+#[test]
+fn texture_read_filter_falls_back_to_merged_detections() {
+    use barcode_research_core::numeric::{f64_usize, usize_f64};
+    let digits = [4, 0, 0, 6, 3, 8, 1, 3, 3, 3, 9, 3, 1];
+    let bits = barcode_research_core::ean::encode(&digits);
+    let data = frame(|x, y| {
+        let module = (usize_f64(x) - 1200.) / 3.;
+        if x < 900 {
+            if (x / 5 + y / 5).is_multiple_of(2) {
+                0
+            } else {
+                255
+            }
+        } else if (300..420).contains(&y)
+            && (0. ..95.).contains(&module)
+            && bits[f64_usize(module)] > 0.5
+        {
+            20
+        } else {
+            235
+        }
+    });
+    let symbol = [[1200., 300.], [1485., 300.], [1485., 420.], [1200., 420.]];
+    let band = [[134., 137.], [490., 320.], [490., 327.], [134., 143.]];
+    let read = |sources: Vec<crate::Quad>| {
+        let mut read = Read::primary(digits, band, 4, 0, Vec::new());
+        read.sources = sources;
+        read
+    };
+    let mut reads = vec![read(vec![band, symbol]), read(vec![band])];
+    drop_texture_reads(&mut reads, image(&data));
+    assert_eq!(reads.len(), 1);
+    assert_eq!(reads[0].polygon, symbol);
+}
