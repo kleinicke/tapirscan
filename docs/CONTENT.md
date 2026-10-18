@@ -40,9 +40,10 @@ reader reported GS1 or you pass `gs1 = true`.
 ## JSON
 
 Wherever a barcode is exported as JSON, `content` sits beside its other fields:
-Rust serde, the JSON of a C scan result (and so the C++ and Java accessors that
-return it), Python `as_dict()` and the JavaScript barcode. It has the same shape
-everywhere:
+Rust serde, the JSON of a C scan result, Python `as_dict()` and the JavaScript
+barcode. The C++ and Java accessors read that JSON only for inspection
+diagnostics, so they expose no `content` field; use `parse_content`. It has the
+same shape everywhere it appears:
 
 ```json
 { "kind": "WiFi", "fields": [{ "name": "ssid", "value": "Cafe" }] }
