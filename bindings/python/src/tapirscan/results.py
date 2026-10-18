@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from math import ceil, floor
-from pathlib import Path  # noqa: TC003
 from typing import Any, Literal, NamedTuple, TypeAlias, cast
 
 from typing_extensions import override
 
-from .content import parse_content
+# Imported at runtime so typing.get_type_hints() and Pydantic can resolve fields.
+from .content import Content  # noqa: TC001
 
 # Imported at runtime so typing.get_type_hints() and Pydantic can resolve fields.
 from .formats import Format  # noqa: TC001
@@ -68,16 +68,16 @@ class Barcode:
     structured_append: StructuredAppend | None = None
     ean_add_on: str | None = None
     payload_bytes: bytes | None = None
-    # Native library that scanned this barcode, used to parse its content.
-    _library_dir: Path | None = field(default=None, repr=False, compare=False)
+    # Structured content of `text`, parsed while scanning; None for plain text.
+    content: Content | None = None
 
     def as_dict(self) -> dict[str, JSONValue]:
         """Return JSON-compatible public fields, with payload bytes as integers.
 
-        `content` is parsed here, not at scan time: `{"kind": ..., "fields":
-        [{"name": ..., "value": ...}]}`, or None for plain text.
+        `content` is `{"kind": ..., "fields": [{"name": ..., "value": ...}]}`,
+        or None for plain text.
         """
-        content = parse_content(self, library_dir=self._library_dir)
+        content = self.content
         return {
             "text": self.text,
             "format": self.format,

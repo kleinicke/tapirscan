@@ -6,7 +6,7 @@ labels, VINs and driver's licenses. It runs on decoded text only and never
 changes what is scanned. Plain text has no content.
 
 ```python
-content = tapirscan.parse_content(barcode)  # a Barcode or a str
+content = barcode.content  # or tapirscan.parse_content(text)
 if content and content.kind == "WiFi":
     connect(content.get("ssid"), content.get("password"))
 ```
@@ -14,8 +14,8 @@ if content and content.kind == "WiFi":
 | Language   | From a barcode                                    | From text                                     |
 | ---------- | ------------------------------------------------- | --------------------------------------------- |
 | Rust       | `barcode.content()`                               | `tapirscan::parse_content(text, gs1)`         |
-| Python     | `tapirscan.parse_content(barcode, *, gs1=None)`   | `tapirscan.parse_content(text, *, gs1=None)`  |
-| JavaScript | `barcode.content`, filled during scanning         | none                                          |
+| Python     | `barcode.content`, `parse_content(barcode)`       | `tapirscan.parse_content(text, *, gs1=None)`  |
+| JavaScript | `barcode.content`                                 | none                                          |
 | Java       | `Tapirscan.parseContent(barcode)`                 | `Tapirscan.parseContent(text)`, `(text, gs1)` |
 | C++        | `tapirscan::parse_content(barcode)`               | `tapirscan::parse_content(text, gs1 = false)` |
 | C          | `tapirscan_parse_content` with the barcode's flag | `tapirscan_parse_content` with `gs1` 0 or 1   |
@@ -49,10 +49,10 @@ everywhere:
 ```
 
 Plain text has no `content` member (Python `as_dict()` has `None`, like its other
-unavailable metadata). The text is parsed when the JSON is produced, so typed
-scans do not pay for it; JavaScript produces it for every scan because the WASM
-adapter returns JSON. Inspection reports are unstable engine diagnostics and
-carry no `content`.
+unavailable metadata). Native typed results parse the text when the JSON is
+produced, so their scans do not pay for it. JavaScript and Python barcodes carry
+`content` from the scan, which costs a few microseconds per decoded barcode.
+Inspection reports are unstable engine diagnostics and carry no `content`.
 
 ## Kinds
 

@@ -22,7 +22,7 @@ from build import ROOT
 sys.path.insert(
     0, os.environ.get("BARCODE_PYTHON_PACKAGE", str(ROOT / "bindings/python/src"))
 )
-from tapirscan import InspectionResult, PixelImage, Scanner
+from tapirscan import Content, ContentField, InspectionResult, PixelImage, Scanner
 
 LIBS = ROOT / "build/native"
 MODES = ("low", "medium", "high", "very-high")
@@ -179,7 +179,7 @@ class Bindings(unittest.TestCase):
         """A GS1-128 symbol has the same content JSON in every binding.
 
         Rust serde, C++ and Java parse it from the typed result, JavaScript
-        receives it in the WASM JSON, and Python exports it with `as_dict()`.
+        receives it in the WASM JSON, and Python parses it while scanning.
         """
         # Start C, FNC1, (01)09506000134352, check character and stop.
         widths = (
@@ -209,6 +209,10 @@ class Bindings(unittest.TestCase):
             result = scanner.inspect(image)
             self.assertEqual(
                 [b.as_dict()["content"] for b in result.barcodes], [expected]
+            )
+            self.assertEqual(
+                [b.content for b in scanner.scan(image).barcodes],
+                [Content("GS1", (ContentField("01", "09506000134352"),))],
             )
             reference = typed(result)
             for language, other in harnesses(

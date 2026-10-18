@@ -2,8 +2,10 @@
 """Image adapters and unified typed API against the actual native scanner."""
 
 import ctypes
+import dataclasses
 import json
 import os
+import pickle
 import re
 import sys
 import threading
@@ -81,6 +83,10 @@ class _TypedResult:
         """Copy one field plus its NUL terminator."""
         data = (self.fields[kind] or b"") + b"\x00"
         ctypes.memmove(out, data, min(size, len(data)))
+        return 0
+
+    def tapirscan_parse_content(self, *_: object) -> int:
+        """Report plain text: success with no content handle."""
         return 0
 
 
@@ -310,11 +316,12 @@ class Images(unittest.TestCase):
     def test_as_dict_carries_content(self) -> None:
         """`as_dict()` exports the content like the other bindings' JSON, or None."""
         polygon = (barcode.Point(0.0, 0.0),) * 4
+        text = "WIFI:S:Cafe;T:WPA;P:se:cret\\;;;"
         wifi = Barcode(
-            "WIFI:S:Cafe;T:WPA;P:se:cret\\;;;",
+            text,
             polygon,
             "QRCode",
-            _library_dir=LIBS,
+            content=barcode.parse_content(text, library_dir=LIBS),
         )
         exported = wifi.as_dict()
         self.assertEqual(
@@ -329,18 +336,45 @@ class Images(unittest.TestCase):
             },
         )
         self.assertEqual(json.loads(json.dumps(exported)), exported)
-        plain = Barcode("plain text", polygon, "QRCode", _library_dir=LIBS)
+        plain = Barcode("plain text", polygon, "QRCode")
         self.assertIsNone(plain.as_dict()["content"])
+
+    def test_scanned_barcodes_carry_content(self) -> None:
+        """Scanning fills `content`; results pickle and export without a library."""
+        with Scanner(library_dir=LIBS) as scanner:
+            read = scanner.scan(GRAY).barcodes[0]
+        self.assertIsNone(read.content)  # an EAN-13 number is plain text
         gs1 = Barcode(
-            "0109506000134352", polygon, "Code128", gs1=True, _library_dir=LIBS
+            "0109506000134352",
+            read.polygon,
+            "Code128",
+            gs1=True,
+            content=barcode.parse_content(
+                "0109506000134352", gs1=True, library_dir=LIBS
+            ),
         )
+        for value in (read, gs1):
+            with self.subTest(text=value.text):
+                copy = pickle.loads(pickle.dumps(value))  # noqa: S301
+                self.assertEqual(copy, value)
+                self.assertEqual(dataclasses.replace(value), value)
+                self.assertEqual(
+                    dataclasses.asdict(value)["content"],
+                    None
+                    if value.content is None
+                    else dataclasses.asdict(value.content),
+                )
+                # Exporting needs no native library.
+                with patch(
+                    "tapirscan.content.library_path", side_effect=AssertionError
+                ):
+                    self.assertEqual(copy.as_dict(), value.as_dict())
         content = gs1.as_dict()["content"]
         self.assertEqual(
             content,
             {"kind": "GS1", "fields": [{"name": "01", "value": "09506000134352"}]},
         )
-        # The library directory is not part of a barcode's identity.
-        self.assertEqual(gs1, Barcode("0109506000134352", polygon, "Code128", gs1=True))
+        self.assertEqual(Barcode.__match_args__[-1], "content")
 
     def test_content_kind_names(self) -> None:
         """Every generated content kind matches the native name for its number."""
@@ -818,7 +852,6 @@ class Images(unittest.TestCase):
         for fields, (gs1, initialization, parity) in cases:
             reader = Scanner.__new__(Scanner)
             reader._lib = _TypedResult(fields, gs1, initialization, parity)  # noqa: SLF001  # ty: ignore[invalid-assignment]
-            reader._library_dir = LIBS  # noqa: SLF001
             read = reader._barcode(1, 0)  # noqa: SLF001
             text, payload, add_on, append_id = fields
             with self.subTest(text=text):

@@ -20,7 +20,8 @@ from ._content_registry import ContentKind
 from ._images import MAX_IMAGE_BYTES, _cpu_count, _size, image_bytes
 from ._library import ABI_VERSION as ABI_VERSION
 from ._library import ScannerError, Signatures, bind, check, library_path, load
-from .content import Content, ContentField, parse_content
+from .content import CONTENT_SIGNATURES, Content, ContentField, parse_content
+from .content import _parse as _parse_content
 from .formats import (
     FORMAT_BITS,
     Format,
@@ -262,7 +263,6 @@ class Scanner:
         self._parallel = parallel
         self._formats = resolve_formats(formats)
         path = library_path(library_dir)
-        self._library_dir = path.parent
         self._lock = RLock()
         # Reused snapshot of caller pixels; grows to the largest image until close().
         self._staging: c.Array[c.c_uint8] | None = None
@@ -296,6 +296,7 @@ class Scanner:
             "tapirscan_result_json_length": ([u64, ptr(u64)], c.c_int32),
             "tapirscan_result_copy_json": ([u64, c.c_void_p, u64], c.c_int32),
             "tapirscan_result_destroy": ([u64], c.c_int32),
+            **CONTENT_SIGNATURES,
         }
         bind(self._lib, signatures)
         options = _ScannerOptions(
@@ -487,7 +488,8 @@ class Scanner:
             )
             return buffer.raw[:length]
 
-        text = field(_TEXT, native.text_length) or b""
+        text = (field(_TEXT, native.text_length) or b"").decode()
+        gs1 = _flag(native.gs1)
         add_on = field(_EAN_ADD_ON, native.ean_add_on_length)
         append_id = field(_STRUCTURED_APPEND_ID, native.structured_append_id_length)
         parity = native.structured_append_parity
@@ -502,16 +504,16 @@ class Scanner:
             else None
         )
         return Barcode(
-            text.decode(),
+            text,
             _points(native.polygon),
             _FORMAT_NAMES[native.format],
             native.support,
-            _flag(native.gs1),
+            gs1,
             _flag(native.reader_initialization),
             append,
             add_on.decode() if add_on is not None else None,
             field(_PAYLOAD_BYTES, native.payload_bytes_length),
-            self._library_dir,
+            _parse_content(self._lib, text, gs1=bool(gs1)),
         )
 
     def close(self) -> None:

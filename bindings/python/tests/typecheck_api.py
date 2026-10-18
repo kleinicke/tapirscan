@@ -28,6 +28,9 @@ def consumer(image: ImageInput, scanner: barcode.Scanner) -> None:
         assert_type(read.format, barcode.Format)
         assert_type(read.gs1, bool | None)
         assert_type(read.structured_append, barcode.StructuredAppend | None)
+        assert_type(read.content, barcode.Content | None)
+        if read.content is not None:
+            assert_type(read.content.get("ssid"), str | None)
     if result.diagnostics.regions is not None:
         for region in result.diagnostics.regions.undecoded:
             assert_type(region, barcode.UndecodedRegion)

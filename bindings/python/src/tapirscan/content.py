@@ -8,7 +8,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, NamedTuple
 
 from ._content_registry import CONTENT_KINDS, ContentKind
-from ._library import bind, check, library_path, load
+from ._library import Signatures, bind, check, library_path, load
 
 if TYPE_CHECKING:
     import os
@@ -53,27 +53,32 @@ class _ContentLengths(c.Structure):
     _fields_ = [("name_length", c.c_uint64), ("value_length", c.c_uint64)]
 
 
+# Shared with Scanner, which binds them on its own library handle.
+CONTENT_SIGNATURES: Signatures = {
+    "tapirscan_parse_content": (
+        [c.c_char_p, c.c_uint64, c.c_int32, c.POINTER(c.c_uint64), c.c_void_p],
+        c.c_int32,
+    ),
+    "tapirscan_content_info": (
+        [c.c_uint64, c.POINTER(_ContentSummary)],
+        c.c_int32,
+    ),
+    "tapirscan_content_field": (
+        [c.c_uint64, c.c_uint64, c.POINTER(_ContentLengths)],
+        c.c_int32,
+    ),
+    "tapirscan_content_copy": (
+        [c.c_uint64, c.c_uint64, c.c_uint32, c.c_void_p, c.c_uint64],
+        c.c_int32,
+    ),
+    "tapirscan_content_destroy": ([c.c_uint64], c.c_int32),
+}
+
+
 @lru_cache(maxsize=4)
 def _library(path: Path) -> c.CDLL:
     lib = load(path)
-    u64 = c.c_uint64
-    ptr = c.POINTER
-    bind(
-        lib,
-        {
-            "tapirscan_parse_content": (
-                [c.c_char_p, u64, c.c_int32, ptr(u64), c.c_void_p],
-                c.c_int32,
-            ),
-            "tapirscan_content_info": ([u64, ptr(_ContentSummary)], c.c_int32),
-            "tapirscan_content_field": ([u64, u64, ptr(_ContentLengths)], c.c_int32),
-            "tapirscan_content_copy": (
-                [u64, u64, c.c_uint32, c.c_void_p, u64],
-                c.c_int32,
-            ),
-            "tapirscan_content_destroy": ([u64], c.c_int32),
-        },
-    )
+    bind(lib, CONTENT_SIGNATURES)
     return lib
 
 
@@ -95,7 +100,11 @@ def parse_content(
         text = source.text
         if gs1 is None:
             gs1 = source.gs1
-    lib = _library(library_path(library_dir))
+    return _parse(_library(library_path(library_dir)), text, gs1=bool(gs1))
+
+
+def _parse(lib: c.CDLL, text: str, *, gs1: bool) -> Content | None:
+    """Parse text with a library that has `CONTENT_SIGNATURES` bound."""
     data = text.encode()
     handle = c.c_uint64(0)
     error = c.create_string_buffer(512)
