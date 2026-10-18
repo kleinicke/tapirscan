@@ -160,3 +160,44 @@ fn random_bar_frames_keep_no_retail_proposals() {
     assert!(paths <= 600, "{paths} decoding paths");
     assert!(result.barcodes().is_empty());
 }
+
+/// Pixel quantization hides the repetition of 3- and 4-pixel rings and of 3-pixel stripes
+/// at 7 degrees from run widths; boxes along such stripes follow their moire. Main kept up
+/// to 8 proposals with 850 decoding paths on these frames (High and Very High).
+#[test]
+fn fine_ring_and_stripe_frames_keep_few_retail_proposals() {
+    use barcode_research_core::numeric::usize_f64;
+    let (sin, cos) = 7_f64.to_radians().sin_cos();
+    let stripes = frame(|x, y| {
+        if ((usize_f64(x) * cos + usize_f64(y) * sin) / 3.).fract() < 0.5 {
+            0
+        } else {
+            255
+        }
+    });
+    for (name, data) in [
+        ("3-pixel rings", rings(3.)),
+        ("4-pixel rings", rings(4.)),
+        ("stripes", stripes),
+    ] {
+        let result = crate::Scanner::default()
+            .scan_with_options(
+                image(&data),
+                crate::ScanOptions {
+                    multiple: true,
+                    include_regions: true,
+                    ..crate::ScanOptions::default()
+                },
+            )
+            .unwrap();
+        let regions = result.regions().unwrap();
+        let paths: usize = regions.frame.candidates.iter().map(|c| c.work.paths).sum();
+        assert!(
+            regions.proposals.len() <= 3,
+            "{name}: {} proposals",
+            regions.proposals.len()
+        );
+        assert!(paths <= 720, "{name}: {paths} decoding paths");
+        assert!(result.barcodes().is_empty(), "{name}");
+    }
+}
