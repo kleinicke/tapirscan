@@ -109,12 +109,15 @@ These are internal reader effort levels, not comparable work or confidence score
   modules; Very High also tries curved-grid recovery for version 2 and above.
   When QR shares the scan with other formats, the threshold/sharpen and
   equalized/inverted retries run on frames above 262,144 pixels only where a QR
-  candidate stayed unread. EAN13-only scans run none of this.
+  candidate stayed unread, and the High and Very High reduced copies of large
+  frames only where a low-resolution copy shows a large square area of
+  module-like texture. EAN13-only scans run none of this.
 - **Data Matrix:** candidates that do not decode are retried with a wider
   side-ratio window, a grayscale corner refinement and a resampled crop, with
   twice the tries in High. Medium and above add a grid-recovery pass; High and
   Very High also retry unread frames on reduced copies, which reads large blurred
-  close-ups.
+  close-ups. With other formats selected, High tries its finer copy of a large
+  frame only after the coarse copy left a Data Matrix candidate.
 - **Aztec:** Medium and above add a grid-recovery pass and retry small symbols on
   an enlarged window; Low uses smaller refinement budgets.
 - **PDF417:** High and Very High re-read localized symbols that the row reader

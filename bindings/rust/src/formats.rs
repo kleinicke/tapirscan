@@ -19,7 +19,7 @@
 //! | QR grid projection of unresolved regions                     | x | x | x | x |
 //! | QR foreground thresholds, then sharpened (mixed: small only) |   | x | x | x |
 //! | Data Matrix area-averaged copies (M: after a candidate)      |   | x | x | x |
-//! | QR reduced copies                                            |   |   | x | x |
+//! | QR reduced copies (mixed, large frames: dense square texture)|   |   | x | x |
 //! | QR equalized and inverted copies (`cfg`)                     |   |   | x | x |
 //! | **primary retail scan** (EAN-13/UPC-A; M+ also EAN-8/UPC-E)  | x | x | x | x |
 //! | **`recover_linear_regions`**, inside localized boxes         |   | x | x | x |
@@ -61,6 +61,8 @@ pub(crate) const SHORT_RETAIL: u32 = EAN8 | UPCE;
 #[cfg(not(feature = "low"))]
 const NON_RETAIL_LINEAR: u32 = CODE128 | CODE39 | ITF | CODABAR | CODE93;
 
+#[cfg(not(feature = "low"))]
+mod matrix_texture;
 mod policy;
 use policy::POLICY;
 
@@ -1614,8 +1616,9 @@ fn scan_additional(
     // Large, blurred Data Matrix symbols span tens of pixels per module, far
     // beyond what the module-scale localizer expects. Unread frames are retried
     // on area-averaged copies, which also take the corner-refining search.
-    // High tries the two cheap scales; Medium tries them only after the frame left a
-    // Data Matrix candidate region, so frames without one keep their cost.
+    // High tries the two cheap scales, the finer one on mixed selections' large frames
+    // only after the coarse copy left a candidate; Medium tries them only after the
+    // frame left a Data Matrix candidate region, so frames without one keep their cost.
     #[cfg(not(feature = "low"))]
     if matrix & DATA_MATRIX != 0
         && !scans.iter().any(|scan| has_format_read(scan, "DataMatrix"))
@@ -1625,15 +1628,22 @@ fn scan_additional(
                 .any(|scan| has_format_region(scan, "DataMatrix")))
     {
         let long = image.width.max(image.height);
+        let needs_candidate = POLICY.data_matrix_averaged_needs_candidate
+            && mask != DATA_MATRIX
+            && image.width * image.height > SMALL_FRAME_PIXELS
+            && !scans
+                .iter()
+                .any(|scan| has_format_region(scan, "DataMatrix"));
         for &target in POLICY.data_matrix_averaged_scales {
             if long < target * 3 / 2 {
                 continue;
             }
             let retry =
                 averaged_matrix_retry(pixels, image.width, image.height, target, DATA_MATRIX, 2);
-            let decoded = !retry.barcodes.is_empty();
+            let done = !retry.barcodes.is_empty()
+                || (needs_candidate && !has_format_region(&retry, "DataMatrix"));
             scans.push(retry);
-            if decoded {
+            if done {
                 break;
             }
         }
@@ -1645,6 +1655,7 @@ fn scan_additional(
         && matrix & QR_CODE != 0
         && evidence_free_2d_recoveries(addons)
         && !scans.iter().any(has_qr_read)
+        && qr_reduced_wanted(pixels, image.width, image.height, mask)
     {
         // Each finer scale runs only when the coarser one read nothing.
         for &target in POLICY.qr_reduced_scales {
@@ -1684,6 +1695,21 @@ fn scan_additional(
         }
     }
     Ok((scans, coverage))
+}
+
+/// Whether an unread frame takes the reduced QR copies. QR-only selections, small
+/// frames and frames no larger than the coarsest copy always do; see
+/// `ModePolicy::qr_reduced_needs_texture` for the others.
+#[cfg(not(feature = "low"))]
+fn qr_reduced_wanted(pixels: &[u8], width: usize, height: usize, mask: u32) -> bool {
+    !POLICY.qr_reduced_needs_texture
+        || mask == QR_CODE
+        || width * height <= SMALL_FRAME_PIXELS
+        || POLICY
+            .qr_reduced_scales
+            .iter()
+            .all(|&target| width.max(height) <= target)
+        || matrix_texture::has_dense_square_texture(pixels, width, height)
 }
 
 /// Whether a frame admits the foreground-threshold and equalized/inverted QR

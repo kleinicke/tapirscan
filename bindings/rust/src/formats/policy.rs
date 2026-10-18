@@ -62,6 +62,12 @@ pub(super) struct ModePolicy {
     /// Reduced copies (long side, coarsest first) for unread QR selections; each finer
     /// scale runs only when the coarser one read nothing.
     pub qr_reduced_scales: &'static [usize],
+    /// Mixed selections run the reduced QR copies on frames above `SMALL_FRAME_PIXELS`
+    /// only where a low-resolution copy shows a large, square area of module-like
+    /// blocks (`matrix_texture`). The copies rescue large symbols whose finder patterns
+    /// the full-resolution passes miss; retail photos without one paid about 12 ms per
+    /// frame (5%) for them in Chrome.
+    pub qr_reduced_needs_texture: bool,
     /// Source-sample allowance for grid recovery of pending matrix regions.
     pub matrix_grid_samples: usize,
     /// Pixel allowance for localized crop retries of pending matrix regions.
@@ -73,6 +79,9 @@ pub(super) struct ModePolicy {
     pub data_matrix_averaged_without_region: bool,
     /// Long sides of the area-averaged Data Matrix copies, in order.
     pub data_matrix_averaged_scales: &'static [usize],
+    /// On mixed selections' frames above `SMALL_FRAME_PIXELS` without a Data Matrix
+    /// region, an averaged copy that leaves no Data Matrix candidate ends the copies.
+    pub data_matrix_averaged_needs_candidate: bool,
     /// EAN add-on selections also run the 2D recoveries of unread frames without a
     /// candidate region; otherwise they skip them to keep their cost.
     pub addon_2d_recoveries: bool,
@@ -117,11 +126,13 @@ impl ModePolicy {
         qr_restoration_pixels: super::SMALL_FRAME_PIXELS,
         qr_restoration_effort: 1,
         qr_reduced_scales: &[],
+        qr_reduced_needs_texture: false,
         matrix_grid_samples: 0,
         matrix_crop_pixels: 0,
         matrix_crop_effort: 0,
         data_matrix_averaged_without_region: false,
         data_matrix_averaged_scales: &[400, 256],
+        data_matrix_averaged_needs_candidate: false,
         addon_2d_recoveries: false,
         source_profile_cache: false,
         sparse_stripe_fallback: false,
@@ -166,10 +177,14 @@ impl ModePolicy {
         qr_restoration_pixels: super::QR_RECOVERY_MAX_PIXELS,
         qr_restoration_effort: 2,
         qr_reduced_scales: &[1200, 1280],
+        qr_reduced_needs_texture: true,
         matrix_grid_samples: 2_000_000,
         matrix_crop_pixels: 131_072,
         matrix_crop_effort: 2,
         data_matrix_averaged_without_region: true,
+        // The cheap coarse copy runs first; the finer one only after it left a candidate.
+        data_matrix_averaged_scales: &[256, 400],
+        data_matrix_averaged_needs_candidate: true,
         addon_2d_recoveries: true,
         source_profile_cache: false,
         sparse_stripe_fallback: false,
@@ -188,6 +203,9 @@ impl ModePolicy {
         matrix_crop_pixels: 262_144,
         matrix_crop_effort: 3,
         data_matrix_averaged_scales: &[400, 1008, 800, 256],
+        // Its finer copies read eight Data Matrix symbols that a coarse candidate
+        // would not have admitted.
+        data_matrix_averaged_needs_candidate: false,
         window_proposals: true,
         checksum_free_recovery_proposals: 16,
         ..Self::HIGH
