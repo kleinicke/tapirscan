@@ -196,9 +196,10 @@ const COHERENT_WINDOW: f64 = 0.5;
 /// - Periodic: the runs repeat (see [`repeating`]) on at least two lines. No linear
 ///   symbology encodes data that way; one line may cross the center of rings or the edge of
 ///   the texture.
-/// - Incoherent: the two outer lines correlate in fewer than two sixths of the axis, each
-///   aligned at its own small lateral displacement. Printed bars run through the whole box,
-///   while text, noise and bar patterns that change every few rows do not.
+/// - Incoherent: no two lines across the box show the same bars along a run of consecutive
+///   windows, each aligned at its own small lateral displacement (see [`coherent_bars`]).
+///   Printed bars run along the whole symbol, however loosely the box surrounds it, while
+///   text, noise and bar patterns that change every few rows do not.
 pub(crate) fn texture_proposal(image: Image<'_>, q: &Quad) -> bool {
     let axis = Axis::of(q);
     let height = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
@@ -228,36 +229,118 @@ pub(crate) fn texture_proposal(image: Image<'_>, q: &Quad) -> bool {
         return false;
     }
     let [_, above, below] = &lines;
-    // Perspective and shear move the bars between the lines differently along the axis:
-    // align each sixth of the axis on its own, up to 15 degrees of bar slant. Lags beyond
-    // one sample are tried every second sample, nearest first, until one correlates.
-    let lag = f64_isize(((axis.length / 200.).max(1.5).max(0.13 * height) / step).ceil());
+    let (coherent, windows) = coherent_bars(above, below, axis.length, step, height, RUN);
+    if coherent || windows < 3 {
+        return false;
+    }
+    // A box taller than its symbol can put an outer line beside the bars. Printed bars run
+    // through every row of the symbol, so a pair of lines at least three eighths of the
+    // height apart shows them when each neighboring pair between them does too.
+    let rows: Vec<Vec<Option<f64>>> = (-3..=3)
+        .map(|k| {
+            let mut row = Vec::new();
+            axis.sample(
+                image,
+                f64::from(k) * 0.125 * height,
+                (0., 1.),
+                step,
+                &mut row,
+            );
+            row
+        })
+        .collect();
+    let same_bars = |a: &[Option<f64>], b: &[Option<f64>]| {
+        coherent_bars(a, b, axis.length, step, height, SHORT_RUN).0
+    };
+    let neighbors: Vec<bool> = rows
+        .windows(2)
+        .map(|pair| same_bars(&pair[0], &pair[1]))
+        .collect();
+    !(0..rows.len()).any(|i| {
+        (i + 3..rows.len()).any(|j| {
+            (i, j) != (1, 5)
+                && usize_f64(j - i) * 0.125 * height >= MIN_SEPARATION
+                && neighbors[i..j].iter().all(|&same| same)
+                && same_bars(&rows[i], &rows[j])
+        })
+    })
+}
+
+/// Tangent of the bar slant against the box (about 14 degrees) that each window may be
+/// aligned for, per half of the box height.
+const BAR_SLANT: f64 = 0.25;
+/// Pixels of a window along the axis that is checked for printed bars.
+const WINDOW: f64 = 24.;
+/// Axis stretch, in pixels, over which consecutive windows of the outer lines must show the
+/// same bars (a third of the axis in a shorter box). Printed symbols are wider than this.
+const RUN: f64 = 96.;
+/// The same for the other pairs of lines, which are also checked row by row.
+const SHORT_RUN: f64 = 72.;
+/// Closest two lines may be, in pixels, to count as different rows of a pattern redrawn
+/// every few rows.
+const MIN_SEPARATION: f64 = 16.;
+/// Largest change of lateral displacement, in pixels, between neighboring windows of one bar
+/// pattern.
+const DISPLACEMENT_STEP: f64 = 1.5;
+
+/// Whether lines `a` and `b` show the same bars: a run of consecutive windows along the axis
+/// (`run` pixels, or a third of the axis in a shorter box) correlates at nearly the same
+/// lateral displacement. Perspective and shear move the bars between the lines differently
+/// along the axis, so each window aligns on its own, up to 15 degrees of bar slant; lags
+/// beyond one sample are tried every second sample, nearest first, until one correlates.
+/// Also returns the number of windows with enough variation to measure.
+fn coherent_bars(
+    a: &[Option<f64>],
+    b: &[Option<f64>],
+    length: f64,
+    step: f64,
+    height: f64,
+    run: f64,
+) -> (bool, usize) {
+    let lag = f64_isize(((length / 200.).max(1.5).max(BAR_SLANT * height) / step).ceil());
     let lags = || {
         [0, -1, 1]
             .into_iter()
             .chain((2..=lag).step_by(2).flat_map(|l| [-l, l]))
     };
-    let part = above.len().div_ceil(6).max(16);
-    let mut coherent = 0;
+    let part = a.len().div_ceil(6).min(f64_usize(WINDOW / step)).max(16);
+    let needed = f64_usize((run.min(length / 3.) / (usize_f64(part) * step)).ceil()).max(2);
+    let displacement_step = f64_isize((DISPLACEMENT_STEP / step).ceil());
+    let mut streak = 0;
+    let mut previous = 0;
     let mut windows = 0;
-    for start in (0..above.len()).step_by(part) {
-        let end = (start + part).min(above.len());
+    for start in (0..a.len()).step_by(part) {
+        let end = (start + part).min(a.len());
         let mut measured = false;
+        let mut found = None;
         for l in lags() {
-            if let Some(c) = correlation(&above[start..end], below, start, l) {
+            if let Some(c) = correlation(&a[start..end], b, start, l) {
                 measured = true;
                 if c >= COHERENT_WINDOW {
-                    coherent += 1;
+                    found = Some(l);
                     break;
                 }
             }
         }
         windows += usize::from(measured);
-        if coherent == 2 {
-            return false;
+        // Flat windows (inside a bar wider than a window, or beside the symbol) say nothing.
+        let Some(l) = found else {
+            if measured {
+                streak = 0;
+            }
+            continue;
+        };
+        streak = if streak > 0 && (l - previous).abs() <= displacement_step {
+            streak + 1
+        } else {
+            1
+        };
+        previous = l;
+        if streak >= needed {
+            return (true, windows);
         }
     }
-    windows >= 3
+    (false, windows)
 }
 
 /// Mean absolute luminance step between adjacent samples; `None` when fewer than half
@@ -304,6 +387,10 @@ fn correlation(a: &[Option<f64>], b: &[Option<f64>], offset: usize, lag: isize) 
 const BUSY_MARGINS: f64 = 0.6;
 /// Correlation along the bars below which the pattern is two-dimensional.
 const INCONSISTENT_BARS: f64 = 0.35;
+/// Largest bar slant against the read's sides that the shifted lines may be aligned for
+/// (the tangent, about 20 degrees), and the spacing of the slants tried.
+const SLANT: f64 = 0.36;
+const SLANT_STEP: f64 = 0.04;
 /// Share of adjacent runs with similar widths at which the profile is a smooth
 /// periodic or chirped texture.
 const REGULAR_RUNS: f64 = 0.85;
@@ -344,21 +431,37 @@ pub(crate) fn texture_read(image: Image<'_>, q: &Quad) -> bool {
     // a tenth of the length: printed bars are taller than that on at least one side.
     let shift = (length / 40.).max(2.5);
     let lag = f64_isize(((length / 250.).max(0.5) / step).ceil());
-    let mut shifted = Vec::new();
-    for distance in [shift, shift * 1.618, (length / 10.).max(shift * 2.6)] {
-        // Lines outside the image or on flat surroundings give no evidence.
-        let mut best: Option<f64> = None;
+    let distances = [shift, shift * 1.618, (length / 10.).max(shift * 2.6)];
+    let mut shifted: Vec<(f64, Vec<Option<f64>>)> = Vec::new();
+    for distance in distances {
         for direction in [-1., 1.] {
-            span(0., 1., direction * distance, &mut shifted);
-            for l in -lag..=lag {
-                if let Some(c) = correlation(&center, &shifted, 0, l) {
-                    best = Some(best.map_or(c, |b| b.max(c)));
+            let mut line = Vec::new();
+            span(0., 1., direction * distance, &mut line);
+            shifted.push((direction * distance, line));
+        }
+    }
+    // The decoder's box may not follow slanted bars, which then shift sideways in proportion
+    // to the distance. A texture matches at no slant up to `SLANT` on all distances at once.
+    let steps = f64_isize((SLANT / SLANT_STEP).round());
+    let slants = || (0..=steps).flat_map(|k| if k == 0 { vec![0] } else { vec![-k, k] });
+    let consistent = slants().any(|k| {
+        let slant = f64::from(i32::try_from(k).unwrap_or(0)) * SLANT_STEP;
+        shifted.chunks(2).all(|pair| {
+            let mut best: Option<f64> = None;
+            for (offset, line) in pair {
+                let middle = f64_isize((slant * offset / step).round());
+                for l in middle - lag..=middle + lag {
+                    if let Some(c) = correlation(&center, line, 0, l) {
+                        best = Some(best.map_or(c, |b| b.max(c)));
+                    }
                 }
             }
-        }
-        if best.is_some_and(|b| b < INCONSISTENT_BARS) {
-            return true;
-        }
+            // Lines outside the image or on flat surroundings give no evidence.
+            best.is_none_or(|b| b >= INCONSISTENT_BARS)
+        })
+    });
+    if !consistent {
+        return true;
     }
     let profile: Vec<f64> = center.iter().flatten().copied().collect();
     let mut widths = Vec::new();
