@@ -36,6 +36,10 @@ pub(super) struct ModePolicy {
     pub preserved_sweep_any_size: bool,
     /// Effort of the preserved sweep group.
     pub preserved_sweep_effort: usize,
+    /// The preserved sweep group also runs at effort 0 on the frames where Medium runs
+    /// it: the effort-1 scanlines, twice as dense, lie between the effort-0 ones and
+    /// can miss a symbol only those cross.
+    pub coarse_preserved_sweep: bool,
     /// Strong sweep reads of other linear formats bound the primary retail retries.
     pub sweep_coverage: bool,
     /// EAN-8 and UPC-E are read by the primary retail scan instead of the sweep.
@@ -89,8 +93,11 @@ pub(super) struct ModePolicy {
     // Localized linear recovery (`recover_linear_regions`, not compiled into Low).
     /// Exact source profiles are cached within one frame.
     pub source_profile_cache: bool,
-    /// The stripe-box fallback uses the sparse stripe search instead of the full one.
-    pub sparse_stripe_fallback: bool,
+    /// The stripe-box fallback, which always decodes the sparse stripe search's boxes,
+    /// also decodes the boxes of the full stripe search that the sparse one did not
+    /// propose. Neither search finds every box the other does: the sparse boxes alone
+    /// read 16 Code 128 fields on large label photos that the full boxes missed.
+    pub full_stripe_fallback: bool,
     /// Large frames localize again on one half-scale raster.
     pub half_scale_proposals: bool,
     /// Large frames also localize on overlapping `WINDOW_SIDE` windows.
@@ -116,6 +123,7 @@ impl ModePolicy {
         preserved_sweep: false,
         preserved_sweep_any_size: false,
         preserved_sweep_effort: 0,
+        coarse_preserved_sweep: false,
         sweep_coverage: false,
         shared_short_retail: false,
         qr_effort: 0,
@@ -134,7 +142,7 @@ impl ModePolicy {
         data_matrix_averaged_scales: &[400, 256],
         data_matrix_averaged_needs_candidate: false,
         source_profile_cache: false,
-        sparse_stripe_fallback: false,
+        full_stripe_fallback: false,
         half_scale_proposals: false,
         window_proposals: false,
         retail_batch_half_scale: false,
@@ -156,7 +164,6 @@ impl ModePolicy {
         matrix_crop_pixels: 65_536,
         matrix_crop_effort: 1,
         source_profile_cache: true,
-        sparse_stripe_fallback: true,
         retail_batch_half_scale: true,
         short_retail_narrow_groups: true,
         checksum_free_recovery_proposals: 8,
@@ -169,6 +176,7 @@ impl ModePolicy {
         addon_sweep_effort: 2,
         preserved_sweep_any_size: true,
         preserved_sweep_effort: 1,
+        coarse_preserved_sweep: true,
         qr_effort: 2,
         qr_foreground_mixed_any_size: true,
         qr_foreground_with_region: true,
@@ -185,7 +193,7 @@ impl ModePolicy {
         data_matrix_averaged_scales: &[256, 400],
         data_matrix_averaged_needs_candidate: true,
         source_profile_cache: false,
-        sparse_stripe_fallback: false,
+        full_stripe_fallback: true,
         half_scale_proposals: true,
         retail_batch_half_scale: false,
         short_retail_withholds_repeats: true,

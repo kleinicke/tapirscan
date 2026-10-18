@@ -404,8 +404,9 @@ impl Scanner {
                 }
                 // Segment voting (and the retail boxes, on its 768-pixel raster) can miss thin
                 // and partial symbols, such as rows of small labels on a large sheet. Frames
-                // without a linear read fall back to the stripe boxes (sparse search in Medium,
-                // full search from High up); reads of 2D formats do not stop it. With retail
+                // without a linear read fall back to the stripe boxes (the sparse search; from
+                // High up also the full search's other boxes, so High reads what Medium reads
+                // there); reads of 2D formats do not stop it. With retail
                 // selected, only frames above twice that raster take it. Large label sheets
                 // carry many short Code 128 fields: one read there also takes the stripe boxes.
                 let linear_read = reads.iter().chain(found.iter()).any(is_linear_read);
@@ -426,20 +427,27 @@ impl Scanner {
                         image.channels,
                         image.stride,
                     )?;
-                    let stripes = if POLICY.sparse_stripe_fallback {
-                        self.localizer.detect_sparse(im, 768.)?.proposals
-                    } else {
+                    let stripes = self.localizer.detect_sparse(im, 768.)?.proposals;
+                    let full = if POLICY.full_stripe_fallback {
                         self.localizer.detect(im)?.proposals
+                    } else {
+                        Vec::new()
                     };
-                    let (extra, regions) = crate::fast_linear::recover_proposals_hinted(
-                        image,
-                        &stripes,
-                        oriented_mask,
-                        sampler,
-                        &mut hinted,
-                    )?;
-                    found.extend(extra);
-                    pending.extend(regions);
+                    // Each list keeps its own proposal limit and decoding budgets.
+                    for boxes in [stripes, full] {
+                        if boxes.is_empty() {
+                            continue;
+                        }
+                        let (extra, regions) = crate::fast_linear::recover_proposals_hinted(
+                            image,
+                            &boxes,
+                            oriented_mask,
+                            sampler,
+                            &mut hinted,
+                        )?;
+                        found.extend(extra);
+                        pending.extend(regions);
+                    }
                 }
                 // With Codabar or Code 93 selected, Low sweeps the whole image for every selected
                 // linear format; that reader decodes symbols whose rows the profiles decode too
@@ -1498,6 +1506,15 @@ fn scan_additional(
     } else {
         0
     };
+    // The denser sweep's scanlines lie between Medium's, which can cross a symbol they
+    // miss; from High up the group also runs at Medium's effort where Medium runs it.
+    let coarse_preserved = if POLICY.coarse_preserved_sweep
+        && (!retail || is_large_frame(image.width, image.height))
+    {
+        preserved
+    } else {
+        0
+    };
     let effort = if addons == EanAddOnPolicy::Ignore {
         POLICY.sweep_effort
     } else {
@@ -1535,6 +1552,7 @@ fn scan_additional(
     let groups: Vec<(u32, usize)> = [
         (linear & !preserved, effort),
         (preserved, POLICY.preserved_sweep_effort),
+        (coarse_preserved, 0),
         (
             matrix_rest,
             if matrix_rest & QR_CODE != 0 {
