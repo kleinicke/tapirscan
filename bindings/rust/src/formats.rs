@@ -31,7 +31,6 @@
 //! | large batch frames: half-scale retail boxes                  |   | x |   |   |
 //! | short retail contrast hypothesis (H+: repeats withheld)      |   | x | x | x |
 //! | retail polarity probe                                        |   | x | x | x |
-//! | short retail from rejected narrow groups                     |   | x |   |   |
 //! | Code 128/39/ITF/93 contrast retries (8, 8, 16 proposals)     |   | x | x | x |
 //! | EAN-13/UPC-A source bands (`cfg`)                            |   |   | x | x |
 //! | short retail crops (`cfg`)                                   |   | x |   |   |
@@ -578,71 +577,6 @@ impl Scanner {
                         &selected,
                         mask & RETAIL_MASK,
                         sampler,
-                    )?;
-                    let extra = crate::linear_duplicates::merge(extra, image);
-                    if extra.len() == 1 && extra[0].support >= 4 {
-                        reads.extend(extra);
-                    }
-                    if options.include_regions {
-                        pending.extend(regions);
-                    }
-                }
-                // Reuse rejected narrow groups only after ordinary Medium recovery fails.
-                if POLICY.short_retail_narrow_groups && reads.is_empty() && mask & SHORT_RETAIL != 0
-                {
-                    let hypotheses = if let Some(cached) =
-                        primary.and_then(|p| p.short_fragments.as_ref())
-                    {
-                        cached.clone()
-                    } else {
-                        use barcode_research_core::numeric::usize_f64;
-                        let im = crate::ImageView::new(
-                            image.data,
-                            image.width,
-                            image.height,
-                            image.channels,
-                            image.stride,
-                        )?;
-                        let scale = (768. / usize_f64(image.width.max(image.height))).min(1.);
-                        let sx = usize_f64(image.width)
-                            / (usize_f64(image.width) * scale).round().max(3.);
-                        let sy = usize_f64(image.height)
-                            / (usize_f64(image.height) * scale).round().max(3.);
-                        let mut fragments = Vec::new();
-                        let _ = barcode_research_core::stripes::detect_with_observer(im, |g| {
-                            let [u0, u1, v0, v1] = g.bounds;
-                            let (w, h) = (u1 - u0, v1 - v0);
-                            let narrow = g.reason == "narrow"
-                                && w >= 24.
-                                && h >= 5.
-                                && w / h >= 2.
-                                && g.edges >= 120;
-                            if !narrow {
-                                return;
-                            }
-                            let half = w * 2.;
-                            let center = f64::midpoint(u0, u1);
-                            let (s, c) = g.angle.sin_cos();
-                            let polygon = [
-                                [center - half, v0],
-                                [center + half, v0],
-                                [center + half, v1],
-                                [center - half, v1],
-                            ]
-                            .map(|[u, v]| [(u * c - v * s) * sx, (u * s + v * c) * sy]);
-                            fragments.push((g.edges, crate::Proposal { polygon, score: 0. }));
-                        })?;
-                        fragments.sort_by_key(|(edges, _)| std::cmp::Reverse(*edges));
-                        let hypotheses: Vec<_> =
-                            fragments.into_iter().take(4).map(|(_, p)| p).collect();
-                        hypotheses
-                    };
-                    let (extra, regions) = crate::fast_linear::recover_proposals_contrast(
-                        image,
-                        &hypotheses,
-                        mask & SHORT_RETAIL,
-                        sampler,
-                        1.5,
                     )?;
                     let extra = crate::linear_duplicates::merge(extra, image);
                     if extra.len() == 1 && extra[0].support >= 4 {

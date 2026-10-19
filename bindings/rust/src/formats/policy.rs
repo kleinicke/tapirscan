@@ -108,8 +108,6 @@ pub(super) struct ModePolicy {
     /// The short-retail contrast hypothesis merges its reads and withholds repeated
     /// equal payloads: an equal value alone cannot establish physical ownership.
     pub short_retail_withholds_repeats: bool,
-    /// Unread short-retail frames retry rejected narrow localizer groups.
-    pub short_retail_narrow_groups: bool,
     /// Unresolved proposals retried with contrast hypotheses for Code 128, Code 39,
     /// ITF and Code 93.
     pub checksum_free_recovery_proposals: usize,
@@ -147,7 +145,6 @@ impl ModePolicy {
         window_proposals: false,
         retail_batch_half_scale: false,
         short_retail_withholds_repeats: false,
-        short_retail_narrow_groups: false,
         checksum_free_recovery_proposals: 0,
     };
 
@@ -165,7 +162,6 @@ impl ModePolicy {
         matrix_crop_effort: 1,
         source_profile_cache: true,
         retail_batch_half_scale: true,
-        short_retail_narrow_groups: true,
         checksum_free_recovery_proposals: 8,
         ..Self::LOW
     };
@@ -197,7 +193,6 @@ impl ModePolicy {
         half_scale_proposals: true,
         retail_batch_half_scale: false,
         short_retail_withholds_repeats: true,
-        short_retail_narrow_groups: false,
         ..Self::MEDIUM
     };
 

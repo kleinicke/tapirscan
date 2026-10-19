@@ -24,7 +24,6 @@ struct Localization {
     /// Alternative boxes per segment-voting cluster, tried only while it stays unread.
     #[cfg(not(feature = "low"))]
     alternatives: Vec<(Quad, Vec<Quad>)>,
-    short_fragments: Option<Vec<Proposal>>,
     omitted: usize,
     work_limited: bool,
     search_window: Quad,
@@ -156,7 +155,7 @@ fn scan_prepared_impl(
 ) -> std::result::Result<Result, Error> {
     let allow_restoration = source.frame;
     let im = checked_image(image)?;
-    let localization = localize(&mut scanner.localizer, im, image, shared_retail, source)?;
+    let localization = localize(&mut scanner.localizer, im, image, source)?;
     let mut candidates: Vec<_> = localization.proposals.iter().map(|p| p.polygon).collect();
     // Medium scans the full-frame window of a whole image only when its boxes read nothing but
     // show evidence (below). Crop rescans are small and always scan theirs.
@@ -363,7 +362,6 @@ fn scan_prepared_impl(
     finish_primary(&mut scan, image, consolidate, options.multiple);
     Ok(Result {
         proposals: localization.proposals,
-        short_fragments: localization.short_fragments,
         localization_omitted: localization.omitted,
         localization_work_limited: localization.work_limited,
         search_window: window_scanned.then_some(localization.search_window),
@@ -728,19 +726,12 @@ fn recover_primary_proposals_high(
     admit_primary_reads(image, scan, protected, extra.into_iter().chain(colored))
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "Every mode's localizer, its periodic-texture filters and the shared refinements stay in one ordered sequence."
-)]
 fn localize(
     detector: &mut stripes::Detector,
     im: ImageView<'_>,
     image: Image<'_>,
-    capture_short_fragments: bool,
     source: TextureSource<'_>,
 ) -> std::result::Result<Localization, Error> {
-    #[cfg(not(feature = "medium"))]
-    let mut fragments = Vec::new();
     // Medium localizes by bar-segment voting: one box per symbol, alternatives kept aside.
     #[cfg(feature = "medium")]
     let voted = segment_voting::localize(image);
@@ -752,8 +743,8 @@ fn localize(
         trace: [0; 13],
     };
     #[cfg(not(feature = "medium"))]
-    // High and Very High box symbols by segment voting and never use short fragments, so
-    // they skip the stripe pass except on tiny frames.
+    // High and Very High box symbols by segment voting, so they skip the stripe pass except
+    // on tiny frames.
     let found = if cfg!(any(feature = "high", feature = "very-high")) && !tiny_stripes(image) {
         stripes::Result {
             proposals: Vec::new(),
@@ -761,42 +752,11 @@ fn localize(
             limited: false,
             trace: [0; 13],
         }
-    } else if capture_short_fragments {
-        use barcode_research_core::numeric::usize_f64;
-        let scale = (768. / usize_f64(image.width.max(image.height))).min(1.);
-        let sx = usize_f64(image.width) / (usize_f64(image.width) * scale).round().max(3.);
-        let sy = usize_f64(image.height) / (usize_f64(image.height) * scale).round().max(3.);
-        detector.detect_with_observer(im, |g| {
-            let [u0, u1, v0, v1] = g.bounds;
-            let (w, h) = (u1 - u0, v1 - v0);
-            if g.reason != "narrow" || w < 24. || h < 5. || w / h < 2. || g.edges < 120 {
-                return;
-            }
-            let half = w * 2.;
-            let center = f64::midpoint(u0, u1);
-            let (s, c) = g.angle.sin_cos();
-            let polygon = [
-                [center - half, v0],
-                [center + half, v0],
-                [center + half, v1],
-                [center - half, v1],
-            ]
-            .map(|[u, v]| [(u * c - v * s) * sx, (u * s + v * c) * sy]);
-            fragments.push((g.edges, Proposal { polygon, score: 0. }));
-            // Stable ties preserve the original collect/sort/take ordering.
-            fragments.sort_by_key(|(edges, _)| std::cmp::Reverse(*edges));
-            fragments.truncate(4);
-        })?
     } else {
         detector.detect(im)?
     };
     #[cfg(any(feature = "high", feature = "very-high"))]
     let (found, alternatives) = high_boxes(found, image);
-    #[cfg(feature = "medium")]
-    let short_fragments = capture_short_fragments.then(Vec::new);
-    #[cfg(not(feature = "medium"))]
-    let short_fragments =
-        capture_short_fragments.then(|| fragments.into_iter().map(|(_, p)| p).collect());
     // Boxes on stripes, rings, random bar patterns and similar textures can hold no symbol;
     // retrying them costs most of the scan of such frames.
     let mut found = found;
@@ -859,7 +819,6 @@ fn localize(
         alternatives: voted.alternatives,
         #[cfg(any(feature = "high", feature = "very-high"))]
         alternatives,
-        short_fragments,
         omitted: found.omitted + count - examined + secondary_omitted,
         work_limited: found.limited
             || count > examined
@@ -871,8 +830,8 @@ fn localize(
     })
 }
 
-/// High and Very High also box symbols by segment voting; the stripe pass still supplies
-/// short-fragment hints and stripe evidence, and boxes for tiny frames.
+/// High and Very High also box symbols by segment voting; on tiny frames the stripe pass
+/// still supplies stripe evidence and boxes.
 #[cfg(any(feature = "high", feature = "very-high"))]
 fn high_boxes(
     mut found: stripes::Result,

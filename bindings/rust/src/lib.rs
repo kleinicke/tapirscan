@@ -92,11 +92,6 @@ impl Default for ScanOptions {
 }
 pub struct Result {
     proposals: Vec<Proposal>,
-    #[cfg_attr(
-        feature = "low",
-        expect(dead_code, reason = "Low has no short-code crop recovery to read them")
-    )]
-    short_fragments: Option<Vec<Proposal>>,
     localization_omitted: usize,
     localization_work_limited: bool,
     /// Full-frame search window, when it was scanned.
