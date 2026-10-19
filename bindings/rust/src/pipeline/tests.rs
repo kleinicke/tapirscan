@@ -157,3 +157,44 @@ fn retail_storage_reuse_preserves_stride_channels_and_alpha() {
         }
     }
 }
+
+/// Vertical bars of 3-pixel modules, alternating every module, on a white frame.
+#[cfg(any(feature = "high", feature = "very-high"))]
+fn stripe_frame(width: usize, height: usize) -> Vec<u8> {
+    let mut pixels = vec![255; width * height];
+    for y in height / 4..height * 3 / 4 {
+        for x in width / 8..width * 7 / 8 {
+            if x / 3 % 2 == 0 {
+                pixels[y * width + x] = 0;
+            }
+        }
+    }
+    pixels
+}
+
+#[cfg(any(feature = "high", feature = "very-high"))]
+#[test]
+fn envelope_evidence_comes_only_from_the_current_frame() {
+    fn gray(data: &[u8], width: usize, height: usize) -> Image<'_> {
+        Image {
+            data,
+            width,
+            height,
+            channels: 1,
+            stride: width,
+        }
+    }
+    let mut detector = stripes::Detector::default();
+    let striped = stripe_frame(360, 200);
+    let tiny = gray(&striped, 360, 200);
+    detector
+        .detect(ImageView::new(&striped, 360, 200, 1, 360).unwrap())
+        .unwrap();
+    assert!(detector.has_stripe_evidence());
+    // A tiny frame runs the stripe pass itself: its own tiles count.
+    assert!(envelope_evidence(&detector, tiny, 0));
+    assert!(!envelope_evidence(&detector, tiny, 1));
+    // A larger small frame skips the stripe pass; the raster still holds the tiny frame.
+    let blank = vec![255; 500 * 400];
+    assert!(!envelope_evidence(&detector, gray(&blank, 500, 400), 0));
+}

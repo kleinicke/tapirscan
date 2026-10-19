@@ -820,8 +820,8 @@ fn localize(
 
     // Small strongly sheared labels can have no accepted orthogonal stripe box.
     // Reuse the bounded pixel-only envelope fit before abandoning localization.
-    #[cfg(not(feature = "low"))]
-    if count == 0 && image.width * image.height <= 262_144 && detector.has_stripe_evidence() {
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    if envelope_evidence(detector, image, count) {
         let w = f64::from(u32::try_from(image.width - 1).map_err(|_| Error::Parameters)?);
         let h = f64::from(u32::try_from(image.height - 1).map_err(|_| Error::Parameters)?);
         for q in [
@@ -909,6 +909,15 @@ fn high_boxes(
 #[cfg(not(feature = "medium"))]
 fn tiny_stripes(image: Image<'_>) -> bool {
     image.width.max(image.height) < 384
+}
+
+/// Whether a frame without boxes has coherent stripe tiles for the envelope fit. Only
+/// tiny frames run the stripe pass in this call; for the others the scanner's reused
+/// raster still holds an earlier frame, which must not decide this one. Medium never
+/// runs the stripe pass here, so it has no envelope fit.
+#[cfg(any(feature = "high", feature = "very-high"))]
+fn envelope_evidence(detector: &stripes::Detector, image: Image<'_>, count: usize) -> bool {
+    count == 0 && tiny_stripes(image) && detector.has_stripe_evidence()
 }
 
 fn add_secondary_proposals(

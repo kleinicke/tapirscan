@@ -873,3 +873,101 @@ fn parallel_option_leaves_results_unchanged() {
         assert_eq!(reports[0].len(), 2, "{mode:?}");
     }
 }
+
+/// The EAN-13 fixture with its bars sheared sideways by `shear` pixels per row.
+fn sheared_fixture(shear: usize, width: usize, height: usize) -> Vec<u8> {
+    let mut pixels = vec![255; width * height];
+    for y in 30..height - 30 {
+        let offset = (y - 30) * shear / 4;
+        for (x, bit) in BITS.bytes().enumerate() {
+            let left = 20 + offset + x * 3;
+            if bit == b'1' && left + 3 <= width {
+                pixels[y * width + left..y * width + left + 3].fill(0);
+            }
+        }
+    }
+    pixels
+}
+
+/// Engine diagnostics without the wall-clock fields, which differ between runs.
+fn without_timing(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(object) => object
+            .iter()
+            .filter(|(key, _)| {
+                !matches!(
+                    key.as_str(),
+                    "elapsedMs"
+                        | "extraMs"
+                        | "elapsed_ms"
+                        | "sampling_ms"
+                        | "interpretation_ms"
+                        | "support_ms"
+                )
+            })
+            .map(|(key, item)| (key.clone(), without_timing(item)))
+            .collect(),
+        serde_json::Value::Array(items) => items.iter().map(without_timing).collect(),
+        other => other.clone(),
+    }
+}
+
+/// A scan must not depend on what the same scanner scanned before. Stage storage is
+/// reused across frames, so every frame is compared with a fresh scanner's result,
+/// after frames and selections that leave localizer, retail and recovery state behind.
+#[test]
+fn reused_scanners_match_fresh_scanners() {
+    let (pair, pair_width, pair_height) = fixture(true);
+    let (code39, code39_width, code39_height) = code39_image(PZN_BITS);
+    let tiny = sheared_fixture(2, 360, 200);
+    let small = sheared_fixture(5, 500, 400);
+    let blank = vec![255; 500 * 400];
+    let frames = [
+        (Image::gray(&pair, pair_width, pair_height), None),
+        // Code 128 alone leaves the stripe raster of the EAN-13 pair behind.
+        (
+            Image::gray(&pair, pair_width, pair_height),
+            Some(Formats::from(Format::Code128)),
+        ),
+        (Image::gray(&small, 500, 400), None),
+        (Image::gray(&blank, 500, 400), None),
+        (Image::gray(&code39, code39_width, code39_height), None),
+        (Image::gray(&tiny, 360, 200), None),
+        (Image::gray(&small, 500, 400), None),
+    ];
+    for mode in compiled_modes() {
+        for ean_add_on_policy in [EanAddOnPolicy::Ignore, EanAddOnPolicy::Read] {
+            for formats in [Formats::RETAIL, Formats::ALL] {
+                let options = ScannerOptions {
+                    mode,
+                    formats,
+                    ean_add_on_policy,
+                    ..ScannerOptions::default()
+                };
+                let mut reused = Scanner::new(options);
+                for (index, (image, selection)) in frames.iter().enumerate() {
+                    let scan = ScanOptions {
+                        formats: *selection,
+                    };
+                    let a = reused.inspect_with_options(*image, scan).unwrap();
+                    let b = Scanner::new(options)
+                        .inspect_with_options(*image, scan)
+                        .unwrap();
+                    let context =
+                        format!("{mode:?} {formats:?} {ean_add_on_policy:?} frame {index}");
+                    assert_eq!(a.barcodes, b.barcodes, "{context}");
+                    assert_eq!(
+                        format!("{:?}", a.undecoded),
+                        format!("{:?}", b.undecoded),
+                        "{context}"
+                    );
+                    assert_eq!(
+                        without_timing(&a.diagnostics.unwrap().raw),
+                        without_timing(&b.diagnostics.unwrap().raw),
+                        "{context}"
+                    );
+                }
+            }
+        }
+    }
+}
