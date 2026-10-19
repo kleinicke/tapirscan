@@ -3,6 +3,8 @@
 use super::Detection;
 use super::{AssociationBudget, ImageView, ReconciliationWork, Work};
 
+/// Whether the source pixels connect the two bands of equal text. Very High
+/// reuses connection proofs across calls through `cache`.
 #[cfg(any(feature = "mode-low", feature = "mode-medium", feature = "mode-high"))]
 pub(super) fn same_text_identity(
     im: ImageView<'_>,
@@ -12,24 +14,9 @@ pub(super) fn same_text_identity(
     counter: &mut Work,
     work: &mut ReconciliationWork,
 ) -> bool {
-    {
-        let mut local = Work::default();
-        let connected = crate::identity::connected(im, a, b, budget, &mut local);
-        counter.continuity_samples += local.continuity_samples;
-        counter.continuity_capped_links += local.continuity_capped_links;
-        counter.continuity_rejects += local.continuity_rejects;
-        // This helper spends pixels only. Preserve outer mandatory failures and
-        // conservatively propagate any future check-budget work added to identity.
-        counter.association_checks += local.association_checks;
-        if local.association_checks > 0 {
-            counter.association_truncated |= local.association_truncated;
-        }
-        if local.association_truncated > 0 {
-            work.optional_identity_deferred += 1;
-            return false;
-        }
-        connected
-    }
+    let mut local = Work::default();
+    let connected = crate::identity::connected(im, a, b, budget, &mut local);
+    settle_identity(&local, connected, counter, work)
 }
 
 #[cfg(feature = "mode-very-high")]
@@ -42,24 +29,33 @@ pub(super) fn same_text_identity(
     work: &mut ReconciliationWork,
     cache: &mut crate::identity::IdentityCache,
 ) -> bool {
-    {
-        let mut local = Work::default();
-        let connected = crate::identity::connected_cached(im, a, b, budget, &mut local, cache);
-        counter.continuity_samples += local.continuity_samples;
-        counter.continuity_capped_links += local.continuity_capped_links;
-        counter.continuity_rejects += local.continuity_rejects;
-        // This helper spends pixels only. Preserve outer mandatory failures and
-        // conservatively propagate any future check-budget work added to identity.
-        counter.association_checks += local.association_checks;
-        if local.association_checks > 0 {
-            counter.association_truncated |= local.association_truncated;
-        }
-        if local.association_truncated > 0 {
-            work.optional_identity_deferred += 1;
-            return false;
-        }
-        connected
+    let mut local = Work::default();
+    let connected = crate::identity::connected_cached(im, a, b, budget, &mut local, cache);
+    settle_identity(&local, connected, counter, work)
+}
+
+/// Charge one identity check's work to `counter`; a truncated check is
+/// deferred and proves nothing.
+fn settle_identity(
+    local: &Work,
+    connected: bool,
+    counter: &mut Work,
+    work: &mut ReconciliationWork,
+) -> bool {
+    counter.continuity_samples += local.continuity_samples;
+    counter.continuity_capped_links += local.continuity_capped_links;
+    counter.continuity_rejects += local.continuity_rejects;
+    // This helper spends pixels only. Preserve outer mandatory failures and
+    // conservatively propagate any future check-budget work added to identity.
+    counter.association_checks += local.association_checks;
+    if local.association_checks > 0 {
+        counter.association_truncated |= local.association_truncated;
     }
+    if local.association_truncated > 0 {
+        work.optional_identity_deferred += 1;
+        return false;
+    }
+    connected
 }
 
 #[cfg(feature = "mode-very-high")]
