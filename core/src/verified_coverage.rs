@@ -78,11 +78,8 @@ pub(super) fn verified_claims(
         };
         for o in &c.observations {
             #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-            {
-                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                if o.invalid_checksum {
-                    continue;
-                }
+            if o.invalid_checksum {
+                continue;
             }
             let (Ok(a), Ok(b)) = (
                 candidate_scanner::point(m.0, o.axis, o.left, o.fraction),
@@ -543,36 +540,19 @@ mod reuse_tests {
         for ambiguous in [false, true] {
             let mut c = candidate(q, vec![detection(band, 1)]);
             {
-                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-                {
-                    c.observations.push(candidate_scanner::Observation {
-                        short_quiet: false,
-                        ambiguous,
-                        digits: if ambiguous { [1; 13] } else { [2; 13] },
-                        axis: 0,
-                        fraction: 0.4,
-                        left: 0.1,
-                        right: 0.6,
-                        cost: 0.,
-                        gap: 1.,
-                    });
-                }
-                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                {
-                    c.observations.push(candidate_scanner::Observation {
-                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                        invalid_checksum: false,
-                        short_quiet: false,
-                        ambiguous,
-                        digits: if ambiguous { [1; 13] } else { [2; 13] },
-                        axis: 0,
-                        fraction: 0.4,
-                        left: 0.1,
-                        right: 0.6,
-                        cost: 0.,
-                        gap: 1.,
-                    });
-                }
+                c.observations.push(candidate_scanner::Observation {
+                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                    invalid_checksum: false,
+                    short_quiet: false,
+                    ambiguous,
+                    digits: if ambiguous { [1; 13] } else { [2; 13] },
+                    axis: 0,
+                    fraction: 0.4,
+                    left: 0.1,
+                    right: 0.6,
+                    cost: 0.,
+                    gap: 1.,
+                });
             }
 
             assert!(
@@ -826,36 +806,19 @@ mod extension_tests {
         for ambiguous in [false, true] {
             let mut c = make();
             {
-                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-                {
-                    c.observations.push(candidate_scanner::Observation {
-                        short_quiet: false,
-                        ambiguous,
-                        digits: if ambiguous { [1; 13] } else { [2; 13] },
-                        axis: 0,
-                        fraction: 75. / 140.,
-                        left: 20. / 420.,
-                        right: 400. / 420.,
-                        cost: 0.,
-                        gap: 1.,
-                    });
-                }
-                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                {
-                    c.observations.push(candidate_scanner::Observation {
-                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                        invalid_checksum: false,
-                        short_quiet: false,
-                        ambiguous,
-                        digits: if ambiguous { [1; 13] } else { [2; 13] },
-                        axis: 0,
-                        fraction: 75. / 140.,
-                        left: 20. / 420.,
-                        right: 400. / 420.,
-                        cost: 0.,
-                        gap: 1.,
-                    });
-                }
+                c.observations.push(candidate_scanner::Observation {
+                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                    invalid_checksum: false,
+                    short_quiet: false,
+                    ambiguous,
+                    digits: if ambiguous { [1; 13] } else { [2; 13] },
+                    axis: 0,
+                    fraction: 75. / 140.,
+                    left: 20. / 420.,
+                    right: 400. / 420.,
+                    cost: 0.,
+                    gap: 1.,
+                });
             }
 
             assert!(

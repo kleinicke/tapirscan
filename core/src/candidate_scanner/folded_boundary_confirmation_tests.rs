@@ -65,24 +65,12 @@ fn narrow_trailing_quiet_needs_four_rows_and_preserves_instances_after_rotation(
                 1
             );
             let mut conflict = obs[..4].to_vec();
-            {
-                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-                {
-                    conflict.push(Observation {
-                        ambiguous: true,
-                        ..obs[1]
-                    });
-                }
+            conflict.push(Observation {
                 #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                {
-                    conflict.push(Observation {
-                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                        invalid_checksum: false,
-                        ambiguous: true,
-                        ..obs[1]
-                    });
-                }
-            }
+                invalid_checksum: false,
+                ambiguous: true,
+                ..obs[1]
+            });
 
             assert!(assemble_many(im, m.0, &conflict, &mut Work::default(), true).is_empty());
         }

@@ -125,36 +125,19 @@ pub(crate) fn apply(
         // A soft/intensity contradiction is explicitly unresolved; its different
         // cost units never decide a winner. Existing spatial ambiguity rules apply.
         {
-            #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-            {
-                observations.push(Observation {
-                    short_quiet: false,
-                    ambiguous: true,
-                    digits: [0; 13],
-                    axis,
-                    fraction,
-                    left,
-                    right,
-                    cost: v.cost,
-                    gap: v.gap,
-                });
-            }
-            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-            {
-                observations.push(Observation {
-                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                    invalid_checksum: false,
-                    short_quiet: false,
-                    ambiguous: true,
-                    digits: [0; 13],
-                    axis,
-                    fraction,
-                    left,
-                    right,
-                    cost: v.cost,
-                    gap: v.gap,
-                });
-            }
+            observations.push(Observation {
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                invalid_checksum: false,
+                short_quiet: false,
+                ambiguous: true,
+                digits: [0; 13],
+                axis,
+                fraction,
+                left,
+                right,
+                cost: v.cost,
+                gap: v.gap,
+            });
         }
     }
     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]

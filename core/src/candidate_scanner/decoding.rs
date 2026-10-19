@@ -366,72 +366,34 @@ impl CandidateScanner {
             work.truncated_paths += usize::from(short.truncated);
             let n = crate::numeric::usize_f64(self.signal.len());
             for (left, right) in short.rejected_intervals {
-                {
-                    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-                    {
-                        observations.push(Observation {
-                            short_quiet: true,
-                            ambiguous: true,
-                            digits: [0; 13],
-                            axis,
-                            fraction,
-                            left: lo + (hi - lo) * (left + 0.5) / n,
-                            right: lo + (hi - lo) * (right + 0.5) / n,
-                            cost: 0.,
-                            gap: 0.,
-                        });
-                    }
+                observations.push(Observation {
                     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                    {
-                        observations.push(Observation {
-                            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                            invalid_checksum: false,
-                            short_quiet: true,
-                            ambiguous: true,
-                            digits: [0; 13],
-                            axis,
-                            fraction,
-                            left: lo + (hi - lo) * (left + 0.5) / n,
-                            right: lo + (hi - lo) * (right + 0.5) / n,
-                            cost: 0.,
-                            gap: 0.,
-                        });
-                    }
-                }
+                    invalid_checksum: false,
+                    short_quiet: true,
+                    ambiguous: true,
+                    digits: [0; 13],
+                    axis,
+                    fraction,
+                    left: lo + (hi - lo) * (left + 0.5) / n,
+                    right: lo + (hi - lo) * (right + 0.5) / n,
+                    cost: 0.,
+                    gap: 0.,
+                });
             }
             for r in short.symbols {
-                {
-                    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-                    {
-                        observations.push(Observation {
-                            short_quiet: true,
-                            ambiguous: false,
-                            digits: r.digits,
-                            axis,
-                            fraction,
-                            left: lo + (hi - lo) * (r.left + 0.5) / n,
-                            right: lo + (hi - lo) * (r.right + 0.5) / n,
-                            cost: r.cost,
-                            gap: r.gap,
-                        });
-                    }
+                observations.push(Observation {
                     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                    {
-                        observations.push(Observation {
-                            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                            invalid_checksum: false,
-                            short_quiet: true,
-                            ambiguous: false,
-                            digits: r.digits,
-                            axis,
-                            fraction,
-                            left: lo + (hi - lo) * (r.left + 0.5) / n,
-                            right: lo + (hi - lo) * (r.right + 0.5) / n,
-                            cost: r.cost,
-                            gap: r.gap,
-                        });
-                    }
-                }
+                    invalid_checksum: false,
+                    short_quiet: true,
+                    ambiguous: false,
+                    digits: r.digits,
+                    axis,
+                    fraction,
+                    left: lo + (hi - lo) * (r.left + 0.5) / n,
+                    right: lo + (hi - lo) * (r.right + 0.5) / n,
+                    cost: r.cost,
+                    gap: r.gap,
+                });
             }
         }
         let raw = crate::multi_profile::decode_runs(&self.runs, 64);
@@ -495,72 +457,34 @@ impl CandidateScanner {
                 work.truncated_paths += usize::from(short.truncated);
                 let n = crate::numeric::usize_f64(self.signal.len());
                 for (left, right) in short.rejected_intervals {
-                    {
-                        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-                        {
-                            observations.push(Observation {
-                                short_quiet: true,
-                                ambiguous: true,
-                                digits: [0; 13],
-                                axis,
-                                fraction,
-                                left: lo + (hi - lo) * (left + 0.5) / n,
-                                right: lo + (hi - lo) * (right + 0.5) / n,
-                                cost: 0.,
-                                gap: 0.,
-                            });
-                        }
+                    observations.push(Observation {
                         #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                        {
-                            observations.push(Observation {
-                                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                                invalid_checksum: false,
-                                short_quiet: true,
-                                ambiguous: true,
-                                digits: [0; 13],
-                                axis,
-                                fraction,
-                                left: lo + (hi - lo) * (left + 0.5) / n,
-                                right: lo + (hi - lo) * (right + 0.5) / n,
-                                cost: 0.,
-                                gap: 0.,
-                            });
-                        }
-                    }
+                        invalid_checksum: false,
+                        short_quiet: true,
+                        ambiguous: true,
+                        digits: [0; 13],
+                        axis,
+                        fraction,
+                        left: lo + (hi - lo) * (left + 0.5) / n,
+                        right: lo + (hi - lo) * (right + 0.5) / n,
+                        cost: 0.,
+                        gap: 0.,
+                    });
                 }
                 for r in short.symbols {
-                    {
-                        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-                        {
-                            observations.push(Observation {
-                                short_quiet: true,
-                                ambiguous: false,
-                                digits: r.digits,
-                                axis,
-                                fraction,
-                                left: lo + (hi - lo) * (r.left + 0.5) / n,
-                                right: lo + (hi - lo) * (r.right + 0.5) / n,
-                                cost: r.cost,
-                                gap: r.gap,
-                            });
-                        }
+                    observations.push(Observation {
                         #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                        {
-                            observations.push(Observation {
-                                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                                invalid_checksum: false,
-                                short_quiet: true,
-                                ambiguous: false,
-                                digits: r.digits,
-                                axis,
-                                fraction,
-                                left: lo + (hi - lo) * (r.left + 0.5) / n,
-                                right: lo + (hi - lo) * (r.right + 0.5) / n,
-                                cost: r.cost,
-                                gap: r.gap,
-                            });
-                        }
-                    }
+                        invalid_checksum: false,
+                        short_quiet: true,
+                        ambiguous: false,
+                        digits: r.digits,
+                        axis,
+                        fraction,
+                        left: lo + (hi - lo) * (r.left + 0.5) / n,
+                        right: lo + (hi - lo) * (r.right + 0.5) / n,
+                        cost: r.cost,
+                        gap: r.gap,
+                    });
                 }
             }
 
@@ -772,38 +696,19 @@ impl CandidateScanner {
 
         for (left, right) in reads.rejected_intervals {
             let n = crate::numeric::usize_f64(self.signal.len());
-            {
-                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-                {
-                    observations.push(Observation {
-                        short_quiet: false,
-                        ambiguous: true,
-                        digits: [0; 13],
-                        axis,
-                        fraction,
-                        left: lo + (hi - lo) * (left + 0.5) / n,
-                        right: lo + (hi - lo) * (right + 0.5) / n,
-                        cost: 0.,
-                        gap: 0.,
-                    });
-                }
+            observations.push(Observation {
                 #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                {
-                    observations.push(Observation {
-                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                        invalid_checksum: false,
-                        short_quiet: false,
-                        ambiguous: true,
-                        digits: [0; 13],
-                        axis,
-                        fraction,
-                        left: lo + (hi - lo) * (left + 0.5) / n,
-                        right: lo + (hi - lo) * (right + 0.5) / n,
-                        cost: 0.,
-                        gap: 0.,
-                    });
-                }
-            }
+                invalid_checksum: false,
+                short_quiet: false,
+                ambiguous: true,
+                digits: [0; 13],
+                axis,
+                fraction,
+                left: lo + (hi - lo) * (left + 0.5) / n,
+                right: lo + (hi - lo) * (right + 0.5) / n,
+                cost: 0.,
+                gap: 0.,
+            });
         }
         for r in reads.symbols {
             let n = crate::numeric::usize_f64(self.signal.len());
@@ -816,36 +721,19 @@ impl CandidateScanner {
                     .any(|p| p.digits == r.digits && p.left < r.right && r.left < p.right);
 
             {
-                #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-                {
-                    observations.push(Observation {
-                        short_quiet: weak_native,
-                        ambiguous: false,
-                        digits: r.digits,
-                        axis,
-                        fraction,
-                        left: lo + (hi - lo) * (r.left + 0.5) / n,
-                        right: lo + (hi - lo) * (r.right + 0.5) / n,
-                        cost: r.cost,
-                        gap: r.gap,
-                    });
-                }
-                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                {
-                    observations.push(Observation {
-                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                        invalid_checksum: false,
-                        short_quiet: weak_native,
-                        ambiguous: false,
-                        digits: r.digits,
-                        axis,
-                        fraction,
-                        left: lo + (hi - lo) * (r.left + 0.5) / n,
-                        right: lo + (hi - lo) * (r.right + 0.5) / n,
-                        cost: r.cost,
-                        gap: r.gap,
-                    });
-                }
+                observations.push(Observation {
+                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                    invalid_checksum: false,
+                    short_quiet: weak_native,
+                    ambiguous: false,
+                    digits: r.digits,
+                    axis,
+                    fraction,
+                    left: lo + (hi - lo) * (r.left + 0.5) / n,
+                    right: lo + (hi - lo) * (r.right + 0.5) / n,
+                    cost: r.cost,
+                    gap: r.gap,
+                });
             }
         }
 

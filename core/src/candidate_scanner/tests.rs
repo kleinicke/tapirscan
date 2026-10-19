@@ -56,24 +56,12 @@ fn short_quiet_requires_four_distinct_source_supported_rows_and_keeps_vetoes() {
     let repeated = vec![obs[0]; 4];
     assert!(assemble_many(im, m.0, &repeated, &mut Work::default(), true).is_empty());
     let mut conflict = obs[..4].to_vec();
-    {
-        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-        {
-            conflict.push(Observation {
-                ambiguous: true,
-                ..obs[2]
-            });
-        }
+    conflict.push(Observation {
         #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-        {
-            conflict.push(Observation {
-                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                invalid_checksum: false,
-                ambiguous: true,
-                ..obs[2]
-            });
-        }
-    }
+        invalid_checksum: false,
+        ambiguous: true,
+        ..obs[2]
+    });
 
     assert!(assemble_many(im, m.0, &conflict, &mut Work::default(), true).is_empty());
 }
@@ -260,38 +248,19 @@ fn incompatible_intervening_read_ends_a_track() {
     let m = scan::transform(qs[0]).unwrap();
     let mut obs = vec![];
     for (fraction, value) in [(0.1, 0), (0.2, 0), (0.3, 1), (0.4, 1), (0.5, 0), (0.6, 0)] {
-        {
-            #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-            {
-                obs.push(Observation {
-                    short_quiet: false,
-                    ambiguous: false,
-                    digits: [value; 13],
-                    axis: 0,
-                    fraction,
-                    left: 0.,
-                    right: 1.,
-                    cost: 0.,
-                    gap: 1.,
-                });
-            }
+        obs.push(Observation {
             #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-            {
-                obs.push(Observation {
-                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                    invalid_checksum: false,
-                    short_quiet: false,
-                    ambiguous: false,
-                    digits: [value; 13],
-                    axis: 0,
-                    fraction,
-                    left: 0.,
-                    right: 1.,
-                    cost: 0.,
-                    gap: 1.,
-                });
-            }
-        }
+            invalid_checksum: false,
+            short_quiet: false,
+            ambiguous: false,
+            digits: [value; 13],
+            axis: 0,
+            fraction,
+            left: 0.,
+            right: 1.,
+            cost: 0.,
+            gap: 1.,
+        });
     }
     let out = assemble_many(im, m.0, &obs, &mut Work::default(), true);
     assert_eq!(out.len(), 3);

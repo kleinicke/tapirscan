@@ -415,36 +415,19 @@ fn overlapping_tile_bands_require_source_agreement_and_no_contradiction() {
                 b.detections[0].polygon = q(50., 55., 400., 60.);
                 if contradictory {
                     {
-                        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-                        {
-                            b.observations.push(crate::candidate_scanner::Observation {
-                                short_quiet: false,
-                                ambiguous: false,
-                                digits: [2; 13],
-                                axis: 0,
-                                fraction: 0.35,
-                                left: 0.1,
-                                right: 0.9,
-                                cost: 0.,
-                                gap: 1.,
-                            });
-                        }
-                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                        {
-                            b.observations.push(crate::candidate_scanner::Observation {
-                                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                                invalid_checksum: false,
-                                short_quiet: false,
-                                ambiguous: false,
-                                digits: [2; 13],
-                                axis: 0,
-                                fraction: 0.35,
-                                left: 0.1,
-                                right: 0.9,
-                                cost: 0.,
-                                gap: 1.,
-                            });
-                        }
+                        b.observations.push(crate::candidate_scanner::Observation {
+                            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                            invalid_checksum: false,
+                            short_quiet: false,
+                            ambiguous: false,
+                            digits: [2; 13],
+                            axis: 0,
+                            fraction: 0.35,
+                            left: 0.1,
+                            right: 0.9,
+                            cost: 0.,
+                            gap: 1.,
+                        });
                     }
                 }
                 let mut cs = vec![a, b];
@@ -489,36 +472,19 @@ fn disjoint_tile_bands_require_source_agreement_and_no_contradiction() {
                 b.detections[0].polygon = q(50., 80., 400., 40.);
                 if contradictory {
                     {
-                        #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-                        {
-                            b.observations.push(crate::candidate_scanner::Observation {
-                                short_quiet: false,
-                                ambiguous: false,
-                                digits: [2; 13],
-                                axis: 0,
-                                fraction: 0.35,
-                                left: 0.1,
-                                right: 0.9,
-                                cost: 0.,
-                                gap: 1.,
-                            });
-                        }
-                        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                        {
-                            b.observations.push(crate::candidate_scanner::Observation {
-                                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                                invalid_checksum: false,
-                                short_quiet: false,
-                                ambiguous: false,
-                                digits: [2; 13],
-                                axis: 0,
-                                fraction: 0.35,
-                                left: 0.1,
-                                right: 0.9,
-                                cost: 0.,
-                                gap: 1.,
-                            });
-                        }
+                        b.observations.push(crate::candidate_scanner::Observation {
+                            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                            invalid_checksum: false,
+                            short_quiet: false,
+                            ambiguous: false,
+                            digits: [2; 13],
+                            axis: 0,
+                            fraction: 0.35,
+                            left: 0.1,
+                            right: 0.9,
+                            cost: 0.,
+                            gap: 1.,
+                        });
                     }
                 }
                 let mut cs = vec![a, b];
@@ -755,36 +721,19 @@ fn source_identity_preserves_ambiguity_and_neighbor_gaps() {
             },
         ];
         {
-            #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-            {
-                c.observations.push(crate::candidate_scanner::Observation {
-                    short_quiet: false,
-                    ambiguous: true,
-                    digits: [0; 13],
-                    axis: 0,
-                    fraction: 0.5,
-                    left: 0.1,
-                    right: 0.9,
-                    cost: 0.,
-                    gap: 0.,
-                });
-            }
-            #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-            {
-                c.observations.push(crate::candidate_scanner::Observation {
-                    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-                    invalid_checksum: false,
-                    short_quiet: false,
-                    ambiguous: true,
-                    digits: [0; 13],
-                    axis: 0,
-                    fraction: 0.5,
-                    left: 0.1,
-                    right: 0.9,
-                    cost: 0.,
-                    gap: 0.,
-                });
-            }
+            c.observations.push(crate::candidate_scanner::Observation {
+                #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
+                invalid_checksum: false,
+                short_quiet: false,
+                ambiguous: true,
+                digits: [0; 13],
+                axis: 0,
+                fraction: 0.5,
+                left: 0.1,
+                right: 0.9,
+                cost: 0.,
+                gap: 0.,
+            });
         }
 
         c
