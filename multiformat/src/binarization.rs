@@ -441,35 +441,48 @@ impl<'a> Images<'a> {
     }
 }
 
-fn otsu_cut(histogram: &[usize]) -> Option<usize> {
-    let count: usize = histogram.iter().sum();
-    let sum: f64 = histogram
+/// The Otsu cut of `histogram`: the first bin that maximizes the
+/// between-class variance with that bin in the lower class, or `None` when no
+/// split separates two nonempty classes.
+#[must_use]
+pub fn otsu_cut(histogram: &[usize]) -> Option<usize> {
+    let cut = otsu_cut_or(histogram, histogram.iter().sum(), usize::MAX);
+    (cut != usize::MAX).then_some(cut)
+}
+
+/// [`otsu_cut`] for a histogram whose total `count` the caller already knows,
+/// returning `fallback` when no split separates two nonempty classes. Sums are
+/// exact integers, so the scores equal a floating-point accumulation.
+pub(crate) fn otsu_cut_or(histogram: &[usize], count: usize, fallback: usize) -> usize {
+    let sum: u64 = histogram
         .iter()
         .enumerate()
-        .map(|(i, &n)| crate::numeric::usize_f64(i) * crate::numeric::usize_f64(n))
+        .map(|(i, &n)| i as u64 * n as u64)
         .sum();
-    let mut mass = 0usize;
-    let mut left = 0.;
+    let mut mass = 0;
+    let mut left = 0u64;
     let mut best = 0.;
-    let mut cut = None;
+    let mut cut = fallback;
     for (i, &n) in histogram.iter().enumerate() {
+        // Empty bins repeat the exact same masses, means and score; they
+        // cannot improve the strict maximum or move its first threshold.
         if n == 0 {
             continue;
         }
         mass += n;
-        left += crate::numeric::usize_f64(i) * crate::numeric::usize_f64(n);
-        if mass == count {
-            break;
+        left += n as u64 * i as u64;
+        if mass == 0 || mass == count {
+            continue;
         }
-        let delta = left / crate::numeric::usize_f64(mass)
-            - (sum - left) / crate::numeric::usize_f64(count - mass);
+        let delta = crate::numeric::u64_f64(left) / crate::numeric::usize_f64(mass)
+            - crate::numeric::u64_f64(sum - left) / crate::numeric::usize_f64(count - mass);
         let score = crate::numeric::usize_f64(mass)
             * crate::numeric::usize_f64(count - mass)
             * delta
             * delta;
         if score > best {
             best = score;
-            cut = Some(i);
+            cut = i;
         }
     }
     cut

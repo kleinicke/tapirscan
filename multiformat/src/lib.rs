@@ -154,38 +154,8 @@ fn nested_threshold_into(row: &[u8], upper: u8, bits: &mut Vec<bool>) {
                 hist[v as usize] += 1;
             }
         }
-        let sum: u64 = hist
-            .iter()
-            .enumerate()
-            .map(|(i, &n)| i as u64 * n as u64)
-            .sum();
         let count: usize = hist.iter().sum();
-        let mut mass = 0;
-        let mut left = 0u64;
-        let mut best = 0.;
-        let mut cut = 128;
-        for (i, &n) in hist.iter().enumerate() {
-            // Empty bins repeat the exact same masses, means and score; they
-            // cannot improve the strict maximum or move its first threshold.
-            if n == 0 {
-                continue;
-            }
-            mass += n;
-            left += n as u64 * i as u64;
-            if mass == 0 || mass == count {
-                continue;
-            }
-            let delta = crate::numeric::u64_f64(left) / crate::numeric::usize_f64(mass)
-                - crate::numeric::u64_f64(sum - left) / crate::numeric::usize_f64(count - mass);
-            let score = crate::numeric::usize_f64(mass)
-                * crate::numeric::usize_f64(count - mass)
-                * delta
-                * delta;
-            if score > best {
-                best = score;
-                cut = i;
-            }
-        }
+        let cut = binarization::otsu_cut_or(&hist, count, 128);
         bits.extend(row.iter().map(|&v| v as usize <= cut));
     }
 }
@@ -194,37 +164,7 @@ fn threshold_into(row: &[u8], mode: usize, bits: &mut Vec<bool>) {
     bits.reserve(row.len());
     if mode == 0 {
         let hist = histogram(row);
-        let sum: u64 = hist
-            .iter()
-            .enumerate()
-            .map(|(i, &n)| i as u64 * n as u64)
-            .sum();
-        let mut mass = 0;
-        let mut left = 0u64;
-        let mut best = 0.;
-        let mut cut = 128;
-        for (i, &n) in hist.iter().enumerate() {
-            // Empty bins repeat the exact same masses, means and score; they
-            // cannot improve the strict maximum or move its first threshold.
-            if n == 0 {
-                continue;
-            }
-            mass += n;
-            left += n as u64 * i as u64;
-            if mass == 0 || mass == row.len() {
-                continue;
-            }
-            let delta = crate::numeric::u64_f64(left) / crate::numeric::usize_f64(mass)
-                - crate::numeric::u64_f64(sum - left) / crate::numeric::usize_f64(row.len() - mass);
-            let score = crate::numeric::usize_f64(mass)
-                * crate::numeric::usize_f64(row.len() - mass)
-                * delta
-                * delta;
-            if score > best {
-                best = score;
-                cut = i;
-            }
-        }
+        let cut = binarization::otsu_cut_or(&hist, row.len(), 128);
         bits.extend(row.iter().map(|&v| v as usize <= cut));
     } else {
         let radius = if mode == 1 { 24 } else { 64 };
