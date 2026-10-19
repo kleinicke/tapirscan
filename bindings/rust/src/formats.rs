@@ -18,7 +18,7 @@
 //! | pending matrix regions: grid and crop retries                |   | x | x | x |
 //! | QR grid projection of unresolved regions                     | x | x | x | x |
 //! | QR foreground thresholds, then sharpened (mixed: small only) |   | x | x | x |
-//! | Data Matrix area-averaged copies (M: after a candidate)      |   | x | x | x |
+//! | Data Matrix area-averaged copies                             |   |   | x | x |
 //! | QR reduced copies (mixed, large: dim frame or square texture)|   |   | x | x |
 //! | QR equalized and inverted copies (`cfg`)                     |   |   | x | x |
 //! | **primary retail scan** (EAN-13/UPC-A; M+ also EAN-8/UPC-E)  | x | x | x | x |
@@ -1712,15 +1712,12 @@ fn scan_additional(
     // beyond what the module-scale localizer expects. Unread frames are retried
     // on area-averaged copies, which also take the corner-refining search.
     // High tries the two cheap scales, the finer one on mixed selections' large frames
-    // below `CLOSE_UP_PIXELS` only after the coarse copy left a candidate; Medium tries them only after the
-    // frame left a Data Matrix candidate region, so frames without one keep their cost.
+    // below `CLOSE_UP_PIXELS` only after the coarse copy left a candidate. Medium has no
+    // copies.
     #[cfg(not(feature = "low"))]
-    if matrix & DATA_MATRIX != 0
+    if !POLICY.data_matrix_averaged_scales.is_empty()
+        && matrix & DATA_MATRIX != 0
         && !scans.iter().any(|scan| has_format_read(scan, "DataMatrix"))
-        && (POLICY.data_matrix_averaged_without_region
-            || scans
-                .iter()
-                .any(|scan| has_format_region(scan, "DataMatrix")))
     {
         let long = image.width.max(image.height);
         let needs_candidate = POLICY.data_matrix_averaged_needs_candidate

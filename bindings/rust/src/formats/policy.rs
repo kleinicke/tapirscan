@@ -78,10 +78,8 @@ pub(super) struct ModePolicy {
     pub matrix_crop_pixels: usize,
     /// Effort of those crop retries.
     pub matrix_crop_effort: usize,
-    /// Area-averaged Data Matrix copies also run on frames without a Data Matrix
-    /// region, not only after one was found.
-    pub data_matrix_averaged_without_region: bool,
-    /// Long sides of the area-averaged Data Matrix copies, in order.
+    /// Long sides of the area-averaged Data Matrix copies, in order; empty in modes
+    /// without them.
     pub data_matrix_averaged_scales: &'static [usize],
     /// On mixed selections' frames from `SMALL_FRAME_PIXELS` up to `CLOSE_UP_PIXELS`
     /// without a Data Matrix region, an averaged copy that leaves no Data Matrix
@@ -136,8 +134,7 @@ impl ModePolicy {
         matrix_grid_samples: 0,
         matrix_crop_pixels: 0,
         matrix_crop_effort: 0,
-        data_matrix_averaged_without_region: false,
-        data_matrix_averaged_scales: &[400, 256],
+        data_matrix_averaged_scales: &[],
         data_matrix_averaged_needs_candidate: false,
         source_profile_cache: false,
         full_stripe_fallback: false,
@@ -184,7 +181,6 @@ impl ModePolicy {
         matrix_grid_samples: 2_000_000,
         matrix_crop_pixels: 131_072,
         matrix_crop_effort: 2,
-        data_matrix_averaged_without_region: true,
         // The cheap coarse copy runs first; the finer one only after it left a candidate.
         data_matrix_averaged_scales: &[256, 400],
         data_matrix_averaged_needs_candidate: true,
