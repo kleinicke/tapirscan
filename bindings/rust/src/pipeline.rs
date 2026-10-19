@@ -777,25 +777,9 @@ fn localize(
     }
     // Refinements of kept boxes cover the same bars and need no texture test.
     let refined = proposals.len();
-
-    // Small strongly sheared labels can have no accepted orthogonal stripe box.
-    // Reuse the bounded pixel-only envelope fit before abandoning localization.
-    #[cfg(any(feature = "high", feature = "very-high"))]
-    if envelope_evidence(detector, image, count) {
-        let w = f64::from(u32::try_from(image.width - 1).map_err(|_| Error::Parameters)?);
-        let h = f64::from(u32::try_from(image.height - 1).map_err(|_| Error::Parameters)?);
-        for q in [
-            [[0., 0.], [w, 0.], [w, h], [0., h]],
-            [[0., h], [0., 0.], [w, 0.], [w, h]],
-        ] {
-            if let Some(p) = shear::refine_sparse(im, q) {
-                proposals.push(p);
-            }
-        }
-    }
     let (secondary_omitted, secondary_limited) =
         add_secondary_proposals(detector, im, image, &mut proposals);
-    // Envelope and secondary boxes get the same texture test.
+    // Secondary boxes get the same texture test.
     let mut index = 0;
     #[cfg(not(feature = "low"))]
     let added = proposals.len();
@@ -868,15 +852,6 @@ fn high_boxes(
 #[cfg(not(feature = "medium"))]
 fn tiny_stripes(image: Image<'_>) -> bool {
     image.width.max(image.height) < 384
-}
-
-/// Whether a frame without boxes has coherent stripe tiles for the envelope fit. Only
-/// tiny frames run the stripe pass in this call; for the others the scanner's reused
-/// raster still holds an earlier frame, which must not decide this one. Medium never
-/// runs the stripe pass here, so it has no envelope fit.
-#[cfg(any(feature = "high", feature = "very-high"))]
-fn envelope_evidence(detector: &stripes::Detector, image: Image<'_>, count: usize) -> bool {
-    count == 0 && tiny_stripes(image) && detector.has_stripe_evidence()
 }
 
 fn add_secondary_proposals(
