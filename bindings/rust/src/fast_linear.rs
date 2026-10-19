@@ -300,7 +300,10 @@ pub(crate) fn scan(
         }
     }
     reads.extend(refined_reads);
-    let (border_reads, border_lines) = if matches!(TIER, 8 | 16) {
+    // Border discovery is scheduled by the stripe detector's raster of this frame. Public
+    // Low (tier 0) localizes by segment voting and never fills that raster, so it would
+    // find no border evidence.
+    let (border_reads, border_lines) = if matches!(TIER, 0 | 8 | 16) {
         (Vec::new(), 0)
     } else {
         border_discovery(
@@ -699,7 +702,8 @@ fn remove_decoded_regions(unread: &mut Vec<Region>, reads: &[Read]) {
 
 #[cfg(feature = "low")]
 /// Sparse original rows miss symbols confined to the outer eight percent.
-/// Probe both borders of both full-frame axes without another localization pass.
+/// Probe both borders of both full-frame axes without another localization pass; the
+/// sparse stripe search of this frame (Turbo 2 and 4) tells which borders show stripes.
 /// New reads need separated source-row evidence and never outrank ordinary reads.
 fn border_discovery(
     scanner: &mut Scanner,
