@@ -743,8 +743,11 @@ impl Scanner {
         #[cfg(not(feature = "low"))]
         let mut deferred_reads = Vec::new();
         #[cfg(not(feature = "low"))]
-        if (mask & (RETAIL_MASK | NON_RETAIL_LINEAR | ENGINE_OPT_IN_MASK) != 0
-            || matches!(mask, DATA_BAR | DATA_BAR_EXPANDED))
+        // Every selection with a linear format, including DataBar and DataBar Expanded
+        // together or next to 2D formats, decodes the localized boxes.
+        if mask
+            & (RETAIL_MASK | NON_RETAIL_LINEAR | DATA_BAR | DATA_BAR_EXPANDED | ENGINE_OPT_IN_MASK)
+            != 0
             && addons == EanAddOnPolicy::Ignore
         {
             deferred_reads = self.recover_linear_regions(
