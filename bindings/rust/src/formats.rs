@@ -15,7 +15,7 @@
 //! | 2D reader groups; QR and MaxiCode apart from the other 2D    | x | x | x | x |
 //! | QR and MaxiCode reduced copies above Full HD (`cfg` per mode)| x | x | x | x |
 //! | enlarged QR thumbnails                                       | x | x | x | x |
-//! | pending matrix regions: grid and crop retries                |   | x | x | x |
+//! | pending matrix regions: crop retries                         |   | x | x | x |
 //! | QR grid projection of unresolved regions                     | x | x | x | x |
 //! | QR foreground thresholds, then sharpened (mixed: small only) |   | x | x | x |
 //! | Data Matrix area-averaged copies                             |   |   | x | x |
@@ -2045,9 +2045,10 @@ fn extend_primary_retail(reads: &mut Vec<Read>, primary: Option<&crate::Result>,
     }
 }
 
-/// One source-sample allowance for the whole matrix group, independent of how
-/// many formats are enabled. Initial readers have already tried every format;
-/// finder hints prioritize bounded recovery without discarding pending regions.
+/// Localized crop retries of pending matrix regions under one pixel allowance for the
+/// whole matrix group, independent of how many formats are enabled. Initial readers
+/// have already tried every format; finder hints prioritize bounded recovery without
+/// discarding pending regions.
 #[cfg(not(feature = "low"))]
 fn matrix_retries(
     pixels: &[u8],
@@ -2055,12 +2056,8 @@ fn matrix_retries(
     mask: u32,
     scan: &mut barcode_multiformat::Scan,
 ) -> Vec<barcode_multiformat::Scan> {
-    let mut budget = POLICY.matrix_grid_samples;
     let mut crop_budget = POLICY.matrix_crop_pixels;
     let mut retries: Vec<barcode_multiformat::Scan> = Vec::new();
-    if mask & AZTEC != 0 {
-        crate::matrix_grid::resolve_runes(pixels, width, height, scan, &mut budget);
-    }
     // Pending recovery remains unfinished even when its shared allowance or
     // crop size cap prevents a retry, including candidates beyond the first eight.
     scan.unfinished |= scan.regions.iter().any(|region| {
@@ -2105,22 +2102,7 @@ fn matrix_retries(
             unfinished: true,
             lines: 0,
         };
-        if hinted != QR_CODE && budget > 0 {
-            retries.push(crate::matrix_grid::recover(
-                pixels,
-                width,
-                height,
-                hinted,
-                &pending,
-                &mut budget,
-            ));
-        }
-        if crop_budget > 0
-            && !retries.iter().flat_map(|s| &s.barcodes).any(|r| {
-                r.format == region.format
-                    && crate::signal_recovery::covered(region.polygon, r.polygon)
-            })
-        {
+        if crop_budget > 0 {
             retries.extend(crate::signal_recovery::region_retries(
                 pixels,
                 width,

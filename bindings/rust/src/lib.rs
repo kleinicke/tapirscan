@@ -303,8 +303,6 @@ pub(crate) const HIGH_EFFORT: bool = cfg!(any(feature = "high", feature = "very-
 
 pub mod formats;
 #[cfg(not(feature = "low"))]
-mod matrix_grid;
-#[cfg(not(feature = "low"))]
 mod signal_recovery;
 
 #[cfg(feature = "very-high")]

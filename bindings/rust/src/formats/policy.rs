@@ -72,8 +72,6 @@ pub(super) struct ModePolicy {
     /// the full-resolution passes miss; retail photos without one paid about 12 ms per
     /// frame (5%) for them in Chrome.
     pub qr_reduced_needs_texture: bool,
-    /// Source-sample allowance for grid recovery of pending matrix regions.
-    pub matrix_grid_samples: usize,
     /// Pixel allowance for localized crop retries of pending matrix regions.
     pub matrix_crop_pixels: usize,
     /// Effort of those crop retries.
@@ -131,7 +129,6 @@ impl ModePolicy {
         qr_restoration_effort: 1,
         qr_reduced_scales: &[],
         qr_reduced_needs_texture: false,
-        matrix_grid_samples: 0,
         matrix_crop_pixels: 0,
         matrix_crop_effort: 0,
         data_matrix_averaged_scales: &[],
@@ -154,7 +151,6 @@ impl ModePolicy {
         shared_short_retail: true,
         qr_effort: 1,
         qr_grid_projection: true,
-        matrix_grid_samples: 250_000,
         matrix_crop_pixels: 65_536,
         matrix_crop_effort: 1,
         source_profile_cache: true,
@@ -178,7 +174,6 @@ impl ModePolicy {
         qr_restoration_effort: 2,
         qr_reduced_scales: &[1200, 1280],
         qr_reduced_needs_texture: true,
-        matrix_grid_samples: 2_000_000,
         matrix_crop_pixels: 131_072,
         matrix_crop_effort: 2,
         // The cheap coarse copy runs first; the finer one only after it left a candidate.
@@ -196,7 +191,6 @@ impl ModePolicy {
     const VERY_HIGH: Self = Self {
         qr_effort: 3,
         qr_reduced_scales: &[1200, 1280, 1600],
-        matrix_grid_samples: 4_000_000,
         matrix_crop_pixels: 262_144,
         matrix_crop_effort: 3,
         data_matrix_averaged_scales: &[400, 1008, 800, 256],
