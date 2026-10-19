@@ -158,6 +158,49 @@ fn fast_angle(gx: f32, gy: f32) -> f32 {
     r
 }
 
+/// Claim the segment of `seed`: the pixels connected to it through pixels whose bin lies
+/// within one circular step of its own. Returns the pixel count and the sums of x, y, x², y²
+/// and xy. Claimed pixels' bins become `u8::MAX`, like weak pixels', so each pixel joins at
+/// most one segment.
+fn grow(bin: &mut [u8], w: usize, seed: usize, stack: &mut [usize]) -> [u64; 6] {
+    let k = bin[seed];
+    let near = (0b111u32 << k | 0b111u32 << (k + BINS as u8)) >> 1;
+    let near = (near | near >> BINS) & ((1 << BINS) - 1);
+    bin[seed] = u8::MAX;
+    stack[0] = seed;
+    let mut len = 1;
+    // Integer sums (below 2^53 on the <= 768 px raster) convert exactly, so the moments
+    // equal per-pixel f64 sums in any visiting order.
+    let mut sums = [0u64; 6];
+    while len > 0 {
+        len -= 1;
+        let i = stack[len];
+        let (x, y) = ((i % w) as u64, (i / w) as u64);
+        for (sum, v) in sums.iter_mut().zip([1, x, y, x * x, y * y, x * y]) {
+            *sum += v;
+        }
+        // Strong pixels never lie on the border, so all neighbours are in range. Each
+        // neighbour is written to the stack top and kept only when claimed.
+        for j in [
+            i - w - 1,
+            i - w,
+            i - w + 1,
+            i - 1,
+            i + 1,
+            i + w - 1,
+            i + w,
+            i + w + 1,
+        ] {
+            let b = bin[j];
+            let take = usize::from(b < BINS as u8) & ((near >> (b & 15)) & 1) as usize;
+            bin[j] = if take != 0 { u8::MAX } else { b };
+            stack[len] = j;
+            len += take;
+        }
+    }
+    sums
+}
+
 fn segments(g: &[f32], w: usize, h: usize) -> Vec<Segment> {
     let n = w * h;
     let mut bin = vec![u8::MAX; n];
@@ -193,46 +236,15 @@ fn segments(g: &[f32], w: usize, h: usize) -> Vec<Segment> {
             }
         }
     }
-    let mut seen = vec![false; n];
-    let mut stack = Vec::new();
+    // Each pixel enters the stack at most once.
+    let mut stack = vec![0usize; strong.len() + 8];
     let mut out = Vec::new();
-    let circular = |a: u8, b: u8| {
-        let d = (i32::from(a) - i32::from(b)).rem_euclid(BINS as i32);
-        d.min(BINS as i32 - d)
-    };
+    // Each pixel joins the segment of the first seed, in `strong` order, that reaches it.
     for &seed in &strong {
-        if seen[seed] {
+        if bin[seed] == u8::MAX {
             continue;
         }
-        let k = bin[seed];
-        seen[seed] = true;
-        stack.push(seed);
-        let (mut c, mut sx, mut sy, mut sxx, mut syy, mut sxy) = (0f64, 0., 0., 0., 0., 0.);
-        while let Some(i) = stack.pop() {
-            let (x, y) = ((i % w) as f64, (i / w) as f64);
-            c += 1.;
-            sx += x;
-            sy += y;
-            sxx += x * x;
-            syy += y * y;
-            sxy += x * y;
-            // Strong pixels never lie on the border, so all neighbours are in range.
-            for j in [
-                i - w - 1,
-                i - w,
-                i - w + 1,
-                i - 1,
-                i + 1,
-                i + w - 1,
-                i + w,
-                i + w + 1,
-            ] {
-                if !seen[j] && bin[j] != u8::MAX && circular(bin[j], k) <= 1 {
-                    seen[j] = true;
-                    stack.push(j);
-                }
-            }
-        }
+        let [c, sx, sy, sxx, syy, sxy] = grow(&mut bin, w, seed, &mut stack).map(|v| v as f64);
         if c < MIN_LENGTH {
             continue;
         }
@@ -356,8 +368,10 @@ fn scaled(q: Quad, su: f64, sv: f64, rotation: f64) -> Quad {
 }
 
 /// Segments bucketed by centre on a square grid with the median segment length as cell size.
+/// Cell `c` holds `items[starts[c]..starts[c + 1]]`, in increasing segment order.
 struct Grid {
-    cells: Vec<Vec<usize>>,
+    starts: Vec<usize>,
+    items: Vec<usize>,
     width: usize,
     height: usize,
     cell: f64,
@@ -367,12 +381,24 @@ impl Grid {
     fn new(segs: &[Segment], w: usize, h: usize, cell: f64) -> Self {
         let width = (w as f64 / cell) as usize + 1;
         let height = (h as f64 / cell) as usize + 1;
-        let mut cells: Vec<Vec<usize>> = vec![Vec::new(); width * height];
+        let index = |sg: &Segment| (sg.y / cell) as usize * width + (sg.x / cell) as usize;
+        let mut starts = vec![0usize; width * height + 1];
+        for sg in segs {
+            starts[index(sg) + 1] += 1;
+        }
+        for c in 0..width * height {
+            starts[c + 1] += starts[c];
+        }
+        let mut fill = starts.clone();
+        let mut items = vec![0usize; segs.len()];
         for (i, sg) in segs.iter().enumerate() {
-            cells[(sg.y / cell) as usize * width + (sg.x / cell) as usize].push(i);
+            let c = index(sg);
+            items[fill[c]] = i;
+            fill[c] += 1;
         }
         Self {
-            cells,
+            starts,
+            items,
             width,
             height,
             cell,
@@ -381,6 +407,10 @@ impl Grid {
 
     /// Unused segments parallel to seed `i`, of similar length and aligned along its bars,
     /// as (offset across the bars, index) pairs.
+    ///
+    /// Only the cells of each grid row that can hold a centre less than `ALONG` seed lengths
+    /// along the bars from the seed are visited, one cell of margin on each side; the pairs
+    /// keep the order of a full scan of the window.
     fn candidates(&self, segs: &[Segment], used: &[bool], i: usize, out: &mut Vec<(f64, usize)>) {
         let a = &segs[i];
         let (va, ua) = (
@@ -390,23 +420,46 @@ impl Grid {
         let parallel = PARALLEL_DEGREES.to_radians();
         let r = (4. * a.length / self.cell).ceil() as isize;
         let (cx, cy) = ((a.x / self.cell) as isize, (a.y / self.cell) as isize);
+        let reach = ALONG * a.length;
         out.clear();
         for gy in (cy - r).max(0)..=(cy + r).min(self.height as isize - 1) {
-            for gx in (cx - r).max(0)..=(cx + r).min(self.width as isize - 1) {
-                for &j in &self.cells[gy as usize * self.width + gx as usize] {
-                    if used[j] {
-                        continue;
-                    }
-                    let b = &segs[j];
-                    let mut da = (a.angle - b.angle).abs();
-                    da = da.min(std::f64::consts::PI - da);
-                    if da > parallel || b.length < 0.5 * a.length || b.length > 2. * a.length {
-                        continue;
-                    }
-                    let (dx, dy) = (b.x - a.x, b.y - a.y);
-                    if (dx * va[0] + dy * va[1]).abs() < ALONG * a.length {
-                        out.push((dx * ua[0] + dy * ua[1], j));
-                    }
+            let (mut x0, mut x1) = (cx - r, cx + r);
+            if va[0].abs() > 1e-3 {
+                // |dx * va0 + dy * va1| < reach over the row's dy range bounds dx.
+                let (y0, y1) = (
+                    gy as f64 * self.cell - a.y,
+                    (gy + 1) as f64 * self.cell - a.y,
+                );
+                let ends = [
+                    (-reach - y0 * va[1]) / va[0],
+                    (reach - y0 * va[1]) / va[0],
+                    (-reach - y1 * va[1]) / va[0],
+                    (reach - y1 * va[1]) / va[0],
+                ];
+                let lo = ends.iter().copied().fold(f64::INFINITY, f64::min) + a.x;
+                let hi = ends.iter().copied().fold(f64::NEG_INFINITY, f64::max) + a.x;
+                x0 = x0.max((lo / self.cell).floor() as isize - 1);
+                x1 = x1.min((hi / self.cell).floor() as isize + 1);
+            }
+            let (x0, x1) = (x0.max(0), x1.min(self.width as isize - 1));
+            if x0 > x1 {
+                continue;
+            }
+            let row = gy as usize * self.width;
+            let span = self.starts[row + x0 as usize]..self.starts[row + x1 as usize + 1];
+            for &j in &self.items[span] {
+                if used[j] {
+                    continue;
+                }
+                let b = &segs[j];
+                let mut da = (a.angle - b.angle).abs();
+                da = da.min(std::f64::consts::PI - da);
+                if da > parallel || b.length < 0.5 * a.length || b.length > 2. * a.length {
+                    continue;
+                }
+                let (dx, dy) = (b.x - a.x, b.y - a.y);
+                if (dx * va[0] + dy * va[1]).abs() < reach {
+                    out.push((dx * ua[0] + dy * ua[1], j));
                 }
             }
         }
