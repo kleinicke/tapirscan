@@ -2,8 +2,7 @@
 
 Most of a scan's cost is decided before the scanner runs: which formats you enable,
 which effort mode you choose, how large the image is, and how you hand the pixels
-over. This guide lists the choices that matter, with measured costs, and the fastest
-input path for each environment.
+over. This guide describes the input paths and how to avoid unnecessary copies.
 
 ## The five rules
 
@@ -19,11 +18,11 @@ input path for each environment.
    much cheaper than 12-megapixel stills, especially with 2D formats enabled.
    Images above 32 megapixels are reduced internally, but still cost decoding,
    memory and copies. When the barcodes are large in a photo, decode it at reduced size, as with
-   Pillow's `Image.draft` for JPEGs: a 12-megapixel photo with all formats scans
-   in 53 ms at half size instead of 231 ms (Apple M1 Pro).
+   Pillow's `Image.draft` for JPEGs. Check that the reduction preserves the smallest
+   symbols you need to read.
 5. **Hand over decoded 8-bit pixels as you have them.** Packed RGBA is the cheapest
    input for the default retail formats; gray and RGB inputs are copied to RGBA
-   internally (about 1.5-3 ms at 12 megapixels), so do not convert RGBA to gray
+   internally, so do not convert RGBA to gray
    for scanning. If you must convert anyway, for example from OpenCV's BGR, convert
    to RGBA. Skip encode/decode
    round trips, such as drawing to a canvas or saving a JPEG, when you already hold
@@ -31,32 +30,26 @@ input path for each environment.
 
 ## What it costs
 
-Per-scan times on 960×960 photo crops with mixed formats, native library, one scan at a time. With several 2D formats enabled,
-native builds run those readers on separate threads ("parallel", the default; see
-[threads](#threads-and-servers)):
+Input handling adds work before the scan:
 
-| Mode and formats    | M1 Pro, one thread | M1 Pro, parallel | Ryzen 7 5800X, one thread | Ryzen, parallel |
-| ------------------- | -----------------: | ---------------: | ------------------------: | --------------: |
-| Low, retail         |             4.9 ms |           4.9 ms |                    5.2 ms |          5.3 ms |
-| Medium, retail      |              33 ms |            33 ms |                     37 ms |           37 ms |
-| Low, all formats    |              33 ms |            17 ms |                     36 ms |           21 ms |
-| Medium, all formats |              54 ms |            35 ms |                     58 ms |           43 ms |
+| Input                                            | Input handling                                         |
+| ------------------------------------------------ | ------------------------------------------------------ |
+| C, C++, Rust, Java `MemorySegment`               | Borrows the supplied buffer                            |
+| Python uint8 NumPy array                         | Copies a snapshot                                      |
+| Java `byte[]`                                    | Copies into a reused buffer                            |
+| Browser decoded pixels with `{ transfer: true }` | Transfers a whole buffer; partial views require a copy |
+| Browser decoded pixels or `ImageData`            | Copies pixels to the worker                            |
+| Browser `<canvas>` or `<video>`                  | Extracts pixels and sends them to the worker           |
+| Browser JPEG `Blob`/`File`                       | Decodes the image before scanning                      |
 
-WebAssembly (browser and Node) runs about 1.5× slower than native and always on
-one thread.
+WebAssembly runs on one thread. Native builds can run format readers in parallel;
+measure both single-scan latency and batch throughput for your workload.
 
-Input handling on top of the scan, for a 12-megapixel RGBA image (Linux makes
-fresh memory more expensive, hence the larger x86 numbers):
-
-| Input                                               | M1 Pro (macOS) | Ryzen (Linux) |
-| --------------------------------------------------- | -------------: | ------------: |
-| C, C++, Rust, Java `MemorySegment`: borrowed buffer |           0 ms |          0 ms |
-| Python uint8 NumPy array                            |           1 ms |          4 ms |
-| Java `byte[]` (copied into a reused buffer)         |           1 ms |          5 ms |
-| Browser decoded pixels with `{ transfer: true }`    |          <1 ms |         <1 ms |
-| Browser decoded pixels or `ImageData`               |           5 ms |         27 ms |
-| Browser `<canvas>` or `<video>` source              |          35 ms |         36 ms |
-| Browser JPEG `Blob`/`File` (includes JPEG decoding) |          65 ms |         98 ms |
+Historical [photo-crop timings](https://github.com/kleinicke/tapirscan/commit/9205700)
+and the [x86-64 comparison](https://github.com/kleinicke/tapirscan/commit/637828d)
+are recorded in development commits. They lack a complete reproducible report
+and do not establish speed ratios for the final release. New comparisons should
+follow the [evaluation protocol](BENCHMARKS.md).
 
 ## Browser
 
@@ -96,7 +89,7 @@ fresh memory more expensive, hence the larger x86 numbers):
 ## Node
 
 Use `await Scanner.create()` once and `scanner.scan()` per image; the one-shot
-`scan()` costs about 2 ms extra per call. Pass the decoded buffer as it comes, for
+`scan()` also pays initialization cost on each call. Pass the decoded buffer as it comes, for
 example `sharp(file).raw()` with `channels: info.channels`.
 
 ## Python
@@ -104,13 +97,10 @@ example `sharp(file).raw()` with `channels: info.channels`.
 - **Inputs, cheapest first:** contiguous uint8 NumPy arrays (RGBA, then RGB or gray);
   uint8 tensors; float arrays and tensors (validated and rounded, multithreaded for
   large arrays); Pillow images (one `tobytes()` copy). CUDA tensors are converted
-  on the GPU and transferred once, so scan tensors where they already are. Moving
-  a CPU tensor to the GPU only for scanning does not help uint8 tensors; for a
-  large float tensor it saves about 9 ms at 12 MP (Ryzen 7 5800X, RTX 5060 Ti),
-  because the upload costs almost as much as the CPU conversion.
-- **OpenCV** images are BGR. `cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)` is the
-  fastest way to scan them (12 MP: about 15 ms in total on an M1, against 32 ms
-  with `color_order="BGR"`, which reorders the channels in Python).
+  on the GPU and transferred once, so scan tensors where they already are. Include
+  upload and download costs when comparing CPU and GPU conversion.
+- **OpenCV** images are BGR. `cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)`
+  avoids reordering through the Python `color_order="BGR"` adapter.
 - **Batches:** `tapirscan.scan_many(images, formats=...)` scans on all CPU cores,
   one scanner per thread, with results in input order.
 - **Threads and servers:** scanning releases the GIL. Use one `Scanner` per
@@ -140,8 +130,8 @@ binding (it needs the Foreign Function & Memory API); see [mobile apps](#mobile-
   ```
 
 - **Rust on x86-64:** build with `RUSTFLAGS="-C target-cpu=x86-64-v2"` or in
-  `.cargo/config.toml` (`rustflags = ["-C", "target-cpu=x86-64-v2"]`); scans are
-  20-30% faster. The prebuilt native library already uses it. With the `image`
+  `.cargo/config.toml` (`rustflags = ["-C", "target-cpu=x86-64-v2"]`) to
+  use the same CPU baseline as the prebuilt native library. With the `image`
   crate, `GrayImage`, `RgbImage`, `RgbaImage` and 8-bit `DynamicImage`s are
   borrowed without copying.
 
@@ -149,13 +139,12 @@ binding (it needs the Foreign Function & Memory API); see [mobile apps](#mobile-
 
 A scanner serves one call at a time; separate scanners run concurrently, so use one
 per thread. Native builds additionally run one scan's 1D formats and enabled 2D
-readers on separate threads, which shortens a single scan with all formats by
-1.35-1.9× on 960×960 photos and up to 2.9× on 12-megapixel images. On
+readers on separate threads. On
 servers that already run one scanner per core, create the scanner with the
 `parallel` option off (`parallel=False` in Python, `ScannerOptions { parallel:
 false, ..ScannerOptions::default() }` in Rust, `withParallel(false)` in Java and Android, `parallel = false`
-in C++, `parallel: false` in Swift, `TAPIRSCAN_PARALLEL_OFF` in C); this saves the few percent of extra CPU time that
-the parallel readers cost. Results are identical either way. Without the option,
+in C++, `parallel: false` in Swift, `TAPIRSCAN_PARALLEL_OFF` in C) to avoid nesting
+reader threads inside worker threads. Results are identical either way. Without the option,
 `TAPIRSCAN_THREADS=0` or `1` in the process environment is the default for every
 scanner; it is read once, at the first use. WebAssembly scans always use one
 thread and ignore the option.

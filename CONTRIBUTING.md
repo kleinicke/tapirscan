@@ -39,6 +39,11 @@ format commitments, or distribution changes before building a large patch.
 The binding guides and [API design](docs/API_DESIGN.md) describe the public API.
 See [upgrading from earlier versions](docs/API_MIGRATION.md) when moving between releases.
 
+Versions 1.3.0 and 1.4.0 are explicit early-library exceptions to this policy.
+Version 1.4.0 retains its minor version despite Rust source changes and the
+native ABI 7 rebuild requirement; the migration guide lists the affected calls
+and types. The compatibility rules below apply to subsequent releases.
+
 Apart from the experimental APIs below, documented
 functions, defaults, result fields, identifiers and ownership/error contracts
 stay compatible within a major version. Minor releases add compatible

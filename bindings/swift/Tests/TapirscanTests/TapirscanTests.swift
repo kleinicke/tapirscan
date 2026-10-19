@@ -142,6 +142,19 @@ final class TapirscanTests: XCTestCase {
         }
     }
 
+    func testRGBAConversionChecksDimensionsBeforeAllocating() throws {
+        // Check conversion sizes without allocating the corresponding image buffers.
+        XCTAssertEqual(try rgbaByteCount(width: 3, height: 3), 36)
+        XCTAssertEqual(try rgbaByteCount(width: 16_384, height: 16_384), 1024 * 1024 * 1024)
+        XCTAssertEqual(try rgbaByteCount(width: 65_535, height: 3), 65_535 * 3 * 4)
+        for (width, height) in [(2, 3), (3, 2), (-3, 3), (65_536, 3), (3, 65_536),
+                                (16_385, 16_384), (Int.max, Int.max)] {
+            XCTAssertThrowsError(try rgbaByteCount(width: width, height: height)) {
+                XCTAssertEqual(($0 as? TapirscanError)?.code, .invalidInput)
+            }
+        }
+    }
+
     func testScansCGImages() throws {
         let (pixels, width, height) = ean13(text)
         let provider = CGDataProvider(data: Data(pixels) as CFData)!

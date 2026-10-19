@@ -299,12 +299,12 @@ const DIGITAL_LINK_KEYS: [&str; 14] = [
 /// GS1 Digital Link URI: a primary key AI and its value as path segments,
 /// followed by qualifier segments and attribute AIs as query parameters.
 fn digital_link(url: &str) -> Option<Content> {
-    let after_scheme = &url[url.find("://")? + 3..];
-    let path_start = after_scheme.find('/')?;
-    let (path, query) = after_scheme[path_start + 1..]
-        .split_once('?')
-        .unwrap_or((&after_scheme[path_start + 1..], ""));
-    let path = path.split('#').next().unwrap_or_default();
+    // Split URI components before inspecting path segments: a fragment can
+    // contain '?', and a query can contain '/'. Neither belongs to the path.
+    let resource = url.split('#').next()?;
+    let after_scheme = &resource[resource.find("://")? + 3..];
+    let (hierarchy, query) = after_scheme.split_once('?').unwrap_or((after_scheme, ""));
+    let (_, path) = hierarchy.split_once('/')?;
     let segments: Vec<&str> = path.split('/').collect();
     let start = segments
         .iter()

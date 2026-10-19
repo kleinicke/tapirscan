@@ -43,6 +43,10 @@ geometry and timing can differ from 1.3.0. See the
 
 ### Scanner behavior
 
+Read comparisons below describe the development evaluation sets. They do not
+guarantee that a higher effort mode reads every symbol a lower mode can read on
+an arbitrary image. See the [evaluation protocol](docs/BENCHMARKS.md).
+
 - **Linear formats** read nearly the same whatever else is selected, follow rotated
   and warped bars from Medium up, and find small Code 128 fields on large label
   photos and sheets far more often. ITF tolerates ink spread. Codabar and
@@ -69,37 +73,38 @@ geometry and timing can differ from 1.3.0. See the
 - **Aztec** reads small symbols from Medium up.
 - **MaxiCode:** High and Very High retry large unread frames on reduced copies,
   as Medium does.
-- **Textures:** striped, checkered, ringed and noisy backgrounds no longer
-  produce false linear reads, and the QR, Aztec and MaxiCode finders bound their
+- **Textures:** the tested striped, checkered, ringed and noisy backgrounds no
+  longer produce false linear reads, and the QR, Aztec and MaxiCode finders bound their
   work on such textures instead of taking seconds per frame. A frame whose finder
   budget binds is reported as unfinished.
 
 ### Performance
 
 - Native builds (C, C++, Java, Python, Rust, Swift, Android) run a scan's 1D
-  formats and enabled 2D readers on separate threads, with identical results:
-  with all formats, Low is 1.7-1.9× and Medium 1.35-1.55× faster on 960×960
-  photos. The scanner option `parallel` turns this off per scanner, and
+  formats and enabled 2D readers on separate threads. Threaded and sequential
+  results matched in the development comparisons. See the
+  [input and threading guidance](docs/PERFORMANCE.md).
+  The scanner option `parallel` turns this off per scanner, and
   `TAPIRSCAN_THREADS=1` for the process. In C, the new
   `tapirscan_scanner_options.parallel` field is zero
   (`TAPIRSCAN_PARALLEL_DEFAULT`) when an initializer leaves it out. Rust
   `ScannerOptions` literals need `..ScannerOptions::default()`. Python's `scan_many` defaults to
   `parallel=False`, since its worker threads already keep the cores busy.
 - WebAssembly stays single-threaded.
-- x86-64 native libraries target x86-64-v2 (SSE4.2, POPCNT) and scan 20-30%
-  faster. They no longer load on CPUs older than Intel Nehalem (2008) or AMD
-  Bulldozer (2011).
+- x86-64 native libraries target x86-64-v2 (SSE4.2, POPCNT).
+  CPUs without x86-64-v2 support can now fail with an
+  illegal instruction; see [migration notes](docs/API_MIGRATION.md#upgrading-from-130).
 - Faster QR, Aztec, Data Matrix and PDF417 search and retail localization, with
-  identical results.
+  unchanged results in the paired development comparisons for those optimizations.
 - High and Very High run more recoveries and can take noticeably longer on frames
   they leave unread, especially with `all` formats.
 - When QR shares the scan with other formats, High and Very High run the
   foreground-threshold and equalized/inverted QR recoveries on frames above
-  262,144 pixels only where a QR candidate stayed unread: about 20% faster on retail
-  photos with `common` formats, for 0.2% fewer QR reads.
-- QR-only scans in High and Very High take about a third longer than in 1.3.0
-  on frames without a QR code: on 40 retail photos without one, High went from
-  123 to 167 ms per frame and Very High took 37% longer.
+  262,144 pixels only where a QR candidate stayed unread. This saves recovery
+  work but can miss symbols that leave no candidate; see the
+  [development comparison](https://github.com/kleinicke/tapirscan/commit/a20fae3).
+- QR-only scans in High and Very High were slower than in 1.3.0 on the
+  [tested retail photos without QR codes](https://github.com/kleinicke/tapirscan/commit/107c3b8).
 - Cheaper inputs: Python converts BGR, float and tensor inputs faster (CUDA
   tensors on the GPU) and scans immutable `bytes` in place; Python and Java reuse
   one pixel buffer per scanner; browsers copy `ImageData` as bytes and decode
@@ -112,8 +117,8 @@ geometry and timing can differ from 1.3.0. See the
 
 ### Docs
 
-- [Fast end-to-end scanning](docs/PERFORMANCE.md): measured costs and the fastest
-  input path per environment, linked from every binding guide.
+- [Fast end-to-end scanning](docs/PERFORMANCE.md): input paths, copy costs and
+  threading guidance, linked from every binding guide.
 
 ## 1.3.0
 

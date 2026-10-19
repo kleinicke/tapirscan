@@ -158,7 +158,7 @@ public final class BarcodeScanner: @unchecked Sendable {
         fill: (UnsafeMutableRawBufferPointer) throws -> Void,
         _ call: (Pixels) throws -> tapirscan_result
     ) throws -> tapirscan_result {
-        let count = width * height * 4
+        let count = try rgbaByteCount(width: width, height: height)
         if rgba.count != count { rgba = [UInt8](repeating: 0, count: count) }
         try rgba.withUnsafeMutableBytes(fill)
         return try rgba.withUnsafeBytes {
@@ -251,6 +251,16 @@ public final class BarcodeScanner: @unchecked Sendable {
         }
     }
     #endif
+}
+
+/// Validate dimensions before allocating or rendering RGBA pixels. The side limit
+/// also bounds the multiplication; the pixel limit keeps RGBA storage within 1 GiB.
+func rgbaByteCount(width: Int, height: Int) throws -> Int {
+    guard (3...65_535).contains(width), (3...65_535).contains(height),
+          width * height <= 256 * 1024 * 1024 else {
+        throw TapirscanError.invalidInput("dimensions must be 3 to 65,535 pixels per side and at most 256 megapixels")
+    }
+    return width * height * 4
 }
 
 // MARK: Reading results

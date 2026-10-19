@@ -2,9 +2,14 @@
 
 ## Upgrading from 1.3.0
 
-Rebuild native consumers. C, C++, Python and Java check the ABI version when
-they load the library, so headers, binding and library must come from the same
-release. Native ABI 7 adds the [content parsing](CONTENT.md) functions and a
+Version 1.4.0 is an explicit exception to the
+[minor-release compatibility policy](../CONTRIBUTING.md#api-stability).
+It keeps the 1.4.0 version number despite the Rust source changes below.
+
+Rebuild native consumers. C++, Python and Java check the ABI version when
+they load the library. C callers should compare `tapirscan_abi_version()` with
+`TAPIRSCAN_ABI_VERSION` before creating a scanner. Headers, binding and library
+must come from the same release. Native ABI 7 adds the [content parsing](CONTENT.md) functions and a
 fourth `tapirscan_scanner_options` field, `parallel`. Its zero value is
 `TAPIRSCAN_PARALLEL_DEFAULT`, so C and C++ initializers written for 1.3.0, with
 three values or designated fields, keep their behaviour after recompiling; code

@@ -1,10 +1,15 @@
 # Evaluating barcode readers
 
-This page holds the rules for fair comparisons. Recorded or published scanner
-measurements use the library JavaScript API in installed Google Chrome, including
+This page holds the rules for fair comparisons. Cross-reader comparisons and
+scanner algorithm evaluations use the library JavaScript API in installed Google Chrome, including
 WASM loaded through that API. Native Chrome uses its JavaScript BarcodeDetector
 API. Node may orchestrate Chrome, but must not perform the measured scanning.
 Record the Chrome version, exact package or artifact identity and timing boundaries.
+
+Binding-specific profiles, such as native threading or Python input conversion,
+run in the runtime being profiled. Record its version, hardware, exact artifact,
+paired baseline and timing boundaries, and follow the comparison rules below.
+Such profiles do not establish cross-reader or browser performance.
 
 Start with the images your application actually receives. Evaluate decoded
 values and complete-frame success together with runtime; a fast incorrect result
@@ -16,7 +21,8 @@ is not a successful scan.
    record resizing, orientation correction, and color conversion.
 2. Select the same formats for every reader. Record every
    reader option, version, and Tapirscan effort mode. Identify Tapirscan by its
-   package version or git commit and the source digest in `wasm/build.json`.
+   package version or git commit and the artifact hash. For WASM builds, also
+   record the source digest in `wasm/build.json`.
 3. Separate cold initialization from warmed scans. Include the same preprocessing
    and result-conversion stages in each timed measurement. Keep individual reader
    timings separate from the demo's total sequential batch time.

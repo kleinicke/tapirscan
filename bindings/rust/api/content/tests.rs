@@ -137,6 +137,39 @@ fn gs1_digital_link() {
 }
 
 #[test]
+fn gs1_digital_link_respects_uri_boundaries() {
+    for (suffix, fields) in [
+        ("?17=201225#details", vec![("17", "201225")]),
+        ("?10=LOT#details", vec![("10", "LOT")]),
+        ("#details?17=201225", vec![]),
+        ("?10=LOT%23A#details", vec![("10", "LOT#A")]),
+    ] {
+        let url = format!("https://example.com/01/09506000134352{suffix}");
+        let content = parse_content(&url, false).unwrap();
+        assert_eq!(content.kind, ContentKind::Gs1, "{url}");
+        let mut expected = vec![("01", "09506000134352")];
+        expected.extend(fields);
+        expected.push(("url", &url));
+        assert_eq!(
+            content
+                .fields
+                .iter()
+                .map(|field| (field.name.as_str(), field.value.as_str()))
+                .collect::<Vec<_>>(),
+            expected,
+            "{url}"
+        );
+    }
+    // A path embedded in a query or fragment is not the URL's own path.
+    for url in [
+        "https://example.com?next=/01/09506000134352",
+        "https://example.com#/01/09506000134352",
+    ] {
+        assert_eq!(parsed(url, false).0, ContentKind::Url, "{url}");
+    }
+}
+
+#[test]
 fn messages_and_locations() {
     assert_eq!(
         parsed(
