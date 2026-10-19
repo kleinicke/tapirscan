@@ -650,6 +650,16 @@ pub fn binarize(gray: &[u8], w: usize, h: usize, local: bool) -> Vec<bool> {
     for y in 0..h {
         let next_top = y.saturating_sub(radius);
         let next_bottom = y.saturating_add(radius + 1).min(h);
+        // Inside the frame the window slides by one row: add and remove in one pass.
+        if bottom + 1 == next_bottom && top + 1 == next_top {
+            let entering = &gray[bottom * w..(bottom + 1) * w];
+            let leaving = &gray[top * w..(top + 1) * w];
+            for ((column, &add), &remove) in columns.iter_mut().zip(entering).zip(leaving) {
+                *column = *column + u32::from(add) - u32::from(remove);
+            }
+            bottom += 1;
+            top += 1;
+        }
         while bottom < next_bottom {
             for (column, &pixel) in columns.iter_mut().zip(&gray[bottom * w..(bottom + 1) * w]) {
                 *column += u32::from(pixel);

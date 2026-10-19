@@ -65,15 +65,15 @@ pub(crate) fn enclosing_quad(
     if poly.len() < 4 {
         return None;
     }
-    let mut edges: Vec<_> = (0..poly.len()).collect();
-    edges.sort_by(|&a, &b| {
-        let length = |i: usize| {
+    let lengths: Vec<f32> = (0..poly.len())
+        .map(|i| {
             let p = poly[i];
             let q = poly[(i + 1) % poly.len()];
             (p[0] - q[0]).hypot(p[1] - q[1])
-        };
-        length(b).total_cmp(&length(a))
-    });
+        })
+        .collect();
+    let mut edges: Vec<_> = (0..poly.len()).collect();
+    edges.sort_by(|&a, &b| lengths[b].total_cmp(&lengths[a]));
     *limited |= edges.len() > 12;
     edges.truncate(12);
     edges.sort_unstable();
@@ -210,7 +210,6 @@ struct Span {
 
 #[derive(Clone, Debug, Default)]
 struct Component {
-    parent: usize,
     origin: usize,
     count: usize,
     x0: usize,
@@ -224,28 +223,31 @@ struct Component {
     spans: Vec<Span>,
 }
 
-fn find_component(components: &mut [Component], mut index: usize) -> usize {
+// Union-find parents are kept apart from the component data: lookups walk a
+// dense index array instead of striding over whole components.
+fn find_component(parents: &mut [usize], mut index: usize) -> usize {
     let mut root = index;
-    while components[root].parent != root {
-        root = components[root].parent;
+    while parents[root] != root {
+        root = parents[root];
     }
-    while components[index].parent != index {
-        let parent = components[index].parent;
-        components[index].parent = root;
+    while parents[index] != index {
+        let parent = parents[index];
+        parents[index] = root;
         index = parent;
     }
     root
 }
 
 fn union_components(
+    parents: &mut [usize],
     components: &mut [Component],
     a: usize,
     b: usize,
     merged: &mut Vec<usize>,
     pool: &mut Vec<Vec<Span>>,
 ) -> usize {
-    let a = find_component(components, a);
-    let b = find_component(components, b);
+    let a = find_component(parents, a);
+    let b = find_component(parents, b);
     if a == b {
         return a;
     }
@@ -262,9 +264,9 @@ fn union_components(
         (b, a)
     };
     merged.push(child);
+    parents[child] = root;
     let (origin, count, x0, x1, y0, y1, first_span, mut spans) = {
         let component = &mut components[child];
-        component.parent = root;
         (
             component.origin,
             component.count,
@@ -303,9 +305,7 @@ fn append_component_span(component: &mut Component, span: Span) {
     }
 }
 
-fn add_span(components: &mut [Component], index: usize, span: Span) {
-    let index = find_component(components, index);
-    let component = &mut components[index];
+fn add_span(component: &mut Component, span: Span) {
     component.count += span.right - span.left;
     component.x0 = component.x0.min(span.left);
     component.x1 = component.x1.max(span.right - 1);
@@ -370,6 +370,7 @@ fn fast_component_pair(image: &[bool], w: usize, h: usize) -> [Vec<Component>; 2
 
 /// Streaming state of `fast_components_impl`, fed one row of runs at a time.
 struct Labeller {
+    parents: Vec<usize>,
     components: Vec<Component>,
     free: Vec<usize>,
     merged: Vec<usize>,
@@ -387,6 +388,7 @@ struct Labeller {
 impl Labeller {
     fn new(retain_ineligible_for_test: bool) -> Self {
         Self {
+            parents: Vec::new(),
             components: Vec::new(),
             free: Vec::new(),
             merged: Vec::new(),
@@ -409,13 +411,12 @@ impl Labeller {
             spans.clear();
             self.pool.push(spans);
         }
-        // Other runs of this row may still look the root up.
-        self.components[root].parent = root;
     }
 
     /// Label the set runs `[left, right)` of row `y`, which starts at pixel `row`.
     fn row(&mut self, y: usize, row: usize, runs: &[[usize; 2]]) {
         let Self {
+            parents,
             components,
             free,
             merged,
@@ -434,22 +435,27 @@ impl Labeller {
             let mut overlap = previous_start;
             let mut label = None;
             while overlap < previous.len() && previous[overlap].0 <= right {
-                let previous_label = find_component(components, previous[overlap].2);
+                let previous_label = find_component(parents, previous[overlap].2);
                 label = Some(match label {
-                    Some(existing) => {
-                        union_components(components, existing, previous_label, merged, pool)
-                    }
+                    Some(existing) => union_components(
+                        parents,
+                        components,
+                        existing,
+                        previous_label,
+                        merged,
+                        pool,
+                    ),
                     None => previous_label,
                 });
                 overlap += 1;
             }
             let span = Span { y, left, right };
+            // Lookups and unions return roots, so `label` is a root here.
             let label = if let Some(label) = label {
-                add_span(components, label, span);
-                find_component(components, label)
+                add_span(&mut components[label], span);
+                label
             } else {
                 let fresh = Component {
-                    parent: 0,
                     origin: row + left,
                     count: right - left,
                     x0: left,
@@ -459,27 +465,27 @@ impl Labeller {
                     first_span: span,
                     spans: pool.pop().unwrap_or_default(),
                 };
-                let index = if let Some(index) = free.pop() {
+                if let Some(index) = free.pop() {
                     components[index] = fresh;
+                    parents[index] = index;
                     index
                 } else {
                     components.push(fresh);
+                    parents.push(components.len() - 1);
                     seen_row.push(usize::MAX);
                     components.len() - 1
-                };
-                components[index].parent = index;
-                index
+                }
             };
             current.push((left, right, label));
         }
         // Resolve this row's labels to roots and mark them as continuing.
         for run in current.iter_mut() {
-            run.2 = find_component(components, run.2);
+            run.2 = find_component(parents, run.2);
             seen_row[run.2] = y;
         }
         // Roots of the previous row that no current run continues are complete.
         for index in 0..self.previous.len() {
-            let root = find_component(&mut self.components, self.previous[index].2);
+            let root = find_component(&mut self.parents, self.previous[index].2);
             if self.seen_row[root] != y {
                 self.seen_row[root] = y;
                 self.complete(root);
@@ -605,7 +611,6 @@ fn flood_fill_components_impl(
             }
             let first_span = spans.pop().expect("component touched at least one row");
             components.push(Component {
-                parent: components.len(),
                 origin,
                 count,
                 x0,
@@ -910,7 +915,6 @@ mod component_fastpath_tests {
     #[test]
     fn row_scratch_preserves_sorted_span_hull_with_duplicates_and_collinear_rows() {
         let component = Component {
-            parent: 0,
             origin: 0,
             count: 1,
             x0: 2,
@@ -1323,6 +1327,52 @@ fn border_with_limit(
     }
     Some(crate::numeric::usize_f32(errors) / crate::numeric::usize_f32((cols + rows) * 2))
 }
+/// The values of the corner sets a coordinate descent evaluated last. After an
+/// improvement, the rest of a round and the next round try many of the same
+/// corner sets again; their values are reused instead of sampled again.
+pub(crate) struct RecentQuads<T> {
+    entries: Vec<([Point; 4], T)>,
+    next: usize,
+}
+
+impl<T: Copy> RecentQuads<T> {
+    /// One round of a corner descent: four corners, two axes, two signs.
+    const CAPACITY: usize = 16;
+
+    pub(crate) fn new() -> Self {
+        Self {
+            entries: Vec::with_capacity(Self::CAPACITY),
+            next: 0,
+        }
+    }
+
+    /// The value of `quad`, from `evaluate` unless the same corners (bit for
+    /// bit) were evaluated recently.
+    pub(crate) fn value(
+        &mut self,
+        quad: &[Point; 4],
+        evaluate: impl FnOnce(&[Point; 4]) -> T,
+    ) -> T {
+        let same = |other: &[Point; 4]| {
+            quad.iter()
+                .flatten()
+                .zip(other.iter().flatten())
+                .all(|(a, b)| a.to_bits() == b.to_bits())
+        };
+        if let Some((_, value)) = self.entries.iter().find(|(other, _)| same(other)) {
+            return *value;
+        }
+        let value = evaluate(quad);
+        if self.entries.len() < Self::CAPACITY {
+            self.entries.push((*quad, value));
+        } else {
+            self.entries[self.next] = (*quad, value);
+            self.next = (self.next + 1) % Self::CAPACITY;
+        }
+        value
+    }
+}
+
 /// Hypotheses whose border is fair but not clean usually come from a hull quad a
 /// few pixels off a blurred or strongly tilted symbol. Coordinate descent on
 /// the corners, scored on five samples per border module, tightens the grid;
@@ -1382,7 +1432,8 @@ fn refine_hypotheses(
             rectangle_transform(size.w, size.h, *q)
                 .and_then(|t| fine_border_errors(image, w, h, &t, size.w, size.h))
         };
-        let Some(mut best) = evaluate(&polygon) else {
+        let mut recent = RecentQuads::new();
+        let Some(mut best) = recent.value(&polygon, evaluate) else {
             continue;
         };
         let mut quad = polygon;
@@ -1396,7 +1447,7 @@ fn refine_hypotheses(
                     for sign in [1., -1.] {
                         let mut candidate = quad;
                         candidate[corner][axis] += sign * step;
-                        if let Some(errors) = evaluate(&candidate)
+                        if let Some(errors) = recent.value(&candidate, evaluate)
                             && errors < best
                         {
                             best = errors;

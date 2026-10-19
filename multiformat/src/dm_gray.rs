@@ -108,7 +108,9 @@ impl Frame<'_> {
 
     /// Coordinate descent on the four corners, maximizing the border contrast.
     fn refine(&self, mut q: [Point; 4], size: (usize, usize)) -> Option<[Point; 4]> {
-        let mut best = self.contrast(&q, size)?;
+        let mut recent = crate::dm_detect::RecentQuads::new();
+        let contrast = |q: &[Point; 4]| self.contrast(q, size);
+        let mut best = recent.value(&q, contrast)?;
         let module = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]) / usize_f32(size.0);
         let mut step = (module * 0.5).max(0.5);
         let mut evaluations = 0;
@@ -120,7 +122,7 @@ impl Frame<'_> {
                         let mut candidate = q;
                         candidate[corner][axis] += sign * step;
                         evaluations += 1;
-                        if let Some(value) = self.contrast(&candidate, size)
+                        if let Some(value) = recent.value(&candidate, contrast)
                             && value > best
                         {
                             best = value;

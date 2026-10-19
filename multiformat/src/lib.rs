@@ -156,7 +156,9 @@ fn nested_threshold_into(row: &[u8], upper: u8, bits: &mut Vec<bool>) {
         }
         let count: usize = hist.iter().sum();
         let cut = binarization::otsu_cut_or(&hist, count, 128);
-        bits.extend(row.iter().map(|&v| v as usize <= cut));
+        // The cut is a histogram bin; comparing bytes lets the loop vectorize.
+        let cut = u8::try_from(cut).expect("histogram has 256 bins");
+        bits.extend(row.iter().map(|&v| v <= cut));
     }
 }
 fn threshold_into(row: &[u8], mode: usize, bits: &mut Vec<bool>) {
@@ -165,7 +167,9 @@ fn threshold_into(row: &[u8], mode: usize, bits: &mut Vec<bool>) {
     if mode == 0 {
         let hist = histogram(row);
         let cut = binarization::otsu_cut_or(&hist, row.len(), 128);
-        bits.extend(row.iter().map(|&v| v as usize <= cut));
+        // The cut is a histogram bin; comparing bytes lets the loop vectorize.
+        let cut = u8::try_from(cut).expect("histogram has 256 bins");
+        bits.extend(row.iter().map(|&v| v <= cut));
     } else {
         let radius = if mode == 1 { 24 } else { 64 };
         adaptive_threshold_into(row, radius, bits);
