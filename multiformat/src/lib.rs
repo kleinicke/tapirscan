@@ -1125,18 +1125,6 @@ pub fn scan_with_images(
     }
 }
 
-/// Host routing capabilities supported by this scanner build.
-/// Bit 0 enables the shared all-format retail pass.
-/// Bit 1 applies a stricter acceptance gate to supplemental retail reads.
-/// Bit 2 supports packed RGBA upload and exact integer-luma preparation.
-/// Bit 3 supports timing-guided curved QR grids at effort >=3.
-/// Bit 4 retains a source image and samples exact f64 projective crops.
-#[must_use]
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-pub extern "C" fn multi_capabilities() -> u32 {
-    31
-}
-
 #[cfg_attr(feature = "ffi", unsafe(no_mangle))]
 pub extern "C" fn multi_new() -> *mut Session {
     Box::into_raw(Box::new(Session {

@@ -711,18 +711,6 @@ pub fn decode_retail_profile(
     );
     Ok(RetailReads { ean13, short })
 }
-/// The local-profile stage alone (the EAN-13 part of `decode_retail_profile`),
-/// reusing its scratch.
-/// # Errors
-/// Rejects invalid profile geometry or unsupported family masks.
-pub fn decode_legacy_local(
-    p: &[f32],
-    max_symbols: usize,
-    guard_bias: bool,
-    scratch: &mut RetailScratch,
-) -> Result<Reads, Error> {
-    decode_local_variants(p, max_symbols, guard_bias, &mut scratch.primary)
-}
 pub(crate) fn short_from_existing(
     runs: &LocalRuns,
     mask: u32,
