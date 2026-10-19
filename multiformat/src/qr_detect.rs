@@ -926,21 +926,6 @@ impl Pass {
         }
     }
 }
-/// Detect QR symbols in the threshold modes of `pass` under `policy`.
-///
-/// # Panics
-///
-/// Panics if a supplied binary image or region dimensions are inconsistent.
-pub fn detect_with(
-    w: usize,
-    h: usize,
-    regions: &mut crate::regions::Regions,
-    binary_images: &mut crate::binarization::Images<'_>,
-    policy: Policy,
-    pass: Pass,
-) -> (Vec<Detection>, bool) {
-    detect_with_recovery(w, h, regions, binary_images, policy, pass)
-}
 /// The QR reader of the multi-format groups under `policy`: effort 2 adds the
 /// foreground split and effort 3 the curved grids. Above
 /// effort 1, frames up to one megapixel are searched again after sharpening;
@@ -959,13 +944,11 @@ pub fn detect_group(
     effort: usize,
 ) -> (Vec<Detection>, bool) {
     let pass = Pass::effort(effort > 1, effort > 2);
-    let (mut reads, mut limited) =
-        detect_with_recovery(w, h, regions, binary_images, policy, pass.clone());
+    let (mut reads, mut limited) = detect_with(w, h, regions, binary_images, policy, pass.clone());
     if effort > 1 && w * h <= 1_048_576 {
         let enhanced = crate::qr_enhance::sharpen(image, w, h);
         let mut recovery = crate::binarization::Images::new(&enhanced, w, h);
-        let (extra, extra_limited) =
-            detect_with_recovery(w, h, regions, &mut recovery, policy, pass);
+        let (extra, extra_limited) = detect_with(w, h, regions, &mut recovery, policy, pass);
         limited |= extra_limited;
         for read in extra {
             if !reads.iter().any(|prior| {
@@ -1005,11 +988,16 @@ fn format_intact_under(
         })
     })
 }
+/// Detect QR symbols in the threshold modes of `pass` under `policy`.
+///
+/// # Panics
+///
+/// Panics if a supplied binary image or region dimensions are inconsistent.
 #[expect(
     clippy::too_many_lines,
     reason = "QR detection preserves its ordered finder hypotheses and shared work budgets in one transaction."
 )]
-fn detect_with_recovery(
+pub fn detect_with(
     w: usize,
     h: usize,
     regions: &mut crate::regions::Regions,
