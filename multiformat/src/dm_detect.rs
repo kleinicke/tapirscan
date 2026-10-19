@@ -7,6 +7,10 @@ fn cross(a: Point, b: Point, c: Point) -> f32 {
 pub(crate) fn hull(mut points: Vec<Point>) -> Vec<Point> {
     points.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
     points.dedup();
+    sorted_hull(points)
+}
+/// Monotone chain over points already sorted by x, then y, without duplicates.
+fn sorted_hull(points: Vec<Point>) -> Vec<Point> {
     if points.len() < 4 {
         return points;
     }
@@ -335,60 +339,114 @@ fn fast_components_impl(
     h: usize,
     retain_ineligible_for_test: bool,
 ) -> Vec<Component> {
-    let mut components: Vec<Component> = Vec::new();
-    let mut free: Vec<usize> = Vec::new();
-    let mut merged: Vec<usize> = Vec::new();
-    // Row in which each slot's root last had a run; marks completed roots.
-    let mut seen_row: Vec<usize> = Vec::new();
-    let mut done = Vec::new();
-    let mut previous: Vec<(usize, usize, usize)> = Vec::new();
-    let mut current: Vec<(usize, usize, usize)> = Vec::new();
-    // Span vectors of discarded components are reused, so texture specks that
-    // span a few rows do not allocate one each.
-    let mut pool: Vec<Vec<Span>> = Vec::new();
-    let finish = |component: Component, done: &mut Vec<Component>, pool: &mut Vec<Vec<Span>>| {
-        if retain_ineligible_for_test || component_is_eligible(&component) {
-            done.push(component);
-        } else if component.spans.capacity() > 0 {
-            let mut spans = component.spans;
-            spans.clear();
-            pool.push(spans);
-        }
-    };
+    let mut labeller = Labeller::new(retain_ineligible_for_test);
     let mut offsets = Vec::new();
     for y in 0..h {
-        let row = y * w;
-        let line = &image[row..row + w];
-        current.clear();
-        let mut previous_start = 0;
+        let line = &image[y * w..(y + 1) * w];
         // Word-wise transitions give the same runs, left to right: offsets start
         // at 0 and end at w, and runs of set pixels alternate with unset ones.
         crate::transition_offsets_into(line, &mut offsets);
         let first_set = usize::from(!line.first().copied().unwrap_or(false));
-        for &[left, right] in offsets[first_set..].as_chunks::<2>().0 {
+        labeller.row(y, y * w, offsets[first_set..].as_chunks::<2>().0);
+    }
+    labeller.finish(h)
+}
+
+/// The components of `image` and of its inverse. The inverse image has the same
+/// transition offsets, with the set and unset runs exchanged, so one extraction
+/// per row serves both labellings.
+fn fast_component_pair(image: &[bool], w: usize, h: usize) -> [Vec<Component>; 2] {
+    let mut labellers = [Labeller::new(false), Labeller::new(false)];
+    let mut offsets = Vec::new();
+    for y in 0..h {
+        let line = &image[y * w..(y + 1) * w];
+        crate::transition_offsets_into(line, &mut offsets);
+        let first_set = usize::from(!line.first().copied().unwrap_or(false));
+        labellers[0].row(y, y * w, offsets[first_set..].as_chunks::<2>().0);
+        labellers[1].row(y, y * w, offsets[1 - first_set..].as_chunks::<2>().0);
+    }
+    labellers.map(|labeller| labeller.finish(h))
+}
+
+/// Streaming state of `fast_components_impl`, fed one row of runs at a time.
+struct Labeller {
+    components: Vec<Component>,
+    free: Vec<usize>,
+    merged: Vec<usize>,
+    // Row in which each slot's root last had a run; marks completed roots.
+    seen_row: Vec<usize>,
+    done: Vec<Component>,
+    previous: Vec<(usize, usize, usize)>,
+    current: Vec<(usize, usize, usize)>,
+    // Span vectors of discarded components are reused, so texture specks that
+    // span a few rows do not allocate one each.
+    pool: Vec<Vec<Span>>,
+    retain_ineligible_for_test: bool,
+}
+
+impl Labeller {
+    fn new(retain_ineligible_for_test: bool) -> Self {
+        Self {
+            components: Vec::new(),
+            free: Vec::new(),
+            merged: Vec::new(),
+            seen_row: Vec::new(),
+            done: Vec::new(),
+            previous: Vec::new(),
+            current: Vec::new(),
+            pool: Vec::new(),
+            retain_ineligible_for_test,
+        }
+    }
+
+    /// Keep the completed root's component if eligible and free its slot.
+    fn complete(&mut self, root: usize) {
+        let component = std::mem::take(&mut self.components[root]);
+        if self.retain_ineligible_for_test || component_is_eligible(&component) {
+            self.done.push(component);
+        } else if component.spans.capacity() > 0 {
+            let mut spans = component.spans;
+            spans.clear();
+            self.pool.push(spans);
+        }
+        // Other runs of this row may still look the root up.
+        self.components[root].parent = root;
+    }
+
+    /// Label the set runs `[left, right)` of row `y`, which starts at pixel `row`.
+    fn row(&mut self, y: usize, row: usize, runs: &[[usize; 2]]) {
+        let Self {
+            components,
+            free,
+            merged,
+            seen_row,
+            previous,
+            current,
+            pool,
+            ..
+        } = self;
+        current.clear();
+        let mut previous_start = 0;
+        for &[left, right] in runs {
             while previous_start < previous.len() && previous[previous_start].1 < left {
                 previous_start += 1;
             }
             let mut overlap = previous_start;
             let mut label = None;
             while overlap < previous.len() && previous[overlap].0 <= right {
-                let previous_label = find_component(&mut components, previous[overlap].2);
+                let previous_label = find_component(components, previous[overlap].2);
                 label = Some(match label {
-                    Some(existing) => union_components(
-                        &mut components,
-                        existing,
-                        previous_label,
-                        &mut merged,
-                        &mut pool,
-                    ),
+                    Some(existing) => {
+                        union_components(components, existing, previous_label, merged, pool)
+                    }
                     None => previous_label,
                 });
                 overlap += 1;
             }
             let span = Span { y, left, right };
             let label = if let Some(label) = label {
-                add_span(&mut components, label, span);
-                find_component(&mut components, label)
+                add_span(components, label, span);
+                find_component(components, label)
             } else {
                 let fresh = Component {
                     parent: 0,
@@ -415,33 +473,35 @@ fn fast_components_impl(
             current.push((left, right, label));
         }
         // Resolve this row's labels to roots and mark them as continuing.
-        for run in &mut current {
-            run.2 = find_component(&mut components, run.2);
+        for run in current.iter_mut() {
+            run.2 = find_component(components, run.2);
             seen_row[run.2] = y;
         }
         // Roots of the previous row that no current run continues are complete.
-        for &(_, _, label) in &previous {
-            let root = find_component(&mut components, label);
-            if seen_row[root] != y {
-                seen_row[root] = y;
-                finish(std::mem::take(&mut components[root]), &mut done, &mut pool);
-                // Other runs of this row may still look the root up.
-                components[root].parent = root;
-                free.push(root);
+        for index in 0..self.previous.len() {
+            let root = find_component(&mut self.components, self.previous[index].2);
+            if self.seen_row[root] != y {
+                self.seen_row[root] = y;
+                self.complete(root);
+                self.free.push(root);
             }
         }
         // Merged children are referenced by no run once labels are resolved.
-        free.append(&mut merged);
-        std::mem::swap(&mut previous, &mut current);
+        self.free.append(&mut self.merged);
+        std::mem::swap(&mut self.previous, &mut self.current);
     }
-    for &(_, _, root) in &previous {
-        if seen_row[root] != h {
-            seen_row[root] = h;
-            finish(std::mem::take(&mut components[root]), &mut done, &mut pool);
-            components[root].parent = root;
+
+    /// Complete the components of the last row, `h - 1`, and return all kept ones.
+    fn finish(mut self, h: usize) -> Vec<Component> {
+        for index in 0..self.previous.len() {
+            let root = self.previous[index].2;
+            if self.seen_row[root] != h {
+                self.seen_row[root] = h;
+                self.complete(root);
+            }
         }
+        self.done
     }
-    done
 }
 
 // Flood-fill reference extractor; tests check the streaming labeller against it.
@@ -586,21 +646,52 @@ fn component_hull(
         row_min[span.y] = row_min[span.y].min(span.left);
         row_max[span.y] = row_max[span.y].max(span.right);
     }
-    let mut boundary = Vec::with_capacity(touched_rows.len() * 2);
+    // Below 2^22 every boundary coordinate, a whole number plus or minus one
+    // half, is exact in f32. Sorting the integer pixel coordinates then gives
+    // the order and duplicates of `hull`'s float sort, at a fraction of its cost.
+    let exact = row_min.len() < 1 << 22
+        && touched_rows
+            .iter()
+            .all(|&y| row_max[y] < 1 << 22 && row_min[y] < 1 << 22);
+    if !exact {
+        let mut boundary = Vec::with_capacity(touched_rows.len() * 2);
+        for &y in touched_rows.iter() {
+            boundary.push([
+                crate::numeric::usize_f32(row_min[y]) + 0.5,
+                crate::numeric::usize_f32(y) + 0.5,
+            ]);
+            boundary.push([
+                crate::numeric::usize_f32(row_max[y]) - 0.5,
+                crate::numeric::usize_f32(y) + 0.5,
+            ]);
+            row_min[y] = usize::MAX;
+            row_max[y] = 0;
+        }
+        touched_rows.clear();
+        return hull(boundary);
+    }
+    // Pixel column `x` stands for the boundary point x + 1/2: the leftmost
+    // pixel of a row, and the rightmost one, `row_max - 1`.
+    let mut keys = Vec::with_capacity(touched_rows.len() * 2);
     for &y in touched_rows.iter() {
-        boundary.push([
-            crate::numeric::usize_f32(row_min[y]) + 0.5,
-            crate::numeric::usize_f32(y) + 0.5,
-        ]);
-        boundary.push([
-            crate::numeric::usize_f32(row_max[y]) - 0.5,
-            crate::numeric::usize_f32(y) + 0.5,
-        ]);
+        keys.push((row_min[y], y));
+        keys.push((row_max[y] - 1, y));
         row_min[y] = usize::MAX;
         row_max[y] = 0;
     }
     touched_rows.clear();
-    hull(boundary)
+    keys.sort_unstable();
+    keys.dedup();
+    let boundary = keys
+        .into_iter()
+        .map(|(x, y)| {
+            [
+                crate::numeric::usize_f32(x) + 0.5,
+                crate::numeric::usize_f32(y) + 0.5,
+            ]
+        })
+        .collect();
+    sorted_hull(boundary)
 }
 
 fn component_is_eligible(component: &Component) -> bool {
@@ -614,14 +705,23 @@ fn component_is_eligible(component: &Component) -> bool {
 }
 
 fn proposals_from_components(components: Vec<Component>, h: usize) -> (Vec<[Point; 4]>, bool) {
-    let mut eligible_components = Vec::new();
     let mut row_min = vec![usize::MAX; h];
     let mut row_max = vec![0; h];
     let mut touched_rows = Vec::new();
-    for component in components {
-        if !component_is_eligible(&component) {
-            continue;
-        }
+    // The final proposal order is descending component size, then origin
+    // (unique per component). The hull test below only drops components, so
+    // building hulls and quadrilaterals lazily in that order, until the
+    // proposal budget is filled, gives the same proposals.
+    let mut eligible_components: Vec<Component> = components
+        .into_iter()
+        .filter(component_is_eligible)
+        .collect();
+    eligible_components
+        .sort_unstable_by(|a, b| b.count.cmp(&a.count).then(a.origin.cmp(&b.origin)));
+    let mut proposals = Vec::new();
+    let mut base_count = 0;
+    let mut limited = false;
+    for component in eligible_components {
         let polygon = component_hull(&component, &mut row_min, &mut row_max, &mut touched_rows);
         let mut area = 0_f32;
         let mut perimeter = 0_f32;
@@ -639,23 +739,14 @@ fn proposals_from_components(components: Vec<Component>, h: usize) -> (Vec<[Poin
         {
             continue;
         }
-        eligible_components.push((
-            component.count,
-            component.origin,
-            polygon,
-            component.x0,
-            component.x1,
-            component.y0,
-            component.y1,
-        ));
-    }
-    // The final proposal order is descending component size. Construct costly
-    // enclosing quadrilaterals only until that same ordered budget is filled.
-    eligible_components.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    let mut proposals = Vec::new();
-    let mut base_count = 0;
-    let mut limited = false;
-    for (count, _origin, polygon, x0, x1, y0, y1) in eligible_components {
+        let Component {
+            count,
+            x0,
+            x1,
+            y0,
+            y1,
+            ..
+        } = component;
         let before = proposals.len();
         if let Some(q) = rotated_rectangle(&polygon) {
             proposals.push((count, q));
@@ -715,6 +806,11 @@ fn candidates(image: &[bool], w: usize, h: usize) -> (Vec<[Point; 4]>, bool) {
     proposals_from_components(components, h)
 }
 
+/// The candidates of `image` and of its inverse.
+fn candidate_pair(image: &[bool], w: usize, h: usize) -> [(Vec<[Point; 4]>, bool); 2] {
+    fast_component_pair(image, w, h).map(|components| proposals_from_components(components, h))
+}
+
 #[cfg(test)]
 mod component_fastpath_tests {
     use super::*;
@@ -755,6 +851,31 @@ mod component_fastpath_tests {
             proposals_from_components(flood_fill_components(image, w, h), h),
             "proposal order or geometry changed"
         );
+        let inverse: Vec<bool> = image.iter().map(|&bit| !bit).collect();
+        let [direct, inverted] = fast_component_pair(image, w, h);
+        assert_eq!(
+            signatures(direct, h),
+            signatures(fast_components(image, w, h), h),
+            "paired labelling changed the direct components"
+        );
+        assert_eq!(
+            signatures(inverted, h),
+            signatures(fast_components(&inverse, w, h), h),
+            "paired labelling changed the inverse components"
+        );
+        let mut row_min = vec![usize::MAX; h];
+        let mut row_max = vec![0; h];
+        let mut touched_rows = Vec::new();
+        for component in fast_all_components(image, w, h)
+            .into_iter()
+            .chain(fast_all_components(&inverse, w, h))
+        {
+            assert_eq!(
+                component_hull(&component, &mut row_min, &mut row_max, &mut touched_rows),
+                sorted_component_hull_reference(&component),
+                "integer-sorted hull differs from the float-sorted hull"
+            );
+        }
     }
 
     fn sorted_component_hull_reference(component: &Component) -> Vec<Point> {
@@ -1402,12 +1523,22 @@ fn detect_with_retries(
     let mut gray_attempts = retries.gray;
     let mut failed: Vec<(Vec<[Point; 4]>, usize, f32)> = Vec::new();
     let mut unread: Vec<[Point; 4]> = Vec::new();
+    // Modes 2 and 3 invert modes 0 and 1; their candidates come with those.
+    let mut inverse_candidates: [Option<(Vec<[Point; 4]>, bool)>; 2] = [None, None];
     for mode in 0..4 {
         if binary_images.is_duplicate(mode) {
             continue;
         }
         let image = binary_images.get(mode);
-        let (proposals, limited) = candidates(image, w, h);
+        let (proposals, limited) = if mode < 2 {
+            let [direct, inverse] = candidate_pair(image, w, h);
+            inverse_candidates[mode] = Some(inverse);
+            direct
+        } else {
+            inverse_candidates[mode - 2]
+                .take()
+                .unwrap_or_else(|| candidates(image, w, h))
+        };
         regions.limited |= limited;
         for original in proposals {
             let solid = l_border_edges(image, w, h, original);
