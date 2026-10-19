@@ -1,4 +1,4 @@
-//! Restored-contrast and threshold retries on bounded source crops.
+//! Restored-contrast, wide and reduced retries on bounded source crops.
 use super::{
     Error, Image, Proposal, Quad, ScanOptions, Scanner, TextureSource, checked_image,
     protected_primary, scan_prepared_impl, source_contradiction,
@@ -6,8 +6,6 @@ use super::{
 #[cfg(not(feature = "low"))]
 use super::{recovered_ean_source_agreement, scan_policy};
 use barcode_research_core::frame::Barcode;
-#[cfg(any(feature = "high", feature = "very-high"))]
-use barcode_research_core::multi_scan::Policy;
 
 #[cfg(not(feature = "low"))]
 pub(super) fn restore_source_image(image: Image<'_>) -> Vec<u8> {
@@ -265,75 +263,6 @@ pub(super) fn restoration_bounds(image: Image<'_>, polygon: Quad) -> (usize, usi
     let w = right.saturating_sub(x);
     let h = bottom.saturating_sub(y);
     (x, y, w, h)
-}
-
-#[cfg(any(feature = "high", feature = "very-high"))]
-pub(super) fn recover_threshold_regions(
-    scanner: &mut Scanner,
-    image: Image<'_>,
-    proposals: &[Proposal],
-    scan: &mut crate::ScanResult,
-) -> std::result::Result<(), Error> {
-    let protected = protected_primary(image, &scan.frame.barcodes);
-    let mut unresolved: Vec<_> = proposals
-        .iter()
-        .enumerate()
-        .filter(|(i, p)| {
-            scan.frame
-                .candidates
-                .get(*i)
-                .is_some_and(|c| c.work.guard_pass > 0 && c.detections.is_empty())
-                && !protected.iter().any(|b| {
-                    crate::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3
-                })
-        })
-        .collect();
-    unresolved.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
-    let regions: Vec<_> = unresolved
-        .into_iter()
-        .take(2)
-        .map(|(_, p)| p.polygon)
-        .collect();
-    if regions.is_empty() {
-        return Ok(());
-    }
-    let policy = Policy {
-        complete: false,
-        max_retry_paths_per_candidate: if cfg!(feature = "very-high") { 64 } else { 16 },
-        max_retry_paths_per_frame: if cfg!(feature = "very-high") { 128 } else { 32 },
-        max_association_checks: 32_768,
-        max_association_pixels: 262_144,
-        transition_cleanup: true,
-        source_identity: true,
-        interior_normalization: true,
-        guard_bias: true,
-        ..Policy::default()
-    };
-    let retry = scanner
-        .regions
-        .scan_threshold_recovery(checked_image(image)?, &regions, policy)?;
-    scan.frame.unfinished |= retry.frame.unfinished;
-    for mut read in retry.frame.barcodes {
-        if read.detection.support < 4
-            || protected.iter().chain(&scan.frame.barcodes).any(|b| {
-                crate::geometry::overlap_quads(&read.detection.polygon, &b.detection.polygon).0
-                    >= 0.3
-            })
-        {
-            continue;
-        }
-        if source_contradiction(
-            image,
-            read.detection.polygon,
-            read.detection.digits,
-            &mut scanner.fast_profiles,
-        )? {
-            continue;
-        }
-        read.candidate_indices.clear();
-        scan.frame.barcodes.push(read);
-    }
-    Ok(())
 }
 
 #[cfg(not(feature = "low"))]

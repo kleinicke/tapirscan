@@ -599,17 +599,10 @@ impl CandidateScanner {
             self.signal.len() <= 384 || work.medium_threshold_profiles < 8;
         #[cfg(feature = "mode-low")]
         let threshold_budget_available = true;
-        #[cfg(not(feature = "mode-low"))]
-        let mut long_threshold_evidence = false;
-        #[cfg(feature = "mode-low")]
-        let long_threshold_evidence = false;
-        #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-        let long_profiles_allowed = self.threshold_recovery;
-        #[cfg(not(any(feature = "mode-high", feature = "mode-very-high")))]
         let long_profiles_allowed = cfg!(feature = "mode-medium");
         // Profiles up to 384 samples take the bounded extra threshold attempts;
         // fixed 512-sample profiles never do, and longer native profiles only
-        // when this mode allows them and they are still unresolved.
+        // in Medium and while they are still unresolved.
         if cleanup
             && (self.signal.len() <= 384 || long_profiles_allowed)
             && (self.signal.len() <= 384 || (self.signal.len() != 512 && reads.symbols.is_empty()))
@@ -625,8 +618,6 @@ impl CandidateScanner {
             #[cfg(not(feature = "mode-low"))]
             if self.signal.len() > 384 {
                 work.medium_threshold_profiles += 1;
-                long_threshold_evidence =
-                    cfg!(any(feature = "mode-high", feature = "mode-very-high"));
             }
             for threshold in [0.35f32, 0.65] {
                 let shifted: Vec<_> = self
@@ -818,12 +809,11 @@ impl CandidateScanner {
             let n = crate::numeric::usize_f64(self.signal.len());
             // Native soft-only recovery uses the existing strict four-row
             // consensus gate, also used by short-quiet/retail recovery evidence.
-            let weak_native = long_threshold_evidence
-                || cfg!(feature = "mode-medium")
-                    && self.signal.len() != 512
-                    && soft_reads
-                        .iter()
-                        .any(|p| p.digits == r.digits && p.left < r.right && r.left < p.right);
+            let weak_native = cfg!(feature = "mode-medium")
+                && self.signal.len() != 512
+                && soft_reads
+                    .iter()
+                    .any(|p| p.digits == r.digits && p.left < r.right && r.left < p.right);
 
             {
                 #[cfg(any(feature = "mode-low", feature = "mode-medium"))]

@@ -10,8 +10,6 @@ pub(crate) mod segment_voting;
 mod source_evidence;
 #[cfg(not(feature = "low"))]
 use restoration::recover_restored_regions;
-#[cfg(any(feature = "high", feature = "very-high"))]
-use restoration::recover_threshold_regions;
 #[cfg(not(feature = "low"))]
 use restoration::{recover_late_wide_crop, recover_scaled_crop};
 #[cfg(not(feature = "low"))]
@@ -282,10 +280,6 @@ fn scan_prepared_impl(
             &mut scan,
             &mut scanner.fast_profiles,
         )?;
-    }
-    #[cfg(any(feature = "high", feature = "very-high"))]
-    if allow_restoration {
-        recover_threshold_regions(scanner, image, &localization.proposals, &mut scan)?;
     }
     // Preserve the shared Retail/Common budget in Medium. Source-region
     // restoration remains available for EAN-only scans or explicit completion.

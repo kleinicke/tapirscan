@@ -310,8 +310,6 @@ struct CachedProfile {
 
 #[derive(Default)]
 pub struct CandidateScanner {
-    #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-    pub(crate) threshold_recovery: bool,
     #[cfg(not(feature = "mode-low"))]
     profile_cache: [Option<CachedProfile>; 2],
     pub(crate) retail: crate::retail_pipeline::Collector,
