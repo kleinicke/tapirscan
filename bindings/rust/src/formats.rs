@@ -40,6 +40,7 @@ use crate::format_registry::{
 };
 use crate::read::{Read, Region};
 use crate::{Error, Image, MODE, ScanOptions, Scanner, geometry::overlap_quads};
+use barcode_multiformat::binarization::Images as Thresholds;
 use barcode_multiformat::formats::COMMON_LINEAR_MASK;
 use barcode_multiformat::formats::{
     AZTEC, CODE39, CODE128, DATA_BAR, DATA_BAR_EXPANDED, EAN8, EAN13, ITF, MATRIX_MASK, MAXI_CODE,
@@ -1520,6 +1521,11 @@ fn scan_additional(
     .into_iter()
     .filter(|&(selected, _)| selected != 0)
     .collect();
+    // The 2D reader groups threshold the same pixels. Groups that run one after another
+    // pass the threshold cache on; a group that finds it taken (on another thread)
+    // starts its own. Thresholds are deterministic, so every group reads the same.
+    let thresholds =
+        std::sync::Mutex::new(Some(Thresholds::new(pixels, image.width, image.height)));
     let first_scan = |selected: u32, level: usize| {
         #[cfg(any(feature = "low", feature = "medium"))]
         if let Some(sparse) = sparse.as_ref().filter(|_| {
@@ -1537,7 +1543,24 @@ fn scan_additional(
         } else {
             0
         };
-        scan_reader(pixels, image.width, image.height, selected | flags, level)
+        if selected & LINEAR_MASK != 0 {
+            return scan_reader(pixels, image.width, image.height, selected | flags, level);
+        }
+        let taken = thresholds.lock().ok().and_then(|mut shared| shared.take());
+        let mut binary_images =
+            taken.unwrap_or_else(|| Thresholds::new(pixels, image.width, image.height));
+        let scan = scan_reader_with(
+            pixels,
+            image.width,
+            image.height,
+            selected,
+            level,
+            &mut binary_images,
+        );
+        if let Ok(mut shared) = thresholds.lock() {
+            *shared = Some(binary_images);
+        }
+        scan
     };
     let first_scans = crate::matrix_frontend::concurrent(&groups, &first_scan);
     for (&(selected, level), scan) in groups.iter().zip(first_scans) {
@@ -2163,18 +2186,40 @@ pub(crate) fn scan_reader(
     mask: u32,
     effort: usize,
 ) -> barcode_multiformat::Scan {
+    let mut binary_images = Thresholds::new(pixels, width, height);
+    scan_reader_with(pixels, width, height, mask, effort, &mut binary_images)
+}
+
+/// [`scan_reader`] with a threshold cache of the same `pixels` that the frame's other
+/// reader groups share.
+fn scan_reader_with(
+    pixels: &[u8],
+    width: usize,
+    height: usize,
+    mask: u32,
+    effort: usize,
+    binary_images: &mut Thresholds<'_>,
+) -> barcode_multiformat::Scan {
     if mask & AZTEC != 0 && mask & !MATRIX_MASK == 0 {
-        crate::matrix_frontend::scan(pixels, width, height, mask, effort)
+        crate::matrix_frontend::scan(pixels, width, height, mask, effort, binary_images)
     } else if mask == QR_CODE {
-        barcode_research_core::qr_frontend::scan_with_effort(pixels, width, height, effort)
+        barcode_research_core::qr_frontend::scan_with_images(
+            pixels,
+            width,
+            height,
+            effort,
+            binary_images,
+        )
     } else {
-        barcode_multiformat::scan_for_mode(
+        barcode_multiformat::scan_with_images(
             pixels,
             width,
             height,
             mask,
             effort,
             crate::MODE_ID as usize,
+            binary_images,
+            |_, _| {},
         )
     }
 }

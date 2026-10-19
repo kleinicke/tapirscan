@@ -35,6 +35,19 @@ pub fn scan(image: &[u8], width: usize, height: usize) -> Scan {
 pub fn scan_with_effort(image: &[u8], width: usize, height: usize, effort: usize) -> Scan {
     scan_impl(image, width, height, false, effort)
 }
+/// [`scan_with_effort`] with a threshold cache of the same `image` that other readers
+/// of the frame share. Thresholds are deterministic, so the scan equals one with a
+/// fresh cache.
+#[must_use]
+pub fn scan_with_images(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    effort: usize,
+    binary: &mut binarization::Images<'_>,
+) -> Scan {
+    scan_impl_with(image, width, height, false, effort, binary)
+}
 /// Retry the two additional foreground thresholds on an unresolved source image.
 #[must_use]
 pub fn scan_foreground(image: &[u8], width: usize, height: usize) -> Scan {
@@ -43,6 +56,18 @@ pub fn scan_foreground(image: &[u8], width: usize, height: usize) -> Scan {
 /// Decode attempts for each block-threshold pass.
 const HYBRID_BUDGET: usize = 200;
 fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort: usize) -> Scan {
+    let mut binary = binarization::Images::new(image, width, height);
+    scan_impl_with(image, width, height, foreground, effort, &mut binary)
+}
+
+fn scan_impl_with(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    foreground: bool,
+    effort: usize,
+    binary: &mut binarization::Images<'_>,
+) -> Scan {
     if width == 0 || height == 0 || width.checked_mul(height).is_none_or(|n| n > image.len()) {
         return Scan {
             barcodes: vec![],
@@ -52,7 +77,6 @@ fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort
         };
     }
     let mut regions = barcode_multiformat::regions::Regions::default();
-    let mut binary = binarization::Images::new(image, width, height);
     // The foreground retry tries only the additional foreground splits; the
     // base threshold passes remain owned by the caller.
     let pass = if foreground {
@@ -64,7 +88,7 @@ fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort
     } else {
         Pass::effort(effort > 1, effort > 2)
     };
-    let (mut reads, mut limited) = detect(width, height, &mut regions, &mut binary, pass);
+    let (mut reads, mut limited) = detect(width, height, &mut regions, binary, pass);
     // Block thresholds follow sharp shadow edges and large modules that the
     // 33-pixel local mean misses. Medium tries them where a QR candidate stayed
     // unread; High and Very High on every unread frame. Each pass has a bounded

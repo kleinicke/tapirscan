@@ -216,8 +216,25 @@ pub(crate) fn concurrent(
         .collect()
 }
 
-pub(crate) fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize) -> Scan {
-    scan_with(image, width, height, mask, effort, parallel_enabled())
+/// Scan the matrix readers of `mask`. On one thread they use `binary_images`, a threshold
+/// cache of the same `image` that other reader groups of the frame share.
+pub(crate) fn scan(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    mask: u32,
+    effort: usize,
+    binary_images: &mut binarization::Images<'_>,
+) -> Scan {
+    scan_with(
+        image,
+        width,
+        height,
+        mask,
+        effort,
+        parallel_enabled(),
+        binary_images,
+    )
 }
 
 fn scan_with(
@@ -227,6 +244,7 @@ fn scan_with(
     mask: u32,
     effort: usize,
     allow_parallel: bool,
+    binary_images: &mut binarization::Images<'_>,
 ) -> Scan {
     let bits = readers(mask);
     let mut matrix_results = Vec::new();
@@ -250,7 +268,6 @@ fn scan_with(
         merged
     } else {
         let mut regions = regions::Regions::default();
-        let mut binary_images = binarization::Images::new(image, width, height);
         for bit in bits {
             let (mut reads, limited) = run_reader(
                 bit,
@@ -259,7 +276,7 @@ fn scan_with(
                 height,
                 effort,
                 &mut regions,
-                &mut binary_images,
+                binary_images,
             );
             matrix_results.append(&mut reads);
             matrix_unfinished |= limited;
@@ -344,6 +361,7 @@ mod tests {
             images.push(image);
         }
         for image in &images {
+            let fresh = || barcode_multiformat::binarization::Images::new(image, width, height);
             for effort in 0..4 {
                 for mask in [
                     QR_CODE | DATA_MATRIX,
@@ -351,8 +369,24 @@ mod tests {
                     DATA_MATRIX | PDF417,
                 ] {
                     assert_eq!(
-                        report(&scan_with(image, width, height, mask, effort, true)),
-                        report(&scan_with(image, width, height, mask, effort, false)),
+                        report(&scan_with(
+                            image,
+                            width,
+                            height,
+                            mask,
+                            effort,
+                            true,
+                            &mut fresh()
+                        )),
+                        report(&scan_with(
+                            image,
+                            width,
+                            height,
+                            mask,
+                            effort,
+                            false,
+                            &mut fresh()
+                        )),
                         "effort {effort} mask {mask}"
                     );
                 }

@@ -490,10 +490,6 @@ pub fn scan_observed(
 }
 
 /// [`scan_observed`] for a scanner `mode`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "The scanner orchestrator keeps reader order, deduplication and aggregate unfinished-work accounting in one transaction."
-)]
 pub fn scan_observed_for_mode(
     image: &[u8],
     width: usize,
@@ -501,6 +497,40 @@ pub fn scan_observed_for_mode(
     mask: u32,
     effort: usize,
     mode: usize,
+    observe: impl FnMut(&'static str, bool),
+) -> Scan {
+    let mut binary_images = binarization::Images::new(image, width, height);
+    scan_with_images(
+        image,
+        width,
+        height,
+        mask,
+        effort,
+        mode,
+        &mut binary_images,
+        observe,
+    )
+}
+
+/// [`scan_observed_for_mode`] with a threshold cache of the same `image` that other
+/// readers of the frame share. Thresholds are deterministic, so the scan equals one
+/// with a fresh cache.
+#[expect(
+    clippy::too_many_lines,
+    reason = "The scanner orchestrator keeps reader order, deduplication and aggregate unfinished-work accounting in one transaction."
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The frame, its selection and mode, the shared cache and the stage hook are independent inputs."
+)]
+pub fn scan_with_images(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    mask: u32,
+    effort: usize,
+    mode: usize,
+    binary_images: &mut binarization::Images<'_>,
     mut observe: impl FnMut(&'static str, bool),
 ) -> Scan {
     if width == 0 || height == 0 || width.checked_mul(height).is_none_or(|n| n > image.len()) {
@@ -512,14 +542,13 @@ pub fn scan_observed_for_mode(
         };
     }
     let mut regions = regions::Regions::default();
-    let mut binary_images = binarization::Images::new(image, width, height);
     let (mut matrix_results, mut matrix_unfinished) = if mask & QR_CODE != 0 {
         let (reads, limited) = qr_detect::detect_group(
             image,
             width,
             height,
             &mut regions,
-            &mut binary_images,
+            binary_images,
             qr_detect::Policy::for_mode(mode),
             effort,
         );
@@ -529,14 +558,8 @@ pub fn scan_observed_for_mode(
         (vec![], false)
     };
     if mask & DATA_MATRIX != 0 {
-        let (mut reads, limited) = dm_detect::detect(
-            width,
-            height,
-            &mut regions,
-            &mut binary_images,
-            effort > 1,
-            mode,
-        );
+        let (mut reads, limited) =
+            dm_detect::detect(width, height, &mut regions, binary_images, effort > 1, mode);
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
         observe("DataMatrix", matrix_unfinished || regions.limited);
@@ -547,7 +570,7 @@ pub fn scan_observed_for_mode(
             height,
             &mut regions,
             image,
-            &mut binary_images,
+            binary_images,
             aztec_detect::Policy::for_mode(mode),
             mode,
         );
@@ -557,7 +580,7 @@ pub fn scan_observed_for_mode(
     }
     if mask & MAXI_CODE != 0 {
         let (mut reads, limited) =
-            maxicode_detect::detect(width, height, &mut regions, &mut binary_images);
+            maxicode_detect::detect(width, height, &mut regions, binary_images);
         matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
         observe("MaxiCode", matrix_unfinished || regions.limited);

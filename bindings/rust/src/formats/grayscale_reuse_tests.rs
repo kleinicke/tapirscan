@@ -112,3 +112,57 @@ fn color_then_padded_gray_reuses_storage_without_stale_pixels() {
     assert_eq!(gray, [5, 9, 4, 3]);
     assert_eq!(gray.as_ptr(), pointer);
 }
+
+#[test]
+fn reader_groups_read_alike_with_a_shared_threshold_cache() {
+    use super::{Thresholds, scan_reader, scan_reader_with};
+    use barcode_multiformat::formats::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE};
+    let report = |scan: &barcode_multiformat::Scan| {
+        format!(
+            "{:?}",
+            (
+                scan.barcodes
+                    .iter()
+                    .map(|read| (&read.format, &read.text, read.polygon, read.support))
+                    .collect::<Vec<_>>(),
+                scan.regions
+                    .iter()
+                    .map(|region| (&region.format, region.polygon, region.support))
+                    .collect::<Vec<_>>(),
+                scan.unfinished,
+            )
+        )
+    };
+    let (width, height): (usize, usize) = (320, 240);
+    // Blocky noise leaves candidates in every reader.
+    for block in [1, 3, 8] {
+        let image: Vec<u8> = (0..width * height)
+            .map(|i| {
+                let (x, y) = (i % width / block, i / width / block);
+                let v = x.wrapping_mul(0x85eb_ca6b) ^ y.wrapping_mul(0xc2b2_ae35) ^ 0x9e37;
+                if (v ^ (v >> 15)) & 1 == 0 { 0 } else { 255 }
+            })
+            .collect();
+        for groups in [
+            [DATA_MATRIX, QR_CODE],
+            [DATA_MATRIX | AZTEC | PDF417, QR_CODE],
+            [QR_CODE, DATA_MATRIX | MAXI_CODE],
+        ] {
+            let mut shared = Thresholds::new(&image, width, height);
+            for mask in groups {
+                assert_eq!(
+                    report(&scan_reader_with(
+                        &image,
+                        width,
+                        height,
+                        mask,
+                        1,
+                        &mut shared
+                    )),
+                    report(&scan_reader(&image, width, height, mask, 1)),
+                    "block {block} mask {mask}"
+                );
+            }
+        }
+    }
+}
