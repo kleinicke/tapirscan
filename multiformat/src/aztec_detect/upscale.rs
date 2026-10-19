@@ -78,66 +78,6 @@ fn center_of(polygon: &[[f32; 2]; 4]) -> [f32; 2] {
         .fold([0., 0.], |a, p| [a[0] + p[0] * 0.25, a[1] + p[1] * 0.25])
 }
 
-/// Catmull-Rom taps (first source index, weights) for one output coordinate.
-fn taps(out: usize, origin: usize, factor: usize, limit: usize) -> ([usize; 4], [f32; 4]) {
-    let position = (numeric::usize_f32(out) + 0.5) / numeric::usize_f32(factor) - 0.5
-        + numeric::usize_f32(origin);
-    let floor = position.floor();
-    let t = position - floor;
-    let base = numeric::f32_isize(floor);
-    let last = numeric::usize_f32(limit - 1);
-    let index =
-        |offset: isize| numeric::f32_usize(numeric::isize_f32(base + offset).clamp(0., last));
-    let (t2, t3) = (t * t, t * t * t);
-    (
-        [index(-1), index(0), index(1), index(2)],
-        [
-            -0.5 * t3 + t2 - 0.5 * t,
-            1.5 * t3 - 2.5 * t2 + 1.,
-            -1.5 * t3 + 2. * t2 + 0.5 * t,
-            0.5 * t3 - 0.5 * t2,
-        ],
-    )
-}
-
-/// The window `[x0, x0 + width) x [y0, y0 + height)` of `gray`, enlarged `factor` times.
-fn enlarge(
-    gray: &[u8],
-    stride: usize,
-    rows: usize,
-    window: [usize; 4],
-    factor: usize,
-) -> (Vec<u8>, usize, usize) {
-    let [x0, y0, width, height] = window;
-    let (out_width, out_height) = (width * factor, height * factor);
-    let columns: Vec<_> = (0..out_width)
-        .map(|x| taps(x, x0, factor, stride))
-        .collect();
-    let lines: Vec<_> = (0..out_height).map(|y| taps(y, y0, factor, rows)).collect();
-    // Horizontal pass for the source rows the vertical taps touch.
-    let first = lines.iter().map(|l| l.0[0]).min().unwrap_or(0);
-    let last = lines.iter().map(|l| l.0[3]).max().unwrap_or(0);
-    let mut wide = vec![0_f32; (last + 1 - first) * out_width];
-    for (row, target) in wide.chunks_exact_mut(out_width).enumerate() {
-        let source = &gray[(first + row) * stride..(first + row + 1) * stride];
-        for (value, (index, weight)) in target.iter_mut().zip(&columns) {
-            *value = (0..4)
-                .map(|k| f32::from(source[index[k]]) * weight[k])
-                .sum();
-        }
-    }
-    let mut output = vec![0_u8; out_width * out_height];
-    for (target, (index, weight)) in output.chunks_exact_mut(out_width).zip(&lines) {
-        for (x, value) in target.iter_mut().enumerate() {
-            let sum: f32 = (0..4)
-                .map(|k| wide[(index[k] - first) * out_width + x] * weight[k])
-                .sum();
-            *value = numeric::f32_u8(sum.round().clamp(0., 255.));
-        }
-    }
-    (output, out_width, out_height)
-}
-
 impl Search {
     /// Retry bullseye candidates that stayed unread, on enlarged windows.
     ///
@@ -216,7 +156,7 @@ impl Search {
                 continue;
             }
             *pixels -= cost;
-            let (larger, out_width, out_height) = enlarge(
+            let (larger, out_width, out_height) = crate::resample::catmull_rom_enlarge(
                 gray,
                 width,
                 height,
@@ -399,7 +339,7 @@ mod tests {
             .collect();
         for factor in [2, 3] {
             let (larger, out_width, out_height) =
-                enlarge(&gray, width, height, [5, 4, 20, 10], factor);
+                crate::resample::catmull_rom_enlarge(&gray, width, height, [5, 4, 20, 10], factor);
             assert_eq!((out_width, out_height), (20 * factor, 10 * factor));
             // Away from the borders a linear ramp is reproduced exactly: the
             // enlarged pixel x sits at source x0 + (x + 0.5) / factor - 0.5.

@@ -30,6 +30,7 @@ mod rectify;
 pub mod reed_prime;
 pub mod reed_solomon;
 pub mod regions;
+mod resample;
 mod retail_gray;
 pub mod retail_profile;
 use formats::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE};

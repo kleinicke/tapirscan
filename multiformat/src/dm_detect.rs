@@ -1736,72 +1736,6 @@ fn padded_box(quad: &[Point; 4], pad: f32, (w, h): (usize, usize)) -> Option<[us
 /// Longest side of an unread candidate box that is enlarged instead of reduced.
 const SMALL_BOX: usize = 96;
 
-/// Bilinear enlargement of a crop by an integer factor.
-fn upscale_crop(
-    gray: &[u8],
-    stride: usize,
-    [x0, y0, x1, y1]: [usize; 4],
-    factor: usize,
-) -> Vec<u8> {
-    let (cw, ch) = (x1 - x0, y1 - y0);
-    let (out_w, out_h) = (cw * factor, ch * factor);
-    let scale = crate::numeric::usize_f32(factor);
-    let mut out = vec![0_u8; out_w * out_h];
-    for y in 0..out_h {
-        let fy = ((crate::numeric::usize_f32(y) + 0.5) / scale - 0.5)
-            .clamp(0., crate::numeric::usize_f32(ch - 1));
-        let (ya, wy) = (crate::numeric::f32_usize(fy.floor()), fy.fract());
-        let yb = (ya + 1).min(ch - 1);
-        for x in 0..out_w {
-            let fx = ((crate::numeric::usize_f32(x) + 0.5) / scale - 0.5)
-                .clamp(0., crate::numeric::usize_f32(cw - 1));
-            let (xa, wx) = (crate::numeric::f32_usize(fx.floor()), fx.fract());
-            let xb = (xa + 1).min(cw - 1);
-            let at = |row: usize, column: usize| f32::from(gray[(y0 + row) * stride + x0 + column]);
-            let top = at(ya, xa) * (1. - wx) + at(ya, xb) * wx;
-            let bottom = at(yb, xa) * (1. - wx) + at(yb, xb) * wx;
-            out[y * out_w + x] = crate::numeric::f32_u8((top * (1. - wy) + bottom * wy).round());
-        }
-    }
-    out
-}
-
-/// Area-average a crop to the given size.
-fn average_crop(
-    gray: &[u8],
-    stride: usize,
-    [x0, y0, x1, y1]: [usize; 4],
-    (out_w, out_h): (usize, usize),
-) -> Vec<u8> {
-    let (cw, ch) = (x1 - x0, y1 - y0);
-    let mut out = vec![0_u8; out_w * out_h];
-    for y in 0..out_h {
-        let (ya, yb) = (
-            y * ch / out_h,
-            ((y + 1) * ch / out_h).max(y * ch / out_h + 1).min(ch),
-        );
-        for x in 0..out_w {
-            let (xa, xb) = (
-                x * cw / out_w,
-                ((x + 1) * cw / out_w).max(x * cw / out_w + 1).min(cw),
-            );
-            // At most four evenly spaced samples per axis keep the pass cheap.
-            let (ys, xs) = ((yb - ya).min(4), (xb - xa).min(4));
-            let mut sum = 0_u32;
-            for j in 0..ys {
-                let row = y0 + ya + (2 * j + 1) * (yb - ya) / (2 * ys);
-                for i in 0..xs {
-                    let column = x0 + xa + (2 * i + 1) * (xb - xa) / (2 * xs);
-                    sum += u32::from(gray[row * stride + column]);
-                }
-            }
-            let count = u32::try_from(ys * xs).unwrap_or(1);
-            out[y * out_w + x] = u8::try_from((sum + count / 2) / count).unwrap_or(255);
-        }
-    }
-    out
-}
-
 /// Reads of a candidate box, detected on a bilinear enlargement by `factor` (1 is the
 /// source scale) and mapped back to source coordinates.
 fn enlarged_reads(
@@ -1812,7 +1746,7 @@ fn enlarged_reads(
 ) -> Vec<Detection> {
     let (cw, ch) = (candidate[2] - candidate[0], candidate[3] - candidate[1]);
     let (out_w, out_h) = (cw * factor, ch * factor);
-    let large = upscale_crop(gray, stride, candidate, factor);
+    let large = crate::resample::bilinear_enlarge(gray, stride, candidate, factor);
     let mut crop_regions = crate::regions::Regions::default();
     let mut images = crate::binarization::Images::new(&large, out_w, out_h);
     let (mut reads, _) = detect_with_retries(
@@ -1930,7 +1864,7 @@ pub(crate) fn crop_retries_for(
                 continue;
             }
             let (out_w, out_h) = ((cw * target / long).max(8), (ch * target / long).max(8));
-            let small = average_crop(gray, w, candidate, (out_w, out_h));
+            let small = crate::resample::sampled_average(gray, w, candidate, (out_w, out_h));
             let mut crop_regions = crate::regions::Regions::default();
             let mut images = crate::binarization::Images::new(&small, out_w, out_h);
             let (reads, _) = detect_with_retries(
