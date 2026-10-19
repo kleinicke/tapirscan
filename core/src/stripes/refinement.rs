@@ -483,33 +483,12 @@ fn source_extent(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
     let quad = &p.polygon;
     let ex = [quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]];
     let ey = [quad[3][0] - quad[0][0], quad[3][1] - quad[0][1]];
-    #[cfg(any(
-        feature = "mode-low",
-        feature = "mode-high",
-        feature = "mode-very-high"
-    ))]
     let (width, _h) = extent_dimensions(p)?;
-    #[cfg(feature = "mode-medium")]
-    let (w, _h) = extent_dimensions(p)?;
 
-    #[cfg(any(
-        feature = "mode-low",
-        feature = "mode-high",
-        feature = "mode-very-high"
-    ))]
     let margin = (width * 0.35).min(100.);
-    #[cfg(feature = "mode-medium")]
-    let margin = (w * 0.35).min(100.);
 
     let start = -crate::numeric::f64_isize(margin.ceil());
-    #[cfg(any(
-        feature = "mode-low",
-        feature = "mode-high",
-        feature = "mode-very-high"
-    ))]
     let end = crate::numeric::f64_isize((width + margin).ceil());
-    #[cfg(feature = "mode-medium")]
-    let end = crate::numeric::f64_isize((w + margin).ceil());
 
     let count = (end - start + 1).cast_unsigned();
     let gray = |x: usize, y: usize| {
@@ -549,14 +528,7 @@ fn source_extent(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
     for fraction in [0.2, 0.35, 0.5, 0.65, 0.8] {
         let mut last = None;
         for i in 0..count {
-            #[cfg(any(
-                feature = "mode-low",
-                feature = "mode-high",
-                feature = "mode-very-high"
-            ))]
             let u = crate::numeric::isize_f64(start + (i).cast_signed()) / width;
-            #[cfg(feature = "mode-medium")]
-            let u = crate::numeric::isize_f64(start + (i).cast_signed()) / w;
 
             let v = sample(
                 quad[0][0] + ex[0] * u + ey[0] * fraction,
@@ -588,14 +560,7 @@ fn source_extent(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
         }
         prior = polarity;
     }
-    #[cfg(any(
-        feature = "mode-low",
-        feature = "mode-high",
-        feature = "mode-very-high"
-    ))]
     let gap = (width * 0.05).clamp(8., 24.);
-    #[cfg(feature = "mode-medium")]
-    let gap = (w * 0.05).clamp(8., 24.);
 
     let (mut begin, mut best_begin, mut best_end) = (0, 0, 0);
     while begin < events.len() {
@@ -604,26 +569,10 @@ fn source_extent(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
             end += 1;
         }
         {
-            #[cfg(any(
-                feature = "mode-low",
-                feature = "mode-high",
-                feature = "mode-very-high"
-            ))]
             {
                 if end - begin >= 30
                     && events[begin] < width * 0.5
                     && events[end - 1] > width * 0.5
-                    && end - begin > best_end - best_begin
-                {
-                    best_begin = begin;
-                    best_end = end;
-                }
-            }
-            #[cfg(feature = "mode-medium")]
-            {
-                if end - begin >= 30
-                    && events[begin] < w * 0.5
-                    && events[end - 1] > w * 0.5
                     && end - begin > best_end - best_begin
                 {
                     best_begin = begin;
@@ -638,51 +587,21 @@ fn source_extent(im: ImageView<'_>, p: &Proposal) -> Option<Proposal> {
         return None;
     }
     let lo = (events[best_begin] - 2.).min(0.);
-    #[cfg(any(
-        feature = "mode-low",
-        feature = "mode-high",
-        feature = "mode-very-high"
-    ))]
     let hi = (events[best_end - 1] + 2.).max(width);
-    #[cfg(feature = "mode-medium")]
-    let hi = (events[best_end - 1] + 2.).max(w);
 
     {
-        #[cfg(any(
-            feature = "mode-low",
-            feature = "mode-high",
-            feature = "mode-very-high"
-        ))]
         {
             if lo >= -2. && hi <= width + 2. {
-                return None;
-            }
-        }
-        #[cfg(feature = "mode-medium")]
-        {
-            if lo >= -2. && hi <= w + 2. {
                 return None;
             }
         }
     }
 
     let at = |u: f64, v: f64| {
-        #[cfg(any(
-            feature = "mode-low",
-            feature = "mode-high",
-            feature = "mode-very-high"
-        ))]
         {
             [
                 quad[0][0] + ex[0] * u / width + ey[0] * v,
                 quad[0][1] + ex[1] * u / width + ey[1] * v,
-            ]
-        }
-        #[cfg(feature = "mode-medium")]
-        {
-            [
-                quad[0][0] + ex[0] * u / w + ey[0] * v,
-                quad[0][1] + ex[1] * u / w + ey[1] * v,
             ]
         }
     };

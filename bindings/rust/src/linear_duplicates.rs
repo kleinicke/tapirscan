@@ -92,12 +92,6 @@ impl Evidence<'_> {
     // Gap checks only need contrast, not the thresholded profile. For an interior
     // segment, later samples cannot invalidate contrast already found. Charge the
     // original 64-sample budget so this optimization never changes search limits.
-    #[cfg(any(
-        feature = "low",
-        feature = "medium",
-        feature = "high",
-        feature = "very-high"
-    ))]
     #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn has_contrast(&mut self, left: [f64; 2], right: [f64; 2]) -> bool {
         let (Ok(width), Ok(height)) = (
@@ -136,12 +130,6 @@ impl Evidence<'_> {
         false
     }
 
-    #[cfg(any(
-        feature = "low",
-        feature = "medium",
-        feature = "high",
-        feature = "very-high"
-    ))]
     fn gap_free(&mut self, a: Quad, b: Quad) -> bool {
         let al = line(a);
         let bl = line(b);
@@ -1092,12 +1080,6 @@ fn unwrap(mut read: Read<crate::read::Read>) -> crate::read::Read {
 }
 
 /// Reuse the original pixel-continuity proof when joining fast observations.
-#[cfg(any(
-    feature = "low",
-    feature = "medium",
-    feature = "high",
-    feature = "very-high"
-))]
 pub(crate) fn connect_fast(a: Quad, b: Quad, image: Image<'_>, remaining: &mut usize) -> bool {
     let mut evidence = Evidence {
         image,
