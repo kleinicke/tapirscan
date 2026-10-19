@@ -7,7 +7,13 @@ checks and their environment are in [quality checks](QUALITY.md).
 
 `test_bindings.py` compares native bindings exactly. Against WASM, only polygon
 coordinates (including those in diagnostics) may differ, by at most `1e-9`
-source-image pixels of floating-point roundoff; all other output stays exact.
+source-image pixels of floating-point roundoff; all other output stays exact
+on those fixtures. This is not a guarantee of exact native/WASM agreement on
+arbitrary images. Two additional synthetic UPC-A fixtures show different support
+counts in High or Very High and outline differences below one source-image pixel.
+Their decoded values, barcode counts and best result agree. Support differences
+may affect ordering on other images; that consequence has not been established
+by these two cases.
 
 ## Checks to run
 
