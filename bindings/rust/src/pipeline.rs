@@ -972,6 +972,11 @@ fn recover(
     retail: &[super::read::Read],
     source: TextureSource<'_>,
 ) -> std::result::Result<Option<super::read::Recovery>, Error> {
+    // The frame's own seed crops already ran before Medium rescans a crop or reduced copy;
+    // repeating them there read nothing new. From High up they can still add row support.
+    if cfg!(feature = "medium") && !source.frame {
+        return Ok(None);
+    }
     let result = super::detail::recover(
         image,
         &mut scan.frame.barcodes,
