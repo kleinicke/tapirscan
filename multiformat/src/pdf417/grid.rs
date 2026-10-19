@@ -230,17 +230,10 @@ impl Edge {
     /// without the points more than `tolerance` away from the first fit.
     fn fit(points: &[(usize, f32)], tolerance: f32) -> Option<Self> {
         let line = |points: &[(usize, f32)]| {
-            let n = numeric::usize_f32(points.len());
-            let (sy, sx) = points.iter().fold((0., 0.), |(sy, sx), &(y, x)| {
-                (sy + numeric::usize_f32(y), sx + x)
-            });
-            let (mean_y, mean_x) = (sy / n, sx / n);
-            let (cov, var) = points.iter().fold((0., 0.), |(cov, var), &(y, x)| {
-                let dy = numeric::usize_f32(y) - mean_y;
-                (cov + dy * (x - mean_x), var + dy * dy)
-            });
-            let slope = if var > 0. { cov / var } else { 0. };
-            Self(mean_x - slope * mean_y, slope)
+            let fit = crate::pdf_localize::fit_line(
+                points.iter().map(|&(y, x)| [x, numeric::usize_f32(y)]),
+            );
+            Self(fit.intercept, fit.slope)
         };
         if points.len() < MIN_LINES {
             return None;

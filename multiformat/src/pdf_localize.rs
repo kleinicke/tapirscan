@@ -55,25 +55,48 @@ struct Fit {
     bottom: f32,
     support: usize,
 }
+/// Least-squares line `x = intercept + slope * y` through `[x, y]` points.
+pub(crate) struct LineFit {
+    pub intercept: f32,
+    pub slope: f32,
+    /// Sum of squared row deviations from the mean row; the slope is 0 without spread.
+    pub spread: f32,
+}
+
+/// Fit `x` against `y` by least squares around the point means.
+pub(crate) fn fit_line(points: impl Iterator<Item = [f32; 2]> + Clone) -> LineFit {
+    let (count, sx, sy) = points
+        .clone()
+        .fold((0_usize, 0., 0.), |(count, sx, sy), [x, y]| {
+            (count + 1, sx + x, sy + y)
+        });
+    let n = crate::numeric::usize_f32(count);
+    let (mean_x, mean_y) = (sx / n, sy / n);
+    let (covariance, spread) = points.fold((0., 0.), |(covariance, spread), [x, y]| {
+        let dy = y - mean_y;
+        (covariance + dy * (x - mean_x), spread + dy * dy)
+    });
+    let slope = if spread > 0. { covariance / spread } else { 0. };
+    LineFit {
+        intercept: mean_x - slope * mean_y,
+        slope,
+        spread,
+    }
+}
 impl Strip {
     fn fit(&self) -> Option<Fit> {
         if self.points.len() < 4 {
             return None;
         }
         let n = crate::numeric::usize_f32(self.points.len());
-        let mx = self.points.iter().map(|p| p[0]).sum::<f32>() / n;
-        let my = self.points.iter().map(|p| p[1]).sum::<f32>() / n;
-        let yy = self.points.iter().map(|p| (p[1] - my).powi(2)).sum::<f32>();
-        if yy < 1. {
+        let LineFit {
+            intercept,
+            slope,
+            spread,
+        } = fit_line(self.points.iter().copied());
+        if spread < 1. {
             return None;
         }
-        let slope = self
-            .points
-            .iter()
-            .map(|p| (p[0] - mx) * (p[1] - my))
-            .sum::<f32>()
-            / yy;
-        let intercept = mx - slope * my;
         let error = (self
             .points
             .iter()
