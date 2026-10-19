@@ -23,31 +23,22 @@ use barcode_multiformat::formats::EAN8;
 use std::fmt::Write;
 #[path = "retail_anchors.rs"]
 mod anchors;
-#[path = "retail_protection.rs"]
-mod protection;
-const PROTECT: bool = true;
 #[path = "retail_peak_scratch.rs"]
 mod peak_scratch;
-use barcode_multiformat::retail_profile as peaks;
+#[path = "retail_protection.rs"]
+mod protection;
 #[path = "retail_roi.rs"]
 mod roi;
 #[cfg(feature = "mode-low")]
 const ANCHORS: bool = false;
 #[cfg(not(feature = "mode-low"))]
 const ANCHORS: bool = true;
-const LATE_ANCHORS: bool = true;
-const CACHE_MODE: u8 = 0;
-const SHARPEN: bool = false;
-const TRACE: bool = false;
-const SCRATCH: bool = true;
-const ROW_REUSE: bool = true;
 #[cfg(feature = "mode-low")]
 const ROI_LIMIT: usize = 0;
 #[cfg(not(feature = "mode-low"))]
 const ROI_LIMIT: usize = 3;
-const ROI_MODE: u8 = 2;
+/// Profiles sampled across each recovery box per axis.
 const ROI_ROWS: usize = 10;
-const ROI_ORIENT: bool = false;
 #[derive(Default)]
 pub struct Collector {
     group_calls: Vec<usize>,
@@ -61,10 +52,8 @@ pub struct Collector {
     recovery_samples: usize,
     scratch: peak_scratch::Scratch,
     peak_row: Vec<u8>,
-    cache: Vec<Vec<(usize, u64, u64, u64, Vec<f32>)>>,
     peak_requests: usize,
     peak_unique: usize,
-    peak_cached: usize,
     pub mask: u32,
     pub use_raw: bool,
     pub use_peaks: bool,
@@ -153,10 +142,8 @@ impl Collector {
         self.recovery_boxes = 0;
         self.recovery_paths = 0;
         self.recovery_samples = 0;
-        self.cache.clear();
         self.peak_requests = 0;
         self.peak_unique = 0;
-        self.peak_cached = 0;
         self.peak_counts.clear();
         self.paths = 0;
         self.calls = 0;
@@ -172,7 +159,6 @@ impl Collector {
             self.active = self.groups.len();
             self.groups.push((q, Vec::new()));
             self.group_calls.push(0);
-            self.cache.push(Vec::new());
             self.peak_counts.push(0);
         }
     }
@@ -186,91 +172,16 @@ impl Collector {
             return;
         }
         self.peak_requests += 1;
-        if CACHE_MODE != 2 {
-            self.peak_counts[self.active] += 1;
-        }
-        if CACHE_MODE != 0 {
-            let cache = &mut self.cache[self.active];
-            if cache.iter().any(|(a, b, c, d, v)| {
-                *a == axis
-                    && *b == f.to_bits()
-                    && *c == lo.to_bits()
-                    && *d == hi.to_bits()
-                    && v.as_slice() == p
-            }) {
-                self.peak_cached += 1;
-                return;
-            }
-            cache.push((axis, f.to_bits(), lo.to_bits(), hi.to_bits(), p.to_vec()));
-        }
-        if CACHE_MODE == 2 {
-            self.peak_counts[self.active] += 1;
-        }
+        self.peak_counts[self.active] += 1;
         self.peak_unique += 1;
-        let row_owned;
-        let row: &[u8] = if ROW_REUSE {
-            self.peak_row.clear();
-            self.peak_row.extend(
-                p.iter()
-                    .map(|v| ((1. - v) * 255.).round().clamp(0., 255.) as u8),
-            );
-            &self.peak_row
-        } else {
-            row_owned = p
-                .iter()
-                .map(|v| ((1. - v) * 255.).round().clamp(0., 255.) as u8)
-                .collect::<Vec<_>>();
-            &row_owned
-        };
-        let runs_owned;
-        let runs: &[(f64, f64, bool)] = if SCRATCH {
-            self.scratch.runs(row)
-        } else {
-            let (bits, widths, _) = peaks::runs(row);
-            if bits.is_empty() {
-                return;
-            }
-            let mut x = 0.;
-            let mut dark = bits[0];
-            runs_owned = widths
-                .into_iter()
-                .map(|w| {
-                    let end = x + f64::from(w);
-                    let r = (x, end, dark);
-                    x = end;
-                    dark = !dark;
-                    r
-                })
-                .collect::<Vec<_>>();
-            &runs_owned
-        };
+        self.peak_row.clear();
+        self.peak_row.extend(
+            p.iter()
+                .map(|v| ((1. - v) * 255.).round().clamp(0., 255.) as u8),
+        );
+        let runs = self.scratch.runs(&self.peak_row);
         let mut out = ShortReads::default();
         multi_profile::retail_short::decode_runs(runs, self.mask, 64, primary, &mut out);
-        if SHARPEN && out.symbols.is_empty() && (24..=200).contains(&runs.len()) {
-            let sharp = peaks::sharpen_row(row);
-            let (bits, widths, _) = peaks::runs(&sharp);
-            if !bits.is_empty() {
-                let mut x = 0.;
-                let mut dark = bits[0];
-                let adjusted: Vec<_> = widths
-                    .into_iter()
-                    .map(|w| {
-                        let end = x + f64::from(w);
-                        let v = (x, end, dark);
-                        x = end;
-                        dark = !dark;
-                        v
-                    })
-                    .collect();
-                multi_profile::retail_short::decode_runs(
-                    &adjusted,
-                    self.mask & EAN8,
-                    64,
-                    primary,
-                    &mut out,
-                );
-            }
-        }
         if out.symbols.is_empty() {
             multi_profile::retail_short::linear_fallback_runs(
                 runs,
@@ -413,16 +324,6 @@ impl Collector {
                 detections.push(d);
             }
         }
-        if ANCHORS && !LATE_ANCHORS {
-            for d in self.recover_anchors(im, &done, &mut work, &mut budget) {
-                if !detections
-                    .iter()
-                    .any(|a| a.digits == d.digits && crate::frame::same_space(a.polygon, d.polygon))
-                {
-                    detections.push(d);
-                }
-            }
-        }
         if ROI_LIMIT > 0 {
             for d in self.recover_boxes(im, &done, &mut work, &mut budget) {
                 if !detections
@@ -433,7 +334,7 @@ impl Collector {
                 }
             }
         }
-        if ANCHORS && LATE_ANCHORS {
+        if ANCHORS {
             let after_done: Vec<bool> = (0..self.groups.len())
                 .map(|i| done.get(i).copied().unwrap_or(false))
                 .collect();
@@ -483,8 +384,8 @@ impl Collector {
         out.pop();
         write!(
             out,
-            ",\"peakRequests\":{},\"peakUnique\":{},\"peakCached\":{}}}",
-            self.peak_requests, self.peak_unique, self.peak_cached
+            ",\"peakRequests\":{},\"peakUnique\":{},\"peakCached\":0}}",
+            self.peak_requests, self.peak_unique
         )
         .unwrap();
         out.pop();
@@ -505,29 +406,6 @@ impl Collector {
         write!(out, ",\"recoveryProfileCalls\":{}}}", self.profile_calls).unwrap();
         out.pop();
         write!(out, ",\"grayCalls\":{}}}", self.gray_calls).unwrap();
-        if TRACE {
-            out.pop();
-            out.push_str(",\"evidence\":[");
-            for (i, (q, rows)) in self.groups.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                write!(
-                    out,
-                    "{{\"quad\":{:?},\"calls\":{},\"rows\":[",
-                    q, self.group_calls[i]
-                )
-                .unwrap();
-                for (j, o) in rows.iter().enumerate() {
-                    if j > 0 {
-                        out.push(',');
-                    }
-                    write!(out,"{{\"digits\":{:?},\"axis\":{},\"fraction\":{},\"left\":{},\"right\":{},\"cost\":{},\"gap\":{},\"ambiguous\":{}}}",o.digits,o.axis,o.fraction,o.left,o.right,o.cost,o.gap,o.ambiguous).unwrap();
-                }
-                out.push_str("]}");
-            }
-            out.push_str("]}");
-        }
         out
     }
 }

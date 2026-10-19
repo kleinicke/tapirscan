@@ -61,10 +61,9 @@ impl Collector {
                 break;
             }
         }
-        let mut sampler = crate::candidate_scanner::CandidateScanner::default();
         let mut found = Vec::new();
         let mut raw = Vec::new();
-        for (q, source) in boxes {
+        for (q, _) in boxes {
             if self.recovery_samples >= 65_536 {
                 self.capped = true;
                 break;
@@ -74,24 +73,7 @@ impl Collector {
             let old_cap = self.peak_counts[group];
             self.peak_counts[group] = 0;
             self.recovery_boxes += 1;
-            let source_q = self.groups[source].0;
-            let source_axis = self.groups[source]
-                .1
-                .iter()
-                .find(|o| !o.ambiguous)
-                .map_or(0, |o| o.axis);
-            let end = if source_axis == 0 {
-                source_q[1]
-            } else {
-                source_q[3]
-            };
-            let preferred =
-                usize::from((end[1] - source_q[0][1]).abs() > (end[0] - source_q[0][0]).abs());
-            for axis in if ROI_ORIENT {
-                [preferred, 1 - preferred]
-            } else {
-                [0, 1]
-            } {
+            for axis in [0, 1] {
                 for j in 0..ROI_ROWS {
                     if self.recovery_samples >= 65_536 {
                         self.capped = true;
@@ -108,12 +90,7 @@ impl Collector {
                         continue;
                     }
                     let f = (j as f64 + 0.5) / ROI_ROWS as f64;
-                    let (p, f, lo, hi) = if ROI_MODE == 1 {
-                        let Ok(Some(p)) = sampler.diagnostic_profile(im, q, axis, f, true) else {
-                            continue;
-                        };
-                        (p, f, -0.15, 1.15)
-                    } else {
+                    let (p, f, lo, hi) = {
                         let (origin, span, cross_origin, cross_span, max) = if axis == 0 {
                             (
                                 q[0][0],

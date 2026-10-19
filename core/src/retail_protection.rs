@@ -17,7 +17,7 @@ fn inside(q: Quad, p: [f64; 2]) -> bool {
 }
 impl Collector {
     pub fn set_primary(&mut self, frame: &crate::frame::Frame) {
-        if PROTECT && self.mask & SHORT_RETAIL != 0 {
+        if self.mask & SHORT_RETAIL != 0 {
             self.primary.extend(
                 frame
                     .barcodes
