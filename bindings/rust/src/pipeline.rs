@@ -179,10 +179,12 @@ fn scan_prepared_impl(
     #[cfg(not(feature = "low"))]
     let mut retail = finish_retail(&mut scan, &mut scanner.regions, im);
     // A frame whose boxes read nothing but show retail evidence (guard patterns or blurred
-    // symbol windows) is rescanned jointly with the full-frame window. Other
-    // linear symbols sharing the scan show stray guards, so they need repeated guard passes.
+    // symbol windows) also scans the full-frame window, after the segment-voting
+    // alternatives, detail recovery and primary-box profiles, which cost less and read many
+    // such frames first. Other linear symbols sharing the scan show stray guards, so they need
+    // repeated guard passes.
     #[cfg(feature = "medium")]
-    if allow_restoration
+    let window_evidence = allow_restoration
         && scan.frame.barcodes.is_empty()
         && retail.is_empty()
         && (localization.stray_textures
@@ -192,18 +194,7 @@ fn scan_prepared_impl(
                 } else {
                     c.work.guard_pass > 0 || c.work.forward_blur_windows >= 2
                 }
-            }))
-    {
-        window_scanned = true;
-        candidates.push(localization.search_window);
-        let policy = scan_policy(image, &localization.proposals, coverage, options);
-        // Retail evidence accumulates per scan; start the joint rescan from a clean state.
-        scanner
-            .regions
-            .retail_configure(if shared_retail { 15 } else { 1 })?;
-        scan = scanner.regions.scan(im, &candidates, policy)?;
-        retail = finish_retail(&mut scan, &mut scanner.regions, im);
-    }
+            }));
     #[cfg(not(feature = "low"))]
     scan_alternatives(
         scanner,
@@ -241,6 +232,18 @@ fn scan_prepared_impl(
         &mut scan,
         &mut scanner.fast_profiles,
     )?;
+    #[cfg(feature = "medium")]
+    if window_evidence && scan.frame.barcodes.is_empty() && retail.is_empty() {
+        window_scanned = true;
+        retail = scan_unread_window(
+            scanner,
+            im,
+            localization.search_window,
+            policy,
+            shared_retail,
+            &mut scan,
+        )?;
+    }
     #[cfg(feature = "medium")]
     if scan.frame.barcodes.is_empty() && retail.is_empty() {
         recover_deferred_proposals(
@@ -934,6 +937,50 @@ fn scan_policy(
         guard_bias: true,
         ..Policy::default()
     }
+}
+
+/// Scans the full-frame window of a frame whose boxes read nothing and appends it to `scan`
+/// as the candidate after the boxes, as if it had been scanned with them. Rescanning the
+/// unread boxes would repeat their first pass, so only the window is scanned, with the
+/// window's own retry selection from the frame policy. Retail evidence is grouped per
+/// candidate and the boxes' groups assembled nothing, so it restarts with the window alone.
+#[cfg(feature = "medium")]
+fn scan_unread_window(
+    scanner: &mut Scanner,
+    im: ImageView<'_>,
+    window: Quad,
+    policy: Policy,
+    shared_retail: bool,
+    scan: &mut super::ScanResult,
+) -> std::result::Result<Vec<super::read::Read>, Error> {
+    let index = scan.frame.candidates.len();
+    let bit = |mask: u64| u64::from(index < 64 && mask >> index & 1 == 1);
+    let policy = Policy {
+        candidate_retry_mask: bit(policy.candidate_retry_mask),
+        low_resolution_mask: bit(policy.low_resolution_mask),
+        ..policy
+    };
+    scanner
+        .regions
+        .retail_configure(if shared_retail { 15 } else { 1 })?;
+    let mut window = scanner.regions.scan(im, &[window], policy)?;
+    let retail = finish_retail(&mut window, &mut scanner.regions, im);
+    for mut candidate in window.frame.candidates {
+        candidate.index += index;
+        scan.frame.candidates.push(candidate);
+    }
+    for mut barcode in window.frame.barcodes {
+        for i in &mut barcode.candidate_indices {
+            *i += index;
+        }
+        scan.frame.barcodes.push(barcode);
+    }
+    for mut error in window.errors {
+        error.candidate_index += index;
+        scan.errors.push(error);
+    }
+    scan.frame.unfinished |= window.frame.unfinished;
+    Ok(retail)
 }
 
 #[cfg(not(feature = "low"))]
