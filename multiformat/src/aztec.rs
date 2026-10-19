@@ -1,22 +1,5 @@
 //! Independent Aztec compact/full matrix decoder, including mode-message ECC.
-use crate::{qr::Payload, reed_binary::Field};
-// The five Aztec Galois fields, each built once and shared read-only.
-fn field(bits: usize, poly: usize) -> &'static Field {
-    static F4: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
-    static F6: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
-    static F8: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
-    static F10: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
-    static F12: std::sync::OnceLock<Field> = std::sync::OnceLock::new();
-    let cache = match (bits, poly) {
-        (4, 0x13) => &F4,
-        (6, 0x43) => &F6,
-        (8, 0x12d) => &F8,
-        (10, 0x409) => &F10,
-        (12, 0x1069) => &F12,
-        _ => unreachable!("fixed Aztec fields"),
-    };
-    cache.get_or_init(|| Field::new(bits, poly))
-}
+use crate::{qr::Payload, reed_solomon};
 fn value(bits: &[bool]) -> u16 {
     bits.iter().fold(0, |v, &b| (v << 1) | u16::from(b))
 }
@@ -128,7 +111,7 @@ pub fn decode_rune(matrix: &[bool], n: usize) -> Option<Payload> {
     for word in &mut words {
         *word ^= 0xA;
     }
-    let corrected = field(4, 0x13).correct(&mut words, 5, 1)?;
+    let corrected = reed_solomon::words(4, 0x13).correct(&mut words, 5, 1)?;
     let value = (words[0] << 4) | words[1];
     let text = format!("{value:03}");
     Some(Payload {
@@ -153,7 +136,7 @@ pub fn read_mode(matrix: &[bool], n: usize, compact: bool) -> Option<Mode> {
 fn mode_from_words(mut words: Vec<u16>, compact: bool) -> Option<Mode> {
     let data = if compact { 2 } else { 4 };
     let length = words.len();
-    field(4, 0x13).correct(&mut words, length - data, 1)?;
+    reed_solomon::words(4, 0x13).correct(&mut words, length - data, 1)?;
     let info = words[..data]
         .iter()
         .fold(0usize, |v, &b| (v << 4) | b as usize);
@@ -273,7 +256,8 @@ fn decode_matrix_impl(
             continue;
         }
         let ecc = words.len() - data_words;
-        let Some(corrected) = field(word_bits, poly).correct(&mut words, ecc, 1) else {
+        let Some(corrected) = reed_solomon::words(word_bits, poly).correct(&mut words, ecc, 1)
+        else {
             continue;
         };
         let max = (1u16 << word_bits) - 1;
@@ -552,11 +536,18 @@ mod field_cache_tests {
                 }
                 let mut fresh = code.clone();
                 let mut cached = code.clone();
-                let expected = Field::new(bits, poly).correct(&mut fresh, ecc, 1);
-                assert_eq!(expected, field(bits, poly).correct(&mut cached, ecc, 1));
+                let expected =
+                    reed_solomon::Field::<u16>::new(bits, poly).correct(&mut fresh, ecc, 1);
+                assert_eq!(
+                    expected,
+                    reed_solomon::words(bits, poly).correct(&mut cached, ecc, 1)
+                );
                 assert_eq!(fresh, cached);
                 let mut repeated = code;
-                assert_eq!(expected, field(bits, poly).correct(&mut repeated, ecc, 1));
+                assert_eq!(
+                    expected,
+                    reed_solomon::words(bits, poly).correct(&mut repeated, ecc, 1)
+                );
                 assert_eq!(fresh, repeated);
             }
         }

@@ -1,6 +1,6 @@
 //! Independent QR Model 2 matrix decoder and finder-based localizer.
 use crate::qr_tables::{BLOCKS, ECC};
-use crate::reed_solomon::Field;
+use crate::reed_solomon;
 
 #[derive(Debug)]
 pub struct Payload {
@@ -343,7 +343,7 @@ fn decode_matrix_impl(matrix: &[bool], n: usize, uncertain: Option<&[bool]>) -> 
     if at != code.len() {
         return None;
     }
-    let field = Field::new(0x11d);
+    let field = reed_solomon::gf256(0x11d);
     let mut corrected = 0;
     let mut data = Vec::new();
     for (i, mut block) in blocks.into_iter().enumerate() {

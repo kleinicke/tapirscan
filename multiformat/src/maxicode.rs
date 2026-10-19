@@ -4,7 +4,7 @@ use crate::{
     StructuredAppend,
     maxicode_tables::{CHARS, GRID},
     qr::Payload,
-    reed_binary::Field,
+    reed_solomon,
 };
 
 #[must_use]
@@ -31,7 +31,7 @@ pub fn diagnostic_words(matrix: &[bool]) -> serde_json::Value {
     let Some(mut words) = codewords(matrix) else {
         return serde_json::json!({"stage":"size"});
     };
-    let field = Field::new(6, 0x43);
+    let field = reed_solomon::words(6, 0x43);
     let primary = field.correct(&mut words[..20], 10, 1);
     if primary.is_none() {
         return serde_json::json!({"stage":"primary"});
@@ -51,7 +51,7 @@ pub fn diagnostic_words(matrix: &[bool]) -> serde_json::Value {
 }
 
 fn decode_words(words: &mut [u16; 144]) -> Option<Payload> {
-    let field = Field::new(6, 0x43);
+    let field = reed_solomon::words(6, 0x43);
     let mut corrected = field.correct(&mut words[..20], 10, 1)?;
     let mode = words[0] & 15;
     if !(2..=6).contains(&mode) || (mode >= 4 && words[0] != mode) {

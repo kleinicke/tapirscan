@@ -1,147 +1,200 @@
-//! Project-owned GF(256) error correction: Berlekamp-Massey locator,
-//! Chien root search and a small linear solve for error magnitudes.
-pub struct Field {
-    exp: [u8; 512],
-    log: [usize; 256],
+//! Project-owned Reed-Solomon error correction over binary extension fields:
+//! GF(256) bytes for QR and Data Matrix, 4-12 bit words for Aztec and `MaxiCode`.
+//! Berlekamp-Massey locator (seeded with known erasures), Chien root search and
+//! a small linear solve for the error magnitudes.
+use std::sync::OnceLock;
+
+/// A field element: one code word.
+pub trait Word: Copy + Eq + std::ops::BitXor<Output = Self> + std::ops::BitXorAssign {
+    const ZERO: Self;
+    const ONE: Self;
+    /// The multiplicative order when the word type fixes the field size, else 0.
+    /// A fixed order lets the compiler fold reductions and drop range checks.
+    const FIXED_ORDER: usize;
+    /// Exponent table, `2 * size` entries.
+    type Exp: AsRef<[Self]> + AsMut<[Self]>;
+    /// Logarithm table, `size` entries.
+    type Log: AsRef<[usize]> + AsMut<[usize]>;
+    /// Zeroed tables for a field of `size` elements.
+    fn tables(size: usize) -> (Self::Exp, Self::Log);
+    /// The element as a table index.
+    fn index(self) -> usize;
+    /// The table entry for an index below the field size.
+    fn from_index(index: usize) -> Self;
 }
-impl Field {
-    #[must_use]
-    pub fn new(polynomial: u16) -> Self {
-        let mut f = Self {
-            exp: [0; 512],
-            log: [0; 256],
-        };
-        let mut x = 1u16;
-        for i in 0..255 {
-            f.exp[i] = (x).to_le_bytes()[0];
-            f.log[x as usize] = i;
-            x <<= 1;
-            if x & 256 != 0 {
-                x ^= polynomial;
-            }
-        }
-        for i in 255..512 {
-            f.exp[i] = f.exp[i - 255];
-        }
-        f
+
+impl Word for u8 {
+    const ZERO: Self = 0;
+    const ONE: Self = 1;
+    const FIXED_ORDER: usize = 255;
+    // Fixed-size tables keep every byte-indexed lookup free of bounds checks.
+    type Exp = [u8; 512];
+    type Log = [usize; 256];
+    fn tables(size: usize) -> (Self::Exp, Self::Log) {
+        assert_eq!(size, 256, "byte words form GF(256)");
+        ([0; 512], [0; 256])
     }
-    #[must_use]
-    pub fn mul(&self, a: u8, b: u8) -> u8 {
-        if a == 0 || b == 0 {
-            0
-        } else {
-            self.exp[self.log[a as usize] + self.log[b as usize]]
-        }
+    fn index(self) -> usize {
+        usize::from(self)
     }
-    #[must_use]
-    /// # Panics
-    ///
-    /// Panics when `b` is zero because division by zero is undefined in the field.
-    pub fn div(&self, a: u8, b: u8) -> u8 {
-        assert_ne!(b, 0);
-        if a == 0 {
-            0
-        } else {
-            self.exp[self.log[a as usize] + 255 - self.log[b as usize]]
-        }
-    }
-    fn power(&self, n: usize) -> u8 {
-        self.exp[n % 255]
-    }
-    fn eval(&self, p: &[u8], x: u8) -> u8 {
-        p.iter().fold(0, |a, &b| self.mul(a, x) ^ b)
-    }
-    #[must_use]
-    pub fn correct(&self, code: &mut [u8], ecc: usize, base: usize) -> Option<usize> {
-        if ecc == 0 || ecc >= code.len() || code.len() > 255 {
-            return None;
-        }
-        let synd: Vec<u8> = (0..ecc)
-            .map(|i| self.eval(code, self.power(i + base)))
-            .collect();
-        if synd.iter().all(|&x| x == 0) {
-            return Some(0);
-        }
-        let mut c = vec![0; ecc + 1];
-        c[0] = 1;
-        let mut b = c.clone();
-        let mut degree = 0;
-        let mut shift = 1;
-        let mut previous = 1;
-        for n in 0..ecc {
-            let mut discrepancy = synd[n];
-            for i in 1..=degree {
-                discrepancy ^= self.mul(c[i], synd[n - i]);
-            }
-            if discrepancy == 0 {
-                shift += 1;
-                continue;
-            }
-            let old = c.clone();
-            let factor = self.div(discrepancy, previous);
-            for j in 0..=ecc - shift {
-                c[j + shift] ^= self.mul(factor, b[j]);
-            }
-            if 2 * degree <= n {
-                degree = n + 1 - degree;
-                b = old;
-                previous = discrepancy;
-                shift = 1;
-            } else {
-                shift += 1;
-            }
-        }
-        if degree == 0 || degree * 2 > ecc {
-            return None;
-        }
-        let locations: Vec<usize> = (0..code.len())
-            .filter(|&i| {
-                let x = self.power(255 - (code.len() - 1 - i) % 255);
-                c[..=degree]
-                    .iter()
-                    .rev()
-                    .fold(0, |a, &b| self.mul(a, x) ^ b)
-                    == 0
-            })
-            .collect();
-        if locations.len() != degree {
-            return None;
-        }
-        let mut a = vec![vec![0; degree + 1]; degree];
-        for j in 0..degree {
-            for (k, &i) in locations.iter().enumerate() {
-                a[j][k] = self.power((code.len() - 1 - i) * (j + base));
-            }
-            a[j][degree] = synd[j];
-        }
-        for col in 0..degree {
-            let pivot = (col..degree).find(|&row| a[row][col] != 0)?;
-            a.swap(col, pivot);
-            let value = a[col][col];
-            for x in &mut a[col][col..=degree] {
-                *x = self.div(*x, value);
-            }
-            let (before, pivot_and_after) = a.split_at_mut(col);
-            let (pivot, after) = pivot_and_after.split_first_mut()?;
-            for row in before.iter_mut().chain(after.iter_mut()) {
-                let factor = row[col];
-                for (value, &coefficient) in row[col..=degree].iter_mut().zip(&pivot[col..=degree])
-                {
-                    *value ^= self.mul(factor, coefficient);
-                }
-            }
-        }
-        for (k, &i) in locations.iter().enumerate() {
-            code[i] ^= a[k][degree];
-        }
-        if (0..ecc).any(|i| self.eval(code, self.power(i + base)) != 0) {
-            return None;
-        }
-        Some(degree)
+    fn from_index(index: usize) -> Self {
+        index.to_le_bytes()[0]
     }
 }
 
-impl Field {
+impl Word for u16 {
+    const ZERO: Self = 0;
+    const ONE: Self = 1;
+    const FIXED_ORDER: usize = 0;
+    type Exp = Box<[u16]>;
+    type Log = Box<[usize]>;
+    fn tables(size: usize) -> (Self::Exp, Self::Log) {
+        (
+            vec![0; size * 2].into_boxed_slice(),
+            vec![0; size].into_boxed_slice(),
+        )
+    }
+    fn index(self) -> usize {
+        usize::from(self)
+    }
+    fn from_index(index: usize) -> Self {
+        crate::numeric::usize_u16(index)
+    }
+}
+
+/// GF(2^bits) with exponent and logarithm tables.
+pub struct Field<W: Word> {
+    exp: W::Exp,
+    log: W::Log,
+    /// The multiplicative order, `2^bits - 1`.
+    order: usize,
+}
+
+impl Field<u8> {
+    /// GF(256) generated by the primitive `polynomial` (with its x^8 term).
+    #[must_use]
+    pub fn gf256(polynomial: usize) -> Self {
+        Self::new(8, polynomial)
+    }
+}
+
+/// The shared GF(256) fields: QR (0x11d) and Data Matrix (0x12d), each built
+/// once and shared read-only.
+#[must_use]
+pub fn gf256(polynomial: usize) -> &'static Field<u8> {
+    static QR: OnceLock<Field<u8>> = OnceLock::new();
+    static DATA_MATRIX: OnceLock<Field<u8>> = OnceLock::new();
+    let cache = match polynomial {
+        0x11d => &QR,
+        0x12d => &DATA_MATRIX,
+        _ => unreachable!("fixed GF(256) fields"),
+    };
+    cache.get_or_init(|| Field::gf256(polynomial))
+}
+
+/// The shared word fields of Aztec (4-12 bits) and `MaxiCode` (GF(64), the
+/// Aztec 6-bit field), each built once and shared read-only.
+#[must_use]
+pub fn words(bits: usize, polynomial: usize) -> &'static Field<u16> {
+    static F4: OnceLock<Field<u16>> = OnceLock::new();
+    static F6: OnceLock<Field<u16>> = OnceLock::new();
+    static F8: OnceLock<Field<u16>> = OnceLock::new();
+    static F10: OnceLock<Field<u16>> = OnceLock::new();
+    static F12: OnceLock<Field<u16>> = OnceLock::new();
+    let cache = match (bits, polynomial) {
+        (4, 0x13) => &F4,
+        (6, 0x43) => &F6,
+        (8, 0x12d) => &F8,
+        (10, 0x409) => &F10,
+        (12, 0x1069) => &F12,
+        _ => unreachable!("fixed word fields"),
+    };
+    cache.get_or_init(|| Field::new(bits, polynomial))
+}
+
+impl<W: Word> Field<W> {
+    /// GF(2^bits) generated by the primitive `polynomial` (with its x^bits term).
+    ///
+    /// # Panics
+    ///
+    /// Panics if a field element does not fit `W`.
+    #[must_use]
+    pub fn new(bits: usize, polynomial: usize) -> Self {
+        let size = 1_usize << bits;
+        let order = size - 1;
+        let (mut exp_table, mut log_table) = W::tables(size);
+        let (exp, log) = (exp_table.as_mut(), log_table.as_mut());
+        let mut x = 1;
+        for (i, entry) in exp.iter_mut().enumerate().take(order) {
+            *entry = W::from_index(x);
+            log[x] = i;
+            x <<= 1;
+            if x & size != 0 {
+                x ^= polynomial;
+            }
+        }
+        for i in order..size * 2 {
+            exp[i] = exp[i - order];
+        }
+        Self {
+            exp: exp_table,
+            log: log_table,
+            order,
+        }
+    }
+
+    /// The multiplicative order, a constant for byte words.
+    fn order(&self) -> usize {
+        if W::FIXED_ORDER == 0 {
+            self.order
+        } else {
+            W::FIXED_ORDER
+        }
+    }
+
+    fn mul(&self, a: W, b: W) -> W {
+        if a == W::ZERO || b == W::ZERO {
+            W::ZERO
+        } else {
+            let log = self.log.as_ref();
+            self.exp.as_ref()[log[a.index()] + log[b.index()]]
+        }
+    }
+
+    /// `a / b` for a nonzero `b`.
+    fn div(&self, a: W, b: W) -> W {
+        debug_assert!(b != W::ZERO, "division by zero in a finite field");
+        if a == W::ZERO {
+            W::ZERO
+        } else {
+            let log = self.log.as_ref();
+            self.exp.as_ref()[log[a.index()] + self.order() - log[b.index()]]
+        }
+    }
+
+    fn power(&self, n: usize) -> W {
+        self.exp.as_ref()[n % self.order()]
+    }
+
+    /// Horner evaluation, highest coefficient first.
+    fn eval(&self, p: &[W], x: W) -> W {
+        p.iter().fold(W::ZERO, |a, &b| self.mul(a, x) ^ b)
+    }
+
+    fn syndromes(&self, code: &[W], ecc: usize, base: usize) -> Vec<W> {
+        (0..ecc)
+            .map(|i| self.eval(code, self.power(i + base)))
+            .collect()
+    }
+
+    /// Correct up to `ecc / 2` symbol errors in place; `base` is the first
+    /// consecutive root's exponent. Returns the number of located errors.
+    #[must_use]
+    pub fn correct(&self, code: &mut [W], ecc: usize, base: usize) -> Option<usize> {
+        self.solve(code, ecc, base, &[], 0)
+            .map(|(degree, _)| degree)
+    }
+
     /// Correct errors and erasures: `erasures` are code positions known to be
     /// unreliable. Each erasure costs one parity symbol instead of two, so
     /// `2 * errors + erasures <= ecc - 2` symbols are corrected; the two spare
@@ -149,53 +202,71 @@ impl Field {
     #[must_use]
     pub fn correct_with_erasures(
         &self,
-        code: &mut [u8],
+        code: &mut [W],
         ecc: usize,
         base: usize,
         erasures: &[usize],
     ) -> Option<usize> {
+        self.solve(code, ecc, base, erasures, 2)
+            .map(|(_, changed)| changed)
+    }
+
+    /// Locate and correct errors, accepting `2 * errors + erasures + spare <= ecc`
+    /// located symbols. Returns the locator degree and the changed symbols.
+    fn solve(
+        &self,
+        code: &mut [W],
+        ecc: usize,
+        base: usize,
+        erasures: &[usize],
+        spare: usize,
+    ) -> Option<(usize, usize)> {
         let length = code.len();
         let erased = erasures.len();
         if ecc == 0
             || ecc >= length
-            || length > 255
+            || length > self.order()
             || erased > ecc
             || erasures.iter().any(|&i| i >= length)
+            // Byte words cannot exceed the GF(256) order.
+            || (W::FIXED_ORDER == 0 && code.iter().any(|&x| x.index() > self.order))
         {
             return None;
         }
-        let synd: Vec<u8> = (0..ecc)
-            .map(|i| self.eval(code, self.power(i + base)))
-            .collect();
-        if synd.iter().all(|&x| x == 0) {
-            return Some(0);
+        let synd = self.syndromes(code, ecc, base);
+        if synd.iter().all(|&x| x == W::ZERO) {
+            return Some((0, 0));
         }
         // Erasure locator: product of (1 + X_k x), X_k = alpha^(length - 1 - k).
-        let mut locator = vec![0_u8; ecc + 1];
-        locator[0] = 1;
+        let mut locator = vec![W::ZERO; ecc + 1];
+        locator[0] = W::ONE;
         for &k in erasures {
             let x = self.power(length - 1 - k);
             for j in (1..=ecc).rev() {
-                locator[j] ^= self.mul(locator[j - 1], x);
+                let term = self.mul(locator[j - 1], x);
+                locator[j] ^= term;
             }
         }
+        // Berlekamp-Massey from the erasure locator; the degree never exceeds
+        // the step count, so the discrepancy only reads computed syndromes.
         let mut previous_locator = locator.clone();
         let mut degree = erased;
         let mut shift = 1;
-        let mut previous = 1;
+        let mut previous = W::ONE;
         for r in erased..ecc {
             let mut discrepancy = synd[r];
             for i in 1..=degree.min(r) {
                 discrepancy ^= self.mul(locator[i], synd[r - i]);
             }
-            if discrepancy == 0 {
+            if discrepancy == W::ZERO {
                 shift += 1;
                 continue;
             }
             let old = locator.clone();
             let factor = self.div(discrepancy, previous);
             for j in 0..=ecc - shift {
-                locator[j + shift] ^= self.mul(factor, previous_locator[j]);
+                let term = self.mul(factor, previous_locator[j]);
+                locator[j + shift] ^= term;
             }
             if 2 * degree <= r + erased {
                 degree = r + 1 + erased - degree;
@@ -206,33 +277,54 @@ impl Field {
                 shift += 1;
             }
         }
-        // Keep two parity symbols unused: they detect most miscorrections, which
-        // erasures otherwise make likelier.
-        if degree == 0 || degree > ecc || 2 * degree + 2 > ecc + erased {
+        if degree == 0 || degree > ecc || 2 * degree + spare > ecc + erased {
             return None;
         }
+        // Chien search: the locator's roots are the inverse error locations.
         let locations: Vec<usize> = (0..length)
             .filter(|&i| {
-                let x = self.power(255 - (length - 1 - i) % 255);
+                let x = self.power(self.order() - (length - 1 - i) % self.order());
                 locator[..=degree]
                     .iter()
                     .rev()
-                    .fold(0, |a, &b| self.mul(a, x) ^ b)
-                    == 0
+                    .fold(W::ZERO, |a, &b| self.mul(a, x) ^ b)
+                    == W::ZERO
             })
             .collect();
         if locations.len() != degree || erasures.iter().any(|k| !locations.contains(k)) {
             return None;
         }
-        let mut a = vec![vec![0; degree + 1]; degree];
-        for j in 0..degree {
+        let magnitudes = self.magnitudes(&locations, length, base, &synd)?;
+        let mut changed = 0;
+        for (&i, magnitude) in locations.iter().zip(magnitudes) {
+            changed += usize::from(magnitude != W::ZERO);
+            code[i] ^= magnitude;
+        }
+        if (0..ecc).any(|i| self.eval(code, self.power(i + base)) != W::ZERO) {
+            return None;
+        }
+        Some((degree, changed))
+    }
+
+    /// Error magnitudes at `locations`, by Gauss-Jordan elimination of the
+    /// first `locations.len()` syndrome equations.
+    fn magnitudes(
+        &self,
+        locations: &[usize],
+        length: usize,
+        base: usize,
+        synd: &[W],
+    ) -> Option<Vec<W>> {
+        let degree = locations.len();
+        let mut a = vec![vec![W::ZERO; degree + 1]; degree];
+        for (j, row) in a.iter_mut().enumerate() {
             for (k, &i) in locations.iter().enumerate() {
-                a[j][k] = self.power((length - 1 - i) * (j + base));
+                row[k] = self.power((length - 1 - i) * (j + base));
             }
-            a[j][degree] = synd[j];
+            row[degree] = synd[j];
         }
         for col in 0..degree {
-            let pivot = (col..degree).find(|&row| a[row][col] != 0)?;
+            let pivot = (col..degree).find(|&row| a[row][col] != W::ZERO)?;
             a.swap(col, pivot);
             let value = a[col][col];
             for x in &mut a[col][col..=degree] {
@@ -248,15 +340,7 @@ impl Field {
                 }
             }
         }
-        let mut changed = 0;
-        for (k, &i) in locations.iter().enumerate() {
-            changed += usize::from(a[k][degree] != 0);
-            code[i] ^= a[k][degree];
-        }
-        if (0..ecc).any(|i| self.eval(code, self.power(i + base)) != 0) {
-            return None;
-        }
-        Some(changed)
+        Some(a.into_iter().map(|row| row[degree]).collect())
     }
 }
 
@@ -270,7 +354,7 @@ mod tests {
             16, 32, 12, 86, 97, 128, 236, 17, 236, 17, 236, 17, 236, 17, 236, 17, 165, 36, 212,
             193, 237, 54, 199, 135, 44, 85,
         ];
-        let f = Field::new(0x11d);
+        let f = Field::gf256(0x11d);
         let mut d = original;
         assert_eq!(f.correct(&mut d, 10, 0), Some(0));
         for i in [0, 7, 13, 20, 25] {
@@ -285,7 +369,7 @@ mod tests {
             16, 32, 12, 86, 97, 128, 236, 17, 236, 17, 236, 17, 236, 17, 236, 17, 165, 36, 212,
             193, 237, 54, 199, 135, 44, 85,
         ];
-        let f = Field::new(0x11d);
+        let f = Field::gf256(0x11d);
         // Ten parity symbols, two kept spare: four erasures plus two errors, six
         // wrong symbols, beyond the five errors of plain decoding.
         let mut d = original;

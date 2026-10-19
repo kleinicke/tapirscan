@@ -1,6 +1,6 @@
 //! Independent ECC200 matrix decoding. Dimensions and Utah placement follow
 //! ISO/IEC 16022. No external barcode decoder is linked.
-use crate::{qr::Payload, reed_solomon::Field};
+use crate::{qr::Payload, reed_solomon};
 #[derive(Clone, Copy, Debug)]
 pub struct Size {
     pub h: usize,
@@ -618,7 +618,7 @@ pub fn decode_matrix(matrix: &[bool], w: usize, h: usize) -> Option<Payload> {
         };
         blocks[block][lengths[block] + i / size.blocks] = code[size.data + i];
     }
-    let field = Field::new(0x12d);
+    let field = reed_solomon::gf256(0x12d);
     let mut corrected = 0;
     for block in &mut blocks {
         corrected += field.correct(block, ec, 1)?;

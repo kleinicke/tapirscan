@@ -27,7 +27,6 @@ pub mod qr_detect;
 pub mod qr_enhance;
 mod qr_tables;
 mod rectify;
-pub mod reed_binary;
 pub mod reed_prime;
 pub mod reed_solomon;
 pub mod regions;
