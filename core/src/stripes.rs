@@ -226,16 +226,6 @@ impl Detector {
     ) -> std::result::Result<Result, Error> {
         self.detect_grid(im, 768., false, observe)
     }
-    /// Private experimental grid size; source decoding remains full resolution.
-    /// # Errors
-    /// Rejects unsupported image dimensions.
-    pub fn detect_fast(
-        &mut self,
-        im: ImageView<'_>,
-        dimension: f64,
-    ) -> std::result::Result<Result, Error> {
-        self.detect_grid(im, dimension.clamp(128., 768.), false, |_| {})
-    }
     /// Sparse source-gradient hypotheses for private speed-tier experiments.
     /// # Errors
     /// Rejects unsupported image dimensions.
@@ -289,12 +279,6 @@ pub fn detect_with_observer(
     observe: impl FnMut(GroupDiagnostic),
 ) -> std::result::Result<Result, Error> {
     Detector::default().detect_grid(im, 768., false, observe)
-}
-/// Pixel-only supplementary grid. The primary detector remains the first pass.
-/// # Errors
-/// Rejects unsupported image dimensions.
-pub fn detect_secondary(im: ImageView<'_>) -> std::result::Result<Result, Error> {
-    Detector::default().detect_secondary(im)
 }
 
 #[cfg(test)]

@@ -75,13 +75,7 @@ fn components(tiles: &[Tile], tw: usize, th: usize) -> Vec<Vec<usize>> {
             }
         }
 
-        if quad.len()
-            >= if option_env!("TAPIRSCAN_TURBO_SMALL_COMPONENTS").is_some() {
-                2
-            } else {
-                3
-            }
-        {
+        if quad.len() >= 3 {
             groups.push(quad);
         }
     }
