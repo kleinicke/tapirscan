@@ -26,7 +26,6 @@ pub mod qr;
 pub mod qr_detect;
 pub mod qr_enhance;
 mod qr_tables;
-mod rectify;
 pub mod reed_prime;
 pub mod reed_solomon;
 pub mod regions;
@@ -112,14 +111,6 @@ struct Group {
     error: f32,
     gs1: bool,
     last_line: usize,
-}
-pub struct Session {
-    input: Vec<u8>,
-    rgba: Vec<u8>,
-    source: rectify::Source,
-    output: Vec<u8>,
-    width: usize,
-    height: usize,
 }
 
 fn histogram(row: &[u8]) -> [usize; 256] {
@@ -1125,129 +1116,6 @@ pub fn scan_with_images(
     }
 }
 
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-pub extern "C" fn multi_new() -> *mut Session {
-    Box::into_raw(Box::new(Session {
-        input: vec![],
-        rgba: vec![],
-        source: rectify::Source::default(),
-        output: vec![],
-        width: 0,
-        height: 0,
-    }))
-}
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Release a session created by `multi_new`.
-///
-/// # Safety
-/// `s` must be null or an exclusively owned, live pointer returned by `multi_new`.
-/// A non-null session and every buffer pointer obtained from it become invalid.
-pub unsafe extern "C" fn multi_free(s: *mut Session) {
-    if !s.is_null() {
-        drop(unsafe { Box::from_raw(s) });
-    }
-}
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Resize the grayscale input buffer.
-///
-/// # Safety
-/// `s` must be null or a live session pointer, exclusively accessible for this
-/// call. Previously obtained input pointers must not be used after this call.
-pub unsafe extern "C" fn multi_prepare(s: *mut Session, w: usize, h: usize) -> u32 {
-    let Some(s) = (unsafe { s.as_mut() }) else {
-        return 1;
-    };
-    let Some(n) = w.checked_mul(h) else {
-        return 2;
-    };
-    if n > MAX_IMAGE_PIXELS || w.max(h) > MAX_IMAGE_SIDE || w < 1 || h < 1 {
-        return 2;
-    }
-    s.input.resize(n, 0);
-    s.width = w;
-    s.height = h;
-    0
-}
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Obtain the prepared grayscale input buffer.
-///
-/// # Safety
-/// `s` must be a live, non-null session pointer. The returned buffer permits
-/// exactly the prepared width times height bytes until the next prepare/free.
-/// Writes must not overlap another session operation.
-pub unsafe extern "C" fn multi_input(s: *mut Session) -> *mut u8 {
-    unsafe { (*s).input.as_mut_ptr() }
-}
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Retain the current grayscale input as a source for subsequent crops.
-///
-/// # Safety
-/// `s` must be null or an exclusively accessible live session. Input bytes must
-/// be initialized. Memory growth may invalidate previously obtained host views.
-pub unsafe extern "C" fn multi_capture_source(s: *mut Session) -> u32 {
-    let Some(s) = (unsafe { s.as_mut() }) else {
-        return 1;
-    };
-    u32::from(!s.source.capture(&s.input, s.width, s.height))
-}
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Obtain storage for eight f64 projective-transform coefficients.
-///
-/// # Safety
-/// `s` must be a live non-null session, with no concurrent access. Write exactly
-/// eight coefficients before `multi_crop`; the pointer expires when freed.
-pub unsafe extern "C" fn multi_crop_transform(s: *mut Session) -> *mut f64 {
-    unsafe { (*s).source.transform.as_mut_ptr() }
-}
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Sample the retained source into the ordinary grayscale input buffer.
-///
-/// # Safety
-/// `s` must be null or an exclusively accessible live session with initialized
-/// transform storage. Previously obtained input views expire on this call.
-pub unsafe extern "C" fn multi_crop(s: *mut Session, width: usize, height: usize) -> u32 {
-    let Some(s) = (unsafe { s.as_mut() }) else {
-        return 1;
-    };
-    if !s.source.sample(&mut s.input, width, height) {
-        return 2;
-    }
-    s.width = width;
-    s.height = height;
-    0
-}
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Scan the prepared grayscale input and replace the serialized result.
-///
-/// # Safety
-/// `s` must be null or a live session pointer, exclusively accessible for this
-/// call. The prepared input must be initialized. Previous output pointers expire.
-pub unsafe extern "C" fn multi_scan(s: *mut Session, mask: u32, effort: usize) -> u32 {
-    let Some(s) = (unsafe { s.as_mut() }) else {
-        return 1;
-    };
-    let result = scan(&s.input, s.width, s.height, mask, effort);
-    s.output = serde_json::to_vec(&result).unwrap_or_default();
-    0
-}
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Obtain the serialized result buffer.
-///
-/// # Safety
-/// `s` must be a live, non-null session pointer. Read at most `multi_output_len`
-/// bytes, and do not retain the pointer across the next scan/free operation.
-pub unsafe extern "C" fn multi_output(s: *mut Session) -> *const u8 {
-    unsafe { (*s).output.as_ptr() }
-}
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Obtain the serialized result length.
-///
-/// # Safety
-/// `s` must be a live, non-null session pointer without concurrent mutation.
-pub unsafe extern "C" fn multi_output_len(s: *mut Session) -> usize {
-    unsafe { (*s).output.len() }
-}
-
 #[cfg(test)]
 mod image_safety_tests {
     #[test]
@@ -1510,51 +1378,6 @@ mod packed_run_tests {
             }
         }
     }
-}
-
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Prepare a packed RGBA input buffer, retaining the integer grayscale rule.
-///
-/// # Safety
-/// `s` must be null or a live exclusively accessible session. All earlier input
-/// pointers expire; initialize exactly width*height*4 bytes before scanning.
-pub unsafe extern "C" fn multi_prepare_rgba(s: *mut Session, w: usize, h: usize) -> u32 {
-    let status = unsafe { multi_prepare(s, w, h) };
-    if status != 0 {
-        return status;
-    }
-    unsafe { (*s).rgba.resize(w * h * 4, 0) };
-    0
-}
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Obtain the prepared packed RGBA buffer.
-///
-/// # Safety
-/// `s` must be live and prepared by `multi_prepare_rgba`. The pointer expires
-/// at the next prepare/free call; no session operation may overlap a write.
-pub unsafe extern "C" fn multi_input_rgba(s: *mut Session) -> *mut u8 {
-    unsafe { (*s).rgba.as_mut_ptr() }
-}
-#[cfg_attr(feature = "ffi", unsafe(no_mangle))]
-/// Convert packed RGBA and scan; alpha is ignored exactly as in the JS host.
-///
-/// # Safety
-/// `s` must be null or a live exclusively accessible session with initialized
-/// RGBA pixels. Previous output pointers expire at this call.
-pub unsafe extern "C" fn multi_scan_rgba(s: *mut Session, mask: u32, effort: usize) -> u32 {
-    let Some(state) = (unsafe { s.as_mut() }) else {
-        return 1;
-    };
-    if state.rgba.len() != state.input.len() * 4 {
-        return 3;
-    }
-    for (gray, pixel) in state.input.iter_mut().zip(state.rgba.as_chunks::<4>().0) {
-        let value =
-            (u16::from(pixel[0]) * 77 + u16::from(pixel[1]) * 150 + u16::from(pixel[2]) * 29 + 128)
-                >> 8;
-        *gray = value.to_le_bytes()[0];
-    }
-    unsafe { multi_scan(s, mask, effort) }
 }
 
 #[cfg(test)]
