@@ -1,4 +1,6 @@
 use super::effort::SELECTED;
+#[cfg(not(feature = "low"))]
+use super::fast_linear::SourceProfile;
 use super::{Error, Image, ImageView, Proposal, Quad, Result, ScanOptions, Scanner};
 use barcode_research_core::{frame::Barcode, multi_scan::Policy, shear, stripes};
 
@@ -574,8 +576,13 @@ fn recover_highpass_proposals(
         .map(|(_, p)| *p)
         .take(HIGHPASS_PROPOSALS)
         .collect();
-    let (mut reads, _) =
-        super::fast_linear::recover_proposals_highpass(image, &selected, 1, sampler, 1.5)?;
+    let (mut reads, _) = super::fast_linear::recover_proposals_as(
+        image,
+        &selected,
+        1,
+        sampler,
+        SourceProfile::Highpass(1.5),
+    )?;
     // Camera shake doubles every bar; undo a ghost on either side for boxes with evidence.
     if reads.is_empty() {
         let shaken: Vec<_> = selected
@@ -592,8 +599,12 @@ fn recover_highpass_proposals(
             .collect();
         for backward in [false, true] {
             if reads.is_empty() && !shaken.is_empty() {
-                reads = super::fast_linear::recover_proposals_deghost(
-                    image, &shaken, 1, sampler, backward,
+                reads = super::fast_linear::recover_proposals_as(
+                    image,
+                    &shaken,
+                    1,
+                    sampler,
+                    SourceProfile::Deghost(backward),
                 )?
                 .0;
             }
@@ -646,14 +657,19 @@ fn recover_primary_proposals(
     let dense_eligible: Vec<_> = unresolved.iter().take(2).map(|(_, p)| **p).collect();
     let proposals: Vec<_> = unresolved.into_iter().take(2).map(|(_, p)| *p).collect();
     let (extra, _) = super::fast_linear::recover_proposals(image, &proposals, 1, sampler)?;
-    let (restored, _) =
-        super::fast_linear::recover_proposals_contrast(image, &proposals, 1, sampler, 1.0)?;
-    let (colored, _) = super::fast_linear::recover_proposals_color(
+    let (restored, _) = super::fast_linear::recover_proposals_as(
+        image,
+        &proposals,
+        1,
+        sampler,
+        SourceProfile::Gray(1.0),
+    )?;
+    let (colored, _) = super::fast_linear::recover_proposals_as(
         image,
         &proposals[..proposals.len().min(2)],
         1,
         sampler,
-        2,
+        SourceProfile::Color(2),
     )?;
     let highpass = recover_highpass_proposals(image, all_proposals, scan, &protected, sampler)?;
     admit_primary_reads(
@@ -670,12 +686,23 @@ fn recover_primary_proposals(
         return Ok(());
     }
     let dense_proposals = dense_eligible;
-    let (extra, _) =
-        super::fast_linear::recover_proposals_wide(image, &dense_proposals, 1, sampler)?;
+    let (extra, _) = super::fast_linear::recover_proposals_as(
+        image,
+        &dense_proposals,
+        1,
+        sampler,
+        SourceProfile::WideEan,
+    )?;
     let mut accepted = independently_confirmed_ean_reads(image, extra, sampler)?;
     if accepted.is_empty() {
-        let extra =
-            super::fast_linear::recover_proposals_band(image, &dense_proposals, 1, sampler, 1.5)?.0;
+        let extra = super::fast_linear::recover_proposals_as(
+            image,
+            &dense_proposals,
+            1,
+            sampler,
+            SourceProfile::BandEan(1.5),
+        )?
+        .0;
         accepted = independently_confirmed_ean_reads(image, extra, sampler)?;
     }
     let protected = protected_primary(image, &scan.frame.barcodes);
@@ -710,12 +737,12 @@ fn recover_primary_proposals_high(
     unresolved.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
     let proposals: Vec<_> = unresolved.into_iter().take(6).map(|(_, p)| *p).collect();
     let (extra, _) = super::fast_linear::recover_proposals(image, &proposals, 1, sampler)?;
-    let (colored, _) = super::fast_linear::recover_proposals_color(
+    let (colored, _) = super::fast_linear::recover_proposals_as(
         image,
         &proposals[..proposals.len().min(2)],
         1,
         sampler,
-        2,
+        SourceProfile::Color(2),
     )?;
     admit_primary_reads(image, scan, protected, extra.into_iter().chain(colored))
 }
@@ -1052,7 +1079,14 @@ fn recover_deferred_proposals(
         .collect();
     deferred.sort_by(|a, b| b.1.score.total_cmp(&a.1.score));
     let selected: Vec<_> = deferred.into_iter().take(2).map(|(_, p)| *p).collect();
-    let extra = super::fast_linear::recover_proposals_band(image, &selected, 1, sampler, 0.75)?.0;
+    let extra = super::fast_linear::recover_proposals_as(
+        image,
+        &selected,
+        1,
+        sampler,
+        SourceProfile::BandEan(0.75),
+    )?
+    .0;
     let extra = super::linear_duplicates::merge(extra, image);
     if extra.len() != 1 {
         return Ok(());

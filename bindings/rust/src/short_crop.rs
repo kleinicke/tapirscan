@@ -54,12 +54,12 @@ pub(crate) fn recover(
     for p in unique {
         let q = p.polygon;
         let refined = crop_proposals(localizer, image, q, &mut remaining)?;
-        let extra = crate::fast_linear::recover_proposals_contrast(
+        let extra = crate::fast_linear::recover_proposals_as(
             image,
             &refined,
             mask & crate::formats::SHORT_RETAIL,
             sampler,
-            0.0,
+            crate::fast_linear::SourceProfile::Gray(0.0),
         )?
         .0;
         let extra = crate::linear_duplicates::merge(extra, image);

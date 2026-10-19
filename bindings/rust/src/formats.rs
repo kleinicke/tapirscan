@@ -527,12 +527,12 @@ impl Scanner {
                 // Independent short-code source hypothesis, bounded to unresolved proposals.
                 if reads.is_empty() && mask & SHORT_RETAIL != 0 {
                     let unresolved: Vec<_> = proposals.iter().take(4).copied().collect();
-                    let (mut extra, regions) = crate::fast_linear::recover_proposals_contrast(
+                    let (mut extra, regions) = crate::fast_linear::recover_proposals_as(
                         image,
                         &unresolved,
                         mask & SHORT_RETAIL,
                         sampler,
-                        1.5,
+                        crate::fast_linear::SourceProfile::Gray(1.5),
                     )?;
                     if POLICY.short_retail_withholds_repeats {
                         // Additional unresolved equal-payload claims remain provisional;
@@ -573,11 +573,12 @@ impl Scanner {
                 // inverse claims remain deferred rather than risking glare-split duplicates.
                 if reads.is_empty() && mask & RETAIL_MASK != 0 {
                     let selected: Vec<_> = proposals.iter().take(4).copied().collect();
-                    let (extra, regions) = crate::fast_linear::recover_proposals_inverted(
+                    let (extra, regions) = crate::fast_linear::recover_proposals_as(
                         image,
                         &selected,
                         mask & RETAIL_MASK,
                         sampler,
+                        crate::fast_linear::SourceProfile::Inverted,
                     )?;
                     let extra = crate::linear_duplicates::merge(extra, image);
                     if extra.len() == 1 && extra[0].support >= 4 {
@@ -605,12 +606,12 @@ impl Scanner {
                         .take(POLICY.checksum_free_recovery_proposals)
                         .copied()
                         .collect();
-                    let (extra, regions) = crate::fast_linear::recover_proposals_contrast(
+                    let (extra, regions) = crate::fast_linear::recover_proposals_as(
                         image,
                         &unresolved,
                         recovery_mask,
                         sampler,
-                        2.,
+                        crate::fast_linear::SourceProfile::Gray(2.),
                     )?;
                     if !extra.is_empty() {
                         let (reconciled, deferred) = crate::recovery_admission::append_recovered(

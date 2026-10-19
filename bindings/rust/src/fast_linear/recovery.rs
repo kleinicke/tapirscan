@@ -17,80 +17,7 @@ pub(crate) fn recover_proposals(
     mask: u32,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
-    recover_proposals_contrast(image, proposals, mask, sampler, 0.)
-}
-pub(crate) fn recover_proposals_contrast(
-    image: Image<'_>,
-    proposals: &[crate::Proposal],
-    mask: u32,
-    sampler: &mut barcode_research_core::fast_profile::Sampler,
-    contrast: f32,
-) -> Result<(Vec<Read>, Vec<Region>), Error> {
-    recover_proposals_variant(
-        image,
-        proposals,
-        mask,
-        sampler,
-        SourceProfile::Gray(contrast),
-    )
-}
-pub(crate) fn recover_proposals_color(
-    image: Image<'_>,
-    proposals: &[crate::Proposal],
-    mask: u32,
-    sampler: &mut barcode_research_core::fast_profile::Sampler,
-    color: u8,
-) -> Result<(Vec<Read>, Vec<Region>), Error> {
-    recover_proposals_variant(image, proposals, mask, sampler, SourceProfile::Color(color))
-}
-pub(crate) fn recover_proposals_inverted(
-    image: Image<'_>,
-    proposals: &[crate::Proposal],
-    mask: u32,
-    sampler: &mut barcode_research_core::fast_profile::Sampler,
-) -> Result<(Vec<Read>, Vec<Region>), Error> {
-    recover_proposals_variant(image, proposals, mask, sampler, SourceProfile::Inverted)
-}
-#[cfg(not(feature = "low"))]
-pub(crate) fn recover_proposals_highpass(
-    image: Image<'_>,
-    proposals: &[crate::Proposal],
-    mask: u32,
-    sampler: &mut barcode_research_core::fast_profile::Sampler,
-    strength: f32,
-) -> Result<(Vec<Read>, Vec<Region>), Error> {
-    recover_proposals_variant(
-        image,
-        proposals,
-        mask,
-        sampler,
-        SourceProfile::Highpass(strength),
-    )
-}
-#[cfg(not(feature = "low"))]
-pub(crate) fn recover_proposals_deghost(
-    image: Image<'_>,
-    proposals: &[crate::Proposal],
-    mask: u32,
-    sampler: &mut barcode_research_core::fast_profile::Sampler,
-    backward: bool,
-) -> Result<(Vec<Read>, Vec<Region>), Error> {
-    recover_proposals_variant(
-        image,
-        proposals,
-        mask,
-        sampler,
-        SourceProfile::Deghost(backward),
-    )
-}
-#[cfg(not(feature = "low"))]
-pub(crate) fn recover_proposals_wide(
-    image: Image<'_>,
-    proposals: &[crate::Proposal],
-    mask: u32,
-    sampler: &mut barcode_research_core::fast_profile::Sampler,
-) -> Result<(Vec<Read>, Vec<Region>), Error> {
-    recover_proposals_variant(image, proposals, mask, sampler, SourceProfile::WideEan)
+    recover_proposals_as(image, proposals, mask, sampler, SourceProfile::Gray(0.))
 }
 /// Probe unresolved bands before spending the full confirmation budget.
 /// Probe observations never become outputs; the established pass starts fresh.
@@ -140,7 +67,8 @@ pub(crate) fn recover_proposals_hinted(
     )
 }
 
-fn recover_proposals_variant(
+/// Recover localized regions from source profiles of one `profile` kind.
+pub(crate) fn recover_proposals_as(
     image: Image<'_>,
     proposals: &[crate::Proposal],
     mask: u32,
@@ -496,23 +424,6 @@ fn bridge_line(
         }
     }
     false
-}
-
-#[cfg(not(feature = "low"))]
-pub(crate) fn recover_proposals_band(
-    image: Image<'_>,
-    proposals: &[crate::Proposal],
-    mask: u32,
-    sampler: &mut barcode_research_core::fast_profile::Sampler,
-    offset: f64,
-) -> Result<(Vec<Read>, Vec<Region>), Error> {
-    recover_proposals_variant(
-        image,
-        proposals,
-        mask,
-        sampler,
-        SourceProfile::BandEan(offset),
-    )
 }
 
 #[cfg(all(test, feature = "medium"))]
