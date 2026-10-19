@@ -16,6 +16,7 @@ mod recovery;
 #[cfg(not(feature = "low"))]
 pub(crate) use recovery::{
     append_recovered, recover_proposals, recover_proposals_as, recover_proposals_hinted,
+    recover_proposals_patient,
 };
 
 // Build-only research selection, deliberately absent from every public API.
@@ -83,6 +84,22 @@ const ROW_GAP: f64 = match TIER {
     4 | 16 => 0.211,
     8 => 0.151,
     _ => 0.141,
+};
+
+/// Source samples one pass over a list of proposals may spend: on continuity rows,
+/// on refinement rows near decoder evidence, and on dense confirmation rows.
+#[derive(Clone, Copy)]
+struct Budgets {
+    continuity: usize,
+    refinement: usize,
+    dense: usize,
+}
+
+/// The budgets of Low's fast path.
+const FAST_PATH_BUDGETS: Budgets = Budgets {
+    continuity: 524_288,
+    refinement: 131_072,
+    dense: 131_072,
 };
 
 struct Observation {
@@ -182,10 +199,10 @@ pub(crate) fn scan(
     let mut refined_reads = Vec::new();
     let mut unread = Vec::new();
     let mut lines = 0;
-    let mut continuity_budget = 524_288;
-    let mut refinement_budget = 131_072;
+    let mut continuity_budget = FAST_PATH_BUDGETS.continuity;
+    let mut refinement_budget = FAST_PATH_BUDGETS.refinement;
     let mut refinement_lines = 0;
-    let mut dense_budget = 131_072;
+    let mut dense_budget = FAST_PATH_BUDGETS.dense;
     let mut dense_lines = 0;
     let mut rescue_axes = false;
     let mut recovery_seed = None;

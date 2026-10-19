@@ -63,9 +63,37 @@ pub(crate) fn recover_proposals_hinted(
         mask,
         sampler,
         SourceProfile::Gray(0.),
+        RECOVERY_BUDGETS,
         hinted,
     )
 }
+
+/// [`recover_proposals`] with the sample budgets of Low's fast path, which reads
+/// thin or rotated symbols whose dense confirmation rows exhaust the recovery budgets.
+#[cfg(not(feature = "low"))]
+pub(crate) fn recover_proposals_patient(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    recover_variant(
+        image,
+        proposals,
+        mask,
+        sampler,
+        SourceProfile::Gray(0.),
+        super::FAST_PATH_BUDGETS,
+        &mut Vec::new(),
+    )
+}
+
+/// Sample budgets of localized recovery: continuity rows, refinement rows and dense rows.
+const RECOVERY_BUDGETS: super::Budgets = super::Budgets {
+    continuity: 131_072,
+    refinement: 32_768,
+    dense: 32_768,
+};
 
 /// Recover localized regions from source profiles of one `profile` kind.
 pub(crate) fn recover_proposals_as(
@@ -75,7 +103,15 @@ pub(crate) fn recover_proposals_as(
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     profile: SourceProfile,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
-    recover_variant(image, proposals, mask, sampler, profile, &mut Vec::new())
+    recover_variant(
+        image,
+        proposals,
+        mask,
+        sampler,
+        profile,
+        RECOVERY_BUDGETS,
+        &mut Vec::new(),
+    )
 }
 
 fn recover_variant(
@@ -84,6 +120,7 @@ fn recover_variant(
     mask: u32,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     profile: SourceProfile,
+    budgets: super::Budgets,
     hinted: &mut Vec<Quad>,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
     let contrast = profile.contrast();
@@ -97,10 +134,10 @@ fn recover_variant(
     let mut reads = Vec::new();
     let mut refined = Vec::new();
     let mut unread = Vec::new();
-    let mut continuity_budget = 131_072;
-    let mut refinement_budget = 32_768;
+    let mut continuity_budget = budgets.continuity;
+    let mut refinement_budget = budgets.refinement;
     let mut refinement_lines = 0;
-    let mut dense_budget = 32_768;
+    let mut dense_budget = budgets.dense;
     let mut dense_lines = 0;
     for proposal in proposals.iter().take(32) {
         let mut candidate = Candidate {

@@ -252,6 +252,11 @@ fn central_band(q: &crate::Quad) -> crate::Quad {
 #[cfg(not(feature = "low"))]
 const UNREAD_BOX_SWEEPS: usize = 2;
 
+/// Rows that a UPC-E read of the broadened localized recovery needs: a row through an
+/// EAN-13 can decode as a short UPC-E.
+#[cfg(not(feature = "low"))]
+const UPCE_HYPOTHESIS_SUPPORT: u64 = 3;
+
 /// Run the whole-image linear reader on the padded bounding rectangle of one box, with
 /// reads in source coordinates.
 #[cfg(not(feature = "low"))]
@@ -366,6 +371,18 @@ impl Scanner {
                 let oriented_mask = mask
                     & (NON_RETAIL_LINEAR | DATA_BAR | DATA_BAR_EXPANDED | ENGINE_OPT_IN_MASK)
                     | selected_rare;
+                // Low's fast path reads UPC-E in the localized boxes with any selection; the
+                // primary scan misses rotated ones. Where the boxes are decoded for other
+                // linear formats anyway and the primary scan read no linear symbol, they are
+                // also decoded for UPC-E, and such reads need `UPCE_HYPOTHESIS_SUPPORT` rows.
+                let upce_hypothesis = mask & UPCE != 0
+                    && oriented_mask & !UPCE != 0
+                    && !reads.iter().any(is_linear_read);
+                let oriented_mask = if upce_hypothesis {
+                    oriented_mask | UPCE
+                } else {
+                    oriented_mask
+                };
                 let mut hinted = Vec::new();
                 let (mut found, mut pending) = crate::fast_linear::recover_proposals_hinted(
                     image,
@@ -449,6 +466,35 @@ impl Scanner {
                         pending.extend(regions);
                     }
                 }
+                // Low confirms thin or rotated symbols whose rows decoded too rarely here: its
+                // fast path spends four times the samples on dense confirmation rows. The first
+                // such boxes that no read covers are retried with its budgets.
+                let unread_hints = |reads: &[Read], found: &[Read]| -> Vec<crate::Quad> {
+                    hinted
+                        .iter()
+                        .filter(|polygon| {
+                            !reads
+                                .iter()
+                                .chain(found)
+                                .any(|read| overlap_quads(&read.polygon, polygon).0 > 0.)
+                        })
+                        .take(UNREAD_BOX_SWEEPS)
+                        .copied()
+                        .collect()
+                };
+                let retries: Vec<_> = unread_hints(reads, &found)
+                    .into_iter()
+                    .map(|polygon| crate::Proposal { polygon, score: 1. })
+                    .collect();
+                if !retries.is_empty() {
+                    let (extra, _) = crate::fast_linear::recover_proposals_patient(
+                        image,
+                        &retries,
+                        oriented_mask,
+                        sampler,
+                    )?;
+                    found.extend(extra);
+                }
                 // With Codabar or Code 93 selected, Low sweeps the whole image for every selected
                 // linear format; that reader decodes symbols whose rows the profiles decode too
                 // rarely to accept. Linear-only frames still unread here run that reader on the
@@ -470,6 +516,35 @@ impl Scanner {
                             oriented_mask & LINEAR_MASK & !SWEPT & !preserved,
                             &mut self.additional_gray,
                         )?);
+                    }
+                }
+                // With retail selected, that reader runs on the first unread boxes with such
+                // rows that no read covers, also on frames with other reads, for the non-retail
+                // linear formats. Medium leaves out Code 128 and Code 39 on large frames, where
+                // its whole-image sweep reads them; High and Very High keep them, so they read
+                // the fields such crops give Medium.
+                if primary.is_some()
+                    && oriented_mask & LINEAR_MASK & !COMMON_LINEAR_MASK & !SWEPT != 0
+                {
+                    let preserved =
+                        if POLICY.preserved_sweep && large && !POLICY.preserved_sweep_any_size {
+                            CODE128 | CODE39
+                        } else {
+                            0
+                        };
+                    for polygon in unread_hints(reads, &found) {
+                        // A crop of a partly covered ITF can yield a short fragment of it;
+                        // ITF payloads shorter than six digits are not kept from these crops.
+                        found.extend(
+                            sweep_box(
+                                image,
+                                &polygon,
+                                oriented_mask & NON_RETAIL_LINEAR & !preserved,
+                                &mut self.additional_gray,
+                            )?
+                            .into_iter()
+                            .filter(|read| read.format != "ITF" || read.text.len() >= 6),
+                        );
                     }
                 }
                 // The localizer works on a 768-pixel raster: in large frames small
@@ -494,6 +569,11 @@ impl Scanner {
                         found.extend(extra);
                         pending.extend(regions);
                     }
+                }
+                if upce_hypothesis {
+                    found.retain(|read| {
+                        read.format != "UPCE" || read.support >= UPCE_HYPOTHESIS_SUPPORT
+                    });
                 }
                 reads.extend(found);
                 // Batch frames (shelves, cartons) of many EAN-13 or UPC-A symbols lose the

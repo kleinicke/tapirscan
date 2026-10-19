@@ -48,7 +48,10 @@ geometry and timing can differ from 1.3.0. See the
   photos and sheets far more often. ITF tolerates ink spread. Codabar and
   Code 93 selections without retail formats read at least what Low reads from
   Medium up. High and Very High read at least what Medium reads on Code 128,
-  Code 39 and ITF, including small fields on large label sheets.
+  Code 39 and ITF, including small fields on large label sheets. From Medium up,
+  boxes where a symbol was seen but not read get the extra work Low spends there,
+  and selections with retail and other linear formats read rotated UPC-E that
+  only Low read before.
 - **Retail:** High and Very High read at least what Medium reads on retail
   photos. Medium reads more labels on large photos with many EAN-13 or UPC-A
   symbols. Low no longer reports a UPC-E or EAN-8 decoded from part of an EAN-13
