@@ -72,8 +72,7 @@ Low uses module-axis discovery, bounded retries and sparse stripe work. Medium
 adds evidence-dependent retry caps and shared short-retail work. High adds
 native-soft decoding and more retries, and runs Medium's retail profile and crop
 recoveries on frames it leaves unread. Very High adds stronger identity/conflict
-checks and additional source/grid refinement, including bounded EAN-13 recovery
-from original pixel areas. The Turbo presets are separate build settings. Mode
+checks and additional source/grid refinement. The Turbo presets are separate build settings. Mode
 differences use `mode-*` conditions; passive timing and tracing are optional
 compile-time features, not configuration options.
 
