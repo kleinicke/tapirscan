@@ -274,7 +274,7 @@ pub fn visual_support(p: &[f32; 95], digits: &[u8; 13]) -> Option<[(u8, f32, f32
     }))
 }
 #[cfg(test)]
-fn legacy_decode(p: &[f32], max_cost: f32, min_gap: f32) -> Option<Result> {
+fn checksum_free_decode(p: &[f32], max_cost: f32, min_gap: f32) -> Option<Result> {
     if p.len() != 95 || p.iter().any(|v| !v.is_finite() || !(0.0..=1.0).contains(v)) {
         return None;
     }
@@ -396,7 +396,7 @@ mod tests {
             *v = if *v == 0. { noise } else { 1. - noise };
         }
         assert_eq!(
-            legacy_decode(&p, 0.1, 0.02).unwrap().digits,
+            checksum_free_decode(&p, 0.1, 0.02).unwrap().digits,
             [9, 9, 0, 1, 2, 5, 3, 1, 2, 3, 4, 5, 8]
         );
         assert!(decode(&p, 0.1, 0.02).is_none());

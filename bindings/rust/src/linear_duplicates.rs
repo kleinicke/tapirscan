@@ -1133,7 +1133,7 @@ pub(crate) fn merge_fast(
             reads,
             image,
             ambiguous,
-            option_env!("TAPIRSCAN_TURBO_LEGACY_OUTLINES").is_none(),
+            option_env!("TAPIRSCAN_TURBO_NO_DISPLAY_OUTLINES").is_none(),
             (selective && !ambiguous).then_some(0.08),
             true,
         )

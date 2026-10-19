@@ -272,7 +272,7 @@ impl Collector {
             }
         }
         if out.symbols.is_empty() {
-            multi_profile::retail_short::legacy_runs(
+            multi_profile::retail_short::linear_fallback_runs(
                 runs,
                 self.mask & SHORT_RETAIL,
                 64,

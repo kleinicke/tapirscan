@@ -35,7 +35,7 @@ fn lookup(pattern: u32) -> Option<(usize, usize)> {
 }
 
 #[cfg(test)]
-fn legacy_lookup() -> Vec<(u32, usize, usize)> {
+fn sorted_lookup_reference() -> Vec<(u32, usize, usize)> {
     let mut v = Vec::new();
     for (c, row) in CODES.iter().enumerate() {
         for (i, &p) in row.iter().enumerate() {
@@ -1321,7 +1321,7 @@ mod tests {
 
     #[test]
     fn dense_lookup_matches_sorted_reference_for_every_pattern() {
-        let reference = legacy_lookup();
+        let reference = sorted_lookup_reference();
         for pattern in 0..(1_u32 << 17) {
             let expected = reference
                 .binary_search_by_key(&pattern, |entry| entry.0)

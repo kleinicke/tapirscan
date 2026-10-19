@@ -214,8 +214,9 @@ fn decode_impl_length(
             }
             // Reproduce ean::decode's operation order exactly, independently of
             // the ranking score (which divides each term before summation).
+            // `sharp` is that sharp-edge decoder, `blur` the blurred-edge model.
 
-            let (legacy_allowed, blur_allowed) = {
+            let (sharp_allowed, blur_allowed) = {
                 let mut guard = 0.;
                 for (i, b) in [
                     (0, 1.),
@@ -247,7 +248,7 @@ fn decode_impl_length(
                 )
             };
 
-            if !legacy_allowed && !blur_allowed {
+            if !sharp_allowed && !blur_allowed {
                 continue;
             }
             // Ranking depends only on the eleven observed guards. Materialize
@@ -258,7 +259,7 @@ fn decode_impl_length(
             }
 
             let result = {
-                let legacy = if legacy_allowed {
+                let sharp = if sharp_allowed {
                     ean::decode(&h.modules, 0.1, 0.02)
                 } else {
                     None
@@ -281,7 +282,7 @@ fn decode_impl_length(
                     None
                 };
                 // Neither the model nor checksum can resolve competing texts.
-                let Some(result) = combine_blur_read(legacy, blurred) else {
+                let Some(result) = combine_blur_read(sharp, blurred) else {
                     trace.conflicts += 1;
                     trace.rejected_intervals.push(if reverse {
                         (
@@ -320,16 +321,16 @@ fn decode_impl_length(
     reason = "Outer None vetoes conflicting decoded identities; Some(None) is an ordinary undecoded window and must continue the search."
 )]
 fn combine_blur_read(
-    legacy: Option<ean::Result>,
+    sharp: Option<ean::Result>,
     blurred: Option<ean::Result>,
 ) -> Option<Option<ean::Result>> {
-    if legacy
+    if sharp
         .zip(blurred)
         .is_some_and(|(a, b)| a.digits != b.digits)
     {
         return None;
     }
-    Some(match (legacy, blurred) {
+    Some(match (sharp, blurred) {
         (Some(a), Some(b)) => Some(if a.cost <= b.cost { a } else { b }),
         (a, b) => a.or(b),
     })
@@ -510,7 +511,7 @@ mod forward_blur_tests {
         }
     }
     #[test]
-    fn legacy_blur_conflict_is_a_veto_not_a_cost_vote() {
+    fn sharp_blur_conflict_is_a_veto_not_a_cost_vote() {
         let a = ean::Result {
             digits: [5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7],
             cost: 0.05,

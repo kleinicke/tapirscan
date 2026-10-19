@@ -20,7 +20,7 @@ def environment(tier: str) -> dict[str, str]:
     env["TAPIRSCAN_TURBO_TIER"] = "0" if tier == "original" else tier
     if tier != "original":
         for key in (
-            "TAPIRSCAN_TURBO_LEGACY_OUTLINES",
+            "TAPIRSCAN_TURBO_NO_DISPLAY_OUTLINES",
             "TAPIRSCAN_TURBO_BAND_OUTLINES",
             "TAPIRSCAN_TURBO_TILE_CACHE",
             "TAPIRSCAN_TURBO_FINITE_EXTREMA",

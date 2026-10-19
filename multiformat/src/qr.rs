@@ -629,8 +629,8 @@ mod structured_tests {
 mod header_proposal_tests {
     use super::*;
 
-    type LegacyCoordinates = Vec<(usize, usize)>;
-    fn old_coordinates(n: usize) -> (LegacyCoordinates, LegacyCoordinates) {
+    type CoordinateList = Vec<(usize, usize)>;
+    fn reference_format_coordinates(n: usize) -> (CoordinateList, CoordinateList) {
         let mut a: Vec<_> = (0..6).map(|i| (8, i)).collect();
         a.extend([(8, 7), (8, 8), (7, 8)]);
         a.extend((9..15).map(|i| (14 - i, 8)));
@@ -639,7 +639,7 @@ mod header_proposal_tests {
         (a, b)
     }
 
-    fn old_code(data: u16) -> u16 {
+    fn reference_format_code(data: u16) -> u16 {
         let mut r = data;
         for _ in 0..10 {
             r = (r << 1) ^ if r & 512 != 0 { 0x537 } else { 0 };
@@ -651,12 +651,12 @@ mod header_proposal_tests {
     fn fixed_header_tables_match_original_for_all_models_and_codes() {
         for n in (21..=177).step_by(4) {
             let (new_a, new_b) = format_coordinates(n);
-            let (old_a, old_b) = old_coordinates(n);
-            assert_eq!(new_a.as_slice(), old_a.as_slice());
-            assert_eq!(new_b.as_slice(), old_b.as_slice());
+            let (reference_a, reference_b) = reference_format_coordinates(n);
+            assert_eq!(new_a.as_slice(), reference_a.as_slice());
+            assert_eq!(new_b.as_slice(), reference_b.as_slice());
         }
         for data in 0..32 {
-            assert_eq!(format_code(data), old_code(data));
+            assert_eq!(format_code(data), reference_format_code(data));
         }
     }
 }

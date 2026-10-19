@@ -446,17 +446,17 @@ fn fast_components_impl(
 
 // Flood-fill reference extractor; tests check the streaming labeller against it.
 #[cfg(test)]
-fn legacy_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
-    legacy_components_impl(image, w, h, false)
+fn flood_fill_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
+    flood_fill_components_impl(image, w, h, false)
 }
 
 #[cfg(test)]
-fn legacy_all_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
-    legacy_components_impl(image, w, h, true)
+fn flood_fill_all_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
+    flood_fill_components_impl(image, w, h, true)
 }
 
 #[cfg(test)]
-fn legacy_components_impl(
+fn flood_fill_components_impl(
     image: &[bool],
     w: usize,
     h: usize,
@@ -744,15 +744,15 @@ mod component_fastpath_tests {
         signatures
     }
 
-    fn assert_fast_matches_legacy(image: &[bool], w: usize, h: usize) {
+    fn assert_streaming_matches_flood_fill(image: &[bool], w: usize, h: usize) {
         assert_eq!(
             signatures(fast_all_components(image, w, h), h),
-            signatures(legacy_all_components(image, w, h), h),
+            signatures(flood_fill_all_components(image, w, h), h),
             "component count, bounds, row extremes, or hull changed"
         );
         assert_eq!(
             proposals_from_components(fast_components(image, w, h), h),
-            proposals_from_components(legacy_components(image, w, h), h),
+            proposals_from_components(flood_fill_components(image, w, h), h),
             "proposal order or geometry changed"
         );
     }
@@ -867,7 +867,7 @@ mod component_fastpath_tests {
         }
         paint(&mut image, w, 2, 2);
         paint(&mut image, w, 68, 39);
-        assert_fast_matches_legacy(&image, w, h);
+        assert_streaming_matches_flood_fill(&image, w, h);
     }
 
     #[test]
@@ -891,7 +891,7 @@ mod component_fastpath_tests {
                 paint(&mut image, w, x - (y - 41) / 4, y);
             }
         }
-        assert_fast_matches_legacy(&image, w, h);
+        assert_streaming_matches_flood_fill(&image, w, h);
     }
 
     #[test]
@@ -906,7 +906,7 @@ mod component_fastpath_tests {
         let components = fast_all_components(&image, w, h);
         assert_eq!(components.len(), 1);
         assert_eq!(components[0].spans.len(), 1);
-        assert_fast_matches_legacy(&image, w, h);
+        assert_streaming_matches_flood_fill(&image, w, h);
     }
 
     #[test]
@@ -925,7 +925,7 @@ mod component_fastpath_tests {
         let components = fast_all_components(&image, w, h);
         assert_eq!(components.len(), 1);
         assert_eq!(components[0].origin, 1);
-        assert_fast_matches_legacy(&image, w, h);
+        assert_streaming_matches_flood_fill(&image, w, h);
     }
 
     #[test]
@@ -937,7 +937,7 @@ mod component_fastpath_tests {
                 seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
                 *pixel = seed >> 30 != 0;
             }
-            assert_fast_matches_legacy(&image, w, h);
+            assert_streaming_matches_flood_fill(&image, w, h);
         }
     }
 
@@ -962,18 +962,18 @@ mod component_fastpath_tests {
                     }
                 }
             }
-            assert_fast_matches_legacy(&image, w, h);
+            assert_streaming_matches_flood_fill(&image, w, h);
         }
     }
 
     #[test]
-    fn checkerboards_and_dense_noise_match_the_legacy_extractor() {
+    fn checkerboards_and_dense_noise_match_the_flood_fill_extractor() {
         // These once exceeded the run budget of the non-streaming labeller.
         let (w, h) = (512, 512);
         let checkerboard: Vec<_> = (0..h)
             .flat_map(|y| (0..w).map(move |x| (x + y) % 2 == 0))
             .collect();
-        assert_fast_matches_legacy(&checkerboard, w, h);
+        assert_streaming_matches_flood_fill(&checkerboard, w, h);
         let mut seed = 0x2f6b_1c3d_u32;
         for (w, h, cut) in [(640, 480, 1), (1200, 900, 2), (333, 777, 3)] {
             let image: Vec<_> = (0..w * h)
@@ -982,7 +982,7 @@ mod component_fastpath_tests {
                     seed >> 30 >= cut
                 })
                 .collect();
-            assert_fast_matches_legacy(&image, w, h);
+            assert_streaming_matches_flood_fill(&image, w, h);
         }
     }
 }
@@ -2175,7 +2175,7 @@ mod l_border_gate_tests {
         clippy::cast_possible_truncation,
         clippy::cast_possible_wrap,
         clippy::cast_sign_loss,
-        reason = "Test-only legacy pixel sampling reference deliberately retains the exact prior arithmetic and checked image indices."
+        reason = "Test-only pixel sampling reference deliberately retains the exact prior arithmetic and checked image indices."
     )]
     fn l_border_edges_reference(
         image: &[bool],

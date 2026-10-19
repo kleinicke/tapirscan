@@ -366,9 +366,10 @@ fn decode_widths(w: &[f32], format: u32, calls: &mut usize) -> Option<([u8; 8], 
     decode_widths_base(&corrected, format, calls)
 }
 
-// Existing independent retail parser, restricted to the already sampled runs.
-// Fallback observations are weak and need four distinct source rows.
-pub(crate) fn legacy_runs(
+// The multi-format linear decoder as a fallback short-retail parser, restricted
+// to the already sampled runs. Its observations are weak and need four distinct
+// source rows.
+pub(crate) fn linear_fallback_runs(
     runs: &[(f64, f64, bool)],
     mask: u32,
     max_symbols: usize,
