@@ -1442,8 +1442,9 @@ fn scan_additional(
     // Medium sweeps Code 128 and Code 39 at Low's effort, High and Very High at the next: retail
     // boxes come from a 768-pixel localization raster, on which the many small fields of large
     // label photos vanish. With retail selected, Medium sweeps only frames above twice that
-    // raster. ITF joins the sweep only without retail; with retail selected, localized
-    // recovery reads it at a fraction of the cost.
+    // raster. Without retail, the group is ITF and Code 128: localized recovery reads Code 39
+    // there, and sweeping it added no read on the 340 Code 39 variations. With retail
+    // selected, localized recovery reads ITF at a fraction of the cost.
     let preserved = if POLICY.preserved_sweep && addons == EanAddOnPolicy::Ignore {
         enabled
             & if !retail {

@@ -27,9 +27,9 @@ pub(super) struct ModePolicy {
     pub sweep_effort: usize,
     /// Sweep effort with EAN add-on reading.
     pub addon_sweep_effort: usize,
-    /// Code 128, Code 39 and ITF stay in a sweep group of their own: retail boxes come
-    /// from a 768-pixel localization raster, on which the many small fields of large
-    /// label photos vanish.
+    /// Code 128 stays in a sweep group of its own, with ITF without retail and with
+    /// Code 39 on large frames with retail: retail boxes come from a 768-pixel
+    /// localization raster, on which the many small fields of large label photos vanish.
     pub preserved_sweep: bool,
     /// With retail selected, Code 128 and Code 39 stay in that sweep on frames of any
     /// size, not only on large frames.
