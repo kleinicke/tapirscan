@@ -397,7 +397,11 @@ impl<'a> Images<'a> {
         let (gray, width, height) = (self.gray, self.width, self.height);
         let invert = |image: &[bool]| std::sync::Arc::new(image.iter().map(|b| !*b).collect());
         let chain = |local: bool| {
-            let image = std::sync::Arc::new(crate::qr_detect::binarize(gray, width, height, local));
+            let image = std::sync::Arc::new(if local && self.hybrid {
+                crate::qr_detect::binarize_hybrid(gray, width, height)
+            } else {
+                crate::qr_detect::binarize(gray, width, height, local)
+            });
             let inverse = invert(&image);
             (image, inverse)
         };
@@ -501,17 +505,29 @@ mod tests {
     #[cfg(not(target_family = "wasm"))]
     #[test]
     fn parallel_prefill_matches_lazy_thresholds() {
-        let (width, height) = (97, 61);
-        let gray: Vec<u8> = (0..width * height)
-            .map(|i| u8::try_from((i * 37 + (i / width) * 11) % 256).unwrap())
-            .collect();
-        let mut lazy = Images::new(&gray, width, height);
-        let mut prefilled = Images::new(&gray, width, height);
-        prefilled.prefill_parallel();
-        for mode in 0..4 {
-            assert_eq!(lazy.get(mode), prefilled.get(mode), "mode {mode}");
+        for (width, height) in [(19, 17), (40, 40), (97, 61)] {
+            let gray: Vec<u8> = (0..width * height)
+                .map(|i| u8::try_from((i * 37 + (i / width) * 11) % 256).unwrap())
+                .collect();
+            for hybrid in [false, true] {
+                let create = if hybrid {
+                    Images::new_hybrid
+                } else {
+                    Images::new
+                };
+                let mut lazy = create(&gray, width, height);
+                let mut prefilled = create(&gray, width, height);
+                prefilled.prefill_parallel();
+                for mode in 0..4 {
+                    assert_eq!(
+                        lazy.get(mode),
+                        prefilled.get(mode),
+                        "{width} x {height}, hybrid {hybrid}, mode {mode}"
+                    );
+                }
+                assert_eq!(lazy.is_duplicate(1), prefilled.is_duplicate(1));
+            }
         }
-        assert_eq!(lazy.is_duplicate(1), prefilled.is_duplicate(1));
     }
 
     #[test]

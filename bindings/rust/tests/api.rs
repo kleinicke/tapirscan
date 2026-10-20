@@ -971,3 +971,51 @@ fn reused_scanners_match_fresh_scanners() {
         }
     }
 }
+
+#[test]
+fn compact_scans_preserve_inspected_barcodes() {
+    let pair = fixture(true);
+    let code32 = code39_image(CODE32_BITS);
+    let pzn = code39_image(PZN_BITS);
+    let frames = [
+        (&pair, Formats::RETAIL),
+        (&pair, Formats::ALL),
+        (&code32, Formats::from(Format::Code32)),
+        (&pzn, Formats::from(Format::Pzn)),
+    ];
+    for mode in compiled_modes() {
+        for ean_add_on_policy in [
+            EanAddOnPolicy::Ignore,
+            EanAddOnPolicy::Read,
+            EanAddOnPolicy::Require,
+        ] {
+            for ((pixels, width, height), formats) in frames {
+                let mut scanner = Scanner::new(ScannerOptions {
+                    mode,
+                    formats,
+                    ean_add_on_policy,
+                    ..ScannerOptions::default()
+                });
+                let image = Image::gray(pixels, *width, *height);
+                let compact = scanner.scan(image).unwrap();
+                let detailed = scanner.inspect(image).unwrap();
+                let retail = formats == Formats::RETAIL || formats == Formats::ALL;
+                if retail && ean_add_on_policy == EanAddOnPolicy::Require {
+                    assert_eq!(detailed.barcodes, Vec::new());
+                    assert!(!detailed.undecoded.is_empty(), "{mode:?} {formats:?}");
+                } else {
+                    assert_eq!(
+                        detailed.barcodes.len(),
+                        if retail { 2 } else { 1 },
+                        "{mode:?} {formats:?} {ean_add_on_policy:?}"
+                    );
+                }
+                assert_eq!(
+                    compact.barcodes, detailed.barcodes,
+                    "{mode:?} {formats:?} {ean_add_on_policy:?}"
+                );
+                assert_eq!(scanner.scan(image).unwrap().barcodes, detailed.barcodes);
+            }
+        }
+    }
+}

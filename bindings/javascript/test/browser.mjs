@@ -249,6 +249,8 @@ test("images above the working size decode in bands with the same result", async
     try {
       const fromPixels = await scanner.inspect(pixels);
       const fromBlob = await scanner.inspect(blob);
+      const compactPixels = await scanner.scan(pixels);
+      const compactBlob = await scanner.scan(blob);
       const strip = ({ elapsedMs: _elapsed, diagnostics: _diagnostics, ...rest }) => rest;
       // Diagnostic regions share the source coordinates of barcodes and undecoded regions.
       const { proposals, searchWindows } = fromBlob.diagnostics.regions;
@@ -256,6 +258,9 @@ test("images above the working size decode in bands with the same result", async
       return {
         megapixels: (large.width * large.height) / 2 ** 20,
         same: JSON.stringify(strip(fromBlob)) === JSON.stringify(strip(fromPixels)),
+        sameCompact:
+          JSON.stringify(compactPixels.barcodes) === JSON.stringify(fromPixels.barcodes) &&
+          JSON.stringify(compactBlob.barcodes) === JSON.stringify(fromBlob.barcodes),
         sameRegions:
           JSON.stringify(fromBlob.diagnostics.regions) ===
           JSON.stringify(fromPixels.diagnostics.regions),
@@ -276,6 +281,7 @@ test("images above the working size decode in bands with the same result", async
   assert.ok(outcome.megapixels > 32, `${outcome.megapixels} MP`);
   assert.deepEqual(outcome.values, [text]);
   assert.ok(outcome.same, "banded Blob decoding changed the result");
+  assert.ok(outcome.sameCompact, "compact scanning changed reduced-image barcodes");
   assert.ok(outcome.sameRegions, "banded Blob decoding changed the diagnostic regions");
   assert.ok(outcome.proposals > 0, "expected localization proposals");
   assert.ok(outcome.inside, "diagnostic regions outside the source image");

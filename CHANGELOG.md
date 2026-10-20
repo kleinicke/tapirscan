@@ -1,5 +1,11 @@
 # Release notes
 
+## Unreleased
+
+- Vectorize QR finder coordinate calculations in WebAssembly and omit optional
+  region output from compact scans.
+- Honor hybrid thresholding when filling native threshold caches in parallel.
+
 ## 1.4.0
 
 Native consumers must rebuild for ABI 7; existing C, C++, Java, Python and

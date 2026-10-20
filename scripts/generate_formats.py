@@ -802,12 +802,12 @@ def generated_format_docs(registry: dict[str, Any]) -> dict[Path, str]:
         ["Format identifier", *(f"`{group}`" for group in groups), "Scope"],
         ["---", *(":---:" for _ in groups), "---"],
     ]
-    for name in names:
-        rows.append(
-            [f"`{name}`"]
-            + ["✓" if name in members else "—" for members in groups.values()]
-            + [scopes[name]]
-        )
+    rows.extend(
+        [f"`{name}`"]
+        + ["✓" if name in members else "—" for members in groups.values()]
+        + [scopes[name]]
+        for name in names
+    )
     widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
     table = "\n".join(
         "| "

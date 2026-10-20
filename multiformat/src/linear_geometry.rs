@@ -168,8 +168,8 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
         #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
         let remaining = {
             use core::arch::wasm32::{f32x4, f32x4_add, f32x4_mul, f32x4_splat, f32x4_sub};
-            let mut chunks = along_samples.chunks_exact(4);
-            for chunk in &mut chunks {
+            let (chunks, remainder) = along_samples.as_chunks::<4>();
+            for chunk in chunks {
                 let along = f32x4_add(
                     f32x4(chunk[0], chunk[1], chunk[2], chunk[3]),
                     f32x4_splat(shear_offset),
@@ -187,7 +187,7 @@ fn refine_axes(image: &[u8], width: usize, height: usize, quad: Quad, preserve_a
                 };
                 output.extend_from_slice(&values);
             }
-            chunks.remainder()
+            remainder
         };
         #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
         let remaining = &along_samples;

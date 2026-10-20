@@ -33,9 +33,13 @@ public scanner, see [the architecture overview](../docs/ARCHITECTURE.md).
   the mode-specific frame retry limits. EAN add-on selections run the same 2D reader
   groups and recoveries as selections without add-ons.
 
-- `stripes::Detector` localizes candidates: `stripes/raster.rs` (sampling, contrast
-  conditioning, gradients), `groups.rs`, `proposals.rs` and `refinement.rs` (source-pixel
-  refinement). A scanner session reuses one detector's storage across frames.
+- The facade's `pipeline/segment_voting.rs` proposes linear regions in Medium,
+  High and Very High, and in Low's fast path without EAN add-ons. Low's core
+  path and the experimental Turbo presets use stripe localization.
+  `stripes::Detector` also supplies additional candidates and recovery work in
+  selected paths: `stripes/raster.rs` (sampling, contrast conditioning, gradients),
+  `groups.rs`, `proposals.rs` and `refinement.rs` (source-pixel refinement).
+  A scanner session reuses one stripe detector's storage across frames.
 - `candidate_scanner.rs` owns candidate evidence and reusable scratch buffers and runs
   the initial candidate pass. `candidate_scanner/sampling.rs` samples and normalizes
   profiles; `candidate_scanner/decoding.rs` invokes decoders and records accepted or
@@ -65,7 +69,7 @@ frame reconciliation.
 
 ## Mode differences
 
-Public Low uses the Turbo fast path in the Rust facade; the core Low policy
+Public Low uses the `fast_linear` path in the Rust facade; the core Low policy
 provides its recovery.
 
 Low uses module-axis discovery, bounded retries and sparse stripe work. Medium

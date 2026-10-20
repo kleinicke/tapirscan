@@ -18,7 +18,8 @@ CI steps (see [validation](VALIDATION.md)).
 `node tools/quality/release.mjs all` (or `rust`, `js`, `python`, `native`) runs only
 the binding checks, without the formatting, source, core-crate and tool-test stages
 that `all.mjs` adds. It runs Clippy (all and pedantic, warnings as errors) on all
-four modes of the Rust facade and C ABI; strict ESLint and `tsc` for TypeScript; Ruff,
+four modes of the Rust facade and C ABI, plus each WASM adapter targeting
+`wasm32-unknown-unknown` with SIMD enabled; strict ESLint and `tsc` for TypeScript; Ruff,
 ty and strict mypy for Python; clang with conversion and sign warnings as errors for
 C/C++; and `javac -Xlint:all -Werror` for Java (the restricted FFM calls have documented,
 method-local exceptions).

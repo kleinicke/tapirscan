@@ -86,7 +86,7 @@ if (selected("rust")) {
   const parent = fs.mkdtempSync(path.join(root, ".quality-cache/lint-"));
   const publicCrate = path.join(root, "build/crates/tapirscan");
   const cargoTarget = path.join(root, "build/native-target");
-  const clippy = (manifest, extra = []) =>
+  const clippy = (manifest, wasm = false) =>
     run(
       "rustup",
       [
@@ -99,7 +99,7 @@ if (selected("rust")) {
         "--manifest-path",
         manifest,
         "--all-targets",
-        ...extra,
+        ...(wasm ? ["--target", "wasm32-unknown-unknown"] : []),
         "--",
         "-D",
         "warnings",
@@ -110,7 +110,12 @@ if (selected("rust")) {
         "-W",
         "clippy::todo",
       ],
-      { CARGO_TARGET_DIR: cargoTarget },
+      {
+        CARGO_TARGET_DIR: cargoTarget,
+        ...(wasm
+          ? { RUSTFLAGS: undefined, CARGO_ENCODED_RUSTFLAGS: "-C\x1ftarget-feature=+simd128" }
+          : {}),
+      },
     );
   try {
     if (!run(python, ["scripts/prepare_rust.py", publicCrate, "--refresh"])) {
@@ -146,7 +151,7 @@ if (selected("rust")) {
           "--manifest-path",
           path.join(dest, "Cargo.toml"),
         ]);
-        clippy(path.join(dest, "Cargo.toml"));
+        clippy(path.join(dest, "Cargo.toml"), binding === "wasm");
       }
     }
   } finally {

@@ -17,6 +17,8 @@ impl Timer {
         }
     }
 
+    // JavaScript supplies WASM timing; keep the same interface as the native timer.
+    #[cfg_attr(target_family = "wasm", allow(clippy::unused_self))]
     pub(crate) fn elapsed(&self) -> Duration {
         #[cfg(not(target_family = "wasm"))]
         {

@@ -223,8 +223,10 @@ impl Scanner {
     /// Scan an image delivered row by row through [`RowInput`].
     ///
     /// Internal to the WebAssembly adapter, which uses it so that images above
-    /// the working size never have to be held whole; not a stable API. Results
-    /// equal scanning the same pixels as one [`Image`].
+    /// the working size never have to be held whole; not a stable API. Decoded
+    /// barcode records equal scanning the same pixels as one [`Image`]. When
+    /// `diagnostics` is false, this supplies compact-scan barcodes; the list of
+    /// undecoded regions may be incomplete.
     ///
     /// # Errors
     /// Rejects input with rows still missing, or an engine failure.
@@ -302,7 +304,7 @@ impl Scanner {
                 };
                 let settings = selected::ScanOptions {
                     multiple: true,
-                    include_regions: true,
+                    include_regions: diagnostics,
                     retain_diagnostics: diagnostics,
                     finish_candidates: false,
                     parallel: self.options.parallel,

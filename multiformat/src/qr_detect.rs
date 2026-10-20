@@ -810,6 +810,35 @@ pub fn sample(
     }
     Some(out)
 }
+// Saturating conversion matches the scalar WASM coordinate cast, including NaN.
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+#[inline]
+fn finder_coordinates(base: f32, step: f32) -> [isize; 8] {
+    use core::arch::wasm32::{
+        f32x4, f32x4_add, f32x4_floor, f32x4_mul, f32x4_splat, i32x4_extract_lane,
+        i32x4_trunc_sat_f32x4,
+    };
+    let coordinate = |ys| {
+        i32x4_trunc_sat_f32x4(f32x4_floor(f32x4_add(
+            f32x4_splat(base),
+            f32x4_mul(ys, f32x4_splat(step)),
+        )))
+    };
+    let lo = coordinate(f32x4(-3., -2., -1., 0.));
+    let hi = coordinate(f32x4(1., 2., 3., 4.));
+    [
+        i32x4_extract_lane::<0>(lo),
+        i32x4_extract_lane::<1>(lo),
+        i32x4_extract_lane::<2>(lo),
+        i32x4_extract_lane::<3>(lo),
+        i32x4_extract_lane::<0>(hi),
+        i32x4_extract_lane::<1>(hi),
+        i32x4_extract_lane::<2>(hi),
+        i32x4_extract_lane::<3>(hi),
+    ]
+    .map(|coordinate| isize::try_from(coordinate).expect("WASM32 coordinates fit isize"))
+}
+
 fn finder_grid_valid(
     image: &[bool],
     w: usize,
@@ -825,10 +854,25 @@ fn finder_grid_valid(
     for x in -3i32..=3 {
         let fx = crate::numeric::f64_f32(f64::from(x));
         let base = [center[0] + fx * ex[0], center[1] + fx * ex[1]];
+        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+        let coordinates = (
+            finder_coordinates(base[0], ey[0]),
+            finder_coordinates(base[1], ey[1]),
+        );
         for y in -3i32..=3 {
-            let fy = crate::numeric::f64_f32(f64::from(y));
-            let xx = crate::numeric::f32_isize((base[0] + fy * ey[0]).floor());
-            let yy = crate::numeric::f32_isize((base[1] + fy * ey[1]).floor());
+            #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+            let (xx, yy) = {
+                let at = usize::try_from(y + 3).expect("finder row is nonnegative");
+                (coordinates.0[at], coordinates.1[at])
+            };
+            #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+            let (xx, yy) = {
+                let fy = crate::numeric::f64_f32(f64::from(y));
+                (
+                    crate::numeric::f32_isize((base[0] + fy * ey[0]).floor()),
+                    crate::numeric::f32_isize((base[1] + fy * ey[1]).floor()),
+                )
+            };
             let expected = x.abs().max(y.abs()) != 2;
             if xx < 0
                 || yy < 0

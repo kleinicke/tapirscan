@@ -6,17 +6,22 @@ nor another barcode library are required at runtime.
 
 ## From pixels to results
 
-1. **Find candidate regions.** Stripe structure proposes barcode-like areas and
-   orientations. Selected proposals receive geometric refinement.
+1. **Find candidate regions.** Bar-segment voting groups parallel edges into
+   barcode-like areas in Medium, High, Very High and Low's fast path. Low's
+   add-on path and the experimental Turbo presets use stripe detection, which
+   also adds candidates in selected recovery paths. Selected proposals receive
+   geometric refinement.
 2. **Sample original pixels.** Oriented profiles follow each candidate's geometry.
    Medium adds a full-frame search only when its candidates read nothing but show
    barcode evidence; other modes always search the full frame. Inspection reports
    a search window only when it was searched.
 3. **Attempt all primary candidates.** Cheap attempts precede bounded retries.
    Source evidence decides where the higher modes permit additional retry work.
-4. **Recover small details.** Medium, High and Very High inspect up to two source
-   texture seeds, enlarge selected 256-pixel crops threefold, and scan them with
-   the Low instance of the maintained core.
+4. **Recover small details.** Medium, High and Very High try crops from up to two
+   selected source seeds, enlarge crops of at most 256×256 pixels threefold, and
+   scan them with the Low instance of the maintained core. High and Very High can
+   additionally try up to three seeds with crops of at most 512×512 pixels when
+   reads remain absent or weakly supported.
 5. **Reconcile and return.** Decoded values have source-coordinate polygons and
    support scores. Optional evidence retains undecoded regions, work limits,
    primary candidates, and recovery frames with explicit crop transforms.
@@ -27,7 +32,7 @@ not merely aliases for one function with different timeouts.
 ## One scanner, native and WebAssembly
 
 The public Rust `Scanner` in `bindings/rust/api` owns the complete pipeline.
-Native Rust callers use it directly. C, C++, Python and Java reach it through
+Native Rust callers use it directly. C, C++, Python, Java, Swift and Android reach it through
 the C adapter. JavaScript loads one WebAssembly module per mode and calls
 it through `bindings/wasm`; `rust-session.ts` manages its memory and lifetime.
 Scanning is synchronous after JavaScript initialization.

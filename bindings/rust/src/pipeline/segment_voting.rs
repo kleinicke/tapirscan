@@ -1,4 +1,4 @@
-//! Bar-segment voting localizer for Medium.
+//! Bar-segment voting localizer used by Low, Medium, High and Very High.
 //!
 //! A linear barcode is a family of parallel, similarly long edge segments whose centres lie on
 //! one line across the bars. Strong Scharr edges on a working raster (never upscaled) are
