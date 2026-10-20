@@ -226,7 +226,7 @@ impl Detector {
     ) -> std::result::Result<Result, Error> {
         self.detect_grid(im, 768., false, observe)
     }
-    /// Sparse source-gradient hypotheses for private speed-tier experiments.
+    /// Sparse source-gradient hypotheses for experimental Turbo presets.
     /// # Errors
     /// Rejects unsupported image dimensions.
     pub fn detect_sparse(

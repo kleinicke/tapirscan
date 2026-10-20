@@ -232,37 +232,26 @@ modules, starting with localized linear recovery and matrix retries. Keep
 Do not introduce a generic pipeline/plugin framework. Extraction alone is a
 maintainability change, not a speed improvement.
 
-### 2. Unresolved-proposal selection has concrete repeated logic
+### 2. Recovery selection shares evidence but keeps distinct policies
 
-In [pipeline.rs](../bindings/rust/src/pipeline.rs),
-`recover_primary_proposals` and `recover_primary_proposals_high` repeat the
-same evidence predicate, protected-ownership exclusion and guard-pass ordering,
-then take different numbers of proposals and run different recovery strategies.
-`recover_deferred_proposals` repeats the evidence predicate but not the entire
-ownership filter.
+In [pipeline.rs](../bindings/rust/src/pipeline.rs), `recovery_evidence` supplies
+one predicate to primary profile retries and deferred-proposal exclusion.
+Protected ownership, stable guard-pass ordering, proposal limits and recovery
+strategies remain at their call sites because they differ between passes.
+Primary recovery reuses the selected proposals for later dense profiles.
 
-**Recommendation:** share the exact eligibility predicate and, where truly
-identical, the ordered selection helper. Leave pass limits, ownership filters
-and recovery ordering at their call sites. This is a small, concrete cleanup
-candidate; merging the complete recovery functions would erase useful differences.
+### 3. Matrix readers share invocation and order
 
-### 3. Matrix-reader dispatch is maintained twice
+[matrix_readers.rs](../multiformat/src/matrix_readers.rs) defines the fixed reader
+order and detector calls with mode policies. Both the parallel matrix frontend
+and multiformat scanner use it. Their orchestration remains separate:
+multiformat observers see cumulative work-limit flags, while the frontend can
+run readers concurrently and falls back to sequential execution if private
+regions would exceed the shared cap.
 
-[matrix_frontend.rs](../bindings/rust/src/matrix_frontend.rs) has
-`readers`/`run_reader`; [multiformat/lib.rs](../multiformat/src/lib.rs) has another
-ordered dispatch in `scan_with_images`. Both select the same detector functions
-and mode policies. A future reader option could be updated in one place only.
-
-**Recommendation:** consider a shared per-reader dispatch primitive, retaining
-the frontend's concurrency and the multiformat observer hook. A focused contract
-test is an alternative if exposing another low-level API would cost more than
-the small duplicated dispatch.
-
-Do **not** simply replace one orchestrator with the other. Their finalization
-is not identical: the multiformat `linear_geometry::distinct` can join partial
-fragments; the matrix frontend's local loop only removes overlapping duplicates.
-The parallel frontend also falls back to sequential execution when combining
-private regions would exceed the shared region cap.
+Their finalization is also different: multiformat `linear_geometry::distinct`
+can join partial fragments; the matrix frontend only removes overlapping
+duplicates. Sharing detector invocation does not merge these ownership rules.
 
 ### 4. Mode configuration is spread across several legitimate layers
 
@@ -276,23 +265,12 @@ If drift becomes frequent, generate a small policy report from the authoritative
 definitions. Replacing everything with one enormous runtime configuration would
 add complexity and weaken compile-time specialization.
 
-Two implicit context channels also deserve care: `scan_primary` temporarily sets
-`Scanner.shared_linear`, and `matrix_frontend::with_parallel` uses a restored
-thread-local setting. Both have deliberate scoping/reset logic. An explicit
-internal context could improve tracing if these call chains are refactored,
-but this review did not demonstrate a correctness bug in either mechanism.
-
-### 5. Some source terminology is stale
-
-`bindings/rust/src/lib.rs` still says “Low uses the Turbo fast path,” whereas
-ordinary Low now uses voting and the Turbo presets use sparse stripes.
-`fast_linear.rs` describes tier selection as absent from every public API;
-the build-time environment switch is internal, but the resulting presets are
-public experimental API.
-
-**Recommendation:** distinguish the internal build selector from the public
-presets and call the ordinary path `fast_linear`. This is a low-risk documentation
-correction, not a reason to rename APIs or modules.
+`ScanContext` carries output options, consolidation and shared-format decisions
+through primary scanning and recursive crop recovery. Crop rescans retain the
+mixed-linear restriction while resetting their retail and consolidation policy
+explicitly. These decisions are no longer temporary mutable state on `Scanner`.
+`matrix_frontend::with_parallel` still uses a scoped, restored thread-local
+setting; this review did not demonstrate a correctness bug in that mechanism.
 
 ## Complexity worth preserving
 

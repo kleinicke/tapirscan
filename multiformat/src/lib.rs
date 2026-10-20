@@ -14,6 +14,7 @@ pub mod formats;
 pub mod gray_sample;
 pub mod linear;
 mod linear_geometry;
+pub mod matrix_readers;
 pub mod maxicode;
 pub mod maxicode_detect;
 mod maxicode_tables;
@@ -32,7 +33,6 @@ pub mod regions;
 mod resample;
 mod retail_gray;
 pub mod retail_profile;
-use formats::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE};
 use serde::Serialize;
 
 /// Largest accepted image side, in pixels.
@@ -477,54 +477,28 @@ pub fn scan_with_images(
         };
     }
     let mut regions = regions::Regions::default();
-    let (mut matrix_results, mut matrix_unfinished) = if mask & QR_CODE != 0 {
-        let (reads, limited) = qr_detect::detect_group(
+    let mut matrix_results = Vec::new();
+    let mut matrix_unfinished = false;
+    for (bit, name) in matrix_readers::ORDER {
+        if mask & bit == 0 {
+            continue;
+        }
+        let (mut reads, limited) = matrix_readers::read(
+            bit,
             image,
-            width,
-            height,
-            &mut regions,
-            binary_images,
-            qr_detect::Policy::for_mode(mode),
+            [width, height],
             effort,
-        );
-        observe("QRCode", limited || regions.limited);
-        (reads, limited)
-    } else {
-        (vec![], false)
-    };
-    if mask & DATA_MATRIX != 0 {
-        let (mut reads, limited) =
-            dm_detect::detect(width, height, &mut regions, binary_images, effort > 1, mode);
-        matrix_results.append(&mut reads);
-        matrix_unfinished |= limited;
-        observe("DataMatrix", matrix_unfinished || regions.limited);
-    }
-    if mask & AZTEC != 0 {
-        let (mut reads, limited) = aztec_detect::detect(
-            width,
-            height,
-            &mut regions,
-            image,
-            binary_images,
-            aztec_detect::Policy::for_mode(mode),
             mode,
+            &mut regions,
+            binary_images,
         );
-        matrix_results.append(&mut reads);
+        if matrix_results.is_empty() {
+            matrix_results = reads;
+        } else {
+            matrix_results.append(&mut reads);
+        }
         matrix_unfinished |= limited;
-        observe("Aztec", matrix_unfinished || regions.limited);
-    }
-    if mask & MAXI_CODE != 0 {
-        let (mut reads, limited) =
-            maxicode_detect::detect(width, height, &mut regions, binary_images);
-        matrix_results.append(&mut reads);
-        matrix_unfinished |= limited;
-        observe("MaxiCode", matrix_unfinished || regions.limited);
-    }
-    if mask & PDF417 != 0 {
-        let (mut reads, limited) = pdf417::detect(image, width, height, &mut regions, mode);
-        matrix_results.append(&mut reads);
-        matrix_unfinished |= limited;
-        observe("PDF417", matrix_unfinished || regions.limited);
+        observe(name, matrix_unfinished || regions.limited);
     }
     if mask & formats::ENGINE_LINEAR_MASK == 0 {
         linear_geometry::distinct(&mut matrix_results);

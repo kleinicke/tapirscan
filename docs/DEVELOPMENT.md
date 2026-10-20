@@ -68,8 +68,7 @@ npm run build --prefix bindings/javascript
 Development assets go to `build/wasm-development/assets/` with plain mode names and
 leave the package assets and `build.json` untouched. A mode argument builds only
 that mode; in a package build it records only files built from the current source,
-so `npm pack` fails until every file is rebuilt. `TAPIRSCAN_LOW_CLASSIC=1` with a
-`low` development build produces the core's Low Classic policy for comparisons.
+so `npm pack` fails until every file is rebuilt.
 
 ## Install local packages
 

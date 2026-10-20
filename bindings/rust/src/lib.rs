@@ -108,9 +108,6 @@ pub struct Scanner {
     additional_gray: Vec<u8>,
     fast_profiles: barcode_research_core::fast_profile::Sampler,
     retail_rgba: Vec<u8>,
-    /// Other linear formats share this scan: Medium retail crops decode only their box.
-    #[cfg(not(feature = "low"))]
-    shared_linear: bool,
     #[cfg(not(feature = "low"))]
     recovery: recovery_core::region_scan::RegionScanner,
     #[cfg(not(feature = "low"))]
@@ -126,19 +123,18 @@ impl Scanner {
         image: Image<'_>,
         options: ScanOptions,
     ) -> std::result::Result<Result, Error> {
-        self.scan_with_coverage(image, options, &[], true, false)
-    }
-
-    // Keep primary decisions and crop recovery in the same ordered transaction.
-    pub(crate) fn scan_with_coverage(
-        &mut self,
-        image: Image<'_>,
-        options: ScanOptions,
-        coverage: &[Quad],
-        consolidate: bool,
-        shared_retail: bool,
-    ) -> std::result::Result<Result, Error> {
-        pipeline::scan(self, image, options, coverage, consolidate, shared_retail)
+        pipeline::scan(
+            self,
+            image,
+            pipeline::ScanContext {
+                options,
+                consolidate: true,
+                shared_retail: false,
+                #[cfg(not(feature = "low"))]
+                shared_linear: false,
+            },
+            &[],
+        )
     }
 }
 impl Result {
@@ -270,10 +266,9 @@ mod tests {
     }
 }
 
-// Low uses the Turbo fast path. Low Classic is a demo-only build recipe;
-// higher effort modes must never inherit the bounded Low policy.
-pub(crate) const LOW_FAST_PATH: bool =
-    cfg!(feature = "low") && option_env!("TAPIRSCAN_LOW_CLASSIC").is_none();
+// Low uses fast_linear for eligible selections; add-ons use the primary pipeline.
+// Higher effort modes must never inherit the bounded Low policy.
+pub(crate) const LOW_FAST_PATH: bool = cfg!(feature = "low");
 
 /// Compiled effort mode, as its index in `config/modes.json`: 0 Low to 3 Very High.
 pub const MODE_ID: u32 = if cfg!(feature = "low") {

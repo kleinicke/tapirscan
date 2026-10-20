@@ -79,7 +79,7 @@ pub(super) fn restore_with_kernel(image: Image<'_>, weights: &[u32]) -> Vec<u8> 
 pub(super) fn recover_restored_regions(
     scanner: &mut Scanner,
     image: Image<'_>,
-    options: ScanOptions,
+    context: super::ScanContext,
     coverage: &[Quad],
     proposals: &[Proposal],
     scan: &mut crate::ScanResult,
@@ -151,7 +151,7 @@ pub(super) fn recover_restored_regions(
         let (barcodes, _) = rescan_crop(
             scanner,
             enhanced,
-            options,
+            context,
             &crop_coverage,
             local,
             true,
@@ -196,14 +196,14 @@ pub(super) fn recover_restored_regions(
 fn rescan_crop(
     scanner: &mut Scanner,
     crop: Image<'_>,
-    options: ScanOptions,
+    context: super::ScanContext,
     coverage: &[Quad],
     local: Quad,
     consolidate: bool,
     source: TextureSource<'_>,
 ) -> std::result::Result<(Vec<Barcode>, bool), Error> {
     #[cfg(feature = "medium")]
-    if scanner.shared_linear {
+    if context.shared_linear {
         let policy = scan_policy(
             crop,
             &[Proposal {
@@ -211,7 +211,7 @@ fn rescan_crop(
                 score: 1.,
             }],
             coverage,
-            options,
+            context.options,
         );
         scanner.regions.retail_configure(1)?;
         let retry = scanner
@@ -221,7 +221,13 @@ fn rescan_crop(
     }
     #[cfg(not(feature = "medium"))]
     let _ = local;
-    let retry = scan_prepared_impl(scanner, crop, options, coverage, consolidate, false, source)?;
+    let retry = scan_prepared_impl(
+        scanner,
+        crop,
+        context.for_crop(consolidate),
+        coverage,
+        source,
+    )?;
     Ok((retry.scan.frame.barcodes, retry.scan.frame.unfinished))
 }
 
@@ -417,7 +423,7 @@ pub(super) fn reduce_gray(image: Image<'_>, factor: f64) -> (Vec<u8>, usize, usi
 pub(super) fn recover_scaled_crop(
     scanner: &mut Scanner,
     image: Image<'_>,
-    options: ScanOptions,
+    context: super::ScanContext,
     coverage: &[Quad],
     proposals: &[Proposal],
     scan: &mut crate::ScanResult,
@@ -478,7 +484,7 @@ pub(super) fn recover_scaled_crop(
             coverage: &crop_coverage,
         };
         // Sharpen once with the late-crop kernel when the plain reduction reads nothing.
-        if !admit_reduced_reads(scanner, image, options, &crop, reduced, scan)? {
+        if !admit_reduced_reads(scanner, image, context, &crop, reduced, scan)? {
             let sharpened = restore_alternate_source_image(reduced);
             let sharpened = Image {
                 data: &sharpened,
@@ -487,7 +493,7 @@ pub(super) fn recover_scaled_crop(
                 channels: 1,
                 stride: rw,
             };
-            admit_reduced_reads(scanner, image, options, &crop, sharpened, scan)?;
+            admit_reduced_reads(scanner, image, context, &crop, sharpened, scan)?;
         }
     }
     Ok(())
@@ -508,7 +514,7 @@ struct ReducedCrop<'a> {
 fn admit_reduced_reads(
     scanner: &mut Scanner,
     image: Image<'_>,
-    options: ScanOptions,
+    context: super::ScanContext,
     crop: &ReducedCrop<'_>,
     variant: Image<'_>,
     scan: &mut crate::ScanResult,
@@ -524,7 +530,7 @@ fn admit_reduced_reads(
     let (barcodes, unfinished) = rescan_crop(
         scanner,
         variant,
-        options,
+        context,
         crop.coverage,
         local,
         false,

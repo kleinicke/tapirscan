@@ -15,14 +15,13 @@ _CONFIG = json.loads((ROOT / "config/modes.json").read_text())
 MODES = tuple(_CONFIG["modes"])
 TURBO_PRESETS = tuple(_CONFIG["experimentalTurbo"])
 # Build-time switches that the Rust sources read with `option_env!`, set only by
-# Turbo presets (scripts/build_turbo.py) or private Low Classic comparisons.
+# Turbo presets (scripts/build_turbo.py).
 PRIVATE_PREFIXES = ("TAPIRSCAN_TURBO_", "TAPIRSCAN_EXPERIMENTAL_")
-PRIVATE_VARIABLES = ("TAPIRSCAN_LOW_CLASSIC",)
 
 
 def is_private(key: str) -> bool:
     """Whether an environment variable selects a private compile-time policy."""
-    return key in PRIVATE_VARIABLES or key.startswith(PRIVATE_PREFIXES)
+    return key.startswith(PRIVATE_PREFIXES)
 
 
 def clean_env() -> dict[str, str]:

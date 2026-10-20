@@ -15,7 +15,6 @@ from build import ROOT, clean_env
 STRAY = {
     "TAPIRSCAN_TURBO_TILE_CACHE": "1",
     "TAPIRSCAN_EXPERIMENTAL_TURBO": "1",
-    "TAPIRSCAN_LOW_CLASSIC": "1",
 }
 
 
@@ -26,13 +25,11 @@ class PrivateTurboTests(unittest.TestCase):
         """A caller's previous experiment must not silently alter a recipe."""
         with patch.dict(
             os.environ,
-            {"TAPIRSCAN_TURBO_MATRIX_CAP": "64", "TAPIRSCAN_LOW_CLASSIC": "1"},
+            {"TAPIRSCAN_TURBO_MATRIX_CAP": "64"},
         ):
-            original = environment("original")
             tier = environment("16")
-        self.assertNotIn("TAPIRSCAN_LOW_CLASSIC", original)
-        self.assertNotIn("TAPIRSCAN_TURBO_MATRIX_CAP", original)
-        self.assertEqual(original["TAPIRSCAN_TURBO_TIER"], "0")
+        self.assertNotIn("TAPIRSCAN_TURBO_MATRIX_CAP", tier)
+        self.assertEqual(tier["TAPIRSCAN_TURBO_TIER"], "16")
         self.assertEqual(tier["TAPIRSCAN_TURBO_DIRECT_SAMPLE"], "1")
         self.assertNotIn("32", TIERS)
 
@@ -40,7 +37,12 @@ class PrivateTurboTests(unittest.TestCase):
         """All four Turbo presets build with the tile cache."""
         for preset in ("2", "4", "8", "16"):
             self.assertEqual(environment(preset)["TAPIRSCAN_TURBO_TILE_CACHE"], "1")
-        self.assertNotIn("TAPIRSCAN_TURBO_TILE_CACHE", environment("original"))
+
+    def test_unknown_preset_is_rejected(self) -> None:
+        """Internal callers cannot silently build an unspecified recipe."""
+        for preset in ("0", "32", "low"):
+            with self.subTest(preset=preset), self.assertRaises(ValueError):
+                environment(preset)
 
     def test_ordinary_builds_drop_stray_switches(self) -> None:
         """A switch left in the shell never reaches a normal native or core build."""
@@ -51,7 +53,6 @@ class PrivateTurboTests(unittest.TestCase):
             self.assertFalse(set(STRAY) & set(android))
             turbo = cargo_env(ROOT / "build/x", turbo="8")
         self.assertEqual(turbo["TAPIRSCAN_TURBO_PROFILE_CAP"], "576")
-        self.assertNotIn("TAPIRSCAN_LOW_CLASSIC", turbo)
 
     def test_caller_rustflags_reach_host_builds_only(self) -> None:
         """Host-only flags such as target-cpu=native stay out of cross builds."""

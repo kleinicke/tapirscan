@@ -53,9 +53,9 @@ def cargo_env(
     """Return the environment for cargo builds of a Rust target into `target_dir`.
 
     `target` None builds for the host; see `rustflags` for which compiler flags
-    each kind of build receives. Private compile-time switches (Turbo recipes,
-    Low Classic) are removed from the caller's environment; `turbo` names a
-    preset of scripts/build_turbo.py whose recipe is applied instead.
+    each kind of build receives. Turbo compile-time switches are removed from
+    the caller's environment; `turbo` names a preset of scripts/build_turbo.py
+    whose recipe is applied instead.
     """
     env = clean_env()
     if turbo is not None:

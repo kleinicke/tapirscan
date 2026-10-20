@@ -197,10 +197,10 @@ rebuild for ABI 6. See the [migration guide](docs/API_MIGRATION.md).
 
 ## 1.2.2 — 2026-09-25
 
-- Public `low` now uses the original Turbo policy across all bindings; higher
+- Public `low` now uses the speed-oriented linear scan across all bindings; higher
   effort modes remain available. Low prioritizes speed and can miss difficult
-  symbols; Medium remains the default API mode. The previous Low is
-  TS-Low Classic in the demo. Experimental Turbo tiers remain demo-only.
+  symbols; Medium remains the default API mode. Experimental Turbo presets were
+  available only in the demo at this release.
 - Demo cards pause without disappearing; More scanners controls visibility.
   Basic ZXing and ZXing-JS readers are separate optional comparisons.
 

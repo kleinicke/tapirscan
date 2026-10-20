@@ -1,10 +1,8 @@
 //! Matrix reader orchestration with shared baseline thresholds and bounded Aztec recovery.
 //! Reader order and non-Aztec policies mirror `barcode_multiformat::scan_observed_for_mode`.
-use barcode_multiformat::formats::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE};
-use barcode_multiformat::{
-    Detection, Scan, aztec_detect, binarization, dm_detect, maxicode_detect, pdf417, qr_detect,
-    regions,
-};
+#[cfg(not(target_family = "wasm"))]
+use barcode_multiformat::formats::PDF417;
+use barcode_multiformat::{Detection, Scan, binarization, matrix_readers, regions};
 /// Stack for reader threads, sized like a typical main-thread stack.
 #[cfg(not(target_family = "wasm"))]
 const READER_STACK: usize = 8 << 20;
@@ -14,8 +12,9 @@ type ReaderRun = (Vec<Detection>, bool, regions::Regions);
 
 /// The matrix readers selected by `mask`, in their fixed result order.
 fn readers(mask: u32) -> Vec<u32> {
-    [QR_CODE, DATA_MATRIX, AZTEC, MAXI_CODE, PDF417]
+    matrix_readers::ORDER
         .into_iter()
+        .map(|(bit, _)| bit)
         .filter(|bit| mask & bit != 0)
         .collect()
 }
@@ -30,39 +29,15 @@ fn run_reader(
     regions: &mut regions::Regions,
     binary_images: &mut binarization::Images<'_>,
 ) -> (Vec<Detection>, bool) {
-    match bit {
-        QR_CODE => qr_detect::detect_group(
-            image,
-            width,
-            height,
-            regions,
-            binary_images,
-            qr_detect::Policy::for_mode(crate::MODE_ID as usize),
-            effort,
-        ),
-        DATA_MATRIX => dm_detect::detect(
-            width,
-            height,
-            regions,
-            binary_images,
-            effort > 1,
-            crate::MODE_ID as usize,
-        ),
-        // The enlarged retry costs a scan of its own and follows the compiled
-        // mode (the matrix group's `effort` is 1 in every mode): none in Low,
-        // which keeps to live-camera cost, a narrow one in Medium.
-        AZTEC => aztec_detect::detect(
-            width,
-            height,
-            regions,
-            image,
-            binary_images,
-            aztec_detect::Policy::for_mode(crate::MODE_ID as usize),
-            crate::MODE_ID as usize,
-        ),
-        MAXI_CODE => maxicode_detect::detect(width, height, regions, binary_images),
-        _ => pdf417::detect(image, width, height, regions, crate::MODE_ID as usize),
-    }
+    matrix_readers::read(
+        bit,
+        image,
+        [width, height],
+        effort,
+        crate::MODE_ID as usize,
+        regions,
+        binary_images,
+    )
 }
 
 /// Run the readers concurrently, each with private regions and binarization.
@@ -308,7 +283,8 @@ fn scan_with(
 }
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use super::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE, concurrent, scan_with};
+    use super::{concurrent, scan_with};
+    use barcode_multiformat::formats::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE};
 
     fn report(scan: &barcode_multiformat::Scan) -> String {
         format!(

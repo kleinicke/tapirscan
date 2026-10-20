@@ -19,8 +19,8 @@ pub(crate) use recovery::{
     recover_proposals_patient,
 };
 
-// Build-only research selection, deliberately absent from every public API.
-// Cargo tracks this environment input; artifact manifests must record it.
+// Internal build selector for the public experimental Turbo presets. Zero is
+// ordinary Low. Cargo tracks this input; artifact manifests must record it.
 #[cfg(feature = "low")]
 const TIER: usize = match option_env!("TAPIRSCAN_TURBO_TIER") {
     Some(value) => match value.as_bytes() {
@@ -29,7 +29,7 @@ const TIER: usize = match option_env!("TAPIRSCAN_TURBO_TIER") {
         [b'8'] => 8,
         [b'1', b'6'] => 16,
         [b'0'] => 0,
-        _ => panic!("unsupported private Turbo tier"),
+        _ => panic!("unsupported Turbo preset"),
     },
     None => 0,
 };

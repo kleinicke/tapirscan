@@ -1,4 +1,4 @@
-//! Sparse original-pixel orientation hypotheses for private speed-tier research.
+//! Sparse original-pixel orientation hypotheses for experimental Turbo presets.
 //! This is localization only: source profiles still validate every payload.
 use super::{Error, ImageView, Proposal, Result, Tile, bounds, groups, raster::Raster};
 use crate::numeric::{f64_usize, usize_f64};

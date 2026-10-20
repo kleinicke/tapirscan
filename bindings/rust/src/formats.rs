@@ -7,7 +7,7 @@
 //!
 //! | Pass                                                         | L | M | H | V |
 //! |--------------------------------------------------------------|---|---|---|---|
-//! | Turbo fast path for linear selections (`cfg`)                | x |   |   |   |
+//! | Low fast path for linear selections (`cfg`)                  | x |   |   |   |
 //! | EAN-13 alone: the primary scanner only                       | x | x | x | x |
 //! | **`scan_additional`**, the whole-image readers               |   |   |   |   |
 //! | linear sweep of every selected linear format                 | x |   |   |   |
@@ -352,11 +352,13 @@ impl Scanner {
             POLICY.source_profile_cache,
             |sampler| {
                 let mut deferred_reads = Vec::new();
+                let localized;
                 let proposals = if let Some(primary) = primary {
-                    primary.proposals.clone()
+                    primary.proposals.as_slice()
                 } else {
-                    // Low's segment-voting boxes, which follow rotated and warped bars.
-                    crate::pipeline::segment_voting::localize(image).proposals
+                    // Segment-voting boxes follow rotated and warped bars.
+                    localized = crate::pipeline::segment_voting::localize(image).proposals;
+                    localized.as_slice()
                 };
                 // A broad mask can turn a short UPC-E interpretation of EAN-13 into a
                 // false extra read. The new rare-format recovery requires explicit
@@ -386,7 +388,7 @@ impl Scanner {
                 let mut hinted = Vec::new();
                 let (mut found, mut pending) = crate::fast_linear::recover_proposals_hinted(
                     image,
-                    &proposals,
+                    proposals,
                     oriented_mask,
                     sampler,
                     &mut hinted,
@@ -553,8 +555,7 @@ impl Scanner {
                 // and decode only the new proposals. Very High reads what High reads plus
                 // what the windows add. Medium keeps its cost on large retail photos.
                 if POLICY.half_scale_proposals && oriented_mask != 0 && large {
-                    let mut windowed =
-                        half_scale_proposals(&mut self.localizer, image, &proposals)?;
+                    let mut windowed = half_scale_proposals(&mut self.localizer, image, proposals)?;
                     if POLICY.window_proposals {
                         let known: Vec<_> = proposals.iter().chain(&windowed).copied().collect();
                         windowed.extend(windowed_proposals(&mut self.localizer, image, &known)?);
@@ -588,7 +589,7 @@ impl Scanner {
                         .count()
                         >= RETAIL_BATCH_READS
                 {
-                    let boxes = half_scale_proposals(&mut self.localizer, image, &proposals)?;
+                    let boxes = half_scale_proposals(&mut self.localizer, image, proposals)?;
                     let (extra, _) = crate::fast_linear::recover_proposals(
                         image,
                         &boxes,
@@ -732,7 +733,7 @@ impl Scanner {
                     crate::short_crop::recover(
                         &mut self.localizer,
                         image,
-                        &proposals,
+                        proposals,
                         mask,
                         sampler,
                         reads,
@@ -890,18 +891,20 @@ impl Scanner {
         shared_retail: bool,
         mask: u32,
     ) -> Result<crate::Result, Error> {
-        #[cfg(not(feature = "low"))]
-        {
-            self.shared_linear = mask & LINEAR_MASK & !RETAIL_MASK != 0;
-        }
         #[cfg(feature = "low")]
         let _ = mask;
-        let primary = self.scan_with_coverage(image, options, coverage, false, shared_retail);
-        #[cfg(not(feature = "low"))]
-        {
-            self.shared_linear = false;
-        }
-        primary
+        crate::pipeline::scan(
+            self,
+            image,
+            crate::pipeline::ScanContext {
+                options,
+                consolidate: false,
+                shared_retail,
+                #[cfg(not(feature = "low"))]
+                shared_linear: mask & LINEAR_MASK & !RETAIL_MASK != 0,
+            },
+            coverage,
+        )
     }
 }
 
@@ -2126,6 +2129,16 @@ fn extend_primary_retail(reads: &mut Vec<Read>, primary: Option<&crate::Result>,
     }
 }
 
+#[cfg(not(feature = "low"))]
+fn retry_format(format: &str) -> u32 {
+    match format {
+        "QRCode" => QR_CODE,
+        "DataMatrix" => DATA_MATRIX,
+        "Aztec" => AZTEC,
+        _ => 0,
+    }
+}
+
 /// Localized crop retries of pending matrix regions under one pixel allowance for the
 /// whole matrix group, independent of how many formats are enabled. Initial readers
 /// have already tried every format; finder hints prioritize bounded recovery without
@@ -2142,12 +2155,7 @@ fn matrix_retries(
     // Pending recovery remains unfinished even when its shared allowance or
     // crop size cap prevents a retry, including candidates beyond the first eight.
     scan.unfinished |= scan.regions.iter().any(|region| {
-        let selected = match region.format.as_str() {
-            "QRCode" => QR_CODE,
-            "DataMatrix" => DATA_MATRIX,
-            "Aztec" => AZTEC,
-            _ => 0,
-        };
+        let selected = retry_format(&region.format);
         mask & selected != 0
             && !scan.barcodes.iter().any(|read| {
                 read.format == region.format
@@ -2155,12 +2163,7 @@ fn matrix_retries(
             })
     });
     for region in scan.regions.iter().take(8) {
-        let hinted = match region.format.as_str() {
-            "QRCode" => QR_CODE,
-            "DataMatrix" => DATA_MATRIX,
-            "Aztec" => AZTEC,
-            _ => 0,
-        };
+        let hinted = retry_format(&region.format);
         if mask & hinted == 0 {
             continue;
         }

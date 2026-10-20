@@ -36,18 +36,39 @@ struct Localization {
     stray_textures: bool,
 }
 
+/// Per-scan decisions carried through recursive crop recovery, never stored on Scanner.
+#[derive(Clone, Copy)]
+pub(crate) struct ScanContext {
+    pub options: ScanOptions,
+    pub consolidate: bool,
+    pub shared_retail: bool,
+    /// Other linear formats share this scan: Medium retail crops decode only their box.
+    #[cfg(not(feature = "low"))]
+    pub shared_linear: bool,
+}
+
+impl ScanContext {
+    /// Crop rescans retain format context but decode only primary retail formats.
+    #[cfg(not(feature = "low"))]
+    fn for_crop(self, consolidate: bool) -> Self {
+        Self {
+            consolidate,
+            shared_retail: false,
+            ..self
+        }
+    }
+}
+
 pub(super) fn scan(
     scanner: &mut Scanner,
     image: Image<'_>,
-    options: ScanOptions,
+    context: ScanContext,
     coverage: &[Quad],
-    consolidate: bool,
-    shared_retail: bool,
 ) -> std::result::Result<Result, Error> {
     #[cfg(feature = "low")]
     let _ = coverage;
     checked_image(image)?;
-    if shared_retail && (image.channels != 4 || image.stride != image.width * 4) {
+    if context.shared_retail && (image.channels != 4 || image.stride != image.width * 4) {
         let mut packed = std::mem::take(&mut scanner.retail_rgba);
         retail_pixels(image, &mut packed);
         let result = scan_prepared(
@@ -59,41 +80,22 @@ pub(super) fn scan(
                 channels: 4,
                 stride: image.width * 4,
             },
-            options,
+            context,
             coverage,
-            consolidate,
-            shared_retail,
         );
         scanner.retail_rgba = packed;
         return result;
     }
-    scan_prepared(
-        scanner,
-        image,
-        options,
-        coverage,
-        consolidate,
-        shared_retail,
-    )
+    scan_prepared(scanner, image, context, coverage)
 }
 
 fn scan_prepared(
     scanner: &mut Scanner,
     image: Image<'_>,
-    options: ScanOptions,
+    context: ScanContext,
     coverage: &[Quad],
-    consolidate: bool,
-    shared_retail: bool,
 ) -> std::result::Result<Result, Error> {
-    scan_prepared_impl(
-        scanner,
-        image,
-        options,
-        coverage,
-        consolidate,
-        shared_retail,
-        TextureSource::of(image),
-    )
+    scan_prepared_impl(scanner, image, context, coverage, TextureSource::of(image))
 }
 
 /// Original pixels behind a scanned image: point `p` of the scanned image lies at
@@ -147,12 +149,16 @@ impl<'a> TextureSource<'a> {
 fn scan_prepared_impl(
     scanner: &mut Scanner,
     image: Image<'_>,
-    options: ScanOptions,
+    context: ScanContext,
     coverage: &[Quad],
-    consolidate: bool,
-    shared_retail: bool,
     source: TextureSource<'_>,
 ) -> std::result::Result<Result, Error> {
+    let ScanContext {
+        options,
+        consolidate,
+        shared_retail,
+        ..
+    } = context;
     let allow_restoration = source.frame;
     let im = checked_image(image)?;
     let localization = localize(&mut scanner.localizer, im, image, source)?;
@@ -189,7 +195,7 @@ fn scan_prepared_impl(
         && retail.is_empty()
         && (localization.stray_textures
             || scan.frame.candidates.iter().any(|c| {
-                if scanner.shared_linear {
+                if context.shared_linear {
                     c.work.guard_pass >= 4
                 } else {
                     c.work.guard_pass > 0 || c.work.forward_blur_windows >= 2
@@ -265,7 +271,7 @@ fn scan_prepared_impl(
     // symbols sharing the scan show stray guards, so they need repeated guard passes.
     #[cfg(any(feature = "high", feature = "very-high"))]
     let retail_unread = scan.frame.barcodes.is_empty()
-        && (!scanner.shared_linear
+        && (!context.shared_linear
             || localization.stray_textures
             || scan.frame.candidates.iter().any(|c| c.work.guard_pass >= 4));
     #[cfg(any(feature = "high", feature = "very-high"))]
@@ -298,7 +304,7 @@ fn scan_prepared_impl(
         recover_restored_regions(
             scanner,
             image,
-            options,
+            context,
             coverage,
             &localization.proposals,
             &mut scan,
@@ -311,13 +317,13 @@ fn scan_prepared_impl(
     #[cfg(any(feature = "high", feature = "very-high"))]
     if allow_restoration
         && scan.frame.barcodes.is_empty()
-        && !scanner.shared_linear
+        && !context.shared_linear
         && scan.frame.candidates.iter().any(|c| c.work.guard_pass >= 4)
     {
         recover_unread_crops(
             scanner,
             image,
-            options,
+            context,
             coverage,
             &localization.proposals,
             &mut scan,
@@ -328,7 +334,7 @@ fn scan_prepared_impl(
         recover_unread_crops(
             scanner,
             image,
-            options,
+            context,
             coverage,
             &localization.proposals,
             &mut scan,
@@ -349,7 +355,7 @@ fn scan_prepared_impl(
             &mut scan,
         )?;
         if scan.frame.barcodes.is_empty() {
-            recover_downscaled(scanner, image, options, coverage, &mut scan)?;
+            recover_downscaled(scanner, image, context, coverage, &mut scan)?;
         }
     }
     #[cfg(feature = "low")]
@@ -377,14 +383,14 @@ fn scan_prepared_impl(
 fn recover_unread_crops(
     scanner: &mut Scanner,
     image: Image<'_>,
-    options: ScanOptions,
+    context: ScanContext,
     coverage: &[Quad],
     proposals: &[Proposal],
     scan: &mut super::ScanResult,
 ) -> std::result::Result<(), Error> {
-    recover_late_wide_crop(scanner, image, options, coverage, proposals, scan)?;
+    recover_late_wide_crop(scanner, image, context.options, coverage, proposals, scan)?;
     if scan.frame.barcodes.is_empty() {
-        recover_scaled_crop(scanner, image, options, coverage, proposals, scan)?;
+        recover_scaled_crop(scanner, image, context, coverage, proposals, scan)?;
     }
     Ok(())
 }
@@ -396,7 +402,7 @@ fn recover_unread_crops(
 fn recover_downscaled(
     scanner: &mut Scanner,
     image: Image<'_>,
-    options: ScanOptions,
+    context: ScanContext,
     coverage: &[Quad],
     scan: &mut super::ScanResult,
 ) -> std::result::Result<(), Error> {
@@ -427,10 +433,8 @@ fn recover_downscaled(
     let retry = scan_prepared_impl(
         scanner,
         reduced,
-        options,
+        context.for_crop(false),
         &scaled,
-        false,
-        false,
         TextureSource::crop(image, [0., 0.], factor),
     )?;
     scan.frame.unfinished |= retry.scan.frame.unfinished;
@@ -630,6 +634,21 @@ fn recover_highpass_proposals(
     Ok(accepted)
 }
 
+/// Evidence shared by primary profile retries and the deferred-proposal exclusion.
+#[cfg(not(feature = "low"))]
+fn recovery_evidence(
+    proposal: &Proposal,
+    candidate: Option<&barcode_research_core::candidate_scanner::Candidate>,
+) -> bool {
+    candidate.is_some_and(|c| {
+        (c.work.guard_pass > 0
+            || (c.work.invalid_visual_seen == 0
+                && c.work.invalid_veto_reads == 0
+                && (proposal.score >= 0.95 || c.work.forward_blur_windows >= 4)))
+            && c.detections.is_empty()
+    })
+}
+
 /// Retry bounded unresolved source proposals with independent row confirmation.
 /// Protect reconciled original ownership before adding a new physical read.
 #[cfg(not(feature = "low"))]
@@ -645,19 +664,13 @@ fn recover_primary_proposals(
         .iter()
         .enumerate()
         .filter(|(i, p)| {
-            scan.frame.candidates.get(*i).is_some_and(|c| {
-                (c.work.guard_pass > 0
-                    || (c.work.invalid_visual_seen == 0
-                        && c.work.invalid_veto_reads == 0
-                        && (p.score >= 0.95 || c.work.forward_blur_windows >= 4)))
-                    && c.detections.is_empty()
-            }) && !protected
-                .iter()
-                .any(|b| super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3)
+            recovery_evidence(p, scan.frame.candidates.get(*i))
+                && !protected.iter().any(|b| {
+                    super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3
+                })
         })
         .collect();
     unresolved.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
-    let dense_eligible: Vec<_> = unresolved.iter().take(2).map(|(_, p)| **p).collect();
     let proposals: Vec<_> = unresolved.into_iter().take(2).map(|(_, p)| *p).collect();
     let (extra, _) = super::fast_linear::recover_proposals(image, &proposals, 1, sampler)?;
     let (restored, _) = super::fast_linear::recover_proposals_as(
@@ -688,10 +701,9 @@ fn recover_primary_proposals(
     if !scan.frame.barcodes.is_empty() {
         return Ok(());
     }
-    let dense_proposals = dense_eligible;
     let (extra, _) = super::fast_linear::recover_proposals_as(
         image,
-        &dense_proposals,
+        &proposals,
         1,
         sampler,
         SourceProfile::WideEan,
@@ -700,7 +712,7 @@ fn recover_primary_proposals(
     if accepted.is_empty() {
         let extra = super::fast_linear::recover_proposals_as(
             image,
-            &dense_proposals,
+            &proposals,
             1,
             sampler,
             SourceProfile::BandEan(1.5),
@@ -726,15 +738,10 @@ fn recover_primary_proposals_high(
         .iter()
         .enumerate()
         .filter(|(i, p)| {
-            scan.frame.candidates.get(*i).is_some_and(|c| {
-                (c.work.guard_pass > 0
-                    || (c.work.invalid_visual_seen == 0
-                        && c.work.invalid_veto_reads == 0
-                        && (p.score >= 0.95 || c.work.forward_blur_windows >= 4)))
-                    && c.detections.is_empty()
-            }) && !protected
-                .iter()
-                .any(|b| super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3)
+            recovery_evidence(p, scan.frame.candidates.get(*i))
+                && !protected.iter().any(|b| {
+                    super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3
+                })
         })
         .collect();
     unresolved.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
@@ -1099,15 +1106,7 @@ fn recover_deferred_proposals(
     let mut eligible: Vec<_> = proposals
         .iter()
         .enumerate()
-        .filter(|(i, p)| {
-            scan.frame.candidates.get(*i).is_some_and(|c| {
-                (c.work.guard_pass > 0
-                    || (c.work.invalid_visual_seen == 0
-                        && c.work.invalid_veto_reads == 0
-                        && (p.score >= 0.95 || c.work.forward_blur_windows >= 4)))
-                    && c.detections.is_empty()
-            })
-        })
+        .filter(|(i, p)| recovery_evidence(p, scan.frame.candidates.get(*i)))
         .collect();
     eligible.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
     let already: Vec<_> = eligible.iter().take(2).map(|(i, _)| *i).collect();

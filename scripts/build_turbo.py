@@ -8,30 +8,32 @@ import shutil
 import subprocess
 import sys
 
-from build import ROOT, clean_env
+from build import ROOT, TURBO_PRESETS, clean_env
 
-TIERS = ("original", "2", "4", "8", "16")
+TIERS = tuple(str(preset) for preset in TURBO_PRESETS)
 
 
 def environment(tier: str) -> dict[str, str]:
-    """Use only the selected, validated private recipe."""
+    """Use only the selected experimental Turbo preset."""
+    if tier not in TIERS:
+        message = f"unsupported Turbo preset: {tier}"
+        raise ValueError(message)
     env = clean_env()
     env["TAPIRSCAN_EXPERIMENTAL_TURBO"] = "1"
-    env["TAPIRSCAN_TURBO_TIER"] = "0" if tier == "original" else tier
-    if tier != "original":
-        for key in (
-            "TAPIRSCAN_TURBO_NO_DISPLAY_OUTLINES",
-            "TAPIRSCAN_TURBO_BAND_OUTLINES",
-            "TAPIRSCAN_TURBO_TILE_CACHE",
-            "TAPIRSCAN_TURBO_FINITE_EXTREMA",
-        ):
-            env[key] = "1"
-        if tier != "16":
-            env["TAPIRSCAN_TURBO_SELECTIVE_OUTLINES"] = "1"
-        if tier == "8":
-            env["TAPIRSCAN_TURBO_PROFILE_CAP"] = "576"
-        if tier == "16":
-            env["TAPIRSCAN_TURBO_DIRECT_SAMPLE"] = "1"
+    env["TAPIRSCAN_TURBO_TIER"] = tier
+    for key in (
+        "TAPIRSCAN_TURBO_NO_DISPLAY_OUTLINES",
+        "TAPIRSCAN_TURBO_BAND_OUTLINES",
+        "TAPIRSCAN_TURBO_TILE_CACHE",
+        "TAPIRSCAN_TURBO_FINITE_EXTREMA",
+    ):
+        env[key] = "1"
+    if tier != "16":
+        env["TAPIRSCAN_TURBO_SELECTIVE_OUTLINES"] = "1"
+    if tier == "8":
+        env["TAPIRSCAN_TURBO_PROFILE_CAP"] = "576"
+    if tier == "16":
+        env["TAPIRSCAN_TURBO_DIRECT_SAMPLE"] = "1"
     return env
 
 
