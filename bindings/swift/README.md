@@ -45,6 +45,10 @@ already scan on several threads; `nil` uses the
 `config/formats.json`. A per-call `ScanOptions(formats:)` overrides the scanner's
 formats for that call only.
 
+For example, `ScannerOptions(formats: .common)` selects the common group.
+See the [format and keyword-group matrix](../../docs/FORMATS.md#format-matrix)
+for group membership and opt-in formats.
+
 ```swift
 let qrOnly = try scanner.scan(cgImage, options: ScanOptions(formats: .qrCode))
 ```

@@ -138,6 +138,9 @@ Format names, native bits, ordered presets and reserved add-on flags are declare
 in `config/formats.json`. Run `python3 scripts/generate_formats.py` after changing
 it, then `python3 scripts/generate_formats.py --check`. The generated declarations
 of every binding are checked in; `verify_sources.py` also checks for drift.
+The same command updates the format matrices in the main, JavaScript and Python
+READMEs and `docs/FORMATS.md`. Their scope descriptions live in
+`config/format_scopes.json`; edit that file rather than the generated tables.
 Changing a format bit is an API/ABI change, not a routine registry edit. Adding a
 format also needs a reader in `multiformat/`. Content kinds (native number,
 schema name, binding identifiers, description, experimental flag) are declared

@@ -67,7 +67,7 @@ results are identical either way. `null` is on unless the process environment se
 
 Presets: `Format.RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX` and
 `ALL`. Set the supplement policy with `withEanAddOnPolicy`. See
-[format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md).
+[format and keyword-group matrix](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md#format-matrix).
 
 | Per-scan option | Default            | Meaning                                                |
 | --------------- | ------------------ | ------------------------------------------------------ |

@@ -103,7 +103,7 @@ zero, so an initializer that leaves `parallel` out keeps the default.
 
 Presets: `TAPIRSCAN_FORMATS_RETAIL`, `_COMMON_1D`, `_COMMON`, `_LINEAR`,
 `_MATRIX` and `_ALL`, from the generated `tapirscan_formats.h`. See
-[format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md).
+[format and keyword-group matrix](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md#format-matrix).
 
 | Per-scan option | Default | Meaning                                                      |
 | --------------- | ------- | ------------------------------------------------------------ |

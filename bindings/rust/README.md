@@ -101,7 +101,7 @@ field stops compiling when one is added.
 WebAssembly ignores it.
 
 Presets: `Formats::RETAIL`, `COMMON_1D`, `COMMON`, `LINEAR`, `MATRIX`, `ALL`
-(see [format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md)). `Read` accepts a supplement when
+(see [format and keyword-group matrix](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md#format-matrix)). `Read` accepts a supplement when
 present; `Require` drops retail reads without one. Non-retail formats are
 unaffected.
 

@@ -74,7 +74,7 @@ results are identical either way. Unset is on unless the process environment set
 `Formats::from_bits` rejects empty or unknown bits with `std::invalid_argument`.
 
 Presets: `Formats::retail()`, `common_1d()`, `common()`, `linear()`,
-`matrix()` and `all()`. See [format coverage](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md).
+`matrix()` and `all()`. See [format and keyword-group matrix](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md#format-matrix).
 
 | Per-scan option | Default        | Meaning                                                |
 | --------------- | -------------- | ------------------------------------------------------ |
