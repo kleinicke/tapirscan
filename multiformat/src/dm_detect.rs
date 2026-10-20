@@ -1115,11 +1115,75 @@ fn pixel(image: &[bool], w: usize, h: usize, transform: &[f32; 8], x: f32, y: f3
     let mapped = map(transform, x, y);
     let xx = crate::numeric::f32_isize(mapped[0].floor());
     let yy = crate::numeric::f32_isize(mapped[1].floor());
+    pixel_at(image, w, h, xx, yy)
+}
+#[inline]
+fn pixel_at(image: &[bool], w: usize, h: usize, xx: isize, yy: isize) -> Option<bool> {
     if xx < 0 || yy < 0 || xx >= (w).cast_signed() || yy >= (h).cast_signed() {
         return None;
     }
     Some(image[(yy).cast_unsigned() * w + (xx).cast_unsigned()])
 }
+/// Sample a complete hypothesis in row order, reusing storage across attempts.
+/// Invalid coordinates are skipped; only a full grid is eligible for decoding.
+fn sample_grid(
+    image: &[bool],
+    [w, h]: [usize; 2],
+    transform: &[f32; 8],
+    [cols, rows]: [usize; 2],
+    matrix: &mut Vec<bool>,
+) -> bool {
+    matrix.clear();
+    matrix.reserve(cols * rows);
+    for y in 0..rows {
+        for x in 0..cols {
+            if let Some(value) = pixel(
+                image,
+                w,
+                h,
+                transform,
+                crate::numeric::usize_f32(x) + 0.5,
+                crate::numeric::usize_f32(y) + 0.5,
+            ) {
+                matrix.push(value);
+            }
+        }
+    }
+    matrix.len() == cols * rows
+}
+
+#[cfg(test)]
+mod grid_sampling_tests {
+    use super::sample_grid;
+
+    #[test]
+    fn reuse_preserves_row_order_and_rejects_partial_grids() {
+        let image = [
+            true, false, false, true, false, true, false, false, true, true, false, true,
+        ];
+        let identity = [1., 0., 0., 0., 1., 0., 0., 0.];
+        let mut left = identity;
+        left[2] = -1.;
+        let mut outside = identity;
+        outside[2] = 4.;
+        let mut matrix = Vec::new();
+        for (size, transform, valid, expected) in [
+            ([2, 2], identity, true, vec![true, false, false, true]),
+            ([4, 3], identity, true, image.to_vec()),
+            ([3, 2], left, false, vec![true, false, false, true]),
+            ([4, 3], outside, false, vec![]),
+            ([2, 2], identity, true, vec![true, false, false, true]),
+            ([3, 1], identity, true, vec![true, false, false]),
+        ] {
+            assert_eq!(
+                sample_grid(&image, [4, 3], &transform, size, &mut matrix),
+                valid
+            );
+            assert_eq!(matrix, expected);
+        }
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[must_use]
 pub fn diagnostic_candidates(image: &[bool], w: usize, h: usize) -> serde_json::Value {
@@ -1288,7 +1352,50 @@ fn border(
 ) -> Option<f32> {
     border_with_limit(image, w, h, transform, cols, rows, 2)
 }
-/// Border error fraction with at most `(cols + rows) * 2 * fifths / 5` wrong samples.
+#[inline]
+fn border_sample(edge: usize, at: usize, cols: usize, rows: usize) -> (usize, usize, bool) {
+    match edge {
+        0 => (at, 0, at.is_multiple_of(2)),
+        1 => (cols - 1, at, at % 2 == 1),
+        2 => (at, rows - 1, true),
+        _ => (0, at, true),
+    }
+}
+
+// Keep map's multiply/add/divide order, then floor and signed saturation.
+// NaN becomes zero, exactly as in the scalar WASM coordinate conversion.
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+#[inline]
+fn project_four(transform: &[f32; 8], points: [[f32; 2]; 4]) -> [[isize; 2]; 4] {
+    use core::arch::wasm32::{
+        f32x4, f32x4_add, f32x4_div, f32x4_floor, f32x4_mul, f32x4_splat, i32x4_extract_lane,
+        i32x4_trunc_sat_f32x4,
+    };
+    let x = f32x4(points[0][0], points[1][0], points[2][0], points[3][0]);
+    let y = f32x4(points[0][1], points[1][1], points[2][1], points[3][1]);
+    let affine = |a, b, c| {
+        f32x4_add(
+            f32x4_add(f32x4_mul(f32x4_splat(a), x), f32x4_mul(f32x4_splat(b), y)),
+            f32x4_splat(c),
+        )
+    };
+    let denominator = affine(transform[6], transform[7], 1.);
+    let coordinate =
+        |a, b, c| i32x4_trunc_sat_f32x4(f32x4_floor(f32x4_div(affine(a, b, c), denominator)));
+    let xx = coordinate(transform[0], transform[1], transform[2]);
+    let yy = coordinate(transform[3], transform[4], transform[5]);
+    [
+        [i32x4_extract_lane::<0>(xx), i32x4_extract_lane::<0>(yy)],
+        [i32x4_extract_lane::<1>(xx), i32x4_extract_lane::<1>(yy)],
+        [i32x4_extract_lane::<2>(xx), i32x4_extract_lane::<2>(yy)],
+        [i32x4_extract_lane::<3>(xx), i32x4_extract_lane::<3>(yy)],
+    ]
+    .map(|point| {
+        point.map(|coordinate| isize::try_from(coordinate).expect("WASM32 coordinates fit isize"))
+    })
+}
+
+/// Border error fraction with at most `(cols + rows) * fifths / 5` wrong samples.
 fn border_with_limit(
     image: &[bool],
     w: usize,
@@ -1303,13 +1410,31 @@ fn border_with_limit(
     // The two clock tracks reject solid rectangles sooner. This changes only
     // sampling order: every admitted hypothesis has the same border error sum.
     for (edge, length) in [(0, cols), (1, rows), (2, cols), (3, rows)] {
-        for at in 0..length {
-            let (x, y, expected) = match edge {
-                0 => (at, 0, at % 2 == 0),
-                1 => (cols - 1, at, at % 2 == 1),
-                2 => (at, rows - 1, true),
-                _ => (0, at, true),
-            };
+        #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+        let first_scalar = {
+            let aligned = length / 4 * 4;
+            for at in (0..aligned).step_by(4) {
+                let points = std::array::from_fn(|lane| {
+                    let (x, y, _) = border_sample(edge, at + lane, cols, rows);
+                    [
+                        crate::numeric::usize_f32(x) + 0.5,
+                        crate::numeric::usize_f32(y) + 0.5,
+                    ]
+                });
+                for (lane, [xx, yy]) in project_four(transform, points).into_iter().enumerate() {
+                    let expected = border_sample(edge, at + lane, cols, rows).2;
+                    errors += usize::from(pixel_at(image, w, h, xx, yy)? != expected);
+                    if errors > error_limit {
+                        return None;
+                    }
+                }
+            }
+            aligned
+        };
+        #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+        let first_scalar = 0;
+        for at in first_scalar..length {
+            let (x, y, expected) = border_sample(edge, at, cols, rows);
             errors += usize::from(
                 pixel(
                     image,
@@ -1568,6 +1693,7 @@ fn detect_with_retries(
     retries: Retries,
 ) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
+    let mut matrix = Vec::new();
     let mut attempts = 0;
     let mut refinements = 0;
     let gray = binary_images.gray();
@@ -1711,25 +1837,7 @@ fn detect_with_retries(
                 if attempts > 800 {
                     return (results, true);
                 }
-                let mut matrix = Vec::with_capacity(size.w * size.h);
-                let mut valid = true;
-                for y in 0..size.h {
-                    for x in 0..size.w {
-                        if let Some(v) = pixel(
-                            image,
-                            w,
-                            h,
-                            &t,
-                            crate::numeric::usize_f32(x) + 0.5,
-                            crate::numeric::usize_f32(y) + 0.5,
-                        ) {
-                            matrix.push(v);
-                        } else {
-                            valid = false;
-                        }
-                    }
-                }
-                if valid {
+                if sample_grid(image, [w, h], &t, [size.w, size.h], &mut matrix) {
                     if score <= 0.08 {
                         regions.add("DataMatrix", polygon, 1. - score, 1);
                     }
@@ -1814,19 +1922,7 @@ fn detect_with_retries(
             if attempts > 800 {
                 break;
             }
-            let mut matrix = Vec::with_capacity(size.w * size.h);
-            for y in 0..size.h {
-                for x in 0..size.w {
-                    let at = [
-                        crate::numeric::usize_f32(x) + 0.5,
-                        crate::numeric::usize_f32(y) + 0.5,
-                    ];
-                    if let Some(v) = pixel(image, w, h, &t, at[0], at[1]) {
-                        matrix.push(v);
-                    }
-                }
-            }
-            if matrix.len() == size.w * size.h
+            if sample_grid(image, [w, h], &t, [size.w, size.h], &mut matrix)
                 && let Some(read) = datamatrix::decode_matrix(&matrix, size.w, size.h)
             {
                 found = Some(Detection {

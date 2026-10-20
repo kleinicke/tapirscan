@@ -1,4 +1,4 @@
-//! Reusable bounded source-resolution profiles for the experimental fast reader.
+//! Reusable bounded source-resolution profiles for linear scanning.
 use crate::{
     numeric::{f64_f32, usize_f64},
     sampling::ImageView,
@@ -7,14 +7,18 @@ use crate::{
 // Image-derived profiles are finite nonnegative values. Medium uses direct
 // comparisons; Turbo builds opt into them with TAPIRSCAN_TURBO_FINITE_EXTREMA.
 fn minimum(a: f32, b: f32) -> f32 {
-    if cfg!(feature = "mode-medium") || option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
+    if cfg!(feature = "mode-medium")
+        || (cfg!(feature = "mode-low") && option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some())
+    {
         if a < b { a } else { b }
     } else {
         a.min(b)
     }
 }
 fn maximum(a: f32, b: f32) -> f32 {
-    if cfg!(feature = "mode-medium") || option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
+    if cfg!(feature = "mode-medium")
+        || (cfg!(feature = "mode-low") && option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some())
+    {
         if a > b { a } else { b }
     } else {
         a.max(b)
@@ -58,9 +62,22 @@ pub struct Sampler {
     pub first_black: bool,
     pub samples: usize,
 }
+/// End the immutable-image transaction on both normal return and unwind.
+struct SourceCacheScope<'a>(&'a mut Sampler);
+
+impl Drop for SourceCacheScope<'_> {
+    fn drop(&mut self) {
+        self.0.cache_active = false;
+        self.0.cache_current = None;
+        self.0.cache_image = None;
+        self.0.source_cache_used = 0;
+    }
+}
+
 impl Sampler {
     /// Reuse exact source profiles only inside one immutable-image transaction.
-    /// Restored values never replace the original cached samples.
+    /// Restored values never replace the original cached samples. The cache is
+    /// disabled when the transaction returns or unwinds.
     pub fn with_source_cache<T>(
         &mut self,
         image: ImageView<'_>,
@@ -77,12 +94,8 @@ impl Sampler {
             image.stride,
         ]);
         self.cache_active = enabled;
-        let result = run(self);
-        self.cache_active = false;
-        self.cache_current = None;
-        self.cache_image = None;
-        self.source_cache_used = 0;
-        result
+        let scope = SourceCacheScope(self);
+        run(scope.0)
     }
     fn load_threshold(&mut self, slot: usize, radius: usize) -> bool {
         let Some(index) = self.cache_current else {
@@ -248,7 +261,9 @@ impl Sampler {
                     || y > usize_f64(image.height - 1)
                 {
                     255.
-                } else if option_env!("TAPIRSCAN_TURBO_DIRECT_SAMPLE").is_some() {
+                } else if cfg!(feature = "mode-low")
+                    && option_env!("TAPIRSCAN_TURBO_DIRECT_SAMPLE").is_some()
+                {
                     image.bilinear(x, y)
                 } else {
                     cursor.sample(x, y)
@@ -907,6 +922,33 @@ mod chromatic_profile_tests {
 #[cfg(test)]
 mod scoped_source_cache_tests {
     use super::*;
+
+    #[cfg(panic = "unwind")]
+    #[test]
+    fn unwound_scope_cannot_reuse_changed_image_pixels() {
+        let mut pixels = vec![255; 320 * 3];
+        let image = ImageView::new(&pixels, 320, 3, 1, 320).unwrap();
+        let mut cached = Sampler::default();
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cached.with_source_cache(image, true, |sampler| {
+                sampler.sample(image, [0., 1.], [319., 1.]);
+                sampler.threshold(true);
+                panic!("interrupt the cache transaction");
+            });
+        }));
+        assert!(failed.is_err());
+        for (i, value) in pixels.iter_mut().enumerate() {
+            *value = if (i / 4) % 2 == 0 { 15 } else { 235 };
+        }
+        let image = ImageView::new(&pixels, 320, 3, 1, 320).unwrap();
+        let mut plain = Sampler::default();
+        // No new cache scope: entering one would mask a failed unwind cleanup.
+        cached.sample(image, [0., 1.], [319., 1.]);
+        plain.sample(image, [0., 1.], [319., 1.]);
+        cached.threshold(true);
+        plain.threshold(true);
+        compare(&cached, &plain);
+    }
 
     fn compare(a: &Sampler, b: &Sampler) {
         assert_eq!(a.values, b.values);

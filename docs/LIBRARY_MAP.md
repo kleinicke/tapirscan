@@ -1,8 +1,8 @@
 # Library execution map and structural review
 
-Source reviewed: `77bfa27`, 20 October 2026. This is a static source review,
-not a new performance or accuracy evaluation. The tables map orchestration
-functions and their important branches, rather than every sampling/decoder helper.
+Source reviewed on 20 October 2026. The tables map orchestration functions
+and their important branches, rather than every sampling/decoder helper.
+This execution map does not establish performance or accuracy.
 “Conditional” means the function is available but its image, format, evidence
 or budget checks must also pass.
 
@@ -68,7 +68,6 @@ mistaken for normal public defaults.
 
 Low's `fast_linear::enabled` requires all of:
 
-- The ordinary Low fast path is enabled in the build.
 - At least one selected format is linear.
 - EAN add-on policy is `Ignore`.
 - Explicit candidate completion is off.
@@ -81,7 +80,8 @@ different build settings; the same routing conditions still matter.
 
 Sources: [fast_linear.rs](../bindings/rust/src/fast_linear.rs),
 [pipeline.rs](../bindings/rust/src/pipeline.rs),
-[formats.rs](../bindings/rust/src/formats.rs).
+[formats.rs](../bindings/rust/src/formats.rs), and
+[formats/linear_recovery.rs](../bindings/rust/src/formats/linear_recovery.rs).
 
 | Stage/function                                  | Low                                | Medium                                                                                                              | High                                                                               | Very High                                              |
 | ----------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------ |
@@ -110,6 +110,11 @@ before borrowing Medium's unread-frame strategies. Crop rescans carry
 `TextureSource::crop`; this preserves original-pixel texture decisions and
 prevents recursive whole-frame restoration. Medium also skips repeated detail
 seed recovery inside those rescans.
+
+Medium reuses exact source profiles within each primary profile-retry stage and
+within localized linear recovery. Each cache scope belongs to one immutable image;
+normal return and unwinding clear its active identity. Recursive crop scans start
+outside the primary retry scope. High and Very High keep uncached primary retries.
 
 Low has its own bounded contrast/high-pass recovery and EAN-13 deghosting in
 `fast_linear::scan`. “No” in the main-pipeline rows does not mean that Low has
@@ -155,22 +160,22 @@ QR detector.
 Selected values from [formats/policy.rs](../bindings/rust/src/formats/policy.rs)
 and [effort.rs](../bindings/rust/src/effort.rs):
 
-| Policy                                            | Low | Medium  | High       | Very High           |
-| ------------------------------------------------- | --- | ------- | ---------- | ------------------- |
-| Primary proposal limit                            | 32  | 32      | 32         | 63                  |
-| Detail recovery directions                        | —   | 1       | 1          | 2                   |
-| Base ordinary linear sweep effort                 | 0   | 0       | 2          | 2                   |
-| Linear sweep effort with add-ons                  | 0   | 1       | 2          | 2                   |
-| QR group effort                                   | 0   | 1       | 2          | 3                   |
-| Other matrix group base effort                    | 1   | 1       | 1          | 1                   |
-| Shared short-retail scan without add-ons          | No  | Yes     | Yes        | Yes                 |
-| Source-profile cache in localized linear recovery | —   | Yes     | No         | No                  |
-| Full stripe fallback / half-scale proposals       | —   | No / no | Yes / yes  | Yes / yes           |
-| Overlapping window proposals                      | —   | No      | No         | Yes                 |
-| Localized matrix crop pixel allowance             | 0   | 65,536  | 131,072    | 262,144             |
-| Localized matrix crop effort                      | 0   | 1       | 2          | 3                   |
-| Policy-driven reduced QR long sides               | —   | —       | 1200, 1280 | 1200, 1280, 1600    |
-| Area-averaged Data Matrix long sides              | —   | —       | 256, 400   | 400, 1008, 800, 256 |
+| Policy                                                       | Low | Medium  | High       | Very High           |
+| ------------------------------------------------------------ | --- | ------- | ---------- | ------------------- |
+| Primary proposal limit                                       | 32  | 32      | 32         | 63                  |
+| Detail recovery directions                                   | —   | 1       | 1          | 2                   |
+| Base ordinary linear sweep effort                            | 0   | 0       | 2          | 2                   |
+| Linear sweep effort with add-ons                             | 0   | 1       | 2          | 2                   |
+| QR group effort                                              | 0   | 1       | 2          | 3                   |
+| Other matrix group base effort                               | 1   | 1       | 1          | 1                   |
+| Shared short-retail scan without add-ons                     | No  | Yes     | Yes        | Yes                 |
+| Source-profile cache in primary and localized linear retries | —   | Yes     | No         | No                  |
+| Full stripe fallback / half-scale proposals                  | —   | No / no | Yes / yes  | Yes / yes           |
+| Overlapping window proposals                                 | —   | No      | No         | Yes                 |
+| Localized matrix crop pixel allowance                        | 0   | 65,536  | 131,072    | 262,144             |
+| Localized matrix crop effort                                 | 0   | 1       | 2          | 3                   |
+| Policy-driven reduced QR long sides                          | —   | —       | 1200, 1280 | 1200, 1280, 1600    |
+| Area-averaged Data Matrix long sides                         | —   | —       | 256, 400   | 400, 1008, 800, 256 |
 
 The base sweep effort is not a universal “Common1D effort.” Preserved
 Code128/Code39/ITF groups have separate selection and effort rules; High and
@@ -218,19 +223,17 @@ reproduce a preset.
 
 ## Structural findings
 
-### 1. Large orchestration modules are the main readability problem
+### 1. Localized linear recovery has its own stage module
 
-At the reviewed commit, `formats.rs` has 2,380 lines, `pipeline.rs` 1,383 and
-`fast_linear.rs` 1,483, including inline tests. The problem is responsibility
-density, not the line count itself. `formats.rs` mixes grouping, image-scale
-retries, localized linear recovery, supplement policy, result reconciliation
-and diagnostic assembly.
+[formats/linear_recovery.rs](../bindings/rust/src/formats/linear_recovery.rs) owns
+`recover_linear_regions`, its proposal helpers and local work limits. The format
+coordinator calls that stage after combining initial reader results. Recovery
+keeps its ordered passes, shared sampler and existing ownership checks.
 
-**Recommendation:** extract existing implementations into focused private
-modules, starting with localized linear recovery and matrix retries. Keep
-`scan_formats_inner` and `scan_prepared_impl` as readable, ordered coordinators.
-Do not introduce a generic pipeline/plugin framework. Extraction alone is a
-maintainability change, not a speed improvement.
+`formats.rs` still coordinates reader groups, matrix retries, supplement policy
+and final results. Further extraction should follow a complete stage boundary:
+`medium_retries`, for example, handles Code128 and DataBar as well as matrix
+formats, so moving it into a matrix-only module would misdescribe its role.
 
 ### 2. Recovery selection shares evidence but keeps distinct policies
 
@@ -288,9 +291,8 @@ setting; this review did not demonstrate a correctness bug in that mechanism.
 - Per-mode generated source copies and thin language adapters are justified
   packaging boundaries, not duplicated scanner implementations.
 
-The most useful next cleanup is the repeated proposal-selection logic, followed
-by small module extractions in `formats.rs`. Both should preserve exact output
-ordering, source geometry, undecoded coverage and work-limit behavior. Scanner
-changes still require isolated worktrees, paired correctness checks across modes
-and format selections, and installed-Chrome measurements before making any
-performance claim. No scanner implementation was changed for this review.
+Scanner changes still require isolated worktrees and paired correctness checks
+across modes and format selections. Preserve output ordering, source geometry,
+undecoded coverage and work-limit behavior. Performance claims require paired
+measurements through the public JavaScript API in installed Chrome; see
+[comparing scanners](COMPARING_SCANNERS.md).

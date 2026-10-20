@@ -21,7 +21,7 @@ fn line(q: Quad) -> [[f64; 2]; 2] {
 // Only finite, nonnegative image luminance enters these hot extrema loops.
 #[inline]
 fn include_intensity(value: f64, lo: &mut f64, hi: &mut f64) {
-    if option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
+    if cfg!(feature = "low") && option_env!("TAPIRSCAN_TURBO_FINITE_EXTREMA").is_some() {
         if value < *lo {
             *lo = value;
         }

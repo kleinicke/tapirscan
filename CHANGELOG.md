@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Reuse exact source profiles during Medium primary recovery and vectorize
+  Data Matrix border sampling in WebAssembly.
+- Restrict private native Turbo build switches to Low; higher modes retain
+  their ordinary policies.
 - Vectorize QR finder coordinate calculations in WebAssembly and omit optional
   region output from compact scans.
 - Honor hybrid thresholding when filling native threshold caches in parallel.

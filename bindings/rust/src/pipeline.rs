@@ -658,6 +658,26 @@ fn recover_primary_proposals(
     scan: &mut super::ScanResult,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
 ) -> std::result::Result<(), Error> {
+    #[cfg(feature = "medium")]
+    {
+        // Only profile retries share this transaction; recursive crop scans start later.
+        sampler.with_source_cache(checked_image(image)?, true, |sampler| {
+            recover_primary_profiles(image, proposals, scan, sampler)
+        })
+    }
+    #[cfg(not(feature = "medium"))]
+    {
+        recover_primary_profiles(image, proposals, scan, sampler)
+    }
+}
+
+#[cfg(not(feature = "low"))]
+fn recover_primary_profiles(
+    image: Image<'_>,
+    proposals: &[Proposal],
+    scan: &mut super::ScanResult,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> std::result::Result<(), Error> {
     let protected = protected_primary(image, &scan.frame.barcodes);
     let all_proposals = proposals;
     let mut unresolved: Vec<_> = proposals
