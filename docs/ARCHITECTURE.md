@@ -4,6 +4,9 @@ Tapirscan combines oriented localization with a supplied-region
 scanner. It uses classical image processing and decoding; neither neural weights
 nor another barcode library are required at runtime.
 
+For the function-level routing, effort-mode tables and structural review, see
+the [library execution map](LIBRARY_MAP.md).
+
 ## From pixels to results
 
 1. **Find candidate regions.** Bar-segment voting groups parallel edges into

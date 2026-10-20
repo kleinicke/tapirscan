@@ -1,0 +1,318 @@
+# Library execution map and structural review
+
+Source reviewed: `77bfa27`, 20 October 2026. This is a static source review,
+not a new performance or accuracy evaluation. The tables map orchestration
+functions and their important branches, rather than every sampling/decoder helper.
+“Conditional” means the function is available but its image, format, evidence
+or budget checks must also pass.
+
+## Layers
+
+| Layer                  | Responsibility                                                            | Source                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Language bindings      | Input validation/conversion, ownership and result transport               | `bindings/{javascript,c,cpp,python,java,swift,android,wasm}`                                   |
+| Public Rust API        | Persistent scanner, mode dispatch, large-image reduction, public results  | [api/lib.rs](../bindings/rust/api/lib.rs), [api/reduce.rs](../bindings/rust/api/reduce.rs)     |
+| Per-mode orchestration | Format routing, localization, recovery ordering, reconciliation           | [formats.rs](../bindings/rust/src/formats.rs), [pipeline.rs](../bindings/rust/src/pipeline.rs) |
+| Retail core            | Supplied-region EAN-13/UPC-A scanning, evidence, retries, frame ownership | [core/src](../core/src), [core guide](../core/README.md)                                       |
+| Other readers          | Linear and matrix localization/decoding, shared thresholds                | [multiformat/src](../multiformat/src)                                                          |
+| Build assembly         | Compile the same maintained source into private mode instances            | [prepare_rust.py](../scripts/prepare_rust.py), [modes.json](../config/modes.json)              |
+
+Native consumers share the Rust API through one library containing all four
+standard modes. JavaScript loads one WASM module per mode or Turbo preset.
+Generated per-mode namespaces are compilation artifacts, not independently
+maintained copies of the algorithms.
+
+```mermaid
+flowchart TD
+    A["Language binding"] --> B["Public Scanner::scan / inspect"]
+    B --> C["run → optional image reduction → run_source"]
+    C --> D["Selected compiled engine"]
+    D --> E["scan_formats_typed_with_addons → scan_formats_inner"]
+    E --> F{"Low fast path eligible?"}
+    F -->|Yes| G["fast_linear::scan"]
+    F -->|No| H{"Exactly EAN13 and add-ons ignored?"}
+    H -->|Yes| I["pipeline::scan → primary_result"]
+    H -->|No| J["scan_additional"]
+    J --> K{"Primary retail needed?"}
+    K -->|Yes| R["scan_primary → pipeline::scan"]
+    K -->|No| L["Combine selected reader results"]
+    R --> L
+    L --> M["Conditional localized linear recovery"]
+    M --> N["Supplement policy, ownership reconciliation, ranking"]
+    G --> O["Typed results"]
+    I --> O
+    N --> O
+    O --> P["Code32/PZN interpretation and source-coordinate restoration"]
+```
+
+The EAN13-only branch returns directly via `primary_result`, without the general
+mixed-format recovery stage. Low's fast path calls `fast_additional` for selected
+formats outside its common linear set; that subcall is omitted from the diagram.
+
+## Public entry points and routing
+
+The entry points are in [api/lib.rs](../bindings/rust/api/lib.rs).
+
+| Function                                   | Used when                    | Effect                                                                                                                       |
+| ------------------------------------------ | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `Scanner::scan`, `scan_with_options`       | All standard modes           | Compact barcode results; optional region output disabled                                                                     |
+| `Scanner::inspect`, `inspect_with_options` | All standard modes           | Barcode results plus undecoded regions and diagnostics                                                                       |
+| `run`                                      | Ordinary image input         | Validates/prepares input and applies large-image reduction when needed                                                       |
+| `inspect_rows`                             | Internal WASM row-input path | Supports banded large-image input; diagnostics flag also permits compact output                                              |
+| `run_source`                               | Every prepared input         | Dispatches to the compiled mode instance; subsequently applies Code32/PZN interpretation and restores reduced-image geometry |
+| `scan_formats_inner`                       | Every selected engine        | Chooses Low fast path, EAN13-only shortcut, or general format orchestration                                                  |
+
+Public calls set internal `multiple = true` and `finish_candidates = false`.
+Some internal/core APIs expose additional choices; their branches should not be
+mistaken for normal public defaults.
+
+Low's `fast_linear::enabled` requires all of:
+
+- The ordinary Low fast path is enabled in the build.
+- At least one selected format is linear.
+- EAN add-on policy is `Ignore`.
+- Explicit candidate completion is off.
+
+Thus Low with add-on `Read`/`Require` uses general orchestration. QR-only Low does
+not enter the linear fast path. Turbo presets use the Low compiled mode with
+different build settings; the same routing conditions still matter.
+
+## Linear and retail execution by mode
+
+Sources: [fast_linear.rs](../bindings/rust/src/fast_linear.rs),
+[pipeline.rs](../bindings/rust/src/pipeline.rs),
+[formats.rs](../bindings/rust/src/formats.rs).
+
+| Stage/function                                  | Low                                | Medium                                                                                                              | High                                                                               | Very High                                              |
+| ----------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `fast_linear::scan`                             | Eligible linear selections         | No; shared helpers reused                                                                                           | No; shared helpers reused                                                          | No; shared helpers reused                              |
+| `segment_voting::localize`                      | Ordinary fast path                 | Main retail localization and localized linear recovery                                                              | Main retail localization and localized linear recovery                             | Main retail localization and localized linear recovery |
+| `pipeline::localize`                            | General/core path uses stripes     | Voting                                                                                                              | Voting; also stripes when longest side <384 px                                     | Same, plus secondary stripe proposals                  |
+| `shear::refine` in primary localization         | Limit 0                            | Limit 1                                                                                                             | Limit 4                                                                            | Limit 1                                                |
+| `add_secondary_proposals`                       | No                                 | No                                                                                                                  | No                                                                                 | Longest side >640 px; up to 8 boxes plus 4 refinements |
+| `regions.scan` → core `scan_frame`              | General/core path                  | Primary retail candidates                                                                                           | Primary retail candidates                                                          | Primary retail candidates                              |
+| Full-frame candidate in `scan_prepared_impl`    | Included in core path              | Whole frame deferred until evidence exists and earlier recovery remains unread; crop rescans include it immediately | Included initially                                                                 | Included initially                                     |
+| `scan_alternatives`                             | No                                 | Conditional voting alternatives with retail evidence                                                                | Same                                                                               | Same                                                   |
+| `detail::recover`                               | Not in retail pipeline             | Up to 2 small source seeds                                                                                          | Small seeds plus up to 3 wide seeds when reads are absent/weak                     | Same; more recovery directions                         |
+| `recover_primary_proposals_high`                | No                                 | No                                                                                                                  | Source-confirmed retries of up to 6 eligible proposals                             | Same                                                   |
+| `recover_primary_proposals`                     | No                                 | Contrast/color/high-pass and further profile hypotheses                                                             | Also runs when higher-mode work remains retail-unread and evidence permits         | Same                                                   |
+| `scan_unread_window`                            | No                                 | Evidence-gated delayed full-frame scan                                                                              | No separate delayed pass                                                           | No separate delayed pass                               |
+| `recover_deferred_proposals`                    | No                                 | Conditional unread-frame band recovery                                                                              | Conditional after earlier recovery                                                 | Same                                                   |
+| `recover_restored_regions`                      | No                                 | Whole-frame source; additional shared-retail guard                                                                  | Whole-frame source                                                                 | Whole-frame source                                     |
+| `recover_unread_crops`                          | No                                 | Whole frame with no primary or short-retail reads                                                                   | Whole frame unread, no shared non-retail linear selection, repeated guard evidence | Same                                                   |
+| `recover_deblurred_crops`, `recover_downscaled` | No                                 | Conditional whole-frame unread recovery                                                                             | Conditional whole-frame unread recovery                                            | Same                                                   |
+| `recover_linear_regions`                        | No                                 | General format path, selected linear formats, add-ons ignored                                                       | Same with larger recovery policy                                                   | Same with additional windows                           |
+| `linear_duplicates` reconciliation              | Fast-path or general-path variants | General/primary variants                                                                                            | General/primary variants                                                           | Additional conflict-admission implementation           |
+
+These are stage availability rules, not a guarantee that a later mode performs
+every earlier mode's operation. For example, High tries its own profile recovery
+before borrowing Medium's unread-frame strategies. Crop rescans carry
+`TextureSource::crop`; this preserves original-pixel texture decisions and
+prevents recursive whole-frame restoration. Medium also skips repeated detail
+seed recovery inside those rescans.
+
+Low has its own bounded contrast/high-pass recovery and EAN-13 deghosting in
+`fast_linear::scan`. “No” in the main-pipeline rows does not mean that Low has
+no recovery.
+
+The core path is:
+`region_scan::RegionScanner::scan` → `frame::scan_frame` → candidate scanning
+and `multi_scan` planning/execution → frame reconciliation.
+Relevant implementations are [candidate_scanner](../core/src/candidate_scanner),
+[multi_scan/plan.rs](../core/src/multi_scan/plan.rs),
+[multi_scan.rs](../core/src/multi_scan.rs),
+[lowres.rs](../core/src/lowres.rs), and [frame](../core/src/frame).
+They contain real compile-time algorithm differences; the host budget table
+alone cannot describe the mode.
+
+## Format readers and recovery policies
+
+`scan_additional` partitions the selection into linear sweep groups, a matrix
+group, and separate QR/MaxiCode groups where required. Native execution can run
+groups concurrently; WASM executes them sequentially. Results retain defined
+group order. Threshold images can be shared.
+
+Low can first use `fast_sparse::Prepared::scan` for eligible groups: it excludes
+constant backgrounds or tries a small foreground crop, falling back to the source
+scan when the crop remains unresolved. Medium also uses this helper in its
+conditional DataBar retry. It ultimately calls `scan_reader` with the selected
+image; it is not a separate decoder.
+
+`scan_reader_with` dispatches:
+
+| Selection of the reader group      | Function                                |
+| ---------------------------------- | --------------------------------------- |
+| Matrix-only group containing Aztec | `matrix_frontend::scan`                 |
+| Exactly QR Code                    | `core::qr_frontend::scan_with_images`   |
+| Other groups                       | `barcode_multiformat::scan_with_images` |
+
+The matrix frontend and multiformat orchestration call the same detector
+implementations: `qr_detect::detect_group`, `dm_detect::detect`,
+`aztec_detect::detect`, `maxicode_detect::detect`, and `pdf417::detect`.
+The QR-only frontend adds threshold and sharpened retries around the shared
+QR detector.
+
+Selected values from [formats/policy.rs](../bindings/rust/src/formats/policy.rs)
+and [effort.rs](../bindings/rust/src/effort.rs):
+
+| Policy                                            | Low | Medium  | High       | Very High           |
+| ------------------------------------------------- | --- | ------- | ---------- | ------------------- |
+| Primary proposal limit                            | 32  | 32      | 32         | 63                  |
+| Detail recovery directions                        | —   | 1       | 1          | 2                   |
+| Base ordinary linear sweep effort                 | 0   | 0       | 2          | 2                   |
+| Linear sweep effort with add-ons                  | 0   | 1       | 2          | 2                   |
+| QR group effort                                   | 0   | 1       | 2          | 3                   |
+| Other matrix group base effort                    | 1   | 1       | 1          | 1                   |
+| Shared short-retail scan without add-ons          | No  | Yes     | Yes        | Yes                 |
+| Source-profile cache in localized linear recovery | —   | Yes     | No         | No                  |
+| Full stripe fallback / half-scale proposals       | —   | No / no | Yes / yes  | Yes / yes           |
+| Overlapping window proposals                      | —   | No      | No         | Yes                 |
+| Localized matrix crop pixel allowance             | 0   | 65,536  | 131,072    | 262,144             |
+| Localized matrix crop effort                      | 0   | 1       | 2          | 3                   |
+| Policy-driven reduced QR long sides               | —   | —       | 1200, 1280 | 1200, 1280, 1600    |
+| Area-averaged Data Matrix long sides              | —   | —       | 256, 400   | 400, 1008, 800, 256 |
+
+The base sweep effort is not a universal “Common1D effort.” Preserved
+Code128/Code39/ITF groups have separate selection and effort rules; High and
+Very High can also run a coarse effort-0 sweep because denser scanlines do not
+contain the sparse scanlines. Medium's `medium_retries` independently has
+960/1280 QR reductions on large unread inputs and an effort-2 retry for pending
+QR regions on smaller inputs. Low also has a conditional 960-pixel QR retry.
+Consequently, the dash in the policy-driven reduction row does not mean no
+reduction exists anywhere in that mode.
+
+Detector policy is separate from group effort:
+
+- QR `Policy::for_mode` gives Low/Medium alignment budgets of 150/25; High and
+  Very High have no finite alignment counter cap there, but other pass limits
+  still apply. Gray retry is off/hard/erasures/erasures. Very High's effort
+  enables curved-grid attempts. These values are deliberately not monotonic.
+- Aztec `Policy::for_mode` uses smaller Low refinement/curve budgets and no bowed
+  or adaptive sampling; Medium and above share its standard policy. The detector
+  also receives the compiled mode for mode-dependent enlarged retries.
+- Data Matrix and PDF417 receive the compiled mode even when their group effort
+  stays at 1. Equal group effort therefore does not imply equal execution.
+
+## Turbo presets
+
+Sources: [fast_linear.rs](../bindings/rust/src/fast_linear.rs),
+[build_turbo.py](../scripts/build_turbo.py). These are public experimental
+presets, not additional standard effort modes. This table describes their
+eligible linear fast path, not every possible format/add-on selection.
+
+| Setting                        | Turbo2                       | Turbo4             | Turbo8                              | Turbo16                       |
+| ------------------------------ | ---------------------------- | ------------------ | ----------------------------------- | ----------------------------- |
+| Localization                   | Sparse stripes with recovery | Same               | Same                                | Sparse stripes                |
+| Working dimension setting      | 768                          | 384                | 320                                 | 128                           |
+| Main profile rows              | 13                           | 5                  | 5                                   | 3                             |
+| General sample limit           | 3072                         | 2048               | 2048                                | 2048                          |
+| Ordinary localized-profile cap | 1024                         | 768                | 576                                 | 512                           |
+| Full-frame axis proposals      | Scheduled                    | Scheduled          | Rescue when local pass unread       | Rescue when local pass unread |
+| Border discovery               | Yes                          | Yes                | No                                  | No                            |
+| Extra build setting            | Selective outlines           | Selective outlines | Selective outlines; profile cap 576 | Direct sampling               |
+
+All four recipes enable band outlines, tile cache and finite-extrema settings,
+and disable the ordinary display-outline path. Turbo8/16 have distinct axis-row
+and confirmation rules; substituting a different row count alone does not
+reproduce a preset.
+
+## Structural findings
+
+### 1. Large orchestration modules are the main readability problem
+
+At the reviewed commit, `formats.rs` has 2,380 lines, `pipeline.rs` 1,383 and
+`fast_linear.rs` 1,483, including inline tests. The problem is responsibility
+density, not the line count itself. `formats.rs` mixes grouping, image-scale
+retries, localized linear recovery, supplement policy, result reconciliation
+and diagnostic assembly.
+
+**Recommendation:** extract existing implementations into focused private
+modules, starting with localized linear recovery and matrix retries. Keep
+`scan_formats_inner` and `scan_prepared_impl` as readable, ordered coordinators.
+Do not introduce a generic pipeline/plugin framework. Extraction alone is a
+maintainability change, not a speed improvement.
+
+### 2. Unresolved-proposal selection has concrete repeated logic
+
+In [pipeline.rs](../bindings/rust/src/pipeline.rs),
+`recover_primary_proposals` and `recover_primary_proposals_high` repeat the
+same evidence predicate, protected-ownership exclusion and guard-pass ordering,
+then take different numbers of proposals and run different recovery strategies.
+`recover_deferred_proposals` repeats the evidence predicate but not the entire
+ownership filter.
+
+**Recommendation:** share the exact eligibility predicate and, where truly
+identical, the ordered selection helper. Leave pass limits, ownership filters
+and recovery ordering at their call sites. This is a small, concrete cleanup
+candidate; merging the complete recovery functions would erase useful differences.
+
+### 3. Matrix-reader dispatch is maintained twice
+
+[matrix_frontend.rs](../bindings/rust/src/matrix_frontend.rs) has
+`readers`/`run_reader`; [multiformat/lib.rs](../multiformat/src/lib.rs) has another
+ordered dispatch in `scan_with_images`. Both select the same detector functions
+and mode policies. A future reader option could be updated in one place only.
+
+**Recommendation:** consider a shared per-reader dispatch primitive, retaining
+the frontend's concurrency and the multiformat observer hook. A focused contract
+test is an alternative if exposing another low-level API would cost more than
+the small duplicated dispatch.
+
+Do **not** simply replace one orchestrator with the other. Their finalization
+is not identical: the multiformat `linear_geometry::distinct` can join partial
+fragments; the matrix frontend's local loop only removes overlapping duplicates.
+The parallel frontend also falls back to sequential execution when combining
+private regions would exceed the shared region cap.
+
+### 4. Mode configuration is spread across several legitimate layers
+
+Mode decisions live in `effort.rs`, `formats/policy.rs`, core feature branches,
+reader `Policy::for_mode` functions and Turbo build settings. Inheritance such as
+`HIGH { ..MEDIUM }` makes the complete effective policy harder to see.
+
+**Recommendation:** keep algorithm-specific decisions near their algorithms.
+Use this map and the existing policy tables to expose the effective values.
+If drift becomes frequent, generate a small policy report from the authoritative
+definitions. Replacing everything with one enormous runtime configuration would
+add complexity and weaken compile-time specialization.
+
+Two implicit context channels also deserve care: `scan_primary` temporarily sets
+`Scanner.shared_linear`, and `matrix_frontend::with_parallel` uses a restored
+thread-local setting. Both have deliberate scoping/reset logic. An explicit
+internal context could improve tracing if these call chains are refactored,
+but this review did not demonstrate a correctness bug in either mechanism.
+
+### 5. Some source terminology is stale
+
+`bindings/rust/src/lib.rs` still says “Low uses the Turbo fast path,” whereas
+ordinary Low now uses voting and the Turbo presets use sparse stripes.
+`fast_linear.rs` describes tier selection as absent from every public API;
+the build-time environment switch is internal, but the resulting presets are
+public experimental API.
+
+**Recommendation:** distinguish the internal build selector from the public
+presets and call the ordinary path `fast_linear`. This is a low-risk documentation
+correction, not a reason to rename APIs or modules.
+
+## Complexity worth preserving
+
+- Different deduplication stages have different ownership contracts: candidate
+  assembly, source-confirmed recovery admission, cross-format reconciliation and
+  display geometry are not interchangeable.
+- Similar interpolation or luminance code may use different rounding, precision,
+  coordinate conventions or input layouts. Visual similarity is insufficient
+  evidence that two implementations can be merged.
+- Sparse and denser scans can cross different rows; “more effort” is not a
+  superset of all earlier work.
+- `TextureSource`, coverage masks, support checks and explicit work-limit flags
+  encode correctness requirements. Flattening them into generic success/failure
+  flags would lose information.
+- Per-mode generated source copies and thin language adapters are justified
+  packaging boundaries, not duplicated scanner implementations.
+
+The most useful next cleanup is the repeated proposal-selection logic, followed
+by small module extractions in `formats.rs`. Both should preserve exact output
+ordering, source geometry, undecoded coverage and work-limit behavior. Scanner
+changes still require isolated worktrees, paired correctness checks across modes
+and format selections, and installed-Chrome measurements before making any
+performance claim. No scanner implementation was changed for this review.
