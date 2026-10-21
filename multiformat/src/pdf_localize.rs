@@ -2,6 +2,30 @@
 //! Fit the repeated start/stop guards across rows, then rectify their bar axes.
 use crate::linear::pattern_error;
 type Quad = [[f32; 2]; 4];
+
+// Wasm has truncation but no ties-away rounding instruction. Keep the same
+// rounded integer without calling roundf for each rotated image coordinate.
+fn rounded_coordinate(value: f32) -> isize {
+    #[cfg(target_arch = "wasm32")]
+    {
+        wasm_rounded_coordinate(value)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        crate::numeric::f32_isize(value.round())
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn wasm_rounded_coordinate(value: f32) -> isize {
+    let integral = value.trunc();
+    let rounded = if (value - integral).abs() >= 0.5 {
+        integral + 1.0_f32.copysign(value)
+    } else {
+        integral
+    };
+    crate::numeric::f32_isize(rounded)
+}
 fn zero_degree_exact(w: usize, h: usize, generated_width: usize, generated_height: usize) -> bool {
     // At 0 degrees on the image's own grid, below 2^24, every rotated coordinate
     // is an exact pixel index, so the row is copied; otherwise rows are sampled.
@@ -372,8 +396,8 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                 let along = crate::numeric::usize_f32(y) + bmin;
                 let (row_x, row_y) = (along * sn, along * cs);
                 row.extend(columns.iter().map(|&[column_x, column_y]| {
-                    let xx = crate::numeric::f32_isize((column_x - row_x).round());
-                    let yy = crate::numeric::f32_isize((column_y + row_y).round());
+                    let xx = rounded_coordinate(column_x - row_x);
+                    let yy = rounded_coordinate(column_y + row_y);
                     if xx >= 0 && yy >= 0 && xx < (w).cast_signed() && yy < (h).cast_signed() {
                         gray[(yy).cast_unsigned() * w + (xx).cast_unsigned()]
                     } else {
@@ -754,5 +778,67 @@ mod axial_sampling_tests {
         assert!(zero_degree_exact(exact, 1, exact, 1));
         assert!(!zero_degree_exact(exact + 1, 1, exact + 1, 1));
         assert!(!zero_degree_exact(exact, 1, exact + 1, 1));
+    }
+}
+
+#[cfg(test)]
+mod rounding_tests {
+    use super::{rounded_coordinate, wasm_rounded_coordinate};
+
+    #[test]
+    fn rotated_coordinates_match_ties_away_rounding() {
+        let check = |value: f32| {
+            assert_eq!(
+                wasm_rounded_coordinate(value),
+                crate::numeric::f32_isize(value.round()),
+                "{value:?}"
+            );
+            assert_eq!(
+                rounded_coordinate(value),
+                crate::numeric::f32_isize(value.round())
+            );
+        };
+        for integer in -4096..=4096 {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "The bounded test integers are exactly representable."
+            )]
+            let boundary = integer as f32 + 0.5;
+            check(boundary);
+            check(boundary.next_down());
+            check(boundary.next_up());
+        }
+        for bits in [
+            0,
+            1,
+            0x007f_ffff,
+            0x8000_0000,
+            0x8000_0001,
+            0x807f_ffff,
+            0x7f80_0001,
+            0xff80_0001,
+            0x7f80_0000,
+            0xff80_0000,
+            0x7fc0_0000,
+            0xffc0_0000,
+            0x7f7f_ffff,
+            0xff7f_ffff,
+        ] {
+            check(f32::from_bits(bits));
+        }
+        for power in [22, 23, 24, 31, 32, 63, 64] {
+            for sign in [-1., 1.] {
+                let value = sign * 2.0_f32.powi(power);
+                check(value.next_down());
+                check(value);
+                check(value.next_up());
+            }
+        }
+        // Cover exponents, signs and mantissas, including conversion saturation.
+        let mut bits = 0x7361_6d70_u32;
+        for _ in 0..200_000 {
+            bits = bits.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            check(f32::from_bits(bits));
+        }
     }
 }
