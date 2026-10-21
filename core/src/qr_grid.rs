@@ -152,6 +152,7 @@ pub fn recover(
                     }
                     if let Some(payload) = qr::decode_matrix(&matrix, size) {
                         reads.push(Detection {
+                            assembled_rows: false,
                             bytes: Some(payload.bytes),
                             structured_append: payload.structured_append,
                             reader_initialization: payload.reader_initialization,

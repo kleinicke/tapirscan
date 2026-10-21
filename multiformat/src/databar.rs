@@ -624,6 +624,7 @@ impl Stacked {
                     continue;
                 }
                 out.push(crate::Detection {
+                    assembled_rows: true,
                     bytes: None,
                     structured_append: None,
                     reader_initialization: false,

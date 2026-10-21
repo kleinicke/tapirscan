@@ -1348,6 +1348,7 @@ pub fn detect_with(
                                 if let Some(read) = curved::recover(image, w, h, n, &t) {
                                     used.extend(finder_triple.iter().map(|p| (*p).clone()));
                                     results.push(Detection {
+                                        assembled_rows: false,
                                         bytes: Some(read.bytes),
                                         structured_append: read.structured_append,
                                         reader_initialization: false,
@@ -1394,6 +1395,7 @@ pub fn detect_with(
                                 if let Some(read) = qr::decode_matrix(&matrix, n) {
                                     used.extend(finder_triple.iter().map(|p| (*p).clone()));
                                     results.push(Detection {
+                                        assembled_rows: false,
                                         bytes: Some(read.bytes),
                                         structured_append: read.structured_append,
                                         reader_initialization: false,
@@ -1451,6 +1453,7 @@ pub fn detect_with(
                                 ) {
                                     used.extend(finder_triple.iter().map(|p| (*p).clone()));
                                     results.push(Detection {
+                                        assembled_rows: false,
                                         bytes: Some(read.bytes),
                                         structured_append: read.structured_append,
                                         reader_initialization: false,
@@ -1480,6 +1483,7 @@ pub fn detect_with(
                         {
                             used.extend(finder_triple.iter().map(|p| (*p).clone()));
                             results.push(Detection {
+                                assembled_rows: false,
                                 bytes: Some(read.bytes),
                                 structured_append: read.structured_append,
                                 reader_initialization: false,

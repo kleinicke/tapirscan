@@ -69,6 +69,9 @@ pub struct StructuredAppend {
 }
 #[derive(Clone, Serialize)]
 pub struct Detection {
+    /// The outline combines decoded rows, rather than one continuous barcode profile.
+    #[serde(skip)]
+    pub assembled_rows: bool,
     /// Decoded payload bytes before character-set interpretation, when available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes: Option<Vec<u8>>,
@@ -1001,6 +1004,7 @@ pub fn scan_with_images(
         });
         if !duplicate {
             results.push(Detection {
+                assembled_rows: false,
                 bytes: None,
                 structured_append: None,
                 reader_initialization: false,
@@ -1412,6 +1416,7 @@ mod itf_fragment_tests {
     #[test]
     fn a_nearby_thin_symbol_is_not_a_fragment_of_the_long_one() {
         let read = |text: &str, top, bottom, support| Detection {
+            assembled_rows: false,
             bytes: None,
             structured_append: None,
             reader_initialization: false,

@@ -347,6 +347,7 @@ fn footprints_arbitrate_different_payloads_only_on_connected_source_bars() {
         }
     }
     let make = |text: &str, y, support| Read {
+        assembled_rows: false,
         text: text.to_owned(),
         format: "EAN8".to_owned(),
         addon: None,
@@ -415,4 +416,120 @@ fn upce_fragment_requires_continuous_source_bars() {
     // The same overlapping outlines cannot prove ownership across a white gap.
     pixels[115 * 320..116 * 320].fill(255);
     assert_eq!(scan(&pixels).len(), 2);
+}
+
+mod assembled_rows {
+    use super::*;
+
+    fn read(assembled_rows: bool, text: &str, support: u64, polygon: Quad) -> Read<()> {
+        Read {
+            assembled_rows,
+            text: text.into(),
+            format: "DataBarExpanded".into(),
+            addon: None,
+            gs1: true,
+            reader_initialization: false,
+            support,
+            polygon,
+            geometry_changed: false,
+            allow_code93: false,
+            merged: Vec::new(),
+            payload: (),
+        }
+    }
+
+    fn pixels(top: usize, bottom: usize) -> Vec<u8> {
+        let mut pixels = vec![240; 320 * 260];
+        for y in top..bottom {
+            for x in 60..252 {
+                if (x - 60) / 3 % 3 == 0 {
+                    pixels[y * 320 + x] = 20;
+                }
+            }
+        }
+        pixels
+    }
+
+    fn image(pixels: &[u8]) -> Image<'_> {
+        Image {
+            data: pixels,
+            width: 320,
+            height: 260,
+            channels: 1,
+            stride: 320,
+        }
+    }
+
+    #[test]
+    fn assembly_outline_does_not_collapse_to_midpoint_profile() {
+        let pixels = pixels(120, 130);
+        let quad = [[60., 20.], [252., 20.], [252., 230.], [60., 230.]];
+        let assembled = complete_footprints(vec![read(true, "a", 6, quad)], image(&pixels), true);
+        assert_eq!(assembled[0].polygon, quad);
+        let direct = complete_footprints(vec![read(false, "a", 6, quad)], image(&pixels), true);
+        assert_ne!(direct[0].polygon, quad);
+    }
+
+    #[test]
+    fn assembly_is_neither_a_profile_owner_nor_a_profile_target() {
+        let pixels = pixels(20, 240);
+        let first = [[60., 58.], [252., 58.], [252., 62.], [60., 62.]];
+        let second = [[60., 148.], [252., 148.], [252., 152.], [60., 152.]];
+        for (owner, target, count) in [(false, false, 1), (true, false, 2), (false, true, 2)] {
+            let reads = complete_footprints(
+                vec![read(owner, "a", 10, first), read(target, "b", 3, second)],
+                image(&pixels),
+                true,
+            );
+            assert_eq!(reads.len(), count);
+        }
+    }
+
+    #[test]
+    fn polygon_overlap_keeps_ranked_winner_provenance() {
+        let pixels = pixels(20, 240);
+        let quad = [[60., 58.], [252., 58.], [252., 62.], [60., 62.]];
+        for winner in [false, true] {
+            let reads = consolidate(
+                vec![read(!winner, "a", 3, quad), read(winner, "a", 10, quad)],
+                image(&pixels),
+            );
+            assert_eq!(reads.len(), 1);
+            assert_eq!(reads[0].assembled_rows, winner);
+            assert_eq!(reads[0].support, 10);
+            assert_eq!(reads[0].polygon, quad);
+        }
+    }
+
+    #[test]
+    fn assembly_provenance_is_internal_and_survives_conversion() {
+        let detection = barcode_multiformat::Detection {
+            assembled_rows: true,
+            bytes: None,
+            structured_append: None,
+            reader_initialization: false,
+            addon: None,
+            format: "DataBarExpanded".into(),
+            text: "a".into(),
+            polygon: [[0., 0.], [10., 0.], [10., 10.], [0., 10.]],
+            support: 3,
+            error: 0.,
+            gs1: true,
+        };
+        assert!(
+            serde_json::to_value(&detection)
+                .unwrap()
+                .get("assembled_rows")
+                .is_none()
+        );
+        let read = crate::read::Read::additional(detection);
+        assert!(read.assembled_rows);
+        assert!(
+            serde_json::to_value(&read)
+                .unwrap()
+                .get("assembled_rows")
+                .is_none()
+        );
+        assert!(unwrap(wrap(read, false)).assembled_rows);
+    }
 }

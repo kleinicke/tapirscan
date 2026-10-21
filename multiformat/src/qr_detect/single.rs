@@ -154,6 +154,7 @@ fn decode_transform(
             let nf = qr_coordinate(n);
             return Some((
                 Detection {
+                    assembled_rows: false,
                     bytes: Some(read.bytes),
                     structured_append: read.structured_append,
                     reader_initialization: false,

@@ -133,6 +133,7 @@ mod tests {
 
     fn detection(format: &str, polygon: Quad) -> Detection {
         Detection {
+            assembled_rows: false,
             bytes: None,
             structured_append: None,
             reader_initialization: false,

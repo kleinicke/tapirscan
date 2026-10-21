@@ -628,6 +628,7 @@ fn read_oriented(gray: &[u8], w: usize, h: usize, mirrored: bool) -> Option<Dete
             (x0, x1)
         };
         return Some(Detection {
+            assembled_rows: false,
             bytes: Some(read.bytes),
             structured_append: read.structured_append,
             reader_initialization: read.reader_initialization,

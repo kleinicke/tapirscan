@@ -1843,6 +1843,7 @@ fn detect_with_retries(
                     }
                     if let Some(read) = datamatrix::decode_matrix(&matrix, size.w, size.h) {
                         results.push(Detection {
+                            assembled_rows: false,
                             bytes: Some(read.bytes),
                             structured_append: read.structured_append,
                             reader_initialization: read.reader_initialization,
@@ -1926,6 +1927,7 @@ fn detect_with_retries(
                 && let Some(read) = datamatrix::decode_matrix(&matrix, size.w, size.h)
             {
                 found = Some(Detection {
+                    assembled_rows: false,
                     bytes: Some(read.bytes),
                     structured_append: read.structured_append,
                     reader_initialization: read.reader_initialization,
@@ -1964,6 +1966,7 @@ fn detect_with_retries(
             crate::dm_gray::recover(gray, (w, h), q, size, inverted, retries.region_grids)
         {
             results.push(Detection {
+                assembled_rows: false,
                 bytes: Some(read.bytes),
                 structured_append: read.structured_append,
                 reader_initialization: read.reader_initialization,

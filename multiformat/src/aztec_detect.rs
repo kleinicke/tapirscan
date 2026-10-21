@@ -937,6 +937,7 @@ impl Search {
                                 {
                                     if !self.policy.gray_recovery {
                                         results.push(Detection {
+                                            assembled_rows: false,
                                             bytes: Some(read.bytes),
                                             structured_append: read.structured_append,
                                             reader_initialization: read.reader_initialization,
@@ -1028,6 +1029,7 @@ impl Search {
                                         }
                                     }
                                     pending_rune = Some(Detection {
+                                        assembled_rows: false,
                                         bytes: Some(read.bytes),
                                         structured_append: read.structured_append,
                                         reader_initialization: read.reader_initialization,
@@ -1093,6 +1095,7 @@ impl Search {
                                 aztec::decode_matrix(&rotate(&grid, n, turn, mirror), n)
                             {
                                 results.push(Detection {
+                                    assembled_rows: false,
                                     bytes: Some(read.bytes),
                                     structured_append: read.structured_append,
                                     reader_initialization: read.reader_initialization,
@@ -1153,6 +1156,7 @@ impl Search {
                 };
                 if let Some(read) = aztec::decode_matrix(&rotate(&grid, n, turn, mirror), n) {
                     results.push(Detection {
+                        assembled_rows: false,
                         bytes: Some(read.bytes),
                         structured_append: read.structured_append,
                         reader_initialization: read.reader_initialization,

@@ -485,6 +485,7 @@ pub fn detect(
                 }
                 if let Some(read) = maxicode::decode_matrix(&matrix) {
                     results.push(Detection {
+                        assembled_rows: false,
                         bytes: Some(read.bytes),
                         structured_append: read.structured_append,
                         reader_initialization: read.reader_initialization,

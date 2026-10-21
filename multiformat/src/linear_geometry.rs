@@ -403,6 +403,7 @@ mod tests {
     use super::*;
     fn read(top: f32, bottom: f32) -> Detection {
         Detection {
+            assembled_rows: false,
             bytes: None,
             structured_append: None,
             reader_initialization: false,

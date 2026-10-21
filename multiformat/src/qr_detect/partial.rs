@@ -295,6 +295,7 @@ pub(super) fn recover(
                             if let Some(read) = qr::decode_matrix(&grid, n) {
                                 used.extend([first.clone(), second.clone()]);
                                 results.push(Detection {
+                                    assembled_rows: false,
                                     bytes: Some(read.bytes),
                                     structured_append: read.structured_append,
                                     reader_initialization: false,

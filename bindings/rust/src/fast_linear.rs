@@ -1093,6 +1093,7 @@ impl Candidate<'_> {
             original_rows: if self.restored { 0 } else { 1_u64 << row },
             dense: self.dense,
             read: Read {
+                assembled_rows: false,
                 text: found.text,
                 format: found.format.into(),
                 polygon: q,

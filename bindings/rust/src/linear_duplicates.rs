@@ -708,6 +708,7 @@ impl Evidence<'_> {
     reason = "Payload flags, geometry changes and an opt-in ownership proof are independent conditions."
 )]
 struct Read<T> {
+    assembled_rows: bool,
     text: String,
     format: String,
     addon: Option<String>,
@@ -786,9 +787,15 @@ fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
                 if !read.same_symbol(other) {
                     continue;
                 }
-                if crate::geometry::overlap_quads(&other.polygon, &read.polygon).0 >= 0.65
-                    || crate::geometry::adjacent_strips(&other.polygon, &read.polygon)
-                {
+                if crate::geometry::overlap_quads(&other.polygon, &read.polygon).0 >= 0.65 {
+                    other.absorb(&read);
+                    merged = true;
+                    break;
+                }
+                if read.assembled_rows || other.assembled_rows {
+                    continue;
+                }
+                if crate::geometry::adjacent_strips(&other.polygon, &read.polygon) {
                     other.absorb(&read);
                     merged = true;
                     break;
@@ -811,7 +818,7 @@ fn consolidate<T>(mut reads: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>> {
         let mut merged = false;
         if read.supported() {
             for other in &mut extended {
-                if !read.same_symbol(other) {
+                if !read.same_symbol(other) || read.assembled_rows || other.assembled_rows {
                     continue;
                 }
                 if let Some(polygon) = evidence
@@ -846,6 +853,8 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
         if read.supported() {
             for other in &mut owned {
                 if read.same_symbol(other)
+                    && !read.assembled_rows
+                    && !other.assembled_rows
                     && let Some(polygon) = evidence
                         .owned_bars(other.polygon, read.polygon, false)
                         .or_else(|| {
@@ -875,6 +884,8 @@ fn consolidate_owned<T>(extended: Vec<Read<T>>, image: Image<'_>) -> Vec<Read<T>
         }
         for strong in &owned {
             if conflicts(weak, strong)
+                && !weak.assembled_rows
+                && !strong.assembled_rows
                 && crate::geometry::overlap_quads(&weak.polygon, &strong.polygon).0 >= 0.65
                 && evidence
                     .owned_bars(weak.polygon, strong.polygon, true)
@@ -918,7 +929,7 @@ fn trace_footprints<T>(
     let mut absorbed: Vec<(usize, usize)> = Vec::new();
     order.sort_by_key(|&i| std::cmp::Reverse(reads[i].support));
     for i in order {
-        if !reads[i].supported() {
+        if !reads[i].supported() || reads[i].assembled_rows {
             continue;
         }
         if minimum_aspect.is_some_and(|limit| {
@@ -996,6 +1007,7 @@ fn trace_footprints<T>(
             && keep[index]
             && !measured[index]
             && read.supported()
+            && !read.assembled_rows
             && let Some(polygon) = footprint::display(&mut evidence, read.polygon)
         {
             read.polygon = polygon;
@@ -1053,6 +1065,7 @@ fn merge_reads(
 /// A typed read prepared for consolidation; the outlines merged into it earlier stay merged.
 fn wrap(value: crate::read::Read, allow_code93: bool) -> Read<crate::read::Read> {
     Read {
+        assembled_rows: value.assembled_rows,
         text: value.text.clone(),
         format: value.format.clone(),
         addon: value.addon.clone(),
@@ -1139,6 +1152,7 @@ pub(crate) fn merge_primary(reads: &mut Vec<crate::Barcode>, image: Image<'_>) {
     let typed = std::mem::take(reads)
         .into_iter()
         .map(|read| Read {
+            assembled_rows: false,
             text: read
                 .detection
                 .digits

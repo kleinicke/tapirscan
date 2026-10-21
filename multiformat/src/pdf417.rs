@@ -1002,6 +1002,7 @@ fn detect_axes(
                                 < (x1 - x0) * 0.3
                     }) {
                         results.push(Detection {
+                            assembled_rows: false,
                             bytes: Some(read.bytes),
                             structured_append: read.structured_append,
                             reader_initialization: read.reader_initialization,
@@ -1297,6 +1298,7 @@ mod tests {
     #[test]
     fn conflicting_reads_keep_the_one_with_fewer_corrections() {
         let read = |text: &str, x: f32, error: f32| Detection {
+            assembled_rows: false,
             bytes: None,
             structured_append: None,
             reader_initialization: false,

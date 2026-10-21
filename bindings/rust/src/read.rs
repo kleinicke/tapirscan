@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Read {
+    /// The retained outline combines rows and cannot seed a single-profile ownership proof.
+    #[serde(skip)]
+    pub assembled_rows: bool,
     pub text: String,
     pub format: String,
     pub polygon: Quad,
@@ -51,6 +54,7 @@ impl Read {
         candidates: Vec<usize>,
     ) -> Self {
         Self {
+            assembled_rows: false,
             text: digits.iter().map(|d| char::from(b'0' + d)).collect(),
             format: "EAN13".into(),
             polygon,
@@ -85,6 +89,7 @@ impl Read {
             _ => value.reader_initialization.then_some(true),
         };
         Self {
+            assembled_rows: value.assembled_rows,
             text: value.text,
             format: value.format,
             polygon: value.polygon.map(|point| point.map(f64::from)),

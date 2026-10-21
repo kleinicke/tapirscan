@@ -261,6 +261,7 @@ pub(super) fn recover(
                             qr_detect::map(&seed.grid.t, x, y)
                         });
                         return Some(Detection {
+                            assembled_rows: false,
                             bytes: Some(read.bytes),
                             structured_append: read.structured_append,
                             reader_initialization: read.reader_initialization,

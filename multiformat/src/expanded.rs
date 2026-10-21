@@ -642,6 +642,7 @@ impl Stacked {
             let polygon = [[lo, top], [hi, top], [hi, bottom], [lo, bottom]]
                 .map(|[x, y]| [x * c - y * s, x * s + y * c]);
             out.push(crate::Detection {
+                assembled_rows: true,
                 bytes: None,
                 structured_append: None,
                 reader_initialization: false,
