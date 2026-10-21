@@ -347,10 +347,11 @@ fn decode_matrix_impl(matrix: &[bool], n: usize, uncertain: Option<&[bool]>) -> 
     let mut corrected = 0;
     let mut data = Vec::new();
     for (i, mut block) in blocks.into_iter().enumerate() {
-        let original = uncertain.is_some().then(|| block.clone());
+        let can_retry = !erasures[i].is_empty() && erasures[i].len() <= ecc;
+        let original = can_retry.then(|| block.clone());
         corrected += match field.correct(&mut block, ecc, 0) {
             Some(count) => count,
-            None if !erasures[i].is_empty() && erasures[i].len() <= ecc => {
+            None if can_retry => {
                 block = original?;
                 field.correct_with_erasures(&mut block, ecc, 0, &erasures[i])?
             }
