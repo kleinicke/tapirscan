@@ -68,7 +68,7 @@ pub(super) fn scan(
     #[cfg(feature = "low")]
     let _ = coverage;
     checked_image(image)?;
-    if context.shared_retail && (image.channels != 4 || image.stride != image.width * 4) {
+    if context.shared_retail && image.channels == 1 {
         let mut packed = std::mem::take(&mut scanner.retail_rgba);
         retail_pixels(image, &mut packed);
         let result = scan_prepared(
@@ -1067,7 +1067,8 @@ fn recover(
 }
 
 fn retail_pixels(image: Image<'_>, pixels: &mut Vec<u8>) {
-    // Preserve packed RGBA interpolation while retaining storage across frames.
+    // Grayscale keeps RGB interpolation and color-profile eligibility.
+    // Color inputs already provide identical channel-aware samples without packing.
     pixels.resize(image.width * image.height * 4, 255);
     let rows = image
         .data
@@ -1075,15 +1076,8 @@ fn retail_pixels(image: Image<'_>, pixels: &mut Vec<u8>) {
         .zip(pixels.chunks_exact_mut(image.width * 4));
     for (source, target) in rows {
         let target = target.as_chunks_mut::<4>().0;
-        if image.channels == 1 {
-            for (&gray, out) in source[..image.width].iter().zip(target) {
-                *out = [gray, gray, gray, 255];
-            }
-        } else {
-            let source = source[..image.width * image.channels].chunks_exact(image.channels);
-            for (pixel, out) in source.zip(target) {
-                *out = [pixel[0], pixel[1], pixel[2], 255];
-            }
+        for (&gray, out) in source[..image.width].iter().zip(target) {
+            *out = [gray, gray, gray, 255];
         }
     }
 }

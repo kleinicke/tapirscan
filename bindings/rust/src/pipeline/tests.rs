@@ -85,70 +85,27 @@ fn restored_crops_match_reference_filter() {
 }
 
 #[test]
-fn retail_pixels_match_per_pixel_packing_for_padded_rows() {
-    for channels in [1, 3, 4] {
-        let (width, height, stride) = (5, 3, 5 * channels + 3);
-        let data: Vec<u8> = (0..stride * height)
-            .map(|i| u8::try_from(i * 37 % 251).unwrap())
-            .collect();
-        let image = Image {
-            data: &data,
-            width,
-            height,
-            channels,
-            stride,
-        };
-        let mut packed = vec![7; 2];
-        retail_pixels(image, &mut packed);
-        let mut expected = Vec::new();
-        for y in 0..height {
-            for x in 0..width {
-                let source = y * stride + x * channels;
-                let step = usize::from(channels != 1);
-                expected.extend([
-                    data[source],
-                    data[source + step],
-                    data[source + 2 * step],
-                    255,
-                ]);
-            }
-        }
-        assert_eq!(packed, expected, "{channels} channels");
-    }
-}
-
-#[test]
-fn retail_storage_reuse_preserves_stride_channels_and_alpha() {
-    let mut storage = Vec::new();
+fn retail_gray_packing_preserves_padding_and_storage_reuse() {
+    let mut storage = vec![7; 2];
     for (width, height) in [(12, 8), (3, 4), (12, 8)] {
-        for channels in [1, 3, 4] {
-            let stride = width * channels + 7;
+        for padding in [0, 3, 7] {
+            let stride = width + padding;
             let mut data = vec![37; stride * height];
             let mut expected = Vec::new();
             for y in 0..height {
                 for x in 0..width {
-                    let source = y * stride + x * channels;
-                    let value = u8::try_from(x + y).unwrap();
-                    data[source] = value;
-                    if channels != 1 {
-                        data[source + 1] = value + 1;
-                        data[source + 2] = value + 2;
-                    }
-                    expected.extend_from_slice(&[
-                        value,
-                        value + u8::from(channels != 1),
-                        value + 2 * u8::from(channels != 1),
-                        255,
-                    ]);
+                    let value = u8::try_from((x * 37 + y * 89) % 256).unwrap();
+                    data[y * stride + x] = value;
+                    expected.extend_from_slice(&[value, value, value, 255]);
                 }
             }
-            data.truncate((height - 1) * stride + width * channels);
+            data.truncate((height - 1) * stride + width);
             retail_pixels(
                 Image {
                     data: &data,
                     width,
                     height,
-                    channels,
+                    channels: 1,
                     stride,
                 },
                 &mut storage,

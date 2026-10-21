@@ -248,10 +248,12 @@ pub extern "C" fn tapirscan_prepare_rows(
         let Some(session) = registry.sessions.get_mut(&handle) else {
             return HANDLE;
         };
-        // Release a large whole-image buffer from an earlier scan for reuse.
+        // Reuse a same-sized chunk, but release excess whole-image capacity.
         session.input.clear();
-        session.input.shrink_to_fit();
         session.input.resize(length, 0);
+        if session.input.capacity() > length {
+            session.input.shrink_to_fit();
+        }
         session.output.clear();
         session.image = None;
         session.rows = Some(rows);
@@ -454,4 +456,64 @@ pub extern "C" fn tapirscan_output_len(handle: u32) -> u32 {
             .and_then(|session| u32::try_from(session.output.len()).ok())
             .unwrap_or(0)
     })
+}
+
+#[cfg(test)]
+mod row_input_tests {
+    use super::*;
+
+    #[test]
+    fn repeated_chunks_reuse_zeroed_storage_and_release_excess() {
+        let handle = tapirscan_create(MODE_ID, 1, 0);
+        assert_ne!(handle, 0);
+        assert_eq!(tapirscan_prepare_rows(handle, 6000, 6000, 1, 1), OK);
+        let pointer = REGISTRY.with_borrow_mut(|registry| {
+            let session = registry.sessions.get_mut(&handle).unwrap();
+            assert_eq!(session.input.len(), 6000);
+            assert_eq!(session.input.capacity(), 6000);
+            session.input.fill(91);
+            session.input.as_ptr()
+        });
+        assert_eq!(tapirscan_prepare_rows(handle, 6000, 6000, 1, 1), OK);
+        REGISTRY.with_borrow_mut(|registry| {
+            let session = registry.sessions.get_mut(&handle).unwrap();
+            assert_eq!(session.input.as_ptr(), pointer);
+            assert!(session.input.iter().all(|&byte| byte == 0));
+            session.input = vec![91; 24000];
+        });
+        assert_eq!(tapirscan_prepare_rows(handle, 6000, 6000, 1, 1), OK);
+        REGISTRY.with_borrow(|registry| {
+            let session = &registry.sessions[&handle];
+            assert_eq!(session.input.len(), 6000);
+            assert!((6000..=24000).contains(&session.input.capacity()));
+            assert!(session.input.iter().all(|&byte| byte == 0));
+        });
+        assert_eq!(tapirscan_destroy(handle), OK);
+    }
+
+    #[test]
+    fn invalid_row_prepare_keeps_existing_input_and_output() {
+        let handle = tapirscan_create(MODE_ID, 1, 0);
+        assert_ne!(handle, 0);
+        assert_eq!(tapirscan_prepare(handle, 3, 3, 1, 3), OK);
+        REGISTRY.with_borrow_mut(|registry| {
+            let session = registry.sessions.get_mut(&handle).unwrap();
+            session.input.fill(17);
+            session.output.extend_from_slice(b"previous result");
+        });
+        assert_eq!(tapirscan_prepare_rows(handle, 3, 3, 1, 1), ARG);
+        assert_eq!(tapirscan_prepare_rows(handle, 6000, 6000, 1, 0), ARG);
+        REGISTRY.with_borrow(|registry| {
+            let session = &registry.sessions[&handle];
+            assert_eq!(session.input, [17; 9]);
+            assert_eq!(session.output, b"previous result");
+            let spec = session.image.unwrap();
+            assert_eq!(
+                (spec.width, spec.height, spec.channels, spec.stride),
+                (3, 3, 1, 3)
+            );
+            assert!(session.rows.is_none());
+        });
+        assert_eq!(tapirscan_destroy(handle), OK);
+    }
 }
