@@ -145,7 +145,7 @@ camera.stop();
 | Quagga                                    | Tapirscan                                                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------- |
 | `inputStream.target`                      | Your own `<video>` element.                                               |
-| `inputStream.constraints`                 | `constraints` option, merged over a 1280×720 ideal size.                  |
+| `inputStream.constraints`                 | `start({ facingMode, deviceId })`; other constraints in `constraints`.    |
 | `Quagga.onDetected`                       | `onScan`, called for every scanned frame; check `result.barcodes.length`. |
 | `Quagga.onProcessed`                      | The same `onScan` callback; draw from `result.barcodes`.                  |
 | `Quagga.init` error callback              | `start()` rejects; later failures call `onError`.                         |

@@ -429,25 +429,83 @@ for (const [name, launch] of browsers) {
       assert.deepEqual(outcome, { reported: ["app bug"], errors: [], running: true });
     });
 
-    test("constraints sizes replace the default; the selection wins", async (context) => {
+    test("constraints sizes replace the default; the camera choice belongs to start", async (context) => {
       if (skip) return context.skip(skip);
-      const request = await page.evaluate(async () => {
+      const outcome = await page.evaluate(async () => {
         const { camera, medium, video, log } = globalThis.t;
         const scanner = new medium.Scanner();
+        let rejected;
+        try {
+          new camera.CameraScanner(video, scanner, { constraints: { facingMode: "user" } });
+        } catch (error) {
+          rejected = error.message;
+        }
         const controller = new camera.CameraScanner(video, scanner, {
-          constraints: { width: { ideal: 640 }, facingMode: "user", frameRate: 15 },
+          constraints: { width: { ideal: 640 }, frameRate: 15 },
         });
         // Before permission, browsers list cameras with empty ids.
         await controller.start({ deviceId: "" });
         controller.stop();
         scanner.dispose();
-        return log.requests.at(-1).video;
+        return { rejected, request: log.requests.at(-1).video };
       });
-      assert.deepEqual(request, {
-        width: { ideal: 640 },
-        facingMode: { ideal: "environment" },
-        frameRate: 15,
+      assert.deepEqual(outcome, {
+        rejected: "Pass deviceId and facingMode to start(), not constraints",
+        request: { width: { ideal: 640 }, frameRate: 15, facingMode: { ideal: "environment" } },
       });
+    });
+
+    test("a start cancelled by another start resolves false", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video, log, setDelay, live } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const controller = new camera.CameraScanner(video, scanner);
+        const before = log.streams.length;
+        setDelay(200);
+        const first = controller.start();
+        const second = controller.start({ deviceId: "x" });
+        const started = [await first, await second];
+        setDelay(0);
+        const liveStreams = log.streams.slice(before).filter(live).length;
+        controller.stop();
+        scanner.dispose();
+        return { started, liveStreams };
+      });
+      assert.deepEqual(outcome, { started: [false, true], liveStreams: 1 });
+    });
+
+    test("a failed reopen after the page is shown calls onError", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video, setVisibility } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const errors = [];
+        let failed;
+        const reported = new Promise((resolve) => (failed = resolve));
+        const controller = new camera.CameraScanner(video, scanner, {
+          onError: (error) => {
+            errors.push(error.name);
+            failed();
+          },
+        });
+        await controller.start();
+        setVisibility("hidden");
+        const saved = navigator.mediaDevices;
+        Object.defineProperty(navigator, "mediaDevices", {
+          configurable: true,
+          value: {
+            getUserMedia: () =>
+              Promise.reject(new DOMException("Permission revoked", "NotAllowedError")),
+          },
+        });
+        setVisibility("visible");
+        await reported;
+        Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: saved });
+        scanner.dispose();
+        return { errors, running: controller.running };
+      });
+      assert.deepEqual(outcome, { errors: ["NotAllowedError"], running: false });
     });
 
     test("start rejects without requestVideoFrameCallback", async (context) => {

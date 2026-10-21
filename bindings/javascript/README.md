@@ -123,8 +123,8 @@ scanner.dispose();
   or another `start()` cancelled it, or the page is hidden (the camera opens
   when it is shown). Errors thrown by `onScan` are reported to the console and
   do not stop scanning.
-- **Other settings:** `constraints` adds video constraints; a `width` or
-  `height` replaces the default 1280×720 ideal size. `camera.track` is the open
+- **Other settings:** `constraints` adds video constraints other than the
+  camera choice; a `width` or `height` replaces the default 1280×720 ideal size. `camera.track` is the open
   `MediaStreamTrack`, for example for zoom. `scanOptions` applies to every frame.
 - **Requirements:** HTTPS or `localhost`, and `requestVideoFrameCallback`
   (Firefox 132 or later). The controller sets `muted` and `playsinline` for iOS.
@@ -228,8 +228,9 @@ export default defineConfig({
 - **Methods:** `scan` and `inspect` work as in the core API but return promises.
   Each call captures its image and options when it starts, so buffers and option
   objects can be reused immediately. Calls reach the worker in call order.
-- **Options:** `mode`, `formats`, `eanAddOnPolicy` and
-  [`experimentalTurbo`](#experimental-turbo-presets) work as in the core, and
+- **Options:** `formats` and `eanAddOnPolicy` work as in the core, and so do
+  `mode` and [`experimentalTurbo`](#experimental-turbo-presets) on
+  `tapirscan/browser`; single-mode entries have neither. Also,
   `scan(image, { formats })` overrides the formats for one call. `wasmBaseUrl`
   serves the WASM files from another directory. `loadWasm` needs the core.
   `scan(pixels, { transfer: true })` hands a decoded-pixel buffer to the worker instead of
@@ -432,13 +433,15 @@ custom loaders manage their own caching. Each scanner owns its own WASM instance
 
 | Option              | Where           | Default                | Meaning                                                                                                                                    |
 | ------------------- | --------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `mode`              | Creation        | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                              |
+| `mode`              | Creation¹       | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                              |
 | `formats`           | Creation / scan | `"retail"`             | An identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call formats override the defaults. |
 | `eanAddOnPolicy`    | Creation        | `"ignore"`             | `"ignore"`, `"read"`, `"require"`; see [supplements](#eanupc-supplements).                                                                 |
 | `wasmBaseUrl`       | Creation        | Module-relative assets | Directory URL for the packaged WASM files.                                                                                                 |
 | `loadWasm`          | Creation        | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`.                                                                                                      |
-| `experimentalTurbo` | Creation        | Unset                  | **Experimental:** `2`, `4`, `8` or `16`. Mutually exclusive with `mode`.                                                                   |
+| `experimentalTurbo` | Creation¹       | Unset                  | **Experimental:** `2`, `4`, `8` or `16`. Mutually exclusive with `mode`.                                                                   |
 | `transfer`          | Browser scan    | `false`                | `true` hands a decoded-pixel buffer to the worker instead of copying it; the buffer is detached.                                           |
+
+¹ Core and `tapirscan/browser` only; single-mode entries reject it.
 
 `"retail"` selects EAN13, UPCA, EAN8 and UPCE. `"common1D"` adds Code128,
 Code39 and ITF; `"common"` adds QRCode and DataMatrix. `"1D"` and `"2D"`

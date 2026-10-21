@@ -28,10 +28,9 @@ export interface CameraScannerOptions {
   scanOptions?: ScanOptions;
   /**
    * Extra video constraints. A `width` or `height` replaces the default 1280×720
-   * ideal size; smaller frames scan faster. The `start()` selection takes
-   * precedence over `deviceId` and `facingMode` here.
+   * ideal size; smaller frames scan faster. Choose the camera with `start()`.
    */
-  constraints?: MediaTrackConstraints;
+  constraints?: Omit<MediaTrackConstraints, "deviceId" | "facingMode">;
   /** Release the camera while the page is hidden and reopen it when shown. Default true. */
   pauseWhenHidden?: boolean;
 }
@@ -64,6 +63,9 @@ export class CameraScanner {
     const input: unknown = scanner;
     if (typeof (input as Partial<FrameScanner> | null)?.scan !== "function")
       throw new TypeError("CameraScanner needs a tapirscan/browser Scanner");
+    const { constraints = {} } = options;
+    if ("deviceId" in constraints || "facingMode" in constraints)
+      throw new TypeError("Pass deviceId and facingMode to start(), not constraints");
     this.#video = video;
     this.#scanner = scanner;
     this.#options = { ...options };

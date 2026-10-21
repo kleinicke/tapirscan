@@ -114,11 +114,11 @@ See the [migration guide](docs/API_MIGRATION.md).
 npm install tapirscan
 ```
 
-In a web app, `tapirscan/browser` scans files, `<img>`, `<video>` and canvases in
-a worker, with no WASM setup:
+In a web app, `tapirscan/browser/medium` scans files, `<img>`, `<video>` and
+canvases in a worker, with no WASM setup:
 
 ```js
-import { scan } from "tapirscan/browser";
+import { scan } from "tapirscan/browser/medium";
 
 const result = await scan(file); // e.g. a File from <input type="file">
 console.log(result.values); // Decoded strings, e.g. ["4006381333931"]
