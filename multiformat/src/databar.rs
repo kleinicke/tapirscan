@@ -432,17 +432,11 @@ fn halves(r: &[f32], first_black: bool) -> Vec<Half> {
             let (outside, inside) = if side == 0 {
                 (
                     character(&r[s + 1..], false),
-                    character(
-                        &r[s + 14..s + 22].iter().rev().copied().collect::<Vec<_>>(),
-                        true,
-                    ),
+                    character(&std::array::from_fn::<_, 8, _>(|i| r[s + 21 - i]), true),
                 )
             } else {
                 (
-                    character(
-                        &r[s + 15..s + 23].iter().rev().copied().collect::<Vec<_>>(),
-                        false,
-                    ),
+                    character(&std::array::from_fn::<_, 8, _>(|i| r[s + 22 - i]), false),
                     character(&r[s + 2..], true),
                 )
             };

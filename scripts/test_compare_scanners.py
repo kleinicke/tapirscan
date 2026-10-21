@@ -1,6 +1,8 @@
 """Regression checks for comparison evidence and failure detection."""
 
+import hashlib
 import json
+import subprocess
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -8,6 +10,7 @@ from pathlib import Path
 
 from compare_scanners import (
     NativeComparison,
+    checkout,
     clean,
     distribution,
     timing_indices,
@@ -17,6 +20,61 @@ from compare_scanners import (
 
 class ComparisonEvidence(unittest.TestCase):
     """Keep meaningful result differences visible and measurements deterministic."""
+
+    def test_checkout_records_symlinks_without_reading_targets(self) -> None:
+        """Directory and dangling links are source entries, not input byte streams."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            hooks = root / "empty-hooks"
+            hooks.mkdir()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "-c",
+                    f"core.hooksPath={hooks}",
+                    "commit",
+                    "-q",
+                    "--allow-empty",
+                    "-m",
+                    "fixture",
+                ],
+                check=True,
+            )
+            target = root / "target"
+            target.mkdir()
+            payload = target / "payload"
+            payload.write_bytes(b"outside checkout")
+            (repo / "plain").write_bytes(b"source bytes")
+            (repo / "directory").symlink_to("../target", target_is_directory=True)
+            (repo / "file-link").symlink_to("../target/payload")
+            (repo / "dangling").symlink_to("../missing")
+            before = checkout(repo)
+            self.assertTrue(before["dirty"])
+            self.assertEqual(
+                before["untracked"],
+                {
+                    "plain": hashlib.sha256(b"source bytes").hexdigest(),
+                    "directory": {"symlink": "../target"},
+                    "file-link": {"symlink": "../target/payload"},
+                    "dangling": {"symlink": "../missing"},
+                },
+            )
+            payload.write_bytes(b"changed external bytes")
+            self.assertEqual(checkout(repo), before)
+            (repo / "file-link").unlink()
+            (repo / "file-link").symlink_to("../target/other")
+            self.assertNotEqual(checkout(repo)["untracked"], before["untracked"])
 
     def test_only_timing_is_ignored(self) -> None:
         """Geometry, ordering, metadata and work counters remain comparison inputs."""

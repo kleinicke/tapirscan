@@ -77,7 +77,15 @@ def checkout(path: Path) -> dict[str, object]:
         "path": str(path),
         "commit": commit,
         "trackedDiffSha256": hashlib.sha256(changes).hexdigest(),
-        "untracked": {name: digest(path / name) for name in untracked if name},
+        "untracked": {
+            name: (
+                {"symlink": str((path / name).readlink())}
+                if (path / name).is_symlink()
+                else digest(path / name)
+            )
+            for name in untracked
+            if name
+        },
         "dirty": bool(changes or any(untracked)),
     }
 
