@@ -1387,9 +1387,6 @@ pub fn detect_with(
                             let Some(matrix) = sample(image, w, h, n, &t, offset) else {
                                 continue;
                             };
-                            if keep_samples {
-                                samples.push(matrix.clone());
-                            }
                             for mirror in [false, true] {
                                 let matrix = transpose_if_mirrored(&matrix, n, mirror);
                                 if let Some(read) = qr::decode_matrix(&matrix, n) {
@@ -1419,6 +1416,9 @@ pub fn detect_with(
                                         tl.support.min(tr.support).min(bl.support),
                                     );
                                 }
+                            }
+                            if keep_samples {
+                                samples.push(matrix);
                             }
                         }
                         // Modules on which the offset samplings disagree are
