@@ -610,6 +610,32 @@ impl Scanner {
                         reads,
                     )?;
                 }
+                if mask & UPCE != 0 && mask != UPCE && reads.iter().any(is_linear_read) {
+                    // Retry proposals that do not intersect a current read;
+                    // keep proposal and unread lists intact.
+                    let uncovered: Vec<_> = proposals
+                        .iter()
+                        .filter(|proposal| {
+                            !reads
+                                .iter()
+                                .any(|read| overlap_quads(&read.polygon, &proposal.polygon).0 > 0.)
+                        })
+                        .take(2)
+                        .copied()
+                        .collect();
+                    if !uncovered.is_empty() {
+                        for read in
+                            crate::fast_linear::recover_uncovered_upce(image, &uncovered, sampler)?
+                        {
+                            if !reads
+                                .iter()
+                                .any(|old| overlap_quads(&read.polygon, &old.polygon).0 > 0.)
+                            {
+                                reads.push(read);
+                            }
+                        }
+                    }
+                }
                 if options.include_regions {
                     unread.extend(pending);
                 }

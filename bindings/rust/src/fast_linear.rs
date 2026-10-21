@@ -16,7 +16,7 @@ mod recovery;
 #[cfg(not(feature = "low"))]
 pub(crate) use recovery::{
     append_recovered, recover_proposals, recover_proposals_as, recover_proposals_hinted,
-    recover_proposals_patient,
+    recover_proposals_patient, recover_uncovered_upce,
 };
 
 // Internal build selector for the public experimental Turbo presets. Zero is

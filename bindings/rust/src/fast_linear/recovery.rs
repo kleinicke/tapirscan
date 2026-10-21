@@ -65,6 +65,7 @@ pub(crate) fn recover_proposals_hinted(
         SourceProfile::Gray(0.),
         RECOVERY_BUDGETS,
         hinted,
+        RecoveryAdmission::Standard,
     )
 }
 
@@ -85,6 +86,7 @@ pub(crate) fn recover_proposals_patient(
         SourceProfile::Gray(0.),
         super::FAST_PATH_BUDGETS,
         &mut Vec::new(),
+        RecoveryAdmission::Standard,
     )
 }
 
@@ -111,9 +113,68 @@ pub(crate) fn recover_proposals_as(
         profile,
         RECOVERY_BUDGETS,
         &mut Vec::new(),
+        RecoveryAdmission::Standard,
     )
 }
 
+#[derive(Clone, Copy)]
+enum RecoveryAdmission {
+    Standard,
+    SeparatedRawUpce,
+}
+
+/// UPC-E recovery requiring spatially separated agreement on raw source rows.
+/// Ranking support remains capped by the ordinary refinement confirmation path.
+pub(crate) fn recover_uncovered_upce(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> Result<Vec<Read>, Error> {
+    recover_variant(
+        image,
+        &proposals[..proposals.len().min(2)],
+        linear::UPCE,
+        sampler,
+        SourceProfile::Gray(0.),
+        RECOVERY_BUDGETS,
+        &mut Vec::new(),
+        RecoveryAdmission::SeparatedRawUpce,
+    )
+    .map(|(reads, _)| reads)
+}
+
+fn retain_separated_raw_upce(candidate: &mut Candidate<'_>) {
+    let top = point(candidate.quad, 0.5, 0.);
+    let bottom = point(candidate.quad, 0.5, 1.);
+    let height = (bottom[0] - top[0]).hypot(bottom[1] - top[1]);
+    candidate.observations.retain(|observation| {
+        if observation.read.format != "UPCE" {
+            return false;
+        }
+        let mut positions: Vec<_> = candidate
+            .row_positions
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| observation.original_rows & (1_u64 << index) != 0)
+            .map(|(_, v)| v * height)
+            .collect();
+        positions.sort_by(f64::total_cmp);
+        let mut last = None;
+        let mut separated = 0;
+        for position in positions {
+            if last.is_none_or(|previous| position - previous >= observation.min_span) {
+                last = Some(position);
+                separated += 1;
+            }
+        }
+        separated >= 3
+    });
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Keep recovery budgets and source-row admission explicit."
+)]
 fn recover_variant(
     image: Image<'_>,
     proposals: &[crate::Proposal],
@@ -122,6 +183,7 @@ fn recover_variant(
     profile: SourceProfile,
     budgets: super::Budgets,
     hinted: &mut Vec<Quad>,
+    admission: RecoveryAdmission,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
     let contrast = profile.contrast();
     let im = ImageView::new(
@@ -173,6 +235,10 @@ fn recover_variant(
         );
         let before = reads.len() + refined.len();
         let observed = !candidate.observations.is_empty();
+        match admission {
+            RecoveryAdmission::Standard => {}
+            RecoveryAdmission::SeparatedRawUpce => retain_separated_raw_upce(&mut candidate),
+        }
         candidate.append_confirmed(refined_count > 0, &mut reads, &mut refined);
         if reads.len() + refined.len() == before {
             if observed {
@@ -467,3 +533,6 @@ fn bridge_line(
 mod band_probe_tests;
 #[cfg(test)]
 mod bridge_tests;
+
+#[cfg(test)]
+mod upce_proof_tests;

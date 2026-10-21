@@ -34,6 +34,7 @@
 //! | Code 128/39/ITF/93 contrast retries (8, 8, 16 proposals)     |   | x | x | x |
 //! | EAN-13/UPC-A source bands (`cfg`)                            |   |   | x | x |
 //! | short retail crops (`cfg`)                                   |   | x |   |   |
+//! | UPC-E separated raw rows: retry 2 uncovered proposals         |   | x | x | x |
 //! | supplements, deduplication and ranking                       | x | x | x | x |
 use crate::format_registry::{
     ALL_FORMATS_MASK, EAN_ADDON_READ_FLAG, EAN_ADDON_REQUIRE_FLAG, ENGINE_OPT_IN_MASK, LINEAR_MASK,
