@@ -163,32 +163,21 @@ fn fan_tangent(fan: &[[f64; 2]], t: f64) -> f64 {
     a0 + (a1 - a0) * (t - t0) / (t1 - t0)
 }
 
-/// Contrast of a profile: the spread between its 5th and 95th percentiles, as [`runs`]
-/// measures it.
-fn contrast(profile: &[f64]) -> f64 {
-    let n = profile.len();
-    if n < 3 {
-        return 0.;
-    }
-    let mut sorted = profile.to_vec();
-    let high = *sorted.select_nth_unstable_by(n * 19 / 20, f64::total_cmp).1;
-    let low = *sorted.select_nth_unstable_by(n / 20, f64::total_cmp).1;
-    high - low
-}
-
 /// Run lengths, in samples, of a profile split at a moving mean of `2 * window + 1`
 /// samples with hysteresis. Run boundaries are the interpolated crossings of the mean;
-/// the first and last partial runs are dropped. Returns whether the first run is dark.
-fn runs(profile: &[f64], window: usize, out: &mut Vec<f64>) -> bool {
+/// the first and last partial runs are dropped. Returns whether the first run is dark
+/// and the spread between the profile's 5th and 95th percentiles.
+fn runs(profile: &[f64], window: usize, out: &mut Vec<f64>) -> (bool, f64) {
     out.clear();
     let n = profile.len();
     if n < 3 {
-        return false;
+        return (false, 0.);
     }
     let mut sorted = profile.to_vec();
     let high = *sorted.select_nth_unstable_by(n * 19 / 20, f64::total_cmp).1;
     let low = *sorted.select_nth_unstable_by(n / 20, f64::total_cmp).1;
-    let hysteresis = 0.08 * (high - low);
+    let contrast = high - low;
+    let hysteresis = 0.08 * contrast;
     let mut prefix = Vec::with_capacity(n + 1);
     prefix.push(0.);
     for v in profile {
@@ -228,7 +217,7 @@ fn runs(profile: &[f64], window: usize, out: &mut Vec<f64>) -> bool {
             state = Some(light);
         }
     }
-    first_dark
+    (first_dark, contrast)
 }
 
 /// Share of runs whose width is repeated by the next run of the same color, within a
@@ -505,9 +494,9 @@ fn periodic_box(
         axis.sample(image, offset * height, (0., 1.), step, line);
         profile.clear();
         profile.extend(line.iter().flatten());
-        let first_dark = runs(&profile, window, &mut widths);
+        let (first_dark, contrast) = runs(&profile, window, &mut widths);
         repeats[i] = repeating(&widths, first_dark, JITTER / step);
-        contrasts[i] = contrast(&profile);
+        contrasts[i] = contrast;
         dense[i] = usize_f64(widths.len()) * FINE_PERIOD >= usize_f64(profile.len()) * step;
         // Flat or nearly flat outer lines give no evidence of incoherence.
         edged_outer += usize::from(offset != 0. && widths.len() >= PERIODIC_RUNS);
@@ -537,9 +526,9 @@ fn periodic_box(
         .filter(|(periodic, _)| **periodic)
         .map(|(_, c)| c)
         .fold(0., f64::max);
-    let bars_over = |profile: &[f64], widths: &[f64], first_dark: bool| {
+    let bars_over = |contrast: f64, widths: &[f64], first_dark: bool| {
         widths.len() >= SYMBOL_RUNS
-            && contrast(profile) >= FAINT_BACKGROUND * background
+            && contrast >= FAINT_BACKGROUND * background
             && !repeating(widths, first_dark, JITTER / step)
     };
     // A box can lie mostly on a periodic background beside or around a symbol (a ribbed
@@ -553,8 +542,8 @@ fn periodic_box(
             !repeat && {
                 profile.clear();
                 profile.extend(line.iter().flatten());
-                let first_dark = runs(&profile, window, &mut widths);
-                (symbol_stretch(&widths, step) || bars_over(&profile, &widths, first_dark))
+                let (first_dark, contrast) = runs(&profile, window, &mut widths);
+                (symbol_stretch(&widths, step) || bars_over(contrast, &widths, first_dark))
                     && !fine_period(&profile, step)
             }
         })
@@ -566,7 +555,7 @@ fn periodic_box(
             axis.sample(image, offset * height, (0., 1.), step, &mut line);
             profile.clear();
             profile.extend(line.iter().flatten());
-            let first_dark = runs(&profile, window, &mut widths);
+            let (first_dark, contrast) = runs(&profile, window, &mut widths);
             // Rows that leave and reenter the image join unrelated stretches.
             let inside = line.iter().skip_while(|v| v.is_none()).collect::<Vec<_>>();
             inside
@@ -574,7 +563,7 @@ fn periodic_box(
                 .rev()
                 .skip_while(|v| v.is_none())
                 .any(|v| v.is_none())
-                || !(symbol_stretch(&widths, step) || bars_over(&profile, &widths, first_dark))
+                || !(symbol_stretch(&widths, step) || bars_over(contrast, &widths, first_dark))
                 || fine_period(&profile, step)
         }));
     (periodic, lines, edged_outer)
@@ -1750,5 +1739,31 @@ mod tests {
         ];
         assert!(!texture_proposal(view(&with, 1600, 1200), &quad));
         assert!(texture_proposal(view(&without, 1600, 1200), &quad));
+    }
+}
+
+#[cfg(test)]
+mod percentile_reuse_tests {
+    use super::{runs, usize_f64};
+
+    #[test]
+    fn returned_contrast_matches_profile_percentiles() {
+        for len in [0, 1, 2, 3, 19, 20, 21, 40] {
+            let profile: Vec<_> = (0..len).map(|i| usize_f64(i % 7) / 4.).collect();
+            let mut sorted = profile.clone();
+            sorted.sort_by(f64::total_cmp);
+            let expected = if len < 3 {
+                0.
+            } else {
+                sorted[len * 19 / 20] - sorted[len / 20]
+            };
+            let mut widths = vec![99.];
+            let (first_dark, contrast) = runs(&profile, 6, &mut widths);
+            assert_eq!(contrast.to_bits(), expected.to_bits());
+            if len < 3 {
+                assert!(!first_dark);
+                assert_eq!(widths, [] as [f64; 0]);
+            }
+        }
     }
 }
