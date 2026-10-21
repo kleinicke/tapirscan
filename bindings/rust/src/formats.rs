@@ -709,6 +709,64 @@ fn has_format_read(scan: &barcode_multiformat::Scan, format: &str) -> bool {
     scan.barcodes.iter().any(|read| read.format == format)
 }
 
+#[cfg(not(feature = "low"))]
+fn averaged_pixels(
+    pixels: &[u8],
+    width: usize,
+    height: usize,
+    target_long: usize,
+) -> (usize, usize, Vec<u8>) {
+    let long = width.max(height);
+    let out_width = (width * target_long / long).max(3);
+    let out_height = (height * target_long / long).max(3);
+    let bounds = |index: usize, out: usize, source: usize| {
+        let start = index * source / out;
+        (
+            start,
+            ((index + 1) * source / out).max(start + 1).min(source),
+        )
+    };
+    // Keep the original bin centers and sample order. Horizontal positions are
+    // identical on every output row, and vertical positions on every column.
+    let columns: Vec<_> = (0..out_width)
+        .map(|x| {
+            let (start, end) = bounds(x, out_width, width);
+            let count = (end - start).min(4);
+            let positions: [usize; 4] = std::array::from_fn(|i| {
+                if i < count {
+                    start + (2 * i + 1) * (end - start) / (2 * count)
+                } else {
+                    0
+                }
+            });
+            (count, positions)
+        })
+        .collect();
+    let mut smaller = vec![0_u8; out_width * out_height];
+    for y in 0..out_height {
+        let (y0, y1) = bounds(y, out_height, height);
+        let y_samples = (y1 - y0).min(4);
+        let rows: [usize; 4] = std::array::from_fn(|j| {
+            if j < y_samples {
+                (y0 + (2 * j + 1) * (y1 - y0) / (2 * y_samples)) * width
+            } else {
+                0
+            }
+        });
+        for (x, &(x_samples, positions)) in columns.iter().enumerate() {
+            let mut sum = 0_u32;
+            for &row in &rows[..y_samples] {
+                for &column in &positions[..x_samples] {
+                    sum += u32::from(pixels[row + column]);
+                }
+            }
+            let count = u32::try_from(y_samples * x_samples).unwrap_or(1);
+            smaller[y * out_width + x] = u8::try_from((sum + count / 2) / count).unwrap_or(255);
+        }
+    }
+    (out_width, out_height, smaller)
+}
+
 /// Scan an area-averaged copy whose long side is `target_long`, with polygons
 /// mapped back to source coordinates.
 #[cfg(not(feature = "low"))]
@@ -720,37 +778,7 @@ fn averaged_matrix_retry(
     mask: u32,
     effort: usize,
 ) -> barcode_multiformat::Scan {
-    let long = width.max(height);
-    let out_width = (width * target_long / long).max(3);
-    let out_height = (height * target_long / long).max(3);
-    let bounds = |index: usize, out: usize, source: usize| {
-        let start = index * source / out;
-        (
-            start,
-            ((index + 1) * source / out).max(start + 1).min(source),
-        )
-    };
-    // At most four evenly spaced samples per axis and output pixel keep the
-    // pass cheap on camera frames while still averaging the blur.
-    let mut smaller = vec![0_u8; out_width * out_height];
-    for y in 0..out_height {
-        let (y0, y1) = bounds(y, out_height, height);
-        let y_samples = (y1 - y0).min(4);
-        for x in 0..out_width {
-            let (x0, x1) = bounds(x, out_width, width);
-            let x_samples = (x1 - x0).min(4);
-            let mut sum = 0_u32;
-            for j in 0..y_samples {
-                let row = y0 + (2 * j + 1) * (y1 - y0) / (2 * y_samples);
-                for i in 0..x_samples {
-                    let column = x0 + (2 * i + 1) * (x1 - x0) / (2 * x_samples);
-                    sum += u32::from(pixels[row * width + column]);
-                }
-            }
-            let count = u32::try_from(y_samples * x_samples).unwrap_or(1);
-            smaller[y * out_width + x] = u8::try_from((sum + count / 2) / count).unwrap_or(255);
-        }
-    }
+    let (out_width, out_height, smaller) = averaged_pixels(pixels, width, height, target_long);
     let mut scan = scan_reader(&smaller, out_width, out_height, mask, effort);
     let scale_x = barcode_multiformat::numeric::usize_f32(width)
         / barcode_multiformat::numeric::usize_f32(out_width);
@@ -1737,5 +1765,79 @@ mod finer_localization_tests {
         } else {
             assert!(texts.is_empty(), "{texts:?}");
         }
+    }
+}
+
+#[cfg(all(test, not(feature = "low")))]
+mod averaged_coordinate_tests {
+    fn reference(
+        pixels: &[u8],
+        width: usize,
+        height: usize,
+        target_long: usize,
+    ) -> (usize, usize, Vec<u8>) {
+        let long = width.max(height);
+        let out_width = (width * target_long / long).max(3);
+        let out_height = (height * target_long / long).max(3);
+        let bounds = |index: usize, out: usize, source: usize| {
+            let start = index * source / out;
+            (
+                start,
+                ((index + 1) * source / out).max(start + 1).min(source),
+            )
+        };
+        // At most four evenly spaced samples per axis and output pixel keep the
+        // pass cheap on camera frames while still averaging the blur.
+        let mut smaller = vec![0_u8; out_width * out_height];
+        for y in 0..out_height {
+            let (y0, y1) = bounds(y, out_height, height);
+            let y_samples = (y1 - y0).min(4);
+            for x in 0..out_width {
+                let (x0, x1) = bounds(x, out_width, width);
+                let x_samples = (x1 - x0).min(4);
+                let mut sum = 0_u32;
+                for j in 0..y_samples {
+                    let row = y0 + (2 * j + 1) * (y1 - y0) / (2 * y_samples);
+                    for i in 0..x_samples {
+                        let column = x0 + (2 * i + 1) * (x1 - x0) / (2 * x_samples);
+                        sum += u32::from(pixels[row * width + column]);
+                    }
+                }
+                let count = u32::try_from(y_samples * x_samples).unwrap_or(1);
+                smaller[y * out_width + x] = u8::try_from((sum + count / 2) / count).unwrap_or(255);
+            }
+        }
+        (out_width, out_height, smaller)
+    }
+    #[test]
+    fn sample_tables_preserve_every_output_byte() {
+        for (width, height) in [
+            (3, 3),
+            (5, 17),
+            (31, 29),
+            (127, 65),
+            (513, 97),
+            (17, 511),
+            (65535, 3),
+        ] {
+            let pixels: Vec<u8> = (0..width * height)
+                .map(|i| u8::try_from((i * 73 + i / 11) % 256).unwrap())
+                .collect();
+            for target in [1, 2, 3, 7, 16, 31, 64, 127, 256] {
+                assert_eq!(
+                    super::averaged_pixels(&pixels, width, height, target),
+                    reference(&pixels, width, height, target),
+                    "{width}x{height} at {target}"
+                );
+            }
+        }
+        let (width, height) = (4031, 3023);
+        let pixels: Vec<u8> = (0..width * height)
+            .map(|i| u8::try_from((i * 19 + i / 37) % 256).unwrap())
+            .collect();
+        assert_eq!(
+            super::averaged_pixels(&pixels, width, height, 1008),
+            reference(&pixels, width, height, 1008)
+        );
     }
 }
