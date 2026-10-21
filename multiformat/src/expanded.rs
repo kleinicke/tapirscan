@@ -641,27 +641,6 @@ impl Stacked {
             let s = root.angle.sin();
             let polygon = [[lo, top], [hi, top], [hi, bottom], [lo, bottom]]
                 .map(|[x, y]| [x * c - y * s, x * s + y * c]);
-            let center = [
-                ((lo + hi) * c - (top + bottom) * s) / 2.,
-                f32::midpoint((lo + hi) * s, (top + bottom) * c),
-            ];
-            if out.iter().any(|d| {
-                d.text == text
-                    && center[0] >= d.polygon.iter().map(|p| p[0]).fold(f32::INFINITY, f32::min)
-                    && center[0]
-                        <= d.polygon
-                            .iter()
-                            .map(|p| p[0])
-                            .fold(f32::NEG_INFINITY, f32::max)
-                    && center[1] >= d.polygon.iter().map(|p| p[1]).fold(f32::INFINITY, f32::min)
-                    && center[1]
-                        <= d.polygon
-                            .iter()
-                            .map(|p| p[1])
-                            .fold(f32::NEG_INFINITY, f32::max)
-            }) {
-                return;
-            }
             out.push(crate::Detection {
                 bytes: None,
                 structured_append: None,
@@ -715,6 +694,77 @@ impl Stacked {
             if *attempts >= 10000 {
                 return;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod stacked_instance_tests {
+    use super::*;
+
+    #[test]
+    fn ranked_distinct_preserves_identical_stacked_instances() {
+        let character = |value| {
+            let p = table().iter().find(|p| p.value == value).unwrap();
+            (value, p.widths, 0.)
+        };
+        // Compressed GTIN and weight, encoded with actual character patterns.
+        let words = [512, 0, 0, 0, 0];
+        let mut checksum = 0;
+        for (word, row) in words.into_iter().zip([0, 5, 6, 3, 4]) {
+            let mut weight = 1;
+            for _ in 0..row * 8 {
+                weight = weight * 3 % 211;
+            }
+            for width in character(word).1 {
+                checksum += usize::from(width) * weight;
+                weight = weight * 3 % 211;
+            }
+        }
+        let check = character(2 * 211 + checksum % 211);
+        let block = |finder, left, right, lo, top| Block {
+            finder,
+            left,
+            right: Some(right),
+            module: 1.,
+            lo,
+            hi: lo + 49.,
+            top,
+            bottom: top + 34.,
+            angle: 0.,
+            reverse: false,
+            support: 3,
+            line: 0,
+        };
+        // Scan order sees both upper rows before either lower row. The broad
+        // cross-row search admits mixed paths as well as the two real symbols.
+        let stacked = Stacked {
+            blocks: vec![
+                block(1, check, character(512), 0., 0.),
+                block(4, character(0), character(0), 49., 0.),
+                block(1, check, character(512), 140., 0.),
+                block(4, character(0), character(0), 189., 0.),
+                block(3, character(0), character(0), 1., 37.),
+                block(3, character(0), character(0), 141., 37.),
+            ],
+        };
+        let (mut reads, limited) = stacked.finish(1.);
+        assert!(!limited);
+        // Competing paths must reach the final support-ranked polygon filter.
+        crate::linear_geometry::distinct(&mut reads);
+        assert_eq!(reads.len(), 2);
+        for (read, left) in reads.iter().zip([0., 140.]) {
+            assert_eq!(read.text, "01900000000000033103000000");
+            assert_eq!(read.support, 9);
+            assert_eq!(
+                read.polygon,
+                [
+                    [left, -0.5],
+                    [left + 98., -0.5],
+                    [left + 98., 71.5],
+                    [left, 71.5]
+                ]
+            );
         }
     }
 }
