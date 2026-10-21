@@ -962,6 +962,11 @@ fn scan_additional(
     } else {
         0
     };
+    // Localized recovery runs separately on the original image. When no
+    // whole-image reader is selected, its grayscale copy would be unused.
+    if linear | preserved | matrix == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
     let effort = if addons == EanAddOnPolicy::Ignore {
         POLICY.sweep_effort
     } else {

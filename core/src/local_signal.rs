@@ -1,6 +1,6 @@
-//! Diagnostic local contrast hypothesis on the original normalized signal.
-//! Uses observed run scale, never digits/checksum to choose a threshold. No
-//! missing transitions are inserted. Not enabled in the production scanner.
+//! Local contrast normalization for the candidate scanner's cleanup path.
+//! Uses observed run scale, never digits/checksum to choose a threshold.
+//! No missing transitions are inserted.
 use crate::{
     multi_profile::{self, Reads},
     profile::Error,
@@ -67,10 +67,6 @@ impl Scratch {
         let radius = quartile_radius(&histogram, run_count);
         self.normalized.clear();
         let out = &mut self.normalized;
-        // Monotone queues visit every source sample once. This is exactly the same
-        // symmetric min/max window as the diagnostic prototype, without rescanning
-        // up to 513 values for each output sample on broad/high-resolution paths.
-
         {
             // Block prefix/suffix extrema produce the identical centered min/max
             // window with predictable contiguous passes. Equal extrema keep the latest

@@ -28,7 +28,8 @@ pub struct Reads {
 pub fn decode_many(p: &[f32], max_symbols: usize) -> Result<Reads, Error> {
     decode_mode(p, max_symbols, false)
 }
-/// Diagnostic guard-derived bar/space correction, outside region policy.
+/// Guard-derived bar/space correction for an already normalized path.
+/// The candidate scanner uses this when its guard-bias policy permits it.
 /// # Errors
 /// Returns `Length` for unsupported profile size or symbol limit, or `Value` for non-finite samples or values outside [0, 1].
 pub fn decode_guard_bias(p: &[f32], max_symbols: usize) -> Result<Reads, Error> {
