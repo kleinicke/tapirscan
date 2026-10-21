@@ -19,6 +19,21 @@ size, import a single-mode entry:
 
 Tested with Vite; [Angular](#angular) needs two asset entries.
 
+## Load it fast
+
+Download time dominates: Chrome compiles `medium.wasm` in about 3 ms, while the
+file is 2.5 MB uncompressed.
+
+- **Compress `.wasm`.** Medium transfers as 0.95 MB with gzip and 0.72 MB with
+  brotli. Check your server: many default configs (for example nginx's
+  `gzip_types`) compress only text types.
+- **Cache it for good.** Bundlers put a content hash in the file name, so serve
+  those files with `Cache-Control: public, max-age=31536000, immutable`; repeat
+  visits then load nothing.
+- **Start early.** Constructing a `Scanner` starts the download in the
+  background. Create it when the page loads, not when the user taps "scan", so
+  the download overlaps the camera permission prompt.
+
 ## Serve the worker from the page's origin
 
 Scanning runs in a module worker. Browsers start workers only from the page's
