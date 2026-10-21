@@ -111,6 +111,10 @@ impl Index {
         }
     }
 
+    pub(super) fn centers(&self) -> &[Finder] {
+        &self.finders
+    }
+
     pub(super) fn into_centers(self) -> Vec<Finder> {
         self.finders
     }

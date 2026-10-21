@@ -642,6 +642,9 @@ fn upscaled_qr_retry(
     scan
 }
 
+/// Scan a copy reduced to `target_long` on its long side that samples one source
+/// pixel per bin. With `averaged_first` (High and Very High only) an area-averaged
+/// copy is scanned first and the sampled copy only when it reads nothing.
 fn scaled_matrix_retry(
     pixels: &[u8],
     width: usize,
@@ -649,11 +652,31 @@ fn scaled_matrix_retry(
     target_long: usize,
     mask: u32,
     effort: usize,
+    averaged_first: bool,
 ) -> barcode_multiformat::Scan {
     // u64 keeps the products exact where usize is 32 bits (WASM).
     let scale = |value: usize, numerator: usize, denominator: usize| {
         usize::try_from(value as u64 * numerator as u64 / denominator as u64).unwrap_or(usize::MAX)
     };
+    // On shaded or blurred photos one source pixel per bin keeps the noise that breaks
+    // the reduced copy's finder runs; sharp photos can read only on the sampled copy.
+    // Medium's large-frame retries read as many photos with either copy.
+    #[cfg(not(any(feature = "high", feature = "very-high")))]
+    debug_assert!(!averaged_first, "averaged copies are a High recovery");
+    #[cfg(any(feature = "high", feature = "very-high"))]
+    if averaged_first {
+        let (out_width, out_height, smaller) = averaged_pixels(pixels, width, height, target_long);
+        let scan = scaled_scan(
+            &smaller,
+            [out_width, out_height],
+            [width, height],
+            mask,
+            effort,
+        );
+        if !scan.barcodes.is_empty() {
+            return scan;
+        }
+    }
     let long = width.max(height);
     let out_width = scale(width, target_long, long).max(3);
     let out_height = scale(height, target_long, long).max(3);
@@ -669,17 +692,33 @@ fn scaled_matrix_retry(
             *pixel = source[x];
         }
     }
-    let mut scan = scan_reader(&smaller, out_width, out_height, mask, effort);
+    scaled_scan(
+        &smaller,
+        [out_width, out_height],
+        [width, height],
+        mask,
+        effort,
+    )
+}
+
+/// Scan a reduced copy and map its polygons back to source coordinates.
+fn scaled_scan(
+    smaller: &[u8],
+    [out_width, out_height]: [usize; 2],
+    [width, height]: [usize; 2],
+    mask: u32,
+    effort: usize,
+) -> barcode_multiformat::Scan {
+    let mut scan = scan_reader(smaller, out_width, out_height, mask, effort);
     #[cfg(any(feature = "high", feature = "very-high"))]
     if mask == QR_CODE && effort == 2 {
         let known: Vec<_> = scan.barcodes.iter().collect();
         let recovered =
-            barcode_research_core::qr_grid::recover(&smaller, out_width, out_height, &scan, &known);
+            barcode_research_core::qr_grid::recover(smaller, out_width, out_height, &scan, &known);
         scan.barcodes.extend(recovered.barcodes);
         if scan.barcodes.is_empty() {
-            let foreground = barcode_research_core::qr_frontend::scan_foreground(
-                &smaller, out_width, out_height,
-            );
+            let foreground =
+                barcode_research_core::qr_frontend::scan_foreground(smaller, out_width, out_height);
             scan.barcodes.extend(foreground.barcodes);
             scan.regions.extend(foreground.regions);
         }
@@ -1098,6 +1137,7 @@ fn scan_additional(
                 960,
                 selected,
                 level,
+                false,
             )]
         } else {
             Vec::new()
@@ -1249,12 +1289,14 @@ fn scan_additional(
         && !scans.iter().any(has_qr_read)
         && qr_reduced_wanted(pixels, image.width, image.height, two_d_mask)
     {
-        // Each finer scale runs only when the coarser one read nothing.
+        // Each finer scale runs only when the coarser one read nothing. Each scale
+        // tries its area-averaged copy before the sampled one.
         for &target in POLICY.qr_reduced_scales {
             if image.width.max(image.height) <= target {
                 continue;
             }
-            let retry = scaled_matrix_retry(pixels, image.width, image.height, target, QR_CODE, 2);
+            let retry =
+                scaled_matrix_retry(pixels, image.width, image.height, target, QR_CODE, 2, true);
             let decoded = !retry.barcodes.is_empty();
             scans.push(retry);
             if decoded {
@@ -1353,7 +1395,9 @@ fn high_retries(
     scan: &barcode_multiformat::Scan,
 ) -> Vec<barcode_multiformat::Scan> {
     if selected == QR_CODE && scan.barcodes.is_empty() && exceeds_full_hd(width, height) {
-        vec![scaled_matrix_retry(pixels, width, height, 960, selected, 1)]
+        vec![scaled_matrix_retry(
+            pixels, width, height, 960, selected, 1, false,
+        )]
     } else if selected == MAXI_CODE
         && scan.barcodes.is_empty()
         && exceeds_full_hd(width, height)
@@ -1362,7 +1406,7 @@ fn high_retries(
         // MaxiCode on large frames, as in Medium: reduced copies first.
         let mut retries = Vec::new();
         for target in [1600, 1200] {
-            let retry = scaled_matrix_retry(pixels, width, height, target, selected, level);
+            let retry = scaled_matrix_retry(pixels, width, height, target, selected, level, false);
             let decoded = !retry.barcodes.is_empty();
             retries.push(retry);
             if decoded {
@@ -1437,7 +1481,7 @@ fn medium_retries(
             &[1600, 1200]
         };
         for &target in dimensions {
-            let retry = scaled_matrix_retry(pixels, width, height, target, mask, level);
+            let retry = scaled_matrix_retry(pixels, width, height, target, mask, level, false);
             let decoded = !retry.barcodes.is_empty();
             retries.push(retry);
             if decoded {

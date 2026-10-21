@@ -15,6 +15,11 @@
 - Vectorize QR finder coordinate calculations in WebAssembly and omit optional
   region output from compact scans.
 - Honor hybrid thresholding when filling native threshold caches in parallel.
+- Read small, densely packed QR codes such as label sheets: small finders get
+  support from the rows between scan lines, and once symbols are read the QR
+  search keeps going (cheap rejections, a decode budget that grows with each
+  read, and in Low and Medium the foreground thresholds). High and Very High
+  first retry unread frames on area-averaged reduced copies.
 
 ## 1.4.0
 

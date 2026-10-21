@@ -184,6 +184,9 @@ fn finders_with_rows(
             found.insert(cx, cy, module);
         }
     }
+    if step > 1 {
+        support_small_finders(image, w, h, step, &mut found);
+    }
     let mut found = found.into_centers();
     found.retain(|f| f.support >= 2);
     found.sort_by_key(|f| std::cmp::Reverse(f.support));
@@ -206,6 +209,57 @@ fn finders_with_rows(
     }
     found.retain(|f| isolated_finder_valid(image, w, h, f));
     (found, limited)
+}
+/// Single-row finders checked again on the skipped rows around them.
+const MAX_SUPPORT_RECHECKS: usize = 4 * MAX_FINDERS;
+/// Cross-check the rows skipped by the row step around finders seen on one row
+/// only. A finder's center band is three modules tall, so with a row step above
+/// one module a small finder is crossed by a single scanned row and would fail
+/// the two-row support rule; rows next to it supply that support locally.
+fn support_small_finders(
+    image: &[bool],
+    w: usize,
+    h: usize,
+    step: usize,
+    found: &mut finder_index::Index,
+) {
+    let step_f = crate::numeric::usize_f32(step);
+    let single: Vec<(f32, f32, f32)> = found
+        .centers()
+        .iter()
+        .filter(|f| f.support == 1 && 3. * f.module < 2. * step_f)
+        .take(MAX_SUPPORT_RECHECKS)
+        .map(|f| (f.x, f.y, f.module))
+        .collect();
+    let mut hits = Vec::new();
+    for (x, y, module) in single {
+        let row = crate::numeric::f32_usize(y.max(0.));
+        let x = crate::numeric::f32_usize(x.max(0.)).min(w - 1);
+        hits.clear();
+        // Only rows through the three-module center band can pass the cross check.
+        let band = crate::numeric::f32_usize((1.5 * module).ceil()).min(step - 1);
+        for yy in row.saturating_sub(band)..=(row + band).min(h - 1) {
+            if yy.is_multiple_of(step) {
+                continue;
+            }
+            let Some((cx, mx)) = cross(image, w, h, x, yy, false, module) else {
+                continue;
+            };
+            let column =
+                crate::numeric::f32_usize(cx.floor().min(crate::numeric::usize_f32(w - 1)));
+            let Some((cy, my)) = cross(image, w, h, column, yy, true, mx) else {
+                continue;
+            };
+            hits.push((cx, cy, f32::midpoint(mx, my)));
+        }
+        // The center band of a real finder crosses several skipped rows; a lone
+        // extra hit is as likely a speck of texture that also passes one row.
+        if hits.len() >= 2 {
+            for &(cx, cy, m) in &hits {
+                found.insert(cx, cy, m);
+            }
+        }
+    }
 }
 fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) -> bool {
     let Some(quad) = finder.quad else {
@@ -895,6 +949,8 @@ fn finder_grid_valid(
 }
 /// Decode attempts of a complete detection; reaching it starts partial recovery.
 pub const FULL_BUDGET: usize = 1200;
+/// Attempts each read adds to [`FULL_BUDGET`], so frames without reads keep its bound.
+const ATTEMPTS_PER_READ: usize = 24;
 /// Mode-dependent work limits and decoding retries of a QR detection. Every QR
 /// reader, alone or in a multi-format group, uses [`Policy::for_mode`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -921,6 +977,9 @@ pub struct Policy {
     pub offset_erasures: bool,
     /// The gray resampling retry after the threshold samplings.
     pub gray: GrayRetry,
+    /// Extend a standard pass with the foreground split once it read several
+    /// symbols and stopped with work left.
+    pub dense_foreground: bool,
 }
 /// Resampling module centers in gray with module-space thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -958,6 +1017,8 @@ impl Policy {
                 1 => GrayRetry::Hard,
                 _ => GrayRetry::Erasures,
             },
+            // High's standard pass already includes the foreground split.
+            dense_foreground: mode <= 1,
         }
     }
 }
@@ -1069,6 +1130,7 @@ pub fn detect_with(
 ) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
     let mut attempts = 0;
+    let mut header_rejects = 0_usize;
     let mut align_calls = 0_usize;
     let mut curved_attempts = 0;
     let mut curved_limited = false;
@@ -1080,7 +1142,19 @@ pub fn detect_with(
     let mut partial_modes: Vec<(usize, Vec<Finder>)> = Vec::new();
     // The offset samplings are kept only for the retries that use them.
     let keep_samples = policy.offset_erasures || policy.gray != GrayRetry::Off;
-    for mode in modes {
+    // A standard pass that read several symbols and still stopped with work left is
+    // a dense sheet: its foreground split separates the remaining symbols from a
+    // dark surround that the frame-wide thresholds share with them.
+    let dense = if policy.dense_foreground && modes.end == 4 {
+        4..6
+    } else {
+        0..0
+    };
+    let standard_end = modes.end;
+    for mode in modes.chain(dense) {
+        if mode >= standard_end && !(results.len() >= 2 && regions.limited) {
+            break;
+        }
         let mut read_count = results.len();
         let mut last_read = attempts;
         if (4..6).contains(&mode) && !binary_images.has_qr_contrast() {
@@ -1311,7 +1385,9 @@ pub fn detect_with(
                                 // A bounded extra pass stops quietly.
                                 return (results, false);
                             }
-                            if attempts > budget {
+                            // A sheet of many symbols needs attempts for each of them:
+                            // the full budget grows with every read.
+                            if attempts > budget + results.len() * ATTEMPTS_PER_READ {
                                 partial::recover(
                                     image,
                                     w,
@@ -1382,6 +1458,14 @@ pub fn detect_with(
                                     && yy < (h).cast_signed())
                                 .then(|| image[(yy).cast_unsigned() * w + (xx).cast_unsigned()])
                             }) {
+                                // A header rejection samples a few dozen modules. Once a
+                                // symbol is read it costs a quarter attempt, so the false
+                                // triples between the symbols of a dense sheet do not
+                                // exhaust patience; frames without a read keep the budget.
+                                header_rejects += usize::from(!results.is_empty());
+                                if !header_rejects.is_multiple_of(4) {
+                                    attempts -= 1;
+                                }
                                 continue;
                             }
                             let Some(matrix) = sample(image, w, h, n, &t, offset) else {
