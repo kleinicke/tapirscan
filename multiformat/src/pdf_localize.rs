@@ -382,15 +382,20 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
             std::array::from_fn(|_| (Vec::new(), Vec::new()));
         // The rotated coordinates split into column and row products, computed
         // once each; every sample subtracts and adds exactly these f32 values.
-        let columns: Vec<[f32; 2]> = (0..width)
-            .map(|x| {
-                let x = crate::numeric::usize_f32(x) + amin;
-                [x * cs, x * sn]
-            })
-            .collect();
+        let direct_rows = degrees == 0. && zero_degree_exact(w, h, width, height);
+        let columns: Vec<[f32; 2]> = if direct_rows {
+            Vec::new()
+        } else {
+            (0..width)
+                .map(|x| {
+                    let x = crate::numeric::usize_f32(x) + amin;
+                    [x * cs, x * sn]
+                })
+                .collect()
+        };
         for y in (0..height).step_by(step) {
             row.clear();
-            if degrees == 0. && zero_degree_exact(w, h, width, height) {
+            if direct_rows {
                 row.extend_from_slice(&gray[y * w..(y + 1) * w]);
             } else {
                 let along = crate::numeric::usize_f32(y) + bmin;
