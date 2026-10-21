@@ -235,15 +235,16 @@ for those, accept a value only after it appears in several consecutive frames.
 
 ## Localization and cropping
 
-Tapirscan always localizes, in any orientation. Effort is one `mode`:
+Tapirscan always localizes, in any orientation. Effort is a mode: import
+`tapirscan/browser/<mode>`, or pass `mode` to `tapirscan/browser` or the core.
 
-| Quagga                    | Tapirscan                                                                     |
-| ------------------------- | ----------------------------------------------------------------------------- |
-| `locate: true`, defaults  | `mode: "medium"` (default)                                                    |
-| `locate: false`, speed    | `mode: "low"`, or a narrow `formats` list                                     |
-| `halfSample`, `patchSize` | Not configurable; harder images: `mode: "high"` or `"very-high"`              |
-| `inputStream.size`        | Pass frames at the resolution you want scanned; camera: request 720p or 1080p |
-| `inputStream.area`        | No region option. Crop the input yourself, as below.                          |
+| Quagga                    | Tapirscan                                                              |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `locate: true`, defaults  | Medium (default)                                                       |
+| `locate: false`, speed    | Low, or a narrow `formats` list                                        |
+| `halfSample`, `patchSize` | Not configurable; harder images: High or Very High                     |
+| `inputStream.size`        | Pass frames at the resolution to scan; the camera defaults to 1280×720 |
+| `inputStream.area`        | No region option. Crop the input yourself, as below.                   |
 
 To replace `area`, draw the region of the frame into a canvas, scan the canvas,
 and add the region's offset to `polygon` and `rect`.

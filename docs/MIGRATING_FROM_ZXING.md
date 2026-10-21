@@ -174,11 +174,14 @@ identifier: store `]C1` yourself for `gs1` Code128 reads if downstream code expe
 return all (`maxNumberOfSymbols` caps zxing-wasm at 255; use `barcodes.slice(0, n)`).
 `@zxing/library` returns one and exposes no multi-read reader.
 
+Effort is a mode, fixed when the scanner is created: in the browser import
+`tapirscan/browser/<mode>`; the core, `tapirscan/browser` and Python take `mode`.
+
 | ZXing                                                                                           | Tapirscan                                            |
 | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `tryHarder: false`                                                                              | `mode: "low"` (camera frames)                        |
-| `tryHarder: true` (zxing-wasm default)                                                          | `mode: "medium"` (default); `"high"` for slow scans  |
-| none                                                                                            | `mode: "very-high"` for hard stills                  |
+| `tryHarder: false`                                                                              | Low (camera frames)                                  |
+| `tryHarder: true` (zxing-wasm default)                                                          | Medium (default); High for slow scans                |
+| none                                                                                            | Very High for hard stills                            |
 | `minLineCount`, `isPure`, `tryDownscale`                                                        | no equivalent                                        |
 | `binarizer`, `tryDenoise`, `tryInvert`                                                          | no equivalent                                        |
 | `tryRotate`                                                                                     | no option; orientation is always searched            |
@@ -186,8 +189,6 @@ return all (`maxNumberOfSymbols` caps zxing-wasm at 255; use `barcodes.slice(0, 
 | `eanAddOnSymbol` Ignore / Read / Require                                                        | `eanAddOnPolicy` `"ignore"` / `"read"` / `"require"` |
 | `bytes` / `getRawBytes()`                                                                       | `payload_bytes` / `payloadBytes`, 2D formats only    |
 | `orientation`, `isMirrored`, `ecLevel`                                                          | none; derive rotation from `polygon`                 |
-
-A scanner's mode is fixed at creation; create another scanner to change it.
 
 ## No result
 
