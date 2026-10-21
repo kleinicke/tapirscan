@@ -96,12 +96,26 @@ export async function verifyPackage() {
     )
       throw Error(`WASM compiled selection does not match its name: ${name}`);
   }
+  // A single-mode worker names only its own WASM, so bundlers emit only that file.
+  for (const mode of expectedModes) {
+    const modeWorker = await readFile(new URL(`dist/browser-worker-${mode}.js`, pkg), "utf8");
+    const named = [...modeWorker.matchAll(/new URL\("\.\.\/wasm\/([\w-]+)\.wasm"/g)];
+    if (named.length !== 1 || named[0][1] !== mode)
+      throw Error(`The ${mode} browser worker must name only ${mode}.wasm`);
+  }
   for (const file of [
     "dist/index.d.ts",
     "dist/index.js",
-    "dist/browser.d.ts",
-    "dist/browser.js",
-    "dist/browser-worker.js",
+    ...["", ...expectedModes.map((mode) => `-${mode}`)].flatMap((entry) => [
+      `dist/browser${entry}.d.ts`,
+      `dist/browser${entry}.js`,
+      `dist/browser-worker${entry}.js`,
+    ]),
+    "dist/browser-scanner.js",
+    "dist/browser-types.js",
+    "dist/browser-worker-core.js",
+    "dist/camera.d.ts",
+    "dist/camera.js",
     "dist/freeze.js",
     "dist/rust-session.js",
     "THIRD_PARTY_NOTICES.md",

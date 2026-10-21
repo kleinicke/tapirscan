@@ -222,6 +222,8 @@ it expects. Wrong reads, duplicates and missed symbols remain possible.
 | I want to…                         | Start here                                                                                                                 |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Integrate in a browser or Node app | [JavaScript / TypeScript](bindings/javascript/README.md)                                                                   |
+| Deploy on a website                | [Browser deployment](docs/BROWSER_DEPLOYMENT.md)                                                                           |
+| Switch from another scanner        | [ZXing](docs/MIGRATING_FROM_ZXING.md) · [ZBar](docs/MIGRATING_FROM_ZBAR.md) · [Quagga](docs/MIGRATING_FROM_QUAGGA.md)      |
 | Scan Python images and arrays      | [Python](bindings/python/README.md)                                                                                        |
 | Use another native language        | [Rust](bindings/rust/README.md), [C](bindings/c/README.md), [C++](bindings/cpp/README.md), [Java](bindings/java/README.md) |
 | Choose formats                     | [Format coverage](docs/FORMATS.md)                                                                                         |

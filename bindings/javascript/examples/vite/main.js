@@ -1,4 +1,4 @@
-import { Scanner } from "tapirscan/browser";
+import { Scanner } from "tapirscan/browser/medium";
 
 const input = document.querySelector("input");
 const status = document.querySelector('[role="status"]');

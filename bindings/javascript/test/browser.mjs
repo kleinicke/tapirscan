@@ -9,11 +9,18 @@ import { chromium } from "playwright-core";
 const root = new URL("../", import.meta.url);
 const types = { ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm" };
 let server, browser, page;
+/** A Content-Security-Policy that every response carries while it is set. */
+let csp = "";
 
 before(async () => {
   server = createServer(async (request, response) => {
     const path = new URL(request.url, "http://localhost").pathname;
+    const policy = csp ? { "content-security-policy": csp } : {};
     try {
+      if (path === "/csp") {
+        response.writeHead(200, { "content-type": "text/html", ...policy }).end("<title>t</title>");
+        return;
+      }
       if (path === "/") {
         response
           .writeHead(200, { "content-type": "text/html" })
@@ -22,7 +29,7 @@ before(async () => {
       }
       const body = await readFile(new URL(`.${path}`, root));
       const type = types[path.slice(path.lastIndexOf("."))] ?? "application/octet-stream";
-      response.writeHead(200, { "content-type": type }).end(body);
+      response.writeHead(200, { "content-type": type, ...policy }).end(body);
     } catch {
       response.writeHead(404).end();
     }
@@ -472,4 +479,35 @@ test("transparent images scan as if shown on white", async () => {
     return (await tapirscan.scan(canvas)).values;
   });
   assert.deepEqual(values, [await page.evaluate(() => globalThis.fixture.text)]);
+});
+
+test("Content-Security-Policy needs 'wasm-unsafe-eval'", async () => {
+  const { text, image } = await page.evaluate(() => {
+    const { text, image } = globalThis.fixture;
+    return { text, image: { ...image, data: [...image.data] } };
+  });
+  const attempt = async (policy) => {
+    csp = policy;
+    const strict = await browser.newPage();
+    try {
+      await strict.goto(`http://127.0.0.1:${server.address().port}/csp`);
+      return await strict.evaluate(
+        async ({ image }) => {
+          const { scan } = await import("/dist/browser-medium.js");
+          const pixels = { ...image, data: Uint8Array.from(image.data) };
+          return scan(pixels).then(
+            (result) => result.values.join(),
+            (error) => error.message,
+          );
+        },
+        { image },
+      );
+    } finally {
+      await strict.close();
+      csp = "";
+    }
+  };
+  const base = "default-src 'self'; script-src 'self'";
+  assert.equal(await attempt(`${base} 'wasm-unsafe-eval'`), text);
+  assert.match(await attempt(base), /WebAssembly|Content Security Policy|unsafe-eval/i);
 });

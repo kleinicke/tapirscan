@@ -32,6 +32,9 @@ library with its `native-build.json` sidecar. See
 [development](../../docs/DEVELOPMENT.md#install-local-packages) for build commands
 and using a prebuilt library through `TAPIRSCAN_NATIVE_DIR`.
 
+Switching from [pyzbar](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZBAR.md) or
+[zxing-cpp](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZXING.md): see the migration guides.
+
 ## Supported formats
 
 All formats below are supported. A ✓ means the format is included in that

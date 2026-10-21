@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- JavaScript: `tapirscan/browser/low`, `/medium`, `/high` and `/very-high` bundle
+  one mode's WASM instead of all eight files.
+- JavaScript: `tapirscan/camera` adds `CameraScanner`, an optional camera loop
+  for any browser scanner.
+- Docs: browser deployment (CSP, same-origin worker, static hosting) and
+  migration guides from ZXing, ZBar and Quagga.
 - Reuse exact source profiles during Medium primary recovery and vectorize
   Data Matrix border sampling in WebAssembly.
 - Restrict private native Turbo build switches to Low; higher modes retain

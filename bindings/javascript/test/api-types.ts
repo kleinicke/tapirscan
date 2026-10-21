@@ -117,3 +117,33 @@ export async function browserConsumer(file: File, video: HTMLVideoElement, image
     scanner.dispose();
   }
 }
+
+// tapirscan/browser/<mode> and tapirscan/camera: one bundled mode, any scanner.
+import { Scanner as MediumScanner, scan as scanMedium } from "../dist/browser-medium.js";
+import { CameraScanner } from "../dist/camera.js";
+
+export async function cameraConsumer(video: HTMLVideoElement, image: Image) {
+  const scanner = new MediumScanner({ mode: "medium", formats: ["EAN13", "QRCode"] });
+  // @ts-expect-error A single-mode entry takes only its own mode.
+  new MediumScanner({ mode: "high" });
+  // @ts-expect-error Turbo presets need tapirscan/browser.
+  new MediumScanner({ experimentalTurbo: 8 });
+  await scanMedium(image, { transfer: true });
+  const values: string[][] = [];
+  const camera = new CameraScanner(video, scanner, {
+    onScan: (result) => values.push([...result.values]),
+    onError: (error: Error) => error.message,
+    scanOptions: { formats: "EAN13" },
+    constraints: { width: { ideal: 640 } },
+  });
+  // Scanners of every entry fit.
+  new CameraScanner(video, new BrowserScanner());
+  await camera.start({ facingMode: "user" });
+  const cameras: MediaDeviceInfo[] = await CameraScanner.cameras();
+  await camera.start({ deviceId: cameras[0]?.deviceId });
+  const torch: boolean = camera.torchAvailable && (await camera.setTorch(true));
+  const track: MediaStreamTrack | undefined = camera.track;
+  camera.stop();
+  scanner.dispose();
+  return [torch, track, camera.running, values];
+}

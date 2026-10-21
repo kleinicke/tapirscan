@@ -4,59 +4,33 @@
   <title>Tapirscan camera example</title>
   <button id="start">Start camera</button>
   <button id="stop" disabled>Stop</button>
-  <video autoplay muted playsinline style="max-width: 100%"></video>
+  <video style="max-width: 100%"></video>
   <pre role="status"></pre>
   <script type="module">
     // Serve this package directory and open /examples/camera.html on localhost.
-    import { Scanner } from "../dist/browser.js";
-    const video = document.querySelector("video");
+    import { Scanner } from "../dist/browser-medium.js";
+    import { CameraScanner } from "../dist/camera.js";
     const status = document.querySelector("pre");
     const start = document.querySelector("#start");
     const stop = document.querySelector("#stop");
-    let scanner;
-    let stream;
+    const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
+    const camera = new CameraScanner(document.querySelector("video"), scanner, {
+      onScan: (result) => (status.textContent = JSON.stringify(result.values)),
+      onError: (error) => shutdown(error.message),
+    });
 
-    function shutdown() {
-      scanner?.dispose();
-      stream?.getTracks().forEach((track) => track.stop());
-      scanner = stream = undefined;
-      video.srcObject = null;
+    function shutdown(message = "") {
+      camera.stop();
+      status.textContent = message;
       start.disabled = false;
       stop.disabled = true;
     }
 
     start.onclick = async () => {
       start.disabled = true;
-      let current;
-      try {
-        // Loads in a worker while the camera starts.
-        current = scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
-        const camera = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-        });
-        if (scanner !== current) {
-          camera.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        stream = camera;
-        video.srcObject = stream;
-        stop.disabled = false;
-        while (scanner === current) {
-          // Scan each new frame at most once; awaiting the scan avoids a backlog.
-          await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
-          if (scanner !== current) break;
-          const barcodes = await current.scan(video);
-          if (scanner === current) status.textContent = JSON.stringify(barcodes.values);
-        }
-      } catch (error) {
-        // Also reached when construction fails: report it and re-enable Start.
-        if (scanner === current) {
-          status.textContent = error.message;
-          shutdown();
-        }
-      }
+      stop.disabled = false;
+      await camera.start().catch((error) => shutdown(error.message));
     };
-    stop.onclick = shutdown;
-    window.addEventListener("pagehide", shutdown);
+    stop.onclick = () => shutdown();
   </script>
 </html>

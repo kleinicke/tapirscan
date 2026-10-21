@@ -12,6 +12,26 @@
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
     },
+    "./browser/low": {
+      "types": "./dist/browser-low.d.ts",
+      "import": "./dist/browser-low.js"
+    },
+    "./browser/medium": {
+      "types": "./dist/browser-medium.d.ts",
+      "import": "./dist/browser-medium.js"
+    },
+    "./browser/high": {
+      "types": "./dist/browser-high.d.ts",
+      "import": "./dist/browser-high.js"
+    },
+    "./browser/very-high": {
+      "types": "./dist/browser-very-high.d.ts",
+      "import": "./dist/browser-very-high.js"
+    },
+    "./camera": {
+      "types": "./dist/camera.d.ts",
+      "import": "./dist/camera.js"
+    },
     "./wasm/low.wasm": "./wasm/low.wasm",
     "./wasm/medium.wasm": "./wasm/medium.wasm",
     "./wasm/high.wasm": "./wasm/high.wasm",
@@ -37,8 +57,8 @@
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",
-    "test": "node --test test/camera-example.mjs test/scanner.mjs test/shared-retail.mjs test/loading.mjs test/turbo.mjs test/packaging.mjs && tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext test/api-types.ts",
-    "test:browser": "node --test --test-timeout=120000 test/browser.mjs",
+    "test": "node --test test/scanner.mjs test/shared-retail.mjs test/loading.mjs test/turbo.mjs test/packaging.mjs && tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext test/api-types.ts",
+    "test:browser": "node --test --test-timeout=120000 test/browser.mjs test/camera.mjs",
     "prepack": "npm run build && node scripts/verify-package.mjs"
   },
   "devDependencies": {

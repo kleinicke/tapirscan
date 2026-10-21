@@ -74,25 +74,67 @@ const result = await scanner.scan(image); // a file, <img>, canvas, video frame,
 scanner.dispose(); // stops the worker
 ```
 
-**Camera:** scan a playing `<video>` in a loop. Waiting for the next frame scans
-each frame at most once, and awaiting each scan means slow devices skip frames
-instead of falling behind:
+**One mode, smaller bundles:** `tapirscan/browser` bundles the WASM of every mode
+(about 18 MB uncompressed in total). `tapirscan/browser/low`, `/medium`, `/high`
+and `/very-high` export the same API with one mode's WASM, for example 2.6 MB
+(1 MB gzip) for Medium:
 
 ```js
-while (running) {
-  await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
-  if (!running) break;
-  const result = await scanner.scan(video);
-  // ...show result.values and result.barcodes
-}
+import { Scanner } from "tapirscan/browser/medium";
 ```
 
-`dispose()` rejects the scan in progress with "Scanner was disposed". In React
-(add `"use client";` at the top in Next.js):
+They reject other modes and Turbo presets. Use `tapirscan/browser` when users
+switch modes at run time.
+
+### Camera scanning
+
+`tapirscan/camera` runs a camera into a `<video>` and scans its frames with any
+browser scanner:
+
+```js
+import { Scanner } from "tapirscan/browser/medium";
+import { CameraScanner } from "tapirscan/camera";
+
+const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
+const camera = new CameraScanner(video, scanner, {
+  onScan(result) {
+    // Every scanned frame; result.barcodes is empty when nothing was read.
+  },
+  onError(error) {
+    // The scanner failed or the camera ended; the camera is released.
+  },
+});
+await camera.start(); // rejects if permission is denied or there is no camera
+camera.stop();
+scanner.dispose();
+```
+
+- **Frames:** one frame is scanned at a time; slow devices skip frames instead
+  of queueing them. No result arrives after `stop()`.
+- **Choosing a camera:** `start()` prefers the back camera and falls back to any
+  camera. `start({ facingMode: "user" })` prefers the front camera;
+  `start({ deviceId })` opens exactly that device. Calling `start` while running
+  switches cameras, releasing the current one first because many phones open one
+  camera at a time. `CameraScanner.cameras()` lists video inputs; browsers show
+  labels only after permission, so list them after `start()`.
+- **Hidden pages:** the camera is released while the page is hidden and reopened
+  when it is shown. `pauseWhenHidden: false` keeps it open.
+- **Torch:** `camera.torchAvailable` and `await camera.setTorch(true)`, which
+  resolves `false` without a controllable torch (front cameras, most laptops,
+  some browsers). The torch turns off when the camera reopens.
+- **Other settings:** `constraints` merges extra video constraints over the
+  default 1280×720 ideal size; `camera.track` is the open `MediaStreamTrack`,
+  for example for zoom. `scanOptions` applies to every frame.
+- **Requirements:** HTTPS or `localhost`. iOS needs no extra attributes; the
+  controller sets `muted` and `playsinline`.
+
+`stop()` and `dispose()` are separate: the controller never disposes the
+scanner. In React (add `"use client";` at the top in Next.js):
 
 ```jsx
 import { useEffect, useRef, useState } from "react";
-import { Scanner } from "tapirscan/browser";
+import { Scanner } from "tapirscan/browser/medium";
+import { CameraScanner } from "tapirscan/camera";
 
 export default function BarcodeScanner() {
   const video = useRef(null);
@@ -100,44 +142,22 @@ export default function BarcodeScanner() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const element = video.current;
-    // Select only the formats you need; `mode: "low"` keeps up on slower phones.
+    // tapirscan/browser/low keeps up on slower phones; select only the formats you need.
     const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
-    // 720p frames scan much faster than a camera's full resolution.
-    const camera = navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+    const camera = new CameraScanner(video.current, scanner, {
+      onScan: (result) => setBarcodes(result.barcodes),
+      onError: (cause) => setError(cause.message),
     });
-    let running = true; // React StrictMode mounts twice in development
-    // One cleanup for unmounting and for failures: stop scanning and the camera.
-    const stop = () => {
-      running = false;
+    camera.start().catch((cause) => setError(cause.message));
+    return () => {
+      camera.stop();
       scanner.dispose();
-      camera.then(
-        (stream) => stream.getTracks().forEach((track) => track.stop()),
-        () => {}, // No stream to stop.
-      );
     };
-    camera
-      .then(async (stream) => {
-        if (!running) return;
-        element.srcObject = stream;
-        while (running) {
-          await new Promise((resolve) => element.requestVideoFrameCallback(resolve));
-          if (!running) break;
-          const found = await scanner.scan(element);
-          if (running) setBarcodes(found.barcodes);
-        }
-      })
-      .catch((cause) => {
-        if (running) setError(cause.message); // camera denied, loading or scan failure
-        stop();
-      });
-    return stop;
   }, []);
 
   return (
     <>
-      <video ref={video} autoPlay muted playsInline />
+      <video ref={video} />
       {error && <p role="alert">{error}</p>}
       {barcodes.map((barcode, i) => (
         <p key={i}>
@@ -179,6 +199,10 @@ In Svelte 5 and SvelteKit:
 {#if error}<p role="alert">{error}</p>{/if}
 {#each barcodes as barcode}<p>{barcode.format}: {barcode.text}</p>{/each}
 ```
+
+Hosting, Content Security Policy and static files: [browser deployment](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md).
+Switching from [ZXing](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZXING.md), [ZBar](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZBAR.md)
+or [Quagga](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_QUAGGA.md): see the migration guides.
 
 **Bundlers:** Next.js (Turbopack or webpack), Vite 8 and production builds bundle
 the worker and WASM files with no configuration. The Vite 6 and 7 development

@@ -7,8 +7,9 @@ npm install
 npm run dev
 ```
 
-Choose a barcode photo. `tapirscan/browser` decodes the file and scans it in a
-worker; Vite bundles the worker and WASM files without plugins or copy steps.
+Choose a barcode photo. `tapirscan/browser/medium` decodes the file and scans it
+in a worker; Vite bundles the worker and `medium.wasm` without plugins or copy
+steps. Importing `tapirscan/browser` instead bundles all eight WASM files.
 The only configuration is `optimizeDeps.exclude` in `vite.config.js`, which the
 development server needs to serve those files from the package. Retail formats
 are enabled by default.
