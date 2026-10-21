@@ -27,8 +27,9 @@ export interface CameraScannerOptions {
   /** Options for every frame, such as a smaller `formats` selection. */
   scanOptions?: ScanOptions;
   /**
-   * Extra video constraints, merged over the defaults of 1280×720 ideal size.
-   * Smaller frames scan faster; full sensor resolution rarely helps.
+   * Extra video constraints. A `width` or `height` replaces the default 1280×720
+   * ideal size; smaller frames scan faster. The `start()` selection takes
+   * precedence over `deviceId` and `facingMode` here.
    */
   constraints?: MediaTrackConstraints;
   /** Release the camera while the page is hidden and reopen it when shown. Default true. */
@@ -99,19 +100,26 @@ export class CameraScanner {
   /**
    * Open a camera and scan its frames until `stop()`. Calling it while running
    * switches cameras: the current one is released first, because many phones open
-   * only one camera at a time. Rejects when the camera cannot be opened (permission
-   * denied, no camera, an insecure page); resolves early if `stop()` cancels it.
+   * only one camera at a time. Resolves true once this call's camera is open, and
+   * false when `stop()` or another `start()` cancelled it or the page is hidden
+   * (the camera then opens when the page is shown). Rejects when the camera cannot
+   * be opened: permission denied, no camera, an insecure page or a browser without
+   * `requestVideoFrameCallback`.
    */
-  async start(selection: CameraSelection = {}): Promise<void> {
-    this.#release();
-    const session = ++this.#session;
+  async start(selection: CameraSelection = {}): Promise<boolean> {
+    if (!("requestVideoFrameCallback" in this.#video))
+      throw new Error("CameraScanner needs requestVideoFrameCallback (Firefox 132 or later)");
+    this.stop();
+    const session = this.#session;
     this.#selection = { ...selection };
-    if (this.#options.pauseWhenHidden !== false && typeof document !== "undefined")
+    if (this.#options.pauseWhenHidden !== false)
       document.addEventListener("visibilitychange", this.#onVisibility);
+    if (this.#paused()) return false;
     try {
-      await this.#open(session);
+      return await this.#open(session);
     } catch (error) {
-      if (session === this.#session) this.stop();
+      if (session !== this.#session) return false;
+      this.stop();
       throw error;
     }
   }
@@ -120,8 +128,7 @@ export class CameraScanner {
   stop(): void {
     this.#session++;
     this.#selection = undefined;
-    if (typeof document !== "undefined")
-      document.removeEventListener("visibilitychange", this.#onVisibility);
+    document.removeEventListener("visibilitychange", this.#onVisibility);
     this.#release();
   }
 
@@ -137,24 +144,25 @@ export class CameraScanner {
     return true;
   }
 
-  async #open(session: number): Promise<void> {
+  /** Open the selected camera for `session`; false if the session ended meanwhile. */
+  async #open(session: number): Promise<boolean> {
     const { deviceId, facingMode = "environment" } = this.#selection ?? {};
+    const { constraints = {} } = this.#options;
+    const sized = "width" in constraints || "height" in constraints;
     const stream = await mediaDevices().getUserMedia({
       audio: false,
       video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        ...(sized ? {} : { width: { ideal: 1280 }, height: { ideal: 720 } }),
+        ...constraints,
         // `ideal` lets laptops without a back camera fall back to their webcam.
-        ...(deviceId === undefined
-          ? { facingMode: { ideal: facingMode } }
-          : { deviceId: { exact: deviceId } }),
-        ...this.#options.constraints,
+        // Before permission, device ids can be empty strings.
+        ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: facingMode } }),
       },
     });
     if (session !== this.#session) {
-      // Stopped or restarted while the permission prompt was open.
+      // Stopped, restarted or hidden while the permission prompt was open.
       stopTracks(stream);
-      return;
+      return false;
     }
     this.#stream = stream;
     for (const track of stream.getVideoTracks())
@@ -166,31 +174,38 @@ export class CameraScanner {
     // iOS Safari plays inline, muted video without a user gesture only.
     video.muted = true;
     video.playsInline = true;
-    video.setAttribute("playsinline", "");
     video.srcObject = stream;
     try {
       await video.play();
     } catch (error) {
       // A later start or stop replaced the stream and interrupted play().
-      if (session !== this.#session) return;
+      if (session !== this.#session) return false;
       throw error;
     }
-    if (session !== this.#session) return;
+    if (session !== this.#session) return false;
     void this.#loop(session);
+    return true;
   }
 
   async #loop(session: number): Promise<void> {
-    try {
-      while (session === this.#session) {
-        await nextFrame(this.#video);
-        if (session !== this.#session) return;
-        const result = await this.#scanner.scan(this.#video, this.#options.scanOptions);
-        if (session !== this.#session) return;
-        this.#options.onScan?.(result);
+    const video = this.#video;
+    while (session === this.#session) {
+      await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
+      if (session !== this.#session) return;
+      let result: ScanResult;
+      try {
+        result = await this.#scanner.scan(video, this.#options.scanOptions);
+      } catch (error) {
+        if (session === this.#session) this.#fail(toError(error));
+        return;
       }
-    } catch (error) {
-      if (session === this.#session)
-        this.#fail(error instanceof Error ? error : new Error(String(error)));
+      if (session !== this.#session) return;
+      // An error in the app's handler is reported, not treated as a camera failure.
+      try {
+        this.#options.onScan?.(result);
+      } catch (error) {
+        reportError(error);
+      }
     }
   }
 
@@ -198,18 +213,16 @@ export class CameraScanner {
     return this.#options.pauseWhenHidden !== false && document.visibilityState === "hidden";
   }
 
+  /** Release the camera while hidden; reopen it when shown. */
   #visibilityChanged(): void {
     if (this.#selection === undefined) return;
-    if (this.#paused()) {
-      this.#session++;
-      this.#release();
-      return;
-    }
-    if (this.#stream) return;
+    const hidden = this.#paused();
+    if (!hidden && this.#stream) return;
     const session = ++this.#session;
+    this.#release();
+    if (hidden) return;
     this.#open(session).catch((error: unknown) => {
-      if (session === this.#session)
-        this.#fail(error instanceof Error ? error : new Error(String(error)));
+      if (session === this.#session) this.#fail(toError(error));
     });
   }
 
@@ -238,23 +251,6 @@ function stopTracks(stream: MediaStream): void {
   for (const track of stream.getTracks()) track.stop();
 }
 
-/** Resolve once the video shows a frame that was not scanned yet. */
-function nextFrame(video: HTMLVideoElement): Promise<void> {
-  // Typed as always present, but missing in older Firefox.
-  if (typeof (video as Partial<HTMLVideoElement>).requestVideoFrameCallback === "function")
-    return new Promise((resolve) => {
-      video.requestVideoFrameCallback(() => {
-        resolve();
-      });
-    });
-  // Fallback: poll each animation frame for a new, decodable frame.
-  const seen = video.currentTime;
-  return new Promise((resolve) => {
-    const check = () => {
-      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.currentTime !== seen)
-        resolve();
-      else requestAnimationFrame(check);
-    };
-    requestAnimationFrame(check);
-  });
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }

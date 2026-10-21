@@ -45,7 +45,8 @@ export interface ScannerOptions {
   wasmBaseUrl?: string | URL;
 }
 
-const scannerOptions = ["mode", "formats", "eanAddOnPolicy", "experimentalTurbo", "wasmBaseUrl"];
+const singleModeOptions = ["formats", "eanAddOnPolicy", "wasmBaseUrl"];
+const scannerOptions = ["mode", "experimentalTurbo", ...singleModeOptions];
 interface Pending {
   resolve(value: unknown): void;
   reject(reason: Error): void;
@@ -90,13 +91,7 @@ async function prepare(
 }
 
 /** Options of a single-mode entry such as tapirscan/browser/medium. */
-export type ModeScannerOptions<M extends Mode> = Omit<
-  ScannerOptions,
-  "mode" | "experimentalTurbo"
-> & {
-  /** The entry's mode; any other mode is rejected. */
-  mode?: M;
-};
+export type SingleModeOptions = Omit<ScannerOptions, "mode" | "experimentalTurbo">;
 
 /**
  * A reusable scanner running in a dedicated worker, so scanning never blocks the
@@ -126,23 +121,19 @@ export class BrowserScanner {
     const input: unknown = options;
     if (input === null || typeof input !== "object" || Array.isArray(input))
       throw new TypeError("Invalid scanner options");
-    for (const key of Object.keys(options))
+    for (const key of Object.keys(options)) {
+      if (fixedMode !== undefined && (key === "mode" || key === "experimentalTurbo"))
+        throw new TypeError(
+          `tapirscan/browser/${fixedMode} has no ${key} option; use "tapirscan/browser"`,
+        );
       if (!scannerOptions.includes(key))
         throw new TypeError(
           key === "loadWasm"
             ? `Unknown scanner option: ${key}. Use the core "tapirscan" entry for loadWasm.`
             : `Unknown scanner option: ${key}`,
         );
-    if (fixedMode !== undefined) {
-      const entry = `tapirscan/browser/${fixedMode}`;
-      if (options.experimentalTurbo !== undefined)
-        throw new TypeError(`${entry} has no Turbo presets; use "tapirscan/browser"`);
-      if (options.mode !== undefined && options.mode !== fixedMode)
-        throw new TypeError(
-          `${entry} scans in ${fixedMode} mode; use "tapirscan/browser" or the entry for ${options.mode}`,
-        );
-      options = { ...options, mode: fixedMode };
     }
+    if (fixedMode !== undefined) options = { ...options, mode: fixedMode };
     if (typeof Worker === "undefined") {
       this.#closed = new Error(
         "tapirscan/browser scans in browsers; this environment has no Worker",
@@ -299,26 +290,24 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 /** Options of the one-shot helpers: the scanner options plus the per-call `transfer`. */
 export type OneShotOptions = ScannerOptions & Pick<ScanOptions, "transfer">;
 
-/** Split the per-call `transfer` off; the scanner constructor rejects it. */
-function splitOneShot(options: OneShotOptions): [ScannerOptions, ScanOptions] {
-  const input: unknown = options;
-  // Invalid values pass through for the constructor to reject.
-  if (input === null || typeof input !== "object" || Array.isArray(input)) return [options, {}];
-  const { transfer, ...scannerOptions } = options;
-  return [scannerOptions, transfer === undefined ? {} : { transfer }];
-}
-
-/** Run one call on a temporary scanner of an entry, then stop its worker. */
-export async function once<O extends ScannerOptions, R>(
-  Scanner: new (options: O) => BrowserScanner,
-  options: O & Pick<ScanOptions, "transfer">,
-  call: (scanner: BrowserScanner, options: ScanOptions) => Promise<R>,
-): Promise<R> {
-  const [scannerOptions, callOptions] = splitOneShot(options);
-  const scanner = new Scanner(scannerOptions as O);
-  try {
-    return await call(scanner, callOptions);
-  } finally {
-    scanner.dispose();
+/** An entry's one-shot `scan` and `inspect`: a temporary scanner per call. */
+export function oneShot<O extends SingleModeOptions>(Scanner: new (options: O) => BrowserScanner) {
+  async function run<R>(
+    { transfer, ...options }: O & Pick<ScanOptions, "transfer">,
+    call: (scanner: BrowserScanner, options: ScanOptions) => Promise<R>,
+  ): Promise<R> {
+    const scanner = new Scanner(options as unknown as O);
+    try {
+      return await call(scanner, transfer === undefined ? {} : { transfer });
+    } finally {
+      scanner.dispose();
+    }
   }
+  type Options = O & Pick<ScanOptions, "transfer">;
+  return {
+    scan: (source: ImageSource, options = {} as Options): Promise<ScanResult> =>
+      run(options, (scanner, call) => scanner.scan(source, call)),
+    inspect: (source: ImageSource, options = {} as Options): Promise<InspectionResult> =>
+      run(options, (scanner, call) => scanner.inspect(source, call)),
+  };
 }

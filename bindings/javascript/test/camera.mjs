@@ -95,6 +95,13 @@ async function preparePage(page) {
         });
       },
       live: (stream) => stream.getTracks().some((track) => track.readyState === "live"),
+      /** Fake a page visibility change; "visible" restores the real state. */
+      setVisibility(state) {
+        if (state === "visible") delete document.visibilityState;
+        else
+          Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
+        document.dispatchEvent(new Event("visibilitychange"));
+      },
     };
   });
 }
@@ -145,7 +152,7 @@ for (const [name, launch] of browsers) {
           (callback) => (onScan = callback),
           (result) => result.barcodes.length > 0,
         );
-        await controller.start();
+        const started = await controller.start();
         const result = await found;
         const running = controller.running;
         const hadTrack = controller.track?.readyState === "live";
@@ -157,6 +164,7 @@ for (const [name, launch] of browsers) {
         scanner.dispose();
         return {
           values: result.values,
+          started,
           running,
           hadTrack,
           stoppedRunning: controller.running,
@@ -167,8 +175,16 @@ for (const [name, launch] of browsers) {
         };
       });
       assert.deepEqual(outcome.values, [await page.evaluate(() => globalThis.t.text)]);
-      assert.ok(outcome.running && outcome.hadTrack);
-      assert.ok(!outcome.stoppedRunning && outcome.released);
+      assert.deepEqual(
+        [
+          outcome.started,
+          outcome.running,
+          outcome.hadTrack,
+          outcome.stoppedRunning,
+          outcome.released,
+        ],
+        [true, true, true, false, true],
+      );
       assert.equal(outcome.late, 0);
       assert.deepEqual(outcome.errors, []);
       assert.deepEqual(outcome.constraints.facingMode, { ideal: "environment" });
@@ -184,13 +200,18 @@ for (const [name, launch] of browsers) {
         setDelay(300);
         const starting = controller.start();
         controller.stop();
-        await starting;
+        const started = await starting;
         setDelay(0);
         scanner.dispose();
         const stream = log.streams[before];
-        return { granted: Boolean(stream), live: stream && live(stream), track: controller.track };
+        return {
+          started,
+          granted: Boolean(stream),
+          live: stream && live(stream),
+          track: controller.track,
+        };
       });
-      assert.deepEqual(outcome, { granted: true, live: false, track: undefined });
+      assert.deepEqual(outcome, { started: false, granted: true, live: false, track: undefined });
     });
 
     test("switching cameras releases the old stream first", async (context) => {
@@ -258,7 +279,7 @@ for (const [name, launch] of browsers) {
     test("pauses while the page is hidden and resumes when shown", async (context) => {
       if (skip) return context.skip(skip);
       const outcome = await page.evaluate(async () => {
-        const { camera, medium, video, log, until, live } = globalThis.t;
+        const { camera, medium, video, log, until, live, setVisibility } = globalThis.t;
         const scanner = new medium.Scanner();
         let onScan;
         const controller = new camera.CameraScanner(video, scanner, {
@@ -266,24 +287,17 @@ for (const [name, launch] of browsers) {
         });
         await controller.start();
         const first = log.streams.at(-1);
-        let state = "hidden";
-        Object.defineProperty(document, "visibilityState", {
-          configurable: true,
-          get: () => state,
-        });
-        document.dispatchEvent(new Event("visibilitychange"));
+        setVisibility("hidden");
         const hidden = { live: live(first), running: controller.running, track: controller.track };
-        state = "visible";
         const resumed = until(
           (callback) => (onScan = callback),
           (result) => result.barcodes.length > 0,
         );
-        document.dispatchEvent(new Event("visibilitychange"));
+        setVisibility("visible");
         await resumed;
         const second = log.streams.at(-1);
         controller.stop();
         scanner.dispose();
-        delete document.visibilityState;
         return { hidden, reopened: second !== first, secondReleased: !live(second) };
       });
       assert.deepEqual(outcome, {
@@ -316,7 +330,144 @@ for (const [name, launch] of browsers) {
       assert.deepEqual(outcome, { error: "NotAllowedError", running: false });
     });
 
-    test("single-mode entries reject other modes and Turbo", async (context) => {
+    test("start while hidden waits until the page is shown", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video, log, live, setVisibility } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const controller = new camera.CameraScanner(video, scanner);
+        const before = log.streams.length;
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        const started = await controller.start();
+        const whileHidden = log.streams.length - before;
+        setVisibility("visible");
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const opened = live(log.streams.at(-1)) && controller.track?.readyState === "live";
+        controller.stop();
+        scanner.dispose();
+        return { started, whileHidden, running: controller.running, opened };
+      });
+      assert.deepEqual(outcome, { started: false, whileHidden: 0, running: false, opened: true });
+    });
+
+    test("pauseWhenHidden: false keeps the camera open", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video, log, live, setVisibility } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const controller = new camera.CameraScanner(video, scanner, { pauseWhenHidden: false });
+        await controller.start();
+        setVisibility("hidden");
+        const kept = live(log.streams.at(-1));
+        setVisibility("visible");
+        controller.stop();
+        scanner.dispose();
+        return kept;
+      });
+      assert.equal(outcome, true);
+    });
+
+    test("a cancelled start whose camera request fails resolves false", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const saved = navigator.mediaDevices;
+        Object.defineProperty(navigator, "mediaDevices", {
+          configurable: true,
+          value: {
+            getUserMedia: () =>
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new DOMException("No camera", "NotFoundError")), 100),
+              ),
+          },
+        });
+        const errors = [];
+        const controller = new camera.CameraScanner(video, scanner, {
+          onError: (error) => errors.push(error.message),
+        });
+        const starting = controller.start();
+        controller.stop();
+        const started = await starting;
+        Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: saved });
+        scanner.dispose();
+        return { started, errors };
+      });
+      assert.deepEqual(outcome, { started: false, errors: [] });
+    });
+
+    test("an error in onScan is reported and scanning continues", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const reported = [];
+        const onReported = (event) => {
+          reported.push(event.error.message);
+          event.preventDefault();
+        };
+        window.addEventListener("error", onReported);
+        const errors = [];
+        let scans = 0;
+        let second;
+        const scannedTwice = new Promise((resolve) => (second = resolve));
+        const controller = new camera.CameraScanner(video, scanner, {
+          onScan() {
+            if (++scans === 2) second();
+            if (scans === 1) throw new Error("app bug");
+          },
+          onError: (error) => errors.push(error.message),
+        });
+        await controller.start();
+        await scannedTwice;
+        const running = controller.running;
+        controller.stop();
+        scanner.dispose();
+        window.removeEventListener("error", onReported);
+        return { reported, errors, running };
+      });
+      assert.deepEqual(outcome, { reported: ["app bug"], errors: [], running: true });
+    });
+
+    test("constraints sizes replace the default; the selection wins", async (context) => {
+      if (skip) return context.skip(skip);
+      const request = await page.evaluate(async () => {
+        const { camera, medium, video, log } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const controller = new camera.CameraScanner(video, scanner, {
+          constraints: { width: { ideal: 640 }, facingMode: "user", frameRate: 15 },
+        });
+        // Before permission, browsers list cameras with empty ids.
+        await controller.start({ deviceId: "" });
+        controller.stop();
+        scanner.dispose();
+        return log.requests.at(-1).video;
+      });
+      assert.deepEqual(request, {
+        width: { ideal: 640 },
+        facingMode: { ideal: "environment" },
+        frameRate: 15,
+      });
+    });
+
+    test("start rejects without requestVideoFrameCallback", async (context) => {
+      if (skip) return context.skip(skip);
+      const message = await page.evaluate(async () => {
+        const { camera, medium, video } = globalThis.t;
+        const prototype = HTMLVideoElement.prototype;
+        const saved = Object.getOwnPropertyDescriptor(prototype, "requestVideoFrameCallback");
+        delete prototype.requestVideoFrameCallback;
+        const scanner = new medium.Scanner();
+        const controller = new camera.CameraScanner(video, scanner);
+        const error = await controller.start().catch((cause) => cause.message);
+        Object.defineProperty(prototype, "requestVideoFrameCallback", saved);
+        scanner.dispose();
+        return error;
+      });
+      assert.match(message, /needs requestVideoFrameCallback/);
+    });
+
+    test("single-mode entries reject mode and Turbo options", async (context) => {
       if (skip) return context.skip(skip);
       // The entry's worker fetches only medium.wasm.
       const wasm = [];
@@ -334,16 +485,19 @@ for (const [name, launch] of browsers) {
             return error.message;
           }
         };
-        const scanner = new medium.Scanner({ mode: "medium" });
+        const scanner = new medium.Scanner();
         await scanner.ready;
         scanner.dispose();
         return {
-          high: attempt({ mode: "high" }),
+          mode: attempt({ mode: "medium" }),
           turbo: attempt({ experimentalTurbo: 8 }),
         };
       });
-      assert.match(outcome.high, /tapirscan\/browser\/medium scans in medium mode/);
-      assert.match(outcome.turbo, /has no Turbo presets/);
+      assert.equal(
+        outcome.mode,
+        'tapirscan/browser/medium has no mode option; use "tapirscan/browser"',
+      );
+      assert.match(outcome.turbo, /has no experimentalTurbo option/);
       page.off("request", record);
       assert.deepEqual(wasm, ["medium.wasm"]);
     });

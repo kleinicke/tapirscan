@@ -1,13 +1,6 @@
 // tapirscan/browser: the core API, run in a bundled worker, for browser image sources.
 // Its worker bundles every mode and Turbo preset; tapirscan/browser/<mode> bundles one.
-import {
-  BrowserScanner,
-  once,
-  type ImageSource,
-  type OneShotOptions,
-  type ScannerOptions,
-} from "./browser-scanner.js";
-import type { InspectionResult, ScanResult } from "./index.js";
+import { BrowserScanner, oneShot, type ScannerOptions } from "./browser-scanner.js";
 
 export * from "./browser-types.js";
 
@@ -27,15 +20,5 @@ export class Scanner extends BrowserScanner {
   }
 }
 
-/** Scan one image with a temporary scanner. Reuse a Scanner for several images. */
-export function scan(source: ImageSource, options: OneShotOptions = {}): Promise<ScanResult> {
-  return once(Scanner, options, (scanner, call) => scanner.scan(source, call));
-}
-
-/** Inspect one image with a temporary scanner. */
-export function inspect(
-  source: ImageSource,
-  options: OneShotOptions = {},
-): Promise<InspectionResult> {
-  return once(Scanner, options, (scanner, call) => scanner.inspect(source, call));
-}
+/** Scan or inspect one image with a temporary scanner. Reuse a Scanner for several images. */
+export const { scan, inspect } = oneShot<ScannerOptions>(Scanner);

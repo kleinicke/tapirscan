@@ -21,6 +21,7 @@ import { Scanner } from "tapirscan/browser/medium";
 const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
 const { barcodes } = await scanner.scan(await (await fetch(url)).blob());
 for (const b of barcodes) console.log(b.text, b.format);
+scanner.dispose(); // stops the worker; reuse the scanner for more images instead
 ```
 
 **JavaScript, Node or decoded pixels:** `Scanner.create` is async, `scan` is synchronous.
@@ -220,7 +221,7 @@ await camera.start();
 camera.stop();
 ```
 
-An empty `onScan` replaces the per-frame `NotFoundException` callback; failures arrive only in
-`onError`. `controls.switchTorch` becomes `camera.setTorch(on)`; `start({ deviceId })` replaces the
+An empty `onScan` replaces the per-frame `NotFoundException` callback. Opening failures
+(permission, no camera) reject `start()`; later failures arrive in `onError`. `controls.switchTorch` becomes `camera.setTorch(on)`; `start({ deviceId })` replaces the
 `deviceId` argument. Options, camera selection and torch:
 [camera scanning](../bindings/javascript/README.md#camera-scanning).

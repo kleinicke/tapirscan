@@ -5,10 +5,11 @@ see the [JavaScript README](../bindings/javascript/README.md#browser-apps-react-
 
 ## Bundle one mode
 
-`tapirscan/browser` bundles all eight WASM files, about 18 MB uncompressed (7 MB gzip). If
-the app uses one mode, import its entry instead:
+Bundlers emit every WASM file an entry references into the build, although a page
+downloads only the selected mode. For deployment and service-worker precache
+size, import a single-mode entry:
 
-| Entry                         | WASM bundled     | Size (gzip)     |
+| Entry                         | WASM emitted     | Size (gzip)     |
 | ----------------------------- | ---------------- | --------------- |
 | `tapirscan/browser/low`       | `low.wasm`       | 2.0 MB (0.8 MB) |
 | `tapirscan/browser/medium`    | `medium.wasm`    | 2.6 MB (1.0 MB) |
@@ -16,8 +17,7 @@ the app uses one mode, import its entry instead:
 | `tapirscan/browser/very-high` | `very-high.wasm` | 2.7 MB (1.0 MB) |
 | `tapirscan/browser`           | all modes, Turbo | 18 MB (7 MB)    |
 
-Vite, webpack and Next.js emit only what the imported entry references, with no
-configuration. Angular needs [two asset entries](#angular).
+Tested with Vite; [Angular](#angular) needs two asset entries.
 
 ## Serve the worker from the page's origin
 
@@ -25,7 +25,7 @@ Scanning runs in a module worker. Browsers start workers only from the page's
 own origin, so the bundled JavaScript that contains the worker must be served
 from the application's origin, not from a CDN or object-storage domain. The
 WASM files may live elsewhere: point `wasmBaseUrl` at them and allow the page's
-origin with CORS.
+origin with CORS. The bundler still emits the entry's own copy.
 
 Without a bundler, for example as static files of a server-rendered app,
 copy the package's `dist/` directory and the WASM files you use into a `wasm/`
@@ -72,9 +72,3 @@ mode's WASM in `angular.json` under `build.options.assets`:
 ```
 
 The worker imports other modules from `dist/`, so copy all of its `.js` files.
-
-## Vite development server
-
-Vite 6 and 7 dev servers need `optimizeDeps: { exclude: ["tapirscan"] }`; see the
-[README](../bindings/javascript/README.md#browser-apps-react-and-svelte).
-Production builds need no configuration.

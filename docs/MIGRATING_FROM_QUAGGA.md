@@ -148,7 +148,7 @@ camera.stop();
 | `inputStream.constraints`                 | `constraints` option, merged over a 1280×720 ideal size.                  |
 | `Quagga.onDetected`                       | `onScan`, called for every scanned frame; check `result.barcodes.length`. |
 | `Quagga.onProcessed`                      | The same `onScan` callback; draw from `result.barcodes`.                  |
-| `Quagga.init` error callback              | `onError`, after which scanning has stopped.                              |
+| `Quagga.init` error callback              | `start()` rejects; later failures call `onError`.                         |
 | `Quagga.start()` / `Quagga.stop()`        | `await camera.start()` / `camera.stop()`.                                 |
 | `numOfWorkers`                            | Not needed: one scanner runs in one worker.                               |
 | `frequency`                               | None: each new frame is scanned once the previous scan finished.          |
@@ -159,50 +159,8 @@ camera.stop();
 [camera scanning](../bindings/javascript/README.md#camera-scanning) for camera
 selection, torch and hidden pages.
 
-### Drawing an overlay
-
-`polygon` is in frame pixels (`videoWidth` × `videoHeight`). To draw on a canvas
-over the `<video>`, map it to the displayed size, accounting for `object-fit`:
-
-```js
-function frameToDisplay(video) {
-  const frameW = video.videoWidth;
-  const frameH = video.videoHeight;
-  const { width: viewW, height: viewH } = video.getBoundingClientRect();
-  const fit = getComputedStyle(video).objectFit;
-  // "cover" fills the element and crops; "contain" letterboxes.
-  const scale =
-    fit === "cover"
-      ? Math.max(viewW / frameW, viewH / frameH)
-      : Math.min(viewW / frameW, viewH / frameH);
-  const offsetX = (viewW - frameW * scale) / 2; // negative for "cover" when cropped
-  const offsetY = (viewH - frameH * scale) / 2;
-  return ([x, y]) => [x * scale + offsetX, y * scale + offsetY];
-}
-
-function drawBarcodes(canvas, video, barcodes) {
-  const ratio = devicePixelRatio;
-  canvas.width = video.clientWidth * ratio;
-  canvas.height = video.clientHeight * ratio;
-  const ctx = canvas.getContext("2d");
-  ctx.scale(ratio, ratio);
-  const map = frameToDisplay(video);
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = "lime";
-  for (const { polygon } of barcodes) {
-    ctx.beginPath();
-    polygon.map(map).forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-    ctx.closePath();
-    ctx.stroke();
-  }
-}
-
-// In the onScan handler: drawBarcodes(overlay, video, result.barcodes);
-```
-
-Give the canvas the video's CSS size and position, and the same mirroring
-transform if any. Redrawing on every `onScan`, including empty ones, clears
-stale boxes.
+`polygon` is in frame pixels (`videoWidth` × `videoHeight`); to draw it over the
+`<video>`, scale it to the element's displayed size and `object-fit`.
 
 ## Reader mapping
 
@@ -271,37 +229,9 @@ for (const { text, format, polygon } of result.barcodes) {
 `polygon` outlines the decoded barcode in the coordinates of the image you
 passed in; Quagga's `box` is a localization candidate.
 
-### Suppressing misreads
-
 Tapirscan validates check digits, so filters on `decodedCodes` errors have no
-equivalent. Check digits do not rule out misreads, especially for formats
-without one (Code 39, Codabar), so camera flows may still confirm a value
-across frames:
-
-```js
-function confirmed(requiredReads = 2, windowMs = 1000) {
-  const seen = new Map(); // key -> { count, last }
-  return (barcodes, now = performance.now()) => {
-    const hits = [];
-    for (const [key, entry] of seen) if (now - entry.last > windowMs) seen.delete(key);
-    for (const { format, text } of barcodes) {
-      const key = `${format}:${text}`;
-      const entry = seen.get(key) ?? { count: 0, last: now };
-      entry.count += 1;
-      entry.last = now;
-      seen.set(key, entry);
-      if (entry.count === requiredReads) hits.push({ format, text });
-    }
-    return hits;
-  };
-}
-
-const confirm = confirmed(2);
-// In onScan: for (const hit of confirm(result.barcodes)) accept(hit);
-```
-
-Each value is reported once, on its `requiredReads`th sighting; a gap longer
-than `windowMs` restarts the count.
+equivalent. Formats without a check digit (Code 39, Codabar) can still misread;
+for those, accept a value only after it appears in several consecutive frames.
 
 ## Localization and cropping
 
@@ -315,22 +245,8 @@ Tapirscan always localizes, in any orientation. Effort is one `mode`:
 | `inputStream.size`        | Pass frames at the resolution you want scanned; camera: request 720p or 1080p |
 | `inputStream.area`        | No region option. Crop the input yourself, as below.                          |
 
-To replace `area`, crop before scanning and add the offset back:
-
-```js
-async function scanRegion(scanner, source, { left, top, width, height }) {
-  const canvas = new OffscreenCanvas(width, height);
-  canvas.getContext("2d").drawImage(source, left, top, width, height, 0, 0, width, height);
-  const result = await scanner.scan(canvas);
-  return result.barcodes.map((barcode) => ({
-    ...barcode,
-    polygon: barcode.polygon.map(([x, y]) => [x + left, y + top]),
-  }));
-}
-```
-
-For a video, the region is in `videoWidth` × `videoHeight` pixels; Quagga's
-middle-half `area` becomes `{ left: 0, top: h * 0.25, width: w, height: h * 0.5 }`.
+To replace `area`, draw the region of the frame into a canvas, scan the canvas,
+and add the region's offset to `polygon` and `rect`.
 
 ## Bundle size and CSP
 

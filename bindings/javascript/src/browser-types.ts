@@ -23,8 +23,8 @@ export type {
 } from "./index.js";
 export type {
   ImageSource,
-  ModeScannerOptions,
   OneShotOptions,
   ScanOptions,
   ScannerOptions,
+  SingleModeOptions,
 } from "./browser-scanner.js";

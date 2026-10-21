@@ -3,8 +3,10 @@
 Scan barcodes in the browser or Node with a Rust/WASM core. Each scan returns
 every decoded barcode with its `text`, `format` and source-image `polygon` / `rect`.
 
-- **`tapirscan/browser`** for web apps: scan files, `<img>`, `<video>`, canvases
-  or bitmaps in a bundled worker, with no WASM setup.
+- **`tapirscan/browser/medium`** (or `/low`, `/high`, `/very-high`) for web apps:
+  scan files, `<img>`, `<video>`, canvases or bitmaps in a bundled worker, with
+  no WASM setup. `tapirscan/browser` offers every mode and Turbo preset.
+- **`tapirscan/camera`** scans a live camera with one of those scanners.
 - **`tapirscan`** (the core) for Node and decoded pixels, scanning synchronously
   on the calling thread.
 
@@ -56,7 +58,7 @@ for variant details and EAN/UPC supplements.
 ## Browser apps, React and Svelte
 
 ```js
-import { scan } from "tapirscan/browser";
+import { scan } from "tapirscan/browser/medium";
 
 const result = await scan(file); // a File from <input type="file">
 console.log(result.values); // e.g. ["4006381333931"]
@@ -67,24 +69,19 @@ several images or camera frames. Construction is synchronous:
 the worker and WASM load in the background, and the first scan waits for them.
 
 ```js
-import { Scanner } from "tapirscan/browser";
+import { Scanner } from "tapirscan/browser/medium";
 
 const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
 const result = await scanner.scan(image); // a file, <img>, canvas, video frame, ...
 scanner.dispose(); // stops the worker
 ```
 
-**One mode, smaller bundles:** `tapirscan/browser` bundles the WASM of every mode
-(about 18 MB uncompressed in total). `tapirscan/browser/low`, `/medium`, `/high`
-and `/very-high` export the same API with one mode's WASM, for example 2.6 MB
-(1 MB gzip) for Medium:
-
-```js
-import { Scanner } from "tapirscan/browser/medium";
-```
-
-They reject other modes and Turbo presets. Use `tapirscan/browser` when users
-switch modes at run time.
+**Entries:** bundlers emit every WASM file an entry references.
+`tapirscan/browser/low`, `/medium`, `/high` and `/very-high` reference one
+(Medium: 2.6 MB, 1 MB gzip) and have no `mode` option. `tapirscan/browser`
+references all eight (18 MB, 7 MB gzip) and downloads only the selected one at
+run time; use it to choose the mode or a Turbo preset at run time. The emitted
+size matters for deployments and service-worker precaches.
 
 ### Camera scanning
 
@@ -105,7 +102,7 @@ const camera = new CameraScanner(video, scanner, {
   },
 });
 await camera.start(); // rejects if permission is denied or there is no camera
-camera.stop();
+camera.stop(); // before dispose(), which would otherwise report through onError
 scanner.dispose();
 ```
 
@@ -122,14 +119,17 @@ scanner.dispose();
 - **Torch:** `camera.torchAvailable` and `await camera.setTorch(true)`, which
   resolves `false` without a controllable torch (front cameras, most laptops,
   some browsers). The torch turns off when the camera reopens.
-- **Other settings:** `constraints` merges extra video constraints over the
-  default 1280×720 ideal size; `camera.track` is the open `MediaStreamTrack`,
-  for example for zoom. `scanOptions` applies to every frame.
-- **Requirements:** HTTPS or `localhost`. iOS needs no extra attributes; the
-  controller sets `muted` and `playsinline`.
+- **`start()` result:** `true` once the camera is open; `false` when `stop()`
+  or another `start()` cancelled it, or the page is hidden (the camera opens
+  when it is shown). Errors thrown by `onScan` are reported to the console and
+  do not stop scanning.
+- **Other settings:** `constraints` adds video constraints; a `width` or
+  `height` replaces the default 1280×720 ideal size. `camera.track` is the open
+  `MediaStreamTrack`, for example for zoom. `scanOptions` applies to every frame.
+- **Requirements:** HTTPS or `localhost`, and `requestVideoFrameCallback`
+  (Firefox 132 or later). The controller sets `muted` and `playsinline` for iOS.
 
-`stop()` and `dispose()` are separate: the controller never disposes the
-scanner. In React (add `"use client";` at the top in Next.js):
+The controller never disposes the scanner. In React (add `"use client";` at the top in Next.js):
 
 ```jsx
 import { useEffect, useRef, useState } from "react";
@@ -142,10 +142,12 @@ export default function BarcodeScanner() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // tapirscan/browser/low keeps up on slower phones; select only the formats you need.
+    // Select only the formats you need; tapirscan/browser/low keeps up on slow phones.
     const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
     const camera = new CameraScanner(video.current, scanner, {
-      onScan: (result) => setBarcodes(result.barcodes),
+      // Skip re-rendering for consecutive empty frames.
+      onScan: ({ barcodes }) =>
+        setBarcodes((shown) => (barcodes.length || shown.length ? barcodes : shown)),
       onError: (cause) => setError(cause.message),
     });
     camera.start().catch((cause) => setError(cause.message));
@@ -173,7 +175,7 @@ In Svelte 5 and SvelteKit:
 
 ```svelte
 <script>
-  import { Scanner } from "tapirscan/browser";
+  import { Scanner } from "tapirscan/browser/medium";
   import { onDestroy } from "svelte";
 
   const scanner = new Scanner();
@@ -244,16 +246,13 @@ export default defineConfig({
 - **Requirements:** module workers, `OffscreenCanvas` and WebAssembly SIMD:
   Chrome 91, Firefox 114, Safari 16.4 or later. The camera loop also needs
   `requestVideoFrameCallback`. Images may have at most 65,535 pixels per side and 256 megapixels.
-- **Deployment size:** bundlers emit all eight WASM files (four modes and four
-  Turbo presets, 1.9–2.8 MB each, about 18 MB together), so any can be selected
-  without configuration. A page downloads only the one its scanner uses.
 
 **Fast scanning in the browser:**
 
 - Select only the formats you need; each enabled 2D format searches the whole image.
 - Reuse one `Scanner`. For camera loops, request 720p or 1080p frames, and use
-  `mode: "low"` or a [Turbo preset](#experimental-turbo-presets) if the preview
-  stutters.
+  `tapirscan/browser/low` or a [Turbo preset](#experimental-turbo-presets) if
+  the preview stutters.
 - Cheapest inputs first: decoded pixels with `{ transfer: true }`, decoded pixels or
   `ImageData`, then `<video>`/canvas sources (a canvas readback each), then
   `File`/`Blob` (includes image decoding). Pass pixels as you have them (RGBA is
@@ -326,7 +325,7 @@ call; `scanner.formats` exposes the defaults. Results stay valid after disposal.
 ## Experimental Turbo presets
 
 For faster **1D barcode scanning**, opt into a Turbo preset instead of a mode.
-Both entries accept it; in the browser it suits camera loops:
+The core and `tapirscan/browser` accept it; in the browser it suits camera loops:
 
 ```js
 import { Scanner } from "tapirscan/browser";

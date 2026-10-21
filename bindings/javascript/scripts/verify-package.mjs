@@ -96,8 +96,13 @@ export async function verifyPackage() {
     )
       throw Error(`WASM compiled selection does not match its name: ${name}`);
   }
-  // A single-mode worker names only its own WASM, so bundlers emit only that file.
+  // Each single-mode entry starts its own worker, which names only its own WASM,
+  // so bundlers emit only that file.
   for (const mode of expectedModes) {
+    const entry = await readFile(new URL(`dist/browser-${mode}.js`, pkg), "utf8");
+    const spawned = [...entry.matchAll(/new URL\("\.\/(browser-worker[\w-]*)\.js"/g)];
+    if (spawned.length !== 1 || spawned[0][1] !== `browser-worker-${mode}`)
+      throw Error(`tapirscan/browser/${mode} must start only browser-worker-${mode}.js`);
     const modeWorker = await readFile(new URL(`dist/browser-worker-${mode}.js`, pkg), "utf8");
     const named = [...modeWorker.matchAll(/new URL\("\.\.\/wasm\/([\w-]+)\.wasm"/g)];
     if (named.length !== 1 || named[0][1] !== mode)

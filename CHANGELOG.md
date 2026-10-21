@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- JavaScript: `tapirscan/browser/low`, `/medium`, `/high` and `/very-high` bundle
-  one mode's WASM instead of all eight files.
+- JavaScript: `tapirscan/browser/low`, `/medium`, `/high` and `/very-high` emit
+  one mode's WASM into application builds instead of all eight files.
 - JavaScript: `tapirscan/camera` adds `CameraScanner`, an optional camera loop
   for any browser scanner.
 - Docs: browser deployment (CSP, same-origin worker, static hosting) and
