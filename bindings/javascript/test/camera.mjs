@@ -70,7 +70,13 @@ async function preparePage(page) {
     };
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia: fake, enumerateDevices: async () => [] },
+      value: {
+        getUserMedia: fake,
+        enumerateDevices: async () => [
+          { kind: "audioinput", deviceId: "mic" },
+          { kind: "videoinput", deviceId: "back" },
+        ],
+      },
     });
     globalThis.t = {
       text,
@@ -506,6 +512,35 @@ for (const [name, launch] of browsers) {
         return { errors, running: controller.running };
       });
       assert.deepEqual(outcome, { errors: ["NotAllowedError"], running: false });
+    });
+
+    test("setTorch applies the torch when the camera has one; cameras() lists video inputs", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const controller = new camera.CameraScanner(video, scanner);
+        await controller.start();
+        const track = controller.track;
+        const applied = [];
+        track.getCapabilities = () => ({ torch: true });
+        track.applyConstraints = async (constraints) => applied.push(constraints);
+        const result = {
+          available: controller.torchAvailable,
+          torch: await controller.setTorch(true),
+          applied,
+          cameras: (await camera.CameraScanner.cameras()).map((device) => device.deviceId),
+        };
+        controller.stop();
+        scanner.dispose();
+        return result;
+      });
+      assert.deepEqual(outcome, {
+        available: true,
+        torch: true,
+        applied: [{ advanced: [{ torch: true }] }],
+        cameras: ["back"],
+      });
     });
 
     test("start rejects without requestVideoFrameCallback", async (context) => {

@@ -196,13 +196,13 @@ Select only expected formats and validate content instead.
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `symbols=[...]`; `setConfig(NONE, ENABLE, 0)` plus enables | `formats=[...]` or a group (`retail`, `common1D`, `common`, `1D`, `2D`, `all`); unselected formats are off |
 | `ENABLE` for ISBN, EAN2, EAN5                              | [Supplement policy](#ean-2-and-ean-5-supplements); ISBN is not a format                                    |
-| `X_DENSITY`, `Y_DENSITY`                                   | None; choose `mode`: `"low"`, `"medium"` (default), `"high"`, `"very-high"`                                |
+| `X_DENSITY`, `Y_DENSITY`                                   | None; choose a mode: Python `mode=`, browser `tapirscan/browser/<mode>`                                    |
 | `MIN_LEN`, `MAX_LEN`                                       | None; filter on `len(barcode.text)`                                                                        |
 | `ADD_CHECK`, `EMIT_CHECK`                                  | None; check digits are returned as read                                                                    |
 | `ASCII` (Code 39 full ASCII)                               | Not supported                                                                                              |
 | `BINARY`                                                   | `payload_bytes`                                                                                            |
 
-Use `mode="low"` for camera frames, `"high"` for hard stills
+Use Low for camera frames (`mode="low"`, `tapirscan/browser/low`), `"high"` for hard stills
 ([effort levels](FORMATS.md#effort-levels)). ZBar's usual symbologies:
 
 ```python

@@ -3,6 +3,7 @@
 import { BrowserScanner, oneShot, type ScannerOptions } from "./browser-scanner.js";
 
 export * from "./browser-types.js";
+export type { OneShotOptions } from "./browser-scanner.js";
 
 /**
  * A reusable scanner running in a dedicated worker, so scanning never blocks the
