@@ -1187,7 +1187,8 @@ fn scan_additional(
             && image.width * image.height <= POLICY.qr_restoration_pixels;
         scans.push(foreground);
         if restore {
-            let sharpened = crate::signal_recovery::sharpen(pixels, image.width, image.height, 2);
+            let sharpened =
+                barcode_multiformat::qr_enhance::sharpen(pixels, image.width, image.height);
             if sharpened != pixels {
                 let sharpened_scan = scan_reader(
                     &sharpened,

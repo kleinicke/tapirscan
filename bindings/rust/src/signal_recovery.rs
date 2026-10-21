@@ -1,40 +1,4 @@
 //! Bounded source contrast recovery for selected matrix readers.
-pub(crate) fn sharpen(gray: &[u8], width: usize, height: usize, strength: i32) -> Vec<u8> {
-    let mut horizontal = vec![0_u16; width * height];
-    for y in 0..height {
-        let row = &gray[y * width..(y + 1) * width];
-        for x in 0..width {
-            horizontal[y * width + x] = u16::from(row[x.saturating_sub(2)])
-                + u16::from(row[x.saturating_sub(1)]) * 4
-                + u16::from(row[x]) * 6
-                + u16::from(row[(x + 1).min(width - 1)]) * 4
-                + u16::from(row[(x + 2).min(width - 1)]);
-        }
-    }
-    let mut output = vec![0_u8; width * height];
-    for y in 0..height {
-        let rows = [
-            y.saturating_sub(2),
-            y.saturating_sub(1),
-            y,
-            (y + 1).min(height - 1),
-            (y + 2).min(height - 1),
-        ];
-        for x in 0..width {
-            let smooth = u32::from(horizontal[rows[0] * width + x])
-                + u32::from(horizontal[rows[1] * width + x]) * 4
-                + u32::from(horizontal[rows[2] * width + x]) * 6
-                + u32::from(horizontal[rows[3] * width + x]) * 4
-                + u32::from(horizontal[rows[4] * width + x]);
-            let center = i32::from(gray[y * width + x]);
-            let blur = i32::try_from((smooth + 128) / 256).expect("pixel fits");
-            output[y * width + x] =
-                u8::try_from((center + strength * (center - blur)).clamp(0, 255)).expect("clamped");
-        }
-    }
-    output
-}
-
 pub(crate) fn region_retries(
     pixels: &[u8],
     width: usize,
@@ -85,7 +49,7 @@ pub(crate) fn region_retries(
         for method in 0..3 {
             let (image, scale) = match method {
                 0 => (crop.clone(), 1),
-                1 => (sharpen(&crop, w, h, 2), 1),
+                1 => (barcode_multiformat::qr_enhance::sharpen(&crop, w, h), 1),
                 _ => (double(&crop, w, h), 2),
             };
             let mut retry = crate::formats::scan_reader(&image, w * scale, h * scale, mask, effort);
@@ -156,12 +120,13 @@ pub(crate) fn covered(region: [[f32; 2]; 4], decoded: [[f32; 2]; 4]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{double, sharpen};
+    use super::double;
+    use barcode_multiformat::qr_enhance::sharpen;
     #[test]
     fn constant_sources_stay_constant_at_edges() {
         for value in [0, 127, 255] {
             let pixels = vec![value; 35];
-            assert_eq!(sharpen(&pixels, 7, 5, 2), pixels);
+            assert_eq!(sharpen(&pixels, 7, 5), pixels);
             assert_eq!(double(&pixels, 7, 5), vec![value; 140]);
         }
     }

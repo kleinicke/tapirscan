@@ -180,7 +180,7 @@ pub(crate) fn recover(
     if !regions || (size.w == region_w && size.h == region_h) {
         return None;
     }
-    let mut matrix = vec![false; size.w * size.h];
+    matrix.fill(false);
     for top in (0..size.h).step_by(region_h) {
         for left in (0..size.w).step_by(region_w) {
             let corner = |column: usize, row: usize| {

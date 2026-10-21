@@ -256,6 +256,11 @@ Their finalization is also different: multiformat `linear_geometry::distinct`
 can join partial fragments; the matrix frontend only removes overlapping
 duplicates. Sharing detector invocation does not merge these ownership rules.
 
+QR enhancement and the host's matrix recovery passes share
+[`qr_enhance::sharpen`](../multiformat/src/qr_enhance.rs). The filter uses the same
+integer rounding, replicated image edges and fixed sharpening strength at each
+call site; the callers retain their own recovery triggers and pixel budgets.
+
 ### 4. Mode configuration is spread across several legitimate layers
 
 Mode decisions live in `effort.rs`, `formats/policy.rs`, core feature branches,
