@@ -73,12 +73,17 @@ jobs:
       - name: Install optional Python image dependencies
         run: |
           # Keep NumPy stubs compatible with the Python 3.10 API type-check target.
-          python3 -m pip install Pillow numpy==2.2.6 zxing-cpp
+          python3 -m pip install Pillow numpy==2.2.6 zxing-cpp typing_extensions
           if [ "$RUNNER_OS" = "Linux" ]; then
             python3 -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           else
             python3 -m pip install torch
           fi
+      - name: Check native artifact freshness and Rust package preparation
+        run: |
+          python3 scripts/test_native_identity.py
+          python3 scripts/test_prepare_rust_artifacts.py
+          python3 scripts/test_prepare_rust.py
       - run: python3 scripts/test_compare_scanners.py
       - name: Fetch pinned test-only supplement encoder
         uses: actions/checkout@v4

@@ -2,15 +2,18 @@
 """Build the native library, containing all four modes, over the public Rust crate."""
 
 import argparse
+import json
 import os
 import platform
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 
 from build_turbo import TIERS as TURBO_TIERS
 from build_turbo import environment as turbo_environment
+from native_identity import build_metadata, cargo_artifact, record, source_identity
 from prepare_rust import prepared_package, sync_tree, write_changed
 
 from build import ROOT, clean_env
@@ -89,6 +92,7 @@ def static_library(native: Path, target: str, env: dict[str, str]) -> Path:
             "--manifest-path",
             str(native / "Cargo.toml"),
         ],
+        cwd=ROOT,
         env=env,
         check=True,
     )
@@ -119,19 +123,38 @@ def prepare_native_crate(public_crate: Path) -> Path:
     return native
 
 
-def build(public_crate: Path, destination: Path, turbo: str | None = None) -> None:
+def build(
+    public_crate: Path,
+    destination: Path,
+    turbo: str | None = None,
+    *,
+    identity: dict[str, object] | None = None,
+) -> None:
     """Build, test and install the native library and the Rust examples."""
+    if identity is None:
+        identity = source_identity(ROOT)
     native = prepare_native_crate(public_crate)
     env = cargo_env(TARGET, turbo=turbo)
+    env["RUSTUP_TOOLCHAIN"] = cast("str", identity["toolchain"])
     common = ["--offline", "--manifest-path", str(native / "Cargo.toml")]
-    subprocess.run(["cargo", "test", *common], env=env, check=True)
+    subprocess.run(["cargo", "test", *common], cwd=ROOT, env=env, check=True)
     name = library_name()
-    command = ["cargo", "rustc", "--release", "--lib", *common]
+    command = ["cargo", "rustc", "--release", "--lib", "--message-format=json", *common]
     if sys.platform == "darwin":
         command += ["--", "-C", f"link-arg=-Wl,-install_name,@rpath/{name}"]
     elif sys.platform.startswith("linux"):
         command += ["--", "-C", f"link-arg=-Wl,-soname,{name}"]
-    subprocess.run(command, env=env, check=True)
+    completed = subprocess.run(
+        command, cwd=ROOT, env=env, text=True, stdout=subprocess.PIPE, check=False
+    )
+    for line in completed.stdout.splitlines():
+        message = json.loads(line)
+        if message.get("reason") == "compiler-message":
+            rendered = message.get("message", {}).get("rendered")
+            if rendered:
+                print(rendered, end="", file=sys.stderr)
+    completed.check_returncode()
+    artifact = cargo_artifact(completed.stdout, native, name)
     subprocess.run(
         [
             "cargo",
@@ -142,15 +165,17 @@ def build(public_crate: Path, destination: Path, turbo: str | None = None) -> No
             str(public_crate / "Cargo.toml"),
             "--examples",
         ],
+        cwd=ROOT,
         env=env,
         check=True,
     )
     destination.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(TARGET / "release" / name, destination / name)
+    shutil.copy2(artifact, destination / name)
     if sys.platform == "win32":
         shutil.copy2(
-            TARGET / "release/tapirscan.dll.lib", destination / "tapirscan.dll.lib"
+            artifact.with_name("tapirscan.dll.lib"), destination / "tapirscan.dll.lib"
         )
+    record(ROOT, destination / name, identity, turbo, build_metadata(identity, env))
     print(f"Built {destination / name}", flush=True)
 
 
@@ -169,5 +194,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     public = ROOT / "build/crates/tapirscan"
+    identity = source_identity(ROOT)
     with prepared_package(public, refresh=public.exists()):
-        build(public, args.output, args.turbo)
+        build(public, args.output, args.turbo, identity=identity)

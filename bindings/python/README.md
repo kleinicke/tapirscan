@@ -27,6 +27,11 @@ effort modes:
 pip install tapirscan
 ```
 
+Building wheels from source requires a full checkout and a matching native
+library with its `native-build.json` sidecar. See
+[development](../../docs/DEVELOPMENT.md#install-local-packages) for build commands
+and using a prebuilt library through `TAPIRSCAN_NATIVE_DIR`.
+
 ## Supported formats
 
 All formats below are supported. A ✓ means the format is included in that

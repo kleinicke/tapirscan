@@ -24,7 +24,6 @@ class BuildWithLibraries(build_py):
 
     def run(self) -> None:
         """Require and bundle the native library, which contains every mode."""
-        super().run()
         source = Path(
             os.environ.get(
                 "TAPIRSCAN_NATIVE_DIR",
@@ -38,6 +37,17 @@ class BuildWithLibraries(build_py):
             if sys.platform == "darwin"
             else "libtapirscan.so"
         )
+        # Wheel builds require the full checkout; Python-only sdists are unsupported.
+        root = Path(__file__).resolve().parents[2]
+        sys.path.insert(0, str(root / "scripts"))
+        try:
+            # Metadata queries need not import checkout-only build helpers.
+            from native_identity import sha256, verify  # noqa: PLC0415
+
+            expected_digest = verify(root, source / name)
+        finally:
+            sys.path.pop(0)
+        super().run()
         package = Path(self.build_lib) / "tapirscan"
         shutil.copy2(
             Path(__file__).resolve().parents[2] / "multiformat/THIRD_PARTY_NOTICES.md",
@@ -53,7 +63,12 @@ class BuildWithLibraries(build_py):
                 "Build the native library or set TAPIRSCAN_NATIVE_DIR."
             )
             raise RuntimeError(msg)
-        shutil.copy2(source / name, destination / name)
+        copied = destination / name
+        shutil.copy2(source / name, copied)
+        if sha256(copied) != expected_digest:
+            copied.unlink()
+            msg = "Native library changed while packaging; rebuild and retry the wheel"
+            raise RuntimeError(msg)
 
 
 class CtypesWheel(bdist_wheel):

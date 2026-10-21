@@ -84,8 +84,18 @@ python3 -m pip install build/wheels/tapirscan-*.whl
 
 Python wheels include the native library. In a source checkout, use
 `library_dir="build/native"` or `TAPIRSCAN_LIBRARY_DIR`. The wheel builder accepts
-`TAPIRSCAN_NATIVE_DIR` for a prebuilt directory and fails if the native library is
-missing.
+`TAPIRSCAN_NATIVE_DIR` for a prebuilt directory. That directory must contain the
+library and its `native-build.json` sidecar from `scripts/build_native.py`. Wheel
+creation checks the library hash, current native source inventory, ABI, package
+version and build recipe before copying it. Missing, stale or explicit private
+Turbo artifacts fail with rebuild instructions. Identical source checkouts may
+use a matching external build directory; verification does not load the library
+or require a compiler on the packaging machine.
+
+`native-build.json` records the pinned toolchain request and supplied build
+settings. It establishes source freshness under trusted Cargo configuration;
+it does not attest the effective compiler or replace wheel platform/deployment
+validation. Rebuild older native libraries once to create this sidecar.
 Linux release wheels must be built for the advertised manylinux baseline; see
 [release preparation](RELEASING.md).
 

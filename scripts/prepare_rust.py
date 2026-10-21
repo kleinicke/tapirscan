@@ -73,22 +73,59 @@ def copy_module(
 def source_rewriter() -> Path:
     """Build the pinned token-aware module relocation tool once per preparation."""
     target = ROOT / "build/source-tool"
-    subprocess.run(
+    toolchain = rust_toolchain()
+    version = subprocess.check_output(
+        ["rustc", f"+{toolchain}", "-vV"], cwd=ROOT, text=True
+    )
+    hosts = [
+        line.removeprefix("host: ").strip()
+        for line in version.splitlines()
+        if line.startswith("host: ")
+    ]
+    if len(hosts) != 1 or not hosts[0]:
+        message = "Pinned rustc did not report exactly one host target"
+        raise ValueError(message)
+    completed = subprocess.run(
         [
             "cargo",
-            f"+{rust_toolchain()}",
+            f"+{toolchain}",
             "build",
+            "--target",
+            hosts[0],
             "--offline",
             "--locked",
+            "--message-format=json",
             "--manifest-path",
             str(ROOT / "tools/package-source/Cargo.toml"),
             "--target-dir",
             str(target),
         ],
-        check=True,
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        check=False,
     )
-    suffix = ".exe" if sys.platform == "win32" else ""
-    return target / "debug" / f"tapirscan-package-source{suffix}"
+    artifacts: set[Path] = set()
+    manifest = (ROOT / "tools/package-source/Cargo.toml").resolve()
+    for line in completed.stdout.splitlines():
+        message = json.loads(line)
+        if message.get("reason") == "compiler-message":
+            rendered = message.get("message", {}).get("rendered")
+            if rendered:
+                print(rendered, end="", file=sys.stderr)
+        if (
+            message.get("reason") == "compiler-artifact"
+            and Path(message.get("manifest_path", "")).resolve() == manifest
+            and message.get("target", {}).get("name") == "tapirscan-package-source"
+            and "bin" in message.get("target", {}).get("kind", [])
+            and message.get("executable")
+        ):
+            artifacts.add(Path(message["executable"]))
+    completed.check_returncode()
+    if len(artifacts) != 1:
+        message = "Cargo did not report exactly one package-source executable"
+        raise ValueError(message)
+    return artifacts.pop()
 
 
 def assemble(destination: Path) -> None:
