@@ -1145,6 +1145,16 @@ fn sample_line_density(
     let methods = if enhanced { 6 } else { 3 };
     for method in 0..methods {
         candidate.restored = method >= 3;
+        // Code39 has no mandatory checksum. Restored narrow bars can turn H
+        // into B consistently across rows, so only original profiles may add it.
+        let active_mask = if method >= 3 {
+            candidate.mask & !linear::CODE39
+        } else {
+            candidate.mask
+        };
+        if active_mask == 0 {
+            break;
+        }
         if method == 3 {
             let deghost = candidate.profile.deghost();
             if !cfg!(feature = "low") && candidate.profile.wide() {
@@ -1159,16 +1169,6 @@ fn sample_line_density(
             } else {
                 sampler.restore_contrast(candidate.profile.contrast());
             }
-        }
-        // Code39 has no mandatory checksum. Restored narrow bars can turn H
-        // into B consistently across rows, so only original profiles may add it.
-        let active_mask = if method >= 3 {
-            candidate.mask & !linear::CODE39
-        } else {
-            candidate.mask
-        };
-        if active_mask == 0 {
-            break;
         }
         let method = method % 3;
         let mut decoded_wide = false;
