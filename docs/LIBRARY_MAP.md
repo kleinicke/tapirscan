@@ -192,6 +192,9 @@ Detector policy is separate from group effort:
   Very High have no finite alignment counter cap there, but other pass limits
   still apply. Gray retry is off/hard/erasures/erasures. Very High's effort
   enables curved-grid attempts. These values are deliberately not monotonic.
+  The gray pass computes confidence margins only for erasure retries. Normal
+  orientation borrows the sampled matrix; mirrored attempts share a transpose
+  helper across hard decoding and both erasure-retry paths.
 - Aztec `Policy::for_mode` uses smaller Low refinement/curve budgets and no bowed
   or adaptive sampling; Medium and above share its standard policy. The detector
   also receives the compiled mode for mode-dependent enlarged retries.

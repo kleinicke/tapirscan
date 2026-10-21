@@ -246,8 +246,14 @@ fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) ->
         errors <= 14 || (moat_errors <= 3 && center_errors <= 2)
     })
 }
-// Nearby triples bound dense-scene work without the cubic combinations of all
-// finders. Prefer compact, approximately orthogonal, similarly sized groups.
+fn transpose_if_mirrored(matrix: &[bool], n: usize, mirror: bool) -> std::borrow::Cow<'_, [bool]> {
+    if mirror {
+        std::borrow::Cow::Owned((0..n * n).map(|i| matrix[(i % n) * n + i / n]).collect())
+    } else {
+        std::borrow::Cow::Borrowed(matrix)
+    }
+}
+
 /// Resample module centers in gray and threshold each module against the mean of
 /// its 7x7 module neighborhood, which follows shadows across the symbol; then
 /// decode. With `erasures`, also retry with the lowest-margin modules as erasures.
@@ -288,7 +294,7 @@ fn gray_decode(
     }
     let radius = 3;
     let mut bits = vec![false; n * n];
-    let mut margins = vec![0_i32; n * n];
+    let mut margins = erasures.then(|| vec![0_i32; n * n]);
     for y in 0..n {
         for x in 0..n {
             let (x0, y0, x1, y1) = (
@@ -302,7 +308,9 @@ fn gray_decode(
                 + sum[y0 * (n + 1) + x0];
             let value = values[y * n + x] * area;
             bits[y * n + x] = value < total;
-            margins[y * n + x] = (value - total).abs() / area;
+            if let Some(margins) = &mut margins {
+                margins[y * n + x] = (value - total).abs() / area;
+            }
         }
     }
     // Match the polarity of the threshold image the grid was found in.
@@ -312,7 +320,7 @@ fn gray_decode(
         }
     }
     // Optionally retry with the weakest twelfth of the modules as erasures.
-    let uncertain = erasures.then(|| {
+    let uncertain = margins.map(|margins| {
         let mut order: Vec<usize> = (0..n * n).collect();
         let weakest = n * n / 12;
         order.select_nth_unstable_by_key(weakest, |&i| (margins[i], i));
@@ -323,19 +331,13 @@ fn gray_decode(
         uncertain
     });
     for mirror in [false, true] {
-        let transpose = |v: &[bool]| -> Vec<bool> {
-            if mirror {
-                (0..n * n).map(|i| v[(i % n) * n + i / n]).collect()
-            } else {
-                v.to_vec()
-            }
-        };
-        let matrix = transpose(&bits);
+        let matrix = transpose_if_mirrored(&bits, n, mirror);
         if let Some(read) = qr::decode_matrix(&matrix, n) {
             return Some(read);
         }
         if let Some(uncertain) = &uncertain
-            && let Some(read) = qr::decode_matrix_soft(&matrix, n, &transpose(uncertain))
+            && let Some(read) =
+                qr::decode_matrix_soft(&matrix, n, &transpose_if_mirrored(uncertain, n, mirror))
         {
             return Some(read);
         }
@@ -361,6 +363,8 @@ fn triple_score(finders: &[Finder], triple: [usize; 3]) -> f32 {
     // not rank behind compact accidental triples.
     f32::midpoint(d[0], d[1]) / module * 0.1 + angle_error * 30. + spread * 10.
 }
+// Nearby triples bound dense-scene work without the cubic combinations of all
+// finders. Prefer compact, approximately orthogonal, similarly sized groups.
 fn local_triples(finders: &[Finder]) -> impl Iterator<Item = [usize; 3]> + use<> {
     let mut triples = Vec::new();
     for (a, finder) in finders.iter().enumerate() {
@@ -1387,11 +1391,7 @@ pub fn detect_with(
                                 samples.push(matrix.clone());
                             }
                             for mirror in [false, true] {
-                                let matrix = if mirror {
-                                    (0..n * n).map(|i| matrix[(i % n) * n + i / n]).collect()
-                                } else {
-                                    matrix.clone()
-                                };
+                                let matrix = transpose_if_mirrored(&matrix, n, mirror);
                                 if let Some(read) = qr::decode_matrix(&matrix, n) {
                                     used.extend(finder_triple.iter().map(|p| (*p).clone()));
                                     results.push(Detection {
@@ -1439,17 +1439,10 @@ pub fn detect_with(
                                 &[]
                             };
                             for &mirror in mirrors {
-                                let transpose = |v: &[bool]| -> Vec<bool> {
-                                    if mirror {
-                                        (0..n * n).map(|i| v[(i % n) * n + i / n]).collect()
-                                    } else {
-                                        v.to_vec()
-                                    }
-                                };
                                 if let Some(read) = qr::decode_matrix_soft(
-                                    &transpose(&majority),
+                                    &transpose_if_mirrored(&majority, n, mirror),
                                     n,
-                                    &transpose(&uncertain),
+                                    &transpose_if_mirrored(&uncertain, n, mirror),
                                 ) {
                                     used.extend(finder_triple.iter().map(|p| (*p).clone()));
                                     results.push(Detection {
@@ -1578,16 +1571,26 @@ mod gray_decode_tests {
             .map(|i| gray[((i / n + margin) * scale + 3) * w + (i % n + margin) * scale + 3] < 128)
             .collect();
         assert!(crate::qr::decode_matrix(&global, n).is_none());
-        let read =
-            gray_decode(&gray, [w, w], n, &t, &bits, false).expect("gray decode reads the symbol");
-        assert_eq!(read.text, "TAPIRSCAN");
         // A light-on-dark symbol: the inverted threshold image marks its light
         // modules, and the polarity check follows that.
         let inverted_gray: Vec<u8> = gray.iter().map(|v| 255 - v).collect();
-        assert_eq!(
-            gray_decode(&inverted_gray, [w, w], n, &t, &bits, false).map(|r| r.text),
-            Some("TAPIRSCAN".into())
-        );
+        let mirrored_gray: Vec<u8> = (0..w * w).map(|i| gray[(i % w) * w + i / w]).collect();
+        let mirrored_bits: Vec<bool> = (0..n * n).map(|i| bits[(i % n) * n + i / n]).collect();
+        for erasures in [false, true] {
+            assert_eq!(
+                gray_decode(&gray, [w, w], n, &t, &bits, erasures).map(|r| r.text),
+                Some("TAPIRSCAN".into())
+            );
+            assert_eq!(
+                gray_decode(&inverted_gray, [w, w], n, &t, &bits, erasures).map(|r| r.text),
+                Some("TAPIRSCAN".into())
+            );
+            assert_eq!(
+                gray_decode(&mirrored_gray, [w, w], n, &t, &mirrored_bits, erasures)
+                    .map(|r| r.text),
+                Some("TAPIRSCAN".into())
+            );
+        }
     }
 }
 
@@ -2101,5 +2104,51 @@ mod policy_tests {
             assert!(policy.several_patience >= medium.patience, "mode {mode}");
         }
         assert!(Policy::for_mode(0).patience < medium.patience);
+    }
+}
+
+#[cfg(test)]
+mod borrowed_transpose_tests {
+    use super::transpose_if_mirrored;
+    use std::borrow::Cow;
+
+    #[test]
+    fn normal_orientation_borrows_and_mirror_matches_coordinate_transpose() {
+        for n in (0..=1).chain((21..=177).step_by(4)) {
+            for pattern in 0..2 {
+                let matrix: Vec<bool> = (0..n * n)
+                    .map(|i| {
+                        if pattern == 0 {
+                            (i * 17 + i / 7) % 11 < 5
+                        } else {
+                            i % 13 == 2
+                        }
+                    })
+                    .collect();
+                let original = matrix.clone();
+                let normal = transpose_if_mirrored(&matrix, n, false);
+                assert!(matches!(normal, Cow::Borrowed(_)));
+                assert_eq!(normal.as_ptr(), matrix.as_ptr());
+                let mirrored = transpose_if_mirrored(&matrix, n, true);
+                assert!(matches!(mirrored, Cow::Owned(_)));
+                assert_eq!(mirrored.len(), matrix.len());
+                for y in 0..n {
+                    for x in 0..n {
+                        assert_eq!(mirrored[y * n + x], matrix[x * n + y]);
+                    }
+                }
+                assert_eq!(transpose_if_mirrored(&mirrored, n, true).as_ref(), matrix);
+                assert_eq!(matrix, original);
+            }
+        }
+        let short = [true, false, true];
+        assert_eq!(transpose_if_mirrored(&short, 2, false).as_ref(), short);
+        assert!(std::panic::catch_unwind(|| transpose_if_mirrored(&short, 2, true)).is_err());
+        let padded = [true, false, true, true, false];
+        assert_eq!(transpose_if_mirrored(&padded, 2, false).len(), 5);
+        assert_eq!(
+            transpose_if_mirrored(&padded, 2, true).as_ref(),
+            [true, true, false, true]
+        );
     }
 }
