@@ -53,25 +53,11 @@ follow the [evaluation protocol](BENCHMARKS.md).
 
 ## Browser
 
-- **Reuse one `Scanner`** from `tapirscan/browser` and `dispose()` it when the
-  view closes. It runs in its own worker, so scans never block the page.
-- **Camera loops:** request a moderate resolution, use Low (or the experimental
-  Turbo presets for 1D), select only your formats, and await each scan before
-  starting the next:
-
-  ```js
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
-  });
-  video.srcObject = stream;
-  await video.play();
-  const scanner = new Scanner({ mode: "low", formats: ["EAN13", "QRCode"] });
-  while (running) {
-    await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
-    const result = await scanner.scan(video);
-    // ...
-  }
-  ```
+- **Reuse one `Scanner`** from `tapirscan/browser/<mode>` and `dispose()` it when
+  the view closes. It runs in its own worker, so scans never block the page.
+- **Camera loops:** use [`tapirscan/camera`](../bindings/javascript/README.md#camera-scanning)
+  with `tapirscan/browser/low` (or an experimental Turbo preset for 1D) and only
+  your formats. It scans one frame at a time at 1280×720 by default.
 
 - **Pixels you already have:** pass `ImageData` or `{ data, width, height, channels }`.
   `scanner.scan(pixels, { transfer: true })` hands the buffer to the worker instead

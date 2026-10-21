@@ -12,7 +12,7 @@ size, import a single-mode entry:
 | Entry                         | WASM emitted     | Size (gzip)     |
 | ----------------------------- | ---------------- | --------------- |
 | `tapirscan/browser/low`       | `low.wasm`       | 2.0 MB (0.8 MB) |
-| `tapirscan/browser/medium`    | `medium.wasm`    | 2.6 MB (1.0 MB) |
+| `tapirscan/browser/medium`    | `medium.wasm`    | 2.5 MB (1.0 MB) |
 | `tapirscan/browser/high`      | `high.wasm`      | 2.7 MB (1.0 MB) |
 | `tapirscan/browser/very-high` | `very-high.wasm` | 2.7 MB (1.0 MB) |
 | `tapirscan/browser`           | all modes, Turbo | 18 MB (7 MB)    |

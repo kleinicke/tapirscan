@@ -78,7 +78,7 @@ scanner.dispose(); // stops the worker
 
 **Entries:** bundlers emit every WASM file an entry references.
 `tapirscan/browser/low`, `/medium`, `/high` and `/very-high` reference one
-(Medium: 2.6 MB, 1 MB gzip) and have no `mode` option. `tapirscan/browser`
+(Medium: 2.5 MB, 1 MB gzip) and have no `mode` option. `tapirscan/browser`
 references all eight (18 MB, 7 MB gzip) and downloads only the selected one at
 run time; use it to choose the mode or a Turbo preset at run time. The emitted
 size matters for deployments and service-worker precaches.

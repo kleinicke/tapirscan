@@ -81,7 +81,7 @@ export class CameraScanner {
     return devices.filter((device) => device.kind === "videoinput");
   }
 
-  /** Whether a camera is open or opening. */
+  /** Whether `start()` is in effect; the camera is released while the page is hidden. */
   get running(): boolean {
     return this.#selection !== undefined;
   }
