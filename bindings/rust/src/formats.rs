@@ -365,6 +365,34 @@ fn pharmacode_bars(text: &str) -> Option<Vec<bool>> {
     Some(bars)
 }
 
+/// Whether `short`, read along a line (within about 18 degrees) parallel to `long`'s reading axis (its first edge),
+/// lies within `long`'s extent along that axis and within `across` of its length across
+/// it. A read outline covers only the rows that decoded; a fragment from other rows of
+/// the same bars can lie beside it.
+fn along_same_bars(long: &crate::Quad, short: &crate::Quad, across_limit: f64) -> bool {
+    let axis = [long[1][0] - long[0][0], long[1][1] - long[0][1]];
+    let length = axis[0].hypot(axis[1]);
+    let short_axis = [short[1][0] - short[0][0], short[1][1] - short[0][1]];
+    let short_length = short_axis[0].hypot(short_axis[1]);
+    if length < 1. || short_length < 1. {
+        return false;
+    }
+    let unit = [axis[0] / length, axis[1] / length];
+    if (unit[0] * short_axis[0] + unit[1] * short_axis[1]).abs() < 0.95 * short_length {
+        return false;
+    }
+    let center = |q: &crate::Quad| {
+        q.iter()
+            .fold([0., 0.], |c, p| [c[0] + p[0] / 4., c[1] + p[1] / 4.])
+    };
+    let (origin, middle) = (long[0], center(long));
+    let across = |p: [f64; 2]| ((p[0] - middle[0]) * unit[1] - (p[1] - middle[1]) * unit[0]).abs();
+    short.iter().all(|p| {
+        let along = (p[0] - origin[0]) * unit[0] + (p[1] - origin[1]) * unit[1];
+        (-0.05 * length..=1.05 * length).contains(&along)
+    }) && across(center(short)) <= across_limit * length
+}
+
 /// MSI Plessey, Industrial 2 of 5 and Pharmacode have no per-character check: a
 /// threshold pass that erases part of a symbol can leave a fragment that still reads
 /// (an MSI prefix whose last digit passes the mod-10 check, Industrial 2 of 5 digits
@@ -389,12 +417,32 @@ fn drop_unchecked_fragments(reads: &mut Vec<Read>) {
             reads.iter().any(|other| {
                 other.format == read.format
                     && contains(other, read)
-                    && overlap_quads(&read.polygon, &other.polygon).0 >= 0.65
+                    && (overlap_quads(&read.polygon, &other.polygon).0 >= 0.65
+                        || (read.format != "MSIPlessey"
+                            && along_same_bars(&other.polygon, &read.polygon, 0.5)))
             })
         })
         .collect();
     let mut fragment = fragments.into_iter();
     reads.retain(|_| !fragment.next().unwrap_or(false));
+    // Reads of the same opt-in bar code from rows of the same bars that the outline
+    // merge left apart (small symbols give it little evidence): keep the first,
+    // best-ranked one.
+    let mut kept: Vec<Read> = Vec::with_capacity(reads.len());
+    for read in reads.drain(..) {
+        let duplicate = matches!(read.format.as_str(), "Industrial25" | "Pharmacode")
+            && kept.iter().any(|other| {
+                other.format == read.format
+                    && other.text == read.text
+                    && (overlap_quads(&read.polygon, &other.polygon).0 >= 0.65
+                        || along_same_bars(&other.polygon, &read.polygon, 1.)
+                        || along_same_bars(&read.polygon, &other.polygon, 1.))
+            });
+        if !duplicate {
+            kept.push(read);
+        }
+    }
+    *reads = kept;
 }
 
 /// Drop linear reads of periodic or two-dimensional textures (see [`crate::texture`]). A
@@ -1471,6 +1519,55 @@ mod coverage_tests {
         assert!(contains_point([0., 5.], &quad));
         assert!(!contains_point([0., 0.], &[[0., 0.]; 4]));
         assert!(!contains_point([f64::NAN, 0.], &quad));
+    }
+}
+
+#[cfg(test)]
+mod fragment_tests {
+    use super::drop_unchecked_fragments;
+    use crate::read::Read;
+
+    fn read(format: &str, text: &str, polygon: crate::Quad) -> Read {
+        let mut read = Read::primary([0; 13], polygon, 3, 0, vec![]);
+        read.format = format.into();
+        read.text = text.into();
+        read
+    }
+
+    #[test]
+    fn a_fragment_beside_the_full_outline_of_the_same_bars_is_dropped() {
+        // The full read covers rows 100-160; the fragment decoded on rows 180-190.
+        let full = read(
+            "Industrial25",
+            "286503",
+            [[0., 100.], [300., 100.], [300., 160.], [0., 160.]],
+        );
+        let fragment = read(
+            "Industrial25",
+            "286",
+            [[20., 180.], [170., 180.], [170., 190.], [20., 190.]],
+        );
+        let mut reads = vec![full.clone(), fragment.clone()];
+        drop_unchecked_fragments(&mut reads);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].text, "286503");
+        // A second read of the same symbol from other rows is dropped too.
+        let mut beside = full.clone();
+        beside.polygon = [[5., 175.], [305., 175.], [305., 215.], [5., 215.]];
+        let mut reads = vec![full.clone(), beside];
+        drop_unchecked_fragments(&mut reads);
+        assert_eq!(reads.len(), 1);
+        // A symbol farther away than half the length, or crossing the axis, stays.
+        for polygon in [
+            [[20., 320.], [170., 320.], [170., 330.], [20., 330.]],
+            [[100., 0.], [100., 150.], [110., 150.], [110., 0.]],
+        ] {
+            let mut separate = fragment.clone();
+            separate.polygon = polygon;
+            let mut reads = vec![full.clone(), separate];
+            drop_unchecked_fragments(&mut reads);
+            assert_eq!(reads.len(), 2);
+        }
     }
 }
 

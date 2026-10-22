@@ -380,6 +380,39 @@ fn itf_on_the_bars_of_a_code39_read_yields_to_it() {
     assert_eq!(scan(&pixels, itf).len(), 2);
 }
 #[test]
+fn opt_in_bar_code_reads_of_one_symbol_merge() {
+    let mut pixels = vec![220; 320 * 260];
+    for y in 20..240 {
+        for x in 60..252 {
+            if (x - 60) / 3 % 3 == 0 {
+                pixels[y * 320 + x] = 20;
+            }
+        }
+    }
+    let image = Image {
+        data: &pixels,
+        width: 320,
+        height: 260,
+        channels: 1,
+        stride: 320,
+    };
+    for format in ["Industrial25", "Pharmacode"] {
+        let mut first = crate::read::Read::primary(
+            [0; 13],
+            [[60., 50.], [252., 50.], [252., 140.], [60., 140.]],
+            4,
+            0,
+            vec![],
+        );
+        first.format = format.into();
+        first.text = "4711".into();
+        let mut second = first.clone();
+        second.polygon = [[60., 100.], [252., 100.], [252., 180.], [60., 180.]];
+        let reads = merge(vec![first, second], image);
+        assert_eq!(reads.len(), 1, "{format}");
+    }
+}
+#[test]
 fn footprints_arbitrate_different_payloads_only_on_connected_source_bars() {
     let mut pixels = vec![240; 320 * 260];
     for y in 20..240 {

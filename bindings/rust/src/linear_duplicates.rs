@@ -737,7 +737,7 @@ impl<T> Read<T> {
                 // Every mode localizes these from shared boxes as well as the full-image scan.
                 || matches!(
                     self.format.as_str(),
-                    "Codabar" | "DataBar" | "DataBarExpanded"
+                    "Codabar" | "DataBar" | "DataBarExpanded" | "Industrial25" | "Pharmacode"
                 )
                 || (crate::LOW_FAST_PATH && self.format == "Code93"))
     }
