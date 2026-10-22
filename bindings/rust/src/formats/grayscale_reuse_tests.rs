@@ -170,7 +170,7 @@ fn reader_groups_read_alike_with_a_shared_threshold_cache() {
 #[cfg(not(feature = "low"))]
 #[test]
 fn localized_only_selections_leave_shared_grayscale_untouched() {
-    use super::{EanAddOnPolicy, scan_additional};
+    use super::scan_additional;
     use barcode_multiformat::formats::{CODABAR, CODE39, EAN13, ITF};
 
     for channels in [1, 3, 4] {
@@ -186,14 +186,8 @@ fn localized_only_selections_leave_shared_grayscale_untouched() {
         };
         let mut gray = vec![23, 41, 79];
         for mask in [CODE39, CODABAR, EAN13 | ITF] {
-            let (scans, coverage) = scan_additional(
-                image,
-                mask,
-                mask & EAN13 != 0,
-                EanAddOnPolicy::Ignore,
-                &mut gray,
-            )
-            .unwrap();
+            let (scans, coverage) =
+                scan_additional(image, mask, mask & EAN13 != 0, &mut gray).unwrap();
             assert!(scans.is_empty());
             assert_eq!(coverage, [] as [crate::Quad; 0]);
             assert_eq!(gray, [23, 41, 79]);

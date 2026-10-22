@@ -3,7 +3,9 @@
 //! Pass order of [`Scanner::scan_formats_typed_with_addons`] per mode (L, M, H, V:
 //! Low, Medium, High, Very High). `cfg` marks passes compiled into only some modes;
 //! the others are switched and bounded by [`policy::POLICY`]. Every recovery runs
-//! only on what the earlier passes left unread.
+//! only on what the earlier passes left unread. The `read` and `require` supplement
+//! policies run this order exactly as `ignore` does; `supplements.rs` then reads the
+//! supplements beside the EAN/UPC results.
 //!
 //! | Pass                                                         | L | M | H | V |
 //! |--------------------------------------------------------------|---|---|---|---|
@@ -35,11 +37,8 @@
 //! | EAN-13/UPC-A source bands (`cfg`)                            |   |   | x | x |
 //! | short retail crops (`cfg`)                                   |   | x |   |   |
 //! | UPC-E separated raw rows: retry 2 uncovered proposals         |   | x | x | x |
-//! | supplements (sweep, then profiles beside unmatched EAN/UPC)  | x | x | x | x |
 //! | deduplication and ranking                                    | x | x | x | x |
-use crate::format_registry::{
-    ALL_FORMATS_MASK, EAN_ADDON_READ_FLAG, EAN_ADDON_REQUIRE_FLAG, ENGINE_OPT_IN_MASK, LINEAR_MASK,
-};
+use crate::format_registry::{ALL_FORMATS_MASK, ENGINE_OPT_IN_MASK, LINEAR_MASK};
 use crate::read::{Read, Region};
 use crate::{Error, Image, MODE, ScanOptions, Scanner, geometry::overlap_quads};
 use barcode_multiformat::binarization::Images as Thresholds;
@@ -69,6 +68,7 @@ mod linear_recovery;
 #[cfg(not(feature = "low"))]
 mod matrix_texture;
 mod policy;
+mod supplements;
 use policy::POLICY;
 
 /// Frames whose long side exceeds twice the 768-pixel localization raster count
@@ -101,8 +101,8 @@ fn is_label_sheet_sized(width: usize, height: usize) -> bool {
 }
 
 /// Whether EAN-8 and UPC-E move from the sweep into the primary retail scan.
-fn shares_short_retail(mask: u32, addons: EanAddOnPolicy) -> bool {
-    POLICY.shared_short_retail && addons == EanAddOnPolicy::Ignore && mask & SHORT_RETAIL != 0
+fn shares_short_retail(mask: u32) -> bool {
+    POLICY.shared_short_retail && mask & SHORT_RETAIL != 0
 }
 
 /// Whether the frame's long side exceeds [`REDUCED_COPY_SIDE`].
@@ -122,16 +122,6 @@ pub enum EanAddOnPolicy {
     Require,
 }
 
-impl EanAddOnPolicy {
-    fn engine_bits(self) -> u32 {
-        match self {
-            Self::Ignore => 0,
-            Self::Read => EAN_ADDON_READ_FLAG,
-            Self::Require => EAN_ADDON_REQUIRE_FLAG,
-        }
-    }
-}
-
 impl Scanner {
     /// Scan selected formats into the shared typed result and optional raw diagnostics.
     /// # Errors
@@ -144,7 +134,18 @@ impl Scanner {
         addons: EanAddOnPolicy,
     ) -> Result<EngineScan, Error> {
         crate::matrix_frontend::with_parallel(options.parallel, || {
-            self.scan_formats_inner(image, options, mask, addons)
+            if addons == EanAddOnPolicy::Ignore {
+                return self.scan_formats_inner(image, options, mask);
+            }
+            // Supplements concern retail reads only: every format reads exactly as
+            // without them, then the supplement stage attaches or requires them.
+            let all = ScanOptions {
+                multiple: true,
+                ..options
+            };
+            let mut scan = self.scan_formats_inner(image, all, mask)?;
+            supplements::apply(image, options, addons, &mut scan);
+            Ok(scan)
         })
     }
 
@@ -153,15 +154,14 @@ impl Scanner {
         image: Image<'_>,
         options: ScanOptions,
         mask: u32,
-        addons: EanAddOnPolicy,
     ) -> Result<EngineScan, Error> {
         validate(image, mask)?;
         #[cfg(feature = "low")]
-        if crate::fast_linear::enabled(options, mask, addons) {
+        if crate::fast_linear::enabled(options, mask) {
             return crate::fast_linear::scan(self, image, options, mask);
         }
 
-        if mask == EAN13 && addons == EanAddOnPolicy::Ignore {
+        if mask == EAN13 {
             return primary_result(image, &self.scan_with_options(image, options)?);
         }
         let start = crate::timer::Timer::start();
@@ -170,12 +170,11 @@ impl Scanner {
             multiple: true,
             ..options
         };
-        let shared_retail = shares_short_retail(mask, addons);
+        let shared_retail = shares_short_retail(mask);
         let (extras, coverage) = scan_additional(
             image,
             mask & !(if shared_retail { SHORT_RETAIL } else { 0 }),
             mask & RETAIL_MASK != 0,
-            addons,
             &mut self.additional_gray,
         )?;
         let primary = if shared_retail || mask & PRIMARY_RETAIL != 0 {
@@ -215,7 +214,6 @@ impl Scanner {
         if mask
             & (RETAIL_MASK | NON_RETAIL_LINEAR | DATA_BAR | DATA_BAR_EXPANDED | ENGINE_OPT_IN_MASK)
             != 0
-            && addons == EanAddOnPolicy::Ignore
         {
             deferred_reads = self.recover_linear_regions(
                 image,
@@ -228,7 +226,6 @@ impl Scanner {
             unfinished = true;
         }
         if had_extras {
-            apply_supplement_policy(image, options, &mut reads, &mut unread, addons);
             reads = distinct(reads);
             unread = retain_unresolved(unread, &reads);
         }
@@ -447,93 +444,6 @@ pub(crate) fn typed_result(
             .collect::<Result<_, _>>()?,
         diagnostics,
     })
-}
-
-fn apply_supplement_policy(
-    image: Image<'_>,
-    options: ScanOptions,
-    reads: &mut Vec<Read>,
-    unread: &mut Vec<Region>,
-    policy: EanAddOnPolicy,
-) {
-    let include_regions = options.include_regions;
-    attach_supplements(reads);
-    read_profile_supplements(image, reads);
-    if policy == EanAddOnPolicy::Require {
-        reads.retain(|read| {
-            let accepted = !matches!(read.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE")
-                || read.addon.is_some();
-            if !accepted && include_regions {
-                unread.push(Region {
-                    format: read.format.clone(),
-                    ..Region::unknown(read.polygon)
-                });
-            }
-            accepted
-        });
-    }
-}
-
-// Match confirmed supplements to the same physical base symbol, never text alone.
-fn attach_supplements(reads: &mut [Read]) {
-    let supplemental: Vec<_> = reads
-        .iter()
-        .filter(|read| read.addon.is_some())
-        .map(|read| {
-            (
-                read.format.clone(),
-                read.text.clone(),
-                read.polygon,
-                read.addon.clone(),
-            )
-        })
-        .collect();
-    for (format, text, polygon, addon) in supplemental {
-        for base in &mut *reads {
-            if base.format == format
-                && base.text == text
-                && base.addon.is_none()
-                && overlap_quads(&base.polygon, &polygon).0 >= 0.65
-            {
-                base.addon.clone_from(&addon);
-            }
-        }
-    }
-}
-
-/// Read the supplement of EAN/UPC symbols that the sweep left without one from
-/// grayscale profiles across the decoded symbol (`addon_profile`). Overlapping reads
-/// of one value share the result. Runs only under the `read` and `require` policies.
-fn read_profile_supplements(image: Image<'_>, reads: &mut [Read]) {
-    use barcode_multiformat::numeric::f64_f32;
-    let pixel =
-        |x: usize, y: usize| f64_f32(image.fixed_luminance(y * image.stride + x * image.channels));
-    let mut done: Vec<(String, crate::Quad, Option<String>)> = Vec::new();
-    for read in reads.iter_mut() {
-        if read.addon.is_some()
-            || !matches!(read.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE")
-        {
-            continue;
-        }
-        if let Some((_, _, addon)) = done.iter().find(|(text, polygon, _)| {
-            *text == read.text && overlap_quads(polygon, &read.polygon).0 >= 0.65
-        }) {
-            read.addon.clone_from(addon);
-            continue;
-        }
-        let polygon = read.polygon.map(|point| point.map(f64_f32));
-        let addon = barcode_multiformat::addon_profile::read(
-            pixel,
-            image.width,
-            image.height,
-            &polygon,
-            &read.format,
-            &read.text,
-            POLICY.supplement_profiles,
-        );
-        done.push((read.text.clone(), read.polygon, addon.clone()));
-        read.addon = addon;
-    }
 }
 
 fn distinct(mut reads: Vec<Read>) -> Vec<Read> {
@@ -977,7 +887,6 @@ pub(crate) fn fast_additional(
         image,
         mask,
         mask & RETAIL_MASK != 0,
-        EanAddOnPolicy::Ignore,
         &mut scanner.additional_gray,
     )?;
     let mut reads = Vec::new();
@@ -1016,22 +925,17 @@ fn scan_additional(
     image: Image<'_>,
     mask: u32,
     retail: bool,
-    addons: EanAddOnPolicy,
     gray: &mut Vec<u8>,
 ) -> Result<(Vec<barcode_multiformat::Scan>, Vec<crate::Quad>), Error> {
-    let enabled = if addons == EanAddOnPolicy::Ignore {
-        mask & !PRIMARY_RETAIL
-    } else {
-        mask
-    };
+    let enabled = mask & !PRIMARY_RETAIL;
     if enabled == 0 {
         return Ok((Vec::new(), Vec::new()));
     }
     // Localized linear recovery reads the other linear formats inside segment-voting boxes. The
     // whole-image sweep stays for DataBar (stacked rows) and, outside Medium's shared retail
-    // scan, EAN-8 and UPC-E; for the rest it only added wrong reads and time. Low and EAN
-    // add-on reading keep the full sweep.
-    let swept = if POLICY.sweep_all_linear || addons != EanAddOnPolicy::Ignore {
+    // scan, EAN-8 and UPC-E; for the rest it only added wrong reads and time. Low keeps
+    // the full sweep.
+    let swept = if POLICY.sweep_all_linear {
         LINEAR_MASK
     } else {
         SWEPT
@@ -1044,7 +948,7 @@ fn scan_additional(
     // raster. Without retail, the group is ITF and Code 128: localized recovery reads Code 39
     // there, and sweeping it added no read on the 340 Code 39 variations. With retail
     // selected, localized recovery reads ITF at a fraction of the cost.
-    let preserved = if POLICY.preserved_sweep && addons == EanAddOnPolicy::Ignore {
+    let preserved = if POLICY.preserved_sweep {
         enabled
             & if !retail {
                 ITF | CODE128
@@ -1070,11 +974,7 @@ fn scan_additional(
     if linear | preserved | matrix == 0 {
         return Ok((Vec::new(), Vec::new()));
     }
-    let effort = if addons == EanAddOnPolicy::Ignore {
-        POLICY.sweep_effort
-    } else {
-        POLICY.addon_sweep_effort
-    };
+    let effort = POLICY.sweep_effort;
     let qr_effort = POLICY.qr_effort;
     let pixels = if image.channels == 1 && image.stride == image.width {
         &image.data[..image.width * image.height]
@@ -1083,9 +983,7 @@ fn scan_additional(
         gray.as_slice()
     };
     #[cfg(any(feature = "low", feature = "medium"))]
-    let sparse = (crate::LOW_FAST_PATH
-        && (matrix != 0
-            || (linear & !COMMON_LINEAR_MASK != 0 && addons == EanAddOnPolicy::Ignore)))
+    let sparse = (crate::LOW_FAST_PATH && (matrix != 0 || linear & !COMMON_LINEAR_MASK != 0))
         .then(|| crate::fast_sparse::Prepared::new(pixels, image.width, image.height));
     let mut scans = Vec::new();
     let mut coverage = Vec::new();
@@ -1133,21 +1031,12 @@ fn scan_additional(
         #[cfg(any(feature = "low", feature = "medium"))]
         if let Some(sparse) = sparse.as_ref().filter(|_| {
             selected & LINEAR_MASK == 0
-                || (crate::LOW_FAST_PATH
-                    && selected & !COMMON_LINEAR_MASK != 0
-                    && addons == EanAddOnPolicy::Ignore)
+                || (crate::LOW_FAST_PATH && selected & !COMMON_LINEAR_MASK != 0)
         }) {
             return sparse.scan(selected, level);
         }
-        // EAN add-on flags concern only retail supplements; 2D reader groups read
-        // the same with or without them.
-        let flags = if selected & LINEAR_MASK != 0 {
-            addons.engine_bits()
-        } else {
-            0
-        };
         if selected & LINEAR_MASK != 0 {
-            return scan_reader(pixels, image.width, image.height, selected | flags, level);
+            return scan_reader(pixels, image.width, image.height, selected, level);
         }
         let taken = thresholds.lock().ok().and_then(|mut shared| shared.take());
         let mut binary_images =
@@ -1167,11 +1056,7 @@ fn scan_additional(
     };
     let first_scans = crate::matrix_frontend::concurrent(&groups, &first_scan);
     for (&(selected, level), scan) in groups.iter().zip(first_scans) {
-        if selected & LINEAR_MASK != 0
-            && POLICY.sweep_coverage
-            && mask & PRIMARY_RETAIL != 0
-            && addons == EanAddOnPolicy::Ignore
-        {
+        if selected & LINEAR_MASK != 0 && POLICY.sweep_coverage && mask & PRIMARY_RETAIL != 0 {
             coverage.extend(
                 scan.barcodes
                     .iter()
@@ -1213,7 +1098,6 @@ fn scan_additional(
             matrix,
             selected,
             level,
-            addons,
             &scan,
         );
         #[cfg(any(feature = "high", feature = "very-high"))]
@@ -1508,7 +1392,6 @@ fn medium_retries(
     matrix: u32,
     selected: u32,
     level: usize,
-    addons: EanAddOnPolicy,
     scan: &barcode_multiformat::Scan,
 ) -> Vec<barcode_multiformat::Scan> {
     // Retries belong to single-format reader groups, such as the QR group of an
@@ -1516,8 +1399,7 @@ fn medium_retries(
     let mask = selected;
     // Large label photos carry many short Code 128 fields. Once the sweep read one, a sweep
     // with twice the lines and diagonal angles finds the others; retail photos rarely pay.
-    if addons == EanAddOnPolicy::Ignore
-        && mask & CODE128 != 0
+    if mask & CODE128 != 0
         && mask & RETAIL_MASK == 0
         && is_label_sheet_sized(width, height)
         && scan.barcodes.iter().any(|b| b.format == "Code128")
@@ -1528,7 +1410,7 @@ fn medium_retries(
         return Vec::new();
     }
     let mut retries = Vec::new();
-    if mask == DATA_BAR && addons == EanAddOnPolicy::Ignore {
+    if mask == DATA_BAR {
         let sparse = crate::fast_sparse::Prepared::new(pixels, width, height);
         retries.push(sparse.scan(mask, 0));
     }

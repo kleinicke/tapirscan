@@ -4,5 +4,3 @@ pub const LINEAR_MASK: u32 = 7_365_119;
 pub const ALL_FORMATS_MASK: u32 = 7_503_871;
 /// Opt-in linear formats with their own reader, read only when selected.
 pub const ENGINE_OPT_IN_MASK: u32 = 7_340_032;
-pub const EAN_ADDON_READ_FLAG: u32 = 32_768;
-pub const EAN_ADDON_REQUIRE_FLAG: u32 = 65_536;

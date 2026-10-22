@@ -2,10 +2,12 @@
 
 ## Unreleased
 
-- Read EAN-2 and EAN-5 supplements (`eanAddOnPolicy` `read` and `require`) next to
-  blurred, low-resolution and perspective-distorted EAN/UPC symbols: the
-  supplement is fitted on grayscale profiles beside the decoded main symbol and
-  reported only when two profiles agree and none reads another value.
+- EAN-2 and EAN-5 supplements (`eanAddOnPolicy` `read` and `require`): all other
+  formats now read exactly as with `ignore` (before, `read` lost Code 128, Code 93,
+  Code 39, Codabar and ITF reads and took longer). Supplements next to blurred,
+  low-resolution and perspective-distorted EAN/UPC symbols are fitted on grayscale
+  profiles beside the decoded main symbol and reported only when two profiles agree
+  and none reads another value.
 - JavaScript: `tapirscan/browser/low`, `/medium`, `/high` and `/very-high` emit
   one mode's WASM into application builds instead of all eight files.
 - JavaScript: `tapirscan/camera` adds `CameraScanner`, an optional camera loop

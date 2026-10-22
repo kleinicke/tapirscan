@@ -27,10 +27,10 @@ flowchart TD
     A["Language binding"] --> B["Public Scanner::scan / inspect"]
     B --> C["run → optional image reduction → run_source"]
     C --> D["Selected compiled engine"]
-    D --> E["scan_formats_typed_with_addons → scan_formats_inner"]
+    D --> E["scan_formats_typed_with_addons → scan_formats_inner (as ignore)"]
     E --> F{"Low fast path eligible?"}
     F -->|Yes| G["fast_linear::scan"]
-    F -->|No| H{"Exactly EAN13 and add-ons ignored?"}
+    F -->|No| H{"Exactly EAN13?"}
     H -->|Yes| I["pipeline::scan → primary_result"]
     H -->|No| J["scan_additional"]
     J --> K{"Primary retail needed?"}
@@ -38,11 +38,12 @@ flowchart TD
     K -->|No| L["Combine selected reader results"]
     R --> L
     L --> M["Conditional localized linear recovery"]
-    M --> N["Supplement policy, ownership reconciliation, ranking"]
+    M --> N["Ownership reconciliation, ranking"]
     G --> O["Typed results"]
     I --> O
     N --> O
-    O --> P["Code32/PZN interpretation and source-coordinate restoration"]
+    O --> S["read/require: supplements::apply on EAN/UPC results"]
+    S --> P["Code32/PZN interpretation and source-coordinate restoration"]
 ```
 
 The EAN13-only branch returns directly via `primary_result`, without the general
@@ -69,10 +70,10 @@ mistaken for normal public defaults.
 Low's `fast_linear::enabled` requires all of:
 
 - At least one selected format is linear.
-- EAN add-on policy is `Ignore`.
 - Explicit candidate completion is off.
 
-Thus Low with add-on `Read`/`Require` uses general orchestration. QR-only Low does
+The EAN add-on policy does not change routing: `Read` and `Require` scan exactly as
+`Ignore`, then read supplements beside the EAN/UPC results. QR-only Low does
 not enter the linear fast path. Turbo presets use the Low compiled mode with
 different build settings; the same routing conditions still matter.
 
@@ -101,7 +102,7 @@ Sources: [fast_linear.rs](../bindings/rust/src/fast_linear.rs),
 | `recover_restored_regions`                      | No                                 | Whole-frame source; additional shared-retail guard                                                                  | Whole-frame source                                                                 | Whole-frame source                                     |
 | `recover_unread_crops`                          | No                                 | Whole frame with no primary or short-retail reads                                                                   | Whole frame unread, no shared non-retail linear selection, repeated guard evidence | Same                                                   |
 | `recover_deblurred_crops`, `recover_downscaled` | No                                 | Conditional whole-frame unread recovery                                                                             | Conditional whole-frame unread recovery                                            | Same                                                   |
-| `recover_linear_regions`                        | No                                 | General format path, selected linear formats, add-ons ignored                                                       | Same with larger recovery policy                                                   | Same with additional windows                           |
+| `recover_linear_regions`                        | No                                 | General format path, selected linear formats                                                                        | Same with larger recovery policy                                                   | Same with additional windows                           |
 | `linear_duplicates` reconciliation              | Fast-path or general-path variants | General/primary variants                                                                                            | General/primary variants                                                           | Additional conflict-admission implementation           |
 
 These are stage availability rules, not a guarantee that a later mode performs
@@ -165,10 +166,10 @@ and [effort.rs](../bindings/rust/src/effort.rs):
 | Primary proposal limit                                       | 32  | 32      | 32         | 63                  |
 | Detail recovery directions                                   | —   | 1       | 1          | 2                   |
 | Base ordinary linear sweep effort                            | 0   | 0       | 2          | 2                   |
-| Linear sweep effort with add-ons                             | 0   | 1       | 2          | 2                   |
+| Supplement profiles (`read`/`require`)                       | 3   | 5       | 9          | 9                   |
 | QR group effort                                              | 0   | 1       | 2          | 3                   |
 | Other matrix group base effort                               | 1   | 1       | 1          | 1                   |
-| Shared short-retail scan without add-ons                     | No  | Yes     | Yes        | Yes                 |
+| Shared short-retail scan                                     | No  | Yes     | Yes        | Yes                 |
 | Source-profile cache in primary and localized linear retries | —   | Yes     | No         | No                  |
 | Full stripe fallback / half-scale proposals                  | —   | No / no | Yes / yes  | Yes / yes           |
 | Overlapping window proposals                                 | —   | No      | No         | Yes                 |

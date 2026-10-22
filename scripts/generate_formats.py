@@ -143,9 +143,8 @@ def mask(registry: dict[str, Any], names: list[str]) -> int:
 
 
 def rust_registry_source(registry: dict[str, Any]) -> str:
-    """Render masks and engine flags consumed by the private facade."""
+    """Render the masks consumed by the private facade."""
     presets = registry["presets"]
-    flags = registry["engineFlags"]
     # The engine reads the 1D preset plus the opt-in linear formats with their own
     # reader; the public API translates the other opt-in formats before scanning.
     linear = presets["1D"] + registry["engineOptIn"]
@@ -155,8 +154,6 @@ pub const LINEAR_MASK: u32 = {mask(registry, linear):_};
 pub const ALL_FORMATS_MASK: u32 = {mask(registry, linear + presets["2D"]):_};
 /// Opt-in linear formats with their own reader, read only when selected.
 pub const ENGINE_OPT_IN_MASK: u32 = {mask(registry, registry["engineOptIn"]):_};
-pub const EAN_ADDON_READ_FLAG: u32 = {flags["eanAddOnRead"]:_};
-pub const EAN_ADDON_REQUIRE_FLAG: u32 = {flags["eanAddOnRequire"]:_};
 """
 
 

@@ -21,14 +21,12 @@ pub(super) struct ModePolicy {
     // Whole-image linear sweep (`scan_additional`).
     /// The sweep reads every selected linear format. Otherwise it keeps only the
     /// formats localized recovery cannot read (`SWEPT`); for the rest it only adds
-    /// wrong reads and time. EAN add-on reading always sweeps every format.
+    /// wrong reads and time.
     pub sweep_all_linear: bool,
-    /// Sweep effort without EAN add-on reading.
+    /// Sweep effort.
     pub sweep_effort: usize,
-    /// Sweep effort with EAN add-on reading.
-    pub addon_sweep_effort: usize,
-    /// Grayscale profiles across an EAN/UPC read without a swept supplement on which
-    /// the supplement reader looks for one (`addon_profile`); two must agree. Low
+    /// Grayscale profiles across an EAN/UPC result on which the supplement reader
+    /// (`addon_profile`, `read` and `require` policies) looks for one; two must agree. Low
     /// takes three, Medium five, High nine: the extra profiles cross supplements
     /// that only part of the symbol height shows sharply.
     pub supplement_profiles: usize,
@@ -118,7 +116,6 @@ impl ModePolicy {
     const LOW: Self = Self {
         sweep_all_linear: true,
         sweep_effort: 0,
-        addon_sweep_effort: 0,
         supplement_profiles: 3,
         preserved_sweep: false,
         preserved_sweep_any_size: false,
@@ -151,7 +148,6 @@ impl ModePolicy {
     /// Medium keeps its cost on camera frames: costly recoveries need evidence.
     const MEDIUM: Self = Self {
         sweep_all_linear: false,
-        addon_sweep_effort: 1,
         supplement_profiles: 5,
         preserved_sweep: true,
         sweep_coverage: true,
@@ -169,7 +165,6 @@ impl ModePolicy {
     /// High adds fixed-cost recoveries that do not wait for candidate evidence.
     const HIGH: Self = Self {
         sweep_effort: 2,
-        addon_sweep_effort: 2,
         supplement_profiles: 9,
         preserved_sweep_any_size: true,
         preserved_sweep_effort: 1,

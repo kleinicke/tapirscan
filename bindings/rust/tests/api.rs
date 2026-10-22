@@ -1047,6 +1047,72 @@ fn reused_scanners_match_fresh_scanners() {
     }
 }
 
+/// EAN-13 above a Code 39 symbol in one frame.
+fn retail_and_code39_frame() -> (Vec<u8>, usize, usize) {
+    let (retail, retail_width, retail_height) = fixture(false);
+    let (code39, code39_width, code39_height) = code39_image(CODE32_BITS);
+    let width = retail_width.max(code39_width);
+    let height = retail_height + code39_height + 20;
+    let mut pixels = vec![255; width * height];
+    for y in 0..retail_height {
+        pixels[y * width..y * width + retail_width]
+            .copy_from_slice(&retail[y * retail_width..(y + 1) * retail_width]);
+    }
+    for y in 0..code39_height {
+        let row = (retail_height + 20 + y) * width;
+        pixels[row..row + code39_width]
+            .copy_from_slice(&code39[y * code39_width..(y + 1) * code39_width]);
+    }
+    (pixels, width, height)
+}
+
+#[test]
+fn supplement_policies_leave_other_formats_unchanged() {
+    // Enabling supplements may add them to retail results (and `require` may withhold
+    // retail results without one), but every other result stays exactly the same.
+    let frames = [
+        fixture(true),
+        code39_image(CODE32_BITS),
+        retail_and_code39_frame(),
+    ];
+    let retail = |format: Format| {
+        matches!(
+            format,
+            Format::Ean13 | Format::Upca | Format::Ean8 | Format::Upce
+        )
+    };
+    for mode in compiled_modes() {
+        for formats in [
+            Formats::RETAIL,
+            Formats::ALL,
+            Format::Ean13 | Format::Code39,
+        ] {
+            for (pixels, width, height) in &frames {
+                let image = Image::gray(pixels, *width, *height);
+                let scan = |ean_add_on_policy| {
+                    Scanner::new(ScannerOptions {
+                        mode,
+                        formats,
+                        ean_add_on_policy,
+                        ..ScannerOptions::default()
+                    })
+                    .inspect(image)
+                    .unwrap()
+                    .barcodes
+                };
+                let ignored = scan(EanAddOnPolicy::Ignore);
+                assert!(ignored.iter().all(|b| b.ean_add_on.is_none()));
+                let read = scan(EanAddOnPolicy::Read);
+                // These symbols carry no supplement.
+                assert_eq!(read, ignored, "{mode:?} {formats:?} read");
+                let required = scan(EanAddOnPolicy::Require);
+                let others: Vec<_> = ignored.into_iter().filter(|b| !retail(b.format)).collect();
+                assert_eq!(required, others, "{mode:?} {formats:?} require");
+            }
+        }
+    }
+}
+
 #[test]
 fn compact_scans_preserve_inspected_barcodes() {
     let pair = fixture(true);

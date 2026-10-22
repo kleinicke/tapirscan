@@ -37,14 +37,9 @@ const TIER: usize = match option_env!("TAPIRSCAN_TURBO_TIER") {
 const TIER: usize = 0;
 
 #[cfg(feature = "low")]
-pub(crate) fn enabled(
-    options: ScanOptions,
-    mask: u32,
-    addons: crate::formats::EanAddOnPolicy,
-) -> bool {
+pub(crate) fn enabled(options: ScanOptions, mask: u32) -> bool {
     crate::LOW_FAST_PATH
         && mask & crate::format_registry::LINEAR_MASK != 0
-        && addons == crate::formats::EanAddOnPolicy::Ignore
         && !options.finish_candidates
 }
 

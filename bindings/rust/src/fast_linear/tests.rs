@@ -2,22 +2,15 @@ use super::*;
 
 #[test]
 fn public_low_selection_preserves_explicit_recovery_requests() {
-    use crate::formats::EanAddOnPolicy;
     let basic = ScanOptions::default();
-    assert_eq!(
-        enabled(basic, 1, EanAddOnPolicy::Ignore),
-        crate::LOW_FAST_PATH
-    );
-    assert!(!enabled(basic, 512, EanAddOnPolicy::Ignore));
-    assert!(!enabled(basic, 1, EanAddOnPolicy::Read));
-    assert!(!enabled(basic, 1, EanAddOnPolicy::Require));
+    assert_eq!(enabled(basic, 1), crate::LOW_FAST_PATH);
+    assert!(!enabled(basic, 512));
     assert!(!enabled(
         ScanOptions {
             finish_candidates: true,
             ..basic
         },
-        1,
-        EanAddOnPolicy::Ignore
+        1
     ));
 }
 

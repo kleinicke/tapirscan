@@ -30,11 +30,11 @@ public scanner, see [the architecture overview](../docs/ARCHITECTURE.md).
   reader groups run the same detector under the same `Policy::for_mode`; there is one
   detector and one threshold cache. `qr_grid` resamples unresolved regions from original
   grayscale pixels. The Rust facade selects QR-only reader groups and enforces
-  the mode-specific frame retry limits. EAN add-on selections run the same 2D reader
-  groups and recoveries as selections without add-ons.
+  the mode-specific frame retry limits. EAN add-on policies scan exactly as without
+  add-ons and read supplements afterwards.
 
 - The facade's `pipeline/segment_voting.rs` proposes linear regions in Medium,
-  High and Very High, and in Low's fast path without EAN add-ons. Low's core
+  High and Very High, and in Low's fast path. Low's core
   path and the experimental Turbo presets use stripe localization.
   `stripes::Detector` also supplies additional candidates and recovery work in
   selected paths: `stripes/raster.rs` (sampling, contrast conditioning, gradients),
