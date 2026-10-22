@@ -28,6 +28,10 @@
   and PZN symbols cut by a crop or the image edge are no longer read as ITF.
 - Read Industrial (Standard) 2 of 5 and Laetus Pharmacode as the opt-in formats
   `Industrial25` and `Pharmacode`; no preset, `all` included, selects them.
+- Read Code 39 and Codabar symbols with one or two data characters (they need
+  full ten-module quiet zones), Code 93 and Code 128 symbols with ink spread
+  (edge-to-similar-edge matching, accepted only with valid checks), and Code 93
+  with three-module quiet zones or perspective-scaled stop characters.
 
 ## 1.4.0
 

@@ -99,7 +99,16 @@ fn c93_pattern(bits: u16) -> [u8; 6] {
     }
     out
 }
-fn c93_match(r: &[f32]) -> Option<(usize, f32)> {
+/// Per-character error accepted without further evidence; the shared bound of the
+/// run-length matchers.
+const C93_CHARACTER_ERROR: f32 = 0.23;
+/// Larger per-character error accepted only inside a symbol that passes both
+/// mod-47 checks (C and K): blur, ink spread and perspective accumulate over long
+/// symbols, and one marginal character otherwise discards the whole symbol.
+const C93_WEAK_CHARACTER_ERROR: f32 = 0.3;
+/// Match one Code 93 character. Returns its value, error and whether the match is
+/// weak (accepted only inside a symbol that passes both checks).
+fn c93_match(r: &[f32]) -> Option<(usize, f32, bool)> {
     let mut best = (0, 10.);
     let mut second = 10.;
     for (i, &bits) in C93.iter().enumerate() {
@@ -111,8 +120,56 @@ fn c93_match(r: &[f32]) -> Option<(usize, f32)> {
             second = second.min(e);
         }
     }
-    (best.1 < 0.23 && second - best.1 > 0.012).then_some(best)
+    if best.1 < C93_CHARACTER_ERROR && second - best.1 > 0.012 {
+        return Some((best.0, best.1, false));
+    }
+    if best.1 < C93_WEAK_CHARACTER_ERROR && second - best.1 > 0.012 {
+        return Some((best.0, best.1, true));
+    }
+    c93_edge_match(r).map(|(v, e)| (v, e, true))
 }
+/// Match by the four sums of adjacent element pairs (edge-to-similar-edge
+/// distances). Uniform ink spread widens every bar by as much as it narrows every
+/// space, so these sums keep their nominal module counts; the 48 characters have
+/// distinct sums.
+fn c93_edge_match(r: &[f32]) -> Option<(usize, f32)> {
+    if r.len() < 6 {
+        return None;
+    }
+    let total: f32 = r[..6].iter().sum();
+    let module = total / 9.;
+    if module < 0.65 {
+        return None;
+    }
+    let pairs: [f32; 4] = std::array::from_fn(|i| r[i] + r[i + 1]);
+    let mut best = (0, 10f32);
+    let mut second = 10f32;
+    for (i, &bits) in C93.iter().enumerate() {
+        let p = c93_pattern(bits);
+        let mut e = 0.;
+        for (j, &pair) in pairs.iter().enumerate() {
+            let d = (pair - f32::from(p[j] + p[j + 1]) * module).abs();
+            if d > module * 0.75 {
+                e = 10.;
+                break;
+            }
+            e += d;
+        }
+        let e = e / total;
+        if e < best.1 {
+            second = best.1;
+            best = (i, e);
+        } else {
+            second = second.min(e);
+        }
+    }
+    (best.1 < C93_EDGE_ERROR && second - best.1 > C93_EDGE_MARGIN).then_some(best)
+}
+const C93_EDGE_ERROR: f32 = 0.15;
+const C93_EDGE_MARGIN: f32 = 0.02;
+/// Quiet zone, in modules, on both sides of a Code 93 symbol. Labels often print
+/// less than the specified ten modules; the two checks guard shorter margins.
+const C93_QUIET_MODULES: f32 = 3.;
 #[expect(
     clippy::too_many_lines,
     reason = "The symbol parser keeps start/stop, parity, checksum and work-limit transitions together for the same run cursor."
@@ -123,23 +180,42 @@ fn code93(
     retain_failed: bool,
     limited: &mut bool,
 ) -> Option<Read> {
-    if error(&runs[start_index..], &c93_pattern(C93[47])) > 0.2 {
+    // Ink spread shifts every edge of the start pattern alike; accept it when the
+    // spread-corrected fit is close.
+    let start = c93_pattern(C93[47]);
+    if error(&runs[start_index..], &start) > 0.2
+        && error_adjusted(&runs[start_index..], &start) > 0.2
+    {
         return None;
     }
     let module = runs[start_index..start_index + 6].iter().sum::<f32>() / 9.;
-    if start_index == 0 || (start_index != 1 && runs[start_index - 1] < module * 5.) {
+    if start_index == 0 || (start_index != 1 && runs[start_index - 1] < module * C93_QUIET_MODULES)
+    {
         return None;
     }
     let mut at = start_index + 6;
     let mut values = Vec::new();
     let mut err = 0.;
+    // Characters accepted only by the relaxed or edge matchers rely on both checks
+    // and never produce a retained failed-checksum candidate.
+    let mut weak = 0usize;
     while at + 7 <= runs.len() && values.len() < 256 {
-        let (v, e) = c93_match(&runs[at..])?;
+        let (v, e, marginal) = c93_match(&runs[at..])?;
         err += e;
+        weak += usize::from(marginal);
         if v == 47 {
+            // Perspective changes the module along the symbol: judge the
+            // termination bar and trailing quiet zone at the stop character's scale.
+            let stop_module = runs[at..at + 6].iter().sum::<f32>() / 9.;
             if values.len() < 3
-                || !quiet(runs, start_index, at + 7, module, 5.)
-                || (runs[at + 6] - module).abs() > module * 0.8
+                || !quiet(
+                    runs,
+                    start_index,
+                    at + 7,
+                    module.min(stop_module),
+                    C93_QUIET_MODULES,
+                )
+                || (runs[at + 6] - stop_module).abs() > stop_module * 0.8
             {
                 return None;
             }
@@ -159,7 +235,7 @@ fn code93(
                 }
             }
             if !valid {
-                return retain_failed.then_some(Read {
+                return (retain_failed && weak == 0).then_some(Read {
                     decoded: false,
                     addon: None,
                     format: "Code93",
@@ -671,21 +747,99 @@ fn c128_match(r: &[f32], lo: usize, hi: usize) -> Option<(usize, f32)> {
     }
     (best.1 < 0.23 && second - best.1 > 0.012).then_some(best)
 }
+/// Match by the four sums of adjacent element pairs (edge-to-similar-edge
+/// distances, the reference decode of Code 128). Uniform ink spread widens every
+/// bar by as much as it narrows every space, so these sums keep their nominal
+/// module counts; the 107 patterns have distinct sums.
+fn c128_edge_match(r: &[f32], lo: usize, hi: usize) -> Option<(usize, f32)> {
+    if r.len() < 6 {
+        return None;
+    }
+    let sum = r[..6].iter().sum::<f32>();
+    let module = sum / 11.;
+    if module < 0.65 {
+        return None;
+    }
+    let pairs: [f32; 4] = std::array::from_fn(|i| r[i] + r[i + 1]);
+    let mut best = (0, 10f32);
+    let mut second = 10f32;
+    for (i, p) in C128.iter().enumerate().take(hi).skip(lo) {
+        let mut e = 0.;
+        for (j, &pair) in pairs.iter().enumerate() {
+            let d = (pair - f32::from(p[j] - b'0' + p[j + 1] - b'0') * module).abs();
+            if d > module * 0.75 {
+                e = 10.;
+                break;
+            }
+            e += d;
+        }
+        let e = e / sum;
+        if e < best.1 {
+            second = best.1;
+            best = (i, e);
+        } else {
+            second = second.min(e);
+        }
+    }
+    (best.1 < C128_EDGE_ERROR && second - best.1 > C128_EDGE_MARGIN).then_some(best)
+}
+const C128_EDGE_ERROR: f32 = 0.12;
+const C128_EDGE_MARGIN: f32 = 0.03;
+/// The stop pattern `2331112`. With edge-matched characters (`spread`), the bars
+/// may be uniformly wider or narrower than the spaces: fit that bias on the first
+/// six elements and require the final bar to agree with it.
+fn c128_stop(r: &[f32], spread: bool) -> bool {
+    const STOP: [u8; 7] = [2, 3, 3, 1, 1, 1, 2];
+    if error(r, &STOP) <= 0.23 {
+        return true;
+    }
+    if !spread || r.len() < 7 || error_adjusted(r, &STOP[..6]) > 0.23 {
+        return false;
+    }
+    let module = r[..6].iter().sum::<f32>() / 11.;
+    // Bars 2+3+1 and spaces 3+1+1 modules: their difference is one module.
+    let bias = (r[0] + r[2] + r[4] - r[1] - r[3] - r[5] - module) / 6.;
+    (r[6] - bias - 2. * module).abs() <= module * 0.8
+}
 fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Option<Read> {
-    let (start, mut err) = c128_match(&r[s..], 103, 106)?;
+    let plain_start = c128_match(&r[s..], 103, 106);
+    let edge_start = plain_start.is_none();
+    let (start, mut err) = plain_start.or_else(|| c128_edge_match(&r[s..], 103, 106))?;
     let module = r[s..s + 6].iter().sum::<f32>() / 11.;
     if s == 0 || (s != 1 && r[s - 1] < module * 2.5) {
         return None;
     }
+    // A start character found only by its edges measures the ink spread: correct
+    // every following character by it before the ordinary width match, so only
+    // characters that still fail fall back to edge matching.
+    let bias = if edge_start {
+        let p = C128[start];
+        let signed = |i: usize| if i.is_multiple_of(2) { 1. } else { -1. };
+        (0..6)
+            .map(|i| signed(i) * (r[s + i] - f32::from(p[i] - b'0') * module))
+            .sum::<f32>()
+            / 6.
+    } else {
+        0.
+    };
+    let corrected = |at: usize| -> [f32; 6] {
+        std::array::from_fn(|i| r[at + i] - if i.is_multiple_of(2) { bias } else { -bias })
+    };
+    let mut weak = 0usize;
     let mut at = s + 6;
     let mut values = vec![start];
     while at + 7 <= r.len() && values.len() < 256 {
-        let (v, e) = c128_match(&r[at..], 0, 107)?;
+        let (v, e) = c128_match(&corrected(at), 0, 107).or_else(|| {
+            weak += 1;
+            c128_edge_match(&r[at..], 0, 107)
+        })?;
         err += e;
         if v == 106 {
-            if error(&r[at..], &[2, 3, 3, 1, 1, 1, 2]) > 0.23
+            if !c128_stop(&r[at..], edge_start || weak > 0)
                 || !quiet(r, s, at + 7, module, 2.5)
                 || values.len() < 3
+                // Edge-matched characters rely on the check; keep them a minority.
+                || weak * 4 > values.len()
             {
                 return None;
             }
@@ -699,7 +853,7 @@ fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Opti
                     .sum::<usize>())
                 % 103
                 == check;
-            if !valid && !retain_failed {
+            if !valid && (!retain_failed || edge_start || weak > 0) {
                 return None;
             }
             let (text, gs1) = if valid {
@@ -828,6 +982,11 @@ fn wide_bits_sorted(r: &[f32], sorted: &[f32], n: usize, wides: usize) -> Option
     }
     Some((bits, e / r[..n].iter().sum::<f32>()))
 }
+/// Unchecked Code 39 and Codabar symbols with at most this many data characters
+/// need [`SHORT_QUIET_MODULES`] of quiet zone on both sides.
+const SHORT_UNCHECKED_CHARACTERS: usize = 2;
+/// The quiet zone both specifications require (ten narrow modules).
+const SHORT_QUIET_MODULES: f32 = 10.;
 fn code39(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     if r.len() < s + 9 {
         return None;
@@ -890,7 +1049,19 @@ fn code39_with_gain(
                 || runs
                     .get(end)
                     .is_some_and(|&v| v >= module * if end + 1 == runs.len() { 0.5 } else { 5. });
-            if out.len() < 2 || !left || !right {
+            if out.is_empty() || !left || !right {
+                return None;
+            }
+            // One or two characters between guards is also what a misread inside a
+            // longer symbol or a crop edge produces: require the full ten-module
+            // quiet zones of the specification on both sides, measured in the image.
+            if out.len() <= SHORT_UNCHECKED_CHARACTERS
+                && (start_index == 0
+                    || runs[start_index - 1] < module * SHORT_QUIET_MODULES
+                    || runs
+                        .get(end)
+                        .is_none_or(|&v| v < module * SHORT_QUIET_MODULES))
+            {
                 return None;
             }
             return Some(Read {
@@ -1103,7 +1274,7 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
         err += e;
         characters.push(c);
         if c >= 16 {
-            if out.len() < 3 {
+            if out.is_empty() {
                 return None;
             }
             // A checkless reader must fit one physical narrow/wide model
@@ -1145,6 +1316,15 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
             let global_error = deviation / sums.iter().sum::<f32>();
             let module = f32::midpoint(means[0], means[2]);
             if global_error > 0.19 || !quiet(r, s, at + 7, module, 5.) {
+                return None;
+            }
+            // As for Code 39: a one- or two-character symbol needs full quiet zones.
+            if out.len() <= SHORT_UNCHECKED_CHARACTERS
+                && (s == 0
+                    || r[s - 1] < module * SHORT_QUIET_MODULES
+                    || r.get(at + 7)
+                        .is_none_or(|&v| v < module * SHORT_QUIET_MODULES))
+            {
                 return None;
             }
             return Some(Read {
@@ -2172,3 +2352,6 @@ mod itf_tests {
         assert!(itf <= 5, "{itf} ITF reads");
     }
 }
+
+#[cfg(test)]
+mod symbol_tests;
