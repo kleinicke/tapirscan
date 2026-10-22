@@ -1,5 +1,12 @@
 # API migration
 
+## Upgrading from 1.4.0
+
+Format selection adds the opt-in `Industrial25` (bit 2097152) and `Pharmacode`
+(bit 4194304) formats; no preset, `all` included, selects them. Native ABI 7 is
+unchanged. Rust matches on `Format` need the wildcard arm that its
+`#[non_exhaustive]` attribute already requires.
+
 ## Upgrading from 1.3.0
 
 Version 1.4.0 is an explicit exception to the

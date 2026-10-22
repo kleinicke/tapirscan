@@ -64,10 +64,12 @@ keyword group; — means it is not included. `retail` is the default.
 | `Code32`          | —        | —          | —        | —     | —     | —     | Opt-in: Italian pharmacy number                   |
 | `PZN`             | —        | —          | —        | —     | —     | —     | Opt-in: German PZN8/PZN7                          |
 | `MSIPlessey`      | —        | —          | —        | —     | —     | —     | Opt-in: mod-10 check digit required               |
+| `Industrial25`    | —        | —          | —        | —     | —     | —     | Opt-in: Industrial (Standard) 2 of 5              |
+| `Pharmacode`      | —        | —          | —        | —     | —     | —     | Opt-in: Laetus one-track Pharmacode               |
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN` and `MSIPlessey` require explicit selection; no group includes
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25` and `Pharmacode` require explicit selection; no group includes
 them, even `all`. See the [format guide](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md)
 for variant details and EAN/UPC supplements.
 
@@ -112,8 +114,8 @@ for barcode in result.barcodes:
 
 `formats="1D"` enables linear formats except the opt-in formats. `"retail"` selects EAN13, UPCA, EAN8
 and UPCE; `"common1D"` adds Code128, Code39 and ITF; `"common"` adds QRCode and
-DataMatrix; `"2D"` and `"all"` are also available. `Code32`, `PZN` and
-`MSIPlessey` require explicit selection, even with `"all"`. See
+DataMatrix; `"2D"` and `"all"` are also available. `Code32`, `PZN`,
+`MSIPlessey`, `Industrial25` and `Pharmacode` require explicit selection, even with `"all"`. See
 [format and keyword-group matrix](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md#format-matrix).
 
 ### PyTorch tensors

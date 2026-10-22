@@ -26,6 +26,8 @@
 - ITF reads need one narrow/wide model across the symbol, and yield to Code 39
   where the same bars form better-fitting Code 39 characters, so Code 39, Code 32
   and PZN symbols cut by a crop or the image edge are no longer read as ITF.
+- Read Industrial (Standard) 2 of 5 and Laetus Pharmacode as the opt-in formats
+  `Industrial25` and `Pharmacode`; no preset, `all` included, selects them.
 
 ## 1.4.0
 

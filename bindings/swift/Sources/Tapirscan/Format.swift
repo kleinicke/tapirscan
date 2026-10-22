@@ -40,6 +40,10 @@ public enum Format: UInt32, CaseIterable, Sendable, CustomStringConvertible {
     case pzn = 524288
     /// MSI Plessey with a mod-10 check digit (opt-in).
     case msiPlessey = 1048576
+    /// Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in).
+    case industrial25 = 2097152
+    /// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
+    case pharmacode = 4194304
 
     /// Stable name shared with the other language bindings, such as `"QRCode"`.
     public var name: String {
@@ -63,6 +67,8 @@ public enum Format: UInt32, CaseIterable, Sendable, CustomStringConvertible {
         case .code32: "Code32"
         case .pzn: "PZN"
         case .msiPlessey: "MSIPlessey"
+        case .industrial25: "Industrial25"
+        case .pharmacode: "Pharmacode"
         }
     }
 
@@ -114,6 +120,10 @@ public struct Formats: OptionSet, Sendable {
     public static let pzn = Formats(.pzn)
     /// MSI Plessey with a mod-10 check digit (opt-in).
     public static let msiPlessey = Formats(.msiPlessey)
+    /// Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in).
+    public static let industrial25 = Formats(.industrial25)
+    /// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
+    public static let pharmacode = Formats(.pharmacode)
 
     /// EAN-13, UPC-A, EAN-8 and UPC-E.
     public static let retail: Formats = [.ean13, .upcA, .ean8, .upcE]

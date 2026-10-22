@@ -44,7 +44,11 @@ public enum Format {
     /** German pharmacy number: a Code 39 symbol reported as its 8- or 7-digit number (opt-in). */
     PZN(524288, "PZN"),
     /** MSI Plessey with a mod-10 check digit (opt-in). */
-    MSI_PLESSEY(1048576, "MSIPlessey");
+    MSI_PLESSEY(1048576, "MSIPlessey"),
+    /** Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in). */
+    INDUSTRIAL25(2097152, "Industrial25"),
+    /** Laetus Pharmacode (one-track), value 3 to 131070 (opt-in). */
+    PHARMACODE(4194304, "Pharmacode");
 
     /** EAN-13, UPC-A, EAN-8 and UPC-E. */
     public static final Set<Format> RETAIL =

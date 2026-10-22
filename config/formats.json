@@ -28,7 +28,19 @@
       524288,
       "German pharmacy number: a Code 39 symbol reported as its 8- or 7-digit number (opt-in)."
     ],
-    ["MSIPlessey", "MsiPlessey", 1048576, "MSI Plessey with a mod-10 check digit (opt-in)."]
+    ["MSIPlessey", "MsiPlessey", 1048576, "MSI Plessey with a mod-10 check digit (opt-in)."],
+    [
+      "Industrial25",
+      "Industrial25",
+      2097152,
+      "Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in)."
+    ],
+    [
+      "Pharmacode",
+      "Pharmacode",
+      4194304,
+      "Laetus Pharmacode (one-track), value 3 to 131070 (opt-in)."
+    ]
   ],
   "presets": {
     "retail": ["EAN13", "UPCA", "EAN8", "UPCE"],
@@ -49,8 +61,8 @@
     ],
     "2D": ["QRCode", "DataMatrix", "PDF417", "Aztec", "MaxiCode"]
   },
-  "optIn": ["Code32", "PZN", "MSIPlessey"],
-  "engineOptIn": ["MSIPlessey"],
+  "optIn": ["Code32", "PZN", "MSIPlessey", "Industrial25", "Pharmacode"],
+  "engineOptIn": ["MSIPlessey", "Industrial25", "Pharmacode"],
   "engineFlags": {
     "eanAddOnRead": 32768,
     "eanAddOnRequire": 65536

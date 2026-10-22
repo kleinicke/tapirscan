@@ -39,6 +39,10 @@ pub const CODE32: u32 = 262_144;
 pub const PZN: u32 = 524_288;
 /// MSI Plessey with a mod-10 check digit (opt-in).
 pub const MSI_PLESSEY: u32 = 1_048_576;
+/// Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in).
+pub const INDUSTRIAL25: u32 = 2_097_152;
+/// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
+pub const PHARMACODE: u32 = 4_194_304;
 
 /// EAN-13, UPC-A, EAN-8 and UPC-E.
 pub const RETAIL_MASK: u32 = 15;
@@ -48,7 +52,7 @@ pub const COMMON_LINEAR_MASK: u32 = 127;
 pub const MATRIX_MASK: u32 = 138_752;
 /// Every linear format the engine reads: the 1D preset plus the opt-in formats
 /// with their own reader.
-pub const ENGINE_LINEAR_MASK: u32 = 1_073_663;
+pub const ENGINE_LINEAR_MASK: u32 = 7_365_119;
 /// Attach a confirmed EAN/UPC add-on when one is found.
 pub const EAN_ADDON_READ_FLAG: u32 = 32_768;
 /// Accept EAN/UPC reads only with a confirmed add-on.

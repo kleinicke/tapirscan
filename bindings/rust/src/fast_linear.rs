@@ -117,7 +117,10 @@ struct Observation {
 }
 fn required_support(format: &str) -> u64 {
     // Checkless or weakly checked symbologies need a third agreeing row.
-    if matches!(format, "ITF" | "Code39" | "Codabar" | "MSIPlessey") {
+    if matches!(
+        format,
+        "ITF" | "Code39" | "Codabar" | "MSIPlessey" | "Industrial25" | "Pharmacode"
+    ) {
         3
     } else {
         2
@@ -1146,9 +1149,10 @@ fn sample_line_density(
     for method in 0..methods {
         candidate.restored = method >= 3;
         // Code39 has no mandatory checksum. Restored narrow bars can turn H
-        // into B consistently across rows, so only original profiles may add it.
+        // into B consistently across rows, so only original profiles may add it;
+        // the same holds for the checkless opt-in bar codes.
         let active_mask = if method >= 3 {
-            candidate.mask & !linear::CODE39
+            candidate.mask & !(linear::CODE39 | linear::INDUSTRIAL25 | linear::PHARMACODE)
         } else {
             candidate.mask
         };
@@ -1188,7 +1192,9 @@ fn sample_line_density(
                 } else {
                     sampler.first_black
                 };
-            let mut decoded = linear::decode(&sampler.runs, first, active_mask);
+            let (from, to) = if reverse { (b, a) } else { (a, b) };
+            let mut decoded =
+                linear::decode(&sampler.runs, first, directed_mask(active_mask, from, to));
             supplement_ean(&sampler.runs, first, active_mask, &mut decoded);
             #[cfg(any(feature = "low", feature = "medium"))]
             if TIER == 0 && enhanced && decoded.is_empty() {
@@ -1239,6 +1245,16 @@ fn sample_line_density(
         if decoded_wide {
             break;
         }
+    }
+}
+
+/// Pharmacode has no start or stop: it is read only along the image's reading
+/// direction (see `linear::pharmacode_direction`) of a profile sampled from `from` to `to`.
+fn directed_mask(mask: u32, from: [f64; 2], to: [f64; 2]) -> u32 {
+    if linear::pharmacode_direction(to[0] - from[0], to[1] - from[1]) {
+        mask
+    } else {
+        mask & !linear::PHARMACODE
     }
 }
 

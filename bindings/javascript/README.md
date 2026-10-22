@@ -48,10 +48,12 @@ keyword group; — means it is not included. `retail` is the default.
 | `Code32`          | —        | —          | —        | —     | —     | —     | Opt-in: Italian pharmacy number                   |
 | `PZN`             | —        | —          | —        | —     | —     | —     | Opt-in: German PZN8/PZN7                          |
 | `MSIPlessey`      | —        | —          | —        | —     | —     | —     | Opt-in: mod-10 check digit required               |
+| `Industrial25`    | —        | —          | —        | —     | —     | —     | Opt-in: Industrial (Standard) 2 of 5              |
+| `Pharmacode`      | —        | —          | —        | —     | —     | —     | Opt-in: Laetus one-track Pharmacode               |
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN` and `MSIPlessey` require explicit selection; no group includes
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25` and `Pharmacode` require explicit selection; no group includes
 them, even `all`. See the [format guide](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md)
 for variant details and EAN/UPC supplements.
 
@@ -562,7 +564,7 @@ custom loaders manage their own caching. Each scanner owns its own WASM instance
 
 `"retail"` selects EAN13, UPCA, EAN8 and UPCE. `"common1D"` adds Code128,
 Code39 and ITF; `"common"` adds QRCode and DataMatrix. `"1D"` and `"2D"`
-enable linear or 2D formats. `Code32`, `PZN` and `MSIPlessey` require
+enable linear or 2D formats. `Code32`, `PZN`, `MSIPlessey`, `Industrial25` and `Pharmacode` require
 explicit selection and are excluded from every group, including `"all"`.
 The exports `retailFormats`, `commonLinearFormats`, `commonFormats`,
 `linearFormats` and `matrixFormats` help compose custom selections. See

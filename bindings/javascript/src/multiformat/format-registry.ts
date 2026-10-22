@@ -20,6 +20,8 @@ export const formatBits = Object.freeze({
   Code32: 262144,
   PZN: 524288,
   MSIPlessey: 1048576,
+  Industrial25: 2097152,
+  Pharmacode: 4194304,
 } as const);
 export type Format = keyof typeof formatBits;
 export const retailFormats: readonly Format[] = Object.freeze(["EAN13", "UPCA", "EAN8", "UPCE"]);

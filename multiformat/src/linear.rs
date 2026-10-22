@@ -17,6 +17,23 @@ pub const DATABAR_EXPANDED: u32 = crate::formats::DATA_BAR_EXPANDED;
 pub const ADDON_READ: u32 = crate::formats::EAN_ADDON_READ_FLAG;
 pub const ADDON_REQUIRE: u32 = crate::formats::EAN_ADDON_REQUIRE_FLAG;
 pub const MSI_PLESSEY: u32 = crate::formats::MSI_PLESSEY;
+pub const INDUSTRIAL25: u32 = crate::formats::INDUSTRIAL25;
+/// Pharmacode has no start or stop: callers select it only for runs in the image's
+/// reading direction (see [`pharmacode_direction`]).
+pub const PHARMACODE: u32 = crate::formats::PHARMACODE;
+
+/// Whether runs sampled along image direction `(dx, dy)` (y downward) are in
+/// Pharmacode reading order. A Pharmacode value depends on the reading direction, which
+/// the symbol does not show, so the image defines it: along the diagonal half-plane
+/// `dx + dy > 0`, that is left to right for horizontal symbols and top to bottom for
+/// vertical ones. Each scan line is read in exactly one direction; the switch lies at
+/// symbols whose bars run from bottom left to top right at 45 degrees, away from the
+/// upright and quarter-turn orientations.
+#[must_use]
+pub fn pharmacode_direction(dx: f64, dy: f64) -> bool {
+    let along = dx + dy;
+    along > 0. || (along >= 0. && dx > 0.)
+}
 
 pub(crate) const DIGITS: [[u8; 4]; 10] = [
     [3, 2, 1, 1],
@@ -55,7 +72,7 @@ const C39: [u16; 44] = [
     0x007, 0x106, 0x046, 0x016, 0x181, 0x0c1, 0x1c0, 0x091, 0x190, 0x0d0, 0x085, 0x184, 0x0c4,
     0x0a8, 0x0a2, 0x08a, 0x02a, 0x094,
 ];
-const ITF_DIGITS: [u8; 10] = [6, 17, 9, 24, 5, 20, 12, 3, 18, 10];
+pub(crate) const ITF_DIGITS: [u8; 10] = [6, 17, 9, 24, 5, 20, 12, 3, 18, 10];
 const CODA: [u8; 20] = [
     3, 6, 9, 96, 18, 66, 33, 36, 48, 72, 12, 24, 69, 81, 84, 21, 26, 41, 11, 14,
 ];
@@ -781,7 +798,7 @@ fn c128_text(v: &[usize]) -> Option<(String, bool)> {
     }
     Some((out.iter().map(|&b| b as char).collect(), gs1))
 }
-fn wide_bits(r: &[f32], n: usize, wides: usize) -> Option<(u16, f32)> {
+pub(crate) fn wide_bits(r: &[f32], n: usize, wides: usize) -> Option<(u16, f32)> {
     if r.len() < n {
         return None;
     }
@@ -1328,6 +1345,9 @@ fn decode_impl(
         } else {
             59
         }
+    } else if mask & PHARMACODE != 0 {
+        // Four bars, three spaces and both quiet zones.
+        9
     } else {
         16
     };
@@ -1377,6 +1397,12 @@ fn decode_impl(
         }
         if quiet && found.is_none() && mask & MSI_PLESSEY != 0 {
             found = msi(r, s, limited);
+        }
+        if quiet && found.is_none() && mask & INDUSTRIAL25 != 0 {
+            found = crate::industrial25::decode(r, s, limited);
+        }
+        if quiet && found.is_none() && mask & PHARMACODE != 0 {
+            found = crate::pharmacode::decode(r, s);
         }
         if let Some(read) = found {
             s = read.end;

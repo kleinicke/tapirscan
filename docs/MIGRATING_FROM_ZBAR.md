@@ -108,7 +108,7 @@ python -c 'import sys; from PIL import Image; import tapirscan; [print(f"{b.form
 | `SQCODE`, `COMPOSITE`       | none                         | Not supported.                                                  |
 
 Tapirscan also reads `DataMatrix`, `Aztec`, `MaxiCode`, and, only when named,
-`Code32`, `PZN` and `MSIPlessey`. Identifiers are case-sensitive. zbar-wasm
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25` and `Pharmacode`. Identifiers are case-sensitive. zbar-wasm
 `typeName` is `"ZBAR_EAN13"`; strip `ZBAR_`.
 
 ### EAN-13, UPC-A and ISBN

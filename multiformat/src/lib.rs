@@ -12,6 +12,7 @@ pub mod expanded;
 mod finder_budget;
 pub mod formats;
 pub mod gray_sample;
+mod industrial25;
 pub mod linear;
 mod linear_geometry;
 pub mod matrix_readers;
@@ -23,6 +24,7 @@ pub mod numeric;
 pub mod pdf417;
 mod pdf417_tables;
 pub mod pdf_localize;
+mod pharmacode;
 pub mod qr;
 pub mod qr_detect;
 pub mod qr_enhance;
@@ -848,10 +850,18 @@ pub fn scan_with_images(
                                     step,
                                 });
                             }
+                            let forward = linear::pharmacode_direction(
+                                f64::from(cos_angle),
+                                f64::from(sin_angle),
+                            );
                             let mut reads = linear::decode_candidates(
                                 &refined,
                                 first_black,
-                                mask,
+                                if forward == reverse {
+                                    mask & !linear::PHARMACODE
+                                } else {
+                                    mask
+                                },
                                 &mut regions.limited,
                             );
                             if mask & linear::CODABAR != 0 {
@@ -954,6 +964,11 @@ pub fn scan_with_images(
             continue;
         }
         if g.support < 2 && width.min(height) > 4 {
+            continue;
+        }
+        // The checkless opt-in bar codes need a third agreeing line, as in the
+        // localized recovery.
+        if g.support < 3 && matches!(g.format.as_str(), "Industrial25" | "Pharmacode") {
             continue;
         }
         if !g.decoded && (g.support < 3 || g.error > 0.08) {

@@ -37,10 +37,12 @@ is included in that keyword group; — means it is not included, not unsupported
 | `Code32`          | —        | —          | —        | —     | —     | —     | Opt-in: Italian pharmacy number                   |
 | `PZN`             | —        | —          | —        | —     | —     | —     | Opt-in: German PZN8/PZN7                          |
 | `MSIPlessey`      | —        | —          | —        | —     | —     | —     | Opt-in: mod-10 check digit required               |
+| `Industrial25`    | —        | —          | —        | —     | —     | —     | Opt-in: Industrial (Standard) 2 of 5              |
+| `Pharmacode`      | —        | —          | —        | —     | —     | —     | Opt-in: Laetus one-track Pharmacode               |
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN` and `MSIPlessey` require explicit selection; no group includes
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25` and `Pharmacode` require explicit selection; no group includes
 them, even `all`. Groups select readers, not effort levels or accuracy guarantees.
 
 Native names follow each language: Rust `Formats::COMMON_1D`, C
@@ -80,6 +82,8 @@ The supported public identifiers and native bits are:
 | Code32          |  262144 | Opt-in Code 39 variant: Italian pharmacy code, 9-digit number    |
 | PZN             |  524288 | Opt-in Code 39 variant: German PZN8/PZN7, number without `-`     |
 | MSIPlessey      | 1048576 | Opt-in; mod-10 check digit required, returned with the data      |
+| Industrial25    | 2097152 | Opt-in Industrial (Standard) 2 of 5; digits as printed           |
+| Pharmacode      | 4194304 | Opt-in Laetus one-track Pharmacode; value 3 to 131070            |
 
 ### Pharmacy numbers in Code 39 (Code32, PZN)
 
@@ -109,6 +113,45 @@ or none are not read. The symbol also needs:
 - consistent bar widths across the symbol.
 
 `MSIPlessey` is opt-in.
+
+### Industrial 2 of 5
+
+Industrial 2 of 5, also called Standard 2 of 5 or Code 2 of 5 Industrial (Zint
+`C25IND`, Quagga2 `2of5`), stores digits in the bars only: five bars per digit,
+two of them wide, with narrow spaces, between a wide-wide-narrow start and a
+wide-narrow-wide stop. It is neither ITF nor Matrix 2 of 5. The symbology has no
+mandatory check digit, so the digits are returned as printed, including a check
+digit if the symbol has one. A read needs:
+
+- quiet zones of at least seven narrow modules on both sides, so a symbol cut by
+  the image edge is not read;
+- one narrow and one wide bar width and one space width across the symbol.
+
+`Industrial25` is opt-in. IATA 2 of 5 and Matrix 2 of 5 are not read.
+
+### Pharmacode
+
+Pharmacode (Laetus, one track) is 2 to 16 narrow or wide bars with equal
+spaces; read from the right, a narrow bar is worth 2^i and a wide bar 2^(i+1),
+so values run from 3 to 131070 and are returned as decimal text. The symbol has
+no start, stop or check, so the reader is strict:
+
+- at least five bars (values from 32), and both bar widths present: symbols of
+  only narrow bars (values 2^n − 1) or only wide bars (2^(n+1) − 2) are not read,
+  since nothing tells the two apart;
+- one narrow and one wide bar width and one space width across the symbol, with
+  spaces wider than the narrow bars (nominally 1 mm and 0.5 mm), unlike text
+  strokes and Industrial 2 of 5;
+- quiet zones of at least five space widths on both sides, shown in full by the
+  image (a symbol cut by the edge is not read);
+- a bar sequence that is a complete Industrial 2 of 5 symbol is left to that format.
+
+The value depends on the reading direction, which the symbol does not show, so
+the image defines it: bars are read left to right, and top to bottom in steep
+symbols (the switch lies at 45 degrees, where the bars run from bottom left to
+top right). A symbol upside down in the image gives the mirrored value. Two-track
+Pharmacode is not read. `Pharmacode` is opt-in; select it only where these codes
+are expected.
 
 ### ITF
 

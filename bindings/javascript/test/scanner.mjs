@@ -552,3 +552,52 @@ test("MSI Plessey is opt-in and read when selected", async () => {
     scanner.dispose();
   }
 });
+
+test("Industrial 2 of 5 and Pharmacode are opt-in and read when selected", async () => {
+  const draw = (bits) => {
+    const width = bits.length * 3 + 120,
+      height = 90,
+      data = new Uint8Array(width * height).fill(255);
+    for (let y = 15; y < 75; y++)
+      for (let i = 0; i < bits.length; i++)
+        if (bits[i] === "1") data.fill(0, y * width + 60 + i * 3, y * width + 63 + i * 3);
+    return { data, width, height, channels: 1, stride: width };
+  };
+  // Industrial 2 of 5 "4711": bars only (wide 111, narrow 1), narrow spaces.
+  const digits = [
+    "nnwwn",
+    "wnnnw",
+    "nwnnw",
+    "wwnnn",
+    "nnwnw",
+    "wnwnn",
+    "nwwnn",
+    "nnnww",
+    "wnnwn",
+    "nwnwn",
+  ];
+  const bar = (wide) => (wide ? "1110" : "10");
+  let industrial = bar(true) + bar(true) + bar(false);
+  for (const digit of "4711") for (const c of digits[Number(digit)]) industrial += bar(c === "w");
+  industrial += "1110101110";
+  // Pharmacode 1234: narrow bar 1, wide 111, spaces 00, read left to right.
+  const bars = [];
+  for (let value = 1234; value > 0;) {
+    const wide = value % 2 === 0;
+    bars.unshift(wide ? "111" : "1");
+    value = (value - (wide ? 2 : 1)) / 2;
+  }
+  for (const [format, image, text] of [
+    ["Industrial25", draw(industrial), "4711"],
+    ["Pharmacode", draw(bars.join("00")), "1234"],
+  ]) {
+    const scanner = await Scanner.create({ formats: format });
+    try {
+      const [barcode] = scanner.scan(image).barcodes;
+      assert.deepEqual([barcode.format, barcode.text], [format, text]);
+      assert.deepEqual(scanner.scan(image, { formats: "all" }).barcodes, []);
+    } finally {
+      scanner.dispose();
+    }
+  }
+});

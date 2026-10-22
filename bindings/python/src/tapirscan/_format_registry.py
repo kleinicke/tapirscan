@@ -22,6 +22,8 @@ Format: TypeAlias = Literal[
     "Code32",
     "PZN",
     "MSIPlessey",
+    "Industrial25",
+    "Pharmacode",
 ]
 FORMAT_BITS: dict[str, int] = {
     "EAN13": 1,
@@ -44,6 +46,8 @@ FORMAT_BITS: dict[str, int] = {
     "Code32": 262144,
     "PZN": 524288,
     "MSIPlessey": 1048576,
+    "Industrial25": 2097152,
+    "Pharmacode": 4194304,
 }
 retail_formats: tuple[Format, ...] = (
     "EAN13",

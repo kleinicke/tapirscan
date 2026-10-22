@@ -17,5 +17,7 @@
   "MaxiCode": "Modes 2–6",
   "Code32": "Opt-in: Italian pharmacy number",
   "PZN": "Opt-in: German PZN8/PZN7",
-  "MSIPlessey": "Opt-in: mod-10 check digit required"
+  "MSIPlessey": "Opt-in: mod-10 check digit required",
+  "Industrial25": "Opt-in: Industrial (Standard) 2 of 5",
+  "Pharmacode": "Opt-in: Laetus one-track Pharmacode"
 }

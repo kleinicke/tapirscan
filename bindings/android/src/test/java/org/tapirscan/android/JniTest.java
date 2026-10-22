@@ -151,7 +151,8 @@ public final class JniTest {
         check(Format.LINEAR.contains(Format.CODE93) && !Format.LINEAR.contains(Format.QR_CODE), "linear preset");
         check(Format.MATRIX.contains(Format.AZTEC) && !Format.MATRIX.contains(Format.EAN13), "matrix preset");
         check(!Format.ALL.contains(Format.PZN) && Format.ALL.contains(Format.MAXI_CODE), "all preset");
-        new Scanner(new ScannerOptions(Mode.LOW, only(Format.CODE32, Format.PZN, Format.MSI_PLESSEY),
+        new Scanner(new ScannerOptions(Mode.LOW, only(Format.CODE32, Format.PZN, Format.MSI_PLESSEY,
+                Format.INDUSTRIAL25, Format.PHARMACODE),
                 EanAddOnPolicy.READ)).close();
         Content wifi = Tapirscan.parseContent("WIFI:S:Café;T:WPA;P:secret;;").get();
         check(wifi.kind() == ContentKind.WIFI && "WiFi".equals(wifi.kind().toString()), "wifi kind");

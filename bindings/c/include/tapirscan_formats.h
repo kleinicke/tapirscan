@@ -20,6 +20,8 @@
 #define TAPIRSCAN_FORMAT_CODE32 262144u /* Italian pharmacy code: a Code 39 symbol reported as its 9-digit number (opt-in). */
 #define TAPIRSCAN_FORMAT_PZN 524288u /* German pharmacy number: a Code 39 symbol reported as its 8- or 7-digit number (opt-in). */
 #define TAPIRSCAN_FORMAT_MSI_PLESSEY 1048576u /* MSI Plessey with a mod-10 check digit (opt-in). */
+#define TAPIRSCAN_FORMAT_INDUSTRIAL25 2097152u /* Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in). */
+#define TAPIRSCAN_FORMAT_PHARMACODE 4194304u /* Laetus Pharmacode (one-track), value 3 to 131070 (opt-in). */
 
 #define TAPIRSCAN_FORMATS_RETAIL 15u /* EAN-13, UPC-A, EAN-8 and UPC-E. */
 #define TAPIRSCAN_FORMATS_COMMON_1D 127u /* Retail formats plus Code 128, Code 39 and ITF. */
@@ -27,6 +29,6 @@
 #define TAPIRSCAN_FORMATS_LINEAR 25087u /* All linear formats except the opt-in ones, including DataBar variants. */
 #define TAPIRSCAN_FORMATS_MATRIX 138752u /* QR Code, Data Matrix, PDF417, Aztec and MaxiCode. */
 #define TAPIRSCAN_FORMATS_ALL 163839u /* Every format except the opt-in formats. */
-/* Opt-in formats (Code32, PZN, MSIPlessey): selected only by name, never by a preset or ALL. */
-#define TAPIRSCAN_FORMATS_OPT_IN 1835008u
+/* Opt-in formats (Code32, PZN, MSIPlessey, Industrial25, Pharmacode): selected only by name, never by a preset or ALL. */
+#define TAPIRSCAN_FORMATS_OPT_IN 8126464u
 #endif

@@ -54,6 +54,10 @@ pub enum Format {
     #[serde(rename = "MSIPlessey")]
     /// MSI Plessey with a mod-10 check digit (opt-in).
     MsiPlessey = 1_048_576,
+    /// Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in).
+    Industrial25 = 2_097_152,
+    /// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
+    Pharmacode = 4_194_304,
 }
 
 impl Format {
@@ -78,6 +82,8 @@ impl Format {
         Self::Code32,
         Self::Pzn,
         Self::MsiPlessey,
+        Self::Industrial25,
+        Self::Pharmacode,
     ];
 
     /// Stable schema name used by language adapters.
@@ -103,6 +109,8 @@ impl Format {
             Self::Code32 => "Code32",
             Self::Pzn => "PZN",
             Self::MsiPlessey => "MSIPlessey",
+            Self::Industrial25 => "Industrial25",
+            Self::Pharmacode => "Pharmacode",
         }
     }
 }
@@ -120,5 +128,5 @@ pub(crate) const LINEAR_MASK: u32 = 25_087;
 pub(crate) const MATRIX_MASK: u32 = 138_752;
 pub(crate) const ALL_FORMATS_MASK: u32 = LINEAR_MASK | MATRIX_MASK;
 /// Opt-in formats: selected only by name, never by a preset or `ALL`.
-pub(crate) const OPT_IN_MASK: u32 = 1_835_008;
+pub(crate) const OPT_IN_MASK: u32 = 8_126_464;
 pub(crate) const SUPPORTED_MASK: u32 = ALL_FORMATS_MASK | OPT_IN_MASK;

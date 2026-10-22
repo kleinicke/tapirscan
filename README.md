@@ -57,10 +57,12 @@ is included in that keyword group; — means it is not included, not unsupported
 | `Code32`          | —        | —          | —        | —     | —     | —     | Opt-in: Italian pharmacy number                   |
 | `PZN`             | —        | —          | —        | —     | —     | —     | Opt-in: German PZN8/PZN7                          |
 | `MSIPlessey`      | —        | —          | —        | —     | —     | —     | Opt-in: mod-10 check digit required               |
+| `Industrial25`    | —        | —          | —        | —     | —     | —     | Opt-in: Industrial (Standard) 2 of 5              |
+| `Pharmacode`      | —        | —          | —        | —     | —     | —     | Opt-in: Laetus one-track Pharmacode               |
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN` and `MSIPlessey` require explicit selection; no group includes
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25` and `Pharmacode` require explicit selection; no group includes
 them, even `all`. Groups select readers, not effort levels or accuracy guarantees.
 
 Python and JavaScript accept these keywords as strings, for example

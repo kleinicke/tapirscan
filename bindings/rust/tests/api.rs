@@ -676,6 +676,81 @@ fn msi_plessey_is_read_in_every_mode_and_only_when_selected() {
     assert_eq!(Format::MsiPlessey.as_str(), "MSIPlessey");
 }
 
+/// Industrial 2 of 5 modules: bars only (wide `111`, narrow `1`), narrow spaces;
+/// start wide-wide-narrow, five bars per digit with two wide, stop wide-narrow-wide.
+fn industrial25_bits(text: &str) -> String {
+    const PATTERNS: [&str; 10] = [
+        "nnwwn", "wnnnw", "nwnnw", "wwnnn", "nnwnw", "wnwnn", "nwwnn", "nnnww", "wnnwn", "nwnwn",
+    ];
+    let bar = |wide: bool| if wide { "1110" } else { "10" };
+    let mut bits: String = [true, true, false].map(bar).concat();
+    for digit in text.bytes().map(|b| usize::from(b - b'0')) {
+        for c in PATTERNS[digit].chars() {
+            bits.push_str(bar(c == 'w'));
+        }
+    }
+    bits.push_str("1110101110");
+    bits
+}
+
+/// Pharmacode modules (narrow bar `1`, wide `111`, spaces `00`) of `value`.
+fn pharmacode_bits(mut value: u32) -> String {
+    let mut bars = Vec::new();
+    while value > 0 {
+        let wide = value.is_multiple_of(2);
+        bars.push(if wide { "111" } else { "1" });
+        value = (value - if wide { 2 } else { 1 }) / 2;
+    }
+    bars.reverse();
+    bars.join("00")
+}
+
+#[test]
+fn industrial25_and_pharmacode_are_read_only_when_selected() {
+    for (bits, format, text) in [
+        (industrial25_bits("4711"), Format::Industrial25, "4711"),
+        (pharmacode_bits(1234), Format::Pharmacode, "1234"),
+    ] {
+        let (pixels, width, height) = code39_image(&bits);
+        for mode in compiled_modes() {
+            let scan = |formats: Formats| {
+                let mut scanner = Scanner::new(ScannerOptions {
+                    mode,
+                    formats,
+                    ..ScannerOptions::default()
+                });
+                let result = scanner.scan(Image::gray(&pixels, width, height)).unwrap();
+                result
+                    .barcodes
+                    .into_iter()
+                    .map(|b| (b.format, b.text))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                scan(format.into()),
+                [(format, text.to_string())],
+                "{mode:?}"
+            );
+            assert_eq!(scan(Formats::ALL), Vec::new(), "{mode:?}");
+        }
+        assert_ne!(Formats::ALL | format, Formats::ALL);
+    }
+    assert_eq!(Format::Industrial25.as_str(), "Industrial25");
+    assert_eq!(Format::Pharmacode.as_str(), "Pharmacode");
+    // A Pharmacode read follows the image's left-to-right order: mirrored bars
+    // give the mirrored value.
+    let mirrored: String = pharmacode_bits(1234).chars().rev().collect();
+    let (pixels, width, height) = code39_image(&mirrored);
+    let mut scanner = Scanner::new(ScannerOptions {
+        formats: Format::Pharmacode.into(),
+        ..ScannerOptions::default()
+    });
+    let result = scanner.scan(Image::gray(&pixels, width, height)).unwrap();
+    let texts: Vec<_> = result.barcodes.iter().map(|b| b.text.as_str()).collect();
+    assert_eq!(texts.len(), 1);
+    assert_ne!(texts[0], "1234");
+}
+
 /// A 16x16 Data Matrix ("TAPIRSCAN-DM-42") drawn at 80 pixels per module, low
 /// contrast and heavily blurred, as in close-up phone photos. At this scale the
 /// module-scale localizer finds nothing; High and Very High read it on a reduced copy.

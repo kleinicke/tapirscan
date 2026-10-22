@@ -203,9 +203,9 @@ Code128, so list every format you need.
 | `code_93_reader`                                       | `Code93`                                                                                            |
 | `codabar_reader`                                       | `Codabar`                                                                                           |
 | `i2of5_reader`                                         | `ITF` (Interleaved 2 of 5)                                                                          |
-| `2of5_reader` (standard/industrial 2 of 5)             | Not supported.                                                                                      |
+| `2of5_reader` (standard/industrial 2 of 5)             | `Industrial25` (opt-in).                                                                            |
 | `code_32_reader`                                       | `Code32`, opt-in: no keyword group includes it.                                                     |
-| `pharmacode_reader`                                    | Not supported. `PZN` (German pharmacy number in Code 39) is a different code and opt-in.            |
+| `pharmacode_reader`                                    | `Pharmacode` (opt-in). `PZN` (German pharmacy number in Code 39) is a different code.               |
 | `config.supplements: ["ean_5_reader", "ean_2_reader"]` | `eanAddOnPolicy`: `"ignore"`, `"read"` or `"require"`.                                              |
 
 Quagga apps list a supplement reader and a plain `ean_reader`, because a reader

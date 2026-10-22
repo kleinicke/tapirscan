@@ -354,24 +354,49 @@ fn primary_reads(result: &crate::Result) -> Vec<Read> {
         .collect()
 }
 
-/// MSI Plessey has no per-character check: a threshold pass that erases the end of
-/// a symbol can leave a prefix whose last digit passes the mod-10 check. Drop such
-/// a read when a longer read of the same symbol, starting with its digits, covers it.
-fn drop_msi_prefixes(reads: &mut Vec<Read>) {
-    let prefixes: Vec<bool> = reads
+/// Narrow/wide bars of a Pharmacode value, left to right (`true` for wide).
+fn pharmacode_bars(text: &str) -> Option<Vec<bool>> {
+    let mut value: u32 = text.parse().ok()?;
+    let mut bars = Vec::new();
+    while value > 0 {
+        let wide = value.is_multiple_of(2);
+        bars.push(wide);
+        value = (value - if wide { 2 } else { 1 }) / 2;
+    }
+    bars.reverse();
+    Some(bars)
+}
+
+/// MSI Plessey, Industrial 2 of 5 and Pharmacode have no per-character check: a
+/// threshold pass that erases part of a symbol can leave a fragment that still reads
+/// (an MSI prefix whose last digit passes the mod-10 check, Industrial 2 of 5 digits
+/// before an erased run that looks like its stop and quiet zone, any run of
+/// Pharmacode bars). Drop such a read
+/// when a longer read of the same symbol that contains it covers it.
+fn drop_unchecked_fragments(reads: &mut Vec<Read>) {
+    let contains = |long: &Read, short: &Read| match short.format.as_str() {
+        "MSIPlessey" => long.text.len() > short.text.len() && long.text.starts_with(&short.text),
+        "Industrial25" => long.text.len() > short.text.len() && long.text.contains(&short.text),
+        "Pharmacode" => match (pharmacode_bars(&long.text), pharmacode_bars(&short.text)) {
+            (Some(long), Some(short)) => {
+                long.len() > short.len() && long.windows(short.len()).any(|w| w == short)
+            }
+            _ => false,
+        },
+        _ => false,
+    };
+    let fragments: Vec<bool> = reads
         .iter()
         .map(|read| {
-            read.format == "MSIPlessey"
-                && reads.iter().any(|other| {
-                    other.format == read.format
-                        && other.text.len() > read.text.len()
-                        && other.text.starts_with(&read.text)
-                        && overlap_quads(&read.polygon, &other.polygon).0 >= 0.65
-                })
+            reads.iter().any(|other| {
+                other.format == read.format
+                    && contains(other, read)
+                    && overlap_quads(&read.polygon, &other.polygon).0 >= 0.65
+            })
         })
         .collect();
-    let mut prefix = prefixes.into_iter();
-    reads.retain(|_| !prefix.next().unwrap_or(false));
+    let mut fragment = fragments.into_iter();
+    reads.retain(|_| !fragment.next().unwrap_or(false));
 }
 
 /// Drop linear reads of periodic or two-dimensional textures (see [`crate::texture`]). A
@@ -405,7 +430,7 @@ pub(crate) fn typed_result(
     mut diagnostics: Option<Value>,
 ) -> Result<EngineScan, Error> {
     drop_texture_reads(&mut reads, image);
-    drop_msi_prefixes(&mut reads);
+    drop_unchecked_fragments(&mut reads);
     if let Some(raw) = &mut diagnostics {
         raw["scan"]["barcodes"] = serde_json::to_value(&reads).map_err(|_| Error::OutputShape)?;
         raw["scan"]["unfinished"] = json!(unfinished);

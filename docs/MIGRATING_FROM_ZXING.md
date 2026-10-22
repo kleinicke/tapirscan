@@ -82,6 +82,7 @@ Data Matrix; `"all"` reads all but the opt-in formats.
 | `DataBarExp`, `DataBarExpStk`                            | `RSS_EXPANDED`                      | `DataBarExpanded`                          |
 | `DataBarLtd`, `Telepen*`, `DXFilmEdge`                   | none                                | none                                       |
 | none                                                     | none                                | `MSIPlessey` (opt-in)                      |
+| none                                                     | none                                | `Industrial25`, `Pharmacode` (opt-in)      |
 | `QRCode`, `QRCodeModel2`                                 | `QR_CODE`                           | `QRCode`                                   |
 | `QRCodeModel1`, `MicroQRCode`, `RMQRCode`                | `MICRO_QR_CODE`                     | none                                       |
 | `DataMatrix`                                             | `DATA_MATRIX`                       | `DataMatrix`                               |
