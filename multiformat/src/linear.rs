@@ -1340,15 +1340,7 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
         err += e;
         characters.push(c);
         if c >= 16 {
-            // As for Code 39: a one- or two-character symbol needs full quiet zones
-            // (narrow module from the start character).
-            if out.is_empty()
-                || (out.len() <= SHORT_UNCHECKED_CHARACTERS
-                    && (s == 0
-                        || r[s - 1] < module * SHORT_QUIET_MODULES
-                        || r.get(at + 7)
-                            .is_none_or(|&v| v < module * SHORT_QUIET_MODULES)))
-            {
+            if out.is_empty() {
                 return None;
             }
             // A checkless reader must fit one physical narrow/wide model
@@ -1390,6 +1382,15 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
             let global_error = deviation / sums.iter().sum::<f32>();
             let module = f32::midpoint(means[0], means[2]);
             if global_error > 0.19 || !quiet(r, s, at + 7, module, 5.) {
+                return None;
+            }
+            // As for Code 39: a one- or two-character symbol needs full quiet zones.
+            if out.len() <= SHORT_UNCHECKED_CHARACTERS
+                && (s == 0
+                    || r[s - 1] < module * SHORT_QUIET_MODULES
+                    || r.get(at + 7)
+                        .is_none_or(|&v| v < module * SHORT_QUIET_MODULES))
+            {
                 return None;
             }
             return Some(Read {
