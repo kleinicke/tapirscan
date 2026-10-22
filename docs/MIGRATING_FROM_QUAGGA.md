@@ -177,38 +177,8 @@ selection, torch and hidden pages.
 ### Drawing results
 
 `Quagga.canvas.dom.overlay` and `Quagga.ImageDebug.drawPath` become a canvas you
-lay over the video. Give it the frame's pixel size and the video's CSS box, and
-draw `polygon` directly:
-
-```html
-<div style="position: relative">
-  <video style="display: block; width: 100%"></video>
-  <canvas
-    style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none"
-  ></canvas>
-</div>
-```
-
-```js
-// Before: Quagga.onProcessed(result => Quagga.ImageDebug.drawPath(result.box, { x: 0, y: 1 }, ctx, { color: "green", lineWidth: 2 }))
-const overlay = document.querySelector("canvas");
-const camera = new CameraScanner(video, scanner, {
-  onScan({ barcodes }) {
-    overlay.width = video.videoWidth; // also clears the canvas
-    overlay.height = video.videoHeight;
-    const context = overlay.getContext("2d");
-    context.lineWidth = 4;
-    context.strokeStyle = "green";
-    for (const { polygon } of barcodes) {
-      context.beginPath();
-      for (const [x, y] of polygon) context.lineTo(x, y);
-      context.closePath();
-      context.stroke();
-    }
-  },
-  onError: console.error,
-});
-```
+lay over the video and draw `polygon` on; see
+[drawing results over the video](../bindings/javascript/README.md#drawing-results-over-the-video).
 
 Only decoded barcodes are drawn. Quagga's `boxes` show every localization
 candidate; the nearest Tapirscan equivalent is `scanner.inspect(video)`, whose
@@ -298,47 +268,23 @@ Tapirscan always localizes, in any orientation. Effort is a mode: import
 | `inputStream.size`        | Pass frames at the resolution to scan; the camera defaults to 1280×720 |
 | `inputStream.area`        | No region option. Crop the input yourself, as below.                   |
 
-To replace `area`, wrap the scanner: `CameraScanner` accepts any object with a
-`scan(video, options)` method. The wrapper crops each frame to the area and
-shifts the results back into frame coordinates; a smaller area also scans
-faster.
+To replace `area`, wrap the scanner with `regionScanner` from
+[scanning a region](../bindings/javascript/README.md#scanning-a-region). It crops
+each frame and maps the results back. Quagga's percent insets become a region
+function:
 
 ```js
 // Before: inputStream: { area: { top: "25%", right: "10%", left: "10%", bottom: "25%" } }
-const area = { top: 25, right: 10, left: 10, bottom: 25 }; // percent insets, as in Quagga
-
-function areaScanner(scanner, { top, right, bottom, left }) {
-  const canvas = new OffscreenCanvas(1, 1);
-  const context = canvas.getContext("2d");
-  return {
-    async scan(video, options) {
-      const x = Math.round((video.videoWidth * left) / 100);
-      const y = Math.round((video.videoHeight * top) / 100);
-      canvas.width = Math.round((video.videoWidth * (100 - left - right)) / 100);
-      canvas.height = Math.round((video.videoHeight * (100 - top - bottom)) / 100);
-      context.drawImage(
-        video,
-        x,
-        y,
-        canvas.width,
-        canvas.height,
-        0,
-        0,
-        canvas.width,
-        canvas.height,
-      );
-      const result = await scanner.scan(canvas, options);
-      const barcodes = result.barcodes.map((barcode) => ({
-        ...barcode,
-        polygon: barcode.polygon.map(([px, py]) => [px + x, py + y]),
-        rect: { ...barcode.rect, left: barcode.rect.left + x, top: barcode.rect.top + y },
-      }));
-      return { ...result, barcodes, best: barcodes[result.barcodes.indexOf(result.best)] };
-    },
-  };
+function area({ top, right, bottom, left }) {
+  return (width, height) => ({
+    left: Math.round((width * left) / 100),
+    top: Math.round((height * top) / 100),
+    width: Math.round((width * (100 - left - right)) / 100),
+    height: Math.round((height * (100 - top - bottom)) / 100),
+  });
 }
-
-const camera = new CameraScanner(video, areaScanner(scanner, area), { onScan, onError });
+const region = area({ top: 25, right: 10, bottom: 25, left: 10 });
+const camera = new CameraScanner(video, regionScanner(scanner, region), { onScan, onError });
 ```
 
 For `decodeSingle` with an `area`, draw the same part of the image into a canvas,
@@ -373,9 +319,3 @@ for barcode in result.barcodes:
 `scan` also accepts NumPy arrays and PyTorch tensors; see the
 [Python guide](../bindings/python/README.md). For camera or video frames with
 OpenCV, see the [Python camera loop](MIGRATING_FROM_ZXING.md#python-camera-or-video).
-
-## Generating barcodes
-
-Like Quagga, Tapirscan only reads barcodes. To create them, use a generator such
-as [bwip-js](https://github.com/metafloor/bwip-js) or
-[JsBarcode](https://github.com/lindell/JsBarcode).

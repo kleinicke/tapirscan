@@ -6,9 +6,8 @@
   one mode's WASM into application builds instead of all eight files.
 - JavaScript: `tapirscan/camera` adds `CameraScanner`, an optional camera loop
   for any browser scanner.
-- Docs: browser deployment (CSP, same-origin worker, static hosting) and
-  migration guides from ZXing, ZBar, Quagga and html5-qrcode; camera recipes
-  for overlays, scan regions, camera pickers, recorded video and OpenCV loops.
+- Docs: browser deployment, camera recipes, and migration guides from ZXing,
+  ZBar, Quagga and html5-qrcode.
 - Reuse exact source profiles during Medium primary recovery and vectorize
   Data Matrix border sampling in WebAssembly.
 - Restrict private native Turbo build switches to Low; higher modes retain
@@ -16,11 +15,11 @@
 - Vectorize QR finder coordinate calculations in WebAssembly and omit optional
   region output from compact scans.
 - Honor hybrid thresholding when filling native threshold caches in parallel.
-- Read small, densely packed QR codes such as label sheets: small finders get
-  support from the rows between scan lines, and once symbols are read the QR
-  search keeps going (cheap rejections, a decode budget that grows with each
-  read, and in Low and Medium the foreground thresholds). High and Very High
-  first retry unread frames on area-averaged reduced copies.
+- Read small, densely packed QR codes, such as label sheets with dozens of
+  symbols, in every mode; High and Very High read more QR codes in shaded or
+  blurred photos. With QR selected, Low and Medium scan frames without QR codes
+  as fast as before and frames with them about 4% slower; High and Very High
+  take about 7% longer on photos.
 
 ## 1.4.0
 

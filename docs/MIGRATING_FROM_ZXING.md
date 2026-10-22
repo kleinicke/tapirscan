@@ -294,16 +294,6 @@ with tapirscan.Scanner(mode="low", formats=["EAN13", "QRCode"]) as scanner:
         for barcode in scanner.scan(cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)).barcodes:
             corners = np.array([(p.x, p.y) for p in barcode.polygon], np.int32)
             cv2.polylines(frame, [corners], True, (0, 255, 0), 2)
-            origin = (barcode.rect.left, barcode.rect.top - 8)
-            cv2.putText(
-                frame,
-                barcode.text,
-                origin,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 0),
-                2,
-            )
         cv2.imshow("scan", frame)
         if cv2.waitKey(1) == 27:  # Esc
             break

@@ -89,29 +89,27 @@ await camera.start(); // rejects without permission or camera
 camera.stop();
 ```
 
-| html5-qrcode                                       | Tapirscan                                                                                  |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `new Html5Qrcode(elementId)`                       | `new CameraScanner(video, scanner, options)` with your own `<video>`                       |
-| `start(cameraId, …)`                               | `start({ deviceId })`                                                                      |
-| `start({ facingMode: "environment" }, …)`          | `start()` (back camera preferred) or `start({ facingMode: "user" })`                       |
-| `fps`                                              | None: each new frame is scanned once the previous scan finished                            |
-| `qrbox`                                            | No option; [scan a region](#qrbox-scan-region)                                             |
-| `aspectRatio`, `videoConstraints`                  | `constraints` option, for example `{ aspectRatio: 1 }`; the default ideal size is 1280×720 |
-| `disableFlip`                                      | None; mirrored QR Code, Data Matrix and Aztec symbols are read automatically               |
-| success callback                                   | `onScan`, when `barcodes.length > 0`                                                       |
-| error callback per frame                           | `onScan` with empty `barcodes`; delete "No MultiFormat Readers" handling                   |
-| `start()` rejection                                | `start()` rejection; later failures call `onError`                                         |
-| `stop()`, `clear()`                                | `camera.stop()`; remove your elements yourself. `scanner.dispose()` when done              |
-| `pause()` / `resume()`                             | `camera.stop()` / `camera.start()`                                                         |
-| `getState()`, `isScanning`                         | `camera.running`                                                                           |
-| `Html5Qrcode.getCameras()` (`{ id, label }`)       | `CameraScanner.cameras()` (`MediaDeviceInfo`: `deviceId`, `label`)                         |
-| `applyVideoConstraints`, `getRunningTrackSettings` | `camera.track.applyConstraints(…)`, `camera.track.getSettings()`                           |
-| torch via `applyVideoConstraints`                  | `camera.torchAvailable`, `await camera.setTorch(true)`                                     |
-| `useBarCodeDetectorIfSupported`                    | None; the same WebAssembly reader runs in every browser                                    |
-
-Requirements: HTTPS or `localhost`, module workers, WebAssembly SIMD and
-`requestVideoFrameCallback`: Chrome 91, Safari 16.4 or Firefox 132 and later.
-The scanner runs in a worker, so the page stays responsive.
+| html5-qrcode                                                                 | Tapirscan                                                                                                              |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `new Html5Qrcode(elementId)`                                                 | `new CameraScanner(video, scanner, options)` with your own `<video>`                                                   |
+| `start(cameraId, …)`                                                         | `start({ deviceId })`                                                                                                  |
+| `start({ facingMode: "environment" }, …)`                                    | `start()` (back camera preferred) or `start({ facingMode: "user" })`                                                   |
+| `fps`                                                                        | None: each new frame is scanned once the previous scan finished                                                        |
+| `qrbox`                                                                      | No option; [scan a region](#qrbox-scan-region)                                                                         |
+| `aspectRatio`, `videoConstraints`                                            | `constraints` option, for example `{ aspectRatio: 1 }`; the default ideal size is 1280×720                             |
+| `disableFlip`                                                                | None; mirrored QR Code, Data Matrix and Aztec symbols are read automatically                                           |
+| success callback                                                             | `onScan`, when `barcodes.length > 0`                                                                                   |
+| error callback per frame                                                     | `onScan` with empty `barcodes`; delete "No MultiFormat Readers" handling                                               |
+| `start()` rejection                                                          | `start()` rejection; later failures call `onError`                                                                     |
+| `stop()`, `clear()`                                                          | `camera.stop()`; remove your elements yourself. `scanner.dispose()` when done                                          |
+| `pause()` / `resume()`                                                       | `camera.stop()` / `camera.start()` (releases and reopens the camera)                                                   |
+| `getState()`, `isScanning`                                                   | `camera.running`                                                                                                       |
+| `Html5Qrcode.getCameras()` (`{ id, label }`)                                 | `CameraScanner.cameras()` (`MediaDeviceInfo`: `deviceId`, `label`)                                                     |
+| `applyVideoConstraints`, `getRunningTrackSettings`                           | `camera.track.applyConstraints(…)`, `camera.track.getSettings()`                                                       |
+| torch via `applyVideoConstraints`                                            | `camera.torchAvailable`, `await camera.setTorch(true)`                                                                 |
+| zoom via `applyVideoConstraints`                                             | `camera.track.applyConstraints(…)` ([camera picker and zoom](../bindings/javascript/README.md#camera-picker-and-zoom)) |
+| `rememberLastUsedCamera`, `showTorchButtonIfSupported`, `supportedScanTypes` | Your own controls; see [the full page](#replacing-html5qrcodescanner)                                                  |
+| `useBarCodeDetectorIfSupported`                                              | None; the same WebAssembly reader runs in every browser                                                                |
 
 To stop after the first code, as many html5-qrcode apps do in the success
 callback:
@@ -161,9 +159,10 @@ format searches the whole frame, so select only what you expect.
 | none                                         | `barcode.content`: Wi-Fi, contact, GS1 and other fields ([structured content](CONTENT.md)) |
 | none                                         | `barcode.payloadBytes`: exact bytes of 2D symbols                                          |
 
-Text and format names differ from ZXing for UPC-A, UPC-E, Codabar and DataBar
-([details](MIGRATING_FROM_ZXING.md#formats)): html5-qrcode decodes with
-`@zxing/library`.
+html5-qrcode uses the browser's `BarcodeDetector` where available and
+`@zxing/library` otherwise, so its text varies by browser. Where it used ZXing,
+UPC-A, UPC-E, Codabar and DataBar text differs from Tapirscan's
+([details](MIGRATING_FROM_ZXING.md#formats)).
 
 ## `qrbox`: scan region
 
@@ -173,31 +172,15 @@ and shade the area with CSS if you want the same look:
 
 ```js
 // qrbox: { width: 250, height: 250 } -> a centered region in frame pixels
-function regionScanner(scanner, region) {
-  const canvas = new OffscreenCanvas(1, 1);
-  const context = canvas.getContext("2d");
-  return {
-    async scan(video, options) {
-      const { left, top, width, height } = region(video.videoWidth, video.videoHeight);
-      canvas.width = width;
-      canvas.height = height;
-      context.drawImage(video, left, top, width, height, 0, 0, width, height);
-      const result = await scanner.scan(canvas, options);
-      const barcodes = result.barcodes.map((barcode) => ({
-        ...barcode,
-        polygon: barcode.polygon.map(([x, y]) => [x + left, y + top]),
-        rect: { ...barcode.rect, left: barcode.rect.left + left, top: barcode.rect.top + top },
-      }));
-      return { ...result, barcodes, best: barcodes[result.barcodes.indexOf(result.best)] };
-    },
-  };
-}
 const box = (width, height) => {
   const side = Math.min(250, width, height);
   return { left: (width - side) >> 1, top: (height - side) >> 1, width: side, height: side };
 };
 const camera = new CameraScanner(video, regionScanner(scanner, box), { onScan, onError });
 ```
+
+`regionScanner` crops each frame and maps the results back; copy it from
+[scanning a region](../bindings/javascript/README.md#scanning-a-region).
 
 `qrbox` is in displayed pixels; the region here is in frame pixels
 (`videoWidth` × `videoHeight`). Tapirscan finds codes anywhere in the frame, in
@@ -236,6 +219,13 @@ image file, the last result, and a remembered camera.
     await camera.start().catch((error) => (result.textContent = error.message));
   }
 
+  const torch = document.querySelector("#torch");
+  let on = false;
+  torch.hidden = !camera.torchAvailable;
+  torch.onclick = async () => {
+    if (await camera.setTorch(!on)) on = !on;
+  };
+
   const select = document.querySelector("select");
   const cameras = await CameraScanner.cameras();
   select.replaceChildren(
@@ -246,13 +236,8 @@ image file, the last result, and a remembered camera.
   select.onchange = async () => {
     localStorage.setItem("camera", select.value);
     await camera.start({ deviceId: select.value });
-  };
-
-  const torch = document.querySelector("#torch");
-  let on = false;
-  torch.hidden = !camera.torchAvailable;
-  torch.onclick = async () => {
-    if (await camera.setTorch(!on)) on = !on;
+    torch.hidden = !camera.torchAvailable; // the torch is off after a switch
+    on = false;
   };
 
   document.querySelector("input").onchange = async (event) => {
@@ -264,22 +249,14 @@ image file, the last result, and a remembered camera.
 
 With a bundler, `tapirscan/browser/medium` resolves from `node_modules`; without
 one, import `dist/browser-medium.js` and `dist/camera.js` from where you serve the
-package ([browser deployment](BROWSER_DEPLOYMENT.md#serve-the-worker-from-the-pages-origin)). The torch is off again after the camera reopens, and the torch button
-should be updated after `start()` switches cameras.
+package ([browser deployment](BROWSER_DEPLOYMENT.md#serve-the-worker-from-the-pages-origin)).
+
+Requirements: HTTPS or `localhost`; browser versions are listed under
+[camera scanning](../bindings/javascript/README.md#camera-scanning). The scanner
+runs in a worker, so the page stays responsive.
 
 ## Drawing results
 
 `polygon` is in frame pixels. A canvas laid over the video with the frame's size
 needs no conversion; see
 [drawing results over the video](../bindings/javascript/README.md#drawing-results-over-the-video).
-
-## What is not available
-
-- **Generating barcodes.** Tapirscan only reads. Use a generator such as
-  [bwip-js](https://github.com/metafloor/bwip-js) or
-  [qrcode](https://www.npmjs.com/package/qrcode) to create codes.
-- **Zoom slider.** `camera.track` gives the camera track; apply `zoom` where
-  the browser supports it
-  ([camera picker and zoom](../bindings/javascript/README.md#camera-picker-and-zoom)).
-- **Older browsers** without `requestVideoFrameCallback`, WebAssembly SIMD or
-  module workers.

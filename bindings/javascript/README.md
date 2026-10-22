@@ -242,7 +242,7 @@ example `scaleX(-1)` on a front camera preview).
 
 There is no region option. `CameraScanner` accepts any object with a
 `scan(video, options)` method, so a wrapper can crop each frame and shift the
-results back into frame coordinates. A smaller region also scans faster.
+results back into frame coordinates.
 
 ```js
 // region(width, height) returns { left, top, width, height } in frame pixels.
@@ -261,7 +261,8 @@ function regionScanner(scanner, region) {
         polygon: barcode.polygon.map(([x, y]) => [x + left, y + top]),
         rect: { ...barcode.rect, left: barcode.rect.left + left, top: barcode.rect.top + top },
       }));
-      return { ...result, barcodes, best: barcodes[result.barcodes.indexOf(result.best)] };
+      const best = result.best && barcodes[result.barcodes.indexOf(result.best)];
+      return { ...result, barcodes, best };
     },
   };
 }
@@ -294,7 +295,7 @@ select.replaceChildren(
 );
 select.onchange = () => camera.start({ deviceId: select.value }); // switches cameras
 
-const zoom = camera.track?.getCapabilities?.().zoom; // Chrome on Android, not Safari
+const zoom = camera.track?.getCapabilities?.().zoom; // undefined where unsupported
 if (zoom) await camera.track.applyConstraints({ advanced: [{ zoom: Math.min(2, zoom.max) }] });
 ```
 
@@ -304,7 +305,8 @@ next time; `start()` rejects if that device is gone, so fall back to `start()`.
 #### Recorded video
 
 Scan a video file or stream in a `<video>` element with your own frame loop.
-Like `CameraScanner`, it skips frames that arrive while a scan is running:
+Requesting the next frame only after a scan finishes skips the frames in
+between, as `CameraScanner` does:
 
 ```js
 const video = document.querySelector("video"); // <video src="clip.mp4" muted playsinline>
@@ -315,9 +317,6 @@ video.requestVideoFrameCallback(async function onFrame() {
 });
 await video.play();
 ```
-
-To scan every frame instead, pause the video and step `currentTime`, scanning
-after each `seeked` event.
 
 Hosting, Content Security Policy and static files: [browser deployment](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md).
 Switching from [ZXing](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZXING.md), [ZBar](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZBAR.md),
