@@ -141,7 +141,9 @@ found = {d.type: d.data.decode() for d in decode(image, symbols=symbols)}
 isbn, addon = found.get("EAN13"), found.get("EAN5") or found.get("EAN2")
 
 # After
-for barcode in tapirscan.scan(image, formats=["EAN13"], ean_add_on_policy="read").barcodes:
+for barcode in tapirscan.scan(
+    image, formats=["EAN13"], ean_add_on_policy="read"
+).barcodes:
     print(barcode.text, barcode.ean_add_on)  # "9783161484100" "52495"
 ```
 

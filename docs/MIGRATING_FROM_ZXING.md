@@ -47,10 +47,14 @@ scanner.dispose();
 # Before
 import zxingcpp
 from zxingcpp import BarcodeFormat
-results = zxingcpp.read_barcodes(image, formats=[BarcodeFormat.EAN13, BarcodeFormat.QRCode])
+
+results = zxingcpp.read_barcodes(
+    image, formats=[BarcodeFormat.EAN13, BarcodeFormat.QRCode]
+)
 
 # After
 import tapirscan
+
 result = tapirscan.scan(image, formats=["EAN13", "QRCode"])
 for b in result.barcodes:
     print(b.text, b.format, b.rect)
@@ -124,6 +128,7 @@ const toResultPoints = (b) => b.polygon.map(([x, y]) => ({ getX: () => x, getY: 
 
 ```python
 from types import SimpleNamespace
+
 
 def to_position(barcode):  # zxing-cpp: barcode.position
     tl, tr, br, bl = barcode.polygon
