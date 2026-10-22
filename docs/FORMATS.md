@@ -110,6 +110,15 @@ or none are not read. The symbol also needs:
 
 `MSIPlessey` is opt-in.
 
+### ITF
+
+Interleaved 2 of 5 has no check of its own (ITF-14 check digits are returned as
+data), so a read needs quiet zones and one narrow/wide model across the symbol:
+a stain may move a few bars, but a symbol cut by a crop or the image edge must fit
+the model exactly. Runs of another symbol, such as a cut Code 39 symbol whose
+nine-element characters fill an ITF digit pair, are not read as ITF; where the
+same bars form better-fitting Code 39 characters or a Code 39 read, Code 39 wins.
+
 ## Effort levels
 
 Effort levels select the following bounded searches:

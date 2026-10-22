@@ -751,13 +751,18 @@ impl<T> Read<T> {
 }
 
 // An unchecked weak ITF interpretation may occupy bars already established as
-// a supported checksum-valid retail symbol. Geometry only admits the proof;
+// a supported checksum-valid retail symbol, or as a Code 39 symbol (whose nine-element
+// characters fill the ten runs of an ITF digit pair). Geometry only admits the proof;
 // distributed source-bar continuity must establish the shared physical region.
 fn conflicts<T>(weak: &Read<T>, strong: &Read<T>) -> bool {
     (weak.format == "ITF"
         && weak.support <= 2
         && strong.support >= 3
         && matches!(strong.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE"))
+        || (weak.format == "ITF"
+            && strong.format == "Code39"
+            && strong.support >= 3
+            && weak.support <= strong.support)
         || (crate::HIGH_EFFORT
             && weak.format == "UPCE"
             && weak.support <= strong.support

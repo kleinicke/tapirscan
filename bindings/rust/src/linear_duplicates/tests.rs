@@ -337,6 +337,49 @@ fn weak_itf_requires_shared_bars_not_just_overlapping_retail_boxes() {
     assert_eq!(scan(&pixels, weak).len(), 2);
 }
 #[test]
+fn itf_on_the_bars_of_a_code39_read_yields_to_it() {
+    let mut pixels = vec![220; 320 * 260];
+    for y in 20..240 {
+        for x in 60..252 {
+            if (x - 60) / 3 % 3 == 0 {
+                pixels[y * 320 + x] = 20;
+            }
+        }
+    }
+    let mut code39 = crate::read::Read::primary(
+        [0; 13],
+        [[60., 50.], [252., 50.], [252., 160.], [60., 160.]],
+        5,
+        0,
+        vec![],
+    );
+    code39.format = "Code39".into();
+    code39.text = "0CSSBD".into();
+    let mut itf = code39.clone();
+    itf.format = "ITF".into();
+    itf.text = "123456".into();
+    itf.support = 4;
+    itf.polygon = [[60., 70.], [252., 70.], [252., 180.], [60., 180.]];
+    let scan = |pixels: &[u8], itf: crate::read::Read| {
+        merge(
+            vec![code39.clone(), itf],
+            Image {
+                data: pixels,
+                width: 320,
+                height: 260,
+                channels: 1,
+                stride: 320,
+            },
+        )
+    };
+    let reads = scan(&pixels, itf.clone());
+    assert_eq!(reads.len(), 1);
+    assert_eq!(reads[0].format, "Code39");
+    // On separate bars both stay.
+    pixels[115 * 320..116 * 320].fill(255);
+    assert_eq!(scan(&pixels, itf).len(), 2);
+}
+#[test]
 fn footprints_arbitrate_different_payloads_only_on_connected_source_bars() {
     let mut pixels = vec![240; 320 * 260];
     for y in 20..240 {

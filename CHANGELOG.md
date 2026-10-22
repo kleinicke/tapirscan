@@ -23,6 +23,9 @@
 - Read large full-range Aztec symbols that are slightly turned or warped: the
   grid is fitted to the reference tracks from the center outward instead of
   only from the bullseye.
+- ITF reads need one narrow/wide model across the symbol, and yield to Code 39
+  where the same bars form better-fitting Code 39 characters, so Code 39, Code 32
+  and PZN symbols cut by a crop or the image edge are no longer read as ITF.
 
 ## 1.4.0
 

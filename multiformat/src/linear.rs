@@ -927,6 +927,13 @@ fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
         // A bias-corrected start is weaker evidence: require ITF-6 or longer.
         let shortest = if corrected { 6 } else { 4 };
         if out.len() >= shortest && stop(at) && quiet(r, s, at + 3, module, 7.) {
+            let error = err / crate::numeric::usize_f32(out.len());
+            // A quiet zone cut by the edge of the runs is weaker evidence: then no
+            // element may leave the model.
+            let cut = r[s - 1] < module * 7. || r.get(at + 3).is_none_or(|&q| q < module * 7.);
+            if !itf_consistent(r, s, at + 3, &out, cut) || code39_fits_better(r, s, at + 3, error) {
+                return None;
+            }
             return Some(Read {
                 decoded: true,
                 addon: None,
@@ -934,7 +941,7 @@ fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
                 text: out.iter().map(|d| (b'0' + d) as char).collect(),
                 start: s,
                 end: at + 3,
-                error: err / crate::numeric::usize_f32(out.len()),
+                error,
                 gs1: false,
             });
         }
@@ -951,6 +958,97 @@ fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     }
     *limited |= at + 3 <= r.len() && out.len() >= 80;
     None
+}
+/// ITF has no per-character structure: any ten runs with two wide bars and two wide
+/// spaces form a digit pair, so fragments of other symbols can parse as ITF. A real
+/// symbol prints every element from one narrow/wide model: fit narrow and wide bar and
+/// space widths to the data characters. A local print defect (a stain, a stamp over
+/// the bars) may move a few elements, at most one per three digit pairs, by more than
+/// a narrow module from their class; the others must lie on average within a quarter
+/// module. A misparsed Code 39 symbol puts narrow elements into wide classes across
+/// the whole symbol, which moves the class means and most of their members.
+fn itf_consistent(r: &[f32], s: usize, end: usize, digits: &[u8], cut: bool) -> bool {
+    // Per class: bar narrow, bar wide, space narrow, space wide.
+    let mut sums = [0f32; 4];
+    let mut counts = [0u8; 4];
+    let classify = |pair: usize, i: usize| -> [(f32, usize); 2] {
+        let at = s + 4 + pair * 10 + 2 * i;
+        let bars = ITF_DIGITS[usize::from(digits[2 * pair])];
+        let spaces = ITF_DIGITS[usize::from(digits[2 * pair + 1])];
+        [
+            (r[at], usize::from(bars & (16 >> i) != 0)),
+            (r[at + 1], 2 + usize::from(spaces & (16 >> i) != 0)),
+        ]
+    };
+    let pairs = digits.len() / 2;
+    for pair in 0..pairs {
+        for i in 0..5 {
+            for (width, class) in classify(pair, i) {
+                sums[class] += width;
+                counts[class] = counts[class].saturating_add(1);
+            }
+        }
+    }
+    let mean: [f32; 4] = std::array::from_fn(|k| sums[k] / f32::from(counts[k].max(1)));
+    let narrow = f32::midpoint(mean[0], mean[2]);
+    if narrow <= 0. || end > r.len() {
+        return false;
+    }
+    let mut total = 0f32;
+    let mut outliers = 0;
+    for pair in 0..pairs {
+        for i in 0..5 {
+            for (width, class) in classify(pair, i) {
+                let deviation = (width - mean[class]).abs();
+                if deviation > narrow {
+                    outliers += 1;
+                } else {
+                    total += deviation;
+                }
+            }
+        }
+    }
+    outliers <= if cut { 0 } else { 1.max(pairs / 3) }
+        && total <= narrow * 0.25 * crate::numeric::usize_f32(pairs * 10 - outliers)
+}
+/// On overlap prefer the format with more structure. Code 39 characters are nine
+/// elements, three of them wide, from a fixed table, separated by a narrow gap; they
+/// occupy ten runs, the length of an ITF digit pair. Runs of a Code 39 symbol whose
+/// quiet zone was cut off (by a crop or the image edge) can therefore parse as ITF
+/// pairs. Reject the ITF read when consecutive Code 39 characters span all but at
+/// most one of its pairs and fit their widths better than the ITF pairs do.
+fn code39_fits_better(r: &[f32], s: usize, end: usize, itf_error: f32) -> bool {
+    let pairs = (end - s - 7) / 10;
+    let character = |p: usize| -> Option<f32> {
+        let (bits, e) = wide_bits(r.get(p..p + 10)?, 9, 3)?;
+        if !C39.contains(&bits) {
+            return None;
+        }
+        let wide = (0..9)
+            .filter(|i| bits & (256 >> i) != 0)
+            .map(|i| r[p + i])
+            .fold(f32::INFINITY, f32::min);
+        (r[p + 9] < wide * 0.75).then_some(e)
+    };
+    (0..5).any(|phase| {
+        let (mut run, mut sum) = (0usize, 0f32);
+        let mut p = s + 2 * phase;
+        while p + 9 <= end {
+            if let Some(e) = character(p) {
+                run += 1;
+                sum += e;
+                if run >= 3.max(pairs.saturating_sub(1))
+                    && sum / crate::numeric::usize_f32(run) < itf_error
+                {
+                    return true;
+                }
+            } else {
+                (run, sum) = (0, 0.);
+            }
+            p += 10;
+        }
+        false
+    })
 }
 fn codabar_one(r: &[f32]) -> Option<(usize, f32)> {
     if r.len() < 7 {
@@ -1943,5 +2041,108 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod itf_tests {
+    use super::*;
+
+    fn itf_runs(text: &str, module: f32, ratio: f32, spread: f32) -> Vec<f32> {
+        let element = |wide: bool, bar: bool| {
+            (if wide { ratio } else { 1. }) * module + if bar { spread } else { -spread }
+        };
+        let mut runs = vec![12. * module];
+        for i in 0..4 {
+            runs.push(element(false, i % 2 == 0));
+        }
+        for pair in text.as_bytes().chunks(2) {
+            let bars = ITF_DIGITS[usize::from(pair[0] - b'0')];
+            let spaces = ITF_DIGITS[usize::from(pair[1] - b'0')];
+            for i in 0..5 {
+                runs.push(element(bars & (16 >> i) != 0, true));
+                runs.push(element(spaces & (16 >> i) != 0, false));
+            }
+        }
+        runs.extend([
+            element(true, true),
+            element(false, false),
+            element(false, true),
+        ]);
+        runs.push(12. * module);
+        runs
+    }
+
+    #[test]
+    fn reads_itf_with_ink_spread_and_a_local_defect() {
+        for (text, module, ratio, spread) in [
+            ("123456", 2., 2.5, 0.),
+            ("00123456789012", 2.5, 3., 0.5),
+            ("98765432", 1.5, 2.2, -0.3),
+        ] {
+            let runs = itf_runs(text, module, ratio, spread);
+            let reads = decode(&runs, false, ITF);
+            assert_eq!(reads.len(), 1, "{text}");
+            assert_eq!(reads[0].text, text);
+            // A stain widening one narrow bar halfway to a wide bar is still read.
+            let mut stained = runs;
+            let narrow_bar = (5..stained.len() - 4)
+                .step_by(2)
+                .find(|&i| stained[i] < module * 1.5)
+                .unwrap();
+            stained[narrow_bar] += (ratio - 1.) * module * 0.5;
+            assert_eq!(decode(&stained, false, ITF).len(), 1, "{text}");
+        }
+    }
+
+    /// Runs of a Code 39 symbol cut by a crop at random places, starting with the
+    /// partial white run the crop leaves.
+    fn cut_code39(rnd: &mut impl FnMut() -> f32) -> Vec<f32> {
+        let ratio = 2. + rnd();
+        let bias = (rnd() - 0.5) * 0.6;
+        let noise = rnd() * 0.25;
+        let mut text = vec![b'*'];
+        let n = 6 + crate::numeric::f32_usize((rnd() * 4.).floor());
+        text.extend(
+            (0..n).map(|_| C39_ALPHABET[crate::numeric::f32_usize((rnd() * 43.).floor()) % 43]),
+        );
+        text.push(b'*');
+        let mut runs = Vec::new();
+        for (k, &c) in text.iter().enumerate() {
+            let pattern = C39[C39_ALPHABET.iter().position(|&x| x == c).unwrap()];
+            for i in (0..9).rev() {
+                let wide = if pattern & (1 << i) != 0 { ratio } else { 1. };
+                let ink = if i % 2 == 0 { bias } else { -bias };
+                runs.push((wide + ink + (rnd() - 0.5) * noise) * 2.);
+            }
+            if k + 1 < text.len() {
+                runs.push((1. - bias + (rnd() - 0.5) * noise) * 2.);
+            }
+        }
+        let left = 2 * (1 + crate::numeric::f32_usize((rnd() * 11.).floor()));
+        let mut out = vec![1. + 8. * rnd()];
+        out.extend_from_slice(&runs[left..]);
+        out.push(1. + 40. * rnd());
+        out
+    }
+
+    #[test]
+    fn cut_code39_symbols_rarely_parse_as_itf() {
+        let mut state = 0x1234_5678_u32;
+        let mut rnd = || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            f32::from(u16::try_from(state >> 16).unwrap()) / 65535.
+        };
+        let mut itf = 0;
+        for _ in 0..50_000 {
+            let runs = cut_code39(&mut rnd);
+            itf += decode(&runs, false, ITF | CODE39)
+                .iter()
+                .filter(|read| read.format == "ITF")
+                .count();
+        }
+        // Without the narrow/wide model and the Code 39 structure check, 114 of these
+        // lines parsed as ITF; four still do.
+        assert!(itf <= 5, "{itf} ITF reads");
     }
 }
