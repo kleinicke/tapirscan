@@ -63,6 +63,9 @@ its source profiles for Medium, High and Very High recovery.
 `result.rs` assembles optional diagnostic JSON after scanning.
 `detail.rs` owns source-detail recovery; `formats.rs` coordinates additional
 readers and supplement policies; `linear_duplicates.rs` reconciles physical reads.
+EAN/UPC reads that the sweep left without a supplement get one from
+`multiformat/src/addon_profile.rs`, which fits the decoded symbol on grayscale
+profiles and decodes the supplement beside it.
 
 `read.rs` carries typed detections and regions across all readers. Supplement
 attachment, deduplication and ranking operate on those types; public results are

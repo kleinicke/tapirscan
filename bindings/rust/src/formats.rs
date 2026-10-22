@@ -35,7 +35,8 @@
 //! | EAN-13/UPC-A source bands (`cfg`)                            |   |   | x | x |
 //! | short retail crops (`cfg`)                                   |   | x |   |   |
 //! | UPC-E separated raw rows: retry 2 uncovered proposals         |   | x | x | x |
-//! | supplements, deduplication and ranking                       | x | x | x | x |
+//! | supplements (sweep, then profiles beside unmatched EAN/UPC)  | x | x | x | x |
+//! | deduplication and ranking                                    | x | x | x | x |
 use crate::format_registry::{
     ALL_FORMATS_MASK, EAN_ADDON_READ_FLAG, EAN_ADDON_REQUIRE_FLAG, ENGINE_OPT_IN_MASK, LINEAR_MASK,
 };
@@ -227,7 +228,7 @@ impl Scanner {
             unfinished = true;
         }
         if had_extras {
-            apply_supplement_policy(&mut reads, &mut unread, addons, options.include_regions);
+            apply_supplement_policy(image, options, &mut reads, &mut unread, addons);
             reads = distinct(reads);
             unread = retain_unresolved(unread, &reads);
         }
@@ -449,12 +450,15 @@ pub(crate) fn typed_result(
 }
 
 fn apply_supplement_policy(
+    image: Image<'_>,
+    options: ScanOptions,
     reads: &mut Vec<Read>,
     unread: &mut Vec<Region>,
     policy: EanAddOnPolicy,
-    include_regions: bool,
 ) {
+    let include_regions = options.include_regions;
     attach_supplements(reads);
+    read_profile_supplements(image, reads);
     if policy == EanAddOnPolicy::Require {
         reads.retain(|read| {
             let accepted = !matches!(read.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE")
@@ -494,6 +498,41 @@ fn attach_supplements(reads: &mut [Read]) {
                 base.addon.clone_from(&addon);
             }
         }
+    }
+}
+
+/// Read the supplement of EAN/UPC symbols that the sweep left without one from
+/// grayscale profiles across the decoded symbol (`addon_profile`). Overlapping reads
+/// of one value share the result. Runs only under the `read` and `require` policies.
+fn read_profile_supplements(image: Image<'_>, reads: &mut [Read]) {
+    use barcode_multiformat::numeric::f64_f32;
+    let pixel =
+        |x: usize, y: usize| f64_f32(image.fixed_luminance(y * image.stride + x * image.channels));
+    let mut done: Vec<(String, crate::Quad, Option<String>)> = Vec::new();
+    for read in reads.iter_mut() {
+        if read.addon.is_some()
+            || !matches!(read.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE")
+        {
+            continue;
+        }
+        if let Some((_, _, addon)) = done.iter().find(|(text, polygon, _)| {
+            *text == read.text && overlap_quads(polygon, &read.polygon).0 >= 0.65
+        }) {
+            read.addon.clone_from(addon);
+            continue;
+        }
+        let polygon = read.polygon.map(|point| point.map(f64_f32));
+        let addon = barcode_multiformat::addon_profile::read(
+            pixel,
+            image.width,
+            image.height,
+            &polygon,
+            &read.format,
+            &read.text,
+            POLICY.supplement_profiles,
+        );
+        done.push((read.text.clone(), read.polygon, addon.clone()));
+        read.addon = addon;
     }
 }
 

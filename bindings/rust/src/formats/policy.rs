@@ -27,6 +27,11 @@ pub(super) struct ModePolicy {
     pub sweep_effort: usize,
     /// Sweep effort with EAN add-on reading.
     pub addon_sweep_effort: usize,
+    /// Grayscale profiles across an EAN/UPC read without a swept supplement on which
+    /// the supplement reader looks for one (`addon_profile`); two must agree. Low
+    /// takes three, Medium five, High nine: the extra profiles cross supplements
+    /// that only part of the symbol height shows sharply.
+    pub supplement_profiles: usize,
     /// Code 128 stays in a sweep group of its own, with ITF without retail and with
     /// Code 39 on large frames with retail: retail boxes come from a 768-pixel
     /// localization raster, on which the many small fields of large label photos vanish.
@@ -114,6 +119,7 @@ impl ModePolicy {
         sweep_all_linear: true,
         sweep_effort: 0,
         addon_sweep_effort: 0,
+        supplement_profiles: 3,
         preserved_sweep: false,
         preserved_sweep_any_size: false,
         preserved_sweep_effort: 0,
@@ -146,6 +152,7 @@ impl ModePolicy {
     const MEDIUM: Self = Self {
         sweep_all_linear: false,
         addon_sweep_effort: 1,
+        supplement_profiles: 5,
         preserved_sweep: true,
         sweep_coverage: true,
         shared_short_retail: true,
@@ -163,6 +170,7 @@ impl ModePolicy {
     const HIGH: Self = Self {
         sweep_effort: 2,
         addon_sweep_effort: 2,
+        supplement_profiles: 9,
         preserved_sweep_any_size: true,
         preserved_sweep_effort: 1,
         coarse_preserved_sweep: true,

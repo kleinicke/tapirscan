@@ -1,3 +1,4 @@
+pub mod addon_profile;
 pub mod aztec;
 pub mod aztec_detect;
 pub mod binarization;

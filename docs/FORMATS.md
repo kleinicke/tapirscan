@@ -221,5 +221,12 @@ unsupported format variants are not completeness guarantees. Scores are not cali
 Every binding optionally exposes two- and five-digit EAN/UPC supplements
 through the creation policy `ignore` (default), `read` or `require` (`Ignore`, `Read`, `Require` in native bindings). EAN8
 supplements are a nonstandard extension.
+A supplement is read 4.5 to 16 modules after the main symbol's last bar. Where the
+scan lines leave it unread, it is fitted on grayscale profiles across the decoded
+main symbol, whose bar pattern fixes module width, perspective, blur and ink
+levels. It is reported when two profiles agree and none reads another value, and
+needs about 3.5 bar-free modules after it (or the edge of the label). A two-digit
+supplement followed by a separator bar, such as a five-digit one cut by the image
+border, is not reported.
 The localized-linear strategy is internal; public scanning
 uses the full-frame strategy.
