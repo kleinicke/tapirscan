@@ -144,7 +144,7 @@ impl Scanner {
                 ..options
             };
             let mut scan = self.scan_formats_inner(image, all, mask)?;
-            supplements::apply(image, options, addons, &mut scan);
+            supplements::apply(image, options, addons, &mut scan, &mut self.additional_gray)?;
             Ok(scan)
         })
     }

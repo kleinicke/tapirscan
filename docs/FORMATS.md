@@ -224,7 +224,10 @@ supplements are a nonstandard extension.
 The policy changes only supplements: every format, including the main EAN/UPC
 values, reads exactly as with `ignore`. A supplement is read 4.5 to 16 modules after
 the main symbol's last bar, on grayscale profiles across the decoded main symbol,
-whose bar pattern fixes module width, perspective, blur and ink levels. It is reported when two profiles agree and none reads another value, and
+whose bar pattern fixes module width, perspective, blur and ink levels. Where bars beside a symbol suggest a supplement that the profiles do not
+confirm, a run-length sweep of the retail formats with supplement decoding runs once
+over the frame. A profile reading is reported when two profiles agree and none
+reads another value, and
 needs about 3.5 bar-free modules after it (or the edge of the label). A two-digit
 supplement followed by a separator bar, such as a five-digit one cut by the image
 border, is not reported.

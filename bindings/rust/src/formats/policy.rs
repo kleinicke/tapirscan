@@ -30,6 +30,9 @@ pub(super) struct ModePolicy {
     /// takes three, Medium five, High nine: the extra profiles cross supplements
     /// that only part of the symbol height shows sharply.
     pub supplement_profiles: usize,
+    /// Effort of the retail-only supplement sweep that runs once where profiles saw
+    /// supplement-like bars but confirmed no value.
+    pub supplement_sweep_effort: usize,
     /// Code 128 stays in a sweep group of its own, with ITF without retail and with
     /// Code 39 on large frames with retail: retail boxes come from a 768-pixel
     /// localization raster, on which the many small fields of large label photos vanish.
@@ -117,6 +120,7 @@ impl ModePolicy {
         sweep_all_linear: true,
         sweep_effort: 0,
         supplement_profiles: 3,
+        supplement_sweep_effort: 0,
         preserved_sweep: false,
         preserved_sweep_any_size: false,
         preserved_sweep_effort: 0,
@@ -149,6 +153,7 @@ impl ModePolicy {
     const MEDIUM: Self = Self {
         sweep_all_linear: false,
         supplement_profiles: 5,
+        supplement_sweep_effort: 1,
         preserved_sweep: true,
         sweep_coverage: true,
         shared_short_retail: true,
@@ -166,6 +171,7 @@ impl ModePolicy {
     const HIGH: Self = Self {
         sweep_effort: 2,
         supplement_profiles: 9,
+        supplement_sweep_effort: 2,
         preserved_sweep_any_size: true,
         preserved_sweep_effort: 1,
         coarse_preserved_sweep: true,

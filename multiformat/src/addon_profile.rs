@@ -101,6 +101,35 @@ pub fn read(
     text: &str,
     profiles: usize,
 ) -> Option<String> {
+    read_with_evidence(pixel, width, height, polygon, format, text, profiles).0
+}
+
+/// [`read`], and whether a supplement may be printed although no value was
+/// confirmed: bars beside the symbol fit a supplement's first digit on some profile,
+/// or the main pattern itself did not fit a profile with bars beside it.
+#[must_use]
+pub fn read_with_evidence(
+    pixel: impl Fn(usize, usize) -> f32,
+    width: usize,
+    height: usize,
+    polygon: &[[f32; 2]; 4],
+    format: &str,
+    text: &str,
+    profiles: usize,
+) -> (Option<String>, bool) {
+    profile_supplement(pixel, width, height, polygon, format, text, profiles)
+        .unwrap_or((None, false))
+}
+
+fn profile_supplement(
+    pixel: impl Fn(usize, usize) -> f32,
+    width: usize,
+    height: usize,
+    polygon: &[[f32; 2]; 4],
+    format: &str,
+    text: &str,
+    profiles: usize,
+) -> Option<(Option<String>, bool)> {
     let (bars, span) = main_pattern(format, text)?;
     if width < 8 || height < 8 {
         return None;
@@ -163,7 +192,11 @@ pub fn read(
                     break;
                 }
             }
-            let (profile, fit, chosen) = best?;
+            // Bars beside a symbol whose pattern does not fit (glare, a curved
+            // surface): no value, but no reason to rule a supplement out either.
+            let Some((profile, fit, chosen)) = best else {
+                return Some((None, true));
+            };
             geometry = chosen;
             (profile, fit)
         };
@@ -184,10 +217,11 @@ pub fn read(
             }
         }
     }
-    match values.as_slice() {
+    let value = match values.as_slice() {
         [(value, count)] if *count >= MIN_AGREEING_PROFILES => Some(value.clone()),
         _ => None,
-    }
+    };
+    Some((value, promising))
 }
 
 fn digits(text: &str) -> Option<Vec<u8>> {
