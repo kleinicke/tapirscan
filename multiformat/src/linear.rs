@@ -107,8 +107,9 @@ const C93_CHARACTER_ERROR: f32 = 0.23;
 /// symbols, and one marginal character otherwise discards the whole symbol.
 const C93_WEAK_CHARACTER_ERROR: f32 = 0.3;
 /// Match one Code 93 character. Returns its value, error and whether the match is
-/// weak (accepted only inside a symbol that passes both checks).
-fn c93_match(r: &[f32]) -> Option<(usize, f32, bool)> {
+/// weak (accepted only inside a symbol that passes both checks). Weak matches are
+/// tried only for a character as wide as the previous one (`previous`, pixels).
+fn c93_match(r: &[f32], previous: f32) -> Option<(usize, f32, bool)> {
     let mut best = (0, 10.);
     let mut second = 10.;
     for (i, &bits) in C93.iter().enumerate() {
@@ -123,10 +124,19 @@ fn c93_match(r: &[f32]) -> Option<(usize, f32, bool)> {
     if best.1 < C93_CHARACTER_ERROR && second - best.1 > 0.012 {
         return Some((best.0, best.1, false));
     }
+    if !similar_width(r, previous) {
+        return None;
+    }
     if best.1 < C93_WEAK_CHARACTER_ERROR && second - best.1 > 0.012 {
         return Some((best.0, best.1, true));
     }
     c93_edge_match(r).map(|(v, e)| (v, e, true))
+}
+/// Whether the six elements at `r` span within a quarter of `previous` pixels: the
+/// edge matchers run only where the character pitch continues, not on the merged
+/// or split runs that end most false starts.
+fn similar_width(r: &[f32], previous: f32) -> bool {
+    r.len() >= 6 && (r[..6].iter().sum::<f32>() - previous).abs() <= previous * 0.25
 }
 /// Match by the four sums of adjacent element pairs (edge-to-similar-edge
 /// distances). Uniform ink spread widens every bar by as much as it narrows every
@@ -180,17 +190,16 @@ fn code93(
     retain_failed: bool,
     limited: &mut bool,
 ) -> Option<Read> {
-    // Ink spread shifts every edge of the start pattern alike; accept it when the
-    // spread-corrected fit is close.
-    let start = c93_pattern(C93[47]);
-    if error(&runs[start_index..], &start) > 0.2
-        && error_adjusted(&runs[start_index..], &start) > 0.2
-    {
-        return None;
-    }
     let module = runs[start_index..start_index + 6].iter().sum::<f32>() / 9.;
     if start_index == 0 || (start_index != 1 && runs[start_index - 1] < module * C93_QUIET_MODULES)
     {
+        return None;
+    }
+    // Ink spread shifts every edge of the start pattern alike: a near miss is
+    // accepted when its spread-corrected fit is close.
+    let start = c93_pattern(C93[47]);
+    let plain = error(&runs[start_index..], &start);
+    if plain > 0.2 && (plain > 0.45 || error_adjusted(&runs[start_index..], &start) > 0.2) {
         return None;
     }
     let mut at = start_index + 6;
@@ -200,7 +209,14 @@ fn code93(
     // and never produce a retained failed-checksum candidate.
     let mut weak = 0usize;
     while at + 7 <= runs.len() && values.len() < 256 {
-        let (v, e, marginal) = c93_match(&runs[at..])?;
+        // Weak matches only after a spread start or two characters read (most
+        // false starts fail at their first characters) and at an unchanged pitch.
+        let previous = if values.len() >= 2 || plain > 0.2 {
+            runs[at - 6..at].iter().sum::<f32>()
+        } else {
+            0.
+        };
+        let (v, e, marginal) = c93_match(&runs[at..], previous)?;
         err += e;
         weak += usize::from(marginal);
         if v == 47 {
@@ -702,6 +718,11 @@ pub fn expand_upce(d: &[u8]) -> Vec<u8> {
     out
 }
 fn c128_match(r: &[f32], lo: usize, hi: usize) -> Option<(usize, f32)> {
+    c128_ranked(r, lo, hi)
+        .and_then(|(best, second)| (best.1 < 0.23 && second - best.1 > 0.012).then_some(best))
+}
+/// The best width match among patterns `lo..hi` and the second-best error.
+fn c128_ranked(r: &[f32], lo: usize, hi: usize) -> Option<((usize, f32), f32)> {
     if r.len() < 6 {
         return None;
     }
@@ -745,7 +766,7 @@ fn c128_match(r: &[f32], lo: usize, hi: usize) -> Option<(usize, f32)> {
             second = second.min(e);
         }
     }
-    (best.1 < 0.23 && second - best.1 > 0.012).then_some(best)
+    Some((best, second))
 }
 /// Match by the four sums of adjacent element pairs (edge-to-similar-edge
 /// distances, the reference decode of Code 128). Uniform ink spread widens every
@@ -763,7 +784,7 @@ fn c128_edge_match(r: &[f32], lo: usize, hi: usize) -> Option<(usize, f32)> {
     let pairs: [f32; 4] = std::array::from_fn(|i| r[i] + r[i + 1]);
     let mut best = (0, 10f32);
     let mut second = 10f32;
-    for (i, p) in C128.iter().enumerate().take(hi).skip(lo) {
+    for (i, p) in (lo..hi).map(|i| (i, C128[i])) {
         let mut e = 0.;
         for (j, &pair) in pairs.iter().enumerate() {
             let d = (pair - f32::from(p[j] - b'0' + p[j + 1] - b'0') * module).abs();
@@ -802,13 +823,20 @@ fn c128_stop(r: &[f32], spread: bool) -> bool {
     (r[6] - bias - 2. * module).abs() <= module * 0.8
 }
 fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Option<Read> {
-    let plain_start = c128_match(&r[s..], 103, 106);
-    let edge_start = plain_start.is_none();
-    let (start, mut err) = plain_start.or_else(|| c128_edge_match(&r[s..], 103, 106))?;
     let module = r[s..s + 6].iter().sum::<f32>() / 11.;
     if s == 0 || (s != 1 && r[s - 1] < module * 2.5) {
         return None;
     }
+    let (best, second) = c128_ranked(&r[s..], 103, 106)?;
+    let plain_start = (best.1 < 0.23 && second - best.1 > 0.012).then_some(best);
+    let edge_start = plain_start.is_none();
+    // Edge-match a start character only for a near miss behind a five-module quiet
+    // zone: the fallback would otherwise run at almost every position.
+    let (start, mut err) = plain_start.or_else(|| {
+        (best.1 < 0.45 && (s == 1 || r[s - 1] >= module * 5.))
+            .then(|| c128_edge_match(&r[s..], 103, 106))
+            .flatten()
+    })?;
     // A start character found only by its edges measures the ink spread: correct
     // every following character by it before the ordinary width match, so only
     // characters that still fail fall back to edge matching.
@@ -829,9 +857,18 @@ fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Opti
     let mut at = s + 6;
     let mut values = vec![start];
     while at + 7 <= r.len() && values.len() < 256 {
-        let (v, e) = c128_match(&corrected(at), 0, 107).or_else(|| {
+        let plain = if edge_start {
+            c128_match(&corrected(at), 0, 107)
+        } else {
+            c128_match(&r[at..], 0, 107)
+        };
+        let (v, e) = plain.or_else(|| {
             weak += 1;
-            c128_edge_match(&r[at..], 0, 107)
+            // Most false starts fail at their first characters: edge-match only
+            // inside a symbol with two characters read and an unchanged pitch.
+            (values.len() >= 3 && similar_width(&r[at..], r[at - 6..at].iter().sum()))
+                .then(|| c128_edge_match(&r[at..], 0, 107))
+                .flatten()
         })?;
         err += e;
         if v == 106 {
@@ -963,9 +1000,18 @@ pub(crate) fn wide_bits(r: &[f32], n: usize, wides: usize) -> Option<(u16, f32)>
     wide_bits_sorted(&r[..n], sorted, n, wides)
 }
 fn wide_bits_sorted(r: &[f32], sorted: &[f32], n: usize, wides: usize) -> Option<(u16, f32)> {
+    wide_bits_sorted_ratio(r, sorted, n, wides, 1.45)
+}
+fn wide_bits_sorted_ratio(
+    r: &[f32],
+    sorted: &[f32],
+    n: usize,
+    wides: usize,
+    min_ratio: f32,
+) -> Option<(u16, f32)> {
     let narrow = sorted[..n - wides].iter().sum::<f32>() / crate::numeric::usize_f32(n - wides);
     let wide = sorted[n - wides..].iter().sum::<f32>() / crate::numeric::usize_f32(wides);
-    if narrow < 0.65 || wide / narrow < 1.45 || wide / narrow > 3.8 {
+    if narrow < 0.65 || wide / narrow < min_ratio || wide / narrow > 3.8 {
         return None;
     }
     let cut = f32::midpoint(sorted[n - wides - 1], sorted[n - wides]);
@@ -982,6 +1028,26 @@ fn wide_bits_sorted(r: &[f32], sorted: &[f32], n: usize, wides: usize) -> Option
     }
     Some((bits, e / r[..n].iter().sum::<f32>()))
 }
+/// Smallest measured wide/narrow ratio of a Code 39 character at about one pixel per
+/// narrow module: blur and thresholding shrink wide elements towards narrow ones
+/// (printed ratio 2 to 3). Tried only when the ordinary 1.45 bound fails.
+const C39_DENSE_RATIO: f32 = 1.25;
+fn code39_bits(r: &[f32; 9]) -> Option<(u16, f32)> {
+    wide_bits(r, 9, 3).or_else(|| {
+        let mut sorted = *r;
+        sorted.sort_by(f32::total_cmp);
+        // Code 39 has no check character: with compressed widths, accept only a
+        // clear split between the three wide and six narrow elements.
+        let narrow = sorted[..6].iter().sum::<f32>() / 6.;
+        let wide = sorted[6..].iter().sum::<f32>() / 3.;
+        (sorted[6] - sorted[5] >= (wide - narrow) * C39_DENSE_SPLIT)
+            .then(|| wide_bits_sorted_ratio(r, &sorted, 9, 3, C39_DENSE_RATIO))
+            .flatten()
+    })
+}
+/// Required gap between the narrowest wide and the widest narrow element, as a
+/// fraction of the wide-narrow difference, for the dense-ratio fallback.
+const C39_DENSE_SPLIT: f32 = 0.2;
 /// Unchecked Code 39 and Codabar symbols with at most this many data characters
 /// need [`SHORT_QUIET_MODULES`] of quiet zone on both sides.
 const SHORT_UNCHECKED_CHARACTERS: usize = 2;
@@ -1025,18 +1091,18 @@ fn code39_with_gain(
         std::array::from_fn(|i| runs[at + i] - if i % 2 == 0 { gain } else { -gain })
     };
     let start = adjusted(start_index);
-    let (p, mut err) = wide_bits(&start, 9, 3)?;
-    if p != C39[43] {
-        return None;
-    }
     let module = start.iter().copied().fold(f32::INFINITY, f32::min);
     if start_index > 1 && runs[start_index - 1] < module * 5. {
+        return None;
+    }
+    let (p, mut err) = code39_bits(&start)?;
+    if p != C39[43] {
         return None;
     }
     let mut at = start_index + 10;
     let mut out = Vec::new();
     while at + 9 <= runs.len() && out.len() < 128 {
-        let (p, e) = wide_bits(&adjusted(at), 9, 3)?;
+        let (p, e) = code39_bits(&adjusted(at))?;
         let d = C39.iter().position(|&x| x == p)?;
         err += e;
         if d == 43 {
@@ -1274,7 +1340,15 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
         err += e;
         characters.push(c);
         if c >= 16 {
-            if out.is_empty() {
+            // As for Code 39: a one- or two-character symbol needs full quiet zones
+            // (narrow module from the start character).
+            if out.is_empty()
+                || (out.len() <= SHORT_UNCHECKED_CHARACTERS
+                    && (s == 0
+                        || r[s - 1] < module * SHORT_QUIET_MODULES
+                        || r.get(at + 7)
+                            .is_none_or(|&v| v < module * SHORT_QUIET_MODULES)))
+            {
                 return None;
             }
             // A checkless reader must fit one physical narrow/wide model
@@ -1316,15 +1390,6 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
             let global_error = deviation / sums.iter().sum::<f32>();
             let module = f32::midpoint(means[0], means[2]);
             if global_error > 0.19 || !quiet(r, s, at + 7, module, 5.) {
-                return None;
-            }
-            // As for Code 39: a one- or two-character symbol needs full quiet zones.
-            if out.len() <= SHORT_UNCHECKED_CHARACTERS
-                && (s == 0
-                    || r[s - 1] < module * SHORT_QUIET_MODULES
-                    || r.get(at + 7)
-                        .is_none_or(|&v| v < module * SHORT_QUIET_MODULES))
-            {
                 return None;
             }
             return Some(Read {
