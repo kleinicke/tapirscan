@@ -72,7 +72,40 @@ Decode image files first; filenames and JPEG/PNG bytes are not inputs.
 Live camera: `new CameraScanner(video, scanner, { onScan, onError })` from
 `tapirscan/camera`, then `start()` and `stop()`, replaces the frame loop
 ([camera scanning](../bindings/javascript/README.md#camera-scanning); CSP and
-hosting in [browser deployment](BROWSER_DEPLOYMENT.md)).
+hosting in [browser deployment](BROWSER_DEPLOYMENT.md)). The JavaScript guide
+also shows [drawing results over the video](../bindings/javascript/README.md#drawing-results-over-the-video),
+[scanning a region](../bindings/javascript/README.md#scanning-a-region), a
+[camera picker](../bindings/javascript/README.md#camera-picker-and-zoom) and
+[recorded video](../bindings/javascript/README.md#recorded-video).
+
+**`zbarcam`:** with OpenCV, reuse one scanner for every frame;
+`cv2.VideoCapture("clip.mp4")` reads a video file the same way.
+
+```python
+import cv2
+import numpy as np
+import tapirscan
+
+capture = cv2.VideoCapture(0)
+with tapirscan.Scanner(mode="low", formats=["EAN13", "QRCode"]) as scanner:
+    while True:
+        ok, frame = capture.read()
+        if not ok:
+            break
+        for barcode in scanner.scan(cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)).barcodes:
+            print(f"{barcode.format}:{barcode.text}")
+            corners = np.array([(p.x, p.y) for p in barcode.polygon], np.int32)
+            cv2.polylines(frame, [corners], True, (0, 255, 0), 2)
+        cv2.imshow("scan", frame)
+        if cv2.waitKey(1) == 27:  # Esc
+            break
+capture.release()
+cv2.destroyAllWindows()
+```
+
+Low keeps up with live frames; use Medium for recorded video. To scan only a
+region, pass a slice (`scanner.scan(rgba[y0:y1, x0:x1])`) and add `x0` and `y0`
+to the coordinates.
 
 **`zbarimg`:** Tapirscan has no CLI. Replacement (first argument is a format or
 group; print `b.text` alone for `--raw`):
@@ -80,6 +113,10 @@ group; print `b.text` alone for `--raw`):
 ```sh
 python -c 'import sys; from PIL import Image; import tapirscan; [print(f"{b.format}:{b.text}") for p in sys.argv[2:] for b in tapirscan.scan(Image.open(p), formats=sys.argv[1]).barcodes]' 1D image.png
 ```
+
+Like ZBar, Tapirscan only reads barcodes. To create them, use a generator such
+as [segno](https://pypi.org/project/segno/) (Python) or
+[bwip-js](https://github.com/metafloor/bwip-js) (JavaScript).
 
 ## Format mapping
 

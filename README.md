@@ -219,18 +219,18 @@ it expects. Wrong reads, duplicates and missed symbols remain possible.
 
 ## Documentation
 
-| I want to…                         | Start here                                                                                                                 |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Integrate in a browser or Node app | [JavaScript / TypeScript](bindings/javascript/README.md)                                                                   |
-| Deploy on a website                | [Browser deployment](docs/BROWSER_DEPLOYMENT.md)                                                                           |
-| Switch from another scanner        | [ZXing](docs/MIGRATING_FROM_ZXING.md) · [ZBar](docs/MIGRATING_FROM_ZBAR.md) · [Quagga](docs/MIGRATING_FROM_QUAGGA.md)      |
-| Scan Python images and arrays      | [Python](bindings/python/README.md)                                                                                        |
-| Use another native language        | [Rust](bindings/rust/README.md), [C](bindings/c/README.md), [C++](bindings/cpp/README.md), [Java](bindings/java/README.md) |
-| Choose formats                     | [Format coverage](docs/FORMATS.md)                                                                                         |
-| Make scanning fast                 | [Fast end-to-end scanning](docs/PERFORMANCE.md)                                                                            |
-| Understand the scanner             | [Comparison](docs/COMPARISON.md) · [Architecture](docs/ARCHITECTURE.md)                                                    |
-| Evaluate performance fairly        | [Benchmark guide](docs/BENCHMARKS.md)                                                                                      |
-| Build or contribute                | [Development](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md)                                                       |
+| I want to…                         | Start here                                                                                                                                                                  |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Integrate in a browser or Node app | [JavaScript / TypeScript](bindings/javascript/README.md)                                                                                                                    |
+| Deploy on a website                | [Browser deployment](docs/BROWSER_DEPLOYMENT.md)                                                                                                                            |
+| Switch from another scanner        | [ZXing](docs/MIGRATING_FROM_ZXING.md) · [ZBar](docs/MIGRATING_FROM_ZBAR.md) · [Quagga](docs/MIGRATING_FROM_QUAGGA.md) · [html5-qrcode](docs/MIGRATING_FROM_HTML5_QRCODE.md) |
+| Scan Python images and arrays      | [Python](bindings/python/README.md)                                                                                                                                         |
+| Use another native language        | [Rust](bindings/rust/README.md), [C](bindings/c/README.md), [C++](bindings/cpp/README.md), [Java](bindings/java/README.md)                                                  |
+| Choose formats                     | [Format coverage](docs/FORMATS.md)                                                                                                                                          |
+| Make scanning fast                 | [Fast end-to-end scanning](docs/PERFORMANCE.md)                                                                                                                             |
+| Understand the scanner             | [Comparison](docs/COMPARISON.md) · [Architecture](docs/ARCHITECTURE.md)                                                                                                     |
+| Evaluate performance fairly        | [Benchmark guide](docs/BENCHMARKS.md)                                                                                                                                       |
+| Build or contribute                | [Development](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md)                                                                                                        |
 
 The demo is a separate application. Its photos, UI, and comparison engines are
 not included in the npm package or Python wheels.

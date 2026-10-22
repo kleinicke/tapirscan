@@ -1,0 +1,285 @@
+# Migrating from html5-qrcode
+
+For [html5-qrcode](https://github.com/mebjas/html5-qrcode) 2.x: the
+`Html5QrcodeScanner` widget and the `Html5Qrcode` class.
+
+- **No widget.** html5-qrcode builds its camera view, camera list, torch
+  button and file picker inside a `<div>`. Tapirscan scans; `CameraScanner`
+  plays the camera in a `<video>` you place, and you add the controls you want
+  ([full page below](#replacing-html5qrcodescanner)).
+- **Default formats are `retail`** (EAN13, UPCA, EAN8, UPCE). html5-qrcode reads
+  all its formats unless `formatsToSupport` is set. Pass `formats`.
+- **Every frame is reported.** html5-qrcode calls the error callback for each
+  frame without a code; `onScan` receives every frame, with an empty
+  `barcodes` array when nothing was read.
+
+## Install
+
+```sh
+npm uninstall html5-qrcode
+npm install tapirscan
+```
+
+Sites with a Content Security Policy need `'wasm-unsafe-eval'`; see
+[browser deployment](BROWSER_DEPLOYMENT.md). A single-mode entry such as
+`tapirscan/browser/medium` is 1 MB gzip.
+
+## Scanning a file
+
+```js
+// Before
+import { Html5Qrcode } from "html5-qrcode";
+
+const reader = new Html5Qrcode("reader"); // needs a <div id="reader">
+try {
+  const text = await reader.scanFile(file, false);
+  console.log(text);
+} catch {
+  console.log("not found");
+}
+```
+
+```js
+// After
+import { Scanner } from "tapirscan/browser/medium";
+
+const scanner = new Scanner({ formats: ["QRCode"] });
+const { barcodes } = await scanner.scan(file); // also <img>, canvas, Blob, ImageData
+console.log(barcodes.map((b) => b.text)); // [] when nothing is read; no exception
+```
+
+`scanFileV2` maps the same way: `decodedText` is `barcode.text`. Keep one
+scanner for repeated scans; `dispose()` stops its worker.
+
+## Camera with `Html5Qrcode`
+
+```js
+// Before
+const reader = new Html5Qrcode("reader", {
+  formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+});
+await reader.start(
+  { facingMode: "environment" },
+  { fps: 10, qrbox: { width: 250, height: 250 } },
+  (decodedText, decodedResult) => console.log(decodedText),
+  (errorMessage) => {}, // called for every frame without a code
+);
+// later
+await reader.stop();
+```
+
+```js
+// After
+import { Scanner } from "tapirscan/browser/medium";
+import { CameraScanner } from "tapirscan/camera";
+
+const video = document.querySelector("video");
+const scanner = new Scanner({ formats: ["QRCode"] });
+const camera = new CameraScanner(video, scanner, {
+  onScan({ barcodes }) {
+    for (const barcode of barcodes) console.log(barcode.text);
+  },
+  onError(error) {
+    // camera or scanner failure after start(); scanning has stopped
+    console.error(error);
+  },
+});
+await camera.start(); // rejects without permission or camera
+// later
+camera.stop();
+```
+
+| html5-qrcode                                       | Tapirscan                                                                                  |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `new Html5Qrcode(elementId)`                       | `new CameraScanner(video, scanner, options)` with your own `<video>`                       |
+| `start(cameraId, …)`                               | `start({ deviceId })`                                                                      |
+| `start({ facingMode: "environment" }, …)`          | `start()` (back camera preferred) or `start({ facingMode: "user" })`                       |
+| `fps`                                              | None: each new frame is scanned once the previous scan finished                            |
+| `qrbox`                                            | No option; [scan a region](#qrbox-scan-region)                                             |
+| `aspectRatio`, `videoConstraints`                  | `constraints` option, for example `{ aspectRatio: 1 }`; the default ideal size is 1280×720 |
+| `disableFlip`                                      | None; mirrored QR Code, Data Matrix and Aztec symbols are read automatically               |
+| success callback                                   | `onScan`, when `barcodes.length > 0`                                                       |
+| error callback per frame                           | `onScan` with empty `barcodes`; delete "No MultiFormat Readers" handling                   |
+| `start()` rejection                                | `start()` rejection; later failures call `onError`                                         |
+| `stop()`, `clear()`                                | `camera.stop()`; remove your elements yourself. `scanner.dispose()` when done              |
+| `pause()` / `resume()`                             | `camera.stop()` / `camera.start()`                                                         |
+| `getState()`, `isScanning`                         | `camera.running`                                                                           |
+| `Html5Qrcode.getCameras()` (`{ id, label }`)       | `CameraScanner.cameras()` (`MediaDeviceInfo`: `deviceId`, `label`)                         |
+| `applyVideoConstraints`, `getRunningTrackSettings` | `camera.track.applyConstraints(…)`, `camera.track.getSettings()`                           |
+| torch via `applyVideoConstraints`                  | `camera.torchAvailable`, `await camera.setTorch(true)`                                     |
+| `useBarCodeDetectorIfSupported`                    | None; the same WebAssembly reader runs in every browser                                    |
+
+Requirements: HTTPS or `localhost`, module workers, WebAssembly SIMD and
+`requestVideoFrameCallback`: Chrome 91, Safari 16.4 or Firefox 132 and later.
+The scanner runs in a worker, so the page stays responsive.
+
+To stop after the first code, as many html5-qrcode apps do in the success
+callback:
+
+```js
+onScan({ barcodes }) {
+  if (!barcodes.length) return;
+  camera.stop();
+  handle(barcodes[0].text);
+},
+```
+
+For formats without a check digit (Code 39, Codabar), accept a value only after
+it appeared in two or three consecutive frames.
+
+## Formats
+
+| `Html5QrcodeSupportedFormats` | Tapirscan                                                    |
+| ----------------------------- | ------------------------------------------------------------ |
+| `QR_CODE`                     | `QRCode`                                                     |
+| `AZTEC`                       | `Aztec`                                                      |
+| `CODABAR`                     | `Codabar`                                                    |
+| `CODE_39`                     | `Code39`                                                     |
+| `CODE_93`                     | `Code93`                                                     |
+| `CODE_128`                    | `Code128` (includes GS1-128)                                 |
+| `DATA_MATRIX`                 | `DataMatrix`                                                 |
+| `MAXICODE`                    | `MaxiCode`                                                   |
+| `ITF`                         | `ITF`                                                        |
+| `EAN_13`, `EAN_8`             | `EAN13`, `EAN8`                                              |
+| `PDF_417`                     | `PDF417`                                                     |
+| `RSS_14`, `RSS_EXPANDED`      | `DataBar`, `DataBarExpanded`                                 |
+| `UPC_A`, `UPC_E`              | `UPCA`, `UPCE`                                               |
+| `UPC_EAN_EXTENSION`           | No format; `eanAddOnPolicy: "read"`, then `barcode.eanAddOn` |
+
+`formats` also takes groups: `"common"` (retail, Code128, Code39, ITF, QR Code,
+Data Matrix), `"2D"`, `"all"` ([format guide](FORMATS.md)). Each enabled 2D
+format searches the whole frame, so select only what you expect.
+
+## Results
+
+| html5-qrcode                                 | Tapirscan                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `decodedText`                                | `barcode.text`                                                                             |
+| `decodedResult.result.format.formatName`     | `barcode.format` (`"QRCode"`, `"EAN13"`, …)                                                |
+| `decodedResult.result.bounds` (when present) | `barcode.rect`; `barcode.polygon` has the four corners in frame pixels                     |
+| one code per frame                           | every code in the frame                                                                    |
+| none                                         | `barcode.content`: Wi-Fi, contact, GS1 and other fields ([structured content](CONTENT.md)) |
+| none                                         | `barcode.payloadBytes`: exact bytes of 2D symbols                                          |
+
+Text and format names differ from ZXing for UPC-A, UPC-E, Codabar and DataBar
+([details](MIGRATING_FROM_ZXING.md#formats)): html5-qrcode decodes with
+`@zxing/library`.
+
+## `qrbox`: scan region
+
+html5-qrcode scans only the `qrbox` area and shades the rest. There is no region
+option in Tapirscan; wrap the scanner so each frame is cropped before scanning,
+and shade the area with CSS if you want the same look:
+
+```js
+// qrbox: { width: 250, height: 250 } -> a centered region in frame pixels
+function regionScanner(scanner, region) {
+  const canvas = new OffscreenCanvas(1, 1);
+  const context = canvas.getContext("2d");
+  return {
+    async scan(video, options) {
+      const { left, top, width, height } = region(video.videoWidth, video.videoHeight);
+      canvas.width = width;
+      canvas.height = height;
+      context.drawImage(video, left, top, width, height, 0, 0, width, height);
+      const result = await scanner.scan(canvas, options);
+      const barcodes = result.barcodes.map((barcode) => ({
+        ...barcode,
+        polygon: barcode.polygon.map(([x, y]) => [x + left, y + top]),
+        rect: { ...barcode.rect, left: barcode.rect.left + left, top: barcode.rect.top + top },
+      }));
+      return { ...result, barcodes, best: barcodes[result.barcodes.indexOf(result.best)] };
+    },
+  };
+}
+const box = (width, height) => {
+  const side = Math.min(250, width, height);
+  return { left: (width - side) >> 1, top: (height - side) >> 1, width: side, height: side };
+};
+const camera = new CameraScanner(video, regionScanner(scanner, box), { onScan, onError });
+```
+
+`qrbox` is in displayed pixels; the region here is in frame pixels
+(`videoWidth` × `videoHeight`). Tapirscan finds codes anywhere in the frame, in
+any orientation, so the region is optional.
+
+## Replacing `Html5QrcodeScanner`
+
+A complete page with what the widget offers: preview, camera list, torch,
+image file, the last result, and a remembered camera.
+
+```html
+<video style="display: block; width: 100%; max-width: 640px"></video>
+<select hidden></select>
+<button id="torch" hidden>Torch</button>
+<input type="file" accept="image/*" />
+<p id="result"></p>
+<script type="module">
+  import { Scanner } from "tapirscan/browser/medium";
+  import { CameraScanner } from "tapirscan/camera";
+
+  const scanner = new Scanner({ formats: ["QRCode", "EAN13", "Code128"] });
+  const result = document.querySelector("#result");
+  const show = ({ barcodes }) => {
+    if (barcodes.length)
+      result.textContent = barcodes.map((b) => `${b.format}: ${b.text}`).join("\n");
+  };
+  const camera = new CameraScanner(document.querySelector("video"), scanner, {
+    onScan: show,
+    onError: (error) => (result.textContent = error.message),
+  });
+
+  const saved = localStorage.getItem("camera");
+  try {
+    await camera.start(saved ? { deviceId: saved } : {});
+  } catch {
+    await camera.start().catch((error) => (result.textContent = error.message));
+  }
+
+  const select = document.querySelector("select");
+  const cameras = await CameraScanner.cameras();
+  select.replaceChildren(
+    ...cameras.map((c, i) => new Option(c.label || `Camera ${i + 1}`, c.deviceId)),
+  );
+  select.value = camera.track?.getSettings().deviceId ?? "";
+  select.hidden = cameras.length < 2;
+  select.onchange = async () => {
+    localStorage.setItem("camera", select.value);
+    await camera.start({ deviceId: select.value });
+  };
+
+  const torch = document.querySelector("#torch");
+  let on = false;
+  torch.hidden = !camera.torchAvailable;
+  torch.onclick = async () => {
+    if (await camera.setTorch(!on)) on = !on;
+  };
+
+  document.querySelector("input").onchange = async (event) => {
+    const file = event.currentTarget.files?.[0];
+    if (file) show(await scanner.scan(file));
+  };
+</script>
+```
+
+With a bundler, `tapirscan/browser/medium` resolves from `node_modules`; without
+one, import `dist/browser-medium.js` and `dist/camera.js` from where you serve the
+package ([browser deployment](BROWSER_DEPLOYMENT.md#serve-the-worker-from-the-pages-origin)). The torch is off again after the camera reopens, and the torch button
+should be updated after `start()` switches cameras.
+
+## Drawing results
+
+`polygon` is in frame pixels. A canvas laid over the video with the frame's size
+needs no conversion; see
+[drawing results over the video](../bindings/javascript/README.md#drawing-results-over-the-video).
+
+## What is not available
+
+- **Generating barcodes.** Tapirscan only reads. Use a generator such as
+  [bwip-js](https://github.com/metafloor/bwip-js) or
+  [qrcode](https://www.npmjs.com/package/qrcode) to create codes.
+- **Zoom slider.** `camera.track` gives the camera track; apply `zoom` where
+  the browser supports it
+  ([camera picker and zoom](../bindings/javascript/README.md#camera-picker-and-zoom)).
+- **Older browsers** without `requestVideoFrameCallback`, WebAssembly SIMD or
+  module workers.

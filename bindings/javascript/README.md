@@ -202,9 +202,127 @@ In Svelte 5 and SvelteKit:
 {#each barcodes as barcode}<p>{barcode.format}: {barcode.text}</p>{/each}
 ```
 
+#### Drawing results over the video
+
+`polygon` is in frame pixels (`videoWidth` × `videoHeight`). A canvas with the
+frame's pixel size, laid over the video with the same CSS box and `object-fit`,
+needs no coordinate conversion:
+
+```html
+<div style="position: relative">
+  <video style="display: block; width: 100%"></video>
+  <canvas
+    style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none"
+  ></canvas>
+</div>
+```
+
+```js
+const overlay = document.querySelector("canvas");
+function draw({ barcodes }) {
+  overlay.width = video.videoWidth; // also clears the canvas
+  overlay.height = video.videoHeight;
+  const context = overlay.getContext("2d");
+  context.lineWidth = 4;
+  context.strokeStyle = "lime";
+  for (const { polygon } of barcodes) {
+    context.beginPath();
+    for (const [x, y] of polygon) context.lineTo(x, y);
+    context.closePath();
+    context.stroke();
+  }
+}
+// new CameraScanner(video, scanner, { onScan: draw, onError })
+```
+
+Give the canvas the video's `object-fit` and any mirroring `transform` (for
+example `scaleX(-1)` on a front camera preview).
+
+#### Scanning a region
+
+There is no region option. `CameraScanner` accepts any object with a
+`scan(video, options)` method, so a wrapper can crop each frame and shift the
+results back into frame coordinates. A smaller region also scans faster.
+
+```js
+// region(width, height) returns { left, top, width, height } in frame pixels.
+function regionScanner(scanner, region) {
+  const canvas = new OffscreenCanvas(1, 1);
+  const context = canvas.getContext("2d");
+  return {
+    async scan(video, options) {
+      const { left, top, width, height } = region(video.videoWidth, video.videoHeight);
+      canvas.width = width;
+      canvas.height = height;
+      context.drawImage(video, left, top, width, height, 0, 0, width, height);
+      const result = await scanner.scan(canvas, options);
+      const barcodes = result.barcodes.map((barcode) => ({
+        ...barcode,
+        polygon: barcode.polygon.map(([x, y]) => [x + left, y + top]),
+        rect: { ...barcode.rect, left: barcode.rect.left + left, top: barcode.rect.top + top },
+      }));
+      return { ...result, barcodes, best: barcodes[result.barcodes.indexOf(result.best)] };
+    },
+  };
+}
+
+// A centered square of 60% of the shorter side:
+const centered = (width, height) => {
+  const side = Math.round(Math.min(width, height) * 0.6);
+  return {
+    left: Math.round((width - side) / 2),
+    top: Math.round((height - side) / 2),
+    width: side,
+    height: side,
+  };
+};
+const camera = new CameraScanner(video, regionScanner(scanner, centered), { onScan, onError });
+```
+
+For a single image, draw the region of the image into a canvas the same way and
+add `left` and `top` to the results.
+
+#### Camera picker and zoom
+
+```js
+await camera.start(); // labels are only visible after permission
+const select = document.querySelector("select");
+select.replaceChildren(
+  ...(await CameraScanner.cameras()).map(
+    (c, i) => new Option(c.label || `Camera ${i + 1}`, c.deviceId),
+  ),
+);
+select.onchange = () => camera.start({ deviceId: select.value }); // switches cameras
+
+const zoom = camera.track?.getCapabilities?.().zoom; // Chrome on Android, not Safari
+if (zoom) await camera.track.applyConstraints({ advanced: [{ zoom: Math.min(2, zoom.max) }] });
+```
+
+Store `select.value` (for example in `localStorage`) to reopen the same camera
+next time; `start()` rejects if that device is gone, so fall back to `start()`.
+
+#### Recorded video
+
+Scan a video file or stream in a `<video>` element with your own frame loop.
+Like `CameraScanner`, it skips frames that arrive while a scan is running:
+
+```js
+const video = document.querySelector("video"); // <video src="clip.mp4" muted playsinline>
+video.requestVideoFrameCallback(async function onFrame() {
+  const { barcodes } = await scanner.scan(video);
+  for (const barcode of barcodes) console.log(video.currentTime, barcode.text);
+  if (!video.ended) video.requestVideoFrameCallback(onFrame);
+});
+await video.play();
+```
+
+To scan every frame instead, pause the video and step `currentTime`, scanning
+after each `seeked` event.
+
 Hosting, Content Security Policy and static files: [browser deployment](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md).
-Switching from [ZXing](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZXING.md), [ZBar](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZBAR.md)
-or [Quagga](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_QUAGGA.md): see the migration guides.
+Switching from [ZXing](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZXING.md), [ZBar](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZBAR.md),
+[Quagga](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_QUAGGA.md) or
+[html5-qrcode](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_HTML5_QRCODE.md): see the migration guides.
 
 **Bundlers:** Next.js (Turbopack or webpack), Vite 8 and production builds bundle
 the worker and WASM files with no configuration. The Vite 6 and 7 development

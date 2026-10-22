@@ -142,25 +142,77 @@ await camera.start();
 camera.stop();
 ```
 
-| Quagga                                    | Tapirscan                                                                 |
-| ----------------------------------------- | ------------------------------------------------------------------------- |
-| `inputStream.target`                      | Your own `<video>` element.                                               |
-| `inputStream.constraints`                 | `start({ facingMode, deviceId })`; other constraints in `constraints`.    |
-| `Quagga.onDetected`                       | `onScan`, called for every scanned frame; check `result.barcodes.length`. |
-| `Quagga.onProcessed`                      | The same `onScan` callback; draw from `result.barcodes`.                  |
-| `Quagga.init` error callback              | `start()` rejects; later failures call `onError`.                         |
-| `Quagga.start()` / `Quagga.stop()`        | `await camera.start()` / `camera.stop()`.                                 |
-| `numOfWorkers`                            | Not needed: one scanner runs in one worker.                               |
-| `frequency`                               | None: each new frame is scanned once the previous scan finished.          |
-| `decoder.readers`                         | `formats` on the scanner. See [reader mapping](#reader-mapping).          |
-| `locate`, `locator.*`, `inputStream.area` | See [localization and cropping](#localization-and-cropping).              |
+| Quagga                                    | Tapirscan                                                                                           |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `inputStream.target`                      | Your own `<video>` element.                                                                         |
+| `inputStream.constraints`                 | `start({ facingMode, deviceId })`; other constraints in `constraints`.                              |
+| `Quagga.onDetected`                       | `onScan`, called for every scanned frame; check `result.barcodes.length`.                           |
+| `Quagga.onProcessed`                      | The same `onScan` callback; draw from `result.barcodes`.                                            |
+| `Quagga.init` error callback              | `start()` rejects; later failures call `onError`.                                                   |
+| `Quagga.start()` / `Quagga.stop()`        | `await camera.start()` / `camera.stop()`.                                                           |
+| `numOfWorkers`                            | Not needed: one scanner runs in one worker.                                                         |
+| `frequency`                               | None: each new frame is scanned once the previous scan finished.                                    |
+| `decoder.readers`                         | `formats` on the scanner. See [reader mapping](#reader-mapping).                                    |
+| `locate`, `locator.*`, `inputStream.area` | See [localization and cropping](#localization-and-cropping).                                        |
+| `Quagga.offDetected`, `offProcessed`      | One `onScan` per controller; check a flag in it or call `camera.stop()`.                            |
+| `inputStream.type: "VideoStream"`         | A frame loop on a `<video src>`: [recorded video](../bindings/javascript/README.md#recorded-video). |
+| `inputStream.type: "ImageStream"`         | `for (const file of files) await scanner.scan(file)`.                                               |
+| `Quagga.registerReader`                   | Not supported; Tapirscan has no reader plugins.                                                     |
 
 `camera.stop()` does not dispose the scanner. See
 [camera scanning](../bindings/javascript/README.md#camera-scanning) for camera
 selection, torch and hidden pages.
 
-`polygon` is in frame pixels (`videoWidth` × `videoHeight`); to draw it over the
-`<video>`, scale it to the element's displayed size and `object-fit`.
+`Quagga.CameraAccess` maps to the controller:
+
+| `Quagga.CameraAccess`              | Tapirscan                                                                                                             |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `enumerateVideoDevices()`          | `CameraScanner.cameras()`, after `start()` ([camera picker](../bindings/javascript/README.md#camera-picker-and-zoom)) |
+| `request(video, constraints)`      | `camera.start({ deviceId })` or `start({ facingMode })`                                                               |
+| `release()`                        | `camera.stop()`                                                                                                       |
+| `getActiveTrack()`                 | `camera.track`                                                                                                        |
+| `getActiveStreamLabel()`           | `camera.track?.label`                                                                                                 |
+| `enableTorch()` / `disableTorch()` | `await camera.setTorch(true)` / `setTorch(false)`; `camera.torchAvailable` tells whether it works                     |
+
+### Drawing results
+
+`Quagga.canvas.dom.overlay` and `Quagga.ImageDebug.drawPath` become a canvas you
+lay over the video. Give it the frame's pixel size and the video's CSS box, and
+draw `polygon` directly:
+
+```html
+<div style="position: relative">
+  <video style="display: block; width: 100%"></video>
+  <canvas
+    style="position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none"
+  ></canvas>
+</div>
+```
+
+```js
+// Before: Quagga.onProcessed(result => Quagga.ImageDebug.drawPath(result.box, { x: 0, y: 1 }, ctx, { color: "green", lineWidth: 2 }))
+const overlay = document.querySelector("canvas");
+const camera = new CameraScanner(video, scanner, {
+  onScan({ barcodes }) {
+    overlay.width = video.videoWidth; // also clears the canvas
+    overlay.height = video.videoHeight;
+    const context = overlay.getContext("2d");
+    context.lineWidth = 4;
+    context.strokeStyle = "green";
+    for (const { polygon } of barcodes) {
+      context.beginPath();
+      for (const [x, y] of polygon) context.lineTo(x, y);
+      context.closePath();
+      context.stroke();
+    }
+  },
+  onError: console.error,
+});
+```
+
+Only decoded barcodes are drawn. Quagga's `boxes` show every localization
+candidate; the nearest Tapirscan equivalent is `scanner.inspect(video)`, whose
+`undecoded` regions mark candidates that did not decode.
 
 ## Reader mapping
 
@@ -246,8 +298,51 @@ Tapirscan always localizes, in any orientation. Effort is a mode: import
 | `inputStream.size`        | Pass frames at the resolution to scan; the camera defaults to 1280×720 |
 | `inputStream.area`        | No region option. Crop the input yourself, as below.                   |
 
-To replace `area`, draw the region of the frame into a canvas, scan the canvas,
-and add the region's offset to `polygon` and `rect`.
+To replace `area`, wrap the scanner: `CameraScanner` accepts any object with a
+`scan(video, options)` method. The wrapper crops each frame to the area and
+shifts the results back into frame coordinates; a smaller area also scans
+faster.
+
+```js
+// Before: inputStream: { area: { top: "25%", right: "10%", left: "10%", bottom: "25%" } }
+const area = { top: 25, right: 10, left: 10, bottom: 25 }; // percent insets, as in Quagga
+
+function areaScanner(scanner, { top, right, bottom, left }) {
+  const canvas = new OffscreenCanvas(1, 1);
+  const context = canvas.getContext("2d");
+  return {
+    async scan(video, options) {
+      const x = Math.round((video.videoWidth * left) / 100);
+      const y = Math.round((video.videoHeight * top) / 100);
+      canvas.width = Math.round((video.videoWidth * (100 - left - right)) / 100);
+      canvas.height = Math.round((video.videoHeight * (100 - top - bottom)) / 100);
+      context.drawImage(
+        video,
+        x,
+        y,
+        canvas.width,
+        canvas.height,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+      const result = await scanner.scan(canvas, options);
+      const barcodes = result.barcodes.map((barcode) => ({
+        ...barcode,
+        polygon: barcode.polygon.map(([px, py]) => [px + x, py + y]),
+        rect: { ...barcode.rect, left: barcode.rect.left + x, top: barcode.rect.top + y },
+      }));
+      return { ...result, barcodes, best: barcodes[result.barcodes.indexOf(result.best)] };
+    },
+  };
+}
+
+const camera = new CameraScanner(video, areaScanner(scanner, area), { onScan, onError });
+```
+
+For `decodeSingle` with an `area`, draw the same part of the image into a canvas,
+scan the canvas, and add the offset in the same way.
 
 ## Bundle size and CSP
 
@@ -276,4 +371,11 @@ for barcode in result.barcodes:
 ```
 
 `scan` also accepts NumPy arrays and PyTorch tensors; see the
-[Python guide](../bindings/python/README.md).
+[Python guide](../bindings/python/README.md). For camera or video frames with
+OpenCV, see the [Python camera loop](MIGRATING_FROM_ZXING.md#python-camera-or-video).
+
+## Generating barcodes
+
+Like Quagga, Tapirscan only reads barcodes. To create them, use a generator such
+as [bwip-js](https://github.com/metafloor/bwip-js) or
+[JsBarcode](https://github.com/lindell/JsBarcode).

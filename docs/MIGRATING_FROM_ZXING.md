@@ -231,3 +231,93 @@ An empty `onScan` replaces the per-frame `NotFoundException` callback. Opening f
 (permission, no camera) reject `start()`; later failures arrive in `onError`. `controls.switchTorch` becomes `camera.setTorch(on)`; `start({ deviceId })` replaces the
 `deviceId` argument. Options, camera selection and torch:
 [camera scanning](../bindings/javascript/README.md#camera-scanning).
+
+The other `@zxing/browser` entry points:
+
+| @zxing/browser                                                | Tapirscan                                                                                                                                   |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `decodeFromConstraints({ video: { facingMode } }, video, cb)` | `camera.start({ facingMode })`; other constraints go in the `constraints` option                                                            |
+| `decodeFromStream(stream, video, cb)`                         | `video.srcObject = stream`, then a [frame loop](../bindings/javascript/README.md#recorded-video)                                            |
+| `decodeFromVideoElement`, `decodeFromVideoUrl`                | The [frame loop](../bindings/javascript/README.md#recorded-video) on that `<video>`                                                         |
+| `decodeOnceFromVideoDevice` and other `decodeOnce*`           | `CameraScanner`; call `camera.stop()` in `onScan` after the first non-empty result                                                          |
+| `decodeFromImageElement`, `decodeFromCanvas`                  | `await scanner.scan(img)` or `scanner.scan(canvas)`                                                                                         |
+| `BrowserCodeReader.listVideoInputDevices()`                   | `CameraScanner.cameras()`, after `start()` so labels are visible ([camera picker](../bindings/javascript/README.md#camera-picker-and-zoom)) |
+| `BrowserCodeReader.mediaStreamSetTorch(track, on)`            | `camera.setTorch(on)`                                                                                                                       |
+| `controls.stop()`, `BrowserCodeReader.releaseAllStreams()`    | `camera.stop()`; `scanner.dispose()` stops the worker                                                                                       |
+
+```js
+// decodeOnceFromVideoDevice: resolve with the first read
+const first = await new Promise((resolve, reject) => {
+  const camera = new CameraScanner(video, scanner, {
+    onScan({ best }) {
+      if (!best) return;
+      camera.stop();
+      resolve(best);
+    },
+    onError: reject,
+  });
+  camera.start().catch(reject);
+});
+```
+
+`@zxing/library` hints:
+
+| `DecodeHintType`                           | Tapirscan                                                        |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| `POSSIBLE_FORMATS`                         | `formats`                                                        |
+| `TRY_HARDER`                               | The mode: `tapirscan/browser/medium` or `/high`                  |
+| `ALSO_INVERTED`                            | None; inverted QR Code, Data Matrix and Aztec symbols are read   |
+| `ASSUME_GS1`, `ASSUME_CODE_39_CHECK_DIGIT` | None; `barcode.gs1` reports GS1, check characters stay in `text` |
+| `CHARACTER_SET`, `PURE_BARCODE`            | None; `payloadBytes` gives 2D bytes for your own decoding        |
+
+**Drawing and regions.** ZXing's result points become `polygon`; to draw it over
+the video, see [drawing results](../bindings/javascript/README.md#drawing-results-over-the-video).
+To scan part of each frame, wrap the scanner as in
+[scanning a region](../bindings/javascript/README.md#scanning-a-region).
+
+## Python camera or video
+
+zxing-cpp has no camera loop; with OpenCV, reuse one scanner for all frames.
+`cv2.VideoCapture("clip.mp4")` reads a video file the same way.
+
+```python
+import cv2
+import numpy as np
+import tapirscan
+
+capture = cv2.VideoCapture(0)
+with tapirscan.Scanner(mode="low", formats=["EAN13", "QRCode"]) as scanner:
+    while True:
+        ok, frame = capture.read()
+        if not ok:
+            break
+        for barcode in scanner.scan(cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)).barcodes:
+            corners = np.array([(p.x, p.y) for p in barcode.polygon], np.int32)
+            cv2.polylines(frame, [corners], True, (0, 255, 0), 2)
+            origin = (barcode.rect.left, barcode.rect.top - 8)
+            cv2.putText(
+                frame,
+                barcode.text,
+                origin,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2,
+            )
+        cv2.imshow("scan", frame)
+        if cv2.waitKey(1) == 27:  # Esc
+            break
+capture.release()
+cv2.destroyAllWindows()
+```
+
+`Low` keeps up with live frames; use `Medium` for recorded video. To scan a
+region, pass a slice and add its offset:
+`scanner.scan(rgba[y0:y1, x0:x1])`, then `p.x + x0`, `p.y + y0`.
+
+## Generating barcodes
+
+Tapirscan only reads. `zxingcpp.write_barcode` / `create_barcode`, zxing-wasm's
+`writeBarcode` and `@zxing/library`'s writers have no equivalent; keep them for
+generation, or use a generator such as [segno](https://pypi.org/project/segno/)
+(Python) or [bwip-js](https://github.com/metafloor/bwip-js) (JavaScript).

@@ -7,7 +7,8 @@
 - JavaScript: `tapirscan/camera` adds `CameraScanner`, an optional camera loop
   for any browser scanner.
 - Docs: browser deployment (CSP, same-origin worker, static hosting) and
-  migration guides from ZXing, ZBar and Quagga.
+  migration guides from ZXing, ZBar, Quagga and html5-qrcode; camera recipes
+  for overlays, scan regions, camera pickers, recorded video and OpenCV loops.
 - Reuse exact source profiles during Medium primary recovery and vectorize
   Data Matrix border sampling in WebAssembly.
 - Restrict private native Turbo build switches to Low; higher modes retain
