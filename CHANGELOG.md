@@ -20,6 +20,9 @@
   blurred photos. With QR selected, Low and Medium scan frames without QR codes
   as fast as before and frames with them about 4% slower; High and Very High
   take about 7% longer on photos.
+- Read large full-range Aztec symbols that are slightly turned or warped: the
+  grid is fitted to the reference tracks from the center outward instead of
+  only from the bullseye.
 
 ## 1.4.0
 

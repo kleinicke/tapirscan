@@ -638,8 +638,10 @@ fn ring_quads(
 // Full Aztec symbols have alternating reference tracks every sixteen modules.
 // These tracks constrain sampling away from the small central finder, where a
 // slight projective error otherwise grows across a large symbol.
-fn reference_points(n: usize) -> &'static [(f32, f32, bool)] {
-    type Points = Vec<(f32, f32, bool)>;
+/// The reference points of a full symbol of side `n` (module center, expected
+/// color, ring), ordered by ring: their Chebyshev distance from the center.
+fn reference_points(n: usize) -> &'static [(f32, f32, bool, usize)] {
+    type Points = Vec<(f32, f32, bool, usize)>;
     static GRIDS: [std::sync::OnceLock<Points>; 76] = [const { std::sync::OnceLock::new() }; 76];
     GRIDS[n / 2].get_or_init(|| {
         let center = (n / 2).cast_signed();
@@ -648,9 +650,10 @@ fn reference_points(n: usize) -> &'static [(f32, f32, bool)] {
             for x in 0..n {
                 let xx = (x).cast_signed() - center;
                 let yy = (y).cast_signed() - center;
-                let expected = if xx.abs().max(yy.abs()) <= 4 {
-                    xx.abs().max(yy.abs()) % 2 == 0
-                } else if xx.abs().max(yy.abs()) <= 7 {
+                let ring = xx.unsigned_abs().max(yy.unsigned_abs());
+                let expected = if ring <= 4 {
+                    ring.is_multiple_of(2)
+                } else if ring <= 7 {
                     continue;
                 } else if xx % 16 == 0 {
                     yy % 2 == 0
@@ -663,16 +666,20 @@ fn reference_points(n: usize) -> &'static [(f32, f32, bool)] {
                     crate::numeric::usize_f32(x) + 0.5,
                     crate::numeric::usize_f32(y) + 0.5,
                     expected,
+                    ring,
                 ));
             }
         }
+        points.sort_by_key(|p| p.3);
         points
     })
 }
-fn reference_error(bits: &[bool], w: usize, h: usize, t: &[f32; 8], n: usize) -> f32 {
-    let points = reference_points(n);
+/// Mean mismatch of the reference points up to ring `rings` under `t`.
+fn reference_error(bits: &[bool], w: usize, h: usize, t: &[f32; 8], n: usize, rings: usize) -> f32 {
+    let all = reference_points(n);
+    let points = &all[..all.partition_point(|p| p.3 <= rings)];
     let mut error = 0.;
-    for &(x, y, expected) in points {
+    for &(x, y, expected, _) in points {
         let [px, py] = qr_detect::map(t, x, y);
         let px = px - 0.5;
         let py = py - 0.5;
@@ -695,6 +702,15 @@ fn reference_error(bits: &[bool], w: usize, h: usize, t: &[f32; 8], n: usize) ->
     }
     error / crate::numeric::usize_f32(points.len())
 }
+/// Rings around the center whose reference points judge a transform from the
+/// bullseye: the first reference ring at 16 modules and the modules beside it.
+/// A transform fitted to the 9-module bullseye is reliable there; a small
+/// rotation or scale error moves the outer rings of a large symbol by a module
+/// or more, so the whole-symbol error cannot tell it from a wrong transform.
+const INNER_RINGS: usize = 20;
+/// Refine a transform by moving the symbol corners to fit the reference points,
+/// growing the fitted region outward one reference ring (16 modules) at a time
+/// so that each stage starts within a module of the points it adds.
 fn refine_reference(
     bits: &[bool],
     w: usize,
@@ -711,34 +727,41 @@ fn refine_reference(
     ];
     let mut quad = source.map(|[x, y]| qr_detect::map(&t, x, y));
     let mut best = t;
-    let mut error = reference_error(bits, w, h, &best, n);
-    for scale in [0.8, 0.4, 0.2, 0.1] {
-        for _ in 0..3 {
-            let mut changed = false;
-            for corner in 0..4 {
-                for axis in 0..2 {
-                    for sign in [-1., 1.] {
-                        let mut trial = quad;
-                        trial[corner][axis] += module * scale * sign;
-                        let Some(t) = qr_detect::homography(source, trial) else {
-                            continue;
-                        };
-                        let score = reference_error(bits, w, h, &t, n);
-                        if score + 0.0001 < error {
-                            error = score;
-                            quad = trial;
-                            best = t;
-                            changed = true;
+    let half = n / 2;
+    let mut rings = INNER_RINGS.min(half);
+    loop {
+        let mut error = reference_error(bits, w, h, &best, n, rings);
+        for scale in [0.8, 0.4, 0.2, 0.1] {
+            for _ in 0..3 {
+                let mut changed = false;
+                for corner in 0..4 {
+                    for axis in 0..2 {
+                        for sign in [-1., 1.] {
+                            let mut trial = quad;
+                            trial[corner][axis] += module * scale * sign;
+                            let Some(t) = qr_detect::homography(source, trial) else {
+                                continue;
+                            };
+                            let score = reference_error(bits, w, h, &t, n, rings);
+                            if score + 0.0001 < error {
+                                error = score;
+                                quad = trial;
+                                best = t;
+                                changed = true;
+                            }
                         }
                     }
                 }
-            }
-            if !changed {
-                break;
+                if !changed {
+                    break;
+                }
             }
         }
+        if rings == half {
+            return best;
+        }
+        rings = (rings + 16).min(half);
     }
-    best
 }
 type RowCache<'a> = dyn Fn(usize, &[bool], &mut Vec<usize>) + 'a;
 
@@ -1138,7 +1161,7 @@ impl Search {
                                 );
                             }
                             if !compact && n >= 35 {
-                                let score = reference_error(bits, w, h, &t, n);
+                                let score = reference_error(bits, w, h, &t, n, INNER_RINGS);
                                 if score < 0.35 {
                                     reference_retries.push((score, t, n, turn, mirror));
                                 }
@@ -1471,6 +1494,100 @@ mod bounded_work_tests {
             // Verifying and fitting every proposal reads 26 and 42 million pixels on
             // the dot grid and the tilted stripes.
             assert!(work < 32 * w * h, "{name}: {work} pixel reads");
+        }
+    }
+}
+
+#[cfg(test)]
+mod reference_grid_tests {
+    use super::*;
+    /// A 71-module full symbol (15 layers) written by ZXing-C++ for [`text`],
+    /// rows first, as hexadecimal bits.
+    const SYMBOL: [&str; 15] = [
+        "8008412d452923d680b375311abb57a446f687ad02b2375211ab3aaaaaaaaaaaaaaaaaa6911ad87002104b52",
+        "17abc623770e02421740a923d6815933a9106d09eda0ae4dda440d87e221bb0700410966b6c7202124b534a2",
+        "3a82ac8dd4846aad5f95b85ade229bb0f076d41752493cb414c99096d2a31ab7578a455f1859025a92524ba1",
+        "42dd495ecdddcaaaf16947346f7747572ce121f1f6fb193540e27b26be108d68ae1e9f1b2aaaaaaaaaaaaaaa",
+        "aaa437b26770fde0f6522317dfd19e42eaa8fe818140d678c21a4a28fc359af91c452faa9c0f812bdc6f0548",
+        "42c230f0a1673e7d314a60383ca7088bafa03b15b3499568db568c49d4168289d8222e515a83920f83fffdce",
+        "7d7a20114141001ad3b26a19855fc6ffb00b2c4fac20ec7d0152e50248e2ab254afa88e3702282659af51583",
+        "3cf432aaaaaaaaaaaaaaaaa8b142ce545706902cb62662a7afaba2d6cec343113d405f6b2091592ad9e2ffa5",
+        "581bb9812cc58c0055288c847620274fffeee354f480928c49846787e0b4f0e7f907e057f83ad6370cc80ee4",
+        "72eb3c2e55264b1e84bbc416b22d393ae05c7821d0d9c9ed9febfdbb3acb0b2b48eb00898601a1606ced24e1",
+        "e337696424358b76aef3a01412aaaaaaaaaaaaaaaaaea10cbc1ea8d0225a2e35afef9a53c68f5e832610f56a",
+        "ac42a90aab2bea4a595a48912946edcc446d5b4b5426f1c06d793294b606a60a210401a1bb082f828944d764",
+        "ea0bafacec2a0aaf245294d20816b377111f56d6c44e43088bab696222bb0148af2a529ad218400a616bc494",
+        "a2b482104d2ec463d5bab1295cee200e0dd8847a9b5602aaaaaaaaaaaaaaaaaa764ca0b4f24a2958d2f56eac",
+        "4657666a0b224a515a410801c3738",
+    ];
+    const SIDE: usize = 71;
+    fn text() -> String {
+        "REFERENCE-GRID-0123456789-".repeat(22)[..560].to_owned()
+    }
+    fn module(x: usize, y: usize) -> bool {
+        let bit = y * SIDE + x;
+        let digit = SYMBOL.concat().as_bytes()[bit / 4];
+        let value = char::from(digit).to_digit(16).expect("hexadecimal fixture");
+        value >> (3 - bit % 4) & 1 == 1
+    }
+    /// The symbol at `pixels` per module, turned by `degrees` about the frame
+    /// center and averaged over 3x3 samples per pixel.
+    fn frame(pixels: f32, degrees: f32) -> (Vec<u8>, usize) {
+        let n = crate::numeric::usize_f32(SIDE);
+        let side = crate::numeric::f32_usize((n * pixels * 1.3).floor()) + 40;
+        let center = crate::numeric::usize_f32(side) / 2.;
+        let (sin, cos) = degrees.to_radians().sin_cos();
+        let matrix: Vec<bool> = (0..SIDE * SIDE)
+            .map(|i| module(i % SIDE, i / SIDE))
+            .collect();
+        let dark = |x: f32, y: f32| {
+            let (dx, dy) = (x - center, y - center);
+            let u = (cos * dx + sin * dy) / pixels + n / 2.;
+            let v = (cos * dy - sin * dx) / pixels + n / 2.;
+            (0. ..n).contains(&u)
+                && (0. ..n).contains(&v)
+                && matrix[crate::numeric::f32_usize(v) * SIDE + crate::numeric::f32_usize(u)]
+        };
+        let gray = (0..side * side)
+            .map(|i| {
+                let (x, y) = (
+                    crate::numeric::usize_f32(i % side),
+                    crate::numeric::usize_f32(i / side),
+                );
+                let covered = (0..9)
+                    .filter(|&s| {
+                        dark(
+                            x + (crate::numeric::usize_f32(s % 3) + 0.5) / 3.,
+                            y + (crate::numeric::usize_f32(s / 3) + 0.5) / 3.,
+                        )
+                    })
+                    .count();
+                crate::numeric::f32_u8(
+                    (215. - 175. * crate::numeric::usize_f32(covered) / 9.).round(),
+                )
+            })
+            .collect();
+        (gray, side)
+    }
+    #[test]
+    fn slightly_turned_full_symbol_reads_from_the_reference_grid() {
+        // A 1.5 degree turn that the bullseye fit misses moves the outer layers
+        // by about half a module, so the whole-symbol reference error rejects
+        // the transform although it is right near the center.
+        let (gray, side) = frame(3.2, 1.5);
+        for (policy, effort) in [(Policy::LOW, 0), (Policy::STANDARD, 1)] {
+            let mut images = binarization::Images::new(&gray, side, side);
+            let (reads, _) = detect(
+                side,
+                side,
+                &mut crate::regions::Regions::default(),
+                &gray,
+                &mut images,
+                policy,
+                effort,
+            );
+            assert_eq!(reads.len(), 1, "effort {effort}");
+            assert_eq!(reads[0].text, text());
         }
     }
 }
