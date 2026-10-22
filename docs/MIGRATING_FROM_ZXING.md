@@ -62,7 +62,8 @@ for b in result.barcodes:
 
 `image` is a Pillow image or NumPy array in both. zxing-cpp reads arrays as BGR; Tapirscan reads
 RGB, so pass `color_order="BGR"` for OpenCV frames. Without `formats`, Tapirscan reads only EAN13,
-UPCA, EAN8 and UPCE, where ZXing reads everything.
+UPCA, EAN8 and UPCE, where ZXing reads everything. `"common"` adds Code128, Code39, ITF, QR Code and
+Data Matrix; `"all"` reads all but the opt-in formats.
 
 ## Formats
 

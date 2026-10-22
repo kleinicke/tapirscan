@@ -46,7 +46,9 @@ origin with CORS. The bundler still emits the entry's own copy.
 
 Without a bundler, for example as static files of a server-rendered app,
 copy the package's `dist/` directory and the WASM files you use into a `wasm/`
-directory beside it, keeping that layout, and import the entry module:
+directory beside it, keeping that layout, and import the entry module (in
+Django, an app's `static/tapirscan/` directory, served from the site's own
+origin):
 
 ```html
 <script type="module">

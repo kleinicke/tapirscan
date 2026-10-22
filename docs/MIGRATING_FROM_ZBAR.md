@@ -10,7 +10,8 @@ types.
   `zbar` (Homebrew); Tapirscan wheels bundle the native library and the npm
   package its WASM.
 - **Default formats are `retail`** (EAN13, UPCA, EAN8, UPCE); ZBar enables most
-  symbologies. Set `formats` ([configuration](#configuration)).
+  symbologies. Set `formats`: `"common"` adds Code128, Code39, ITF, QR Code and
+  Data Matrix ([configuration](#configuration)).
 - **Results are `text` and a format identifier**, plus exact bytes for matrix
   codes ([data type](#data-type)).
 

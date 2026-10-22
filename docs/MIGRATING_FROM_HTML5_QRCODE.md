@@ -8,7 +8,8 @@ For [html5-qrcode](https://github.com/mebjas/html5-qrcode) 2.x: the
   plays the camera in a `<video>` you place, and you add the controls you want
   ([full page below](#replacing-html5qrcodescanner)).
 - **Default formats are `retail`** (EAN13, UPCA, EAN8, UPCE). html5-qrcode reads
-  all its formats unless `formatsToSupport` is set. Pass `formats`.
+  all its formats unless `formatsToSupport` is set. Pass `formats`: `"common"`
+  adds Code128, Code39, ITF, QR Code and Data Matrix; `"all"` reads all but the opt-in formats.
 - **Every frame is reported.** html5-qrcode calls the error callback for each
   frame without a code; `onScan` receives every frame, with an empty
   `barcodes` array when nothing was read.
