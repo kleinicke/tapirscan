@@ -951,6 +951,9 @@ fn finder_grid_valid(
 pub const FULL_BUDGET: usize = 1200;
 /// Attempts each read adds to [`FULL_BUDGET`], so frames without reads keep its bound.
 const ATTEMPTS_PER_READ: usize = 24;
+/// Attempts a pass gains when its base thresholds use up the budget before the
+/// foreground split it tries next.
+const FOREGROUND_ALLOWANCE: usize = 300;
 /// Mode-dependent work limits and decoding retries of a QR detection. Every QR
 /// reader, alone or in a multi-format group, uses [`Policy::for_mode`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -977,8 +980,8 @@ pub struct Policy {
     pub offset_erasures: bool,
     /// The gray resampling retry after the threshold samplings.
     pub gray: GrayRetry,
-    /// Extend a standard pass with the foreground split once it read several
-    /// symbols and stopped with work left.
+    /// Extend a standard pass with the foreground split once it stopped with
+    /// work left and likely holds further symbols (see [`further_symbols_likely`]).
     pub dense_foreground: bool,
 }
 /// Resampling module centers in gray with module-space thresholds.
@@ -1081,6 +1084,30 @@ pub fn detect_group(
     }
     (reads, limited)
 }
+/// Whether a pass that stopped with work left likely holds further symbols: it
+/// read several, or it read one or used up its budget among `finders` that look
+/// like a sheet of equal symbols. There at least 12 finders (four symbols) share
+/// one module size within 25% and make up 85% of all; texture and the usual photo
+/// of a single symbol give finders of scattered sizes.
+fn further_symbols_likely(reads: usize, starved: bool, finders: &[Finder]) -> bool {
+    if reads >= 2 {
+        return true;
+    }
+    if reads == 0 && !starved {
+        return false;
+    }
+    let mut modules: Vec<f32> = finders.iter().map(|finder| finder.module).collect();
+    modules.sort_by(f32::total_cmp);
+    let mut group = 0;
+    let mut first = 0;
+    for (last, &module) in modules.iter().enumerate() {
+        while module > modules[first] * 1.25 {
+            first += 1;
+        }
+        group = group.max(last + 1 - first);
+    }
+    group >= 12 && group * 20 >= modules.len() * 17
+}
 /// Sampling offsets, in modules, of the three grids tried for every transform.
 const GRID_OFFSETS: [f32; 3] = [0., -0.2, 0.2];
 /// Whether any of the transforms reads intact format information.
@@ -1142,17 +1169,33 @@ pub fn detect_with(
     let mut partial_modes: Vec<(usize, Vec<Finder>)> = Vec::new();
     // The offset samplings are kept only for the retries that use them.
     let keep_samples = policy.offset_erasures || policy.gray != GrayRetry::Off;
-    // A standard pass that read several symbols and still stopped with work left is
-    // a dense sheet: its foreground split separates the remaining symbols from a
-    // dark surround that the frame-wide thresholds share with them.
+    // A standard pass that stopped with work left and likely holds more symbols,
+    // such as a sheet or a crop of one, continues with its foreground split: it
+    // separates the symbols from a dark surround that the frame-wide thresholds
+    // share with them.
     let dense = if policy.dense_foreground && modes.end == 4 {
         4..6
     } else {
         0..0
     };
     let standard_end = modes.end;
+    let foreground_follows = standard_end > 4 || !dense.is_empty();
+    // Set once the base thresholds (modes 0-3) used up the budget: the pass then
+    // continues with its foreground split under `FOREGROUND_ALLOWANCE` extra
+    // attempts instead of ending. The global threshold depends on the whole frame,
+    // so without this, padding or a larger frame around the same symbols could
+    // starve the split that reads them.
+    let mut starved = false;
     for mode in modes.chain(dense) {
-        if mode >= standard_end && !(results.len() >= 2 && regions.limited) {
+        if starved && mode < 4 {
+            continue;
+        }
+        if mode >= standard_end
+            && !(regions.limited
+                && partial_modes
+                    .iter()
+                    .any(|(_, finders)| further_symbols_likely(results.len(), starved, finders)))
+        {
             break;
         }
         let mut read_count = results.len();
@@ -1192,7 +1235,7 @@ pub fn detect_with(
         });
         // Dense scenes skip the exhaustive fallback beyond the local triples.
         regions.limited |= finders.len() > 80;
-        for [a, b, c] in local_triples(&finders) {
+        'triples: for [a, b, c] in local_triples(&finders) {
             if results.len() > read_count {
                 read_count = results.len();
                 last_read = attempts;
@@ -1387,7 +1430,17 @@ pub fn detect_with(
                             }
                             // A sheet of many symbols needs attempts for each of them:
                             // the full budget grows with every read.
-                            if attempts > budget + results.len() * ATTEMPTS_PER_READ {
+                            let allowance = if starved { FOREGROUND_ALLOWANCE } else { 0 };
+                            if attempts > budget + allowance + results.len() * ATTEMPTS_PER_READ {
+                                if !starved
+                                    && mode < 4
+                                    && foreground_follows
+                                    && further_symbols_likely(results.len(), true, &finders)
+                                {
+                                    starved = true;
+                                    regions.limited = true;
+                                    break 'triples;
+                                }
                                 partial::recover(
                                     image,
                                     w,
@@ -1581,7 +1634,7 @@ pub fn detect_with(
         }
         partial_modes.push((mode, finders));
     }
-    let mut limited = single_limited || curved_limited;
+    let mut limited = single_limited || curved_limited || starved;
     for (mode, finders) in partial_modes {
         limited |= partial::recover(
             binary_images.get(mode),
@@ -2188,6 +2241,39 @@ mod policy_tests {
             assert!(policy.several_patience >= medium.patience, "mode {mode}");
         }
         assert!(Policy::for_mode(0).patience < medium.patience);
+    }
+
+    #[test]
+    fn only_sheets_of_equal_finders_continue_after_one_read() {
+        let finders = |modules: &[f32]| -> Vec<super::Finder> {
+            modules
+                .iter()
+                .map(|&module| super::Finder {
+                    x: 0.,
+                    y: 0.,
+                    module,
+                    support: 2,
+                    quad: None,
+                })
+                .collect()
+        };
+        // A crop of a sheet: 36 finders of 2-2.4 px modules and two outliers.
+        let mut sheet: Vec<f32> = (0..36)
+            .map(|i| 2. + 0.01 * f32::from(u8::try_from(i).unwrap()))
+            .collect();
+        sheet.extend([5., 9.]);
+        let sheet = finders(&sheet);
+        assert!(super::further_symbols_likely(1, false, &sheet));
+        assert!(super::further_symbols_likely(0, true, &sheet));
+        assert!(!super::further_symbols_likely(0, false, &sheet));
+        // Texture or one symbol: finder sizes scattered over a decade.
+        let scattered: Vec<f32> = (0..40).map(|i| 1.5_f32 * 1.06_f32.powi(i)).collect();
+        let scattered = finders(&scattered);
+        assert!(!super::further_symbols_likely(1, false, &scattered));
+        assert!(!super::further_symbols_likely(0, true, &scattered));
+        assert!(super::further_symbols_likely(2, false, &scattered));
+        // Too few finders for four symbols.
+        assert!(!super::further_symbols_likely(1, false, &finders(&[2.; 9])));
     }
 }
 
