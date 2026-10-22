@@ -25,8 +25,10 @@ Download time dominates: Chrome compiles `medium.wasm` in about 3 ms, while the
 file is 2.5 MB uncompressed.
 
 - **Compress `.wasm`.** Medium transfers as 0.95 MB with gzip and 0.72 MB with
-  brotli. Check your server: many default configs (for example nginx's
-  `gzip_types`) compress only text types.
+  brotli (Low: 0.77 and 0.61 MB). Browsers decompress both themselves; the app
+  changes nothing. Netlify, Vercel and Cloudflare compress automatically. Plain
+  nginx needs `application/wasm` in `gzip_types`, and brotli needs the
+  `ngx_brotli` module.
 - **Cache it for good.** Bundlers put a content hash in the file name, so serve
   those files with `Cache-Control: public, max-age=31536000, immutable`; repeat
   visits then load nothing.
