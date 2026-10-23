@@ -11,7 +11,8 @@
 - JavaScript: `tapirscan/browser/low`, `/medium`, `/high` and `/very-high` emit
   one mode's WASM into application builds instead of all eight files.
 - JavaScript: `tapirscan/camera` adds `CameraScanner`, an optional camera loop
-  for any browser scanner.
+  for any browser scanner, with `scanInterval`, a scan `region` and
+  `onDetect` after `confirmations` consecutive reads.
 - Docs: browser deployment, camera recipes, and migration guides from ZXing,
   ZBar, Quagga and html5-qrcode.
 - Reuse exact source profiles during Medium primary recovery and vectorize

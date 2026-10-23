@@ -274,7 +274,7 @@ const first = await new Promise((resolve, reject) => {
 
 **Drawing and regions.** ZXing's result points become `polygon`; to draw it over
 the video, see [drawing results](../bindings/javascript/README.md#drawing-results-over-the-video).
-To scan part of each frame, wrap the scanner as in
+To scan part of each frame, pass `region` as in
 [scanning a region](../bindings/javascript/README.md#scanning-a-region).
 
 ## Python camera or video

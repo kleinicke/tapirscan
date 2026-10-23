@@ -146,12 +146,12 @@ camera.stop();
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `inputStream.target`                      | Your own `<video>` element.                                                                         |
 | `inputStream.constraints`                 | `start({ facingMode, deviceId })`; other constraints in `constraints`.                              |
-| `Quagga.onDetected`                       | `onScan`, called for every scanned frame; check `result.barcodes.length`.                           |
+| `Quagga.onDetected`                       | `onDetect(barcode)`, once per barcode in view; `confirmations` requires several consecutive reads.  |
 | `Quagga.onProcessed`                      | The same `onScan` callback; draw from `result.barcodes`.                                            |
 | `Quagga.init` error callback              | `start()` rejects; later failures call `onError`.                                                   |
 | `Quagga.start()` / `Quagga.stop()`        | `await camera.start()` / `camera.stop()`.                                                           |
 | `numOfWorkers`                            | Not needed: one scanner runs in one worker.                                                         |
-| `frequency`                               | None: each new frame is scanned once the previous scan finished.                                    |
+| `frequency`                               | `scanInterval` in milliseconds (`frequency: 10` → `scanInterval: 100`).                             |
 | `decoder.readers`                         | `formats` on the scanner. See [reader mapping](#reader-mapping).                                    |
 | `locate`, `locator.*`, `inputStream.area` | See [localization and cropping](#localization-and-cropping).                                        |
 | `Quagga.offDetected`, `offProcessed`      | One `onScan` per controller; check a flag in it or call `camera.stop()`.                            |
@@ -255,7 +255,7 @@ passed in; Quagga's `box` is a localization candidate.
 
 Tapirscan validates check digits, so filters on `decodedCodes` errors have no
 equivalent. Formats without a check digit (Code 39, Codabar) can still misread;
-for those, accept a value only after it appears in several consecutive frames.
+for those, set `confirmations: 2` or more and act on `onDetect`.
 
 ## Localization and cropping
 
@@ -268,25 +268,17 @@ Tapirscan always localizes, in any orientation. Effort is a mode: import
 | `locate: false`, speed    | Low, or a narrow `formats` list                                        |
 | `halfSample`, `patchSize` | Not configurable; harder images: High or Very High                     |
 | `inputStream.size`        | Pass frames at the resolution to scan; the camera defaults to 1280×720 |
-| `inputStream.area`        | No region option. Crop the input yourself, as below.                   |
+| `inputStream.area`        | `region` of `CameraScanner`, as below                                  |
 
-To replace `area`, wrap the scanner with `regionScanner` from
-[scanning a region](../bindings/javascript/README.md#scanning-a-region). It crops
-each frame and maps the results back. Quagga's percent insets become a region
-function:
+Quagga's percent insets become a `region` in fractions of the frame:
 
 ```js
 // Before: inputStream: { area: { top: "25%", right: "10%", left: "10%", bottom: "25%" } }
-function area({ top, right, bottom, left }) {
-  return (width, height) => ({
-    left: Math.round((width * left) / 100),
-    top: Math.round((height * top) / 100),
-    width: Math.round((width * (100 - left - right)) / 100),
-    height: Math.round((height * (100 - top - bottom)) / 100),
-  });
-}
-const region = area({ top: 25, right: 10, bottom: 25, left: 10 });
-const camera = new CameraScanner(video, regionScanner(scanner, region), { onScan, onError });
+const camera = new CameraScanner(video, scanner, {
+  region: { left: 0.1, top: 0.25, width: 0.8, height: 0.5 },
+  onScan,
+  onError,
+});
 ```
 
 For `decodeSingle` with an `area`, draw the same part of the image into a canvas,

@@ -95,8 +95,8 @@ camera.stop();
 | `new Html5Qrcode(elementId)`                                                 | `new CameraScanner(video, scanner, options)` with your own `<video>`                                                   |
 | `start(cameraId, …)`                                                         | `start({ deviceId })`                                                                                                  |
 | `start({ facingMode: "environment" }, …)`                                    | `start()` (back camera preferred) or `start({ facingMode: "user" })`                                                   |
-| `fps`                                                                        | None: each new frame is scanned once the previous scan finished                                                        |
-| `qrbox`                                                                      | No option; [scan a region](#qrbox-scan-region)                                                                         |
+| `fps`                                                                        | `scanInterval` in milliseconds (`fps: 10` → `scanInterval: 100`); default: the next frame once a scan finishes         |
+| `qrbox`                                                                      | `region`; see [scan region](#qrbox-scan-region)                                                                        |
 | `aspectRatio`, `videoConstraints`                                            | `constraints` option, for example `{ aspectRatio: 1 }`; the default ideal size is 1280×720                             |
 | `disableFlip`                                                                | None; mirrored QR Code, Data Matrix and Aztec symbols are read automatically                                           |
 | success callback                                                             | `onScan`, when `barcodes.length > 0`                                                                                   |
@@ -167,25 +167,23 @@ UPC-A, UPC-E, Codabar and DataBar text differs from Tapirscan's
 
 ## `qrbox`: scan region
 
-html5-qrcode scans only the `qrbox` area and shades the rest. There is no region
-option in Tapirscan; wrap the scanner so each frame is cropped before scanning,
-and shade the area with CSS if you want the same look:
+html5-qrcode scans only the `qrbox` area and shades the rest. `region` does the
+same, in fractions of the frame; shade the area with CSS if you want the same
+look:
 
 ```js
-// qrbox: { width: 250, height: 250 } -> a centered region in frame pixels
-const box = (width, height) => {
-  const side = Math.min(250, width, height);
-  return { left: (width - side) >> 1, top: (height - side) >> 1, width: side, height: side };
-};
-const camera = new CameraScanner(video, regionScanner(scanner, box), { onScan, onError });
+// A centered 250×250 box of a 1280×720 frame
+const camera = new CameraScanner(video, scanner, {
+  region: { left: 515 / 1280, top: 235 / 720, width: 250 / 1280, height: 250 / 720 },
+  onScan,
+  onError,
+});
 ```
 
-`regionScanner` crops each frame and maps the results back; copy it from
-[scanning a region](../bindings/javascript/README.md#scanning-a-region).
-
-`qrbox` is in displayed pixels; the region here is in frame pixels
-(`videoWidth` × `videoHeight`). Tapirscan finds codes anywhere in the frame, in
-any orientation, so the region is optional.
+`qrbox` is in displayed pixels, while `region` is a fraction of the camera frame
+(`videoWidth` × `videoHeight`); convert with the preview's displayed size.
+Tapirscan finds codes anywhere in the frame, in any orientation, so the region is
+optional.
 
 ## Replacing `Html5QrcodeScanner`
 

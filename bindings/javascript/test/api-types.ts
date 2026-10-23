@@ -138,6 +138,13 @@ export async function cameraConsumer(video: HTMLVideoElement, image: Image) {
   });
   // Scanners of every entry fit.
   new CameraScanner(video, new BrowserScanner());
+  const detected: string[] = [];
+  new CameraScanner(video, scanner, {
+    onDetect: (barcode) => detected.push(barcode.text),
+    confirmations: 2,
+    scanInterval: 200,
+    region: { left: 0.1, top: 0.3, width: 0.8, height: 0.4 },
+  });
   const started: boolean = await camera.start({ facingMode: "user" });
   const cameras: MediaDeviceInfo[] = await CameraScanner.cameras();
   await camera.start({ deviceId: cameras[0]?.deviceId });
@@ -145,5 +152,5 @@ export async function cameraConsumer(video: HTMLVideoElement, image: Image) {
   const track: MediaStreamTrack | undefined = camera.track;
   camera.stop();
   scanner.dispose();
-  return [started, torch, track, camera.running, values];
+  return [started, torch, track, camera.running, values, detected];
 }

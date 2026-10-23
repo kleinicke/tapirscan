@@ -109,7 +109,14 @@ scanner.dispose();
 ```
 
 - **Frames:** one frame is scanned at a time; slow devices skip frames instead
-  of queueing them. No result arrives after `stop()`.
+  of queueing them. No result arrives after `stop()`. `scanInterval: 200` starts
+  scans at least 200 ms apart, for fewer scans per second.
+- **Confirmed reads:** `onDetect(barcode)` is called once a barcode was read in
+  `confirmations` consecutive scans (default 1). It is called again after a scan
+  without that barcode or when the camera reopens. `confirmations: 3` filters out
+  a single misread; `onScan` still receives every frame.
+- **Region:** `region` scans only part of each frame; see
+  [Scanning a region](#scanning-a-region).
 - **Choosing a camera:** `start()` prefers the back camera and falls back to any
   camera. `start({ facingMode: "user" })` prefers the front camera;
   `start({ deviceId })` opens exactly that device. Calling `start` while running
@@ -123,8 +130,8 @@ scanner.dispose();
   some browsers). The torch turns off when the camera reopens.
 - **`start()` result:** `true` once the camera is open; `false` when `stop()`
   or another `start()` cancelled it, or the page is hidden (the camera opens
-  when it is shown). Errors thrown by `onScan` are reported to the console and
-  do not stop scanning.
+  when it is shown). Errors thrown by `onScan` or `onDetect` are reported to the
+  console and do not stop scanning.
 - **Other settings:** `constraints` adds video constraints other than the
   camera choice; a `width` or `height` replaces the default 1280×720 ideal size. `camera.track` is the open
   `MediaStreamTrack`, for example for zoom. `scanOptions` applies to every frame.
@@ -242,48 +249,26 @@ example `scaleX(-1)` on a front camera preview).
 
 #### Scanning a region
 
-There is no region option. `CameraScanner` accepts any object with a
-`scan(video, options)` method, so a wrapper can crop each frame and shift the
-results back into frame coordinates.
+`region` scans only part of each frame, given in fractions of the frame's width
+and height, and ignores barcodes outside it, such as neighbors on a shelf.
+Results keep whole-frame coordinates, so an overlay draws them as before.
 
 ```js
-// region(width, height) returns { left, top, width, height } in frame pixels.
-function regionScanner(scanner, region) {
-  const canvas = new OffscreenCanvas(1, 1);
-  const context = canvas.getContext("2d");
-  return {
-    async scan(video, options) {
-      const { left, top, width, height } = region(video.videoWidth, video.videoHeight);
-      canvas.width = width;
-      canvas.height = height;
-      context.drawImage(video, left, top, width, height, 0, 0, width, height);
-      const result = await scanner.scan(canvas, options);
-      const barcodes = result.barcodes.map((barcode) => ({
-        ...barcode,
-        polygon: barcode.polygon.map(([x, y]) => [x + left, y + top]),
-        rect: { ...barcode.rect, left: barcode.rect.left + left, top: barcode.rect.top + top },
-      }));
-      const best = result.best && barcodes[result.barcodes.indexOf(result.best)];
-      return { ...result, barcodes, best };
-    },
-  };
-}
-
-// A centered square of 60% of the shorter side:
-const centered = (width, height) => {
-  const side = Math.round(Math.min(width, height) * 0.6);
-  return {
-    left: Math.round((width - side) / 2),
-    top: Math.round((height - side) / 2),
-    width: side,
-    height: side,
-  };
-};
-const camera = new CameraScanner(video, regionScanner(scanner, centered), { onScan, onError });
+// The middle 60% horizontally and 40% vertically, as a wide viewfinder:
+const camera = new CameraScanner(video, scanner, {
+  region: { left: 0.2, top: 0.3, width: 0.6, height: 0.4 },
+  onDetect,
+  onError,
+});
 ```
 
-For a single image, draw the region of the image into a canvas the same way and
-add `left` and `top` to the results.
+The fractions apply to whatever size the camera delivers, so a region that is
+square on a landscape 1280×720 frame, such as
+`{ left: 0.33, top: 0.2, width: 0.34, height: 0.6 }`, is not square on a
+portrait 720×1280 one.
+
+For a single image, draw its region into a canvas, scan the canvas and add the
+region's `left` and `top` to each barcode's `polygon` and `rect`.
 
 #### Camera picker and zoom
 

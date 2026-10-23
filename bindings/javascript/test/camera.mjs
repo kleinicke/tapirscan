@@ -435,6 +435,197 @@ for (const [name, launch] of browsers) {
       assert.deepEqual(outcome, { reported: ["app bug"], errors: [], running: true });
     });
 
+    test("onDetect reports a barcode once, after confirmations consecutive reads", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video } = globalThis.t;
+        const scanner = new medium.Scanner({ formats: ["EAN13"] });
+        let reads = 0;
+        let readsAtDetect = -1;
+        const detected = [];
+        let detectedOnce;
+        const firstDetection = new Promise((resolve) => (detectedOnce = resolve));
+        const controller = new camera.CameraScanner(video, scanner, {
+          confirmations: 3,
+          onScan: (result) => {
+            if (result.barcodes.length > 0) reads++;
+          },
+          onDetect: (barcode) => {
+            if (readsAtDetect < 0) readsAtDetect = reads;
+            detected.push(barcode.text);
+            detectedOnce();
+          },
+        });
+        await controller.start();
+        await firstDetection;
+        // The barcode stays in view, so it is not reported again.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        controller.stop();
+        scanner.dispose();
+        return { readsAtDetect, detected, readsAfter: reads };
+      });
+      const text = await page.evaluate(() => globalThis.t.text);
+      assert.equal(outcome.readsAtDetect, 3);
+      assert.deepEqual(outcome.detected, [text]);
+      assert.ok(outcome.readsAfter > 3, `reads after detection: ${outcome.readsAfter}`);
+    });
+
+    test("scanInterval spaces scans apart", async (context) => {
+      if (skip) return context.skip(skip);
+      const gaps = await page.evaluate(async () => {
+        const { camera, medium, video } = globalThis.t;
+        const scanner = new medium.Scanner({ formats: ["EAN13"] });
+        const starts = [];
+        const timed = {
+          scan(source, options) {
+            starts.push(performance.now());
+            return scanner.scan(source, options);
+          },
+        };
+        const controller = new camera.CameraScanner(video, timed, { scanInterval: 250 });
+        await controller.start();
+        await new Promise((resolve) => setTimeout(resolve, 1600));
+        controller.stop();
+        scanner.dispose();
+        return starts.slice(1).map((time, i) => time - starts[i]);
+      });
+      assert.ok(gaps.length >= 3, `scans: ${gaps.length + 1}`);
+      // Timers may fire a few milliseconds early.
+      assert.ok(Math.min(...gaps) >= 245, `gaps: ${gaps.join(", ")}`);
+    });
+
+    test("onDetect reports again after a scan without the barcode; its errors are reported", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video } = globalThis.t;
+        const scanner = new medium.Scanner({ formats: ["EAN13"] });
+        let scans = 0;
+        let hiddenAt = -1;
+        // The scan after the first detection reads nothing, as if the barcode left the view.
+        const flaky = {
+          async scan(source, options) {
+            const result = await scanner.scan(source, options);
+            scans++;
+            if (hiddenAt === 0) {
+              hiddenAt = scans;
+              return { barcodes: [], values: [], best: undefined };
+            }
+            return result;
+          },
+        };
+        const reported = [];
+        const onReported = (event) => {
+          reported.push(event.error.message);
+          event.preventDefault();
+        };
+        window.addEventListener("error", onReported);
+        const detectedAt = [];
+        let second;
+        const twice = new Promise((resolve) => (second = resolve));
+        const controller = new camera.CameraScanner(video, flaky, {
+          confirmations: 2,
+          onDetect() {
+            detectedAt.push(scans);
+            if (detectedAt.length === 2) second();
+            if (detectedAt.length === 1) {
+              hiddenAt = 0;
+              throw new Error("app bug");
+            }
+          },
+        });
+        await controller.start();
+        await twice;
+        controller.stop();
+        scanner.dispose();
+        window.removeEventListener("error", onReported);
+        return { detectedAt, hiddenAt, reported };
+      });
+      // Two reads after the miss confirm the barcode again.
+      assert.equal(outcome.detectedAt.length, 2);
+      assert.equal(outcome.detectedAt[1], outcome.hiddenAt + 2);
+      assert.deepEqual(outcome.reported, ["app bug"]);
+    });
+
+    test("region scans part of the frame and keeps frame coordinates", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video, until } = globalThis.t;
+        const scanner = new medium.Scanner({ formats: ["EAN13"] });
+        let size;
+        /** The first `count` results, or the first with a barcode. */
+        async function scanWith(region, count) {
+          let onScan;
+          const results = [];
+          const controller = new camera.CameraScanner(video, scanner, {
+            region,
+            onScan: (result) => onScan?.(result),
+          });
+          const done = until(
+            (callback) => (onScan = callback),
+            (result) => results.push(result) >= count || result.barcodes.length > 0,
+          );
+          await controller.start();
+          await done;
+          size = [video.videoWidth, video.videoHeight];
+          controller.stop();
+          return results.at(-1);
+        }
+        const whole = await scanWith(undefined, 1000);
+        const band = await scanWith({ left: 0, top: 0.25, width: 1, height: 0.5 }, 1000);
+        const blank = await scanWith({ left: 0, top: 0, width: 1, height: 0.15 }, 5);
+        scanner.dispose();
+        return {
+          size,
+          whole: whole.barcodes[0]?.rect,
+          band: band.barcodes[0]?.rect,
+          bandPolygon: band.barcodes[0]?.polygon,
+          bandBest: band.best?.rect,
+          blank: blank.barcodes.length,
+        };
+      });
+      const [, height] = outcome.size;
+      assert.ok(outcome.whole && outcome.band, JSON.stringify(outcome));
+      // Same bars, so the same columns; the rows stay inside the band.
+      assert.ok(Math.abs(outcome.band.left - outcome.whole.left) <= 3, JSON.stringify(outcome));
+      // The bars start at row 30; the band starts at row 45, so the shift was applied.
+      assert.ok(Math.abs(outcome.band.top - 0.25 * height) <= 4, JSON.stringify(outcome));
+      assert.ok(Math.abs(outcome.band.width - outcome.whole.width) <= 3, JSON.stringify(outcome));
+      assert.ok(outcome.band.top >= 0.25 * height - 1, JSON.stringify(outcome));
+      assert.ok(
+        outcome.band.top + outcome.band.height <= 0.75 * height + 1,
+        JSON.stringify(outcome),
+      );
+      for (const [, y] of outcome.bandPolygon) assert.ok(y >= 0.25 * height - 1);
+      assert.deepEqual(outcome.bandBest, outcome.band);
+      assert.equal(outcome.blank, 0);
+    });
+
+    test("invalid scan options are rejected", async (context) => {
+      if (skip) return context.skip(skip);
+      const errors = await page.evaluate(() => {
+        const { camera, video } = globalThis.t;
+        const scanner = {
+          scan: () => Promise.resolve({ barcodes: [], values: [], best: undefined }),
+        };
+        return [
+          { confirmations: 0 },
+          { confirmations: 1.5 },
+          { scanInterval: -1 },
+          { scanInterval: Infinity },
+          { region: { left: 0.5, top: 0, width: 0.6, height: 1 } },
+          { region: { left: 0, top: 0, width: 0, height: 1 } },
+        ].map((options) => {
+          try {
+            new camera.CameraScanner(video, scanner, options);
+            return "accepted";
+          } catch (error) {
+            return error.constructor.name;
+          }
+        });
+      });
+      assert.deepEqual(errors, Array(6).fill("TypeError"));
+    });
+
     test("constraints sizes replace the default; the camera choice belongs to start", async (context) => {
       if (skip) return context.skip(skip);
       const outcome = await page.evaluate(async () => {
