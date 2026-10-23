@@ -90,6 +90,33 @@ pub(crate) fn recover_proposals_patient(
     )
 }
 
+/// [`recover_proposals`] for the boxes of a sheet of symbols, with the sample budgets of
+/// Low's fast path for every 24 boxes: the sheet's symbols share them.
+#[cfg(not(feature = "low"))]
+pub(crate) fn recover_sheet(
+    image: Image<'_>,
+    proposals: &[crate::Proposal],
+    mask: u32,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> Result<(Vec<Read>, Vec<Region>), Error> {
+    let share = |budget: usize| budget * proposals.len().max(24) / 24;
+    let budgets = super::Budgets {
+        continuity: share(super::FAST_PATH_BUDGETS.continuity),
+        refinement: share(super::FAST_PATH_BUDGETS.refinement),
+        dense: share(super::FAST_PATH_BUDGETS.dense),
+    };
+    recover_variant(
+        image,
+        proposals,
+        mask,
+        sampler,
+        SourceProfile::Gray(0.),
+        budgets,
+        &mut Vec::new(),
+        RecoveryAdmission::Standard,
+    )
+}
+
 /// Sample budgets of localized recovery: continuity rows, refinement rows and dense rows.
 const RECOVERY_BUDGETS: super::Budgets = super::Budgets {
     continuity: 131_072,

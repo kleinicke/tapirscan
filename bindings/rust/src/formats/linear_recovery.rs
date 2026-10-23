@@ -270,9 +270,12 @@ impl Scanner {
                 // A sheet of symbols read through many of its first boxes: decode the further
                 // segment-voting boxes that no read covers.
                 if oriented_mask != 0 && found.len() >= SHEET_READS {
-                    let sheet: Vec<_> = crate::pipeline::segment_voting::localize(image)
-                        .more
-                        .into_iter()
+                    // The first boxes share the recovery budgets, which a sheet uses up:
+                    // its unread first boxes and further boxes get Low's per box.
+                    let sheet: Vec<_> = proposals
+                        .iter()
+                        .cloned()
+                        .chain(crate::pipeline::segment_voting::localize(image).more)
                         .filter(|p| {
                             !reads
                                 .iter()
@@ -281,13 +284,11 @@ impl Scanner {
                         })
                         .collect();
                     if !sheet.is_empty() {
-                        let mut sheet_hints = Vec::new();
-                        let (extra, _) = crate::fast_linear::recover_proposals_hinted(
+                        let (extra, _) = crate::fast_linear::recover_sheet(
                             image,
                             &sheet,
                             oriented_mask,
                             sampler,
-                            &mut sheet_hints,
                         )?;
                         found.extend(extra);
                     }

@@ -16,7 +16,7 @@ mod recovery;
 #[cfg(not(feature = "low"))]
 pub(crate) use recovery::{
     append_recovered, recover_proposals, recover_proposals_as, recover_proposals_hinted,
-    recover_proposals_patient, recover_uncovered_upce,
+    recover_proposals_patient, recover_sheet, recover_uncovered_upce,
 };
 
 // Internal build selector for the public experimental Turbo presets. Zero is
@@ -90,6 +90,9 @@ struct Budgets {
     dense: usize,
 }
 
+/// Reads of the first boxes that mark a sheet of symbols, whose further boxes Low then
+/// decodes too.
+const SHEET_READS: usize = 8;
 /// The budgets of Low's fast path.
 const FAST_PATH_BUDGETS: Budgets = Budgets {
     continuity: 524_288,
@@ -170,9 +173,12 @@ pub(crate) fn scan(
     )?;
     // Public Low localizes by bar-segment voting (one box per symbol, low-resolution safe);
     // the retained Turbo tiers keep their sparse stripe detectors.
+    let mut sheet = Vec::new();
     let localized = if TIER == 0 {
+        let voted = crate::pipeline::segment_voting::localize(image);
+        sheet = voted.more;
         barcode_research_core::stripes::Result {
-            proposals: crate::pipeline::segment_voting::localize(image).proposals,
+            proposals: voted.proposals,
             omitted: 0,
             limited: false,
             trace: [0; 13],
@@ -193,6 +199,11 @@ pub(crate) fn scan(
     let local_count = proposals.len();
     proposals.extend(full_frame_proposals(image));
     proposals.extend(additional);
+    // A sheet of symbols that read through its first boxes continues with the boxes
+    // segment voting kept beyond its limit, with budgets for them.
+    let sheet_count = sheet.len();
+    let mut sheet_scanned = false;
+    proposals.extend(sheet);
     let mut reads = Vec::new();
     let mut refined_reads = Vec::new();
     let mut unread = Vec::new();
@@ -204,9 +215,23 @@ pub(crate) fn scan(
     let mut dense_lines = 0;
     let mut rescue_axes = false;
     let mut recovery_seed = None;
-    for (index, proposal) in proposals.iter().take(local_count + 2).enumerate() {
+    for (index, proposal) in proposals
+        .iter()
+        .take(local_count + 2 + sheet_count)
+        .enumerate()
+    {
         if index == local_count {
             rescue_axes = reads.is_empty() && refined_reads.is_empty();
+        }
+        if index == local_count + 2 {
+            if reads.len() + refined_reads.len() < SHEET_READS {
+                break;
+            }
+            sheet_scanned = true;
+            let share = |budget: usize| budget * sheet_count / local_count.max(1);
+            continuity_budget += share(FAST_PATH_BUDGETS.continuity);
+            refinement_budget += share(FAST_PATH_BUDGETS.refinement);
+            dense_budget += share(FAST_PATH_BUDGETS.dense);
         }
         if matches!(TIER, 8 | 16) && proposal.score == 0. && !rescue_axes {
             continue;
@@ -528,7 +553,8 @@ pub(crate) fn scan(
     let reads = finalize_reads(reads, &mut unread, image, mask, options.multiple);
     let raw = options.retain_diagnostics.then(|| {
         let mut local_proposals = proposals[..local_count].to_vec();
-        local_proposals.extend_from_slice(&proposals[local_count + 2..]);
+        let unscanned = if sheet_scanned { 0 } else { sheet_count };
+        local_proposals.extend_from_slice(&proposals[local_count + 2..proposals.len() - unscanned]);
         diagnostics(
             image,
             options,

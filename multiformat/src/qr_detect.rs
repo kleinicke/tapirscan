@@ -431,9 +431,59 @@ fn triple_score(finders: &[Finder], triple: [usize; 3]) -> f32 {
         - 1.;
     let angle_error =
         (d[2].powi(2) - d[0].powi(2) - d[1].powi(2)).abs() / (2. * d[0] * d[1]).max(1.);
+    // A view that shears or stretches a symbol (a resampled camera frame, an
+    // oblique view) takes its arms off the right angle in pixels but not in the
+    // module axes of its finders; unequal arms in modules mark a triple across
+    // two symbols.
+    let shape = match local_shape_error(f) {
+        Some((orthogonal, equal)) => angle_error.min(orthogonal) * 30. + equal * 5.,
+        None => angle_error * 30.,
+    };
     // Shape dominates: a large symbol's true triple spans 100+ modules and must
     // not rank behind compact accidental triples.
-    f32::midpoint(d[0], d[1]) / module * 0.1 + angle_error * 30. + spread * 10.
+    f32::midpoint(d[0], d[1]) / module * 0.1 + shape + spread * 10.
+}
+/// How far the two arms of a triple, measured in the module axes of the corner
+/// finder's central quad, are from orthogonal and from equal: a symbol is square
+/// in modules however a view shears or stretches it.
+fn local_shape_error(triple: [&Finder; 3]) -> Option<(f32, f32)> {
+    let sides = [
+        distance(triple[1], triple[2]),
+        distance(triple[0], triple[2]),
+        distance(triple[0], triple[1]),
+    ];
+    let corner = (0..3).max_by(|&i, &j| sides[i].total_cmp(&sides[j]))?;
+    let origin = triple[corner];
+    let quad = origin.quad?;
+    // Per-module axes: the central quad spans three modules on each side.
+    let axis_x = [
+        (quad[1][0] - quad[0][0] + quad[2][0] - quad[3][0]) / 6.,
+        (quad[1][1] - quad[0][1] + quad[2][1] - quad[3][1]) / 6.,
+    ];
+    let axis_y = [
+        (quad[3][0] - quad[0][0] + quad[2][0] - quad[1][0]) / 6.,
+        (quad[3][1] - quad[0][1] + quad[2][1] - quad[1][1]) / 6.,
+    ];
+    let det = axis_x[0] * axis_y[1] - axis_x[1] * axis_y[0];
+    if det.abs() < 0.25 {
+        return None;
+    }
+    let in_modules = |finder: &Finder| {
+        let offset = [finder.x - origin.x, finder.y - origin.y];
+        [
+            (offset[0] * axis_y[1] - offset[1] * axis_y[0]) / det,
+            (axis_x[0] * offset[1] - axis_x[1] * offset[0]) / det,
+        ]
+    };
+    let first = in_modules(triple[(corner + 1) % 3]);
+    let second = in_modules(triple[(corner + 2) % 3]);
+    let (first_len, second_len) = (first[0].hypot(first[1]), second[0].hypot(second[1]));
+    if first_len < 1. || second_len < 1. {
+        return None;
+    }
+    let orthogonal = (first[0] * second[0] + first[1] * second[1]).abs() / (first_len * second_len);
+    let equal = (first_len - second_len).abs() / first_len.max(second_len);
+    Some((orthogonal, equal))
 }
 // Nearby triples bound dense-scene work without the cubic combinations of all
 // finders. Prefer compact, approximately orthogonal, similarly sized groups.
