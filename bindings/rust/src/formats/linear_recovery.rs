@@ -104,6 +104,9 @@ const CORE_PROPOSALS: usize = 4;
 /// Linear reads of the first boxes that mark a sheet of symbols, whose further boxes are then
 /// decoded too.
 const SHEET_READS: usize = 8;
+/// Boxes that, with half of [`SHEET_READS`] read from them, also mark a sheet: rotated
+/// symbols spend the shared recovery budgets before twelve of them are read.
+const SHEET_BOXES: usize = 16;
 
 /// The middle 40% of a box across its bars, keeping its full length.
 fn central_band(q: &crate::Quad) -> crate::Quad {
@@ -269,7 +272,9 @@ impl Scanner {
                 )?;
                 // A sheet of symbols read through many of its first boxes: decode the further
                 // segment-voting boxes that no read covers.
-                if oriented_mask != 0 && found.len() >= SHEET_READS {
+                let sheet_like = found.len() >= SHEET_READS
+                    || (found.len() >= SHEET_READS / 2 && proposals.len() >= SHEET_BOXES);
+                if oriented_mask != 0 && sheet_like {
                     // The first boxes share the recovery budgets, which a sheet uses up:
                     // its unread first boxes and further boxes get Low's per box.
                     let sheet: Vec<_> = proposals
@@ -295,7 +300,7 @@ impl Scanner {
                 }
                 // On such a sheet, also run Low's whole-image sweep for the formats that
                 // Medium otherwise reads only in boxes: Low reads its rows there.
-                if oriented_mask & LINEAR_MASK & !SWEPT != 0 && found.len() >= SHEET_READS {
+                if oriented_mask & LINEAR_MASK & !SWEPT != 0 && sheet_like {
                     let w = barcode_research_core::numeric::usize_f64(image.width);
                     let h = barcode_research_core::numeric::usize_f64(image.height);
                     found.extend(sweep_box(

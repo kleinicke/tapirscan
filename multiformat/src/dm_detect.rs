@@ -1655,6 +1655,11 @@ struct Retries {
     /// instead of the first ones found. Real-looking candidates cost more retry work
     /// than bare L borders, so only a short list is ranked.
     ranked: bool,
+    /// Width-to-height ratios, relative to a symbol size, that the first pass samples.
+    /// A camera frame resampled to another aspect squashes a square symbol to 0.6 of
+    /// its width; High takes such candidates in the first pass, the others only in
+    /// the retry of their first few failures.
+    aspect: [f32; 2],
 }
 /// Retry limits per frame for Low, Medium and High; modes beyond the table (Very High)
 /// use its last entry. Medium retries only its four best-ranked candidates; Low and
@@ -1666,6 +1671,7 @@ const MODE_RETRIES: [Retries; 3] = [
         crops: 1,
         candidates: 64,
         ranked: false,
+        aspect: [0.65, 1.55],
     },
     Retries {
         gray: 3,
@@ -1673,6 +1679,7 @@ const MODE_RETRIES: [Retries; 3] = [
         crops: 1,
         candidates: 4,
         ranked: true,
+        aspect: [0.65, 1.55],
     },
     Retries {
         gray: 6,
@@ -1680,6 +1687,7 @@ const MODE_RETRIES: [Retries; 3] = [
         crops: 2,
         candidates: 64,
         ranked: false,
+        aspect: [0.55, 1.8],
     },
 ];
 /// The retry limits of a scanner `mode`.
@@ -1695,6 +1703,7 @@ const CROP_PASS: Retries = Retries {
     crops: 0,
     candidates: 64,
     ranked: false,
+    aspect: [0.65, 1.55],
 };
 #[expect(
     clippy::too_many_lines,
@@ -1812,7 +1821,7 @@ fn detect_with_retries(
                             let ratio = (dx / dy)
                                 / (crate::numeric::usize_f32(size.w)
                                     / crate::numeric::usize_f32(size.h));
-                            if !(0.65..=1.55).contains(&ratio)
+                            if !(retries.aspect[0]..=retries.aspect[1]).contains(&ratio)
                                 || dx / crate::numeric::usize_f32(size.w) < 0.8
                                 || dy / crate::numeric::usize_f32(size.h) < 0.8
                             {
