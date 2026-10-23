@@ -103,7 +103,7 @@ fn strongest_new_proposals(
 const CORE_PROPOSALS: usize = 4;
 /// Linear reads of the first boxes that mark a sheet of symbols, whose further boxes are then
 /// decoded too.
-const SHEET_READS: usize = 12;
+const SHEET_READS: usize = 8;
 
 /// The middle 40% of a box across its bars, keeping its full length.
 fn central_band(q: &crate::Quad) -> crate::Quad {

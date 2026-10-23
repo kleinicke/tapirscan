@@ -132,6 +132,8 @@ fn cross(
     }
     Some((center, module))
 }
+/// Reads that mark a sheet of symbols, whose rows between the scanned ones are searched too.
+const SHEET_READS: usize = 8;
 /// Bullseye proposals by support, not yet checked with [`is_bullseye`] (callers
 /// verify only the proposals they use), and whether the check budget cut rows short.
 fn centers_with_rows(
@@ -140,21 +142,33 @@ fn centers_with_rows(
     h: usize,
     row_cache: &RowCache<'_>,
 ) -> (Vec<Center>, bool) {
-    centers_from_runs(w, h, &|i| bits[i], |y, out| {
-        row_cache(y, &bits[y * w..(y + 1) * w], out);
-    })
+    centers_from_runs(
+        w,
+        h,
+        &|i| bits[i],
+        |y, out| {
+            row_cache(y, &bits[y * w..(y + 1) * w], out);
+        },
+        false,
+    )
 }
 /// Verified bullseye proposals by support for one foreground cut, and whether the
 /// check budget cut rows short.
 fn centers_gray(gray: &[u8], w: usize, h: usize, cut: u8) -> (Vec<Center>, bool) {
     let mut row = vec![false; w];
     let bits = |i: usize| gray[i] <= cut;
-    let (mut found, limited) = centers_from_runs(w, h, &bits, |y, out| {
-        for (target, &value) in row.iter_mut().zip(&gray[y * w..(y + 1) * w]) {
-            *target = value <= cut;
-        }
-        crate::transition_offsets_into(&row, out);
-    });
+    let (mut found, limited) = centers_from_runs(
+        w,
+        h,
+        &bits,
+        |y, out| {
+            for (target, &value) in row.iter_mut().zip(&gray[y * w..(y + 1) * w]) {
+                *target = value <= cut;
+            }
+            crate::transition_offsets_into(&row, out);
+        },
+        false,
+    );
     found.retain(|c| is_bullseye(&bits, w, h, c));
     (found, limited)
 }
@@ -164,11 +178,13 @@ fn is_bullseye(bits: &impl Fn(usize) -> bool, w: usize, h: usize, c: &Center) ->
     has_oblique_rings(bits, w, h, c, 3)
         && binarization::has_two_directions_by(bits, w, h, c.x, c.y, c.module * 5.)
 }
+/// Bullseye centers on the rows of the row step, or with `skipped` on the rows between them.
 fn centers_from_runs(
     w: usize,
     h: usize,
     bits: &impl Fn(usize) -> bool,
     mut copy_rows: impl FnMut(usize, &mut Vec<usize>),
+    skipped: bool,
 ) -> (Vec<Center>, bool) {
     let mut found = center_index::Index::new(w, h);
     let mut refined = center_index::Index::new(w, h);
@@ -183,10 +199,11 @@ fn centers_from_runs(
     // Cross checks are budgeted per scanned pixel. Half of the budget is available
     // from the start and each row adds its share of the other half; unused checks
     // carry over, so a textured band cannot exhaust the rows below it.
-    let rows = h.div_ceil(step);
+    let scanned = |y: &usize| y.is_multiple_of(step) != skipped;
+    let rows = (0..h).filter(scanned).count();
     let mut available = w * rows;
     let mut limited = false;
-    for y in (0..h).step_by(step) {
+    for y in (0..h).filter(scanned) {
         available += w;
         copy_rows(y, &mut offsets);
         runs.clear();
@@ -1304,6 +1321,42 @@ pub fn detect(
             regions,
             &|y, row, out| rows.copy_or_extract(y, row, out),
         );
+    }
+    // A bullseye's equal runs show only on rows through its one-module center, which a
+    // row step above one module crosses or misses by phase. A sheet that read several
+    // symbols also searches the rows between.
+    if row_step(w, h) > 1 && search.reads.len() >= SHEET_READS {
+        for mode in 0..4 {
+            if images.is_duplicate(mode) {
+                continue;
+            }
+            let bits = images.get(mode);
+            let (centers, _) = centers_from_runs(
+                w,
+                h,
+                &|i| bits[i],
+                |y, out| crate::transition_offsets_into(&bits[y * w..(y + 1) * w], out),
+                true,
+            );
+            let centers: Vec<Center> = centers
+                .into_iter()
+                .filter(|c| is_bullseye(&|i| bits[i], w, h, c))
+                .collect();
+            if !centers.is_empty() {
+                search.threshold_candidates(
+                    Threshold {
+                        bits,
+                        gray,
+                        width: w,
+                        height: h,
+                        mode,
+                    },
+                    regions,
+                    &|_, row, out| crate::transition_offsets_into(row, out),
+                    Some(centers),
+                );
+            }
+        }
     }
     search.contrast(gray, w, h, regions);
     search.upscaled(gray, w, h, effort);

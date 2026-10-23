@@ -1641,7 +1641,11 @@ fn matrix_retries(
                     && crate::signal_recovery::covered(region.polygon, read.polygon)
             })
     });
-    for region in scan.regions.iter().take(8) {
+    for region in scan
+        .regions
+        .iter()
+        .take(crate::signal_recovery::MAX_REGION_RETRIES)
+    {
         let hinted = retry_format(&region.format);
         if mask & hinted == 0 {
             continue;

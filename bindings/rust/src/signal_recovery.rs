@@ -1,4 +1,7 @@
 //! Bounded source contrast recovery for selected matrix readers.
+/// Unresolved matrix regions retried per frame. The crop pixel budget bounds the work; a sheet
+/// of small symbols leaves many small regions within it.
+pub(crate) const MAX_REGION_RETRIES: usize = 32;
 pub(crate) fn region_retries(
     pixels: &[u8],
     width: usize,
@@ -9,7 +12,11 @@ pub(crate) fn region_retries(
     budget: &mut usize,
 ) -> Vec<barcode_multiformat::Scan> {
     let mut output = Vec::new();
-    for region in scan.regions.iter().take(8) {
+    for region in scan
+        .regions
+        .iter()
+        .take(crate::signal_recovery::MAX_REGION_RETRIES)
+    {
         let mut bounds = [
             f32::INFINITY,
             f32::INFINITY,

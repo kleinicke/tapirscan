@@ -43,7 +43,7 @@ struct Localization {
 /// Linear reads of the first boxes that mark a sheet of symbols, whose further boxes are
 /// then scanned too.
 #[cfg(not(feature = "low"))]
-const SHEET_READS: usize = 12;
+const SHEET_READS: usize = 8;
 /// Further boxes scanned together.
 #[cfg(not(feature = "low"))]
 const SHEET_BATCH: usize = 24;
