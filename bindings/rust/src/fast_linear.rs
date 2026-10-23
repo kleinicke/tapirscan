@@ -92,6 +92,7 @@ struct Budgets {
 
 /// Reads of the first boxes that mark a sheet of symbols, whose further boxes Low then
 /// decodes too.
+#[cfg(feature = "low")]
 const SHEET_READS: usize = 8;
 /// The budgets of Low's fast path.
 const FAST_PATH_BUDGETS: Budgets = Budgets {

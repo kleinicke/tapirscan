@@ -561,13 +561,7 @@ fn clusters(segs: &[Segment], w: usize, h: usize, s: f64) -> Localized {
     }
     out.sort_by_key(|v| std::cmp::Reverse(v.1));
     let mut out = merge_split(out, &mut alternatives);
-    let mut more = out.split_off(MAX_PROPOSALS.min(out.len()));
-    more.truncate(SHEET_PROPOSALS - MAX_PROPOSALS);
-    let unions = fragment_unions(&out);
-    out.extend(unions);
-    let frame = w as f64 * h as f64 / (s * s);
-    out.retain(|(p, n)| *n >= SMALL_MEMBERS || quad_area(&p.polygon) >= SMALL_BOX * frame);
-    more.retain(|(p, n)| *n >= SMALL_MEMBERS || quad_area(&p.polygon) >= SMALL_BOX * frame);
+    let more = limit_boxes(&mut out, w as f64 * h as f64 / (s * s));
     alternatives.retain(|(q, _)| out.iter().any(|(p, _)| p.polygon == *q));
     #[cfg(feature = "low")]
     let _ = alternatives;
@@ -575,8 +569,27 @@ fn clusters(segs: &[Segment], w: usize, h: usize, s: f64) -> Localized {
         proposals: out.into_iter().map(|(p, _)| p).collect(),
         #[cfg(not(feature = "low"))]
         alternatives,
-        more: more.into_iter().map(|(p, _)| p).collect(),
+        more,
     }
+}
+
+/// Keep the first [`MAX_PROPOSALS`] boxes plus their fragment unions in `out`, and return
+/// up to [`SHEET_PROPOSALS`] in all of the further ones; small boxes need
+/// [`SMALL_MEMBERS`] segments in both. `frame` is the frame area in voting pixels.
+fn limit_boxes(out: &mut Vec<(Proposal, usize)>, frame: f64) -> Vec<Proposal> {
+    let kept = |(p, n): &(Proposal, usize)| {
+        *n >= SMALL_MEMBERS || quad_area(&p.polygon) >= SMALL_BOX * frame
+    };
+    let more = out
+        .drain(MAX_PROPOSALS.min(out.len())..)
+        .take(SHEET_PROPOSALS - MAX_PROPOSALS)
+        .filter(kept)
+        .map(|(p, _)| p)
+        .collect();
+    let unions = fragment_unions(out);
+    out.extend(unions);
+    out.retain(kept);
+    more
 }
 
 /// Alternative geometric hypotheses for one box: taller and wider, and rotated by 1.5 and 3 degrees.

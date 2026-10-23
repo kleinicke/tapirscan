@@ -279,7 +279,7 @@ impl Scanner {
                     // its unread first boxes and further boxes get Low's per box.
                     let sheet: Vec<_> = proposals
                         .iter()
-                        .cloned()
+                        .copied()
                         .chain(crate::pipeline::segment_voting::localize(image).more)
                         .filter(|p| {
                             !reads

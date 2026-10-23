@@ -904,13 +904,17 @@ fn localize(
     })
 }
 
+/// Alternative boxes per segment-voting box.
+#[cfg(any(feature = "high", feature = "very-high"))]
+type Alternatives = Vec<(Quad, Vec<Quad>)>;
+
 /// High and Very High also box symbols by segment voting; on tiny frames the stripe pass
 /// still supplies stripe evidence and boxes.
 #[cfg(any(feature = "high", feature = "very-high"))]
 fn high_boxes(
     mut found: stripes::Result,
     image: Image<'_>,
-) -> (stripes::Result, Vec<(Quad, Vec<Quad>)>, Vec<Quad>) {
+) -> (stripes::Result, Alternatives, Vec<Quad>) {
     let mut voted = segment_voting::localize(image);
     let sheet = std::mem::take(&mut voted.more)
         .into_iter()
