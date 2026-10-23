@@ -1657,8 +1657,8 @@ struct Retries {
     ranked: bool,
     /// Width-to-height ratios, relative to a symbol size, that the first pass samples.
     /// A camera frame resampled to another aspect squashes a square symbol to 0.6 of
-    /// its width; High takes such candidates in the first pass, the others only in
-    /// the retry of their first few failures.
+    /// its width; High and Very High take such candidates in the first pass, Low and
+    /// Medium only in the retry of their first few failures.
     aspect: [f32; 2],
 }
 /// Retry limits per frame for Low, Medium and High; modes beyond the table (Very High)

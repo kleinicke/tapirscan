@@ -105,7 +105,7 @@ const CORE_PROPOSALS: usize = 4;
 /// decoded too.
 const SHEET_READS: usize = 8;
 /// Boxes that, with half of [`SHEET_READS`] read from them, also mark a sheet: rotated
-/// symbols spend the shared recovery budgets before twelve of them are read.
+/// symbols spend the shared recovery budgets before eight of them are read.
 const SHEET_BOXES: usize = 16;
 
 /// The middle 40% of a box across its bars, keeping its full length.
@@ -230,11 +230,15 @@ impl Scanner {
             |sampler| {
                 let mut deferred_reads = Vec::new();
                 let localized;
+                // Voting's boxes beyond its limit, when this pass localized itself.
+                let mut further = None;
                 let proposals = if let Some(primary) = primary {
                     primary.proposals.as_slice()
                 } else {
                     // Segment-voting boxes follow rotated and warped bars.
-                    localized = crate::pipeline::segment_voting::localize(image).proposals;
+                    let voted = crate::pipeline::segment_voting::localize(image);
+                    further = Some(voted.more);
+                    localized = voted.proposals;
                     localized.as_slice()
                 };
                 // A broad mask can turn a short UPC-E interpretation of EAN-13 into a
@@ -280,7 +284,9 @@ impl Scanner {
                     let sheet: Vec<_> = proposals
                         .iter()
                         .copied()
-                        .chain(crate::pipeline::segment_voting::localize(image).more)
+                        .chain(further.take().unwrap_or_else(|| {
+                            crate::pipeline::segment_voting::localize(image).more
+                        }))
                         .filter(|p| {
                             !reads
                                 .iter()

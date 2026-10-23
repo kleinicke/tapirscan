@@ -17,14 +17,16 @@
 //! | 2D reader groups; QR and MaxiCode apart from the other 2D    | x | x | x | x |
 //! | QR and MaxiCode reduced copies above Full HD (`cfg` per mode)| x | x | x | x |
 //! | enlarged QR thumbnails                                       | x | x | x | x |
-//! | pending matrix regions: crop retries                         |   | x | x | x |
+//! | pending matrix regions: crop retries (up to 32)              |   | x | x | x |
 //! | QR grid projection of unresolved regions                     | x | x | x | x |
 //! | QR foreground thresholds, then sharpened (mixed: small only) |   | x | x | x |
 //! | Data Matrix area-averaged copies                             |   |   | x | x |
 //! | QR reduced copies (mixed, large: dim frame or square texture)|   |   | x | x |
 //! | QR equalized and inverted copies (`cfg`)                     |   |   | x | x |
 //! | **primary retail scan** (EAN-13/UPC-A; M+ also EAN-8/UPC-E)  | x | x | x | x |
+//! | sheets (8 linear reads): voting boxes beyond the first 24    | x | x | x | x |
 //! | **`recover_linear_regions`**, inside localized boxes         |   | x | x | x |
+//! | sheets: unread and further boxes, Low's whole-image sweep    |   | x | x | x |
 //! | other linear formats in retail boxes and their central bands |   | x | x | x |
 //! | stripe boxes for unread or label frames (M: sparse search)   |   | x | x | x |
 //! | unread linear-only frames: Low's sweep (Codabar, Code 93)    |   | x | x | x |
@@ -1618,6 +1620,11 @@ fn retry_format(format: &str) -> u32 {
     }
 }
 
+/// Unresolved matrix regions retried per frame. The crop pixel budget bounds the work; a
+/// sheet of small symbols leaves many small regions within it, often before any of its
+/// symbols is read.
+#[cfg(not(feature = "low"))]
+const REGION_RETRIES: usize = 32;
 /// Localized crop retries of pending matrix regions under one pixel allowance for the
 /// whole matrix group, independent of how many formats are enabled. Initial readers
 /// have already tried every format; finder hints prioritize bounded recovery without
@@ -1632,7 +1639,7 @@ fn matrix_retries(
     let mut crop_budget = POLICY.matrix_crop_pixels;
     let mut retries: Vec<barcode_multiformat::Scan> = Vec::new();
     // Pending recovery remains unfinished even when its shared allowance or
-    // crop size cap prevents a retry, including candidates beyond the first eight.
+    // crop size cap prevents a retry, including candidates beyond those retried.
     scan.unfinished |= scan.regions.iter().any(|region| {
         let selected = retry_format(&region.format);
         mask & selected != 0
@@ -1641,11 +1648,7 @@ fn matrix_retries(
                     && crate::signal_recovery::covered(region.polygon, read.polygon)
             })
     });
-    for region in scan
-        .regions
-        .iter()
-        .take(crate::signal_recovery::MAX_REGION_RETRIES)
-    {
+    for region in scan.regions.iter().take(REGION_RETRIES) {
         let hinted = retry_format(&region.format);
         if mask & hinted == 0 {
             continue;

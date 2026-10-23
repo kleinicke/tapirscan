@@ -261,7 +261,10 @@ fn support_small_finders(
         let checked = (row.saturating_sub(band)..=(row + band).min(h - 1))
             .filter(|yy| !yy.is_multiple_of(step))
             .count();
-        if hits.len() >= 2 && 2 * hits.len() >= checked {
+        // Below two row steps every rechecked row lies in the band; above, the
+        // band is shortened by rotation and blur, and most of its rows must pass.
+        let in_band = 3. * module < 2. * step_f;
+        if hits.len() >= 2 && (in_band || 2 * hits.len() >= checked) {
             for &(cx, cy, m) in &hits {
                 found.insert(cx, cy, m);
             }
@@ -465,7 +468,7 @@ fn local_shape_error(triple: [&Finder; 3]) -> Option<(f32, f32)> {
         (quad[3][1] - quad[0][1] + quad[2][1] - quad[1][1]) / 6.,
     ];
     let det = axis_x[0] * axis_y[1] - axis_x[1] * axis_y[0];
-    if det.abs() < 0.25 {
+    if det.is_nan() || det.abs() < 0.25 {
         return None;
     }
     let in_modules = |finder: &Finder| {
@@ -483,7 +486,7 @@ fn local_shape_error(triple: [&Finder; 3]) -> Option<(f32, f32)> {
     }
     let orthogonal = (first[0] * second[0] + first[1] * second[1]).abs() / (first_len * second_len);
     let equal = (first_len - second_len).abs() / first_len.max(second_len);
-    Some((orthogonal, equal))
+    (orthogonal.is_finite() && equal.is_finite()).then_some((orthogonal, equal))
 }
 // Nearby triples bound dense-scene work without the cubic combinations of all
 // finders. Prefer compact, approximately orthogonal, similarly sized groups.
@@ -2342,6 +2345,38 @@ mod policy_tests {
         assert!(super::further_symbols_likely(2, false, &scattered));
         // Too few finders for four symbols.
         assert!(!super::further_symbols_likely(1, false, &finders(&[2.; 9])));
+    }
+
+    #[test]
+    fn sheared_symbols_are_square_in_their_finder_axes() {
+        use super::{Finder, local_shape_error};
+        // Module axes of a symbol turned and squashed: x = (2, 1), y = (-0.6, 1.8) px.
+        let (ux, uy) = ([2_f32, 1.], [-0.6_f32, 1.8]);
+        let at = |mx: f32, my: f32| [mx * ux[0] + my * uy[0], mx * ux[1] + my * uy[1]];
+        let finder = |mx: f32, my: f32| {
+            let [x, y] = at(mx, my);
+            let quad = [
+                at(mx - 1.5, my - 1.5),
+                at(mx + 1.5, my - 1.5),
+                at(mx + 1.5, my + 1.5),
+                at(mx - 1.5, my + 1.5),
+            ]
+            .map(|p| [p[0], p[1]]);
+            Finder {
+                x,
+                y,
+                module: 2.,
+                support: 2,
+                quad: Some(quad),
+            }
+        };
+        let (tl, tr, bl) = (finder(3.5, 3.5), finder(17.5, 3.5), finder(3.5, 17.5));
+        let (orthogonal, equal) = local_shape_error([&tl, &tr, &bl]).unwrap();
+        assert!(orthogonal < 0.01 && equal < 0.01, "{orthogonal} {equal}");
+        // An arm into the next symbol is twice as long in modules.
+        let next = finder(3.5, 31.5);
+        let (_, equal) = local_shape_error([&tl, &tr, &next]).unwrap();
+        assert!(equal > 0.4, "{equal}");
     }
 }
 

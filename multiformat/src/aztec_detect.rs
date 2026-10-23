@@ -289,14 +289,10 @@ fn centers_from_runs(
         // one module up or down. Rows that kept every window (no texture budget)
         // check these too, so a row step up to three modules finds every bullseye.
         if wide && plan.is_none() {
-            beside_centers(
-                bits,
-                [w, h],
-                y,
-                (&offsets, &runs),
-                first_dark..end,
-                (&mut found, &mut refined),
-            );
+            let rows = (&offsets[..], &runs[..]);
+            let found = (&mut found, &mut refined);
+            let checks = beside_centers(bits, [w, h], y, rows, first_dark..end, found);
+            available = available.saturating_sub(checks * 2 * PIXELS_PER_CHECK);
         }
     }
     let mut found = merge_refined(found.centers, refined.centers, w, h);
@@ -380,7 +376,7 @@ fn equal_runs(runs: &[f32], i: usize) -> Option<f32> {
 }
 /// Centers found from the windows of row `y` that cross a bullseye one module beside its
 /// center (1:1:1:3:1:1:1): the column through the long run reaches the center within one
-/// and a half modules.
+/// and a half modules. Returns the cross checks made, which the row budget pays.
 fn beside_centers(
     bits: &impl Fn(usize) -> bool,
     [w, h]: [usize; 2],
@@ -388,11 +384,13 @@ fn beside_centers(
     (offsets, runs): (&[usize], &[f32]),
     windows: std::ops::Range<usize>,
     (found, refined): (&mut center_index::Index, &mut center_index::Index),
-) {
+) -> usize {
+    let mut checks = 0;
     for i in (windows.start + 1..windows.end).step_by(2) {
         let Some(module) = wide_center_runs(runs, i) else {
             continue;
         };
+        checks += 1;
         let x = offsets[i + 4] + crate::numeric::f32_usize(runs[i + 4]) / 2;
         // Blur can leave the center a pixel or two tall: take the nearest
         // dark row within one and a half modules.
@@ -433,6 +431,7 @@ fn beside_centers(
         let module = f32::midpoint(mx, my);
         refined.insert(cx, cy, module, module * 1.5, texture);
     }
+    checks
 }
 /// The module of runs `i + 1..i + 8` crossing a bullseye one module beside its
 /// center (1:1:1:3:1:1:1), if they match that well enough.
@@ -1424,7 +1423,7 @@ pub fn detect(
                 continue;
             }
             let bits = images.get(mode);
-            let (centers, _) = centers_from_runs(
+            let (centers, cut) = centers_from_runs(
                 w,
                 h,
                 &|i| bits[i],
@@ -1432,6 +1431,7 @@ pub fn detect(
                 true,
                 mode == 0,
             );
+            search.limited |= cut;
             let centers: Vec<Center> = centers
                 .into_iter()
                 .filter(|c| is_bullseye(&|i| bits[i], w, h, c))
@@ -1736,5 +1736,23 @@ mod reference_grid_tests {
             assert_eq!(reads.len(), 1, "effort {effort}");
             assert_eq!(reads[0].text, text());
         }
+    }
+}
+
+#[cfg(test)]
+mod beside_center_tests {
+    use super::{equal_runs, wide_center_runs};
+
+    #[test]
+    fn a_row_beside_the_center_shows_one_long_first_ring() {
+        // Rows through a compact bullseye at 2 px per module: on the center, seven equal
+        // runs; one module beside it, the first ring spans three modules.
+        let center = [9., 2., 2., 2., 2., 2., 2., 2., 9.];
+        let beside = [9., 2., 2., 2., 6., 2., 2., 2., 9.];
+        assert_eq!(equal_runs(&center, 0), Some(2.));
+        assert_eq!(wide_center_runs(&beside, 0), Some(2.));
+        assert_eq!(equal_runs(&beside, 0), None);
+        assert_eq!(wide_center_runs(&center, 0), None);
+        assert_eq!(wide_center_runs(&beside, 2), None);
     }
 }

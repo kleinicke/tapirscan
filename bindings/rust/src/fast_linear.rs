@@ -229,7 +229,7 @@ pub(crate) fn scan(
                 break;
             }
             sheet_scanned = true;
-            let share = |budget: usize| budget * sheet_count / local_count.max(1);
+            let share = |budget: usize| budget * sheet_count / local_count.max(24);
             continuity_budget += share(FAST_PATH_BUDGETS.continuity);
             refinement_budget += share(FAST_PATH_BUDGETS.refinement);
             dense_budget += share(FAST_PATH_BUDGETS.dense);

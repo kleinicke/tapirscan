@@ -828,4 +828,28 @@ mod tests {
         #[cfg(feature = "medium")]
         assert!(found.alternatives.is_empty(), "expected no alternatives");
     }
+
+    #[test]
+    fn boxes_beyond_the_limit_are_kept_aside_for_sheets() {
+        let boxes: Vec<(Proposal, usize)> = (0..30_u32)
+            .map(|k| {
+                let (x, y) = (f64::from(k % 6) * 100., f64::from(k / 6) * 100.);
+                let polygon = [[x, y], [x + 40., y], [x + 40., y + 20.], [x, y + 20.]];
+                (Proposal { polygon, score: 1. }, 40 - k as usize)
+            })
+            .collect();
+        let mut out = boxes.clone();
+        let more = limit_boxes(&mut out, 1e6);
+        assert_eq!(more.len(), boxes.len() - MAX_PROPOSALS);
+        assert_eq!(more[0].polygon, boxes[MAX_PROPOSALS].0.polygon);
+        assert!(
+            boxes[..MAX_PROPOSALS]
+                .iter()
+                .all(|(b, _)| out.iter().any(|(p, _)| p.polygon == b.polygon))
+        );
+        assert!(
+            !out.iter()
+                .any(|(p, _)| more.iter().any(|m| m.polygon == p.polygon))
+        );
+    }
 }

@@ -26,6 +26,13 @@
   blurred photos. With QR selected, Low and Medium scan frames without QR codes
   as fast as before and frames with them about 4% slower; High and Very High
   take about 7% longer on photos.
+- Read small QR codes at every zoom level and rotation, also in frames resampled
+  to another aspect (a 4:3 camera image stretched to 16:9) or seen at an angle.
+- Read whole sheets of barcodes: Data Matrix, Aztec and linear symbols (EAN/UPC,
+  Code 128, Code 39, Code 93, ITF, Codabar, DataBar) beyond the first two dozen per
+  frame, in every mode. Frames without such sheets scan as fast as before.
+- Read single small Aztec symbols at every rotation; High and Very High read Data
+  Matrix symbols squashed to 0.6 of their width, and EAN-13 sheets that High lost.
 - Read large full-range Aztec symbols that are slightly turned or warped: the
   grid is fitted to the reference tracks from the center outward instead of
   only from the bullseye.
