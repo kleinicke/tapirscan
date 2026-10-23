@@ -565,6 +565,32 @@ pub(super) fn assemble_many_budget_inner(
                     }
                 }
             }
+            // One failed link can leave a symbol with two tracks over the same bars; the
+            // next row then links to both and, being ambiguous, starts a third, and every
+            // further row retries all of them. Tracks whose last observations cover one
+            // interval are one physical symbol: keep the most recent one.
+            for links in &mut links {
+                let Some(&newest) = links.iter().max_by(|&&x, &&y| {
+                    let (x, y) = (tracks[x].last().unwrap(), tracks[y].last().unwrap());
+                    x.fraction.total_cmp(&y.fraction)
+                }) else {
+                    continue;
+                };
+                let w = tracks[newest].last().unwrap();
+                if links.len() > 1
+                    && links.iter().all(|&i| {
+                        let t = tracks[i].last().unwrap();
+                        t.right.min(w.right) - t.left.max(w.left)
+                            > 0.8 * (t.right - t.left).max(w.right - w.left)
+                    })
+                {
+                    for &i in links.iter().filter(|&&i| i != newest) {
+                        active[i] = false;
+                        degree[i] -= 1;
+                    }
+                    *links = vec![newest];
+                }
+            }
             for (j, &b) in row.iter().enumerate() {
                 if links[j].len() == 1 && degree[links[j][0]] == 1 {
                     tracks[links[j][0]].push(b);
