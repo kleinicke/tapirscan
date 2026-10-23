@@ -108,6 +108,9 @@ Scan one frame at a time and drop frames that arrive meanwhile. To scan only
 part of a frame, pass a view: `Uint8List.sublistView(plane.bytes, top * stride + left)`
 with the crop's width and height and the frame's stride.
 
+Coming from `flutter_zxing`: see the
+[migration guide](../../docs/MIGRATING_FROM_FLUTTER_ZXING.md).
+
 ## Platforms and errors
 
 64-bit Android (arm64-v8a, x86_64), iOS, macOS, Linux and Windows. Tested so far
