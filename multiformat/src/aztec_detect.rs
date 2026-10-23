@@ -150,6 +150,7 @@ fn centers_with_rows(
             row_cache(y, &bits[y * w..(y + 1) * w], out);
         },
         false,
+        false,
     )
 }
 /// Verified bullseye proposals by support for one foreground cut, and whether the
@@ -168,6 +169,7 @@ fn centers_gray(gray: &[u8], w: usize, h: usize, cut: u8) -> (Vec<Center>, bool)
             crate::transition_offsets_into(&row, out);
         },
         false,
+        false,
     );
     found.retain(|c| is_bullseye(&bits, w, h, c));
     (found, limited)
@@ -178,13 +180,15 @@ fn is_bullseye(bits: &impl Fn(usize) -> bool, w: usize, h: usize, c: &Center) ->
     has_oblique_rings(bits, w, h, c, 3)
         && binarization::has_two_directions_by(bits, w, h, c.x, c.y, c.module * 5.)
 }
-/// Bullseye centers on the rows of the row step, or with `skipped` on the rows between them.
+/// Bullseye centers on the rows of the row step, or with `skipped` on the rows between them;
+/// `wide` also checks rows one module beside a center.
 fn centers_from_runs(
     w: usize,
     h: usize,
     bits: &impl Fn(usize) -> bool,
     mut copy_rows: impl FnMut(usize, &mut Vec<usize>),
     skipped: bool,
+    wide: bool,
 ) -> (Vec<Center>, bool) {
     let mut found = center_index::Index::new(w, h);
     let mut refined = center_index::Index::new(w, h);
@@ -200,8 +204,7 @@ fn centers_from_runs(
     // from the start and each row adds its share of the other half; unused checks
     // carry over, so a textured band cannot exhaust the rows below it.
     let scanned = |y: &usize| y.is_multiple_of(step) != skipped;
-    let rows = (0..h).filter(scanned).count();
-    let mut available = w * rows;
+    let mut available = w * (0..h).filter(scanned).count();
     let mut limited = false;
     for y in (0..h).filter(scanned) {
         available += w;
@@ -281,6 +284,20 @@ fn centers_from_runs(
             let module = f32::midpoint(mx, my);
             refined.insert(cx, cy, module, module * 1.5, texture);
         }
+        // A row one module beside the center crosses the first ring along three
+        // modules (1:1:1:3:1:1:1); the column through that run reaches the center
+        // one module up or down. Rows that kept every window (no texture budget)
+        // check these too, so a row step up to three modules finds every bullseye.
+        if wide && plan.is_none() {
+            beside_centers(
+                bits,
+                [w, h],
+                y,
+                (&offsets, &runs),
+                first_dark..end,
+                (&mut found, &mut refined),
+            );
+        }
     }
     let mut found = merge_refined(found.centers, refined.centers, w, h);
     found.sort_by_key(|c| std::cmp::Reverse(c.support));
@@ -359,6 +376,74 @@ fn equal_runs(runs: &[f32], i: usize) -> Option<f32> {
         && runs[i + 1..i + 8]
             .iter()
             .all(|v| (*v - module).abs() <= module * 0.7))
+    .then_some(module)
+}
+/// Centers found from the windows of row `y` that cross a bullseye one module beside its
+/// center (1:1:1:3:1:1:1): the column through the long run reaches the center within one
+/// and a half modules.
+fn beside_centers(
+    bits: &impl Fn(usize) -> bool,
+    [w, h]: [usize; 2],
+    y: usize,
+    (offsets, runs): (&[usize], &[f32]),
+    windows: std::ops::Range<usize>,
+    (found, refined): (&mut center_index::Index, &mut center_index::Index),
+) {
+    for i in (windows.start + 1..windows.end).step_by(2) {
+        let Some(module) = wide_center_runs(runs, i) else {
+            continue;
+        };
+        let x = offsets[i + 4] + crate::numeric::f32_usize(runs[i + 4]) / 2;
+        // Blur can leave the center a pixel or two tall: take the nearest
+        // dark row within one and a half modules.
+        let reach = crate::numeric::f32_usize((module * 1.5).ceil()).max(1);
+        let Some((cy, my)) = (1..=reach)
+            .flat_map(|d| [y.checked_sub(d), Some(y + d).filter(|&v| v < h)])
+            .flatten()
+            .find(|&row| bits(row * w + x))
+            .and_then(|row| cross(bits, w, h, x, row, true, module))
+        else {
+            continue;
+        };
+        if my / module < 0.6 || my / module > 1.7 {
+            continue;
+        }
+        let texture = crate::finder_budget::inside_texture(offsets, i + 1, i + 7);
+        found.insert(
+            crate::numeric::usize_f32(offsets[i + 4]) + runs[i + 4] * 0.5,
+            cy,
+            f32::midpoint(my, module),
+            module * 1.5,
+            texture,
+        );
+        let Some((cx, mx)) = cross(
+            bits,
+            w,
+            h,
+            x,
+            crate::numeric::f32_usize(cy.floor().min(crate::numeric::usize_f32(h - 1))),
+            false,
+            my,
+        ) else {
+            continue;
+        };
+        if !(0.6..=1.7).contains(&(mx / my)) {
+            continue;
+        }
+        let module = f32::midpoint(mx, my);
+        refined.insert(cx, cy, module, module * 1.5, texture);
+    }
+}
+/// The module of runs `i + 1..i + 8` crossing a bullseye one module beside its
+/// center (1:1:1:3:1:1:1), if they match that well enough.
+fn wide_center_runs(runs: &[f32], i: usize) -> Option<f32> {
+    let window = runs.get(i + 1..i + 8)?;
+    let module = window.iter().sum::<f32>() / 9.;
+    (module >= 0.8
+        && window.iter().enumerate().all(|(k, v)| {
+            let expected = if k == 3 { 3. } else { 1. };
+            (*v - module * expected).abs() <= module * if k == 3 { 1.2 } else { 0.7 }
+        }))
     .then_some(module)
 }
 /// Row step of the bullseye scans.
@@ -853,7 +938,15 @@ impl Search {
             let more = verified.len() > MAX_CANDIDATES;
             (best_candidates(bits, w, h, verified, |_, _| true), more)
         } else {
-            let (proposals, cut) = centers_with_rows(bits, w, h, row_cache);
+            // The global threshold also checks rows beside bullseye centers.
+            let (proposals, cut) = centers_from_runs(
+                w,
+                h,
+                &|i| bits[i],
+                |y, out| row_cache(y, &bits[y * w..(y + 1) * w], out),
+                false,
+                mode == 0,
+            );
             let (kept, more) = select_candidates(bits, w, h, proposals);
             (kept, more || cut)
         };
@@ -1337,6 +1430,7 @@ pub fn detect(
                 &|i| bits[i],
                 |y, out| crate::transition_offsets_into(&bits[y * w..(y + 1) * w], out),
                 true,
+                mode == 0,
             );
             let centers: Vec<Center> = centers
                 .into_iter()
