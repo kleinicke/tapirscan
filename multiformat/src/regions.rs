@@ -3,7 +3,7 @@
 use crate::Detection;
 use serde::Serialize;
 type Quad = [[f32; 2]; 4];
-fn area(p: &[[f32; 2]]) -> f32 {
+pub(crate) fn area(p: &[[f32; 2]]) -> f32 {
     if p.len() < 3 {
         return 0.;
     }

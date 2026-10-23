@@ -448,9 +448,17 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                             if s + pattern.len() > runs.len() {
                                 continue;
                             }
-                            let slot = if pattern_error(&runs[s..], pattern) <= 0.12 {
+                            // A guard of modules under 2.5 px rounds its narrow runs to one
+                            // or two pixels by where the symbol falls on the pixel grid; such
+                            // looser matches join the print-gain slots, after the exact ones.
+                            let small = runs[s..s + pattern.len()].iter().sum::<f32>()
+                                < if start { 17. } else { 18. } * 2.5;
+                            let error = pattern_error(&runs[s..], pattern);
+                            let slot = if error <= 0.12 {
                                 mode
-                            } else if gain_error(&runs[s..], pattern) <= 0.12 {
+                            } else if gain_error(&runs[s..], pattern) <= 0.12
+                                || (small && error <= 0.2)
+                            {
                                 mode + 2
                             } else {
                                 continue;

@@ -1120,10 +1120,13 @@ pub fn detect(
     let mut border_attempts = 0;
     let mut grid_attempts = 0;
     for (polygon, support) in proposals {
-        if results
-            .iter()
-            .any(|d| crate::regions::overlap(&d.polygon, &polygon) > 0.7)
-        {
+        // A row-scan read of a sheet can span its neighbours too: only a read of
+        // about the proposal's size covers it.
+        let area = crate::regions::area(&polygon).abs();
+        if results.iter().any(|d| {
+            crate::regions::overlap(&d.polygon, &polygon) > 0.7
+                && crate::regions::area(&d.polygon).abs() <= area * 2.
+        }) {
             continue;
         }
         regions.add("PDF417", polygon, 1., support);
@@ -1166,10 +1169,20 @@ pub fn detect(
         }
         for mut read in found {
             read.polygon = read.polygon.map(|p| crate::qr_detect::map(&t, p[0], p[1]));
-            if !results.iter().any(|d| {
+            let same = results.iter_mut().find(|d| {
                 d.text == read.text && crate::regions::overlap(&d.polygon, &read.polygon) > 0.65
-            }) {
-                results.push(read);
+            });
+            match same {
+                // A row-scan read of a sheet can outline its neighbours too; the crop's
+                // read of the same symbol gives its own outline.
+                Some(d) => {
+                    if crate::regions::area(&read.polygon).abs()
+                        < crate::regions::area(&d.polygon).abs() * 0.5
+                    {
+                        d.polygon = read.polygon;
+                    }
+                }
+                None => results.push(read),
             }
         }
     }
