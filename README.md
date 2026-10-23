@@ -4,7 +4,7 @@
 
 **Find barcodes at their own angle.**
 
-Orientation-aware barcode scanning for JavaScript, Python, Rust, C, C++, Java, Swift and Android.
+Orientation-aware barcode scanning for JavaScript, Python, Rust, C, C++, Java, Swift, Android and Dart.
 
 [Documentation](https://tapirscan.f-kleinicke.de/docs/) · [Try the live demo](https://tapirscan.f-kleinicke.de) · [npm](https://www.npmjs.com/package/tapirscan) · [PyPI](https://pypi.org/project/tapirscan/) · [JavaScript](bindings/javascript/README.md) · [Python](bindings/python/README.md) · [How it works](docs/ARCHITECTURE.md) · [Compare scanners](docs/COMPARISON.md)
 
@@ -25,7 +25,7 @@ enabled by default; select additional formats as needed. See
   payment and other structured payloads into named fields.
 - **Choose the effort.** `low`, `medium` (default), `high`, or `very-high`.
 - **Run locally.** No API key, hosted decoder, neural model, or image upload.
-- **Use the same core.** Browser/Node WASM and native Python, Rust, C, C++, Java, Swift and Android bindings.
+- **Use the same core.** Browser/Node WASM and native Python, Rust, C, C++, Java, Swift, Android and Dart bindings.
 
 ## Supported formats
 
@@ -93,7 +93,7 @@ compare the readers.
 | Rust                    | Standalone Cargo package                                                                                           | [Rust](bindings/rust/README.md)        |
 | Swift (iOS, macOS)      | Swift package over an XCFramework; camera frames. Preview: built from source; the API may change in minor releases | [Swift](bindings/swift/README.md)      |
 | Android (Kotlin, Java)  | AAR with a JNI bridge; CameraX frames. Preview: built from source; the API may change in minor releases            | [Android](bindings/android/README.md)  |
-| Dart / Flutter          | `dart:ffi` package; camera frames, desktop tests. Preview: built from source; the API may change in minor releases | [Dart](bindings/flutter/README.md)     |
+| Dart / Flutter          | `dart:ffi` package for Flutter and Dart. Preview: built from source; the API may change in minor releases          | [Dart](bindings/flutter/README.md)     |
 
 Every binding offers all four effort modes of the same scanner. JavaScript and
 Python install from [npm](https://www.npmjs.com/package/tapirscan) and
@@ -250,7 +250,7 @@ and refined the evaluation process.
 
 Tapirscan supports the linear and 2D formats listed in [format coverage](docs/FORMATS.md).
 Turbo presets, the content kinds marked experimental in
-[structured content](docs/CONTENT.md#kinds) and the Swift and Android previews may
+[structured content](docs/CONTENT.md#kinds) and the Swift, Android and Dart previews may
 change in minor releases. Release artifacts are published only for
 platforms whose release workflows pass. No general claim of superiority over
 ZXing or ZBar is made without a reproducible paired benchmark. See the

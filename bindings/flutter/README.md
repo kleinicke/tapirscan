@@ -23,8 +23,10 @@ dependencies:
 Requires Dart 3.10+ (Flutter 3.38+). The package's build hook compiles the
 native library with Cargo on the first build of each target, so the machine
 needs the [development prerequisites](../../docs/DEVELOPMENT.md#prerequisites)
-(rustup, Python 3.10+), `cargo fetch --locked` run once in the checkout, and for
-Android the NDK that Flutter uses. To use prebuilt libraries instead, or a
+(rustup, Python 3.10+), the Cargo dependencies fetched once in the checkout
+(`cargo fetch --locked` for `multiformat/` and `bindings/rust/`), and for Android
+the NDK that Flutter uses. Builds of the checkout take a lock under `build/crates/`;
+if an interrupted build leaves it behind, the error names the lock to remove. To use prebuilt libraries instead, or a
 checkout elsewhere (for example an F-Droid source library), set in the app's
 `pubspec.yaml`:
 
@@ -93,7 +95,7 @@ final result = await scanner.scan(
 ```
 
 A `package:camera` frame in YUV (Android YUV420/NV21, iOS bi-planar) is scanned
-through its luma plane in place; a BGRA frame is converted with
+through its luma plane without conversion; a BGRA frame is converted with
 `PixelImage.bgra`. Results are in the frame's sensor orientation.
 
 ```dart
@@ -120,9 +122,9 @@ throws `UnsupportedError`, so an app can fall back to another scanner. The app
 build itself still succeeds.
 
 Failed calls throw `ScannerException` with a `ScannerErrorCode` (`invalidInput`
-or `engine`), the C `status` and the library's `message`. Using a disposed
-scanner, also while a `scan` is running, throws `StateError`. No detection is an
-empty result, not an error.
+or `engine`), the C `status` and the library's `message`. Calls on a disposed
+scanner throw `StateError`; a `scan` already running when `dispose` is called
+completes. No detection is an empty result, not an error.
 
 Not yet available: `inspect` (undecoded regions, timings), structured content
 parsing, and the cross-language parity tests and CI that the other bindings

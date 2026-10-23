@@ -108,8 +108,9 @@ final class Scanner {
   Scanner([this.options = const ScannerOptions()]) {
     if (!Tapirscan.isSupported) {
       throw UnsupportedError(
-        'Tapirscan has no native library for this platform '
-        '(64-bit Android, iOS, macOS, Linux and Windows are supported)',
+        'Tapirscan has no compatible native library for this platform '
+        '(64-bit Android, iOS, macOS, Linux and Windows are supported; a '
+        'prebuilt library must match native ABI $TAPIRSCAN_ABI_VERSION)',
       );
     }
     _handle = using((arena) {
@@ -141,7 +142,8 @@ final class Scanner {
   /// Scan [image] on a background isolate, so the calling isolate stays
   /// responsive. [formats], if given, replaces the scanner's formats for this
   /// call. No detection is an empty result. Scans on one scanner run one at a
-  /// time; [dispose] during a scan makes it throw [StateError].
+  /// time. A scan already running when [dispose] is called completes; scans
+  /// that start after it throw [StateError].
   Future<ScanResult> scan(PixelImage image, {Set<Format>? formats}) async {
     final handle = _live;
     final mask = formats == null ? 0 : _mask(formats);

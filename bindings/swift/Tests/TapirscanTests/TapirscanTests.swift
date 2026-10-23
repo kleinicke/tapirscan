@@ -200,7 +200,7 @@ final class TapirscanTests: XCTestCase {
     }
 
     @MainActor
-    func testAsyncScansRunOffTheMainActor() async throws {
+    func testAsyncOverloadsScanFromTheMainActor() async throws {
         let (pixels, width, height) = ean13(text)
         let scanner = try BarcodeScanner()
         let result = try await scanner.scan(pixels, width: width, height: height, channels: 1)

@@ -35,7 +35,7 @@ not merely aliases for one function with different timeouts.
 ## One scanner, native and WebAssembly
 
 The public Rust `Scanner` in `bindings/rust/api` owns the complete pipeline.
-Native Rust callers use it directly. C, C++, Python, Java, Swift and Android reach it through
+Native Rust callers use it directly. C, C++, Python, Java, Swift, Android and Dart reach it through
 the C adapter. JavaScript loads one WebAssembly module per mode and calls
 it through `bindings/wasm`; `rust-session.ts` manages its memory and lifetime.
 Scanning is synchronous after JavaScript initialization.

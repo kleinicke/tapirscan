@@ -57,13 +57,13 @@ and DataBar text differ. Check stored values for those formats.
 
 ## Options
 
-| flutter_zxing `DecodeParams`                  | Tapirscan                                                                         |
-| --------------------------------------------- | --------------------------------------------------------------------------------- |
-| `tryHarder`, `tryRotate`, `tryInverted`       | `mode`: `low`, `medium` (default), `high`, `veryHigh`; rotation is always handled |
-| `maxSize` (768), `tryDownscale`               | none: full resolution up to 32 megapixels; pass a smaller image for speed         |
-| `cropLeft`/`cropTop`/`cropWidth`/`cropHeight` | a view with a stride, see [camera frames](#camera-frames)                         |
-| `maxNumberOfSymbols`, `isMultiScan`           | none: every scan returns all barcodes                                             |
-| `imageFormat`                                 | `PixelImage` `channels` (1, 3, 4) or `PixelImage.bgra`                            |
+| flutter_zxing `DecodeParams`                  | Tapirscan                                                                                                                                                       |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tryHarder`, `tryRotate`, `tryInverted`       | `mode`: `low`, `medium` (default), `high`, `veryHigh`; rotation is always handled; inverted (light-on-dark) symbols are read for QR Code, Data Matrix and Aztec |
+| `maxSize` (768), `tryDownscale`               | none: full resolution up to 32 megapixels; pass a smaller image for speed                                                                                       |
+| `cropLeft`/`cropTop`/`cropWidth`/`cropHeight` | a view with a stride, see [camera frames](#camera-frames)                                                                                                       |
+| `maxNumberOfSymbols`, `isMultiScan`           | none: every scan returns all barcodes                                                                                                                           |
+| `imageFormat`                                 | `PixelImage` `channels` (1, 3, 4) or `PixelImage.bgra`                                                                                                          |
 
 ## Image files
 
@@ -92,7 +92,7 @@ or `await scanner.scan(...)` off the UI isolate.
 Replace `ReaderWidget` with `CameraPreview` and an image stream from
 [`camera`](https://pub.dev/packages/camera), or keep flutter_zxing's widget and
 feed frames to both (see below). flutter_zxing copies the luma plane without its
-row padding; Tapirscan reads it in place through the stride.
+row padding; Tapirscan reads it with its stride.
 
 ```dart
 // Before
@@ -120,8 +120,9 @@ controller.startImageStream((image) async {
 });
 ```
 
-`camera_desktop` on Linux and Windows reports RGBA frames as `bgra8888`; when
-`image.format.raw == 'RGBA'`, use `PixelImage(..., channels: 4)` instead.
+flutter_zxing 3.1 notes that `camera_desktop` on Linux and Windows reports RGBA
+frames as `bgra8888`; when `image.format.raw == 'RGBA'`, use
+`PixelImage(..., channels: 4)` instead.
 
 To scan only the centre of a frame, as `ReaderWidget`'s `cropPercent` does, pass a
 view and keep the frame's stride; add the offset back to the results:
@@ -155,7 +156,8 @@ returns an empty result when nothing is found and throws `ScannerException`
 
 ## Using both
 
-The packages can live in one app: their native libraries and symbols differ.
+The packages can live in one app: their native libraries have different names
+(`libflutter_zxing`, `libtapirscan`).
 Share one `CameraController` and pass each frame to the decoder you need. A common
 split is Tapirscan where it runs and flutter_zxing elsewhere, such as 32-bit
 Android or the web:
@@ -170,7 +172,8 @@ if (tapirscan != null) {
 }
 ```
 
-Both native libraries ship in the app; Tapirscan adds about 6 MB (arm64) per ABI.
+Both native libraries ship in the app; Tapirscan's library is 5.9 MB for arm64 and 7.5 MB for x86_64 (measured in a debug
+APK).
 
 ## Not available in Tapirscan
 

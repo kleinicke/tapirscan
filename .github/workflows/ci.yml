@@ -176,6 +176,28 @@ jobs:
       - name: Test the Swift package
         run: swift test
         working-directory: bindings/swift
+  dart:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the Rust compiler from rust-toolchain.toml
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
+      - run: cargo fetch --locked --manifest-path multiformat/Cargo.toml
+      - run: cargo fetch --locked --manifest-path bindings/rust/Cargo.toml
+      - run: cargo fetch --locked --manifest-path core/Cargo.toml
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: "3.13.7"
+      - name: Analyze and test the Dart package (the hook builds the library)
+        working-directory: bindings/flutter
+        run: |
+          dart pub get
+          dart format --output=none --set-exit-if-changed lib hook test tool
+          dart analyze --fatal-infos
+          dart test
   android:
     runs-on: ubuntu-24.04
     steps:
