@@ -93,11 +93,12 @@ compare the readers.
 | Rust                    | Standalone Cargo package                                                                                           | [Rust](bindings/rust/README.md)        |
 | Swift (iOS, macOS)      | Swift package over an XCFramework; camera frames. Preview: built from source; the API may change in minor releases | [Swift](bindings/swift/README.md)      |
 | Android (Kotlin, Java)  | AAR with a JNI bridge; CameraX frames. Preview: built from source; the API may change in minor releases            | [Android](bindings/android/README.md)  |
+| Dart / Flutter          | `dart:ffi` package; camera frames, desktop tests. Preview: built from source; the API may change in minor releases | [Dart](bindings/flutter/README.md)     |
 
 Every binding offers all four effort modes of the same scanner. JavaScript and
 Python install from [npm](https://www.npmjs.com/package/tapirscan) and
 [PyPI](https://pypi.org/project/tapirscan/); the other guides explain how to build
-from source. Java, C, C++, Swift and Android use the native library.
+from source. Java, C, C++, Swift, Android and Dart use the native library.
 
 Want another language? Bindings build on the C ABI; the [binding checklist](docs/ADDING_BINDINGS.md)
 lists what a new one needs.

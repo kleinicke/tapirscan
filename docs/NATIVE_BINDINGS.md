@@ -11,8 +11,9 @@ binding's `ContentKind`.
 
 Per-binding guides: [C](../bindings/c/README.md), [C++](../bindings/cpp/README.md),
 [Java](../bindings/java/README.md), [Python](../bindings/python/README.md),
-[Swift](../bindings/swift/README.md) and [Android](../bindings/android/README.md)
-(the last two are previews built from source).
+[Swift](../bindings/swift/README.md), [Android](../bindings/android/README.md) and
+[Dart/Flutter](../bindings/flutter/README.md) (the last three are previews built
+from source).
 Shared semantics (support, undecoded regions, image limits) are in
 [API design](API_DESIGN.md); the raw WebAssembly adapter has its own ABI in
 [bindings/wasm](../bindings/wasm/README.md).
@@ -31,12 +32,13 @@ reference for naming differences.
 | Java       | `values()`                          | `best()` (`Optional`) | `rect()` → `Rect`    | `elapsedMs()`                  | `width()`, `height()`                | `ScannerException` (`code`)                           |
 | Swift      | `values`                            | `best` (optional)     | `rect` → `Rect`      | `elapsedMs`                    | `width`, `height`                    | `TapirscanError` (`code`, `status`)                   |
 | Android    | `values()`                          | `best()` (`Optional`) | `rect()` → `Rect`    | `elapsedMs()`                  | `width()`, `height()`                | `ScannerException` (`code`)                           |
+| Dart       | `values`                            | `best` (nullable)     | `rect` → `PixelRect` | none (no `inspect` yet)        | none (no `inspect` yet)              | `ScannerException` (`code`, `status`)                 |
 | Rust       | `values()`                          | `best()` (`Option`)   | `rect()` → `Rect`    | `elapsed` (`Duration`)         | `image_size` (`[width, height]`)     | `tapirscan::Error`                                    |
 | Python     | `values`                            | `best`                | `rect`               | `elapsed_ms`                   | `image`                              | `ScannerError`                                        |
 | JavaScript | `values`                            | `best`                | `rect`               | `elapsedMs`                    | `image`                              | `ScannerError`                                        |
 
-`Rect` has integer `left`, `top`, `width` and `height` in every language that
-provides it.
+`Rect` (`PixelRect` in Dart, apart from Flutter's `Rect`) has integer `left`,
+`top`, `width` and `height` in every language that provides it.
 
 ## Threading and ownership
 
