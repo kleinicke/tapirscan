@@ -34,7 +34,19 @@ struct Localization {
     /// recoveries would mostly search textures.
     #[cfg(not(feature = "low"))]
     stray_textures: bool,
+    /// Segment-voting boxes beyond the proposal limit; on a sheet of symbols, those that
+    /// are no texture are scanned.
+    #[cfg(not(feature = "low"))]
+    sheet: Vec<Quad>,
 }
+
+/// Linear reads of the first boxes that mark a sheet of symbols, whose further boxes are
+/// then scanned too.
+#[cfg(not(feature = "low"))]
+const SHEET_READS: usize = 12;
+/// Further boxes scanned together.
+#[cfg(not(feature = "low"))]
+const SHEET_BATCH: usize = 24;
 
 /// Per-scan decisions carried through recursive crop recovery, never stored on Scanner.
 #[derive(Clone, Copy)]
@@ -184,6 +196,26 @@ fn scan_prepared_impl(
     let mut scan = scanner.regions.scan(im, &candidates, policy)?;
     #[cfg(not(feature = "low"))]
     let mut retail = finish_retail(&mut scan, &mut scanner.regions, im);
+    // A sheet of symbols read through many of its first boxes: scan its further boxes.
+    #[cfg(not(feature = "low"))]
+    if allow_restoration && scan.frame.barcodes.len() + retail.len() >= SHEET_READS {
+        let sheet: Vec<Quad> = localization
+            .sheet
+            .iter()
+            .copied()
+            .filter(|q| !source.texture(q))
+            .collect();
+        for batch in sheet.chunks(SHEET_BATCH) {
+            retail.extend(scan_extra_boxes(
+                scanner,
+                im,
+                batch,
+                policy,
+                shared_retail,
+                &mut scan,
+            )?);
+        }
+    }
     // A frame whose boxes read nothing but show retail evidence (guard patterns or blurred
     // symbol windows) also scans the full-frame window, after the segment-voting
     // alternatives, detail recovery and primary-box profiles, which cost less and read many
@@ -785,7 +817,12 @@ fn localize(
 ) -> std::result::Result<Localization, Error> {
     // Medium localizes by bar-segment voting: one box per symbol, alternatives kept aside.
     #[cfg(feature = "medium")]
-    let voted = segment_voting::localize(image);
+    let mut voted = segment_voting::localize(image);
+    #[cfg(feature = "medium")]
+    let sheet: Vec<Quad> = std::mem::take(&mut voted.more)
+        .into_iter()
+        .map(|p| p.polygon)
+        .collect();
     #[cfg(feature = "medium")]
     let found = stripes::Result {
         proposals: voted.proposals,
@@ -807,7 +844,7 @@ fn localize(
         detector.detect(im)?
     };
     #[cfg(any(feature = "high", feature = "very-high"))]
-    let (found, alternatives) = high_boxes(found, image);
+    let (found, alternatives, sheet) = high_boxes(found, image);
     // Boxes on stripes, rings, random bar patterns and similar textures can hold no symbol;
     // retrying them costs most of the scan of such frames.
     let mut found = found;
@@ -862,6 +899,8 @@ fn localize(
         search_window: [[0., 0.], [right, 0.], [right, bottom], [0., bottom]],
         #[cfg(not(feature = "low"))]
         stray_textures,
+        #[cfg(not(feature = "low"))]
+        sheet,
     })
 }
 
@@ -871,8 +910,12 @@ fn localize(
 fn high_boxes(
     mut found: stripes::Result,
     image: Image<'_>,
-) -> (stripes::Result, Vec<(Quad, Vec<Quad>)>) {
-    let voted = segment_voting::localize(image);
+) -> (stripes::Result, Vec<(Quad, Vec<Quad>)>, Vec<Quad>) {
+    let mut voted = segment_voting::localize(image);
+    let sheet = std::mem::take(&mut voted.more)
+        .into_iter()
+        .map(|p| p.polygon)
+        .collect();
     if tiny_stripes(image) {
         // Voting has few segments on tiny frames; keep distinct stripe boxes after its boxes.
         let mut proposals = voted.proposals;
@@ -885,7 +928,11 @@ fn high_boxes(
             }
         }
         proposals.truncate(SELECTED.proposal_limit - SELECTED.fit_limit - 12);
-        (stripes::Result { proposals, ..found }, voted.alternatives)
+        (
+            stripes::Result { proposals, ..found },
+            voted.alternatives,
+            sheet,
+        )
     } else {
         (
             stripes::Result {
@@ -895,6 +942,7 @@ fn high_boxes(
                 trace: found.trace,
             },
             voted.alternatives,
+            sheet,
         )
     }
 }
@@ -1007,6 +1055,46 @@ fn scan_unread_window(
         scan.errors.push(error);
     }
     scan.frame.unfinished |= window.frame.unfinished;
+    Ok(retail)
+}
+
+/// Scan `boxes` after the first candidates, without per-box retries, and append the
+/// results to `scan`.
+#[cfg(not(feature = "low"))]
+fn scan_extra_boxes(
+    scanner: &mut Scanner,
+    im: ImageView<'_>,
+    boxes: &[Quad],
+    policy: Policy,
+    shared_retail: bool,
+    scan: &mut super::ScanResult,
+) -> std::result::Result<Vec<super::read::Read>, Error> {
+    let index = scan.frame.candidates.len();
+    let policy = Policy {
+        candidate_retry_mask: 0,
+        low_resolution_mask: 0,
+        ..policy
+    };
+    scanner
+        .regions
+        .retail_configure(if shared_retail { 15 } else { 1 })?;
+    let mut extra = scanner.regions.scan(im, boxes, policy)?;
+    let retail = finish_retail(&mut extra, &mut scanner.regions, im);
+    for mut candidate in extra.frame.candidates {
+        candidate.index += index;
+        scan.frame.candidates.push(candidate);
+    }
+    for mut barcode in extra.frame.barcodes {
+        for i in &mut barcode.candidate_indices {
+            *i += index;
+        }
+        scan.frame.barcodes.push(barcode);
+    }
+    for mut error in extra.errors {
+        error.candidate_index += index;
+        scan.errors.push(error);
+    }
+    scan.frame.unfinished |= extra.frame.unfinished;
     Ok(retail)
 }
 

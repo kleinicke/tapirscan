@@ -101,6 +101,9 @@ fn strongest_new_proposals(
 
 /// Unread retail boxes whose central band is decoded for the other linear formats.
 const CORE_PROPOSALS: usize = 4;
+/// Linear reads of the first boxes that mark a sheet of symbols, whose further boxes are then
+/// decoded too.
+const SHEET_READS: usize = 12;
 
 /// The middle 40% of a box across its bars, keeping its full length.
 fn central_band(q: &crate::Quad) -> crate::Quad {
@@ -264,6 +267,43 @@ impl Scanner {
                     sampler,
                     &mut hinted,
                 )?;
+                // A sheet of symbols read through many of its first boxes: decode the further
+                // segment-voting boxes that no read covers.
+                if oriented_mask != 0 && found.len() >= SHEET_READS {
+                    let sheet: Vec<_> = crate::pipeline::segment_voting::localize(image)
+                        .more
+                        .into_iter()
+                        .filter(|p| {
+                            !reads
+                                .iter()
+                                .chain(found.iter())
+                                .any(|read| overlap_quads(&read.polygon, &p.polygon).0 > 0.)
+                        })
+                        .collect();
+                    if !sheet.is_empty() {
+                        let mut sheet_hints = Vec::new();
+                        let (extra, _) = crate::fast_linear::recover_proposals_hinted(
+                            image,
+                            &sheet,
+                            oriented_mask,
+                            sampler,
+                            &mut sheet_hints,
+                        )?;
+                        found.extend(extra);
+                    }
+                }
+                // On such a sheet, also run Low's whole-image sweep for the formats that
+                // Medium otherwise reads only in boxes: Low reads its rows there.
+                if oriented_mask & LINEAR_MASK & !SWEPT != 0 && found.len() >= SHEET_READS {
+                    let w = barcode_research_core::numeric::usize_f64(image.width);
+                    let h = barcode_research_core::numeric::usize_f64(image.height);
+                    found.extend(sweep_box(
+                        image,
+                        &[[0., 0.], [w, 0.], [w, h], [0., h]],
+                        oriented_mask & LINEAR_MASK & !SWEPT,
+                        &mut self.additional_gray,
+                    )?);
+                }
                 // Retail boxes span the full bar height; rows near their edges can keep
                 // checksum-free formats below their row support. Decode the central band of
                 // unread boxes, which stripe localization would have proposed on its own.

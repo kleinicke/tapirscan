@@ -709,7 +709,17 @@ fn component_is_eligible(component: &Component) -> bool {
             <= 0.92
 }
 
-fn proposals_from_components(components: Vec<Component>, h: usize) -> (Vec<[Point; 4]>, bool) {
+/// Base proposals (about four per component) a frame's candidate list gathers.
+const BASE_PROPOSALS: usize = 100;
+/// The candidate list of a frame that read [`DENSE_READS`] symbols from a full list.
+const DENSE_BASE_PROPOSALS: usize = 400;
+/// Reads that mark a frame as a sheet of symbols whose candidate list may grow.
+const DENSE_READS: usize = 8;
+fn proposals_from_components(
+    components: Vec<Component>,
+    h: usize,
+    base_limit: usize,
+) -> (Vec<[Point; 4]>, bool) {
     let mut row_min = vec![usize::MAX; h];
     let mut row_max = vec![0; h];
     let mut touched_rows = Vec::new();
@@ -797,23 +807,29 @@ fn proposals_from_components(components: Vec<Component>, h: usize) -> (Vec<[Poin
                 proposals.push((count, completed));
             }
         }
-        if base_count > 100 {
+        if base_count > base_limit {
             break;
         }
     }
-    limited |= base_count > 100 || proposals.len() > 200;
-    proposals.truncate(200);
+    limited |= base_count > base_limit || proposals.len() > 2 * base_limit;
+    proposals.truncate(2 * base_limit);
     (proposals.into_iter().map(|p| p.1).collect(), limited)
 }
 
 fn candidates(image: &[bool], w: usize, h: usize) -> (Vec<[Point; 4]>, bool) {
     let components = fast_components(image, w, h);
-    proposals_from_components(components, h)
+    proposals_from_components(components, h, BASE_PROPOSALS)
 }
 
 /// The candidates of `image` and of its inverse.
-fn candidate_pair(image: &[bool], w: usize, h: usize) -> [(Vec<[Point; 4]>, bool); 2] {
-    fast_component_pair(image, w, h).map(|components| proposals_from_components(components, h))
+fn candidate_pair(
+    image: &[bool],
+    w: usize,
+    h: usize,
+    base_limit: usize,
+) -> [(Vec<[Point; 4]>, bool); 2] {
+    fast_component_pair(image, w, h)
+        .map(|components| proposals_from_components(components, h, base_limit))
 }
 
 #[cfg(test)]
@@ -852,8 +868,8 @@ mod component_fastpath_tests {
             "component count, bounds, row extremes, or hull changed"
         );
         assert_eq!(
-            proposals_from_components(fast_components(image, w, h), h),
-            proposals_from_components(flood_fill_components(image, w, h), h),
+            proposals_from_components(fast_components(image, w, h), h, BASE_PROPOSALS),
+            proposals_from_components(flood_fill_components(image, w, h), h, BASE_PROPOSALS),
             "proposal order or geometry changed"
         );
         let inverse: Vec<bool> = image.iter().map(|&bit| !bit).collect();
@@ -1702,175 +1718,192 @@ fn detect_with_retries(
     let mut unread: Vec<[Point; 4]> = Vec::new();
     // Modes 2 and 3 invert modes 0 and 1; their candidates come with those.
     let mut inverse_candidates: [Option<(Vec<[Point; 4]>, bool)>; 2] = [None, None];
-    for mode in 0..4 {
-        if binary_images.is_duplicate(mode) {
-            continue;
+    // A sheet of symbols reads most of its first candidate list: the list then grows,
+    // and the proposals already tried are skipped.
+    let mut tried = [0_usize; 4];
+    let mut full = false;
+    for pass in 0..2 {
+        if pass == 1 && !(full && results.len() >= DENSE_READS) {
+            break;
         }
-        let image = binary_images.get(mode);
-        let (proposals, limited) = if mode < 2 {
-            let [direct, inverse] = candidate_pair(image, w, h);
-            inverse_candidates[mode] = Some(inverse);
-            direct
+        let base_limit = if pass == 0 {
+            BASE_PROPOSALS
         } else {
-            inverse_candidates[mode - 2]
-                .take()
-                .unwrap_or_else(|| candidates(image, w, h))
+            DENSE_BASE_PROPOSALS
         };
-        regions.limited |= limited;
-        for original in proposals {
-            let solid = l_border_edges(image, w, h, original);
-            if !(0..4).any(|i| solid[i] >= 18 && solid[(i + 1) % 4] >= 18) {
+        for mode in 0..4 {
+            if binary_images.is_duplicate(mode) {
                 continue;
             }
-            let center = original
-                .iter()
-                .fold([0., 0.], |s, p| [s[0] + p[0] / 4., s[1] + p[1] / 4.]);
-            if results.iter().any(|r| {
-                let c = r
-                    .polygon
+            let image = binary_images.get(mode);
+            let (proposals, limited) = if mode < 2 {
+                let [direct, inverse] = candidate_pair(image, w, h, base_limit);
+                inverse_candidates[mode] = Some(inverse);
+                direct
+            } else {
+                inverse_candidates[mode - 2].take().unwrap_or_else(|| {
+                    let components = fast_components(image, w, h);
+                    proposals_from_components(components, h, base_limit)
+                })
+            };
+            regions.limited |= limited;
+            full |= limited;
+            let skip = std::mem::replace(&mut tried[mode], proposals.len());
+            for original in proposals.into_iter().skip(skip) {
+                let solid = l_border_edges(image, w, h, original);
+                if !(0..4).any(|i| solid[i] >= 18 && solid[(i + 1) % 4] >= 18) {
+                    continue;
+                }
+                let center = original
                     .iter()
                     .fold([0., 0.], |s, p| [s[0] + p[0] / 4., s[1] + p[1] / 4.]);
-                (center[0] - c[0]).hypot(center[1] - c[1]) < 8.
-            }) {
-                continue;
-            }
-            let mut flat: [Option<bool>; 4] = [None; 4];
-            let mut hypotheses = Vec::new();
-            let mut orientations: Vec<[Point; 4]> = Vec::new();
-            let mut strength = 0;
-            for mirror in [false, true] {
-                for rotation in 0..4 {
-                    // A valid orientation puts the solid L on the bottom and
-                    // left. Use a looser threshold than proposal admission to
-                    // retain damaged edges and uncertain corner completion.
-                    let left_edge = (rotation + if mirror { 0 } else { 3 }) % 4;
-                    let bottom_edge = (rotation + if mirror { 1 } else { 2 }) % 4;
-                    if solid[left_edge] < 15 || solid[bottom_edge] < 15 {
-                        continue;
-                    }
-                    let q: [Point; 4] = std::array::from_fn(|i| {
-                        original[(rotation + if mirror { 4 - i } else { i }) % 4]
-                    });
-                    // A real symbol alternates along both open sides.
-                    let (top, right) = if mirror {
-                        ((rotation + 3) % 4, (rotation + 2) % 4)
-                    } else {
-                        (rotation, (rotation + 1) % 4)
-                    };
-                    if [top, right].into_iter().any(|index| {
-                        *flat[index].get_or_insert_with(|| {
-                            let (start, end) = (original[index], original[(index + 1) % 4]);
-                            let opposite = original[(index + 2) % 4];
-                            clock_track_is_flat(
-                                image,
-                                (w, h),
-                                start,
-                                end,
-                                [opposite[0] - start[0], opposite[1] - start[1]],
-                            )
-                        })
-                    }) {
-                        continue;
-                    }
-                    orientations.push(q);
-                    strength = strength.max(solid[left_edge] + solid[bottom_edge]);
-                    let dx = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]);
-                    let dy = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
-                    for size in datamatrix::SIZES {
-                        let ratio = (dx / dy)
-                            / (crate::numeric::usize_f32(size.w)
-                                / crate::numeric::usize_f32(size.h));
-                        if !(0.65..=1.55).contains(&ratio)
-                            || dx / crate::numeric::usize_f32(size.w) < 0.8
-                            || dy / crate::numeric::usize_f32(size.h) < 0.8
-                        {
+                if results.iter().any(|r| {
+                    let c = r
+                        .polygon
+                        .iter()
+                        .fold([0., 0.], |s, p| [s[0] + p[0] / 4., s[1] + p[1] / 4.]);
+                    (center[0] - c[0]).hypot(center[1] - c[1]) < 8.
+                }) {
+                    continue;
+                }
+                let mut flat: [Option<bool>; 4] = [None; 4];
+                let mut hypotheses = Vec::new();
+                let mut orientations: Vec<[Point; 4]> = Vec::new();
+                let mut strength = 0;
+                for mirror in [false, true] {
+                    for rotation in 0..4 {
+                        // A valid orientation puts the solid L on the bottom and
+                        // left. Use a looser threshold than proposal admission to
+                        // retain damaged edges and uncertain corner completion.
+                        let left_edge = (rotation + if mirror { 0 } else { 3 }) % 4;
+                        let bottom_edge = (rotation + if mirror { 1 } else { 2 }) % 4;
+                        if solid[left_edge] < 15 || solid[bottom_edge] < 15 {
                             continue;
                         }
-                        for margin in [0., 0.25, 0.5, 1.] {
-                            let scale_x = 1. + margin * 2. / crate::numeric::usize_f32(size.w);
-                            let scale_y = 1. + margin * 2. / crate::numeric::usize_f32(size.h);
-                            let ex = [
-                                (q[1][0] - q[0][0] + q[2][0] - q[3][0]) * 0.25,
-                                (q[1][1] - q[0][1] + q[2][1] - q[3][1]) * 0.25,
-                            ];
-                            let ey = [
-                                (q[3][0] - q[0][0] + q[2][0] - q[1][0]) * 0.25,
-                                (q[3][1] - q[0][1] + q[2][1] - q[1][1]) * 0.25,
-                            ];
-                            let expanded: [Point; 4] = std::array::from_fn(|i| {
-                                let sx = if i == 0 || i == 3 { -1. } else { 1. };
-                                let sy = if i < 2 { -1. } else { 1. };
-                                [
-                                    q[i][0]
-                                        + sx * (scale_x - 1.) * ex[0]
-                                        + sy * (scale_y - 1.) * ey[0],
-                                    q[i][1]
-                                        + sx * (scale_x - 1.) * ex[1]
-                                        + sy * (scale_y - 1.) * ey[1],
-                                ]
-                            });
-                            let Some(t) = rectangle_transform(size.w, size.h, expanded) else {
-                                continue;
-                            };
-                            if let Some(score) = border(image, w, h, &t, size.w, size.h)
-                                && score <= if refine { REFINE_SEED_LIMIT } else { 0.2 }
+                        let q: [Point; 4] = std::array::from_fn(|i| {
+                            original[(rotation + if mirror { 4 - i } else { i }) % 4]
+                        });
+                        // A real symbol alternates along both open sides.
+                        let (top, right) = if mirror {
+                            ((rotation + 3) % 4, (rotation + 2) % 4)
+                        } else {
+                            (rotation, (rotation + 1) % 4)
+                        };
+                        if [top, right].into_iter().any(|index| {
+                            *flat[index].get_or_insert_with(|| {
+                                let (start, end) = (original[index], original[(index + 1) % 4]);
+                                let opposite = original[(index + 2) % 4];
+                                clock_track_is_flat(
+                                    image,
+                                    (w, h),
+                                    start,
+                                    end,
+                                    [opposite[0] - start[0], opposite[1] - start[1]],
+                                )
+                            })
+                        }) {
+                            continue;
+                        }
+                        orientations.push(q);
+                        strength = strength.max(solid[left_edge] + solid[bottom_edge]);
+                        let dx = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]);
+                        let dy = (q[3][0] - q[0][0]).hypot(q[3][1] - q[0][1]);
+                        for size in datamatrix::SIZES {
+                            let ratio = (dx / dy)
+                                / (crate::numeric::usize_f32(size.w)
+                                    / crate::numeric::usize_f32(size.h));
+                            if !(0.65..=1.55).contains(&ratio)
+                                || dx / crate::numeric::usize_f32(size.w) < 0.8
+                                || dy / crate::numeric::usize_f32(size.h) < 0.8
                             {
-                                hypotheses.push((score, *size, t, expanded));
+                                continue;
+                            }
+                            for margin in [0., 0.25, 0.5, 1.] {
+                                let scale_x = 1. + margin * 2. / crate::numeric::usize_f32(size.w);
+                                let scale_y = 1. + margin * 2. / crate::numeric::usize_f32(size.h);
+                                let ex = [
+                                    (q[1][0] - q[0][0] + q[2][0] - q[3][0]) * 0.25,
+                                    (q[1][1] - q[0][1] + q[2][1] - q[3][1]) * 0.25,
+                                ];
+                                let ey = [
+                                    (q[3][0] - q[0][0] + q[2][0] - q[1][0]) * 0.25,
+                                    (q[3][1] - q[0][1] + q[2][1] - q[1][1]) * 0.25,
+                                ];
+                                let expanded: [Point; 4] = std::array::from_fn(|i| {
+                                    let sx = if i == 0 || i == 3 { -1. } else { 1. };
+                                    let sy = if i < 2 { -1. } else { 1. };
+                                    [
+                                        q[i][0]
+                                            + sx * (scale_x - 1.) * ex[0]
+                                            + sy * (scale_y - 1.) * ey[0],
+                                        q[i][1]
+                                            + sx * (scale_x - 1.) * ex[1]
+                                            + sy * (scale_y - 1.) * ey[1],
+                                    ]
+                                });
+                                let Some(t) = rectangle_transform(size.w, size.h, expanded) else {
+                                    continue;
+                                };
+                                if let Some(score) = border(image, w, h, &t, size.w, size.h)
+                                    && score <= if refine { REFINE_SEED_LIMIT } else { 0.2 }
+                                {
+                                    hypotheses.push((score, *size, t, expanded));
+                                }
                             }
                         }
                     }
                 }
-            }
-            hypotheses.sort_by(|a, b| a.0.total_cmp(&b.0));
-            if refine {
-                refine_hypotheses(image, w, h, &mut hypotheses, &mut refinements);
-            }
-            regions.limited |= hypotheses.len() > 12;
-            // Rank failures by their best hypothesis, then by the strength of their L.
-            let best_score = hypotheses.first().map_or_else(
-                || 1. + (36. - crate::numeric::usize_f32(strength)) / 36.,
-                |h| h.0,
-            );
-            let before = results.len();
-            for (score, size, t, polygon) in hypotheses.into_iter().take(12) {
-                attempts += 1;
-                if attempts > 800 {
-                    return (results, true);
+                hypotheses.sort_by(|a, b| a.0.total_cmp(&b.0));
+                if refine {
+                    refine_hypotheses(image, w, h, &mut hypotheses, &mut refinements);
                 }
-                if sample_grid(image, [w, h], &t, [size.w, size.h], &mut matrix) {
-                    if score <= 0.08 {
-                        regions.add("DataMatrix", polygon, 1. - score, 1);
+                regions.limited |= hypotheses.len() > 12;
+                // Rank failures by their best hypothesis, then by the strength of their L.
+                let best_score = hypotheses.first().map_or_else(
+                    || 1. + (36. - crate::numeric::usize_f32(strength)) / 36.,
+                    |h| h.0,
+                );
+                let before = results.len();
+                for (score, size, t, polygon) in hypotheses.into_iter().take(12) {
+                    attempts += 1;
+                    if attempts > 800 {
+                        return (results, true);
                     }
-                    if let Some(read) = datamatrix::decode_matrix(&matrix, size.w, size.h) {
-                        results.push(Detection {
-                            assembled_rows: false,
-                            bytes: Some(read.bytes),
-                            structured_append: read.structured_append,
-                            reader_initialization: read.reader_initialization,
-                            addon: None,
-                            format: "DataMatrix".into(),
-                            text: read.text,
-                            polygon,
-                            support: 1,
-                            error: score,
-                            gs1: read.gs1,
-                        });
-                        break;
+                    if sample_grid(image, [w, h], &t, [size.w, size.h], &mut matrix) {
+                        if score <= 0.08 {
+                            regions.add("DataMatrix", polygon, 1. - score, 1);
+                        }
+                        if let Some(read) = datamatrix::decode_matrix(&matrix, size.w, size.h) {
+                            results.push(Detection {
+                                assembled_rows: false,
+                                bytes: Some(read.bytes),
+                                structured_append: read.structured_append,
+                                reader_initialization: read.reader_initialization,
+                                addon: None,
+                                format: "DataMatrix".into(),
+                                text: read.text,
+                                polygon,
+                                support: 1,
+                                error: score,
+                                gs1: read.gs1,
+                            });
+                            break;
+                        }
                     }
                 }
-            }
-            // Busy frames fill the list with bare Ls of earlier thresholds. A ranked list
-            // skips candidates without a possible orientation (never retried) and, when
-            // full, gives its worst entry to a better one.
-            if results.len() == before && (!retries.ranked || !orientations.is_empty()) {
-                if failed.len() < retries.candidates {
-                    failed.push((orientations, mode, best_score));
-                } else if retries.ranked
-                    && let Some(worst) =
-                        (0..failed.len()).max_by(|&a, &b| failed[a].2.total_cmp(&failed[b].2))
-                    && failed[worst].2 > best_score
-                {
-                    failed[worst] = (orientations, mode, best_score);
+                // Busy frames fill the list with bare Ls of earlier thresholds. A ranked list
+                // skips candidates without a possible orientation (never retried) and, when
+                // full, gives its worst entry to a better one.
+                if results.len() == before && (!retries.ranked || !orientations.is_empty()) {
+                    if failed.len() < retries.candidates {
+                        failed.push((orientations, mode, best_score));
+                    } else if retries.ranked
+                        && let Some(worst) =
+                            (0..failed.len()).max_by(|&a, &b| failed[a].2.total_cmp(&failed[b].2))
+                        && failed[worst].2 > best_score
+                    {
+                        failed[worst] = (orientations, mode, best_score);
+                    }
                 }
             }
         }

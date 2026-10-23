@@ -43,6 +43,9 @@ const ALTERNATIVE_SEGMENTS: usize = 10;
 /// Split clusters merge when less than this many box heights apart across the bars.
 const MERGE_GAP: f64 = 0.3;
 const MAX_PROPOSALS: usize = 24;
+/// Boxes kept beyond [`MAX_PROPOSALS`] for a sheet of symbols, scanned only once the first
+/// boxes read many of them.
+const SHEET_PROPOSALS: usize = 64;
 /// Boxes below this share of the frame need this many voting segments: small clusters of a few
 /// parallel strokes are mostly text, while even an 8-digit symbol has about 40 bar edges.
 const SMALL_BOX: f64 = 0.03;
@@ -53,6 +56,8 @@ pub(crate) struct Localized {
     /// Alternative boxes per primary box, tried only for unread clusters.
     #[cfg(not(feature = "low"))]
     pub alternatives: Vec<(Quad, Vec<Quad>)>,
+    /// Further boxes, by member count, beyond the proposal limit.
+    pub more: Vec<Proposal>,
 }
 
 struct Segment {
@@ -556,11 +561,13 @@ fn clusters(segs: &[Segment], w: usize, h: usize, s: f64) -> Localized {
     }
     out.sort_by_key(|v| std::cmp::Reverse(v.1));
     let mut out = merge_split(out, &mut alternatives);
-    out.truncate(MAX_PROPOSALS);
+    let mut more = out.split_off(MAX_PROPOSALS.min(out.len()));
+    more.truncate(SHEET_PROPOSALS - MAX_PROPOSALS);
     let unions = fragment_unions(&out);
     out.extend(unions);
     let frame = w as f64 * h as f64 / (s * s);
     out.retain(|(p, n)| *n >= SMALL_MEMBERS || quad_area(&p.polygon) >= SMALL_BOX * frame);
+    more.retain(|(p, n)| *n >= SMALL_MEMBERS || quad_area(&p.polygon) >= SMALL_BOX * frame);
     alternatives.retain(|(q, _)| out.iter().any(|(p, _)| p.polygon == *q));
     #[cfg(feature = "low")]
     let _ = alternatives;
@@ -568,6 +575,7 @@ fn clusters(segs: &[Segment], w: usize, h: usize, s: f64) -> Localized {
         proposals: out.into_iter().map(|(p, _)| p).collect(),
         #[cfg(not(feature = "low"))]
         alternatives,
+        more: more.into_iter().map(|(p, _)| p).collect(),
     }
 }
 
@@ -749,6 +757,7 @@ pub(crate) fn localize(image: Image<'_>) -> Localized {
             proposals: Vec::new(),
             #[cfg(not(feature = "low"))]
             alternatives: Vec::new(),
+            more: Vec::new(),
         };
     }
     clusters(&segs, w, h, s)

@@ -215,7 +215,11 @@ const MAX_SUPPORT_RECHECKS: usize = 4 * MAX_FINDERS;
 /// Cross-check the rows skipped by the row step around finders seen on one row
 /// only. A finder's center band is three modules tall, so with a row step above
 /// one module a small finder is crossed by a single scanned row and would fail
-/// the two-row support rule; rows next to it supply that support locally.
+/// the two-row support rule; rows next to it supply that support locally. Rotation
+/// and blur shorten the rows that pass the cross check, so this already applies
+/// below a module of one row step, not only where the band is shorter than two.
+/// A real center band passes on most rows through it; bold text that passes on a
+/// few rows of a taller band, which the wider limit would admit, is left out.
 fn support_small_finders(
     image: &[bool],
     w: usize,
@@ -227,7 +231,7 @@ fn support_small_finders(
     let single: Vec<(f32, f32, f32)> = found
         .centers()
         .iter()
-        .filter(|f| f.support == 1 && 3. * f.module < 2. * step_f)
+        .filter(|f| f.support == 1 && f.module < step_f)
         .take(MAX_SUPPORT_RECHECKS)
         .map(|f| (f.x, f.y, f.module))
         .collect();
@@ -254,16 +258,30 @@ fn support_small_finders(
         }
         // The center band of a real finder crosses several skipped rows; a lone
         // extra hit is as likely a speck of texture that also passes one row.
-        if hits.len() >= 2 {
+        let checked = (row.saturating_sub(band)..=(row + band).min(h - 1))
+            .filter(|yy| !yy.is_multiple_of(step))
+            .count();
+        if hits.len() >= 2 && 2 * hits.len() >= checked {
             for &(cx, cy, m) in &hits {
                 found.insert(cx, cy, m);
             }
         }
     }
 }
+/// Module size below which a finder's central quad, a few pixels across, places the
+/// isolated-pattern samples up to a pixel off; such finders get [`SMALL_FINDER_ERRORS`].
+const SMALL_FINDER_MODULE: f32 = 3.5;
+/// Isolated-pattern errors allowed for small finders; 14 for the others. Real finders of
+/// 2-pixel modules turned by 45 degrees show 15 to 21.
+const SMALL_FINDER_ERRORS: usize = 21;
 fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) -> bool {
     let Some(quad) = finder.quad else {
         return true;
+    };
+    let allowed = if finder.module < SMALL_FINDER_MODULE {
+        SMALL_FINDER_ERRORS
+    } else {
+        14
     };
     let Some(t) = homography([[-1.5, -1.5], [1.5, -1.5], [1.5, 1.5], [-1.5, 1.5]], quad) else {
         return true;
@@ -297,7 +315,7 @@ fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) ->
         }
         // Stylized symbols can replace the outer frame with corner brackets.
         // Their solid center and separating white ring still provide evidence.
-        errors <= 14 || (moat_errors <= 3 && center_errors <= 2)
+        errors <= allowed || (moat_errors <= 3 && center_errors <= 2)
     })
 }
 fn transpose_if_mirrored(matrix: &[bool], n: usize, mirror: bool) -> std::borrow::Cow<'_, [bool]> {
