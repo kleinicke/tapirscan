@@ -84,6 +84,18 @@ selection overrides the scanner's formats for that call only and never changes
 the configuration, in every binding. Input validation and errors follow each
 language's conventions.
 
+## Blocking and async
+
+A scan is CPU work bounded by the effort mode. It is synchronous where the
+caller controls threads: C, C++, Rust, Java, Android, Python, Swift and the Node
+scanner. It is asynchronous where blocking the calling thread is a bug and the
+binding can move the work: the browser scanner runs in a worker, and Dart's
+`scan` runs on a background isolate (`scanSync` blocks). Swift adds `async`
+overloads for arrays and `CGImage`s; camera frames, which arrive on a capture
+queue, are scanned synchronously there. Python and Kotlin move a scan off the
+event loop with `asyncio.to_thread` and `withContext(Dispatchers.Default)`, as
+their guides show, instead of a second API.
+
 ## Ownership and lifetime
 
 - Python snapshots input and releases scanners with a context manager or `close`.

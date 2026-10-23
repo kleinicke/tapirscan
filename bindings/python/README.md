@@ -186,6 +186,12 @@ with ThreadPoolExecutor() as pool:
     results = list(pool.map(scan, images))
 ```
 
+In `asyncio` code, scan in a worker thread so the event loop keeps running:
+
+```python
+result = await asyncio.to_thread(scanner.scan, image)
+```
+
 See [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md)
 for measured costs.
 

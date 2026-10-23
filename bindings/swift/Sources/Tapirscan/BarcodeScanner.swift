@@ -110,6 +110,45 @@ public final class BarcodeScanner: @unchecked Sendable {
         }
     }
 
+    /// `async` twin of `scan(_:width:height:channels:stride:options:)`. Async
+    /// scans run on a detached task, so awaiting them on the main actor keeps the
+    /// UI responsive; in an async context Swift picks these overloads.
+    public func scan(
+        _ pixels: [UInt8],
+        width: Int,
+        height: Int,
+        channels: Int,
+        stride: Int = 0,
+        options: ScanOptions = ScanOptions()
+    ) async throws -> ScanResult {
+        try await detached {
+            try self.scan(pixels, width: width, height: height, channels: channels,
+                          stride: stride, options: options)
+        }
+    }
+
+    /// `async` twin of `inspect(_:width:height:channels:stride:options:)`.
+    public func inspect(
+        _ pixels: [UInt8],
+        width: Int,
+        height: Int,
+        channels: Int,
+        stride: Int = 0,
+        options: ScanOptions = ScanOptions()
+    ) async throws -> InspectionResult {
+        try await detached {
+            try self.inspect(pixels, width: width, height: height, channels: channels,
+                             stride: stride, options: options)
+        }
+    }
+
+    /// Run a synchronous call off the caller's actor at the caller's priority.
+    private func detached<Output: Sendable>(
+        _ work: @escaping @Sendable () throws -> Output
+    ) async throws -> Output {
+        try await Task.detached(priority: Task.currentPriority) { try work() }.value
+    }
+
     // MARK: Native call
 
     /// Scan or inspect the pixels lent by `source` under the scanner lock, then copy
@@ -177,6 +216,16 @@ public final class BarcodeScanner: @unchecked Sendable {
     /// Like `scan(_:options:)` for a `CGImage`, with unread regions and diagnostics.
     public func inspect(_ image: CGImage, options: ScanOptions = ScanOptions()) throws -> InspectionResult {
         try run(inspect: true, options, read: readInspection) { try render(image, $0) }
+    }
+
+    /// `async` twin of `scan(_:options:)` for a `CGImage`.
+    public func scan(_ image: CGImage, options: ScanOptions = ScanOptions()) async throws -> ScanResult {
+        try await detached { try self.scan(image, options: options) }
+    }
+
+    /// `async` twin of `inspect(_:options:)` for a `CGImage`.
+    public func inspect(_ image: CGImage, options: ScanOptions = ScanOptions()) async throws -> InspectionResult {
+        try await detached { try self.inspect(image, options: options) }
     }
 
     /// Render the image onto white in the RGBA buffer; the caller holds the lock.

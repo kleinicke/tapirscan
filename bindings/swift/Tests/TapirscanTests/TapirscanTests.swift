@@ -199,6 +199,33 @@ final class TapirscanTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testAsyncScansRunOffTheMainActor() async throws {
+        let (pixels, width, height) = ean13(text)
+        let scanner = try BarcodeScanner()
+        let result = try await scanner.scan(pixels, width: width, height: height, channels: 1)
+        XCTAssertEqual(result.values, [text])
+        let inspection = try await scanner.inspect(pixels, width: width, height: height, channels: 1)
+        XCTAssertEqual(inspection.values, [text])
+        let provider = CGDataProvider(data: Data(pixels) as CFData)!
+        let image = CGImage(
+            width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 8,
+            bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent
+        )!
+        async let first = scanner.scan(image)
+        async let second = scanner.scan(image)
+        let both = try await [first, second]
+        XCTAssertEqual(both.map(\.values), [[text], [text]])
+        do {
+            _ = try await scanner.scan([UInt8](repeating: 0, count: 4), width: 2, height: 2, channels: 1)
+            XCTFail("expected invalid input")
+        } catch let error as TapirscanError {
+            XCTAssertEqual(error.code, .invalidInput)
+        }
+    }
+
     func testParsesContent() throws {
         let wifi = try XCTUnwrap(try parseContent("WIFI:S:Café;T:WPA;P:secret;;"))
         XCTAssertEqual(wifi.kind, .wifi)

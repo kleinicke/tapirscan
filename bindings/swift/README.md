@@ -67,6 +67,16 @@ let result = try scanner.scan(pixels, width: 1280, height: 720, channels: 4) // 
 `channels` is 1 (gray), 3 (RGB) or 4 (RGBA, alpha ignored); pass `stride` for padded
 rows. Every `scan` overload has an `inspect` twin.
 
+In Swift concurrency, the array and `CGImage` overloads have `async` twins that
+run on a detached task, so `await` keeps the main actor responsive. Swift picks
+them in async code:
+
+```swift
+let result = try await scanner.scan(cgImage) // in a SwiftUI .task or other async code
+```
+
+Camera frames already arrive on the capture queue; scan them synchronously there.
+
 ```swift
 let inspection = try scanner.inspect(cgImage)
 print(inspection.undecoded.count, inspection.elapsedMs, inspection.diagnostics)

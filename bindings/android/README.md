@@ -40,6 +40,13 @@ Scanner(options).use { scanner ->
 }
 ```
 
+Calls block the calling thread. CameraX analyzers already run on an executor;
+elsewhere in Kotlin, move a scan off the main thread with a coroutine:
+
+```kotlin
+val result = withContext(Dispatchers.Default) { scanner.scan(pixels, width, height, 4, 0) }
+```
+
 `ScannerOptions` holds the `Mode` (default `MEDIUM`), a `Set<Format>` (default
 `Format.RETAIL`), the `EanAddOnPolicy` (default `IGNORE`) and `parallel`, fixed when
 the scanner is created. `withParallel(false)` keeps each scan on the calling thread,
