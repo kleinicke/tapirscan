@@ -108,8 +108,7 @@
       "name": "ISBN",
       "rust": "Isbn",
       "swift": "isbn",
-      "description": "International Standard Book Number in EAN-13 form (978 or 979, not the 979-0 ISMN range) with a valid check digit.",
-      "experimental": true
+      "description": "International Standard Book Number, from a book's EAN-13 or written out."
     }
   ]
 }

@@ -44,7 +44,7 @@ pub enum ContentKind {
     /// AAMVA driver's license or identification card. Experimental: may change in minor releases.
     #[serde(rename = "AAMVA")]
     Aamva = 14,
-    /// International Standard Book Number in EAN-13 form (978 or 979, not the 979-0 ISMN range) with a valid check digit. Experimental: may change in minor releases.
+    /// International Standard Book Number, from a book's EAN-13 or written out.
     #[serde(rename = "ISBN")]
     Isbn = 15,
 }

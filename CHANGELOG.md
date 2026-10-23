@@ -38,11 +38,14 @@
   full ten-module quiet zones), Code 93 and Code 128 symbols with ink spread
   (edge-to-similar-edge matching, accepted only with valid checks), and Code 93
   with three-module quiet zones or perspective-scaled stop characters.
-- Structured content recognizes `www.` web addresses, `URLTO:` and `MEBKM:`
-  bookmarks (with a `title`), bare e-mail addresses, `SMTP:`, `mms:` and
-  `BIZCARD:` contacts, and adds the experimental `ISBN` kind for 978/979
-  EAN-13 numbers (with the ISBN-10 for 978). Scheme-less names such as
-  `example.com` stay plain text.
+- Structured content recognizes more payloads: `www.` web addresses and
+  `URLTO:`/`MEBKM:` bookmarks (`URL`, with a `title`), bare e-mail addresses and
+  `SMTP:` (`Email`), `mms:` links (`SMS`, which now keeps a `subject`), and
+  `BIZCARD:` contacts. Text that had no content before can now have one of
+  these kinds, and web and e-mail addresses ignore surrounding whitespace.
+- New content kind `ISBN` for book numbers: 978/979 EAN-13 digits and written
+  forms such as `ISBN 978-…`, `ISBN-10: …` and `urn:isbn:`, with the fields
+  `isbn13` and `isbn10`.
 
 ## 1.4.0
 

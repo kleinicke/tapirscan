@@ -1,6 +1,7 @@
 //! Structured interpretation of decoded text: GS1 element strings, standard
 //! QR payloads (URL, Wi-Fi, contacts, events, messages, locations), payment
-//! slips (Swiss QR-bill, EPC/SEPA), HIBC, VINs and AAMVA identity documents.
+//! slips (Swiss QR-bill, EPC/SEPA), HIBC, VINs, AAMVA identity documents and
+//! ISBNs.
 //!
 //! Parsing is separate from scanning: it never changes what the scanner reads,
 //! and text that matches no known structure has no content.
@@ -100,8 +101,13 @@ pub fn parse_content(text: &str, gs1: bool) -> Option<Content> {
         .collect::<String>()
         .to_ascii_uppercase();
     let starts = |prefix: &str| upper.starts_with(prefix);
-    if starts("HTTP://") || starts("HTTPS://") || starts("WWW.") {
+    if starts("HTTP://") || starts("HTTPS://") {
         return web_url(text);
+    }
+    if starts("WWW.")
+        && let Some(content) = web_url(text)
+    {
+        return Some(content);
     }
     if starts("URLTO:") {
         return urlto(&text[6..]);
@@ -396,16 +402,24 @@ fn query_value<'a>(query: &'a str, key: &str) -> Option<&'a str> {
     })
 }
 
-/// A web address with an `http`/`https` scheme (or a GS1 Digital Link), or one
-/// that names its host with `www.`. Other scheme-less text such as `example.com`
-/// stays plain: it cannot be told apart from ordinary text reliably.
-fn web_url(text: &str) -> Option<Content> {
+/// Whether `text` starts with `http://` or `https://`, in any case.
+fn has_web_scheme(text: &str) -> bool {
     let upper = text.get(..8).unwrap_or(text).to_ascii_uppercase();
-    if upper.starts_with("HTTP://") || upper.starts_with("HTTPS://") {
+    upper.starts_with("HTTP://") || upper.starts_with("HTTPS://")
+}
+
+/// A web address with an `http`/`https` scheme (or a GS1 Digital Link), or one
+/// that starts with `www.` and a valid host name. Without a scheme, names such as
+/// `example.com` stay plain text: they cannot be told apart from ordinary text.
+fn web_url(text: &str) -> Option<Content> {
+    let text = text.trim();
+    if has_web_scheme(text) {
         return Some(digital_link(text).unwrap_or_else(|| single(ContentKind::Url, "url", text)));
     }
     let host = text.split(['/', '?', '#', ':']).next().unwrap_or(text);
-    (upper.starts_with("WWW.")
+    (text
+        .get(..4)
+        .is_some_and(|www| www.eq_ignore_ascii_case("www."))
         && domain_name(host, 3)
         && !text.chars().any(|c| c.is_whitespace() || c.is_control()))
     .then(|| single(ContentKind::Url, "url", text))
@@ -414,49 +428,70 @@ fn web_url(text: &str) -> Option<Content> {
 /// A DNS host name with at least `labels` labels and an alphabetic top-level
 /// domain of two or more letters.
 fn domain_name(host: &str, labels: usize) -> bool {
-    let parts: Vec<&str> = host.split('.').collect();
-    parts.len() >= labels
-        && parts.iter().all(|part| {
-            (1..=63).contains(&part.len())
-                && !part.starts_with('-')
-                && !part.ends_with('-')
-                && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    host.split('.').count() >= labels
+        && host.split('.').all(|label| {
+            (1..=63).contains(&label.len())
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
         })
-        && parts
-            .last()
+        && host
+            .rsplit('.')
+            .next()
             .is_some_and(|tld| tld.len() >= 2 && tld.bytes().all(|b| b.is_ascii_alphabetic()))
 }
 
-/// Bookmark with an optional title; only recognized web addresses count.
-fn bookmark(url: &str, title: &str) -> Option<Content> {
-    let mut content = web_url(url.trim())?;
-    content.push("title", title.trim());
+/// Bookmark of a web address; its title is kept in payload order. A bookmarked
+/// GS1 Digital Link stays GS1 content, without the title.
+fn bookmark(url: &str, title: &str, title_first: bool) -> Option<Content> {
+    let mut content = web_url(url)?;
+    let title = title.trim();
+    if content.kind == ContentKind::Url && !title.is_empty() {
+        let field = Field {
+            name: "title".into(),
+            value: title.into(),
+        };
+        if title_first {
+            content.fields.insert(0, field);
+        } else {
+            content.fields.push(field);
+        }
+    }
     Some(content)
 }
 
-/// `URLTO:[title]:url` (Docomo); the title may be omitted.
+/// `URLTO:title:url`; an `http(s)` address may follow without a title.
 fn urlto(rest: &str) -> Option<Content> {
-    bookmark(rest, "").or_else(|| {
-        let (title, url) = rest.split_once(':')?;
-        bookmark(url, title)
-    })
+    if has_web_scheme(rest) {
+        return bookmark(rest, "", true);
+    }
+    match rest.split_once(':') {
+        Some((title, url)) => bookmark(url, title, true),
+        None => bookmark(rest, "", true),
+    }
 }
 
-/// `MEBKM:TITLE:…;URL:…;;` (Docomo bookmark).
+/// `MEBKM:TITLE:…;URL:…;;`
 fn mebkm(rest: &str) -> Option<Content> {
-    let (mut title, mut url) = (String::new(), String::new());
+    let (mut title, mut url, mut title_first) = (String::new(), String::new(), false);
     for (key, value) in semicolon_pairs(rest) {
         match key.as_str() {
-            "TITLE" => title = value,
+            "TITLE" => {
+                title_first = url.is_empty();
+                title = value;
+            }
             "URL" => url = value,
             _ => {}
         }
     }
-    bookmark(&url, &title)
+    bookmark(&url, &title, title_first)
 }
 
 /// Text that is exactly one e-mail address, such as `name@example.com`.
 fn email_address(text: &str) -> Option<Content> {
+    let text = text.trim();
     let (local, domain) = text.split_once('@')?;
     let local_valid = (1..=64).contains(&local.len())
         && !local.starts_with('.')
@@ -567,6 +602,9 @@ fn sms_uri(rest: &str) -> Option<Content> {
     for number in number.split(',') {
         content.push("number", percent_decode(number.trim()));
     }
+    if let Some(subject) = query_value(query, "subject") {
+        content.push("subject", query_decode(subject));
+    }
     if let Some(body) = query_value(query, "body") {
         content.push("message", query_decode(body));
     }
@@ -652,19 +690,19 @@ fn mecard(rest: &str) -> Option<Content> {
     content.nonempty()
 }
 
-/// Unfolded `NAME;PARAMS:value` lines of a vCard or iCalendar object.
 /// `BIZCARD:N:first;X:last;T:title;C:company;A:address;B:phone;M:mobile;F:fax;E:email;;`
 fn bizcard(rest: &str) -> Option<Content> {
-    let (mut first, mut last) = (String::new(), String::new());
-    let mut fields = Vec::new();
+    let mut content = Content::new(ContentKind::Contact);
+    let (mut first, mut last, mut name_at) = (String::new(), String::new(), None);
     for (key, value) in semicolon_pairs(rest) {
         let name = match key.as_str() {
-            "N" => {
-                first = value;
-                continue;
-            }
-            "X" => {
-                last = value;
+            "N" | "X" => {
+                name_at.get_or_insert(content.fields.len());
+                if key == "N" {
+                    first = value;
+                } else {
+                    last = value;
+                }
                 continue;
             }
             "T" => "title",
@@ -674,16 +712,22 @@ fn bizcard(rest: &str) -> Option<Content> {
             "E" => "email",
             _ => continue,
         };
-        fields.push((name, value));
-    }
-    let mut content = Content::new(ContentKind::Contact);
-    content.push("name", format!("{} {}", first.trim(), last.trim()).trim());
-    for (name, value) in fields {
         content.push(name, value);
+    }
+    let name = format!("{} {}", first.trim(), last.trim());
+    if let Some(at) = name_at
+        && !name.trim().is_empty()
+    {
+        let field = Field {
+            name: "name".into(),
+            value: name.trim().into(),
+        };
+        content.fields.insert(at, field);
     }
     content.nonempty()
 }
 
+/// Unfolded `NAME;PARAMS:value` lines of a vCard or iCalendar object.
 fn content_lines(text: &str) -> Vec<(String, String)> {
     let mut unfolded: Vec<String> = Vec::new();
     for line in text.split('\n').map(|l| l.trim_end_matches('\r')) {
@@ -1011,30 +1055,90 @@ fn hibc_secondary(content: &mut Content, data: &str, after_dollar: bool) -> Opti
 
 // ---------------------------------------------------------------- ISBN
 
-/// ISBN in its EAN-13 form: prefix 978 or 979 (979-0 is the ISMN range for
-/// printed music) and a valid check digit. A 978 number also gets its ISBN-10.
+/// An ISBN as its 13 barcode digits or written out: digits separated by single
+/// hyphens or spaces, after `ISBN`, `ISBN-13:` or `ISBN-10:`, or as `urn:isbn:`.
+/// Only a labelled number may use the 10-digit form; a bare 10-digit number is
+/// too often something else. 979-0 numbers are printed music (ISMN), not books.
 fn isbn(text: &str) -> Option<Content> {
-    let digits = text.as_bytes();
-    if digits.len() != 13
-        || !(text.starts_with("978") || (text.starts_with("979") && digits[3] != b'0'))
-        || !gs1_check_digit(text)
-    {
+    let text = text.trim();
+    let label = text.get(..9).unwrap_or(text).to_ascii_uppercase();
+    let (number, labelled) = if label.starts_with("URN:ISBN:") {
+        (&text[9..], true)
+    } else if label.starts_with("ISBN") {
+        let rest = &text[4..];
+        let rest = rest
+            .strip_prefix("-13")
+            .or_else(|| rest.strip_prefix("-10"))
+            .unwrap_or(rest);
+        (rest.strip_prefix(':').unwrap_or(rest).trim_start(), true)
+    } else {
+        (text, false)
+    };
+    let digits = isbn_characters(number)?;
+    let isbn13 = match digits.len() {
+        13 => String::from_utf8(digits).ok()?,
+        10 if labelled && isbn10_check(&digits[..9]) == char::from(digits[9]) => {
+            let mut isbn13 = String::from("978");
+            isbn13.extend(digits[..9].iter().map(|&d| char::from(d)));
+            let sum: u32 = isbn13
+                .bytes()
+                .enumerate()
+                .map(|(i, d)| u32::from(d - b'0') * if i % 2 == 0 { 1 } else { 3 })
+                .sum();
+            isbn13.push(check_char((10 - sum % 10) % 10));
+            isbn13
+        }
+        _ => return None,
+    };
+    let book =
+        isbn13.starts_with("978") || (isbn13.starts_with("979") && !isbn13.starts_with("9790"));
+    if !book || !gs1_check_digit(&isbn13) {
         return None;
     }
-    let mut content = single(ContentKind::Isbn, "isbn", text);
-    if text.starts_with("978") {
-        let sum: u32 = digits[3..12]
-            .iter()
-            .zip((2..=10).rev())
-            .map(|(&d, weight)| u32::from(d - b'0') * weight)
-            .sum();
-        let check = match (11 - sum % 11) % 11 {
-            10 => 'X',
-            n => char::from_digit(n, 10)?,
-        };
-        content.push("isbn10", format!("{}{check}", &text[3..12]));
+    let mut content = single(ContentKind::Isbn, "isbn13", &isbn13);
+    if isbn13.starts_with("978") {
+        let nine = &isbn13.as_bytes()[3..12];
+        content.push(
+            "isbn10",
+            format!("{}{}", &isbn13[3..12], isbn10_check(nine)),
+        );
     }
     Some(content)
+}
+
+/// Digits of a written ISBN, with an `X` allowed as its last character and single
+/// hyphens or spaces between characters.
+fn isbn_characters(number: &str) -> Option<Vec<u8>> {
+    let bytes = number.as_bytes();
+    let mut digits = Vec::with_capacity(13);
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'0'..=b'9' => digits.push(b),
+            b'X' | b'x' if i + 1 == bytes.len() => digits.push(b'X'),
+            b'-' | b' ' if i > 0 && i + 1 < bytes.len() && bytes[i - 1].is_ascii_alphanumeric() => {
+            }
+            _ => return None,
+        }
+    }
+    Some(digits)
+}
+
+/// ISBN-10 check character of nine digits (mod 11, `X` for ten).
+fn isbn10_check(nine: &[u8]) -> char {
+    let sum: u32 = nine
+        .iter()
+        .zip((2..=10).rev())
+        .map(|(&d, weight)| u32::from(d - b'0') * weight)
+        .sum();
+    match (11 - sum % 11) % 11 {
+        10 => 'X',
+        n => check_char(n),
+    }
+}
+
+/// The digit character of a check value below ten.
+fn check_char(value: u32) -> char {
+    char::from_digit(value, 10).expect("check values are reduced below ten")
 }
 
 // ---------------------------------------------------------------- VIN

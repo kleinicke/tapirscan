@@ -15,13 +15,13 @@ ContentKind: TypeAlias = Literal[
     "WiFi",
     "Contact",
     "Calendar",
+    "ISBN",
     # Experimental: may change in minor releases.
     "SwissQRBill",
     "EPCPayment",
     "HIBC",
     "VIN",
     "AAMVA",
-    "ISBN",
 ]
 CONTENT_KINDS: dict[int, ContentKind] = {
     1: "GS1",

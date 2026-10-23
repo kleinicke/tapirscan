@@ -30,7 +30,7 @@ public enum ContentKind: UInt32, CaseIterable, Sendable, CustomStringConvertible
     case vin = 13
     /// AAMVA driver's license or identification card. Experimental: may change in minor releases.
     case aamva = 14
-    /// International Standard Book Number in EAN-13 form (978 or 979, not the 979-0 ISMN range) with a valid check digit. Experimental: may change in minor releases.
+    /// International Standard Book Number, from a book's EAN-13 or written out.
     case isbn = 15
 
     /// Stable name shared with the other bindings, such as `"WiFi"`.

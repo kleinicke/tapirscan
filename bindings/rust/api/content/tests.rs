@@ -549,38 +549,55 @@ fn web_addresses_without_a_scheme_and_bookmarks() {
     for (text, url) in [
         ("www.example.com", "www.example.com"),
         ("WWW.EXAMPLE.CO.UK/MENU?T=4", "WWW.EXAMPLE.CO.UK/MENU?T=4"),
-        ("www.shop-1.de:8080/a#b", "www.shop-1.de:8080/a#b"),
+        ("www.shop-1.de:8080/a#b\n", "www.shop-1.de:8080/a#b"),
+        ("https://example.com/menu\r\n", "https://example.com/menu"),
     ] {
         assert_eq!(
             parsed(text, false),
             (ContentKind::Url, pairs(&[("url", url)])),
+            "{text:?}"
+        );
+    }
+    for (text, fields) in [
+        (
+            "URLTO:Menu:https://example.com/menu",
+            [("title", "Menu"), ("url", "https://example.com/menu")].as_slice(),
+        ),
+        (
+            "URLTO:www.shop.de:https://www.shop.de",
+            &[("title", "www.shop.de"), ("url", "https://www.shop.de")],
+        ),
+        ("urlto::www.example.com", &[("url", "www.example.com")]),
+        ("URLTO:http://example.com", &[("url", "http://example.com")]),
+        (
+            r"MEBKM:TITLE:Tapir\;s;URL:https://example.com/a;;",
+            &[("title", "Tapir;s"), ("url", "https://example.com/a")],
+        ),
+        (
+            "MEBKM:URL:https://example.com/a;TITLE:Menu;;",
+            &[("url", "https://example.com/a"), ("title", "Menu")],
+        ),
+    ] {
+        assert_eq!(
+            parsed(text, false),
+            (ContentKind::Url, pairs(fields)),
             "{text}"
         );
     }
+    // A bookmarked GS1 Digital Link is GS1 content; GS1 fields have no title.
     assert_eq!(
-        parsed("URLTO:Menu:https://example.com/menu", false),
+        parsed(
+            "MEBKM:TITLE:x;URL:https://id.gs1.org/01/09506000134352;;",
+            false
+        ),
         (
-            ContentKind::Url,
-            pairs(&[("url", "https://example.com/menu"), ("title", "Menu")])
+            ContentKind::Gs1,
+            pairs(&[
+                ("01", "09506000134352"),
+                ("url", "https://id.gs1.org/01/09506000134352")
+            ])
         )
     );
-    assert_eq!(
-        parsed("urlto::www.example.com", false),
-        (ContentKind::Url, pairs(&[("url", "www.example.com")]))
-    );
-    assert_eq!(
-        parsed("URLTO:http://example.com", false),
-        (ContentKind::Url, pairs(&[("url", "http://example.com")]))
-    );
-    assert_eq!(
-        parsed("MEBKM:TITLE:Tapir\\;s;URL:https://example.com/a;;", false),
-        (
-            ContentKind::Url,
-            pairs(&[("url", "https://example.com/a"), ("title", "Tapir;s")])
-        )
-    );
-    // Scheme-less names without `www.` are ambiguous and stay plain text, as do
-    // malformed hosts and bookmarks without a recognized web address.
     for text in [
         "example.com",
         "shop.example.com/menu",
@@ -594,17 +611,28 @@ fn web_addresses_without_a_scheme_and_bookmarks() {
     ] {
         assert_eq!(parse_content(text, false), None, "{text:?}");
     }
+    // A text that fails as a `www.` address can still be another kind.
+    assert_eq!(
+        parsed("www.info@example.com", false),
+        (ContentKind::Email, pairs(&[("to", "www.info@example.com")]))
+    );
 }
 
 #[test]
 fn bare_and_legacy_email_addresses() {
-    assert_eq!(
-        parsed("first.last+tag@mail.example.org", false),
+    for (text, to) in [
         (
-            ContentKind::Email,
-            pairs(&[("to", "first.last+tag@mail.example.org")])
-        )
-    );
+            "first.last+tag@mail.example.org",
+            "first.last+tag@mail.example.org",
+        ),
+        ("info@example.com\n", "info@example.com"),
+    ] {
+        assert_eq!(
+            parsed(text, false),
+            (ContentKind::Email, pairs(&[("to", to)])),
+            "{text:?}"
+        );
+    }
     assert_eq!(
         parsed("SMTP:a@example.com:Hello:Body: with colon", false),
         (
@@ -635,23 +663,27 @@ fn bare_and_legacy_email_addresses() {
 #[test]
 fn mms_links_and_business_cards() {
     assert_eq!(
-        parsed("mms:+15551234?body=Hi%20there", false),
+        parsed("mms:+15551234?subject=Photo&body=Hi%20there", false),
         (
             ContentKind::Sms,
-            pairs(&[("number", "+15551234"), ("message", "Hi there")])
+            pairs(&[
+                ("number", "+15551234"),
+                ("subject", "Photo"),
+                ("message", "Hi there")
+            ])
         )
     );
     assert_eq!(
         parsed(
-            "BIZCARD:N:Sean;X:Owen;T:Engineer;C:Example Inc.;A:76 9th Avenue;\
+            "BIZCARD:T:Engineer;N:Sean;X:Owen;C:Example Inc.;A:76 9th Avenue;\
              B:+12125551212;M:+12125559999;E:sean@example.com;;",
             false
         ),
         (
             ContentKind::Contact,
             pairs(&[
-                ("name", "Sean Owen"),
                 ("title", "Engineer"),
+                ("name", "Sean Owen"),
                 ("organization", "Example Inc."),
                 ("address", "76 9th Avenue"),
                 ("phone", "+12125551212"),
@@ -665,22 +697,53 @@ fn mms_links_and_business_cards() {
 
 #[test]
 fn book_numbers() {
-    assert_eq!(
-        parsed("9780306406157", false),
+    let isbn = |isbn13: &str, isbn10: Option<&str>| {
+        let mut fields = vec![("isbn13", isbn13)];
+        fields.extend(isbn10.map(|isbn10| ("isbn10", isbn10)));
+        (ContentKind::Isbn, pairs(&fields))
+    };
+    for (text, isbn13, isbn10) in [
+        ("9780306406157", "9780306406157", Some("0306406152")),
+        ("9780804429573", "9780804429573", Some("080442957X")),
+        ("978-0-306-40615-7", "9780306406157", Some("0306406152")),
         (
-            ContentKind::Isbn,
-            pairs(&[("isbn", "9780306406157"), ("isbn10", "0306406152")])
-        )
-    );
-    assert_eq!(
-        parsed("9781861972712", false).1[1],
-        ("isbn10".to_string(), "1861972717".to_string())
-    );
-    // 979 numbers have no ISBN-10; 979-0 is the ISMN range for printed music.
-    assert_eq!(
-        parsed("9791032305690", false),
-        (ContentKind::Isbn, pairs(&[("isbn", "9791032305690")]))
-    );
-    assert_eq!(parse_content("9790260000438", false), None);
-    assert_eq!(parse_content("978030640615", false), None);
+            "ISBN 978 0 306 40615 7",
+            "9780306406157",
+            Some("0306406152"),
+        ),
+        (
+            "ISBN-13: 978-0-306-40615-7",
+            "9780306406157",
+            Some("0306406152"),
+        ),
+        (
+            "ISBN-10: 0-306-40615-2",
+            "9780306406157",
+            Some("0306406152"),
+        ),
+        ("isbn 080442957x", "9780804429573", Some("080442957X")),
+        ("urn:isbn:0306406152", "9780306406157", Some("0306406152")),
+        // 979 numbers have no ISBN-10.
+        ("9791032305690", "9791032305690", None),
+    ] {
+        assert_eq!(parsed(text, false), isbn(isbn13, isbn10), "{text}");
+    }
+    for text in [
+        // Bare 10-digit numbers are too often phone numbers or other IDs.
+        "0306406152",
+        // Wrong check digits.
+        "9780306406158",
+        "ISBN 0-306-40615-3",
+        // 979-0 is the ISMN range for printed music.
+        "9790260000438",
+        "ISBN 979-0-2600-0043-8",
+        // Malformed separators or lengths, and other EAN-13 numbers.
+        "978--0306406157",
+        "-9780306406157",
+        "978030640615",
+        "ISBN",
+        "4006381333931",
+    ] {
+        assert_eq!(parse_content(text, false), None, "{text:?}");
+    }
 }

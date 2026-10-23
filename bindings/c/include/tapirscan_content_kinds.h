@@ -31,7 +31,7 @@ typedef enum tapirscan_content_kind {
     TAPIRSCAN_CONTENT_VIN = 13,
     /* AAMVA driver's license or identification card. Experimental: may change in minor releases. */
     TAPIRSCAN_CONTENT_AAMVA = 14,
-    /* International Standard Book Number in EAN-13 form (978 or 979, not the 979-0 ISMN range) with a valid check digit. Experimental: may change in minor releases. */
+    /* International Standard Book Number, from a book's EAN-13 or written out. */
     TAPIRSCAN_CONTENT_ISBN = 15
 } tapirscan_content_kind;
 #endif

@@ -1,8 +1,8 @@
 # Structured content
 
 Content parsing returns the named fields of structured barcode text: GS1
-element strings, Wi-Fi settings, contacts, payment slips, health-industry
-labels, VINs and driver's licenses. It runs on decoded text only and never
+element strings, web addresses, Wi-Fi settings, contacts, payment slips,
+health-industry labels, VINs, book numbers and driver's licenses. It runs on decoded text only and never
 changes what is scanned. Plain text has no content.
 
 ```python
@@ -71,12 +71,15 @@ removed, in minor releases. The other kinds and their field names are stable.
 | `WiFi`                       | `WIFI:`                                                            |
 | `Contact`                    | vCard, `MECARD:`, `BIZCARD:`                                       |
 | `Calendar`                   | iCalendar `VEVENT`                                                 |
+| `ISBN`                       | 978/979 EAN-13 digits, `ISBN …`, `urn:isbn:`                       |
 | `SwissQRBill` (experimental) | `SPC` with an `EPD` trailer                                        |
 | `EPCPayment` (experimental)  | SEPA credit transfer, `BCD`                                        |
 | `HIBC` (experimental)        | `+` and a valid mod-43 check character                             |
 | `VIN` (experimental)         | 17 characters with a valid check digit                             |
 | `AAMVA` (experimental)       | `@` and an `ANSI ` or `AAMVA` header                               |
-| `ISBN` (experimental)        | 13 digits starting with 978 or 979 and a valid check digit         |
+
+Without a scheme, only `www.` addresses are URLs: names such as `example.com`
+cannot be told apart from ordinary text, so they stay plain.
 
 ## Fields
 
@@ -86,9 +89,10 @@ removed, in minor releases. The other kinds and their field names are stable.
   SSCC, GLN, …) a valid check digit, so an invalid element makes the text plain
   (or a URL). Digital Link URLs add `url` and report a GTIN-8, -12 or -13 key
   as 14 digits.
-- **URL:** `url`, and `title` for bookmarks. **Phone:** `number`.
+- **URL:** `url` as encoded (a `www.` address has no scheme), and `title` for
+  bookmarks. **Phone:** `number`.
 - **Email:** `to` (repeated), `cc`, `bcc`, `subject`, `body`.
-- **SMS:** `number` (repeated), `message`.
+- **SMS:** `number` (repeated), `subject`, `message`.
 - **Geo:** `latitude`, `longitude`, `altitude`, `query`.
 - **WiFi:** `ssid`, `security` (`WPA`, `WEP`, `nopass`, …), `password`, `hidden`,
   and for enterprise networks `eapMethod`, `phase2Method`, `anonymousIdentity`,
@@ -107,7 +111,6 @@ removed, in minor releases. The other kinds and their field names are stable.
   `quantity`, `expiry`, `lot` or `serial`; `link` on a separate secondary symbol.
 - **VIN:** `vin`, `wmi`, `vds`, `vis`, `modelYear`, `plant`, `serial`. An `I`
   prefix on Code 39 labels is removed.
-- **ISBN:** `isbn` (13 digits), and `isbn10` for 978 numbers.
 - **AAMVA:** `issuerId`, `version`, `documentType` (`DL`, `ID`),
   `licenseNumber`, `lastName`, `firstName`, `middleName`, `fullName`,
   `dateOfBirth`, `expirationDate`, `issueDate`, `sex`, `street`, `street2`,
@@ -115,6 +118,9 @@ removed, in minor releases. The other kinds and their field names are stable.
   `vehicleClass`, `restrictions`, `endorsements`, `documentDiscriminator`,
   `complianceType`. Dates keep the issuer's order (`MMDDCCYY` in the US,
   `CCYYMMDD` in Canada).
+- **ISBN:** `isbn13`, and `isbn10` for numbers starting with 978. A book's price
+  is not in the number; it is the five-digit supplement (`eanAddOn` with an
+  `eanAddOnPolicy` of `read`).
 
 ## Validation
 
@@ -127,11 +133,8 @@ A payload that fails these checks has no content, rather than partial fields:
 - **HIBC:** the check character. **VIN:** the position-9 check digit, so VINs
   without one (common in Europe) are not recognized.
 - **AAMVA:** a license number or last name.
-- **URL without a scheme:** only `www.` followed by a valid host name. Other
-  scheme-less names such as `example.com` stay plain text, because they cannot
-  be told apart from ordinary text reliably.
-- **Bare e-mail address:** the whole text is one address with a host name.
-- **ISBN:** the check digit; 979-0 numbers are music (ISMN) and stay plain.
+- **ISBN:** the check digit. A 10-digit ISBN needs the `ISBN` or `urn:isbn:`
+  label, and 979-0 numbers are printed music (ISMN), not books.
 
 Not covered: Aadhaar QR codes, GS1 element titles and value conversion, Swiss
 QR-bill alternative-scheme payloads, and vCard parameters such as `TYPE=WORK`.
