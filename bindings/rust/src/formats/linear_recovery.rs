@@ -304,15 +304,16 @@ impl Scanner {
                         found.extend(extra);
                     }
                 }
-                // On such a sheet, also run Low's whole-image sweep for the formats that
-                // Medium otherwise reads only in boxes: Low reads its rows there.
-                if oriented_mask & LINEAR_MASK & !SWEPT != 0 && sheet_like {
+                // On such a sheet, also run Low's whole-image sweep for the non-retail
+                // formats that Medium otherwise reads only in boxes: Low reads their rows
+                // there. Swept UPC-E rows give wrong reads on sheets of them.
+                if oriented_mask & NON_RETAIL_LINEAR != 0 && sheet_like {
                     let w = barcode_research_core::numeric::usize_f64(image.width);
                     let h = barcode_research_core::numeric::usize_f64(image.height);
                     found.extend(sweep_box(
                         image,
                         &[[0., 0.], [w, 0.], [w, h], [0., h]],
-                        oriented_mask & LINEAR_MASK & !SWEPT,
+                        oriented_mask & NON_RETAIL_LINEAR,
                         &mut self.additional_gray,
                     )?);
                 }

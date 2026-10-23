@@ -256,7 +256,12 @@ fn decode_matrix_impl(
             continue;
         }
         let ecc = words.len() - data_words;
-        let Some(corrected) = reed_solomon::words(word_bits, poly).correct(&mut words, ecc, 1)
+        // Six error-correction words correct three; a sampling with more errors can then
+        // decode to another valid-looking payload, which small symbols on sheets showed.
+        // Such symbols keep one correction in reserve.
+        let Some(corrected) = reed_solomon::words(word_bits, poly)
+            .correct(&mut words, ecc, 1)
+            .filter(|&corrected| ecc > 6 || corrected * 2 < ecc)
         else {
             continue;
         };
