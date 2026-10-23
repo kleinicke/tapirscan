@@ -21,6 +21,7 @@ ContentKind: TypeAlias = Literal[
     "HIBC",
     "VIN",
     "AAMVA",
+    "ISBN",
 ]
 CONTENT_KINDS: dict[int, ContentKind] = {
     1: "GS1",
@@ -37,4 +38,5 @@ CONTENT_KINDS: dict[int, ContentKind] = {
     12: "HIBC",
     13: "VIN",
     14: "AAMVA",
+    15: "ISBN",
 }

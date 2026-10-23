@@ -236,7 +236,11 @@ fn parses_content_through_owned_handles() {
             ARG
         );
         assert!(tapirscan_content_kind_name(0).is_null());
-        assert!(tapirscan_content_kind_name(15).is_null());
+        assert_eq!(
+            CStr::from_ptr(tapirscan_content_kind_name(15)).to_str(),
+            Ok("ISBN")
+        );
+        assert!(tapirscan_content_kind_name(16).is_null());
     }
 }
 

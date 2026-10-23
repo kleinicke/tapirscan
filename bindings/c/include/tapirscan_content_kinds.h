@@ -5,19 +5,19 @@
 typedef enum tapirscan_content_kind {
     /* GS1 element string or GS1 Digital Link URI; fields are named by application identifier. */
     TAPIRSCAN_CONTENT_GS1 = 1,
-    /* Web address (`http:` or `https:`). */
+    /* Web address (`http:`, `https:`, `www.`) or bookmark (`URLTO:`, `MEBKM:`). */
     TAPIRSCAN_CONTENT_URL = 2,
-    /* E-mail (`mailto:`, `MATMSG:`). */
+    /* E-mail (`mailto:`, `MATMSG:`, `SMTP:` or a bare address). */
     TAPIRSCAN_CONTENT_EMAIL = 3,
     /* Telephone number (`tel:`). */
     TAPIRSCAN_CONTENT_PHONE = 4,
-    /* Text message (`SMSTO:`, `sms:`, `MMSTO:`). */
+    /* Text message (`SMSTO:`, `sms:`, `MMSTO:`, `mms:`). */
     TAPIRSCAN_CONTENT_SMS = 5,
     /* Geographic location (`geo:`). */
     TAPIRSCAN_CONTENT_GEO = 6,
     /* Wi-Fi network configuration (`WIFI:`). */
     TAPIRSCAN_CONTENT_WIFI = 7,
-    /* Contact card (vCard or `MECARD:`). */
+    /* Contact card (vCard, `MECARD:` or `BIZCARD:`). */
     TAPIRSCAN_CONTENT_CONTACT = 8,
     /* Calendar event (iCalendar `VEVENT`). */
     TAPIRSCAN_CONTENT_CALENDAR = 9,
@@ -30,6 +30,8 @@ typedef enum tapirscan_content_kind {
     /* Vehicle identification number with a valid check digit. Experimental: may change in minor releases. */
     TAPIRSCAN_CONTENT_VIN = 13,
     /* AAMVA driver's license or identification card. Experimental: may change in minor releases. */
-    TAPIRSCAN_CONTENT_AAMVA = 14
+    TAPIRSCAN_CONTENT_AAMVA = 14,
+    /* International Standard Book Number in EAN-13 form (978 or 979, not the 979-0 ISMN range) with a valid check digit. Experimental: may change in minor releases. */
+    TAPIRSCAN_CONTENT_ISBN = 15
 } tapirscan_content_kind;
 #endif

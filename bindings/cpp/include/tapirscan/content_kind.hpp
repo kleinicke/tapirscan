@@ -8,19 +8,19 @@ namespace tapirscan {
 enum class ContentKind : std::uint32_t {
     /// GS1 element string or GS1 Digital Link URI; fields are named by application identifier.
     Gs1 = TAPIRSCAN_CONTENT_GS1,
-    /// Web address (`http:` or `https:`).
+    /// Web address (`http:`, `https:`, `www.`) or bookmark (`URLTO:`, `MEBKM:`).
     Url = TAPIRSCAN_CONTENT_URL,
-    /// E-mail (`mailto:`, `MATMSG:`).
+    /// E-mail (`mailto:`, `MATMSG:`, `SMTP:` or a bare address).
     Email = TAPIRSCAN_CONTENT_EMAIL,
     /// Telephone number (`tel:`).
     Phone = TAPIRSCAN_CONTENT_PHONE,
-    /// Text message (`SMSTO:`, `sms:`, `MMSTO:`).
+    /// Text message (`SMSTO:`, `sms:`, `MMSTO:`, `mms:`).
     Sms = TAPIRSCAN_CONTENT_SMS,
     /// Geographic location (`geo:`).
     Geo = TAPIRSCAN_CONTENT_GEO,
     /// Wi-Fi network configuration (`WIFI:`).
     Wifi = TAPIRSCAN_CONTENT_WIFI,
-    /// Contact card (vCard or `MECARD:`).
+    /// Contact card (vCard, `MECARD:` or `BIZCARD:`).
     Contact = TAPIRSCAN_CONTENT_CONTACT,
     /// Calendar event (iCalendar `VEVENT`).
     Calendar = TAPIRSCAN_CONTENT_CALENDAR,
@@ -34,5 +34,7 @@ enum class ContentKind : std::uint32_t {
     Vin = TAPIRSCAN_CONTENT_VIN,
     /// AAMVA driver's license or identification card. Experimental: may change in minor releases.
     Aamva = TAPIRSCAN_CONTENT_AAMVA,
+    /// International Standard Book Number in EAN-13 form (978 or 979, not the 979-0 ISMN range) with a valid check digit. Experimental: may change in minor releases.
+    Isbn = TAPIRSCAN_CONTENT_ISBN,
 };
 }  // namespace tapirscan

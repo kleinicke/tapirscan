@@ -525,6 +525,8 @@ fn unstructured_text_has_no_content() {
         "",
         "Hello",
         "4006381333931",
+        "9780306406158",
+        "9790260000438",
         "ABC-123",
         "+",
         "BCD",
@@ -532,7 +534,7 @@ fn unstructured_text_has_no_content() {
     ] {
         assert_eq!(parse_content(text, false), None, "{text:?}");
     }
-    assert_eq!(ContentKind::ALL.len(), 14);
+    assert_eq!(ContentKind::ALL.len(), 15);
     for (i, kind) in ContentKind::ALL.iter().enumerate() {
         assert_eq!(*kind as usize, i + 1);
         assert_eq!(
@@ -540,4 +542,145 @@ fn unstructured_text_has_no_content() {
             serde_json::json!(kind.as_str())
         );
     }
+}
+
+#[test]
+fn web_addresses_without_a_scheme_and_bookmarks() {
+    for (text, url) in [
+        ("www.example.com", "www.example.com"),
+        ("WWW.EXAMPLE.CO.UK/MENU?T=4", "WWW.EXAMPLE.CO.UK/MENU?T=4"),
+        ("www.shop-1.de:8080/a#b", "www.shop-1.de:8080/a#b"),
+    ] {
+        assert_eq!(
+            parsed(text, false),
+            (ContentKind::Url, pairs(&[("url", url)])),
+            "{text}"
+        );
+    }
+    assert_eq!(
+        parsed("URLTO:Menu:https://example.com/menu", false),
+        (
+            ContentKind::Url,
+            pairs(&[("url", "https://example.com/menu"), ("title", "Menu")])
+        )
+    );
+    assert_eq!(
+        parsed("urlto::www.example.com", false),
+        (ContentKind::Url, pairs(&[("url", "www.example.com")]))
+    );
+    assert_eq!(
+        parsed("URLTO:http://example.com", false),
+        (ContentKind::Url, pairs(&[("url", "http://example.com")]))
+    );
+    assert_eq!(
+        parsed("MEBKM:TITLE:Tapir\\;s;URL:https://example.com/a;;", false),
+        (
+            ContentKind::Url,
+            pairs(&[("url", "https://example.com/a"), ("title", "Tapir;s")])
+        )
+    );
+    // Scheme-less names without `www.` are ambiguous and stay plain text, as do
+    // malformed hosts and bookmarks without a recognized web address.
+    for text in [
+        "example.com",
+        "shop.example.com/menu",
+        "www.example",
+        "www.example.c0m",
+        "www..example.com",
+        "www.-example.com",
+        "www.example.com and more",
+        "URLTO:Menu:example.com",
+        "MEBKM:TITLE:x;URL:ftp://example.com;;",
+    ] {
+        assert_eq!(parse_content(text, false), None, "{text:?}");
+    }
+}
+
+#[test]
+fn bare_and_legacy_email_addresses() {
+    assert_eq!(
+        parsed("first.last+tag@mail.example.org", false),
+        (
+            ContentKind::Email,
+            pairs(&[("to", "first.last+tag@mail.example.org")])
+        )
+    );
+    assert_eq!(
+        parsed("SMTP:a@example.com:Hello:Body: with colon", false),
+        (
+            ContentKind::Email,
+            pairs(&[
+                ("to", "a@example.com"),
+                ("subject", "Hello"),
+                ("body", "Body: with colon")
+            ])
+        )
+    );
+    for text in [
+        "a@b",
+        "a@example.c",
+        "a@example.123",
+        ".a@example.com",
+        "a..b@example.com",
+        "a b@example.com",
+        "a@b@example.com",
+        "@example.com",
+        "Mail a@example.com",
+        "SMTP::Hello",
+    ] {
+        assert_eq!(parse_content(text, false), None, "{text:?}");
+    }
+}
+
+#[test]
+fn mms_links_and_business_cards() {
+    assert_eq!(
+        parsed("mms:+15551234?body=Hi%20there", false),
+        (
+            ContentKind::Sms,
+            pairs(&[("number", "+15551234"), ("message", "Hi there")])
+        )
+    );
+    assert_eq!(
+        parsed(
+            "BIZCARD:N:Sean;X:Owen;T:Engineer;C:Example Inc.;A:76 9th Avenue;\
+             B:+12125551212;M:+12125559999;E:sean@example.com;;",
+            false
+        ),
+        (
+            ContentKind::Contact,
+            pairs(&[
+                ("name", "Sean Owen"),
+                ("title", "Engineer"),
+                ("organization", "Example Inc."),
+                ("address", "76 9th Avenue"),
+                ("phone", "+12125551212"),
+                ("phone", "+12125559999"),
+                ("email", "sean@example.com")
+            ])
+        )
+    );
+    assert_eq!(parse_content("BIZCARD:;", false), None);
+}
+
+#[test]
+fn book_numbers() {
+    assert_eq!(
+        parsed("9780306406157", false),
+        (
+            ContentKind::Isbn,
+            pairs(&[("isbn", "9780306406157"), ("isbn10", "0306406152")])
+        )
+    );
+    assert_eq!(
+        parsed("9781861972712", false).1[1],
+        ("isbn10".to_string(), "1861972717".to_string())
+    );
+    // 979 numbers have no ISBN-10; 979-0 is the ISMN range for printed music.
+    assert_eq!(
+        parsed("9791032305690", false),
+        (ContentKind::Isbn, pairs(&[("isbn", "9791032305690")]))
+    );
+    assert_eq!(parse_content("9790260000438", false), None);
+    assert_eq!(parse_content("978030640615", false), None);
 }

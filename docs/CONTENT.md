@@ -63,19 +63,20 @@ removed, in minor releases. The other kinds and their field names are stable.
 | Kind                         | Recognized by                                                      |
 | ---------------------------- | ------------------------------------------------------------------ |
 | `GS1`                        | GS1 flag; `]C1`, `]d2`, `]Q3`, `]e0`, `]J1`; `(01)…`; Digital Link |
-| `URL`                        | `http://`, `https://`                                              |
-| `Email`                      | `mailto:`, `MATMSG:`                                               |
+| `URL`                        | `http://`, `https://`, `www.` with a host name; `URLTO:`, `MEBKM:` |
+| `Email`                      | `mailto:`, `MATMSG:`, `SMTP:`; text that is one e-mail address     |
 | `Phone`                      | `tel:`                                                             |
-| `SMS`                        | `SMSTO:`, `MMSTO:`, `sms:`                                         |
+| `SMS`                        | `SMSTO:`, `MMSTO:`, `sms:`, `mms:`                                 |
 | `Geo`                        | `geo:`                                                             |
 | `WiFi`                       | `WIFI:`                                                            |
-| `Contact`                    | vCard, `MECARD:`                                                   |
+| `Contact`                    | vCard, `MECARD:`, `BIZCARD:`                                       |
 | `Calendar`                   | iCalendar `VEVENT`                                                 |
 | `SwissQRBill` (experimental) | `SPC` with an `EPD` trailer                                        |
 | `EPCPayment` (experimental)  | SEPA credit transfer, `BCD`                                        |
 | `HIBC` (experimental)        | `+` and a valid mod-43 check character                             |
 | `VIN` (experimental)         | 17 characters with a valid check digit                             |
 | `AAMVA` (experimental)       | `@` and an `ANSI ` or `AAMVA` header                               |
+| `ISBN` (experimental)        | 13 digits starting with 978 or 979 and a valid check digit         |
 
 ## Fields
 
@@ -85,7 +86,7 @@ removed, in minor releases. The other kinds and their field names are stable.
   SSCC, GLN, …) a valid check digit, so an invalid element makes the text plain
   (or a URL). Digital Link URLs add `url` and report a GTIN-8, -12 or -13 key
   as 14 digits.
-- **URL:** `url`. **Phone:** `number`.
+- **URL:** `url`, and `title` for bookmarks. **Phone:** `number`.
 - **Email:** `to` (repeated), `cc`, `bcc`, `subject`, `body`.
 - **SMS:** `number` (repeated), `message`.
 - **Geo:** `latitude`, `longitude`, `altitude`, `query`.
@@ -106,6 +107,7 @@ removed, in minor releases. The other kinds and their field names are stable.
   `quantity`, `expiry`, `lot` or `serial`; `link` on a separate secondary symbol.
 - **VIN:** `vin`, `wmi`, `vds`, `vis`, `modelYear`, `plant`, `serial`. An `I`
   prefix on Code 39 labels is removed.
+- **ISBN:** `isbn` (13 digits), and `isbn10` for 978 numbers.
 - **AAMVA:** `issuerId`, `version`, `documentType` (`DL`, `ID`),
   `licenseNumber`, `lastName`, `firstName`, `middleName`, `fullName`,
   `dateOfBirth`, `expirationDate`, `issueDate`, `sex`, `street`, `street2`,
@@ -125,6 +127,11 @@ A payload that fails these checks has no content, rather than partial fields:
 - **HIBC:** the check character. **VIN:** the position-9 check digit, so VINs
   without one (common in Europe) are not recognized.
 - **AAMVA:** a license number or last name.
+- **URL without a scheme:** only `www.` followed by a valid host name. Other
+  scheme-less names such as `example.com` stay plain text, because they cannot
+  be told apart from ordinary text reliably.
+- **Bare e-mail address:** the whole text is one address with a host name.
+- **ISBN:** the check digit; 979-0 numbers are music (ISMN) and stay plain.
 
 Not covered: Aadhaar QR codes, GS1 element titles and value conversion, Swiss
 QR-bill alternative-scheme payloads, and vCard parameters such as `TYPE=WORK`.

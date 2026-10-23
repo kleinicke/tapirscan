@@ -12,14 +12,14 @@
       "name": "URL",
       "rust": "Url",
       "swift": "url",
-      "description": "Web address (`http:` or `https:`)."
+      "description": "Web address (`http:`, `https:`, `www.`) or bookmark (`URLTO:`, `MEBKM:`)."
     },
     {
       "code": 3,
       "name": "Email",
       "rust": "Email",
       "swift": "email",
-      "description": "E-mail (`mailto:`, `MATMSG:`)."
+      "description": "E-mail (`mailto:`, `MATMSG:`, `SMTP:` or a bare address)."
     },
     {
       "code": 4,
@@ -33,7 +33,7 @@
       "name": "SMS",
       "rust": "Sms",
       "swift": "sms",
-      "description": "Text message (`SMSTO:`, `sms:`, `MMSTO:`)."
+      "description": "Text message (`SMSTO:`, `sms:`, `MMSTO:`, `mms:`)."
     },
     {
       "code": 6,
@@ -54,7 +54,7 @@
       "name": "Contact",
       "rust": "Contact",
       "swift": "contact",
-      "description": "Contact card (vCard or `MECARD:`)."
+      "description": "Contact card (vCard, `MECARD:` or `BIZCARD:`)."
     },
     {
       "code": 9,
@@ -101,6 +101,14 @@
       "rust": "Aamva",
       "swift": "aamva",
       "description": "AAMVA driver's license or identification card.",
+      "experimental": true
+    },
+    {
+      "code": 15,
+      "name": "ISBN",
+      "rust": "Isbn",
+      "swift": "isbn",
+      "description": "International Standard Book Number in EAN-13 form (978 or 979, not the 979-0 ISMN range) with a valid check digit.",
       "experimental": true
     }
   ]

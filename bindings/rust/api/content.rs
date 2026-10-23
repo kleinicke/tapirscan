@@ -100,8 +100,14 @@ pub fn parse_content(text: &str, gs1: bool) -> Option<Content> {
         .collect::<String>()
         .to_ascii_uppercase();
     let starts = |prefix: &str| upper.starts_with(prefix);
-    if starts("HTTP://") || starts("HTTPS://") {
-        return Some(digital_link(text).unwrap_or_else(|| single(ContentKind::Url, "url", text)));
+    if starts("HTTP://") || starts("HTTPS://") || starts("WWW.") {
+        return web_url(text);
+    }
+    if starts("URLTO:") {
+        return urlto(&text[6..]);
+    }
+    if starts("MEBKM:") {
+        return mebkm(&text[6..]);
     }
     if starts("MAILTO:") {
         return mailto(&text[7..]);
@@ -109,13 +115,16 @@ pub fn parse_content(text: &str, gs1: bool) -> Option<Content> {
     if starts("MATMSG:") {
         return matmsg(&text[7..]);
     }
+    if starts("SMTP:") {
+        return smtp(&text[5..]);
+    }
     if starts("TEL:") {
         return Some(single(ContentKind::Phone, "number", text[4..].trim()));
     }
     if starts("SMSTO:") || starts("MMSTO:") {
         return smsto(&text[6..]);
     }
-    if starts("SMS:") {
+    if starts("SMS:") || starts("MMS:") {
         return sms_uri(&text[4..]);
     }
     if starts("GEO:") {
@@ -126,6 +135,9 @@ pub fn parse_content(text: &str, gs1: bool) -> Option<Content> {
     }
     if starts("MECARD:") {
         return mecard(&text[7..]);
+    }
+    if starts("BIZCARD:") {
+        return bizcard(&text[8..]);
     }
     if starts("BEGIN:VCARD") {
         return vcard(text);
@@ -145,7 +157,9 @@ pub fn parse_content(text: &str, gs1: bool) -> Option<Content> {
     if text.starts_with('+') {
         return hibc(text);
     }
-    vin(text)
+    isbn(text)
+        .or_else(|| email_address(text))
+        .or_else(|| vin(text))
 }
 
 fn single(kind: ContentKind, name: &str, value: &str) -> Content {
@@ -382,6 +396,91 @@ fn query_value<'a>(query: &'a str, key: &str) -> Option<&'a str> {
     })
 }
 
+/// A web address with an `http`/`https` scheme (or a GS1 Digital Link), or one
+/// that names its host with `www.`. Other scheme-less text such as `example.com`
+/// stays plain: it cannot be told apart from ordinary text reliably.
+fn web_url(text: &str) -> Option<Content> {
+    let upper = text.get(..8).unwrap_or(text).to_ascii_uppercase();
+    if upper.starts_with("HTTP://") || upper.starts_with("HTTPS://") {
+        return Some(digital_link(text).unwrap_or_else(|| single(ContentKind::Url, "url", text)));
+    }
+    let host = text.split(['/', '?', '#', ':']).next().unwrap_or(text);
+    (upper.starts_with("WWW.")
+        && domain_name(host, 3)
+        && !text.chars().any(|c| c.is_whitespace() || c.is_control()))
+    .then(|| single(ContentKind::Url, "url", text))
+}
+
+/// A DNS host name with at least `labels` labels and an alphabetic top-level
+/// domain of two or more letters.
+fn domain_name(host: &str, labels: usize) -> bool {
+    let parts: Vec<&str> = host.split('.').collect();
+    parts.len() >= labels
+        && parts.iter().all(|part| {
+            (1..=63).contains(&part.len())
+                && !part.starts_with('-')
+                && !part.ends_with('-')
+                && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+        && parts
+            .last()
+            .is_some_and(|tld| tld.len() >= 2 && tld.bytes().all(|b| b.is_ascii_alphabetic()))
+}
+
+/// Bookmark with an optional title; only recognized web addresses count.
+fn bookmark(url: &str, title: &str) -> Option<Content> {
+    let mut content = web_url(url.trim())?;
+    content.push("title", title.trim());
+    Some(content)
+}
+
+/// `URLTO:[title]:url` (Docomo); the title may be omitted.
+fn urlto(rest: &str) -> Option<Content> {
+    bookmark(rest, "").or_else(|| {
+        let (title, url) = rest.split_once(':')?;
+        bookmark(url, title)
+    })
+}
+
+/// `MEBKM:TITLE:…;URL:…;;` (Docomo bookmark).
+fn mebkm(rest: &str) -> Option<Content> {
+    let (mut title, mut url) = (String::new(), String::new());
+    for (key, value) in semicolon_pairs(rest) {
+        match key.as_str() {
+            "TITLE" => title = value,
+            "URL" => url = value,
+            _ => {}
+        }
+    }
+    bookmark(&url, &title)
+}
+
+/// Text that is exactly one e-mail address, such as `name@example.com`.
+fn email_address(text: &str) -> Option<Content> {
+    let (local, domain) = text.split_once('@')?;
+    let local_valid = (1..=64).contains(&local.len())
+        && !local.starts_with('.')
+        && !local.ends_with('.')
+        && !local.contains("..")
+        && local
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._%+-".contains(&b));
+    (local_valid && domain_name(domain, 2)).then(|| single(ContentKind::Email, "to", text))
+}
+
+/// `SMTP:to:subject:body`.
+fn smtp(rest: &str) -> Option<Content> {
+    let mut parts = rest.splitn(3, ':');
+    let to = parts.next()?.trim();
+    if to.is_empty() {
+        return None;
+    }
+    let mut content = single(ContentKind::Email, "to", to);
+    content.push("subject", parts.next().unwrap_or(""));
+    content.push("body", parts.next().unwrap_or(""));
+    Some(content)
+}
+
 fn mailto(rest: &str) -> Option<Content> {
     let (to, query) = rest.split_once('?').unwrap_or((rest, ""));
     let mut content = Content::new(ContentKind::Email);
@@ -554,6 +653,37 @@ fn mecard(rest: &str) -> Option<Content> {
 }
 
 /// Unfolded `NAME;PARAMS:value` lines of a vCard or iCalendar object.
+/// `BIZCARD:N:first;X:last;T:title;C:company;A:address;B:phone;M:mobile;F:fax;E:email;;`
+fn bizcard(rest: &str) -> Option<Content> {
+    let (mut first, mut last) = (String::new(), String::new());
+    let mut fields = Vec::new();
+    for (key, value) in semicolon_pairs(rest) {
+        let name = match key.as_str() {
+            "N" => {
+                first = value;
+                continue;
+            }
+            "X" => {
+                last = value;
+                continue;
+            }
+            "T" => "title",
+            "C" => "organization",
+            "A" => "address",
+            "B" | "M" | "F" => "phone",
+            "E" => "email",
+            _ => continue,
+        };
+        fields.push((name, value));
+    }
+    let mut content = Content::new(ContentKind::Contact);
+    content.push("name", format!("{} {}", first.trim(), last.trim()).trim());
+    for (name, value) in fields {
+        content.push(name, value);
+    }
+    content.nonempty()
+}
+
 fn content_lines(text: &str) -> Vec<(String, String)> {
     let mut unfolded: Vec<String> = Vec::new();
     for line in text.split('\n').map(|l| l.trim_end_matches('\r')) {
@@ -877,6 +1007,34 @@ fn hibc_secondary(content: &mut Content, data: &str, after_dollar: bool) -> Opti
     }
     content.push(key, rest);
     Some(())
+}
+
+// ---------------------------------------------------------------- ISBN
+
+/// ISBN in its EAN-13 form: prefix 978 or 979 (979-0 is the ISMN range for
+/// printed music) and a valid check digit. A 978 number also gets its ISBN-10.
+fn isbn(text: &str) -> Option<Content> {
+    let digits = text.as_bytes();
+    if digits.len() != 13
+        || !(text.starts_with("978") || (text.starts_with("979") && digits[3] != b'0'))
+        || !gs1_check_digit(text)
+    {
+        return None;
+    }
+    let mut content = single(ContentKind::Isbn, "isbn", text);
+    if text.starts_with("978") {
+        let sum: u32 = digits[3..12]
+            .iter()
+            .zip((2..=10).rev())
+            .map(|(&d, weight)| u32::from(d - b'0') * weight)
+            .sum();
+        let check = match (11 - sum % 11) % 11 {
+            10 => 'X',
+            n => char::from_digit(n, 10)?,
+        };
+        content.push("isbn10", format!("{}{check}", &text[3..12]));
+    }
+    Some(content)
 }
 
 // ---------------------------------------------------------------- VIN

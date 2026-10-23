@@ -4,19 +4,19 @@
 public enum ContentKind: UInt32, CaseIterable, Sendable, CustomStringConvertible {
     /// GS1 element string or GS1 Digital Link URI; fields are named by application identifier.
     case gs1 = 1
-    /// Web address (`http:` or `https:`).
+    /// Web address (`http:`, `https:`, `www.`) or bookmark (`URLTO:`, `MEBKM:`).
     case url = 2
-    /// E-mail (`mailto:`, `MATMSG:`).
+    /// E-mail (`mailto:`, `MATMSG:`, `SMTP:` or a bare address).
     case email = 3
     /// Telephone number (`tel:`).
     case phone = 4
-    /// Text message (`SMSTO:`, `sms:`, `MMSTO:`).
+    /// Text message (`SMSTO:`, `sms:`, `MMSTO:`, `mms:`).
     case sms = 5
     /// Geographic location (`geo:`).
     case geo = 6
     /// Wi-Fi network configuration (`WIFI:`).
     case wifi = 7
-    /// Contact card (vCard or `MECARD:`).
+    /// Contact card (vCard, `MECARD:` or `BIZCARD:`).
     case contact = 8
     /// Calendar event (iCalendar `VEVENT`).
     case calendar = 9
@@ -30,6 +30,8 @@ public enum ContentKind: UInt32, CaseIterable, Sendable, CustomStringConvertible
     case vin = 13
     /// AAMVA driver's license or identification card. Experimental: may change in minor releases.
     case aamva = 14
+    /// International Standard Book Number in EAN-13 form (978 or 979, not the 979-0 ISMN range) with a valid check digit. Experimental: may change in minor releases.
+    case isbn = 15
 
     /// Stable name shared with the other bindings, such as `"WiFi"`.
     public var name: String {
@@ -48,6 +50,7 @@ public enum ContentKind: UInt32, CaseIterable, Sendable, CustomStringConvertible
         case .hibc: "HIBC"
         case .vin: "VIN"
         case .aamva: "AAMVA"
+        case .isbn: "ISBN"
         }
     }
 

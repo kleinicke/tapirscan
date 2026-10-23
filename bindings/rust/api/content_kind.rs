@@ -10,14 +10,14 @@ pub enum ContentKind {
     /// GS1 element string or GS1 Digital Link URI; fields are named by application identifier.
     #[serde(rename = "GS1")]
     Gs1 = 1,
-    /// Web address (`http:` or `https:`).
+    /// Web address (`http:`, `https:`, `www.`) or bookmark (`URLTO:`, `MEBKM:`).
     #[serde(rename = "URL")]
     Url = 2,
-    /// E-mail (`mailto:`, `MATMSG:`).
+    /// E-mail (`mailto:`, `MATMSG:`, `SMTP:` or a bare address).
     Email = 3,
     /// Telephone number (`tel:`).
     Phone = 4,
-    /// Text message (`SMSTO:`, `sms:`, `MMSTO:`).
+    /// Text message (`SMSTO:`, `sms:`, `MMSTO:`, `mms:`).
     #[serde(rename = "SMS")]
     Sms = 5,
     /// Geographic location (`geo:`).
@@ -25,7 +25,7 @@ pub enum ContentKind {
     /// Wi-Fi network configuration (`WIFI:`).
     #[serde(rename = "WiFi")]
     Wifi = 7,
-    /// Contact card (vCard or `MECARD:`).
+    /// Contact card (vCard, `MECARD:` or `BIZCARD:`).
     Contact = 8,
     /// Calendar event (iCalendar `VEVENT`).
     Calendar = 9,
@@ -44,6 +44,9 @@ pub enum ContentKind {
     /// AAMVA driver's license or identification card. Experimental: may change in minor releases.
     #[serde(rename = "AAMVA")]
     Aamva = 14,
+    /// International Standard Book Number in EAN-13 form (978 or 979, not the 979-0 ISMN range) with a valid check digit. Experimental: may change in minor releases.
+    #[serde(rename = "ISBN")]
+    Isbn = 15,
 }
 
 impl ContentKind {
@@ -63,6 +66,7 @@ impl ContentKind {
         Self::Hibc,
         Self::Vin,
         Self::Aamva,
+        Self::Isbn,
     ];
 
     /// Stable name shared by every binding.
@@ -83,6 +87,7 @@ impl ContentKind {
             Self::Hibc => "HIBC",
             Self::Vin => "VIN",
             Self::Aamva => "AAMVA",
+            Self::Isbn => "ISBN",
         }
     }
 }

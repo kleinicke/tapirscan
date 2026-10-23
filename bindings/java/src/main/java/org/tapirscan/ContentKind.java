@@ -5,19 +5,19 @@ package org.tapirscan;
 public enum ContentKind {
     /** GS1 element string or GS1 Digital Link URI; fields are named by application identifier. */
     GS1(1, "GS1"),
-    /** Web address ({@code http:} or {@code https:}). */
+    /** Web address ({@code http:}, {@code https:}, {@code www.}) or bookmark ({@code URLTO:}, {@code MEBKM:}). */
     URL(2, "URL"),
-    /** E-mail ({@code mailto:}, {@code MATMSG:}). */
+    /** E-mail ({@code mailto:}, {@code MATMSG:}, {@code SMTP:} or a bare address). */
     EMAIL(3, "Email"),
     /** Telephone number ({@code tel:}). */
     PHONE(4, "Phone"),
-    /** Text message ({@code SMSTO:}, {@code sms:}, {@code MMSTO:}). */
+    /** Text message ({@code SMSTO:}, {@code sms:}, {@code MMSTO:}, {@code mms:}). */
     SMS(5, "SMS"),
     /** Geographic location ({@code geo:}). */
     GEO(6, "Geo"),
     /** Wi-Fi network configuration ({@code WIFI:}). */
     WIFI(7, "WiFi"),
-    /** Contact card (vCard or {@code MECARD:}). */
+    /** Contact card (vCard, {@code MECARD:} or {@code BIZCARD:}). */
     CONTACT(8, "Contact"),
     /** Calendar event (iCalendar {@code VEVENT}). */
     CALENDAR(9, "Calendar"),
@@ -30,7 +30,9 @@ public enum ContentKind {
     /** Vehicle identification number with a valid check digit. Experimental: may change in minor releases. */
     VIN(13, "VIN"),
     /** AAMVA driver's license or identification card. Experimental: may change in minor releases. */
-    AAMVA(14, "AAMVA");
+    AAMVA(14, "AAMVA"),
+    /** International Standard Book Number in EAN-13 form (978 or 979, not the 979-0 ISMN range) with a valid check digit. Experimental: may change in minor releases. */
+    ISBN(15, "ISBN");
 
     private final int code;
     private final String schemaName;
