@@ -12,25 +12,49 @@
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
     },
+    "./browser/worker": {
+      "types": "./dist/browser-worker.d.ts",
+      "import": "./dist/browser-worker.js"
+    },
     "./browser/low": {
       "types": "./dist/browser-low.d.ts",
       "import": "./dist/browser-low.js"
+    },
+    "./browser/low/worker": {
+      "types": "./dist/browser-worker-low.d.ts",
+      "import": "./dist/browser-worker-low.js"
     },
     "./browser/medium": {
       "types": "./dist/browser-medium.d.ts",
       "import": "./dist/browser-medium.js"
     },
+    "./browser/medium/worker": {
+      "types": "./dist/browser-worker-medium.d.ts",
+      "import": "./dist/browser-worker-medium.js"
+    },
     "./browser/high": {
       "types": "./dist/browser-high.d.ts",
       "import": "./dist/browser-high.js"
+    },
+    "./browser/high/worker": {
+      "types": "./dist/browser-worker-high.d.ts",
+      "import": "./dist/browser-worker-high.js"
     },
     "./browser/very-high": {
       "types": "./dist/browser-very-high.d.ts",
       "import": "./dist/browser-very-high.js"
     },
+    "./browser/very-high/worker": {
+      "types": "./dist/browser-worker-very-high.d.ts",
+      "import": "./dist/browser-worker-very-high.js"
+    },
     "./camera": {
       "types": "./dist/camera.d.ts",
       "import": "./dist/camera.js"
+    },
+    "./support": {
+      "types": "./dist/support.d.ts",
+      "import": "./dist/support.js"
     },
     "./wasm/low.wasm": "./wasm/low.wasm",
     "./wasm/medium.wasm": "./wasm/medium.wasm",

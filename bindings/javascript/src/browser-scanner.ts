@@ -14,6 +14,7 @@ import type {
   ScanResult,
 } from "./index.js";
 import { ScannerError } from "./rust-session.js";
+import { browserSupported } from "./support.js";
 
 /**
  * A file or blob (JPEG, PNG and other browser-decodable images), an `<img>`,
@@ -43,9 +44,15 @@ export interface ScannerOptions {
   experimentalTurbo?: ExperimentalTurbo;
   /** Serve the packaged WASM files from another directory, such as a CDN. */
   wasmBaseUrl?: string | URL;
+  /**
+   * Start the scanner's worker yourself, for bundlers that do not emit workers from
+   * packages (Angular). It must run an entry's worker module, such as
+   * `tapirscan/browser/medium/worker`; pair it with `wasmBaseUrl`.
+   */
+  worker?: () => Worker;
 }
 
-const singleModeOptions = ["formats", "eanAddOnPolicy", "wasmBaseUrl"];
+const singleModeOptions = ["formats", "eanAddOnPolicy", "wasmBaseUrl", "worker"];
 const scannerOptions = ["mode", "experimentalTurbo", ...singleModeOptions];
 interface Pending {
   resolve(value: unknown): void;
@@ -134,13 +141,22 @@ export class BrowserScanner {
         );
     }
     if (fixedMode !== undefined) options = { ...options, mode: fixedMode };
+    if (options.worker !== undefined && typeof options.worker !== "function")
+      throw new TypeError("worker must be a function that returns a Worker");
     if (typeof Worker === "undefined") {
       this.#closed = new Error(
         "tapirscan/browser scans in browsers; this environment has no Worker",
       );
       this.ready = Promise.reject(this.#closed);
+    } else if (!browserSupported()) {
+      // No worker is started, so nothing is downloaded.
+      this.#closed = new ScannerError(
+        "unsupported",
+        "Tapirscan needs WebAssembly SIMD, workers and OffscreenCanvas, which this browser lacks",
+      );
+      this.ready = Promise.reject(this.#closed);
     } else {
-      const { wasmBaseUrl, ...rest } = options;
+      const { wasmBaseUrl, worker: spawnCustom, ...rest } = options;
       if (
         wasmBaseUrl !== undefined &&
         typeof wasmBaseUrl !== "string" &&
@@ -152,7 +168,7 @@ export class BrowserScanner {
         wasmBaseUrl === undefined
           ? rest
           : { ...rest, wasmBaseUrl: new URL(wasmBaseUrl, base).href };
-      const worker = spawn();
+      const worker = (spawnCustom ?? spawn)();
       this.#worker = worker;
       worker.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
         const pending = this.#pending.get(data.id);

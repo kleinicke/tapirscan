@@ -50,9 +50,13 @@ test("package verification rejects WASM files built from different source", asyn
           `browser-${mode}.js`,
           `browser-${mode}.d.ts`,
           `browser-worker-${mode}.js`,
+          `browser-worker-${mode}.d.ts`,
         ]),
+        "browser-worker.d.ts",
         "freeze.js",
         "rust-session.js",
+        "support.js",
+        "support.d.ts",
       ].map((name) => `bindings/javascript/dist/${name}`),
       ...Object.keys(manifest.files).map((file) => `bindings/javascript/wasm/${file}`),
     ]);

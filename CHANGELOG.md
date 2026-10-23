@@ -10,6 +10,13 @@
   and none reads another value.
 - JavaScript: `tapirscan/browser/low`, `/medium`, `/high` and `/very-high` emit
   one mode's WASM into application builds instead of all eight files.
+- JavaScript: `tapirscan/support` reports whether a runtime can scan
+  (`browserSupported()`, `wasmSupported()`) without loading anything. Scanners
+  created where WebAssembly SIMD (or a browser's workers or `OffscreenCanvas`) is
+  missing download nothing and reject with the `ScannerError` code `"unsupported"`.
+- JavaScript: the browser `worker` option starts the scanner's worker from
+  application code, with the new `tapirscan/browser/<mode>/worker` modules, so
+  Angular production builds can bundle it.
 - JavaScript: `tapirscan/camera` adds `CameraScanner`, an optional camera loop
   for any browser scanner, with `scanInterval`, a scan `region` and
   `onDetect` after `confirmations` consecutive reads.

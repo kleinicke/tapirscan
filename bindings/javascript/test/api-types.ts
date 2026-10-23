@@ -154,3 +154,17 @@ export async function cameraConsumer(video: HTMLVideoElement, image: Image) {
   scanner.dispose();
   return [started, torch, track, camera.running, values, detected];
 }
+
+// tapirscan/support and a worker started by the application.
+import { browserSupported, wasmSupported } from "../dist/support.js";
+
+export function workerConsumer(): boolean {
+  const scanner = new MediumScanner({
+    wasmBaseUrl: new URL("tapirscan/", document.baseURI),
+    worker: () => new Worker(new URL("./scanner.worker.js", import.meta.url), { type: "module" }),
+  });
+  // @ts-expect-error The worker option takes a function, not a URL.
+  new MediumScanner({ worker: "./scanner.worker.js" });
+  scanner.dispose();
+  return browserSupported() && wasmSupported();
+}

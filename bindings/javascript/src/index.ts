@@ -10,6 +10,7 @@ import { freeze, type ReadonlyDeep } from "./freeze.js";
 import { pixelLayout } from "./layout.js";
 import { registerRowScan } from "./row-scan.js";
 import { type RowReader, RustScannerSession, ScannerError } from "./rust-session.js";
+import { wasmSupported } from "./support.js";
 
 export {
   commonFormats,
@@ -21,6 +22,7 @@ export {
 export type { Format, FormatSelection } from "./multiformat/formats.js";
 export type { ContentKind } from "./content-kind.js";
 export { ScannerError } from "./rust-session.js";
+export { wasmSupported } from "./support.js";
 
 export type Quad = readonly [
   readonly [number, number],
@@ -357,6 +359,12 @@ export class Scanner {
       !(options.wasmBaseUrl instanceof URL)
     )
       throw new TypeError("wasmBaseUrl must be a string or URL");
+    // Checked before loading, so an unsupported runtime downloads nothing.
+    if (!wasmSupported())
+      throw new ScannerError(
+        "unsupported",
+        "Tapirscan needs WebAssembly SIMD, which this runtime lacks",
+      );
     const base =
       options.wasmBaseUrl === undefined
         ? packagedWasm()

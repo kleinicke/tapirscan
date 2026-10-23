@@ -400,6 +400,77 @@ test("invalid URLs allocate no worker and failed initialization terminates its w
   });
 });
 
+test("a custom worker runs a single-mode entry's worker module", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { canvas } = globalThis.fixture;
+    const { Scanner } = await import("/dist/browser-medium.js");
+    let invalid;
+    try {
+      new Scanner({ worker: "/dist/browser-worker-medium.js" });
+    } catch (error) {
+      invalid = error.name;
+    }
+    let spawned = 0;
+    const scanner = new Scanner({
+      wasmBaseUrl: "/wasm/",
+      worker: () => {
+        spawned++;
+        return new Worker("/dist/browser-worker-medium.js", { type: "module" });
+      },
+    });
+    try {
+      const report = await scanner.inspect(canvas);
+      return { invalid, spawned, values: report.values, mode: report.mode };
+    } finally {
+      scanner.dispose();
+    }
+  });
+  const text = await page.evaluate(() => globalThis.fixture.text);
+  assert.deepEqual(outcome, { invalid: "TypeError", spawned: 1, values: [text], mode: "medium" });
+});
+
+test("browsers without WebAssembly SIMD reject scanners without starting a worker", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { Scanner, browserSupported } = globalThis.fixture.tapirscan;
+    const { validate } = WebAssembly;
+    const OriginalWorker = globalThis.Worker;
+    let created = 0;
+    globalThis.Worker = class extends OriginalWorker {
+      constructor(...args) {
+        super(...args);
+        created++;
+      }
+    };
+    WebAssembly.validate = () => false;
+    try {
+      const supported = browserSupported();
+      const scanner = new Scanner();
+      const [ready, scan] = await Promise.allSettled([
+        scanner.ready,
+        scanner.scan(globalThis.fixture.canvas),
+      ]);
+      scanner.dispose();
+      return {
+        supported,
+        created,
+        ready: ready.reason?.code,
+        scan: scan.reason?.code,
+        name: ready.reason?.name,
+      };
+    } finally {
+      WebAssembly.validate = validate;
+      globalThis.Worker = OriginalWorker;
+    }
+  });
+  assert.deepEqual(outcome, {
+    supported: false,
+    created: 0,
+    ready: "unsupported",
+    scan: "unsupported",
+    name: "ScannerError",
+  });
+});
+
 test("Turbo presets work in the browser entry", async () => {
   const outcome = await page.evaluate(async () => {
     const { canvas, tapirscan } = globalThis.fixture;

@@ -114,6 +114,7 @@ export async function verifyPackage() {
     ...["", ...expectedModes.map((mode) => `-${mode}`)].flatMap((entry) => [
       `dist/browser${entry}.d.ts`,
       `dist/browser${entry}.js`,
+      `dist/browser-worker${entry}.d.ts`,
       `dist/browser-worker${entry}.js`,
     ]),
     "dist/browser-scanner.js",
@@ -123,6 +124,8 @@ export async function verifyPackage() {
     "dist/camera.js",
     "dist/freeze.js",
     "dist/rust-session.js",
+    "dist/support.d.ts",
+    "dist/support.js",
     "THIRD_PARTY_NOTICES.md",
   ])
     await readFile(new URL(file, pkg));

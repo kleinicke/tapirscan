@@ -97,3 +97,21 @@ test("custom loaders retain control over repeated loads", async () => {
   }
   assert.equal(calls, 2);
 });
+
+test("a runtime without WebAssembly SIMD is reported before any WASM loads", async (t) => {
+  const { wasmSupported } = await import("../dist/support.js");
+  assert.equal(wasmSupported(), true);
+  t.mock.method(WebAssembly, "validate", () => false);
+  assert.equal(wasmSupported(), false);
+  let loads = 0;
+  await assert.rejects(
+    Scanner.create({
+      loadWasm: async () => {
+        loads++;
+        return bytes;
+      },
+    }),
+    { name: "ScannerError", code: "unsupported" },
+  );
+  assert.equal(loads, 0);
+});

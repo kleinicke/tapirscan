@@ -1,5 +1,6 @@
 // Public names shared by every tapirscan/browser entry.
 export { ScannerError } from "./rust-session.js";
+export { browserSupported, wasmSupported } from "./support.js";
 export type {
   Barcode,
   Content,

@@ -17,7 +17,7 @@ size, import a single-mode entry:
 | `tapirscan/browser/very-high` | `very-high.wasm` | 2.7 MB (1.0 MB) |
 | `tapirscan/browser`           | all modes, Turbo | 18 MB (7 MB)    |
 
-Tested with Vite; [Angular](#angular) needs two asset entries.
+Tested with Vite and Angular; [Angular](#angular) starts the worker itself.
 
 ## Load it fast
 
@@ -81,13 +81,55 @@ development.
 ## Angular
 
 `ng serve` works without configuration. Production builds of the application
-builder (Angular 22) do not emit the worker from `node_modules`, so the scanner
-reports that its worker failed to start. Copy the package's JavaScript and your
-mode's WASM in `angular.json` under `build.options.assets`:
+builder (Angular 22) do not emit workers from `node_modules`, so start the worker
+from your own code, which Angular bundles, and copy your mode's WASM under
+`build.options.assets` in `angular.json`:
 
-```json
-{ "glob": "**/*.js", "input": "node_modules/tapirscan/dist", "output": "/" },
-{ "glob": "medium.wasm", "input": "node_modules/tapirscan/wasm", "output": "/wasm" }
+```ts
+// scanner.worker.ts
+import "tapirscan/browser/medium/worker";
 ```
 
-The worker imports other modules from `dist/`, so copy all of its `.js` files.
+```ts
+import { Scanner } from "tapirscan/browser/medium";
+
+const scanner = new Scanner({
+  wasmBaseUrl: new URL("tapirscan/", document.baseURI),
+  worker: () => new Worker(new URL("./scanner.worker", import.meta.url), { type: "module" }),
+});
+```
+
+```json
+{ "glob": "medium.wasm", "input": "node_modules/tapirscan/wasm", "output": "tapirscan" }
+```
+
+The worker module and the WASM file must be the same mode. Each entry has one:
+`tapirscan/browser/low/worker`, `/medium/worker`, `/high/worker`,
+`/very-high/worker`, and `tapirscan/browser/worker` for every mode and Turbo
+preset (then copy the WASM files you select). Without `worker`, a production
+build reports that its worker failed to start.
+
+## Check support first
+
+`tapirscan/support` imports nothing, so a page can check before it downloads
+anything and keep another scanner where Tapirscan cannot run:
+
+```js
+import { browserSupported } from "tapirscan/support";
+
+if (browserSupported()) {
+  const { Scanner } = await import("tapirscan/browser/medium");
+  // ...
+}
+```
+
+`browserSupported()` checks WebAssembly SIMD, workers and `OffscreenCanvas`;
+`wasmSupported()` checks only SIMD, for the core. A scanner created anyway starts no
+worker and downloads nothing: its `ready` and scans reject with the `ScannerError`
+code `"unsupported"`, as does the core's `Scanner.create`.
+
+A dynamic `import()` keeps the scanner's code out of the initial bundle, and the WASM
+is fetched only when a `Scanner` is constructed. Service workers that precache the
+build (Angular's `ngsw-config.json`, Workbox) should cache the WASM on first use
+instead, for example with an asset group that has `"installMode": "lazy"` for
+`/tapirscan/*.wasm`, so installing the app does not download it.

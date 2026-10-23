@@ -17,7 +17,8 @@ npm install tapirscan
 ```
 
 TypeScript declarations and WASM binaries are included. Your runtime must support
-WebAssembly SIMD; Node 20 or later is required.
+WebAssembly SIMD; Node 20 or later is required. `tapirscan/support` checks this
+without loading anything.
 
 ## Supported formats
 
@@ -337,6 +338,10 @@ export default defineConfig({
   `tapirscan/browser`; single-mode entries have neither. Also,
   `scan(image, { formats })` overrides the formats for one call. `wasmBaseUrl`
   serves the WASM files from another directory. `loadWasm` needs the core.
+  `worker: () => new Worker(...)` starts the worker yourself, for bundlers that do
+  not emit workers from packages such as Angular; it runs an entry's worker module,
+  `tapirscan/browser/medium/worker` and so on (see
+  [Angular](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md#angular)).
   `scan(pixels, { transfer: true })` hands a decoded-pixel buffer to the worker instead of
   copying it, which saves one full copy per call; the buffer is detached (length 0) once
   the call starts. It applies when the pixels span their whole, non-shared
@@ -351,6 +356,10 @@ export default defineConfig({
 - **Requirements:** module workers, `OffscreenCanvas` and WebAssembly SIMD:
   Chrome 91, Firefox 114, Safari 16.4 or later. The camera loop also needs
   `requestVideoFrameCallback`. Images may have at most 65,535 pixels per side and 256 megapixels.
+- **Support check:** `browserSupported()` from `tapirscan/support`, which imports
+  nothing, tells whether this browser can run a scanner, before any download. A
+  scanner created where it cannot starts no worker and rejects with `ScannerError`
+  code `"unsupported"`.
 
 **Fast scanning in the browser:**
 
@@ -535,15 +544,16 @@ custom loaders manage their own caching. Each scanner owns its own WASM instance
 
 ## All options
 
-| Option              | Where           | Default                | Meaning                                                                                                                                    |
-| ------------------- | --------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `mode`              | Creation¹       | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                              |
-| `formats`           | Creation / scan | `"retail"`             | An identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call formats override the defaults. |
-| `eanAddOnPolicy`    | Creation        | `"ignore"`             | `"ignore"`, `"read"`, `"require"`; see [supplements](#eanupc-supplements).                                                                 |
-| `wasmBaseUrl`       | Creation        | Module-relative assets | Directory URL for the packaged WASM files.                                                                                                 |
-| `loadWasm`          | Creation        | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`.                                                                                                      |
-| `experimentalTurbo` | Creation¹       | Unset                  | **Experimental:** `2`, `4`, `8` or `16`. Mutually exclusive with `mode`.                                                                   |
-| `transfer`          | Browser scan    | `false`                | `true` hands a decoded-pixel buffer to the worker instead of copying it; the buffer is detached.                                           |
+| Option              | Where            | Default                | Meaning                                                                                                                                    |
+| ------------------- | ---------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mode`              | Creation¹        | `"medium"`             | `"low"`, `"medium"`, `"high"`, `"very-high"`.                                                                                              |
+| `formats`           | Creation / scan  | `"retail"`             | An identifier, `"retail"`, `"common1D"`, `"common"`, `"1D"`, `"2D"`, `"all"`, or a nonempty array. Per-call formats override the defaults. |
+| `eanAddOnPolicy`    | Creation         | `"ignore"`             | `"ignore"`, `"read"`, `"require"`; see [supplements](#eanupc-supplements).                                                                 |
+| `wasmBaseUrl`       | Creation         | Module-relative assets | Directory URL for the packaged WASM files.                                                                                                 |
+| `loadWasm`          | Creation         | Module-relative loader | `(url: URL) => Promise<ArrayBuffer>`.                                                                                                      |
+| `experimentalTurbo` | Creation¹        | Unset                  | **Experimental:** `2`, `4`, `8` or `16`. Mutually exclusive with `mode`.                                                                   |
+| `worker`            | Browser creation | The entry's worker     | `() => Worker` running an entry's worker module, such as `tapirscan/browser/medium/worker`.                                                |
+| `transfer`          | Browser scan     | `false`                | `true` hands a decoded-pixel buffer to the worker instead of copying it; the buffer is detached.                                           |
 
 ¹ Core and `tapirscan/browser` only; single-mode entries reject it.
 
@@ -680,15 +690,16 @@ the crop, not identifiers for tracking between frames.
 Invalid options throw `TypeError`. Engine and validation failures throw the
 exported `ScannerError` with `.message` and a `.code`:
 
-| Code                                                        | Meaning                                                   |
-| ----------------------------------------------------------- | --------------------------------------------------------- |
-| `"invalid_input"`                                           | The engine rejected the image or options.                 |
-| `"disposed"`                                                | The scanner was disposed.                                 |
-| `"engine"`                                                  | Internal scanner failure.                                 |
-| `"capacity"`                                                | Too many live scanners in this WASM instance.             |
-| `"abi_shape"`, `"abi_version"`, `"abi_mode"`, `"abi_turbo"` | The loaded WASM file does not match this package or mode. |
-| `"invalid_output"`                                          | The engine returned unreadable output.                    |
-| `"core_<n>"`                                                | An unexpected engine status `n`.                          |
+| Code                                                        | Meaning                                                              |
+| ----------------------------------------------------------- | -------------------------------------------------------------------- |
+| `"invalid_input"`                                           | The engine rejected the image or options.                            |
+| `"disposed"`                                                | The scanner was disposed.                                            |
+| `"engine"`                                                  | Internal scanner failure.                                            |
+| `"capacity"`                                                | Too many live scanners in this WASM instance.                        |
+| `"unsupported"`                                             | No WebAssembly SIMD (or, in browsers, workers or `OffscreenCanvas`). |
+| `"abi_shape"`, `"abi_version"`, `"abi_mode"`, `"abi_turbo"` | The loaded WASM file does not match this package or mode.            |
+| `"invalid_output"`                                          | The engine returned unreadable output.                               |
+| `"core_<n>"`                                                | An unexpected engine status `n`.                                     |
 
 Loader and fetch errors reject `Scanner.create` and the one-shot helpers. Dispose
 reusable scanners in `finally`.
