@@ -85,10 +85,17 @@ pub struct Region {
 }
 /// Most candidate regions one scan retains.
 pub const MAX_CANDIDATES: usize = 256;
+/// Most QR finders a scan records for the QR frontend's window retry.
+pub const MAX_QR_FINDERS: usize = 256;
 #[derive(Default)]
 pub struct Regions {
     pub candidates: Vec<Region>,
     pub limited: bool,
+    /// Verified QR finder patterns of the standard threshold modes as
+    /// `[x, y, module, support]`, strongest first per mode, when the detection policy
+    /// records them. Not part of the output: the QR frontend pairs the unread ones
+    /// into windows for a local retry.
+    pub qr_finders: Vec<[f32; 4]>,
 }
 impl Regions {
     pub fn add(&mut self, format: &str, polygon: Quad, score: f32, support: usize) {

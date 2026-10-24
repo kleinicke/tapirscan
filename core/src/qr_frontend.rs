@@ -1,6 +1,8 @@
 //! QR-only production frontend: the shared multiformat detector under this
-//! mode's [`Policy`], plus block-threshold and sharpened retries. The
-//! multi-format groups use the same detector and policy.
+//! mode's [`Policy`], plus block-threshold, finder-pair window and sharpened
+//! retries. The multi-format groups use the same detector and policy without the
+//! window retry.
+use barcode_multiformat::numeric::{f32_usize, usize_f32};
 use barcode_multiformat::qr_detect::{self, FULL_BUDGET, Pass, Policy};
 use barcode_multiformat::{Detection, Scan, binarization, qr_enhance};
 
@@ -46,7 +48,7 @@ pub fn scan_with_images(
     effort: usize,
     binary: &mut binarization::Images<'_>,
 ) -> Scan {
-    scan_impl_with(image, width, height, false, effort, binary)
+    scan_frame(image, width, height, false, effort, binary, false)
 }
 /// Retry the two additional foreground thresholds on an unresolved source image.
 #[must_use]
@@ -57,16 +59,226 @@ pub fn scan_foreground(image: &[u8], width: usize, height: usize) -> Scan {
 const HYBRID_BUDGET: usize = 200;
 fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort: usize) -> Scan {
     let mut binary = binarization::Images::new(image, width, height);
-    scan_impl_with(image, width, height, foreground, effort, &mut binary)
+    scan_frame(image, width, height, foreground, effort, &mut binary, false)
 }
 
-fn scan_impl_with(
+/// Windows around unread finder pairs searched again per frame. Low serves live
+/// frames, where the next frame is the retry.
+const WINDOWS: usize = if cfg!(feature = "mode-low") { 0 } else { 3 };
+/// Longest window side in pixels. It bounds the cost of a window; a symbol too large
+/// for it has modules wide enough for the frame's own finder rows.
+const WINDOW_MAX: f32 = 640.;
+/// Decode attempts of each window pass. A window holds one candidate symbol, whose
+/// triples rank first; the rest are triples of texture around it.
+const WINDOW_BUDGET: usize = 60;
+/// Threshold modes of a window's first pass: the global and local thresholds,
+/// recomputed for the window at full row density.
+const WINDOW_MODES: std::ops::Range<usize> = 0..2;
+/// Threshold modes of a window's second pass: the foreground split, which separates a
+/// symbol from a dark surround. On the development sets the inverse and upper-contrast
+/// modes read nothing further in windows.
+const WINDOW_FOREGROUND: std::ops::Range<usize> = 4..6;
+/// Windows run at Medium's effort in every mode: the window is the retry.
+const WINDOW_EFFORT: usize = 1;
+/// Cell size in pixels of the finder counts that rank pairs.
+const COUNT_CELL: usize = 16;
+
+fn center(polygon: &[[f32; 2]; 4]) -> [f32; 2] {
+    polygon
+        .iter()
+        .fold([0., 0.], |c, p| [c[0] + p[0] / 4., c[1] + p[1] / 4.])
+}
+
+/// Whether `point` lies in `polygon` grown by a quarter about its center, the margin
+/// in which a read's own finders and quiet-zone patterns lie.
+fn near(point: [f32; 2], polygon: &[[f32; 2]; 4]) -> bool {
+    let [cx, cy] = center(polygon);
+    let grown = polygon.map(|p| [cx + (p[0] - cx) * 1.25, cy + (p[1] - cy) * 1.25]);
+    let mut sign = 0.;
+    (0..4).all(|i| {
+        let (a, b) = (grown[i], grown[(i + 1) % 4]);
+        let side = (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0]);
+        if sign == 0. {
+            sign = side.signum();
+        }
+        side * sign >= 0.
+    })
+}
+
+/// Finder counts over a grid of [`COUNT_CELL`] cells as a summed-area table, so each
+/// pair's window count costs four lookups.
+struct Counts {
+    columns: usize,
+    rows: usize,
+    table: Vec<u32>,
+}
+impl Counts {
+    fn new(points: &[[f32; 4]], width: usize, height: usize) -> Self {
+        let columns = width.div_ceil(COUNT_CELL);
+        let rows = height.div_ceil(COUNT_CELL);
+        let stride = columns + 1;
+        let mut table = vec![0u32; stride * (rows + 1)];
+        for p in points {
+            let x = (f32_usize(p[0].max(0.)) / COUNT_CELL).min(columns - 1);
+            let y = (f32_usize(p[1].max(0.)) / COUNT_CELL).min(rows - 1);
+            table[(y + 1) * stride + x + 1] += 1;
+        }
+        for y in 1..=rows {
+            for x in 1..=columns {
+                table[y * stride + x] += table[(y - 1) * stride + x] + table[y * stride + x - 1]
+                    - table[(y - 1) * stride + x - 1];
+            }
+        }
+        Self {
+            columns,
+            rows,
+            table,
+        }
+    }
+    /// Finders in the cells that the square of half side `half` about `middle` touches.
+    fn around(&self, middle: [f32; 2], half: f32) -> u32 {
+        let cell = usize_f32(COUNT_CELL);
+        let span = |v: f32, count: usize| {
+            let first = f32_usize((v - half).max(0.) / cell).min(count);
+            let last = (f32_usize((v + half).max(0.) / cell) + 1).min(count);
+            (first, last.max(first))
+        };
+        let (x0, x1) = span(middle[0], self.columns);
+        let (y0, y1) = span(middle[1], self.rows);
+        let stride = self.columns + 1;
+        let at = |x: usize, y: usize| self.table[y * stride + x];
+        at(x1, y1) + at(x0, y0) - at(x0, y1) - at(x1, y0)
+    }
+}
+
+/// Windows around pairs of unread QR finders: two corners of a symbol whose third
+/// finder the frame's row step or thresholds lost.
+///
+/// A pair needs modules within a factor 1.43 and a distance of 12 to 75 modules
+/// (version 1 side to version 10 diagonal); the window must fit [`WINDOW_MAX`]. The
+/// square window reaches 1.15 finder distances from the pair's midpoint, which covers
+/// a symbol on either side of a side pair (its far corners lie 1.12 distances away),
+/// plus 8 modules of finder half-width and quiet zone. Bars and text produce clusters
+/// of finder candidates while a symbol's data area holds few, so pairs rank by
+/// support over the candidates around them. A window that holds a read's center,
+/// or whose pair lies in the core of a chosen window, is skipped.
+fn local_windows(
+    finders: &[[f32; 4]],
+    reads: &[Detection],
+    width: usize,
+    height: usize,
+    limit: usize,
+) -> Vec<[usize; 4]> {
+    if limit == 0 {
+        return Vec::new();
+    }
+    let mut unread: Vec<[f32; 4]> = Vec::new();
+    for f in finders {
+        if reads.iter().any(|r| near([f[0], f[1]], &r.polygon)) {
+            continue;
+        }
+        // The threshold modes find the same pattern repeatedly; keep the best support.
+        if let Some(same) = unread
+            .iter_mut()
+            .find(|u| (u[0] - f[0]).hypot(u[1] - f[1]) < 1.5 * u[2].max(f[2]))
+        {
+            if f[3] > same[3] {
+                *same = *f;
+            }
+        } else {
+            unread.push(*f);
+        }
+    }
+    if unread.len() < 2 {
+        return Vec::new();
+    }
+    let counts = Counts::new(&unread, width, height);
+    let read_centers: Vec<[f32; 2]> = reads.iter().map(|r| center(&r.polygon)).collect();
+    let mut pairs = Vec::new();
+    for (i, a) in unread.iter().enumerate() {
+        for b in &unread[i + 1..] {
+            let module = f32::midpoint(a[2], b[2]);
+            let distance = (a[0] - b[0]).hypot(a[1] - b[1]);
+            let half = 1.15 * distance + 8. * module;
+            if !(0.7..=1.43).contains(&(a[2] / b[2]))
+                || !(12. ..=75.).contains(&(distance / module))
+                || 2. * half > WINDOW_MAX
+            {
+                continue;
+            }
+            let middle = [f32::midpoint(a[0], b[0]), f32::midpoint(a[1], b[1])];
+            if read_centers
+                .iter()
+                .any(|c| (c[0] - middle[0]).abs() < half && (c[1] - middle[1]).abs() < half)
+            {
+                continue;
+            }
+            let crowd = counts.around(middle, half).max(2);
+            pairs.push(((a[3] + b[3]) / usize_f32(crowd as usize), middle, half));
+        }
+    }
+    pairs.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut chosen: Vec<([f32; 2], f32)> = Vec::new();
+    for (_, middle, half) in pairs {
+        if chosen.len() == limit {
+            break;
+        }
+        if !chosen
+            .iter()
+            .any(|(c, h)| (c[0] - middle[0]).abs() < h / 2. && (c[1] - middle[1]).abs() < h / 2.)
+        {
+            chosen.push((middle, half));
+        }
+    }
+    let (wf, hf) = (usize_f32(width), usize_f32(height));
+    chosen
+        .into_iter()
+        .map(|([x, y], half)| {
+            let clamp = |v: f32, max: f32| f32_usize(v.clamp(0., max));
+            [
+                clamp(x - half, wf),
+                clamp(y - half, hf),
+                clamp(x + half, wf),
+                clamp(y + half, hf),
+            ]
+        })
+        // A window covering most of the frame repeats the frame's own search.
+        .filter(|&[x0, y0, x1, y1]| {
+            x1 > x0 + 16 && y1 > y0 + 16 && 4 * (x1 - x0) * (y1 - y0) <= width * height
+        })
+        .collect()
+}
+
+/// Scan one window with its own thresholds, then its foreground split if that read
+/// nothing, and map the reads back to frame coordinates.
+fn scan_window(image: &[u8], width: usize, [x0, y0, x1, y1]: [usize; 4]) -> Vec<Detection> {
+    let (w, h) = (x1 - x0, y1 - y0);
+    let crop: Vec<u8> = (y0..y1)
+        .flat_map(|y| image[y * width + x0..y * width + x1].iter().copied())
+        .collect();
+    let mut binary = binarization::Images::new(&crop, w, h);
+    let mut reads = scan_frame(&crop, w, h, false, WINDOW_EFFORT, &mut binary, true).barcodes;
+    if reads.is_empty() {
+        reads = scan_frame(&crop, w, h, true, 0, &mut binary, true).barcodes;
+    }
+    let (dx, dy) = (usize_f32(x0), usize_f32(y0));
+    for read in &mut reads {
+        for p in &mut read.polygon {
+            p[0] += dx;
+            p[1] += dy;
+        }
+    }
+    reads
+}
+
+fn scan_frame(
     image: &[u8],
     width: usize,
     height: usize,
     foreground: bool,
     effort: usize,
     binary: &mut binarization::Images<'_>,
+    window: bool,
 ) -> Scan {
     if width == 0 || height == 0 || width.checked_mul(height).is_none_or(|n| n > image.len()) {
         return Scan {
@@ -79,14 +291,23 @@ fn scan_impl_with(
     let mut regions = barcode_multiformat::regions::Regions::default();
     // The foreground retry tries only the additional foreground splits; the
     // base threshold passes remain owned by the caller.
-    let pass = if foreground {
-        Pass {
+    let pass = match (foreground, window) {
+        (true, false) => Pass {
             modes: 4..8,
             curved: false,
             budget: FULL_BUDGET,
-        }
-    } else {
-        Pass::effort(effort > 1, effort > 2)
+        },
+        (false, false) => Pass::effort(effort > 1, effort > 2),
+        (true, true) => Pass {
+            modes: WINDOW_FOREGROUND,
+            curved: false,
+            budget: WINDOW_BUDGET,
+        },
+        (false, true) => Pass {
+            modes: WINDOW_MODES,
+            curved: false,
+            budget: WINDOW_BUDGET,
+        },
     };
     let (mut reads, mut limited) = detect(width, height, &mut regions, binary, pass);
     // Block thresholds follow sharp shadow edges and large modules that the
@@ -94,6 +315,7 @@ fn scan_impl_with(
     // unread; High and Very High on every unread frame. Each pass has a bounded
     // budget and stops quietly.
     if !foreground
+        && !window
         && reads.is_empty()
         && effort >= 1
         && (effort >= 2 || !regions.candidates.is_empty())
@@ -107,6 +329,14 @@ fn scan_impl_with(
             };
             let (extra, _) = detect(width, height, &mut regions, &mut hybrid, pass);
             reads.extend(extra);
+        }
+    }
+    // A second symbol whose third finder was lost is searched in windows around its
+    // finder pairs. Only beside a read: a frame without one takes the facade's
+    // foreground and reduced-copy retries, which a window read would suppress.
+    if !window && !foreground && !reads.is_empty() {
+        for found in local_windows(&regions.qr_finders, &reads, width, height, WINDOWS) {
+            reads.extend(scan_window(image, width, found));
         }
     }
     if !foreground && effort > 1 && width * height <= 1_048_576 {
@@ -146,5 +376,124 @@ fn scan_impl_with(
         regions,
         unfinished: limited || region_limited,
         lines: 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{WINDOW_MAX, local_windows, scan_window, scan_with_effort};
+
+    /// Version 1-M "TAPIRSCAN", drawn dark on light with `scale`-pixel modules at
+    /// `origin` in a `width` x `height` frame.
+    fn frame(width: usize, height: usize, origin: [usize; 2], scale: usize) -> Vec<u8> {
+        let rows = [
+            "111111101101001111111",
+            "100000101100001000001",
+            "101110100011001011101",
+            "101110101110101011101",
+            "101110100001001011101",
+            "100000100111101000001",
+            "111111101010101111111",
+            "000000001111100000000",
+            "101101110111101001011",
+            "000001001001111100011",
+            "011110110111000001001",
+            "100011010001001011111",
+            "001100100010100100000",
+            "000000001101001010111",
+            "111111101111100101101",
+            "100000101010000110100",
+            "101110100010111000111",
+            "101110101101001101010",
+            "101110101000101100000",
+            "100000100110010100100",
+            "111111101000010011010",
+        ];
+        let mut gray = vec![220; width * height];
+        for (y, row) in rows.iter().enumerate() {
+            for (x, bit) in row.bytes().enumerate() {
+                if bit == b'1' {
+                    for dy in 0..scale {
+                        let start = (origin[1] + y * scale + dy) * width + origin[0] + x * scale;
+                        gray[start..start + scale].fill(30);
+                    }
+                }
+            }
+        }
+        gray
+    }
+
+    #[test]
+    fn window_reads_keep_source_coordinates() {
+        let (width, height) = (400, 300);
+        let gray = frame(width, height, [150, 90], 4);
+        let whole = scan_with_effort(&gray, width, height, 1).barcodes;
+        assert_eq!(whole.len(), 1);
+        let local = scan_window(&gray, width, [100, 50, 300, 250]);
+        assert_eq!(local.len(), 1);
+        assert_eq!(local[0].text, "TAPIRSCAN");
+        for (a, b) in local[0].polygon.iter().zip(&whole[0].polygon) {
+            assert!(
+                (a[0] - b[0]).abs() <= 1. && (a[1] - b[1]).abs() <= 1.,
+                "{a:?} vs {b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_need_a_plausible_unread_pair() {
+        let (width, height) = (1000, 1000);
+        // Two finders 100 pixels apart with 4-pixel modules: one window around them.
+        let pair = [[400., 400., 4., 3.], [400., 500., 4., 3.]];
+        let windows = local_windows(&pair, &[], width, height, 3);
+        assert_eq!(windows, vec![[253, 303, 547, 597]]);
+        // No windows without a limit, without a second finder, for unequal modules,
+        // for finders closer than a symbol side, or for windows wider than the bound.
+        assert_eq!(
+            local_windows(&pair, &[], width, height, 0),
+            Vec::<[usize; 4]>::new()
+        );
+        assert_eq!(
+            local_windows(&pair[..1], &[], width, height, 3),
+            Vec::<[usize; 4]>::new()
+        );
+        let unequal = [pair[0], [400., 500., 8., 3.]];
+        assert_eq!(
+            local_windows(&unequal, &[], width, height, 3),
+            Vec::<[usize; 4]>::new()
+        );
+        let close = [pair[0], [400., 440., 4., 3.]];
+        assert_eq!(
+            local_windows(&close, &[], width, height, 3),
+            Vec::<[usize; 4]>::new()
+        );
+        let far = [[100., 100., 4., 3.], [100., 100. + WINDOW_MAX / 2., 4., 3.]];
+        assert_eq!(
+            local_windows(&far, &[], width, height, 3),
+            Vec::<[usize; 4]>::new()
+        );
+        // Windows are clamped to the frame.
+        let corner = [[10., 10., 4., 3.], [10., 110., 4., 3.]];
+        assert_eq!(
+            local_windows(&corner, &[], width, height, 3),
+            vec![[0, 0, 157, 207]]
+        );
+    }
+
+    #[test]
+    fn read_symbols_add_no_windows() {
+        let (width, height) = (400, 300);
+        let gray = frame(width, height, [150, 90], 4);
+        let reads = scan_with_effort(&gray, width, height, 1).barcodes;
+        // The read's own corners would pair, but they lie within the read.
+        let corners: Vec<[f32; 4]> = reads[0]
+            .polygon
+            .iter()
+            .map(|p| [p[0], p[1], 4., 5.])
+            .collect();
+        assert_eq!(
+            local_windows(&corners, &reads, width, height, 3),
+            Vec::<[usize; 4]>::new()
+        );
     }
 }

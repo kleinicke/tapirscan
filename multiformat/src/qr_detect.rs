@@ -1061,6 +1061,9 @@ pub struct Policy {
     /// Reads after which a pass that stopped with work left likely holds further
     /// symbols whatever its finders look like; fewer reads need finders like a sheet's.
     pub sheet_reads: usize,
+    /// Finders of the standard threshold modes recorded in
+    /// [`crate::regions::Regions::qr_finders`] for the QR frontend's window retry.
+    pub recorded_finders: usize,
 }
 /// Resampling module centers in gray with module-space thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1103,6 +1106,12 @@ impl Policy {
             // Low and Medium continue after two or three reads only where the
             // finders look like a sheet's.
             sheet_reads: if mode <= 1 { 4 } else { 2 },
+            // Low has no window retry.
+            recorded_finders: if mode == 0 {
+                0
+            } else {
+                crate::regions::MAX_QR_FINDERS
+            },
         }
     }
 }
@@ -1358,6 +1367,17 @@ pub fn detect_symbols(
         let (image, row_cache) = binary_images.get_with_runs(mode, step);
         let (mut finders, capped) = finders_with_rows(image, w, h, Some(row_cache));
         regions.limited |= capped;
+        if symbols.qr && mode < STANDARD_MODES {
+            let room = policy
+                .recorded_finders
+                .saturating_sub(regions.qr_finders.len());
+            regions.qr_finders.extend(
+                finders
+                    .iter()
+                    .take(room)
+                    .map(|f| [f.x, f.y, f.module, crate::numeric::usize_f32(f.support)]),
+            );
+        }
         if symbols.qr {
             single_limited |= single::recover(
                 image,
