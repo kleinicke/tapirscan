@@ -44,7 +44,7 @@ enum Format {
   msiPlessey('MSIPlessey', 1048576),
   /// Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in).
   industrial25('Industrial25', 2097152),
-  /// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
+  /// Laetus Pharmacode (one-track), values 32 to 131069 (opt-in).
   pharmacode('Pharmacode', 4194304),
   /// GS1 `DataBar` Limited.
   dataBarLimited('DataBarLimited', 8388608),

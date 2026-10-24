@@ -21,7 +21,7 @@
 #define TAPIRSCAN_FORMAT_PZN 524288u /* German pharmacy number: a Code 39 symbol reported as its 8- or 7-digit number (opt-in). */
 #define TAPIRSCAN_FORMAT_MSI_PLESSEY 1048576u /* MSI Plessey with a mod-10 check digit (opt-in). */
 #define TAPIRSCAN_FORMAT_INDUSTRIAL25 2097152u /* Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in). */
-#define TAPIRSCAN_FORMAT_PHARMACODE 4194304u /* Laetus Pharmacode (one-track), value 3 to 131070 (opt-in). */
+#define TAPIRSCAN_FORMAT_PHARMACODE 4194304u /* Laetus Pharmacode (one-track), values 32 to 131069 (opt-in). */
 #define TAPIRSCAN_FORMAT_DATA_BAR_LIMITED 8388608u /* GS1 `DataBar` Limited. */
 #define TAPIRSCAN_FORMAT_MICRO_QR_CODE 16777216u /* Micro QR Code, versions M1 to M4. */
 #define TAPIRSCAN_FORMAT_CODE39EXTENDED 33554432u /* Extended (full-ASCII) Code 39: a Code 39 symbol with shift pairs expanded (opt-in). */

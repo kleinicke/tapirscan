@@ -39,7 +39,7 @@
       "Pharmacode",
       "Pharmacode",
       4194304,
-      "Laetus Pharmacode (one-track), value 3 to 131070 (opt-in)."
+      "Laetus Pharmacode (one-track), values 32 to 131069 (opt-in)."
     ],
     ["DataBarLimited", "DataBarLimited", 8388608, "GS1 `DataBar` Limited."],
     ["MicroQRCode", "MicroQrCode", 16777216, "Micro QR Code, versions M1 to M4."],

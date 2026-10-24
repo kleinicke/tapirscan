@@ -47,7 +47,7 @@ public enum Format {
     MSI_PLESSEY(1048576, "MSIPlessey"),
     /** Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in). */
     INDUSTRIAL25(2097152, "Industrial25"),
-    /** Laetus Pharmacode (one-track), value 3 to 131070 (opt-in). */
+    /** Laetus Pharmacode (one-track), values 32 to 131069 (opt-in). */
     PHARMACODE(4194304, "Pharmacode"),
     /** GS1 `DataBar` Limited. */
     DATA_BAR_LIMITED(8388608, "DataBarLimited"),

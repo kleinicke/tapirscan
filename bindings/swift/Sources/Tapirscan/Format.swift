@@ -42,7 +42,7 @@ public enum Format: UInt32, CaseIterable, Sendable, CustomStringConvertible {
     case msiPlessey = 1048576
     /// Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in).
     case industrial25 = 2097152
-    /// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
+    /// Laetus Pharmacode (one-track), values 32 to 131069 (opt-in).
     case pharmacode = 4194304
     /// GS1 `DataBar` Limited.
     case dataBarLimited = 8388608
@@ -137,7 +137,7 @@ public struct Formats: OptionSet, Sendable {
     public static let msiPlessey = Formats(.msiPlessey)
     /// Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in).
     public static let industrial25 = Formats(.industrial25)
-    /// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
+    /// Laetus Pharmacode (one-track), values 32 to 131069 (opt-in).
     public static let pharmacode = Formats(.pharmacode)
     /// GS1 `DataBar` Limited.
     public static let dataBarLimited = Formats(.dataBarLimited)
