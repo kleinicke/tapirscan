@@ -222,6 +222,9 @@ fn messages_and_locations() {
         )
     );
     assert_eq!(parse_content("geo:95,10", false), None);
+    for text in ["tel:", "TEL:  "] {
+        assert_eq!(parse_content(text, false), None, "{text:?}");
+    }
 }
 
 #[test]
@@ -551,6 +554,10 @@ fn web_addresses_without_a_scheme_and_bookmarks() {
         ("WWW.EXAMPLE.CO.UK/MENU?T=4", "WWW.EXAMPLE.CO.UK/MENU?T=4"),
         ("www.shop-1.de:8080/a#b\n", "www.shop-1.de:8080/a#b"),
         ("https://example.com/menu\r\n", "https://example.com/menu"),
+        // Leading whitespace is not part of the address.
+        (" www.example.com", "www.example.com"),
+        ("\thttp://example.com", "http://example.com"),
+        ("http://user@[::1]:8080/a", "http://user@[::1]:8080/a"),
     ] {
         assert_eq!(
             parsed(text, false),
@@ -569,6 +576,23 @@ fn web_addresses_without_a_scheme_and_bookmarks() {
         ),
         ("urlto::www.example.com", &[("url", "www.example.com")]),
         ("URLTO:http://example.com", &[("url", "http://example.com")]),
+        // The title ends at the colon before the scheme.
+        (
+            "URLTO:Menu: 10:00-22:00:https://example.com/menu",
+            &[
+                ("title", "Menu: 10:00-22:00"),
+                ("url", "https://example.com/menu"),
+            ],
+        ),
+        // A bookmark's URL field may name a host without a scheme.
+        (
+            "MEBKM:TITLE:Shop;URL:example.com/menu;;",
+            &[("title", "Shop"), ("url", "example.com/menu")],
+        ),
+        (
+            "MEBKM:URL:shop.example.de:8080;TITLE:Shop;;",
+            &[("url", "shop.example.de:8080"), ("title", "Shop")],
+        ),
         (
             r"MEBKM:TITLE:Tapir\;s;URL:https://example.com/a;;",
             &[("title", "Tapir;s"), ("url", "https://example.com/a")],
@@ -608,6 +632,14 @@ fn web_addresses_without_a_scheme_and_bookmarks() {
         "www.example.com and more",
         "URLTO:Menu:example.com",
         "MEBKM:TITLE:x;URL:ftp://example.com;;",
+        "MEBKM:TITLE:x;URL:example;;",
+        "MEBKM:TITLE:x;URL:example.com and more;;",
+        // An address needs a host and no whitespace.
+        "https://",
+        "http:///path",
+        "http://user@",
+        "http://example.com/a b",
+        "http://x y",
     ] {
         assert_eq!(parse_content(text, false), None, "{text:?}");
     }
@@ -655,6 +687,8 @@ fn bare_and_legacy_email_addresses() {
         "@example.com",
         "Mail a@example.com",
         "SMTP::Hello",
+        "SMTP:Ana:Hello",
+        "SMTP:a@b:Hello",
     ] {
         assert_eq!(parse_content(text, false), None, "{text:?}");
     }
@@ -723,6 +757,14 @@ fn book_numbers() {
         ),
         ("isbn 080442957x", "9780804429573", Some("080442957X")),
         ("urn:isbn:0306406152", "9780306406157", Some("0306406152")),
+        (
+            "ISBN13: 978-0-306-40615-7",
+            "9780306406157",
+            Some("0306406152"),
+        ),
+        ("ISBN10:0306406152", "9780306406157", Some("0306406152")),
+        ("ISBN-13 9780306406157", "9780306406157", Some("0306406152")),
+        ("ISBN1306406153", "9781306406154", Some("1306406153")),
         // 979 numbers have no ISBN-10.
         ("9791032305690", "9791032305690", None),
     ] {
@@ -743,6 +785,10 @@ fn book_numbers() {
         "978030640615",
         "ISBN",
         "4006381333931",
+        // A label that names the length needs that many digits.
+        "ISBN-13: 0-306-40615-2",
+        "ISBN13:0306406152",
+        "ISBN-10: 978-0-306-40615-7",
     ] {
         assert_eq!(parse_content(text, false), None, "{text:?}");
     }

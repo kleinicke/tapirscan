@@ -71,7 +71,7 @@ removed, in minor releases. The other kinds and their field names are stable.
 | `WiFi`                       | `WIFI:`                                                            |
 | `Contact`                    | vCard, `MECARD:`, `BIZCARD:`                                       |
 | `Calendar`                   | iCalendar `VEVENT`                                                 |
-| `ISBN`                       | 978/979 EAN-13 digits, `ISBN …`, `urn:isbn:`                       |
+| `ISBN`                       | 978 and 979 (not 979-0) EAN-13 digits, `ISBN …`, `urn:isbn:`       |
 | `SwissQRBill` (experimental) | `SPC` with an `EPD` trailer                                        |
 | `EPCPayment` (experimental)  | SEPA credit transfer, `BCD`                                        |
 | `HIBC` (experimental)        | `+` and a valid mod-43 check character                             |
@@ -79,7 +79,8 @@ removed, in minor releases. The other kinds and their field names are stable.
 | `AAMVA` (experimental)       | `@` and an `ANSI ` or `AAMVA` header                               |
 
 Without a scheme, only `www.` addresses are URLs: names such as `example.com`
-cannot be told apart from ordinary text, so they stay plain.
+cannot be told apart from ordinary text, so they stay plain. The `URL` field of a
+`MEBKM:` bookmark is the exception: it may name such a host without a scheme.
 
 ## Fields
 
@@ -119,8 +120,9 @@ cannot be told apart from ordinary text, so they stay plain.
   `complianceType`. Dates keep the issuer's order (`MMDDCCYY` in the US,
   `CCYYMMDD` in Canada).
 - **ISBN:** `isbn13`, and `isbn10` for numbers starting with 978. A book's price
-  is not in the number; it is the five-digit supplement (`eanAddOn` with an
-  `eanAddOnPolicy` of `read`).
+  is not in the number; many books print it in a five-digit supplement, by a
+  convention that varies by country. Read it as `eanAddOn` with the
+  `eanAddOnPolicy` `read`.
 
 ## Validation
 
@@ -133,8 +135,11 @@ A payload that fails these checks has no content, rather than partial fields:
 - **HIBC:** the check character. **VIN:** the position-9 check digit, so VINs
   without one (common in Europe) are not recognized.
 - **AAMVA:** a license number or last name.
+- **URL:** a host after `http://` or `https://`, and no whitespace in the
+  address.
 - **ISBN:** the check digit. A 10-digit ISBN needs the `ISBN` or `urn:isbn:`
-  label, and 979-0 numbers are printed music (ISMN), not books.
+  label, a label that names the length (`ISBN-13:`, `ISBN10:`) needs that many
+  digits, and 979-0 numbers are printed music (ISMN), not books.
 
 Not covered: Aadhaar QR codes, GS1 element titles and value conversion, Swiss
 QR-bill alternative-scheme payloads, and vCard parameters such as `TYPE=WORK`.

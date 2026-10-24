@@ -13,6 +13,7 @@ pub use crate::content_kind::ContentKind;
 /// One named value. Names repeat where the payload repeats them (several
 /// phone numbers of a contact, several GS1 elements with one AI).
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct Field {
     /// Field name: an application identifier such as `"01"` for GS1, otherwise
     /// a documented camelCase name such as `"ssid"`.
@@ -23,6 +24,7 @@ pub struct Field {
 
 /// Structured content of a decoded payload, with fields in payload order.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[non_exhaustive]
 pub struct Content {
     /// Recognized payload kind.
     pub kind: ContentKind,
@@ -95,6 +97,8 @@ pub fn parse_content(text: &str, gs1: bool) -> Option<Content> {
     {
         return Some(content);
     }
+    // Leading whitespace before a prefix or a bare value is not part of it.
+    let text = text.trim_start();
     let upper: String = text
         .chars()
         .take(12)
@@ -125,7 +129,7 @@ pub fn parse_content(text: &str, gs1: bool) -> Option<Content> {
         return smtp(&text[5..]);
     }
     if starts("TEL:") {
-        return Some(single(ContentKind::Phone, "number", text[4..].trim()));
+        return single(ContentKind::Phone, "number", text[4..].trim()).nonempty();
     }
     if starts("SMSTO:") || starts("MMSTO:") {
         return smsto(&text[6..]);
@@ -207,16 +211,21 @@ fn ai_fixed_length(ai: &[u8]) -> Option<usize> {
 
 /// Nonempty digits with a valid GS1 mod-10 check digit (GTIN, SSCC, GLN).
 fn gs1_check_digit(digits: &str) -> bool {
-    !digits.is_empty()
-        && digits.bytes().all(|b| b.is_ascii_digit())
-        && digits
-            .bytes()
-            .rev()
-            .enumerate()
-            .map(|(i, b)| u32::from(b - b'0') * if i % 2 == 0 { 1 } else { 3 })
-            .sum::<u32>()
-            % 10
-            == 0
+    digits.bytes().all(|b| b.is_ascii_digit())
+        && digits.len().checked_sub(1).is_some_and(|n| {
+            gs1_check_value(&digits[..n]) == u32::from(digits.as_bytes()[n] - b'0')
+        })
+}
+
+/// GS1 mod-10 check value of ASCII digits `body` (weights 3, 1, … from the right).
+fn gs1_check_value(body: &str) -> u32 {
+    let sum: u32 = body
+        .bytes()
+        .rev()
+        .enumerate()
+        .map(|(i, b)| u32::from(b - b'0') * if i % 2 == 0 { 3 } else { 1 })
+        .sum();
+    (10 - sum % 10) % 10
 }
 
 /// Whether `value` is valid data for `ai` (GS1 General Specifications, section 3):
@@ -413,16 +422,32 @@ fn has_web_scheme(text: &str) -> bool {
 /// `example.com` stay plain text: they cannot be told apart from ordinary text.
 fn web_url(text: &str) -> Option<Content> {
     let text = text.trim();
+    if text.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return None;
+    }
     if has_web_scheme(text) {
+        // The authority after `//` must name a host: `https://` alone is not an address.
+        let authority = text[text.find("//")? + 2..]
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or_default();
+        let host = authority.rsplit('@').next().unwrap_or_default();
+        if host.is_empty() || host.starts_with(':') {
+            return None;
+        }
         return Some(digital_link(text).unwrap_or_else(|| single(ContentKind::Url, "url", text)));
     }
-    let host = text.split(['/', '?', '#', ':']).next().unwrap_or(text);
     (text
         .get(..4)
         .is_some_and(|www| www.eq_ignore_ascii_case("www."))
-        && domain_name(host, 3)
-        && !text.chars().any(|c| c.is_whitespace() || c.is_control()))
+        && domain_name(host_name(text), 3))
     .then(|| single(ContentKind::Url, "url", text))
+}
+
+/// The host name of a web address without a scheme: up to its port, path, query
+/// or fragment.
+fn host_name(text: &str) -> &str {
+    text.split(['/', '?', '#', ':']).next().unwrap_or(text)
 }
 
 /// A DNS host name with at least `labels` labels and an alphabetic top-level
@@ -446,7 +471,11 @@ fn domain_name(host: &str, labels: usize) -> bool {
 /// Bookmark of a web address; its title is kept in payload order. A bookmarked
 /// GS1 Digital Link stays GS1 content, without the title.
 fn bookmark(url: &str, title: &str, title_first: bool) -> Option<Content> {
-    let mut content = web_url(url)?;
+    Some(titled(web_url(url)?, title, title_first))
+}
+
+/// `content` with a nonempty `title` before or after its URL.
+fn titled(mut content: Content, title: &str, title_first: bool) -> Content {
     let title = title.trim();
     if content.kind == ContentKind::Url && !title.is_empty() {
         let field = Field {
@@ -459,21 +488,28 @@ fn bookmark(url: &str, title: &str, title_first: bool) -> Option<Content> {
             content.fields.push(field);
         }
     }
-    Some(content)
+    content
 }
 
-/// `URLTO:title:url`; an `http(s)` address may follow without a title.
+/// `URLTO:title:url`; an `http(s)` address may follow without a title. The title
+/// ends at the colon before an `http(s)` address, so it may contain colons itself;
+/// before a `www.` address it ends at the first colon.
 fn urlto(rest: &str) -> Option<Content> {
     if has_web_scheme(rest) {
         return bookmark(rest, "", true);
     }
-    match rest.split_once(':') {
-        Some((title, url)) => bookmark(url, title, true),
+    let scheme = rest
+        .char_indices()
+        .find(|&(i, c)| c == ':' && has_web_scheme(&rest[i + 1..]))
+        .map(|(i, _)| i);
+    match scheme.or_else(|| rest.find(':')) {
+        Some(colon) => bookmark(&rest[colon + 1..], &rest[..colon], true),
         None => bookmark(rest, "", true),
     }
 }
 
-/// `MEBKM:TITLE:…;URL:…;;`
+/// `MEBKM:TITLE:…;URL:…;;`. The `URL` field names a web address, so a host name
+/// such as `example.com` is one here even without a scheme or `www.`.
 fn mebkm(rest: &str) -> Option<Content> {
     let (mut title, mut url, mut title_first) = (String::new(), String::new(), false);
     for (key, value) in semicolon_pairs(rest) {
@@ -486,7 +522,13 @@ fn mebkm(rest: &str) -> Option<Content> {
             _ => {}
         }
     }
-    bookmark(&url, &title, title_first)
+    // Without a scheme, a host name with at least two labels.
+    let url = url.trim();
+    let bare = (!has_web_scheme(url)
+        && domain_name(host_name(url), 2)
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control()))
+    .then(|| single(ContentKind::Url, "url", url));
+    Some(titled(bare.or_else(|| web_url(url))?, &title, title_first))
 }
 
 /// Text that is exactly one e-mail address, such as `name@example.com`.
@@ -507,9 +549,7 @@ fn email_address(text: &str) -> Option<Content> {
 fn smtp(rest: &str) -> Option<Content> {
     let mut parts = rest.splitn(3, ':');
     let to = parts.next()?.trim();
-    if to.is_empty() {
-        return None;
-    }
+    email_address(to)?;
     let mut content = single(ContentKind::Email, "to", to);
     content.push("subject", parts.next().unwrap_or(""));
     content.push("body", parts.next().unwrap_or(""));
@@ -1056,36 +1096,48 @@ fn hibc_secondary(content: &mut Content, data: &str, after_dollar: bool) -> Opti
 // ---------------------------------------------------------------- ISBN
 
 /// An ISBN as its 13 barcode digits or written out: digits separated by single
-/// hyphens or spaces, after `ISBN`, `ISBN-13:` or `ISBN-10:`, or as `urn:isbn:`.
-/// Only a labelled number may use the 10-digit form; a bare 10-digit number is
-/// too often something else. 979-0 numbers are printed music (ISMN), not books.
+/// hyphens or spaces, after `ISBN`, `ISBN-13:`/`ISBN13:` or `ISBN-10:`/`ISBN10:`
+/// (each with or without the colon), or as `urn:isbn:`. Only a labelled number may
+/// use the 10-digit form; a bare 10-digit number is too often something else. A
+/// label that names the length needs that many digits. 979-0 numbers are printed
+/// music (ISMN), not books.
 fn isbn(text: &str) -> Option<Content> {
     let text = text.trim();
     let label = text.get(..9).unwrap_or(text).to_ascii_uppercase();
-    let (number, labelled) = if label.starts_with("URN:ISBN:") {
-        (&text[9..], true)
+    // The written number, whether it is labelled, and the length its label names.
+    let (number, labelled, length) = if label.starts_with("URN:ISBN:") {
+        (&text[9..], true, None)
     } else if label.starts_with("ISBN") {
         let rest = &text[4..];
-        let rest = rest
-            .strip_prefix("-13")
-            .or_else(|| rest.strip_prefix("-10"))
-            .unwrap_or(rest);
-        (rest.strip_prefix(':').unwrap_or(rest).trim_start(), true)
+        let named = rest.strip_prefix('-').unwrap_or(rest);
+        let (rest, length) = match named.get(..2) {
+            // `ISBN13 978…` and `ISBN-13 978…`; `ISBN 13…` stays a number.
+            Some("13") if named.len() < rest.len() || named[2..].starts_with([':', ' ']) => {
+                (&named[2..], Some(13))
+            }
+            Some("10") if named.len() < rest.len() || named[2..].starts_with([':', ' ']) => {
+                (&named[2..], Some(10))
+            }
+            _ => (rest, None),
+        };
+        (
+            rest.strip_prefix(':').unwrap_or(rest).trim_start(),
+            true,
+            length,
+        )
     } else {
-        (text, false)
+        (text, false, None)
     };
     let digits = isbn_characters(number)?;
+    if length.is_some_and(|length| digits.len() != length) {
+        return None;
+    }
     let isbn13 = match digits.len() {
         13 => String::from_utf8(digits).ok()?,
         10 if labelled && isbn10_check(&digits[..9]) == char::from(digits[9]) => {
             let mut isbn13 = String::from("978");
             isbn13.extend(digits[..9].iter().map(|&d| char::from(d)));
-            let sum: u32 = isbn13
-                .bytes()
-                .enumerate()
-                .map(|(i, d)| u32::from(d - b'0') * if i % 2 == 0 { 1 } else { 3 })
-                .sum();
-            isbn13.push(check_char((10 - sum % 10) % 10));
+            isbn13.push(check_char(gs1_check_value(&isbn13)));
             isbn13
         }
         _ => return None,
