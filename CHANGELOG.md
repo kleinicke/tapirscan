@@ -13,11 +13,14 @@ geometry and timing can differ from 1.4.0. See the
 
 ### New
 
-- Dart and Flutter package (preview) in `bindings/flutter`, over the C library
-  through `dart:ffi`. Its build hook builds it from source for 64-bit Android,
-  iOS, macOS, Linux and Windows; it is tested on macOS arm64, Linux x86_64 and
+- Dart and Flutter package (preview) on pub.dev, over the C library through
+  `dart:ffi`. Its build hook downloads a prebuilt library for 64-bit Android,
+  iOS, macOS, Linux and Windows, or builds from source in a checkout; it is tested on macOS arm64, Linux x86_64 and
   an Android arm64 emulator. `scan` runs on a background isolate. See its
   [README](bindings/flutter/README.md).
+- Prebuilt native libraries on each GitHub release: a zip per platform with the
+  library, the C and C++ headers and a CMake package, the Android AAR and the
+  Swift XCFramework, so C, C++, Java, Swift and Android apps need no Rust.
 - GS1 DataBar Limited (`DataBarLimited`, in `1D` and `all`) and Micro QR M1–M4
   (`MicroQRCode`, in `2D` and `all`). Selecting `QRCode` alone reads no Micro
   QR.

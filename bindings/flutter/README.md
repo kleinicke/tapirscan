@@ -32,7 +32,8 @@ build of each target needs network access to `github.com`; `http_proxy` and
 | Linux    | x86_64 and arm64, glibc 2.28 or later                                              |
 | Windows  | x64                                                                                |
 
-Other 64-bit targets, such as Windows on ARM, build from source. Settings go
+Other 64-bit targets, such as Windows on ARM, need a `source_dir` (a Tapirscan
+checkout) or a `library_dir`. Settings go
 in the app's `pubspec.yaml`:
 
 ```yaml

@@ -32,7 +32,7 @@ jobs:
           node scripts/check_release.mjs
           python3 scripts/release_tag.py check
       - name: Require the release tag for pub.dev, which rejects runs on branches
-        if: inputs.publish == 'pub' || inputs.publish == 'all'
+        if: inputs.publish == 'pub'
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
@@ -235,7 +235,7 @@ jobs:
           cargo publish --locked --manifest-path "$crate/Cargo.toml"
   pub:
     needs: github-release
-    if: inputs.publish == 'pub' || inputs.publish == 'all'
+    if: inputs.publish == 'pub'
     runs-on: ubuntu-24.04
     environment: pub
     permissions:

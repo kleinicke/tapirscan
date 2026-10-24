@@ -106,11 +106,12 @@ The separate `publish.yml` workflow publishes only when explicitly selected.
 
 1. Set the intended version in the package manifests and push the release commit.
 2. Run **Prepare or publish release** (`publish.yml`) on that branch or tag. Enter
-   the version without `v` (for example `1.4.0`) and select `all`, or a single
-   registry. Use `none` for a build-only rehearsal. pub.dev accepts only a run
-   on the tag `vX.Y.Z`, so for `pub` and `all` push the tag at the release
-   commit first (`git push origin COMMIT:refs/tags/vX.Y.Z`) and run on the tag;
-   the preflight rejects a branch run before building.
+   the version without `v` (for example `1.4.0`) and select `all` (PyPI, npm
+   and crates.io), or a single registry. Use `none` for a build-only rehearsal.
+   pub.dev is published only by `pub`, which pub.dev accepts only from a run on
+   the tag `vX.Y.Z`: push the tag at the release commit first
+   (`git push origin COMMIT:refs/tags/vX.Y.Z`) and run on the tag; the
+   preflight rejects a branch run before building.
 3. The workflow checks the version and existing tag before building, then runs
    **Validate scanner and bindings** and all five Python wheel builds in parallel.
    Both reusable workflows use the caller's exact commit. Preparation downloads
@@ -184,10 +185,9 @@ the release's `SHA256SUMS`, copies that file into the package and publishes
 with `dart pub publish --force`. Keep a `## X.Y.Z` section in
 `bindings/flutter/CHANGELOG.md`; `check_release.mjs` requires it.
 
-The first pub.dev version must be published by hand. A `publish.yml` run with
-`pub` on the tag creates the GitHub release and its assets; its pub.dev job then
-fails because the package does not exist yet. Publish from a clean checkout of
-the tag:
+The first pub.dev version must be published by hand, after a release run has
+created the GitHub release and its assets. Publish from a clean checkout of the
+tag:
 
 ```sh
 gh release download vX.Y.Z --pattern SHA256SUMS --dir bindings/flutter/hook
