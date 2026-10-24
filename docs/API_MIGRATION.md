@@ -7,6 +7,11 @@ Format selection adds the opt-in `Industrial25` (bit 2097152) and `Pharmacode`
 unchanged. Rust matches on `Format` need the wildcard arm that its
 `#[non_exhaustive]` attribute already requires.
 
+Barcodes gain the optional `codabarStartStop` (`codabar_start_stop`), and C the
+copy field `TAPIRSCAN_FIELD_CODABAR_START_STOP`. Rust struct literals and
+exhaustive patterns of `Barcode` need the new field; Java record patterns of
+`Barcode` need the new last component, while its previous constructor remains.
+
 ## Upgrading from 1.3.0
 
 Version 1.4.0 is an explicit exception to the

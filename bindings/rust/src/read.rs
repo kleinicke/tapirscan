@@ -19,6 +19,8 @@ pub(crate) struct Read {
     pub payload_bytes: Option<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "eanAddOn")]
     pub addon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "codabarStartStop")]
+    pub codabar_start_stop: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gs1: Option<bool>,
     #[serde(
@@ -63,6 +65,7 @@ impl Read {
             candidate_indices: Some(candidates),
             payload_bytes: None,
             addon: None,
+            codabar_start_stop: None,
             gs1: None,
             reader_initialization: None,
             structured_append: None,
@@ -98,6 +101,7 @@ impl Read {
             candidate_indices: Some(Vec::new()),
             payload_bytes: value.bytes,
             addon: value.addon,
+            codabar_start_stop: value.codabar_start_stop,
             gs1: Some(value.gs1),
             reader_initialization,
             structured_append: value.structured_append,
@@ -121,6 +125,7 @@ impl Read {
             support: self.support,
             payload_bytes: self.payload_bytes,
             ean_add_on: self.addon,
+            codabar_start_stop: self.codabar_start_stop.map(str::to_owned),
             gs1: self.gs1,
             reader_initialization: self.reader_initialization,
             structured_append: self.structured_append.map(|value| {

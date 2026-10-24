@@ -138,6 +138,7 @@ mod tests {
             structured_append: None,
             reader_initialization: false,
             addon: None,
+            codabar_start_stop: None,
             format: format.into(),
             text: String::new(),
             polygon,

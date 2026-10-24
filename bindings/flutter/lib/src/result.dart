@@ -71,6 +71,7 @@ final class Barcode {
     this.gs1,
     this.readerInitialization,
     this.structuredAppend,
+    this.codabarStartStop,
   });
 
   final String text;
@@ -96,6 +97,10 @@ final class Barcode {
   final bool? readerInitialization;
 
   final StructuredAppend? structuredAppend;
+
+  /// Codabar start and stop characters (A to D) in reading order, such as
+  /// `"AB"`; [text] omits them. Null for other formats.
+  final String? codabarStartStop;
 
   /// Enclosing integer pixel bounds, from floor(minimum) to ceil(maximum).
   PixelRect get rect {

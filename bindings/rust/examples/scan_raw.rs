@@ -52,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "polygon": b.polygon,
                 // The serde form, which carries the content of the text.
                 "content": serde_json::to_value(b).ok().and_then(|v| v.get("content").cloned()),
+                "codabarStartStop": b.codabar_start_stop,
             })).collect::<Vec<_>>(),
             "undecoded": result.undecoded.iter().map(|r| json!({
                 "format": r.format.map_or("Unknown", tapirscan::Format::as_str),

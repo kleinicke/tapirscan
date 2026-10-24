@@ -200,6 +200,7 @@ fn nearby_confirmation_counts_distinct_rows_and_preserves_extent() {
     let read = || linear::Read {
         decoded: true,
         addon: None,
+        codabar_start_stop: None,
         format: "Code128",
         text: "example".into(),
         start: 0,
@@ -241,6 +242,7 @@ fn truncated_proposal_is_not_a_cropped_image() {
     let read = linear::Read {
         decoded: true,
         addon: None,
+        codabar_start_stop: None,
         format: "ITF",
         text: "0240".into(),
         start: 1,

@@ -159,6 +159,7 @@ fn decode_transform(
                     structured_append: read.structured_append,
                     reader_initialization: false,
                     addon: None,
+                    codabar_start_stop: None,
                     format: "QRCode".into(),
                     text: read.text,
                     polygon: [[0., 0.], [nf, 0.], [nf, nf], [0., nf]].map(|[x, y]| map(t, x, y)),

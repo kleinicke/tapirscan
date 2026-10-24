@@ -236,7 +236,8 @@ final class TapirscanTests: XCTestCase {
         XCTAssertNil(try parseContent("0109506000134352"))
         let barcode = Barcode(
             text: "geo:47.37,8.54", format: .qrCode, polygon: [], support: 1, payloadBytes: nil,
-            eanAddOn: nil, gs1: nil, readerInitialization: nil, structuredAppend: nil)
+            eanAddOn: nil, gs1: nil, readerInitialization: nil, structuredAppend: nil,
+            codabarStartStop: nil)
         XCTAssertEqual(try barcode.content?.kind, .geo)
         XCTAssertEqual(try parseContent(barcode)?["latitude"], "47.37")
     }

@@ -10,6 +10,8 @@ import java.util.Optional;
  *
  * @param support uncalibrated, reader-specific evidence used by {@code best()}
  * @param payloadBytes original decoded bytes where the reader reports them
+ * @param codabarStartStop Codabar start and stop characters (A to D) in reading order,
+ *     such as {@code "AB"}, which {@code text} omits; empty for other formats
  */
 public record Barcode(
         String text,
@@ -20,10 +22,19 @@ public record Barcode(
         Optional<String> eanAddOn,
         Optional<Boolean> gs1,
         Optional<Boolean> readerInitialization,
-        Optional<StructuredAppend> structuredAppend) {
+        Optional<StructuredAppend> structuredAppend,
+        Optional<String> codabarStartStop) {
     public Barcode {
         polygon = List.copyOf(polygon);
         payloadBytes = payloadBytes.map(byte[]::clone);
+    }
+
+    /** A barcode without Codabar start and stop characters. */
+    public Barcode(String text, Format format, List<Point> polygon, long support,
+            Optional<byte[]> payloadBytes, Optional<String> eanAddOn, Optional<Boolean> gs1,
+            Optional<Boolean> readerInitialization, Optional<StructuredAppend> structuredAppend) {
+        this(text, format, polygon, support, payloadBytes, eanAddOn, gs1, readerInitialization,
+                structuredAppend, Optional.empty());
     }
 
     @Override
@@ -40,14 +51,15 @@ public record Barcode(
                 && Arrays.equals(payloadBytes.orElse(null), b.payloadBytes.orElse(null))
                 && eanAddOn.equals(b.eanAddOn) && gs1.equals(b.gs1)
                 && readerInitialization.equals(b.readerInitialization)
-                && structuredAppend.equals(b.structuredAppend);
+                && structuredAppend.equals(b.structuredAppend)
+                && codabarStartStop.equals(b.codabarStartStop);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(text, format, polygon, support,
                 Arrays.hashCode(payloadBytes.orElse(null)), eanAddOn, gs1,
-                readerInitialization, structuredAppend);
+                readerInitialization, structuredAppend, codabarStartStop);
     }
 
     /** Enclosing integer pixel bounds, from floor(minimum) to ceil(maximum). */

@@ -102,6 +102,7 @@ pub(crate) fn decode(r: &[f32], s: usize) -> Option<Read> {
     Some(Read {
         decoded: true,
         addon: None,
+        codabar_start_stop: None,
         format: "Pharmacode",
         text: value.to_string(),
         start: s,

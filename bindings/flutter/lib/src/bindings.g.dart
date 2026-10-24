@@ -299,6 +299,7 @@ sealed class tapirscan_field {
   static const TAPIRSCAN_FIELD_PAYLOAD_BYTES = 1;
   static const TAPIRSCAN_FIELD_EAN_ADD_ON = 2;
   static const TAPIRSCAN_FIELD_STRUCTURED_APPEND_ID = 3;
+  static const TAPIRSCAN_FIELD_CODABAR_START_STOP = 4;
 }
 
 final class tapirscan_image extends ffi.Struct {

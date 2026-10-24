@@ -70,6 +70,9 @@ class Barcode:
     payload_bytes: bytes | None = None
     # Structured content of `text`, parsed while scanning; None for plain text.
     content: Content | None = None
+    # Codabar start and stop characters (A to D) in reading order, such as "AB";
+    # `text` omits them. None for other formats.
+    codabar_start_stop: str | None = None
 
     def as_dict(self) -> dict[str, JSONValue]:
         """Return JSON-compatible public fields, with payload bytes as integers.
@@ -97,6 +100,7 @@ class Barcode:
                 else None
             ),
             "ean_add_on": self.ean_add_on,
+            "codabar_start_stop": self.codabar_start_stop,
             "payload_bytes": list(self.payload_bytes)
             if self.payload_bytes is not None
             else None,
@@ -280,6 +284,7 @@ def _barcode(value: dict[str, Any]) -> Barcode:
         StructuredAppend(**append) if append is not None else None,
         value.get("eanAddOn"),
         bytes(value["bytes"]) if "bytes" in value else None,
+        codabar_start_stop=value.get("codabarStartStop"),
     )
 
 

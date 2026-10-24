@@ -258,10 +258,11 @@ ScanResult _read(int result, Arena arena) {
     }
 
     bool? flag(int value) => value < 0 ? null : value == 1;
+    final format = formatFromBit(b.format);
     barcodes.add(
       Barcode(
         text: text(tapirscan_field.TAPIRSCAN_FIELD_TEXT, b.text_length) ?? '',
-        format: formatFromBit(b.format),
+        format: format,
         polygon: List.unmodifiable([
           for (var p = 0; p < 4; p++)
             PixelPoint(b.polygon[p].x, b.polygon[p].y),
@@ -290,6 +291,10 @@ ScanResult _read(int result, Arena arena) {
                     ? null
                     : b.structured_append_parity,
               ),
+        codabarStartStop: text(
+          tapirscan_field.TAPIRSCAN_FIELD_CODABAR_START_STOP,
+          format == Format.codabar ? 2 : TAPIRSCAN_ABSENT,
+        ),
       ),
     );
   }

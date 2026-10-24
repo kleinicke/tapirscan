@@ -87,6 +87,8 @@ pub struct Detection {
     pub reader_initialization: bool,
     #[serde(rename = "eanAddOn", skip_serializing_if = "Option::is_none")]
     pub addon: Option<String>,
+    #[serde(rename = "codabarStartStop", skip_serializing_if = "Option::is_none")]
+    pub codabar_start_stop: Option<&'static str>,
     pub format: String,
     pub text: String,
     pub polygon: [[f32; 2]; 4],
@@ -106,6 +108,7 @@ struct Group {
     decoded: bool,
     addon: Option<String>,
     addon_support: usize,
+    codabar_start_stop: Option<&'static str>,
     format: String,
     text: String,
     angle: f32,
@@ -922,6 +925,7 @@ pub fn scan_with_images(
                             && b - g.bottom <= step * 3.
                     }) {
                         g.profile_only &= pass >= RETAIL_PROFILE_PASS;
+                        // Rows of one symbol share its start/stop letters; the first read keeps them.
                         if g.last_line != line_id {
                             g.support += 1;
                             if read.addon.is_some() {
@@ -940,6 +944,7 @@ pub fn scan_with_images(
                             decoded: read.decoded,
                             addon_support: usize::from(read.addon.is_some()),
                             addon: read.addon.clone(),
+                            codabar_start_stop: read.codabar_start_stop,
                             format: read.format.into(),
                             text: read.text.clone(),
                             angle,
@@ -1025,6 +1030,7 @@ pub fn scan_with_images(
                 structured_append: None,
                 reader_initialization: false,
                 addon: if addon_confirmed { g.addon } else { None },
+                codabar_start_stop: g.codabar_start_stop,
                 format: g.format,
                 text: g.text,
                 polygon,
@@ -1437,6 +1443,7 @@ mod itf_fragment_tests {
             structured_append: None,
             reader_initialization: false,
             addon: None,
+            codabar_start_stop: None,
             format: "ITF".into(),
             text: text.into(),
             polygon: [[0., top], [100., top], [100., bottom], [0., bottom]],

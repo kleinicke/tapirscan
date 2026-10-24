@@ -70,7 +70,7 @@ The supported public identifiers and native bits are:
 | Code128         |      16 | Supported, including GS1 metadata                                |
 | Code39          |      32 | Standard characters; no automatic full-ASCII expansion           |
 | ITF             |      64 | Supported                                                        |
-| Codabar         |     128 | Supported                                                        |
+| Codabar         |     128 | Start/stop letters omitted from text, in `codabarStartStop`      |
 | Code93          |     256 | Supported                                                        |
 | QRCode          |     512 | Model 2; no Micro QR, Model 1 or rMQR                            |
 | DataMatrix      |    1024 | ECC200 and DMRE                                                  |

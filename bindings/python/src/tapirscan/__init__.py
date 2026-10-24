@@ -162,7 +162,10 @@ _ABSENT = 2**64 - 1
 _FORMAT_NAMES: dict[int, Format] = {
     bit: cast("Format", name) for name, bit in FORMAT_BITS.items()
 }
-_TEXT, _PAYLOAD_BYTES, _EAN_ADD_ON, _STRUCTURED_APPEND_ID = range(4)
+_TEXT, _PAYLOAD_BYTES, _EAN_ADD_ON, _STRUCTURED_APPEND_ID, _CODABAR_START_STOP = range(
+    5
+)
+_CODABAR = FORMAT_BITS["Codabar"]
 
 
 def _points(polygon: c.Array[_Point]) -> tuple[Point, ...]:
@@ -493,6 +496,9 @@ class Scanner:
         gs1 = _flag(native.gs1)
         add_on = field(_EAN_ADD_ON, native.ean_add_on_length)
         append_id = field(_STRUCTURED_APPEND_ID, native.structured_append_id_length)
+        start_stop = field(
+            _CODABAR_START_STOP, 2 if native.format == _CODABAR else _ABSENT
+        )
         parity = native.structured_append_parity
         append = (
             StructuredAppend(
@@ -515,6 +521,7 @@ class Scanner:
             add_on.decode() if add_on is not None else None,
             field(_PAYLOAD_BYTES, native.payload_bytes_length),
             _parse_content(self._lib, text, gs1=bool(gs1)),
+            start_stop.decode() if start_stop is not None else None,
         )
 
     def close(self) -> None:

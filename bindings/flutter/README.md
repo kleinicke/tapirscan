@@ -75,8 +75,9 @@ and an optional row `stride`; the last row may be shorter than the stride. Each
 scan copies the pixels into native memory.
 
 Each `Barcode` has `text`, `format`, `polygon`, `rect`, `support`,
-`payloadBytes`, `eanAddOn`, `gs1`, `readerInitialization` and
-`structuredAppend`; optional fields are null when unavailable. `polygon`
+`payloadBytes`, `eanAddOn`, `gs1`, `readerInitialization`, `structuredAppend`
+and `codabarStartStop` (Codabar start and stop characters such as `'AB'`, which
+`text` omits); optional fields are null when unavailable. `polygon`
 (`PixelPoint`s) and `rect` (`PixelRect`) are in source-image pixels; the names
 avoid Flutter's `Offset` and `Rect`, for example
 `Rect.fromLTWH(r.left.toDouble(), r.top.toDouble(), r.width.toDouble(), r.height.toDouble())`.

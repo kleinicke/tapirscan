@@ -197,6 +197,9 @@ struct Barcode {
     std::optional<bool> gs1;
     std::optional<bool> reader_initialization;
     std::optional<StructuredAppend> structured_append;
+    /// Codabar start and stop characters (A to D) in reading order, such as "AB";
+    /// `text` omits them. Absent for other formats.
+    std::optional<std::string> codabar_start_stop;
 
     /// Enclosing integer pixel bounds: floor of the minimum to ceil of the maximum.
     Rect rect() const;
@@ -313,6 +316,9 @@ public:
                 }
                 barcode.structured_append = std::move(append);
             }
+            barcode.codabar_start_stop =
+                optional_copy(handle_, i, TAPIRSCAN_FIELD_CODABAR_START_STOP,
+                              b.format == TAPIRSCAN_FORMAT_CODABAR ? 2 : TAPIRSCAN_ABSENT);
             barcodes.push_back(std::move(barcode));
         }
         return barcodes;

@@ -61,8 +61,10 @@ See the [format and keyword-group matrix](../../docs/FORMATS.md#format-matrix)
 for group membership and opt-in formats.
 
 Each `Barcode` has `text()`, `format()`, `polygon()`, `rect()`, `support()`,
-`payloadBytes()`, `eanAddOn()`, `gs1()`, `readerInitialization()` and
-`structuredAppend()`; optional fields are `Optional`s, empty when unavailable.
+`payloadBytes()`, `eanAddOn()`, `gs1()`, `readerInitialization()`,
+`structuredAppend()` and `codabarStartStop()` (Codabar start and stop characters
+such as `"AB"`, which `text()` omits); optional fields are `Optional`s, empty
+when unavailable.
 The class is named `Scanner` like its Java counterpart; import it by name rather
 than with `java.util.*`.
 

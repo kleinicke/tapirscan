@@ -92,7 +92,8 @@ int main(int argc, char** argv) {
             std::cout << (i ? "," : "") << "{\"text\":" << json_string(b.text)
                       << ",\"format\":" << json_string(tapirscan::to_string(b.format))
                       << ",\"support\":" << b.support << ",\"polygon\":" << polygon(b.polygon)
-                      << ",\"content\":" << content(b) << '}';
+                      << ",\"content\":" << content(b) << ",\"codabarStartStop\":"
+                      << (b.codabar_start_stop ? json_string(*b.codabar_start_stop) : "null") << '}';
         }
         std::cout << "],\"undecoded\":[";
         for (std::size_t i = 0; i < result.undecoded.size(); ++i) {

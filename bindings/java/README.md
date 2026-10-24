@@ -87,8 +87,10 @@ unstable schema).
 
 `Barcode` contains `text()`, `format()`, `polygon()` (four `Point`s in
 source-image pixels, top-left origin), `support()`, and optional
-`payloadBytes()`, `eanAddOn()`, `gs1()`, `readerInitialization()` and
-`structuredAppend()`. An empty optional means the reader did not report it.
+`payloadBytes()`, `eanAddOn()`, `gs1()`, `readerInitialization()`,
+`structuredAppend()` and `codabarStartStop()` (Codabar start and stop
+characters such as `"AB"`, which `text()` omits). An empty optional means the
+reader did not report it.
 `rect()` returns `Rect(int left, int top, int width, int height)`. `Format.toString()`
 gives names such as `"QRCode"`.
 

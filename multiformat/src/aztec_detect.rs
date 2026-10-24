@@ -1074,6 +1074,7 @@ impl Search {
                                             structured_append: read.structured_append,
                                             reader_initialization: read.reader_initialization,
                                             addon: None,
+                                            codabar_start_stop: None,
                                             format: "Aztec".into(),
                                             text: read.text,
                                             polygon: [[0., 0.], [11., 0.], [11., 11.], [0., 11.]]
@@ -1166,6 +1167,7 @@ impl Search {
                                         structured_append: read.structured_append,
                                         reader_initialization: read.reader_initialization,
                                         addon: None,
+                                        codabar_start_stop: None,
                                         format: "Aztec".into(),
                                         text: read.text,
                                         polygon: [[0., 0.], [11., 0.], [11., 11.], [0., 11.]]
@@ -1232,6 +1234,7 @@ impl Search {
                                     structured_append: read.structured_append,
                                     reader_initialization: read.reader_initialization,
                                     addon: None,
+                                    codabar_start_stop: None,
                                     format: "Aztec".into(),
                                     text: read.text,
                                     polygon: [
@@ -1293,6 +1296,7 @@ impl Search {
                         structured_append: read.structured_append,
                         reader_initialization: read.reader_initialization,
                         addon: None,
+                        codabar_start_stop: None,
                         format: "Aztec".into(),
                         text: read.text,
                         polygon: [

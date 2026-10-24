@@ -123,6 +123,8 @@ is NUL-terminated and preserves embedded NUL bytes. Optional fields
 (`TAPIRSCAN_FIELD_PAYLOAD_BYTES`, `_EAN_ADD_ON`, `_STRUCTURED_APPEND_ID`) report
 `TAPIRSCAN_ABSENT` as their length when unavailable. `gs1` and
 `reader_initialization` are -1 when the reader does not report them.
+`TAPIRSCAN_FIELD_CODABAR_START_STOP`, the Codabar start and stop characters
+such as `AB`, has no length field: Codabar barcodes have two, other formats none.
 
 For inspection results, `tapirscan_result_info` fills a `tapirscan_summary`:
 `barcode_count`, `undecoded_count`, `width`, `height`, `mode` and `elapsed_ms`.

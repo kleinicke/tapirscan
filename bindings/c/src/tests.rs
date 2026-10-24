@@ -43,6 +43,54 @@ fn ean13(text: &str) -> (Vec<u8>, u64, u64) {
     (pixels, width as u64, height as u64)
 }
 
+/// Codabar characters as bar/space/bar/space/bar/space/bar, 1 marking a wide element.
+const CODABAR: [(u8, &str); 20] = [
+    (b'0', "0000011"),
+    (b'1', "0000110"),
+    (b'2', "0001001"),
+    (b'3', "1100000"),
+    (b'4', "0010010"),
+    (b'5', "1000010"),
+    (b'6', "0100001"),
+    (b'7', "0100100"),
+    (b'8', "0110000"),
+    (b'9', "1001000"),
+    (b'-', "0001100"),
+    (b'$', "0011000"),
+    (b':', "1000101"),
+    (b'/', "1010001"),
+    (b'.', "1010100"),
+    (b'+', "0010101"),
+    (b'A', "0011010"),
+    (b'B', "0101001"),
+    (b'C', "0001011"),
+    (b'D', "0001110"),
+];
+
+/// Render Codabar symbols, given with their start and stop letters, stacked in
+/// 120-pixel bands; narrow elements are 2 px, wide ones 5 px.
+fn codabar(symbols: &[&str]) -> (Vec<u8>, u64, u64) {
+    let (width, band) = (480, 120);
+    let mut pixels = vec![255_u8; width * band * symbols.len()];
+    for (index, symbol) in symbols.iter().enumerate() {
+        let mut x = 40;
+        for character in symbol.bytes() {
+            let pattern = CODABAR.iter().find(|(c, _)| *c == character).unwrap().1;
+            // A narrow space separates characters.
+            for (element, wide) in pattern.bytes().chain(Some(b'0')).enumerate() {
+                let w = if wide == b'1' { 5 } else { 2 };
+                if element % 2 == 0 && element < pattern.len() {
+                    for row in pixels.chunks_mut(width).skip(index * band + 20).take(80) {
+                        row[x..x + w].fill(0);
+                    }
+                }
+                x += w;
+            }
+        }
+    }
+    (pixels, width as u64, (band * symbols.len()) as u64)
+}
+
 fn gray(pixels: &[u8], width: u64, height: u64) -> ImageC {
     ImageC {
         data: pixels.as_ptr(),
@@ -245,6 +293,68 @@ fn parses_content_through_owned_handles() {
 }
 
 #[test]
+fn codabar_start_stop_is_a_separate_field() {
+    let (pixels, width, height) = codabar(&["A123456B", "C40156D", "D7-$:/.+9A"]);
+    unsafe {
+        let scanner = create(&ScannerOptionsC {
+            mode: 1,
+            formats: Format::Codabar as u32,
+            ean_add_on_policy: 0,
+            parallel: PARALLEL_DEFAULT,
+        });
+        let (status, result) = scan(scanner, &gray(&pixels, width, height), std::ptr::null());
+        assert_eq!(status, 0);
+        let mut count = 0;
+        assert_eq!(tapirscan_result_count(result, &raw mut count), 0);
+        let mut reads = Vec::new();
+        for index in 0..count {
+            let mut barcode = BarcodeC::default();
+            assert_eq!(tapirscan_result_barcode(result, index, &raw mut barcode), 0);
+            assert_eq!(barcode.format, Format::Codabar as u32);
+            let mut text = vec![0_u8; usize::try_from(barcode.text_length).unwrap() + 1];
+            let capacity = text.len() as u64;
+            assert_eq!(
+                tapirscan_result_copy(result, index, FIELD_TEXT, text.as_mut_ptr(), capacity),
+                0
+            );
+            text.pop();
+            let mut start_stop = [0_u8; 3];
+            let field = FIELD_CODABAR_START_STOP;
+            assert_eq!(
+                tapirscan_result_copy(result, index, field, start_stop.as_mut_ptr(), 2),
+                BUFFER
+            );
+            assert_eq!(
+                tapirscan_result_copy(result, index, field, start_stop.as_mut_ptr(), 3),
+                0
+            );
+            reads.push((String::from_utf8(text).unwrap(), start_stop));
+        }
+        reads.sort();
+        assert_eq!(
+            reads,
+            [
+                ("123456".into(), *b"AB\0"),
+                ("40156".into(), *b"CD\0"),
+                ("7-$:/.+9".into(), *b"DA\0"),
+            ]
+        );
+        // Inspection JSON is the engine report, whose reads carry the field too.
+        let json: serde_json::Value = serde_json::from_str(&json(result)).unwrap();
+        let mut letters: Vec<_> = json["scan"]["barcodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["codabarStartStop"].as_str().unwrap())
+            .collect();
+        letters.sort_unstable();
+        assert_eq!(letters, ["AB", "CD", "DA"]);
+        assert_eq!(tapirscan_result_destroy(result), 0);
+        assert_eq!(tapirscan_scanner_destroy(scanner), 0);
+    }
+}
+
+#[test]
 fn decodes_with_typed_fields_and_owned_results() {
     let (pixels, width, height) = ean13("4006381333931");
     unsafe {
@@ -289,7 +399,8 @@ fn decodes_with_typed_fields_and_owned_results() {
             FIELD_PAYLOAD_BYTES,
             FIELD_EAN_ADD_ON,
             FIELD_STRUCTURED_APPEND_ID,
-            4,
+            FIELD_CODABAR_START_STOP,
+            5,
         ] {
             assert_eq!(
                 tapirscan_result_copy(result, 0, field, text.as_mut_ptr(), 14),
@@ -564,6 +675,7 @@ fn barcode_json_preserves_optional_metadata() {
         support: 3,
         payload_bytes: Some(vec![0, 255]),
         ean_add_on: Some("12".into()),
+        codabar_start_stop: Some("CD".into()),
         gs1: Some(false),
         reader_initialization: Some(true),
         structured_append: Some(tapirscan_api::StructuredAppend {
@@ -586,6 +698,7 @@ fn barcode_json_preserves_optional_metadata() {
     assert_eq!(b["gs1"], false);
     assert_eq!(b["readerInitialization"], true);
     assert_eq!(b["eanAddOn"], "12");
+    assert_eq!(b["codabarStartStop"], "CD");
     assert_eq!(b["structuredAppend"]["parity"], 7);
     assert!(b.get("content").is_none());
 }
@@ -599,6 +712,7 @@ fn json_carries_content_for_structured_text() {
         support: 1,
         payload_bytes: None,
         ean_add_on: None,
+        codabar_start_stop: None,
         gs1: None,
         reader_initialization: None,
         structured_append: None,

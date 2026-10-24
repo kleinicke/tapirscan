@@ -173,6 +173,22 @@ fn codabar_runs(text: &[u8], quiet: f32) -> Vec<f32> {
 }
 
 #[test]
+fn codabar_reports_every_start_stop_pair_beside_the_text() {
+    for start in *b"ABCD" {
+        for stop in *b"ABCD" {
+            let symbol = [start, b'1', b'2', b'3', b'4', stop];
+            let reads = decode(&codabar_runs(&symbol, 24.), false, CODABAR);
+            assert_eq!(reads.len(), 1);
+            assert_eq!(reads[0].text, "1234");
+            assert_eq!(
+                reads[0].codabar_start_stop.map(str::as_bytes),
+                Some(&[start, stop][..])
+            );
+        }
+    }
+}
+
+#[test]
 fn short_codabar_needs_full_quiet_zones() {
     for (symbol, text) in [(&b"A4B"[..], "4"), (b"C12D", "12"), (b"A123B", "123")] {
         let reads = decode(&codabar_runs(symbol, 24.), false, CODABAR);

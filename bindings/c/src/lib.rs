@@ -25,6 +25,7 @@ const FIELD_TEXT: u32 = 0;
 const FIELD_PAYLOAD_BYTES: u32 = 1;
 const FIELD_EAN_ADD_ON: u32 = 2;
 const FIELD_STRUCTURED_APPEND_ID: u32 = 3;
+const FIELD_CODABAR_START_STOP: u32 = 4;
 
 const CONTENT_FIELD_NAME: u32 = 0;
 const CONTENT_FIELD_VALUE: u32 = 1;
@@ -601,6 +602,7 @@ pub unsafe extern "C" fn tapirscan_result_copy(
                 .and_then(|a| a.id.as_deref())
                 .ok_or(ARG)?
                 .as_bytes(),
+            FIELD_CODABAR_START_STOP => b.codabar_start_stop.as_deref().ok_or(ARG)?.as_bytes(),
             _ => return Err(ARG),
         };
         unsafe { copy_bytes(value, out, capacity) }

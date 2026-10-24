@@ -128,12 +128,15 @@ typedef struct tapirscan_region {
     uint32_t format;
 } tapirscan_region;
 
-/* Variable-length barcode fields for tapirscan_result_copy. */
+/* Variable-length barcode fields for tapirscan_result_copy. CODABAR_START_STOP
+   is the two start/stop characters (A-D) in reading order, which the text
+   omits; it is present exactly for Codabar barcodes and needs capacity 3. */
 typedef enum tapirscan_field {
     TAPIRSCAN_FIELD_TEXT = 0,
     TAPIRSCAN_FIELD_PAYLOAD_BYTES = 1,
     TAPIRSCAN_FIELD_EAN_ADD_ON = 2,
-    TAPIRSCAN_FIELD_STRUCTURED_APPEND_ID = 3
+    TAPIRSCAN_FIELD_STRUCTURED_APPEND_ID = 3,
+    TAPIRSCAN_FIELD_CODABAR_START_STOP = 4
 } tapirscan_field;
 
 uint32_t tapirscan_abi_version(void);

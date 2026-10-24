@@ -199,6 +199,14 @@ pub struct Barcode {
     /// Readable two/five-digit retail supplement, or `None` if absent/not requested.
     #[serde(default, rename = "eanAddOn", skip_serializing_if = "Option::is_none")]
     pub ean_add_on: Option<String>,
+    /// Codabar start and stop characters (`A` to `D`) in reading order, such as
+    /// `"AB"`; `text` omits them. `None` for other formats.
+    #[serde(
+        default,
+        rename = "codabarStartStop",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub codabar_start_stop: Option<String>,
     /// Whether the reader identified GS1 semantics; None means unavailable metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gs1: Option<bool>,
@@ -230,6 +238,8 @@ impl Serialize for Barcode {
             payload_bytes: Option<&'a [u8]>,
             #[serde(rename = "eanAddOn", skip_serializing_if = "Option::is_none")]
             ean_add_on: Option<&'a str>,
+            #[serde(rename = "codabarStartStop", skip_serializing_if = "Option::is_none")]
+            codabar_start_stop: Option<&'a str>,
             #[serde(skip_serializing_if = "Option::is_none")]
             gs1: Option<bool>,
             #[serde(
@@ -249,6 +259,7 @@ impl Serialize for Barcode {
             support: self.support,
             payload_bytes: self.payload_bytes.as_deref(),
             ean_add_on: self.ean_add_on.as_deref(),
+            codabar_start_stop: self.codabar_start_stop.as_deref(),
             gs1: self.gs1,
             reader_initialization: self.reader_initialization,
             structured_append: self.structured_append.as_ref(),

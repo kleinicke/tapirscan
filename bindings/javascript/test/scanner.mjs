@@ -529,6 +529,73 @@ test("barcodes carry the structured content of their text", async () => {
   }
 });
 
+test("Codabar reports its start and stop characters beside the stripped text", async () => {
+  // Bar/space/bar/space/bar/space/bar per character, 1 marking a wide element.
+  const patterns = {
+    0: "0000011",
+    1: "0000110",
+    2: "0001001",
+    3: "1100000",
+    4: "0010010",
+    5: "1000010",
+    6: "0100001",
+    7: "0100100",
+    8: "0110000",
+    9: "1001000",
+    "-": "0001100",
+    $: "0011000",
+    ":": "1000101",
+    "/": "1010001",
+    ".": "1010100",
+    "+": "0010101",
+    A: "0011010",
+    B: "0101001",
+    C: "0001011",
+    D: "0001110",
+  };
+  const symbols = ["A123456B", "C40156D", "D7-$:/.+9A"];
+  const width = 480,
+    band = 120,
+    height = band * symbols.length,
+    data = new Uint8Array(width * height).fill(255);
+  symbols.forEach((symbol, row) => {
+    let x = 40;
+    for (const character of symbol) {
+      // Narrow elements are 2 px, wide 5 px; a narrow space separates characters.
+      [...patterns[character], "0"].forEach((wide, element) => {
+        const w = wide === "1" ? 5 : 2;
+        if (element % 2 === 0 && element < 7)
+          for (let y = row * band + 20; y < row * band + 100; y++)
+            data.fill(0, y * width + x, y * width + x + w);
+        x += w;
+      });
+    }
+  });
+  const image = { data, width, height, channels: 1, stride: width };
+  for (const mode of ["low", "medium", "high", "very-high"]) {
+    const scanner = await Scanner.create({ mode, loadWasm, formats: "Codabar" });
+    try {
+      const reads = scanner
+        .scan(image)
+        .barcodes.map((b) => [b.text, b.codabarStartStop])
+        .sort();
+      assert.deepEqual(
+        reads,
+        [
+          ["123456", "AB"],
+          ["40156", "CD"],
+          ["7-$:/.+9", "DA"],
+        ],
+        mode,
+      );
+      const { barcodes } = scanner.inspect(fixture().image, { formats: "EAN13" });
+      assert.ok(barcodes.length === 1 && !("codabarStartStop" in barcodes[0]), mode);
+    } finally {
+      scanner.dispose();
+    }
+  }
+});
+
 test("MSI Plessey is opt-in and read when selected", async () => {
   // Start bit, 8052344 and its mod-10 check digit 2, stop bit and closing bar.
   let bits = "110";

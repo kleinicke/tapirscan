@@ -359,6 +359,7 @@ same fields plus the ones marked _inspect_. Results are immutable.
 | `barcode.reader_initialization` | Data Matrix, PDF417, Aztec and MaxiCode reader-initialization flag; None for other formats. |
 | `barcode.structured_append`     | `StructuredAppend(index, count, id, parity)`, or None; index is one-based.                  |
 | `barcode.ean_add_on`            | EAN/UPC supplement, with `ean_add_on_policy` `"read"` or `"require"`.                       |
+| `barcode.codabar_start_stop`    | Codabar start and stop characters, such as `"AB"`, which `text` omits; None otherwise.      |
 | `barcode.content`               | [Structured content](#structured-content) of `text`, or None for plain text.                |
 
 Separate labels with the same value stay separate entries. `barcode.as_dict()`

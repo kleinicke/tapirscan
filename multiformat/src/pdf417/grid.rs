@@ -633,6 +633,7 @@ fn read_oriented(gray: &[u8], w: usize, h: usize, mirrored: bool) -> Option<Dete
             structured_append: read.structured_append,
             reader_initialization: read.reader_initialization,
             addon: None,
+            codabar_start_stop: None,
             format: "PDF417".into(),
             text: read.text,
             polygon: [[x0, top], [x1, top], [x1, bottom], [x0, bottom]],

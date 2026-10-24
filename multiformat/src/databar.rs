@@ -379,6 +379,7 @@ pub fn decode(runs: &[f32], s: usize) -> Option<Read> {
     Some(Read {
         decoded: true,
         addon: None,
+        codabar_start_stop: None,
         format: "DataBar",
         text: format!("01{digits}{check}"),
         start: s,
@@ -623,6 +624,7 @@ impl Stacked {
                     structured_append: None,
                     reader_initialization: false,
                     addon: None,
+                    codabar_start_stop: None,
                     format: "DataBar".into(),
                     text,
                     polygon,

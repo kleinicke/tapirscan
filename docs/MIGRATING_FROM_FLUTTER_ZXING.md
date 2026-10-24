@@ -53,7 +53,8 @@ searches the whole image, so select only what the app reads.
 
 flutter_zxing decodes with zxing-cpp, so values follow the zxing-cpp column of the
 [ZXing text differences](MIGRATING_FROM_ZXING.md#formats): UPC-A, UPC-E, Codabar
-and DataBar text differ. Check stored values for those formats.
+and DataBar text differ. Check stored values for those formats; for Codabar,
+`codabarStartStop` restores the letters ZXing keeps.
 
 ## Options
 
@@ -142,6 +143,7 @@ final crop = ts.PixelImage(view, width: cropWidth, height: cropHeight, stride: p
 | `rawBytes`                                 | `payloadBytes` (matrix formats)                          |
 | `duration`                                 | none; time the call                                      |
 | none                                       | `support`, `eanAddOn`, `gs1`, `structuredAppend`, `best` |
+| Codabar start/stop letters in `text`       | `codabarStartStop` (`text` omits them)                   |
 
 `Codes.codes` becomes `ScanResult.barcodes`; `ScanResult.values` lists the texts.
 Positions are in the scanned frame's pixels and sensor orientation in both

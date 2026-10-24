@@ -20,6 +20,7 @@ public final class Barcode {
     private final Boolean gs1;
     private final Boolean readerInitialization;
     private final StructuredAppend structuredAppend;
+    private final String codabarStartStop;
 
     /**
      * Called from JNI with UTF-8 byte arrays (JNI strings use modified UTF-8), {@code null}
@@ -28,7 +29,7 @@ public final class Barcode {
      */
     Barcode(byte[] text, int format, double[] polygon, long support, byte[] payloadBytes,
             byte[] eanAddOn, int gs1, int readerInitialization, long appendIndex,
-            long appendCount, byte[] appendId, int appendParity) {
+            long appendCount, byte[] appendId, int appendParity, byte[] codabarStartStop) {
         this.text = new String(text, StandardCharsets.UTF_8);
         this.format = Format.fromBit(format);
         List<Point> corners = new ArrayList<>(4);
@@ -43,6 +44,8 @@ public final class Barcode {
                 : new StructuredAppend(appendIndex, appendCount,
                         Optional.ofNullable(appendId).map(b -> new String(b, StandardCharsets.UTF_8)),
                         appendParity < 0 ? OptionalInt.empty() : OptionalInt.of(appendParity));
+        this.codabarStartStop = codabarStartStop == null ? null
+                : new String(codabarStartStop, StandardCharsets.US_ASCII);
     }
 
     /** Decoded text. */
@@ -88,6 +91,14 @@ public final class Barcode {
         return Optional.ofNullable(structuredAppend);
     }
 
+    /**
+     * Codabar start and stop characters (A to D) in reading order, such as {@code "AB"};
+     * {@link #text()} omits them. Empty for other formats.
+     */
+    public Optional<String> codabarStartStop() {
+        return Optional.ofNullable(codabarStartStop);
+    }
+
     /** Enclosing integer pixel bounds, from floor(minimum) to ceil(maximum). */
     public Rect rect() {
         double left = Double.POSITIVE_INFINITY;
@@ -115,13 +126,14 @@ public final class Barcode {
                 && polygon.equals(b.polygon) && Arrays.equals(payloadBytes, b.payloadBytes)
                 && Objects.equals(eanAddOn, b.eanAddOn) && Objects.equals(gs1, b.gs1)
                 && Objects.equals(readerInitialization, b.readerInitialization)
-                && Objects.equals(structuredAppend, b.structuredAppend);
+                && Objects.equals(structuredAppend, b.structuredAppend)
+                && Objects.equals(codabarStartStop, b.codabarStartStop);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(text, format, polygon, support, Arrays.hashCode(payloadBytes), eanAddOn,
-                gs1, readerInitialization, structuredAppend);
+                gs1, readerInitialization, structuredAppend, codabarStartStop);
     }
 
     @Override

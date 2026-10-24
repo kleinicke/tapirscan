@@ -22,7 +22,8 @@ import java.util.OptionalInt;
  * Scans on one scanner serialize; results remain valid after {@link #close()}.
  */
 public final class Scanner implements AutoCloseable {
-    private static final int TEXT = 0, PAYLOAD_BYTES = 1, EAN_ADD_ON = 2, STRUCTURED_APPEND_ID = 3;
+    private static final int TEXT = 0, PAYLOAD_BYTES = 1, EAN_ADD_ON = 2, STRUCTURED_APPEND_ID = 3,
+            CODABAR_START_STOP = 4;
     /** {@code tapirscan_parallel}: {@code DEFAULT} follows the process default. */
     private static final int PARALLEL_DEFAULT = 0, PARALLEL_OFF = 1, PARALLEL_ON = 2;
     private final Native lib = Native.get();
@@ -151,16 +152,18 @@ public final class Scanner implements AutoCloseable {
                     : Optional.of(new StructuredAppend(value.get(JAVA_LONG, offset(Native.BARCODE, "appendIndex")), appendCount,
                             text(arena, result, i, STRUCTURED_APPEND_ID, value.get(JAVA_LONG, offset(Native.BARCODE, "appendIdLength"))),
                             parity < 0 ? OptionalInt.empty() : OptionalInt.of(parity)));
+            Format format = Format.fromBit(value.get(JAVA_INT, offset(Native.BARCODE, "format")));
             barcodes.add(new Barcode(
                     text(arena, result, i, TEXT, value.get(JAVA_LONG, offset(Native.BARCODE, "textLength"))).orElseThrow(),
-                    Format.fromBit(value.get(JAVA_INT, offset(Native.BARCODE, "format"))),
+                    format,
                     polygon(value, Native.BARCODE),
                     value.get(JAVA_LONG, offset(Native.BARCODE, "support")),
                     bytes(arena, result, i, PAYLOAD_BYTES, value.get(JAVA_LONG, offset(Native.BARCODE, "payloadLength"))),
                     text(arena, result, i, EAN_ADD_ON, value.get(JAVA_LONG, offset(Native.BARCODE, "addonLength"))),
                     tristate(value.get(JAVA_INT, offset(Native.BARCODE, "gs1"))),
                     tristate(value.get(JAVA_INT, offset(Native.BARCODE, "readerInitialization"))),
-                    append));
+                    append,
+                    text(arena, result, i, CODABAR_START_STOP, format == Format.CODABAR ? 2 : Native.ABSENT)));
         }
         return List.copyOf(barcodes);
     }

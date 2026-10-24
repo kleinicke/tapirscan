@@ -157,6 +157,7 @@ pub fn recover(
                             structured_append: payload.structured_append,
                             reader_initialization: payload.reader_initialization,
                             addon: None,
+                            codabar_start_stop: None,
                             format: "QRCode".into(),
                             text: payload.text,
                             polygon: quad,

@@ -585,6 +585,7 @@ mod assembled_rows {
             structured_append: None,
             reader_initialization: false,
             addon: None,
+            codabar_start_stop: None,
             format: "DataBarExpanded".into(),
             text: "a".into(),
             polygon: [[0., 0.], [10., 0.], [10., 10.], [0., 10.]],

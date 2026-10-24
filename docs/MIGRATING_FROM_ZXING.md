@@ -103,10 +103,18 @@ Text differs for four formats:
 | ------- | -------------------------------------------------------------------- | ------------------------------------------------------------ |
 | UPC-A   | zxing-cpp/wasm: 13 digits `0036000291452`; @zxing/library: 12 digits | `UPCA` selected: 12 digits; only `EAN13` selected: 13 digits |
 | UPC-E   | zxing-cpp/wasm: expanded to 13 digits `0042100005264`                | 8 digits as encoded, `04252614`                              |
-| Codabar | start and stop kept, `A123456A`                                      | stripped, `123456`                                           |
+| Codabar | start and stop kept, `A123456A`                                      | stripped, `123456`; `codabarStartStop` is `"AA"`             |
 | DataBar | zxing-cpp/wasm `(01)...`; @zxing/library GTIN only                   | `0112345678901231`: AI 01, no brackets                       |
 
 With `EAN13` and `UPCA` both selected, a zero-prefixed EAN-13 is returned as `UPCA` with 12 digits.
+
+For ZXing's Codabar text, put the start and stop characters back (`codabar_start_stop` in
+Python and Rust):
+
+```js
+const zxingText = (b) =>
+  b.codabarStartStop ? b.codabarStartStop[0] + b.text + b.codabarStartStop[1] : b.text;
+```
 
 ## Geometry
 
