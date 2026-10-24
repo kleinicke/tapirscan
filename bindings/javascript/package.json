@@ -1,6 +1,6 @@
 {
   "name": "tapirscan",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "type": "module",
   "description": "Orientation-aware barcode scanning with a Rust/WASM core and four effort modes",
   "exports": {

@@ -1,4 +1,5 @@
 name: tapirscan
+version: 1.5.0
 description: Dart and Flutter binding of the Tapirscan barcode scanner through dart:ffi.
 publish_to: none
 

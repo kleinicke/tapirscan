@@ -12,11 +12,14 @@ const versions = [
   ["Python", field(project, "version")],
   ["Rust", field(read("bindings/rust/Cargo.toml"), "version")],
   ["C facade", field(read("bindings/c/Cargo.toml.in"), "version")],
+  ["WASM adapter", field(read("bindings/wasm/Cargo.toml.in"), "version")],
+  ["Dart", read("bindings/flutter/pubspec.yaml").match(/^version:\s*(\S+)/m)?.[1]],
   ["C++", read("bindings/cpp/CMakeLists.txt").match(/project\(Tapirscan VERSION (\S+)/)?.[1]],
   [
     "Java",
     read("bindings/java/pom.xml").match(/<artifactId>tapirscan<\/artifactId><version>([^<]+)/)?.[1],
   ],
+  ["Java README jar", read("bindings/java/README.md").match(/tapirscan-([\d.]+)\.jar/)?.[1]],
   ["npm lockfile", lock.version],
   ["npm lockfile root", lock.packages?.[""].version],
 ];

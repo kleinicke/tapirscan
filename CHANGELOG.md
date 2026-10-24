@@ -1,75 +1,129 @@
 # Release notes
 
-## Unreleased
+## 1.5.0
 
+Native consumers need no rebuild: ABI 7 is unchanged. `1D` and `all` also read
+GS1 DataBar Limited, and `2D` and `all` also read Micro QR. Swift calls in `async` code need
+`await`, Rust code that builds or fully destructures result structs needs a
+small change, Java record patterns of `Barcode` need the new component, and
+exhaustive switches over formats and content kinds need the new members. Apps
+that switch on `content.kind` can see new kinds. Reads,
+geometry and timing can differ from 1.4.0. See the
+[migration notes](docs/API_MIGRATION.md#upgrading-from-140).
+
+### New
+
+- Dart and Flutter package (preview) in `bindings/flutter`, over the C library
+  through `dart:ffi`. Its build hook builds it from source for 64-bit Android,
+  iOS, macOS, Linux and Windows; it is tested on macOS arm64, Linux x86_64 and
+  an Android arm64 emulator. `scan` runs on a background isolate. See its
+  [README](bindings/flutter/README.md).
+- GS1 DataBar Limited (`DataBarLimited`, in `1D` and `all`) and Micro QR M1–M4
+  (`MicroQRCode`, in `2D` and `all`). Selecting `QRCode` alone reads no Micro
+  QR.
+- Opt-in formats, read only when selected by name: Extended (full-ASCII) Code 39
+  (`Code39Extended`), IATA 2 of 5 (`IATA25`), Matrix 2 of 5 (`Matrix25`),
+  Industrial (Standard) 2 of 5 (`Industrial25`) and Laetus Pharmacode
+  (`Pharmacode`). No preset, `all` included, selects them.
 - Codabar barcodes report their start and stop characters, such as `"AB"`, in the
   new optional result field `codabarStartStop` (`codabar_start_stop` in Python,
   Rust, C and C++); `text` still omits them. C reads it with the new
-  `TAPIRSCAN_FIELD_CODABAR_START_STOP`; native ABI 7 is unchanged.
-- Read GS1 DataBar Limited (`DataBarLimited`, in the `1D` preset) and Micro QR
-  M1–M4 (`MicroQRCode`, in the `2D` preset). Selecting `QRCode` alone reads no
-  Micro QR.
-- Read Extended (full-ASCII) Code 39, IATA 2 of 5 and Matrix 2 of 5 as the opt-in
-  formats `Code39Extended`, `IATA25` and `Matrix25`.
-- EAN-2 and EAN-5 supplements (`eanAddOnPolicy` `read` and `require`): all other
-  formats now read exactly as with `ignore` (before, `read` lost Code 128, Code 93,
-  Code 39, Codabar and ITF reads and took longer). Supplements next to blurred,
-  low-resolution and perspective-distorted EAN/UPC symbols are fitted on grayscale
-  profiles beside the decoded main symbol and reported only when two profiles agree
-  and none reads another value.
+  `TAPIRSCAN_FIELD_CODABAR_START_STOP`; header, bindings and library must come
+  from the same release.
+- Structured content: new kind `ISBN` for 978 and 979 EAN-13 digits (not
+  979-0 ISMN) and written forms such as `ISBN 978-…`, `ISBN-10: …` and
+  `urn:isbn:`, with the fields `isbn13` and `isbn10`. More payloads have
+  content: `www.` addresses and
+  `URLTO:`/`MEBKM:` bookmarks (`URL`, with a `title`), bare e-mail addresses and
+  `SMTP:` (`Email`), `mms:` links (`SMS`, which now keeps a `subject`) and
+  `BIZCARD:` contacts. Leading whitespace no longer hides a prefix. `http(s)`
+  URLs need a host and no whitespace, `SMTP:` needs a valid address, an empty
+  `TEL:` has no content, and an ISBN label that names the length needs that
+  many digits.
+- Swift: `scan` and `inspect` for pixel arrays and `CGImage` have `async`
+  overloads that run on a detached task. In async code Swift selects them, so
+  existing calls there need `await`.
+- Rust: the result structs `Barcode`, `ScanResult`, `InspectionResult`,
+  `StructuredAppend`, `UndecodedRegion`, `Diagnostics`, `Content` and `Field`
+  are `#[non_exhaustive]`, so later fields are not breaking changes. Get them by
+  scanning, deserializing or `parse_content`.
 - JavaScript: `tapirscan/browser/low`, `/medium`, `/high` and `/very-high` emit
   one mode's WASM into application builds instead of all eight files.
-- JavaScript: `tapirscan/support` reports whether a runtime can scan
-  (`browserSupported()`, `wasmSupported()`) without loading anything. Scanners
-  created where WebAssembly SIMD (or a browser's workers or `OffscreenCanvas`) is
-  missing download nothing and reject with the `ScannerError` code `"unsupported"`.
+- JavaScript: `tapirscan/support` exports `browserSupported()` and
+  `wasmSupported()`, which report whether a runtime can scan; the module imports
+  nothing else. Scanners created where WebAssembly SIMD (or a browser's module
+  workers, `OffscreenCanvas` or `createImageBitmap`) is missing download nothing and reject with the
+  `ScannerError` code `"unsupported"`.
 - JavaScript: the browser `worker` option starts the scanner's worker from
   application code, with the new `tapirscan/browser/<mode>/worker` modules, so
   Angular production builds can bundle it.
-- JavaScript: `tapirscan/camera` adds `CameraScanner`, an optional camera loop
-  for any browser scanner, with `scanInterval`, a scan `region` and
-  `onDetect` after `confirmations` consecutive reads.
-- Docs: browser deployment, camera recipes, and migration guides from ZXing,
-  ZBar, Quagga and html5-qrcode.
-- Reuse exact source profiles during Medium primary recovery and vectorize
-  Data Matrix border sampling in WebAssembly.
-- Restrict private native Turbo build switches to Low; higher modes retain
-  their ordinary policies.
-- Vectorize QR finder coordinate calculations in WebAssembly and omit optional
-  region output from compact scans.
-- Honor hybrid thresholding when filling native threshold caches in parallel.
+- JavaScript: `tapirscan/camera` (preview) adds `CameraScanner`, an optional
+  camera loop for any browser scanner, with `scanInterval`, a scan `region`, the
+  torch and camera choice. `onDetect` fires once per appearance of a barcode,
+  after `confirmations` consecutive reads. Pausing the `<video>` pauses
+  scanning. Without `onError`, failures go to `reportError`. `start()` waits for
+  a camera request of an earlier call that is still pending.
+
+### Scanner behavior
+
+Read comparisons below describe the development evaluation sets. They do not
+guarantee that every symbol of these kinds is read on an arbitrary image. See the
+[evaluation protocol](docs/BENCHMARKS.md).
+
+- EAN-2 and EAN-5 supplements (`eanAddOnPolicy` `read` and `require`): other
+  formats read exactly as with `ignore` (before, `read` lost Code 128, Code 93,
+  Code 39, Codabar and ITF reads and took longer). Supplements are read next to
+  more blurred, low-resolution and perspective-distorted EAN/UPC symbols, and
+  reported only when two independent reads agree.
 - Read small, densely packed QR codes, such as label sheets with dozens of
   symbols, in every mode; High and Very High read more QR codes in shaded or
-  blurred photos. With QR selected, Low and Medium scan frames without QR codes
-  as fast as before and frames with them about 4% slower; High and Very High
-  take about 7% longer on photos.
-- Read small QR codes at every zoom level and rotation, also in frames resampled
-  to another aspect (a 4:3 camera image stretched to 16:9) or seen at an angle.
-- Read whole sheets of barcodes: Data Matrix, Aztec and linear symbols (EAN/UPC,
-  Code 128, Code 39, Code 93, ITF, Codabar, DataBar) beyond the first two dozen per
-  frame, in every mode. Frames without such sheets scan as fast as before.
-- Read single small Aztec symbols at every rotation; High and Very High read Data
-  Matrix symbols squashed to 0.6 of their width, and EAN-13 sheets that High lost.
-- Read large full-range Aztec symbols that are slightly turned or warped: the
-  grid is fitted to the reference tracks from the center outward instead of
-  only from the bullseye.
+  blurred photos.
+- Read small QR codes over a wider range of sizes and rotations, also in frames
+  resampled to another aspect (a 4:3 camera image stretched to 16:9) or seen at
+  an angle.
+- Read sheets with more than two dozen Data Matrix, Aztec or linear symbols
+  (EAN/UPC, Code 128, Code 39, Code 93, ITF, Codabar, DataBar) per frame, in
+  every mode. Frames without such sheets scan as fast as before.
+- Read single small Aztec symbols at more rotations, and large full-range Aztec
+  symbols that are slightly turned or warped. High and Very High read Data
+  Matrix symbols squashed to 0.6 of their width, and more EAN-13 symbols on
+  label sheets.
+- Fewer wrong Code 39 characters in blurred symbols at about one pixel per
+  module.
 - ITF reads need one narrow/wide model across the symbol, and yield to Code 39
   where the same bars form better-fitting Code 39 characters, so Code 39, Code 32
   and PZN symbols cut by a crop or the image edge are no longer read as ITF.
-- Read Industrial (Standard) 2 of 5 and Laetus Pharmacode as the opt-in formats
-  `Industrial25` and `Pharmacode`; no preset, `all` included, selects them.
 - Read Code 39 and Codabar symbols with one or two data characters (they need
-  full ten-module quiet zones), Code 93 and Code 128 symbols with ink spread
-  (edge-to-similar-edge matching, accepted only with valid checks), and Code 93
-  with three-module quiet zones or perspective-scaled stop characters.
-- Structured content recognizes more payloads: `www.` web addresses and
-  `URLTO:`/`MEBKM:` bookmarks (`URL`, with a `title`), bare e-mail addresses and
-  `SMTP:` (`Email`), `mms:` links (`SMS`, which now keeps a `subject`), and
-  `BIZCARD:` contacts. Text that had no content before can now have one of
-  these kinds, and web and e-mail addresses ignore surrounding whitespace.
-- New content kind `ISBN` for book numbers: 978/979 EAN-13 digits and written
-  forms such as `ISBN 978-…`, `ISBN-10: …` and `urn:isbn:`, with the fields
-  `isbn13` and `isbn10`.
+  full ten-module quiet zones), Code 93 and Code 128 symbols with ink spread,
+  and Code 93 with three-module quiet zones or perspective-scaled stop
+  characters.
+
+### Fixed
+
+- JavaScript: creating a browser `Scanner` without `wasmBaseUrl` no longer
+  throws in Deno without `--location`.
+
+### Performance
+
+- Low and Medium scan as fast as 1.4.0, and frames with QR codes up to about 3%
+  slower. High and Very High take about 6–11% longer when QR Code or Data Matrix
+  is selected and are unchanged with only linear formats. These are WebAssembly timings in
+  Chrome on the development evaluation sets; other images, devices and format
+  selections can differ.
+- Micro QR in `2D` and `all` makes Low and Medium about 3–5% slower on QR
+  images with those selections.
+
+### Packaging
+
+- Python: wheel builds, including from a `TAPIRSCAN_NATIVE_DIR`, need the
+  `native-build.json` that `scripts/build_native.py` writes beside the library,
+  and fail if the library was built from other sources.
+- Concurrent native and WASM builds of one checkout wait for each other.
+
+### Docs
+
+- Browser deployment, camera recipes, and migration guides from ZXing, ZBar,
+  Quagga, html5-qrcode and flutter_zxing.
 
 ## 1.4.0
 
@@ -262,10 +316,10 @@ rebuild for ABI 6. See the [migration guide](docs/API_MIGRATION.md).
 
 ## 1.2.2 — 2026-09-25
 
-- Public `low` now uses the speed-oriented linear scan across all bindings; higher
+- Public `low` now uses the original Turbo policy across all bindings; higher
   effort modes remain available. Low prioritizes speed and can miss difficult
-  symbols; Medium remains the default API mode. Experimental Turbo presets were
-  available only in the demo at this release.
+  symbols; Medium remains the default API mode. The previous Low is
+  TS-Low Classic in the demo. Experimental Turbo tiers remain demo-only.
 - Demo cards pause without disappearing; More scanners controls visibility.
   Basic ZXing and ZXing-JS readers are separate optional comparisons.
 
