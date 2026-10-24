@@ -145,6 +145,20 @@ scanner per thread; scans with several formats also use extra threads
 internally (`options.parallel = false` keeps each scan on one thread). See
 [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).
 
+## Prebuilt libraries
+
+The `tapirscan-VERSION-PLATFORM.zip` archives of each
+[GitHub release](https://github.com/kleinicke/tapirscan/releases) are relocatable install trees with both headers and
+the CMake package, so no Rust toolchain is needed. Unpack one and add its
+directory to `CMAKE_PREFIX_PATH`:
+
+```sh
+cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/tapirscan-1.5.0-linux-x64
+```
+
+The [C binding](https://github.com/kleinicke/tapirscan/blob/main/bindings/c/README.md#prebuilt-libraries)
+lists the platforms.
+
 ## Building and installing
 
 ```sh

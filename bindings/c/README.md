@@ -173,6 +173,18 @@ concurrently, and each scan uses extra threads unless `parallel` is off. Destroy
 and invalid raw memory are outside that guarantee, and valid pointers remain the
 caller's responsibility. The library targets 64-bit platforms.
 
+## Prebuilt libraries
+
+Each [GitHub release](https://github.com/kleinicke/tapirscan/releases) attaches `tapirscan-VERSION-PLATFORM.zip` for
+`linux-x64`, `linux-arm64` (glibc 2.28+), `macos-arm64`, `macos-x64` (macOS 11+),
+`windows-x64`, `android-arm64`, `android-x64` (API 24+), `ios-arm64`,
+`ios-x64-simulator` (iOS 13+) and `ios-arm64-simulator` (iOS 14+), with a `SHA256SUMS`
+file. Each archive is an install tree: `include/` (C and C++ headers), `lib/`
+(the shared library; on Windows `tapirscan.dll` and its import library
+`tapirscan.dll.lib`), `lib/cmake/Tapirscan/` for `find_package(Tapirscan)` and
+`share/licenses/tapirscan/`. Compile with `-Iinclude` and link `lib/`; ship the
+library with the application.
+
 ## Building
 
 ```sh

@@ -1,8 +1,8 @@
 # Releasing Tapirscan
 
-The `publish.yml` workflow publishes the npm package, the Python wheels and the
-Rust crate from tested CI artifacts. The GitHub release and the demo update are
-separate steps. Link [API migration](API_MIGRATION.md) in the release notes when
+The `publish.yml` workflow publishes the npm package, the Python wheels, the
+Rust crate and the Dart package from tested CI artifacts, and attaches prebuilt
+native libraries to the GitHub release. The demo update is a separate step. Link [API migration](API_MIGRATION.md) in the release notes when
 the API changes.
 
 ## Registry setup
@@ -28,6 +28,18 @@ and `crates` for crates.io. Configure them in the
 [npm package settings](https://docs.npmjs.com/trusted-publishers/) and the
 [crates.io crate settings](https://crates.io/docs/trusted-publishing). No stored
 registry token is needed.
+
+pub.dev accepts GitHub Actions publishing only for packages that already exist
+and only from a run on a tag. Publish the first version of `tapirscan` by hand
+(see [Dart package](#dart-package)), then enable automated publishing in the
+package's **Admin** tab on pub.dev:
+
+| Field                                      | Value                 |
+| ------------------------------------------ | --------------------- |
+| Repository                                 | `kleinicke/tapirscan` |
+| Tag pattern                                | `v{{version}}`        |
+| Enable publishing from `workflow_dispatch` | checked               |
+| Require GitHub Actions environment         | `pub`                 |
 
 ## Build the exact release
 
@@ -95,17 +107,24 @@ The separate `publish.yml` workflow publishes only when explicitly selected.
 1. Set the intended version in the package manifests and push the release commit.
 2. Run **Prepare or publish release** (`publish.yml`) on that branch or tag. Enter
    the version without `v` (for example `1.4.0`) and select `all`, or a single
-   registry. Use `none` for a build-only rehearsal.
+   registry. Use `none` for a build-only rehearsal. pub.dev accepts only a run
+   on the tag `vX.Y.Z`, so for `pub` and `all` push the tag at the release
+   commit first (`git push origin COMMIT:refs/tags/vX.Y.Z`) and run on the tag;
+   the preflight rejects a branch run before building.
 3. The workflow checks the version and existing tag before building, then runs
    **Validate scanner and bindings** and all five Python wheel builds in parallel.
    Both reusable workflows use the caller's exact commit. Preparation downloads
    only artifacts from this run, validates the complete package set, and uploads
-   `release-bundle` with `npm/`, `wheels/`, `crates/` and `SHA256SUMS`.
+   `release-bundle` with `npm/`, `wheels/`, `crates/`, `native/` (the
+   [native release assets](#native-release-assets)) and `SHA256SUMS`.
 4. Review the bundle and commit shown in the run summary, then approve the
    **release** environment deployment in GitHub. This is the single publication
    approval. The workflow verifies the checksums, creates `vX.Y.Z` at the tested
-   commit (or accepts an existing tag at that commit), then publishes the selected
-   registries in parallel. Every publisher verifies the checksums again.
+   commit (or accepts an existing tag at that commit), creates the GitHub release
+   with the native assets and the version's changelog section as notes, then
+   publishes the selected registries in parallel. Every publisher verifies the
+   checksums again. The pub.dev job waits for the GitHub release, since the
+   package downloads its libraries from there.
 
 No build run IDs, separate wheel dispatch, manual tag creation or second
 preparation run are needed. Builds still run the full validation suite; parallel
@@ -124,9 +143,62 @@ Do not rerun successful publishers for an already published version. Release
 numbers are immutable; corrections require a new patch version. A `none` run
 ends after preparation and never creates a tag or requests publication approval.
 
-Create the GitHub release with the changelog, actual platform support, demo link,
-and documented format limitations. After publishing, verify fresh installs with
-`npm install tapirscan`, `pip install tapirscan` and `cargo add tapirscan`.
+Edit the GitHub release notes to add the actual platform support, demo link and
+documented format limitations; relative changelog links do not resolve there.
+After publishing, verify fresh installs with `npm install tapirscan`,
+`pip install tapirscan`, `cargo add tapirscan` and, in a new Flutter app outside
+the checkout, `flutter pub add tapirscan` followed by a build.
+
+## Native release assets
+
+Every publishing run (any selection except `none`) makes sure the GitHub release
+`vX.Y.Z` carries these assets from `release-bundle/native/`:
+
+| Asset                              | Contents and source                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------------------- |
+| `tapirscan-X.Y.Z-PLATFORM.zip`     | Library, C and C++ headers, CMake package and notices, laid out like `cmake --install` |
+| `tapirscan-android-X.Y.Z.aar`      | The Android AAR from the CI `android` job                                              |
+| `TapirscanC-X.Y.Z.xcframework.zip` | The XCFramework from the CI `swift` job                                                |
+| `SHA256SUMS`                       | Checksums of the assets above                                                          |
+
+`PLATFORM` names the Dart build hook's target. The desktop libraries
+(`linux-x64`, `linux-arm64`, `macos-arm64`, `macos-x64`, `windows-x64`) are the
+ones inside the tested wheels; `collect_release.py` requires the wheel job's
+native artifact to hold the identical file and adds the Windows import library
+from it. `android-arm64` and `android-x64` (API 24) come from the CI `android`
+job; `ios-arm64`, `ios-arm64-simulator` and `ios-x64-simulator` (iOS 13; the arm64 simulator 14) from the
+CI `swift` job, both built with `scripts/build_flutter_native.py`.
+`collect_release.py` checks each library's CPU architecture.
+
+Assets are immutable per version, because the Dart package ships their
+checksums. A later run for another registry keeps a complete attached set; a
+partial set fails the job, so delete those assets by hand before rerunning.
+
+## Dart package
+
+`bindings/flutter` is published to pub.dev as `tapirscan`. Outside a Tapirscan
+checkout its build hook downloads `tapirscan-X.Y.Z-PLATFORM.zip` from the release
+of the package version and verifies it against `hook/SHA256SUMS`. That file is
+not in Git: the `pub` job downloads the release's assets, checks them against
+the release's `SHA256SUMS`, copies that file into the package and publishes
+with `dart pub publish --force`. Keep a `## X.Y.Z` section in
+`bindings/flutter/CHANGELOG.md`; `check_release.mjs` requires it.
+
+The first pub.dev version must be published by hand. A `publish.yml` run with
+`pub` on the tag creates the GitHub release and its assets; its pub.dev job then
+fails because the package does not exist yet. Publish from a clean checkout of
+the tag:
+
+```sh
+gh release download vX.Y.Z --pattern SHA256SUMS --dir bindings/flutter/hook
+cd bindings/flutter
+dart pub publish --dry-run
+dart pub publish
+```
+
+Then enable automated publishing as described in
+[registry setup](#registry-setup), and delete `hook/SHA256SUMS` from the
+checkout.
 
 ## Rust crate
 

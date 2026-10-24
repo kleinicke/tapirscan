@@ -1,6 +1,6 @@
 # Tapirscan for Swift (iOS and macOS)
 
-> **Preview:** built from source; the API may change in minor releases.
+> **Preview:** the API may change in minor releases.
 
 A Swift package over the Tapirscan C library, for iOS 15+ and macOS 12+. It scans
 pixel buffers, `CGImage`s and camera `CVPixelBuffer`s. `scan` returns a
@@ -11,7 +11,10 @@ are in [API design](../../docs/API_DESIGN.md).
 
 ## Setup
 
-Build the XCFramework (static libraries for macOS, iOS devices and the iOS
+Each [GitHub release](https://github.com/kleinicke/tapirscan/releases) attaches the XCFramework as
+`TapirscanC-VERSION.xcframework.zip`. Unpack it into this directory instead of
+running `build_apple.py` to use the package without Rust. Otherwise build the
+XCFramework (static libraries for macOS, iOS devices and the iOS
 simulator), then add this directory as a local package in Xcode (**File → Add
 Package Dependencies… → Add Local…**) or in your `Package.swift`:
 

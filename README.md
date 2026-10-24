@@ -88,22 +88,25 @@ compare the readers.
 
 ## Language support
 
-| Language                | Integration                                                                                                        | Guide                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------- |
-| JavaScript / TypeScript | Browser and Node, WASM included                                                                                    | [JS/TS](bindings/javascript/README.md) |
-| Python                  | Native platform wheels; Pillow, NumPy and tensors                                                                  | [Python](bindings/python/README.md)    |
-| Java                    | JDK 22+ JAR with a separate native library                                                                         | [Java](bindings/java/README.md)        |
-| C++                     | Header-only C++17 wrapper and CMake installation                                                                   | [C++](bindings/cpp/README.md)          |
-| C                       | Shared library with typed results and explicit buffers                                                             | [C](bindings/c/README.md)              |
-| Rust                    | Standalone Cargo package                                                                                           | [Rust](bindings/rust/README.md)        |
-| Swift (iOS, macOS)      | Swift package over an XCFramework; camera frames. Preview: built from source; the API may change in minor releases | [Swift](bindings/swift/README.md)      |
-| Android (Kotlin, Java)  | AAR with a JNI bridge; CameraX frames. Preview: built from source; the API may change in minor releases            | [Android](bindings/android/README.md)  |
-| Dart / Flutter          | `dart:ffi` package for Flutter and Dart. Preview: built from source; the API may change in minor releases          | [Dart](bindings/flutter/README.md)     |
+| Language                | Integration                                                                                         | Guide                                  |
+| ----------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| JavaScript / TypeScript | Browser and Node, WASM included                                                                     | [JS/TS](bindings/javascript/README.md) |
+| Python                  | Native platform wheels; Pillow, NumPy and tensors                                                   | [Python](bindings/python/README.md)    |
+| Java                    | JDK 22+ JAR with a separate native library                                                          | [Java](bindings/java/README.md)        |
+| C++                     | Header-only C++17 wrapper and CMake installation                                                    | [C++](bindings/cpp/README.md)          |
+| C                       | Shared library with typed results and explicit buffers                                              | [C](bindings/c/README.md)              |
+| Rust                    | Standalone Cargo package                                                                            | [Rust](bindings/rust/README.md)        |
+| Swift (iOS, macOS)      | Swift package over an XCFramework; camera frames. Preview: the API may change in minor releases     | [Swift](bindings/swift/README.md)      |
+| Android (Kotlin, Java)  | AAR with a JNI bridge; CameraX frames. Preview: the API may change in minor releases                | [Android](bindings/android/README.md)  |
+| Dart / Flutter          | pub.dev package for Flutter and Dart over `dart:ffi`. Preview: the API may change in minor releases | [Dart](bindings/flutter/README.md)     |
 
-Every binding offers all four effort modes of the same scanner. JavaScript and
-Python install from [npm](https://www.npmjs.com/package/tapirscan) and
-[PyPI](https://pypi.org/project/tapirscan/); the other guides explain how to build
-from source. Java, C, C++, Swift, Android and Dart use the native library.
+Every binding offers all four effort modes of the same scanner. JavaScript,
+Python, Rust and Dart install from [npm](https://www.npmjs.com/package/tapirscan),
+[PyPI](https://pypi.org/project/tapirscan/), [crates.io](https://crates.io/crates/tapirscan)
+and [pub.dev](https://pub.dev/packages/tapirscan). Java, C, C++, Swift, Android and
+Dart use the native library; each [GitHub release](https://github.com/kleinicke/tapirscan/releases)
+attaches it prebuilt per platform, with the AAR and the XCFramework, and the
+guides explain how to build it from source.
 
 Want another language? Bindings build on the C ABI; the [binding checklist](docs/ADDING_BINDINGS.md)
 lists what a new one needs.

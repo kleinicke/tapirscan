@@ -11,7 +11,59 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from collect_release import PLATFORMS, check_crate, main, wheel_platform
+from collect_release import (
+    DESKTOP,
+    HEADERS,
+    MOBILE,
+    NOTICES,
+    PLATFORMS,
+    check_crate,
+    main,
+    wheel_platform,
+)
+
+
+def library(platform: str) -> tuple[str, bytes]:
+    """Return a library name and a minimal header of the platform's binary format."""
+    system, arch = platform.split("-")[:2]
+    if system in ("linux", "android"):
+        machine = {"arm64": 0xB7, "x64": 0x3E}[arch]
+        return "libtapirscan.so", b"\x7fELF" + bytes(14) + machine.to_bytes(2, "little")
+    if system == "windows":
+        return "tapirscan.dll", b"MZ" + bytes(58) + b"\x40\0\0\0PE\0\0\x64\x86"
+    cpu = {"arm64": 0x0100000C, "x64": 0x01000007}[arch]
+    return "libtapirscan.dylib", b"\xcf\xfa\xed\xfe" + cpu.to_bytes(4, "little")
+
+
+def write_native_inputs(root: Path, wheels: Path, native: Path) -> None:
+    """Write sources, wheels and native CI artifacts that form a complete set."""
+    for source in (*HEADERS, *NOTICES):
+        path = root / source / "tapirscan.h" if "include" in source else root / source
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source)
+    for platform in PLATFORMS:
+        name, data = library(DESKTOP[platform])
+        path = wheels / f"tapirscan-1.1.0-py3-none-{platform}.whl"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr(
+                "tapirscan-1.1.0.dist-info/METADATA",
+                "Name: tapirscan\nVersion: 1.1.0\n",
+            )
+            archive.writestr(f"tapirscan/_native/{name}", data)
+        built = native / f"native-{DESKTOP[platform]}"
+        built.mkdir(parents=True)
+        (built / name).write_bytes(data)
+        if name == "tapirscan.dll":
+            (built / "tapirscan.dll.lib").write_bytes(b"!<arch>\n")
+    for target, platform in MOBILE.items():
+        name, data = library(platform)
+        path = native / "native-mobile/flutter-native" / target / name
+        path.parent.mkdir(parents=True)
+        path.write_bytes(data)
+    xcframework = native / "native-apple/TapirscanC.xcframework"
+    xcframework.mkdir(parents=True)
+    (xcframework / "Info.plist").write_text("plist")
+    (native / "native-mobile/tapirscan-android.aar").write_bytes(b"aar")
 
 
 class ReleaseArtifacts(unittest.TestCase):
@@ -66,14 +118,8 @@ class ReleaseArtifacts(unittest.TestCase):
             wheels = staging / "WHEELS_RUN"
             ci.mkdir(parents=True)
             wheels.mkdir()
-            for platform in PLATFORMS:
-                path = wheels / f"tapirscan-1.1.0-py3-none-{platform}.whl"
-                with zipfile.ZipFile(path, "w") as archive:
-                    archive.writestr(
-                        "tapirscan-1.1.0.dist-info/METADATA",
-                        "Name: tapirscan\nVersion: 1.1.0\n",
-                    )
-                    archive.writestr("tapirscan/_native/libtapirscan.so", b"native")
+            native = staging / "NATIVE_RUN"
+            write_native_inputs(root, wheels, native)
             with tarfile.open(ci / "tapirscan-1.1.0.tgz", "w:gz") as archive:
                 data = json.dumps(package).encode()
                 info = tarfile.TarInfo("package/package.json")
@@ -88,7 +134,9 @@ class ReleaseArtifacts(unittest.TestCase):
                 main()
                 bundle = root / "build/release"
                 entries = (bundle / "SHA256SUMS").read_text().splitlines()
-                self.assertEqual(len(entries), 7)
+                # Wheels, npm, crate, ten library archives, AAR, XCFramework and
+                # the release assets' own checksums.
+                self.assertEqual(len(entries), 20)
                 for entry in entries:
                     digest, filename = entry.split("  ")
                     self.assertEqual(
@@ -96,7 +144,22 @@ class ReleaseArtifacts(unittest.TestCase):
                         hashlib.sha256((bundle / filename).read_bytes()).hexdigest(),
                     )
 
+                assets = (bundle / "native/SHA256SUMS").read_text()
+                self.assertIn("  tapirscan-1.1.0-ios-arm64-simulator.zip\n", assets)
+                with zipfile.ZipFile(
+                    bundle / "native/tapirscan-1.1.0-windows-x64.zip"
+                ) as archive:
+                    self.assertIn(
+                        "tapirscan-1.1.0-windows-x64/lib/tapirscan.dll.lib",
+                        archive.namelist(),
+                    )
+
                 shutil.rmtree(bundle)
+                android = native / "native-mobile/flutter-native/x86_64-linux-android"
+                (android / "libtapirscan.so").write_bytes(library("android-arm64")[1])
+                with self.assertRaisesRegex(SystemExit, "android-x64 library is built"):
+                    main()
+
                 next(wheels.glob("*.whl")).unlink()
                 with self.assertRaisesRegex(SystemExit, "Incomplete"):
                     main()

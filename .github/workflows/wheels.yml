@@ -10,7 +10,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-15-intel, windows-2022]
+        include:
+          # platform names the native release asset (scripts/collect_release.py).
+          - os: macos-14
+            platform: macos-arm64
+          - os: macos-15-intel
+            platform: macos-x64
+          - os: windows-2022
+            platform: windows-x64
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -46,6 +53,12 @@ jobs:
           name: wheel-${{ matrix.os }}
           path: build/wheels/*.whl
           if-no-files-found: error
+      - name: Keep the wheel's library and the Windows import library for the release
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}
+          path: build/native/
+          if-no-files-found: error
   linux:
     name: Wheel / manylinux_2_28_${{ matrix.arch }}
     strategy:
@@ -54,8 +67,10 @@ jobs:
         include:
           - os: ubuntu-24.04
             arch: x86_64
+            platform: linux-x64
           - os: ubuntu-24.04-arm
             arch: aarch64
+            platform: linux-arm64
     runs-on: ${{ matrix.os }}
     container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
     env:
@@ -86,4 +101,10 @@ jobs:
         with:
           name: wheel-manylinux_2_28-${{ matrix.arch }}
           path: build/repaired/*.whl
+          if-no-files-found: error
+      - name: Keep the wheel's library for the release
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}
+          path: build/native/
           if-no-files-found: error

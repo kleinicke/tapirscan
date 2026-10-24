@@ -134,6 +134,14 @@ per core, use `withParallel(false)`. Kotlin on the JVM uses the same API. See
 
 ## Building and loading the native library
 
+The native library comes prebuilt for Linux, macOS and Windows in the
+`tapirscan-VERSION-PLATFORM.zip` archives of each [GitHub release](https://github.com/kleinicke/tapirscan/releases),
+under `lib/` (see the
+[C binding](https://github.com/kleinicke/tapirscan/blob/main/bindings/c/README.md#prebuilt-libraries)
+for the platforms). Copy that library to `build/native/` instead of running
+`build_native.py`; `build_java.py` then needs only a JDK to build and test the
+JAR, and applications load the library as described below.
+
 ```sh
 python3 scripts/build_native.py
 python3 scripts/build_java.py

@@ -1,16 +1,57 @@
 # Tapirscan for Dart and Flutter
 
-> **Preview:** built from source; the API may change in minor releases. Not on
-> pub.dev.
+> **Preview:** the API may change in minor releases.
 
 A Dart package over the Tapirscan C library through `dart:ffi`, for Flutter apps
 and plain Dart programs. `scan` returns a `ScanResult` with `values`, `barcodes`
 and `best`. Shared semantics (support, geometry, image limits) are in
-[API design](../../docs/API_DESIGN.md).
+[API design](https://github.com/kleinicke/tapirscan/blob/main/docs/API_DESIGN.md).
 
 ## Setup
 
-Depend on the package from Git (or by `path:` from a local checkout):
+```sh
+flutter pub add tapirscan   # or: dart pub add tapirscan
+```
+
+Requires Dart 3.10+ (Flutter 3.38+); tested with Flutter 3.44 and 3.47. The
+dependency ranges also accept the older `code_assets` 1.x and `hooks` 2.0 that
+other packages in an app may pin.
+
+The package's build hook downloads the native library for each target from the
+[GitHub release](https://github.com/kleinicke/tapirscan/releases) of the package
+version, checks it against the SHA-256 checksums in the package's
+`hook/SHA256SUMS`, and caches it in `.dart_tool`. Rust is not needed. The first
+build of each target needs network access to `github.com`; `http_proxy` and
+`https_proxy` are respected. Prebuilt libraries cover:
+
+| Platform | Targets                                                                            |
+| -------- | ---------------------------------------------------------------------------------- |
+| Android  | arm64-v8a and x86_64, Android 7.0 (API 24) or later                                |
+| iOS      | iOS 13 or later on arm64 devices and x86_64 simulators, iOS 14 on arm64 simulators |
+| macOS    | macOS 11 or later, arm64 and x86_64                                                |
+| Linux    | x86_64 and arm64, glibc 2.28 or later                                              |
+| Windows  | x64                                                                                |
+
+Other 64-bit targets, such as Windows on ARM, build from source. Settings go
+in the app's `pubspec.yaml`:
+
+```yaml
+hooks:
+  user_defines:
+    tapirscan:
+      # A mirror of the release assets (https:// or file://), for builds
+      # without access to github.com. Downloads are verified either way.
+      # release_url: https://mirror.example.com/tapirscan/
+      # or prebuilt libraries: <os>-<arch>/libtapirscan.so, such as android-arm64/
+      # library_dir: native/
+      # or a Tapirscan checkout to build from source:
+      # source_dir: ../tapirscan
+```
+
+### Building from source
+
+Inside a Tapirscan checkout, with `source_dir`, or as a Git dependency, the
+hook compiles the library with Cargo on the first build of each target:
 
 ```yaml
 dependencies:
@@ -20,27 +61,13 @@ dependencies:
       path: bindings/flutter
 ```
 
-Requires Dart 3.10+ (Flutter 3.38+); tested with Flutter 3.44 and 3.47. The
-dependency ranges also accept the older `code_assets` 1.x and `hooks` 2.0 that
-other packages in an app may pin. The package's build hook compiles the
-native library with Cargo on the first build of each target, so the machine
-needs the [development prerequisites](../../docs/DEVELOPMENT.md#prerequisites)
+The machine then needs the
+[development prerequisites](https://github.com/kleinicke/tapirscan/blob/main/docs/DEVELOPMENT.md#prerequisites)
 (rustup, Python 3.10+), the Cargo dependencies fetched once in the checkout
 (`cargo fetch --locked` for `multiformat/` and `bindings/rust/`), and for Android
 the NDK that Flutter uses. Concurrent builds of one checkout wait for each
-other. To use prebuilt libraries instead, or a checkout elsewhere (for example
-an F-Droid source library), set in the app's `pubspec.yaml`:
-
-```yaml
-hooks:
-  user_defines:
-    tapirscan:
-      library_dir: native/ # <os>-<arch>/libtapirscan.so, such as android-arm64/
-      # or: source_dir: ../tapirscan
-```
-
-`scripts/build_flutter_native.py --target <rust-triple> --output <dir>` builds
-one such library.
+other. `scripts/build_flutter_native.py --target <rust-triple> --output <dir>`
+builds one library for `library_dir`, for example for an F-Droid source build.
 
 ## Scan
 
@@ -67,7 +94,7 @@ once and reuse it. Results stay valid after `dispose`.
 `Format.retail`), `eanAddOnPolicy` (default `EanAddOnPolicy.ignore`) and
 `parallel`. `Format` and its presets (`retail`, `common1D`, `common`, `linear`,
 `matrix`, `all`) are generated from `config/formats.json`; see the
-[format matrix](../../docs/FORMATS.md#format-matrix). New formats may be added
+[format matrix](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md#format-matrix). New formats may be added
 in minor releases. `scan(image, formats: {...})` replaces the formats for one
 call; an empty set throws `ArgumentError`.
 
@@ -113,7 +140,7 @@ part of a frame, pass a view: `Uint8List.sublistView(plane.bytes, top * stride +
 with the crop's width and height and the frame's stride.
 
 Coming from `flutter_zxing`: see the
-[migration guide](../../docs/MIGRATING_FROM_FLUTTER_ZXING.md).
+[migration guide](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_FLUTTER_ZXING.md).
 
 ## Platforms and errors
 

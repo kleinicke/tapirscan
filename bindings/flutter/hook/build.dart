@@ -1,15 +1,20 @@
 // Provides the Tapirscan native library for each target. With the
-// `library_dir` user-define it uses a prebuilt library; otherwise it builds one
-// with Cargo from a Tapirscan checkout (`source_dir`, default: the repository
-// containing this package). Unsupported targets, such as 32-bit Android, get no
-// library, and `Tapirscan.isSupported` is false there.
+// `library_dir` user-define it uses a prebuilt library; with `source_dir`, or
+// inside a Tapirscan checkout, it builds one with Cargo. Otherwise, as when
+// installed from pub.dev, it downloads the library from the GitHub release of
+// the package version and verifies it against hook/SHA256SUMS, which the
+// release adds to the package. Unsupported targets, such as 32-bit Android,
+// get no library, and `Tapirscan.isSupported` is false there.
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:code_assets/code_assets.dart';
+import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 
 const _assetName = 'src/bindings.g.dart';
+const _releases = 'https://github.com/kleinicke/tapirscan/releases/download';
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
@@ -24,16 +29,19 @@ void main(List<String> args) async {
       return;
     }
     final prebuilt = _directory(input.userDefines.path('library_dir'));
+    final checkout = input.packageRoot.resolve('../../');
+    final sourceDir =
+        _directory(input.userDefines.path('source_dir')) ??
+        (File.fromUri(
+              checkout.resolve('scripts/build_flutter_native.py'),
+            ).existsSync()
+            ? checkout
+            : null);
     final library = prebuilt != null
         ? _prebuilt(output, code, prebuilt)
-        : await _buildFromSource(
-            input,
-            output,
-            code,
-            triple,
-            _directory(input.userDefines.path('source_dir')) ??
-                input.packageRoot.resolve('../../'),
-          );
+        : sourceDir != null
+        ? await _buildFromSource(input, output, code, triple, sourceDir)
+        : await _download(input, output, code);
     output.assets.code.add(
       CodeAsset(
         package: input.packageName,
@@ -69,15 +77,20 @@ Uri? _directory(Uri? path) => path == null || path.path.endsWith('/')
     ? path
     : path.replace(path: '${path.path}/');
 
+/// The target as `<os>-<architecture>[-simulator]`, such as `android-arm64` or
+/// `ios-arm64-simulator`: the `library_dir` layout and release asset names.
+String _platform(CodeConfig code) {
+  final simulator =
+      code.targetOS == OS.iOS && code.iOS.targetSdk == IOSSdk.iPhoneSimulator;
+  return '${code.targetOS.name}-${code.targetArchitecture.name}'
+      '${simulator ? '-simulator' : ''}';
+}
+
 /// The library in `library_dir/<os>-<architecture>[-simulator]/`, such as
 /// `android-arm64/` or `ios-arm64-simulator/`, or directly in `library_dir/`.
 Uri _prebuilt(BuildOutputBuilder output, CodeConfig code, Uri directory) {
   final name = code.targetOS.dylibFileName('tapirscan');
-  final simulator =
-      code.targetOS == OS.iOS && code.iOS.targetSdk == IOSSdk.iPhoneSimulator;
-  final target =
-      '${code.targetOS.name}-${code.targetArchitecture.name}'
-      '${simulator ? '-simulator' : ''}';
+  final target = _platform(code);
   final candidates = [
     directory.resolve('$target/$name'),
     directory.resolve(name),
@@ -94,6 +107,130 @@ Uri _prebuilt(BuildOutputBuilder output, CodeConfig code, Uri directory) {
   );
 }
 
+/// Download the release archive `tapirscan-<version>-<platform>.zip` (cached in
+/// the shared output directory), verify it and extract the library.
+///
+/// The `release_url` user-define replaces the GitHub release directory, for a
+/// mirror; an http(s) or file URL. Downloads are verified either way.
+Future<Uri> _download(
+  BuildInput input,
+  BuildOutputBuilder output,
+  CodeConfig code,
+) async {
+  final pubspec = File.fromUri(input.packageRoot.resolve('pubspec.yaml'));
+  final version = RegExp(
+    r'^version:\s*(\S+)',
+    multiLine: true,
+  ).firstMatch(await pubspec.readAsString())![1]!;
+  final checksums = File.fromUri(input.packageRoot.resolve('hook/SHA256SUMS'));
+  if (!checksums.existsSync()) {
+    throw StateError(
+      'tapirscan: this copy of the package has no hook/SHA256SUMS for '
+      'prebuilt libraries and is not inside a Tapirscan checkout. Use the '
+      'pub.dev package, or set hooks: user_defines: tapirscan: source_dir (a '
+      'checkout) or library_dir (prebuilt libraries) in your pubspec.yaml.',
+    );
+  }
+  output.dependencies.add(checksums.uri);
+  final platform = _platform(code);
+  final asset = 'tapirscan-$version-$platform.zip';
+  final expected = {
+    for (final line in LineSplitter.split(await checksums.readAsString()))
+      if (line.split('  ') case [final digest, final name]) name: digest,
+  }[asset];
+  if (expected == null) {
+    throw StateError(
+      'tapirscan: no prebuilt library for $platform. Build it from a '
+      'Tapirscan checkout: set hooks: user_defines: tapirscan: source_dir in '
+      'your pubspec.yaml.',
+    );
+  }
+  final cached = File.fromUri(input.outputDirectoryShared.resolve(asset));
+  var archive = cached.existsSync() ? await cached.readAsBytes() : null;
+  if (archive == null || '${sha256.convert(archive)}' != expected) {
+    final directory = input.userDefines['release_url'] as String?;
+    final url = Uri.parse(
+      directory == null
+          ? '$_releases/v$version/'
+          : directory.endsWith('/')
+          ? directory
+          : '$directory/',
+    ).resolve(asset);
+    archive = await _fetch(url);
+    if ('${sha256.convert(archive)}' != expected) {
+      throw StateError(
+        'tapirscan: $url does not match its checksum in hook/SHA256SUMS',
+      );
+    }
+    // Rename into place so that a concurrent build never reads a partial file.
+    final partial = File('${cached.path}.$pid.partial');
+    await partial.writeAsBytes(archive);
+    await partial.rename(cached.path);
+  }
+  final name = code.targetOS.dylibFileName('tapirscan');
+  final library = File.fromUri(input.outputDirectory.resolve(name));
+  await library.writeAsBytes(
+    _extract(archive, 'tapirscan-$version-$platform/lib/$name'),
+  );
+  return library.uri;
+}
+
+/// The body of an http(s) or file URL.
+Future<Uint8List> _fetch(Uri url) async {
+  if (url.isScheme('file')) return File.fromUri(url).readAsBytes();
+  // Respect the http(s)_proxy environment variables.
+  final client = HttpClient()..findProxy = HttpClient.findProxyFromEnvironment;
+  try {
+    final response = await (await client.getUrl(url)).close();
+    if (response.statusCode != HttpStatus.ok) {
+      throw HttpException(
+        'tapirscan: downloading the native library failed with HTTP '
+        '${response.statusCode}',
+        uri: url,
+      );
+    }
+    final builder = BytesBuilder(copy: false);
+    await response.forEach(builder.add);
+    return builder.takeBytes();
+  } finally {
+    client.close();
+  }
+}
+
+/// One stored or deflated file of a zip archive, by its path in the archive.
+Uint8List _extract(Uint8List archive, String path) {
+  final data = ByteData.sublistView(archive);
+  int u16(int offset) => data.getUint16(offset, Endian.little);
+  int u32(int offset) => data.getUint32(offset, Endian.little);
+  // The end of central directory record is the last 22 bytes when the
+  // archive has no comment, which the release archives never have.
+  final end = archive.length - 22;
+  if (end < 0 || u32(end) != 0x06054b50) {
+    throw const FormatException('tapirscan: not a release archive');
+  }
+  var entry = u32(end + 16);
+  for (var i = 0; i < u16(end + 10); i++) {
+    final nameLength = u16(entry + 28);
+    final name = utf8.decode(
+      archive.sublist(entry + 46, entry + 46 + nameLength),
+    );
+    if (name == path) {
+      final header = u32(entry + 42);
+      final start = header + 30 + u16(header + 26) + u16(header + 28);
+      final body = archive.sublist(start, start + u32(entry + 20));
+      return switch (u16(entry + 10)) {
+        0 => body,
+        8 => Uint8List.fromList(ZLibDecoder(raw: true).convert(body)),
+        final method => throw FormatException(
+          'tapirscan: unsupported zip compression $method',
+        ),
+      };
+    }
+    entry += 46 + nameLength + u16(entry + 30) + u16(entry + 32);
+  }
+  throw FormatException('tapirscan: the release archive has no $path');
+}
+
 /// Build the library for one Rust target with scripts/build_flutter_native.py.
 Future<Uri> _buildFromSource(
   BuildInput input,
@@ -105,9 +242,8 @@ Future<Uri> _buildFromSource(
   final script = sourceDir.resolve('scripts/build_flutter_native.py');
   if (!File.fromUri(script).existsSync()) {
     throw StateError(
-      'tapirscan: no Tapirscan checkout at ${sourceDir.toFilePath()}. Set '
-      'hooks: user_defines: tapirscan: source_dir (a checkout) or library_dir '
-      '(prebuilt libraries) in your pubspec.yaml.',
+      'tapirscan: no Tapirscan checkout at ${sourceDir.toFilePath()}; set '
+      'hooks: user_defines: tapirscan: source_dir to one.',
     );
   }
   final arguments = [

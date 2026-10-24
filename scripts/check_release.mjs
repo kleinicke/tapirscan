@@ -25,7 +25,7 @@ const versions = [
 ];
 // Registry pages render these READMEs outside the repository, so relative links that
 // leave the package directory break there.
-const outsideLinks = ["javascript", "python", "rust"].flatMap((name) =>
+const outsideLinks = ["javascript", "python", "rust", "flutter"].flatMap((name) =>
   [...read(`bindings/${name}/README.md`).matchAll(/\]\((\.\.\/[^)\s]*)\)/g)].map(
     ([, target]) =>
       `bindings/${name}/README.md links outside its package with ${target}; use an absolute URL`,
@@ -51,10 +51,15 @@ const issues = [
   ],
   [npm.author && /^authors\s*=\s*\[/m.test(project), "Record the author/copyright identity"],
   [!npm.private, "Remove npm private:true once publication metadata is approved"],
-  ...["bindings/javascript/LICENSE", "bindings/python/LICENSE"].map((path) => [
-    existsSync(new URL(path, root)),
-    `Include the project license in ${path}`,
-  ]),
+  [
+    new RegExp(`^## ${npm.version.replaceAll(".", "\\.")}$`, "m").test(
+      read("bindings/flutter/CHANGELOG.md"),
+    ),
+    `Add ## ${npm.version} to bindings/flutter/CHANGELOG.md, which pub.dev shows`,
+  ],
+  ...["bindings/javascript/LICENSE", "bindings/python/LICENSE", "bindings/flutter/LICENSE"].map(
+    (path) => [existsSync(new URL(path, root)), `Include the project license in ${path}`],
+  ),
 ]
   .filter(([ok]) => !ok)
   .map(([, message]) => message)

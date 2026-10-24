@@ -1,6 +1,6 @@
 # Tapirscan for Android
 
-> **Preview:** built from source; the API may change in minor releases.
+> **Preview:** the API may change in minor releases.
 
 A small Java API over the Tapirscan C library through JNI, usable from Kotlin and
 Java on Android (API 24+, 64-bit ABIs arm64-v8a and x86_64). It follows the shape of
@@ -13,7 +13,9 @@ Foreign Function & Memory API, which Android lacks.)
 
 ## Setup
 
-Build the AAR with the [Android NDK](https://developer.android.com/ndk/downloads):
+Each [GitHub release](https://github.com/kleinicke/tapirscan/releases) attaches the
+AAR as `tapirscan-android-VERSION.aar`; download it into your app module's `libs/`.
+To build it instead, use the [Android NDK](https://developer.android.com/ndk/downloads):
 
 ```sh
 ANDROID_NDK_HOME=/path/to/ndk python3 scripts/build_android.py

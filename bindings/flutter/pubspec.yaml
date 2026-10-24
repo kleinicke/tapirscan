@@ -1,13 +1,25 @@
 name: tapirscan
 version: 1.5.0
-description: Dart and Flutter binding of the Tapirscan barcode scanner through dart:ffi.
-publish_to: none
+description: >-
+  Barcode scanner for Dart and Flutter: 1D and 2D formats, several barcodes per
+  image, over the native Tapirscan library through dart:ffi.
+homepage: https://github.com/kleinicke/tapirscan
+repository: https://github.com/kleinicke/tapirscan/tree/main/bindings/flutter
+issue_tracker: https://github.com/kleinicke/tapirscan/issues
+topics: [barcode, qr-code, scanner, ffi]
+platforms:
+  android:
+  ios:
+  linux:
+  macos:
+  windows:
 
 environment:
   sdk: ^3.10.0
 
 dependencies:
   code_assets: ">=1.1.0 <3.0.0" # 1.x for apps whose other hooks still use it
+  crypto: ^3.0.0
   ffi: ^2.2.0
   hooks: ">=2.0.0 <3.0.0" # 2.0 for Flutter 3.44, which pins meta 1.18
 

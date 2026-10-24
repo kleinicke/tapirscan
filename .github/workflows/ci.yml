@@ -176,6 +176,21 @@ jobs:
       - name: Test the Swift package
         run: swift test
         working-directory: bindings/swift
+      - name: Build the iOS libraries of the Dart package's release assets
+        env:
+          # Flutter's minimum iOS version.
+          IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+        run: |
+          for target in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
+            python3 scripts/build_flutter_native.py --target "$target" --output "build/flutter-native/$target"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-apple
+          path: |
+            bindings/swift/TapirscanC.xcframework/
+            build/flutter-native/*/libtapirscan.dylib
+          if-no-files-found: error
   dart:
     runs-on: ubuntu-24.04
     steps:
@@ -228,6 +243,19 @@ jobs:
           for entry in classes.jar jni/arm64-v8a/libtapirscan_jni.so jni/x86_64/libtapirscan_jni.so; do
             unzip -l build/android/tapirscan-android.aar | grep -q " $entry$"
           done
+      - name: Build the Android libraries of the Dart package's release assets
+        run: |
+          for target in aarch64-linux-android x86_64-linux-android; do
+            python3 scripts/build_flutter_native.py --target "$target" --output "build/flutter-native/$target" \
+              --linker "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --android-api 24
+          done
       - run: python3 scripts/build_native.py
       - name: Test the JNI bridge on the desktop JVM
         run: python3 scripts/test_android_jni.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-android
+          path: |
+            build/android/tapirscan-android.aar
+            build/flutter-native/*/libtapirscan.so
+          if-no-files-found: error
