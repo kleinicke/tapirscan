@@ -7,17 +7,22 @@ examples: unlike build_native.py (host library, tests) and build_android.py
 """
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import cast
 
-from build_native import TARGET, cargo_env, prepare_native_crate
+from build_native import TARGET, apple_link_arguments, cargo_env, prepare_native_crate
 from native_identity import cargo_artifact, source_identity
 from prepare_rust import prepared_package
 
 from build import ROOT
+
+# Read by bindings/flutter/hook/build.dart.
+DEPENDENCIES = "dependencies.json"
+DEPENDENCY_SELF = "scripts/build_flutter_native.py"
 
 
 def library_name(target: str) -> str:
@@ -31,13 +36,7 @@ def link_arguments(target: str, linker: str | None, android_api: int) -> list[st
     """Return per-target `rustc` codegen arguments for the final link."""
     name = library_name(target)
     if "apple" in target:
-        # Dart and Flutter rewrite the install name when bundling the library.
-        return [
-            "-C",
-            f"link-arg=-Wl,-install_name,@rpath/{name}",
-            "-C",
-            "link-arg=-Wl,-headerpad_max_install_names",
-        ]
+        return apple_link_arguments(name)
     if "android" in target:
         # The target and API level repeat the wrapper's, for a plain clang
         # linker; 16 KiB pages as in the AAR.
@@ -82,12 +81,8 @@ def build(
     if cross:
         env = cargo_env(TARGET, target)
         env["RUSTUP_TOOLCHAIN"] = cast("str", identity["toolchain"])
-        subprocess.run(
-            ["rustup", "target", "add", target],
-            env=env,
-            check=True,
-            capture_output=True,
-        )
+        # Output reaches the hook, which shows it only when the build fails.
+        subprocess.run(["rustup", "target", "add", target], env=env, check=True)
     if "android" in target and linker:
         # Prefer the NDK's per-target wrapper, as build_android.py does; it also
         # compiles any C sources of dependencies for the right API level.
@@ -120,6 +115,12 @@ def build(
     artifact = cargo_artifact(completed.stdout, native, name)
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copy2(artifact, destination / name)
+    # The hook rebuilds when any of these files changes: the native identity's
+    # inputs plus this recipe.
+    sources = [*cast("dict[str, str]", identity["sourceFiles"]), DEPENDENCY_SELF]
+    (destination / DEPENDENCIES).write_text(
+        json.dumps([str(ROOT / source) for source in sources], indent=1) + "\n"
+    )
     return destination / name
 
 
@@ -131,6 +132,6 @@ if __name__ == "__main__":
     parser.add_argument("--android-api", type=int, default=24)
     args = parser.parse_args()
     public = ROOT / "build/crates/tapirscan"
-    with prepared_package(public, refresh=public.exists()):
+    with prepared_package(public, refresh=True):
         output = build(public, args.target, args.output, args.linker, args.android_api)
     print(f"Built {output}", file=sys.stderr, flush=True)

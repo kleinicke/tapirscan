@@ -1,4 +1,4 @@
-"""Keep private Turbo recipes out of package builds and public mode choices."""
+"""Keep Turbo preset recipes explicit and out of ordinary builds."""
 
 import contextlib
 import io
@@ -18,8 +18,8 @@ STRAY = {
 }
 
 
-class PrivateTurboTests(unittest.TestCase):
-    """Private recipe inputs must be explicit and deterministic."""
+class TurboRecipeTests(unittest.TestCase):
+    """Turbo recipe inputs must be explicit and deterministic."""
 
     def test_recipe_clears_unselected_overrides(self) -> None:
         """A caller's previous experiment must not silently alter a recipe."""
@@ -65,8 +65,8 @@ class PrivateTurboTests(unittest.TestCase):
                 rustflags("x86_64-linux-android"), ["-C", "target-cpu=x86-64-v2"]
             )
 
-    def test_package_build_rejects_private_selection(self) -> None:
-        """Never build a private Low-slot scanner into the package assets."""
+    def test_package_build_rejects_stray_turbo_switch(self) -> None:
+        """A Turbo switch in the shell never turns a package Low build into Turbo."""
         with (
             patch.dict(os.environ, {"TAPIRSCAN_EXPERIMENTAL_TURBO": "1"}),
             patch("sys.argv", ["build_wasm.py", "low"]),
@@ -76,7 +76,7 @@ class PrivateTurboTests(unittest.TestCase):
             arguments()
         self.assertEqual(caught.exception.code, 2)
 
-    def test_development_accepts_private_selection(self) -> None:
+    def test_development_accepts_turbo_switch(self) -> None:
         """Explicit development artifacts remain buildable."""
         with (
             patch.dict(os.environ, {"TAPIRSCAN_EXPERIMENTAL_TURBO": "1"}),

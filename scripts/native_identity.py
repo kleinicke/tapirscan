@@ -34,7 +34,6 @@ SOURCE_FILES = (
     "rust-toolchain.toml",
 )
 MANIFEST = "native-build.json"
-BUILD_SCOPE = "requested recipe/environment; effective compiler and target not attested"
 
 
 def sha256(path: Path) -> str:
@@ -117,15 +116,11 @@ def cargo_artifact(output: str, native: Path, name: str) -> Path:
     return matches.pop()
 
 
-def build_metadata(
-    identity: dict[str, object], env: dict[str, str]
-) -> dict[str, object]:
-    """Record requested build settings without claiming compiler attestation."""
-    # Cargo configuration and wrappers can select/replace the compiler. Do not
-    # mislabel a separate `rustc -vV` probe as the compiler that emitted this file.
+def build_metadata(env: dict[str, str]) -> dict[str, object]:
+    """Record compiler overrides for diagnosis; verification does not read them."""
+    # Cargo configuration and wrappers can select or replace the compiler, so
+    # this records the request; it does not attest the compiler that ran.
     return {
-        "scope": BUILD_SCOPE,
-        "requestedRustupToolchain": identity["toolchain"],
         "environment": {
             key: env[key]
             for key in (
@@ -186,20 +181,12 @@ def _verify_manifest(root: Path, library: Path) -> str:
     """Validate manifest fields before adding caller-facing rebuild guidance."""
     manifest = json.loads((library.parent / MANIFEST).read_text())
     if manifest["schema"] != 1 or manifest["preset"] is not None:
-        message = "Unsupported or private native build"
+        message = "Unsupported manifest or Turbo preset build"
         raise ValueError(message)
     if manifest["identity"] != source_identity(root):
         message = "Native source identity differs from this checkout"
         raise ValueError(message)
     if manifest["library"] != {"name": library.name, "sha256": sha256(library)}:
         message = "Native library content differs from its build manifest"
-        raise ValueError(message)
-    build = manifest["build"]
-    if (
-        build["requestedRustupToolchain"] != manifest["identity"]["toolchain"]
-        or build["scope"] != BUILD_SCOPE
-        or not isinstance(build["environment"], dict)
-    ):
-        message = "Native build identity is incomplete"
         raise ValueError(message)
     return str(manifest["library"]["sha256"])

@@ -42,6 +42,46 @@ PixelImage syntheticEan() {
   return PixelImage(data, width: width, height: height);
 }
 
+/// Codabar characters as bar/space/bar/space/bar/space/bar; 1 is wide.
+const _codabar = {
+  '0': '0000011', '1': '0000110', '2': '0001001', '3': '1100000', //
+  '4': '0010010', '5': '1000010', '6': '0100001', '7': '0100100',
+  '8': '0110000', '9': '1001000', '-': '0001100', r'$': '0011000',
+  ':': '1000101', '/': '1010001', '.': '1010100', '+': '0010101',
+  'A': '0011010', 'B': '0101001', 'C': '0001011', 'D': '0001110',
+};
+
+/// (start, data, stop) as scripts/fixture_data.py's CODABAR_SYMBOLS.
+const _codabarSymbols = [
+  ('A', '123456', 'B'),
+  ('C', '40156', 'D'),
+  ('D', r'7-$:/.+9', 'A'),
+];
+
+/// Codabar symbols stacked in 120-pixel bands (as scripts/fixture_data.py).
+PixelImage syntheticCodabar() {
+  const width = 480, band = 120;
+  final data = Uint8List(width * band * _codabarSymbols.length)
+    ..fillRange(0, width * band * _codabarSymbols.length, 255);
+  for (final (row, (start, text, stop)) in _codabarSymbols.indexed) {
+    var x = 40;
+    for (final character in '$start$text$stop'.split('')) {
+      final pattern = _codabar[character]!;
+      // Narrow elements are 2 px, wide 5 px; a narrow gap separates characters.
+      for (final (i, wide) in '${pattern}0'.split('').indexed) {
+        final size = wide == '1' ? 5 : 2;
+        if (i.isEven && i < pattern.length) {
+          for (var y = row * band + 20; y < row * band + 100; y++) {
+            data.fillRange(y * width + x, y * width + x + size, 0);
+          }
+        }
+        x += size;
+      }
+    }
+  }
+  return PixelImage(data, width: width, height: band * _codabarSymbols.length);
+}
+
 const _pesto = '8076809586177';
 
 /// A photographed, rotated EAN-13 label; see test/fixtures/README.md.
@@ -207,6 +247,21 @@ void main() {
       isEmpty,
     );
     expect(scanner.scanSync(syntheticEan()).values, [_ean]);
+  });
+
+  test('reports Codabar start and stop characters beside the text', () {
+    final codabar = Scanner(const ScannerOptions(formats: {Format.codabar}));
+    addTearDown(codabar.dispose);
+    final barcodes = codabar.scanSync(syntheticCodabar()).barcodes;
+    expect(
+      {for (final b in barcodes) (b.text, b.codabarStartStop)},
+      {
+        for (final (start, text, stop) in _codabarSymbols)
+          (text, '$start$stop'),
+      },
+    );
+    final ean = scanner.scanSync(syntheticEan()).best!;
+    expect(ean.codabarStartStop, isNull);
   });
 
   test('a blank image is an empty result', () {

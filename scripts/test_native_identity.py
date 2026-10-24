@@ -1,4 +1,8 @@
-"""Freshness checks use synthetic bytes: no compiler or native loading required."""
+"""Freshness checks use synthetic bytes: no compiler or native loading required.
+
+Needs setuptools (the wheel-packaging test imports bindings/python/setup.py) and
+typing_extensions (`@override` for the Python 3.10 type-check target).
+"""
 
 import json
 import runpy
@@ -84,7 +88,7 @@ class NativeIdentityTests(unittest.TestCase):
             self.library,
             identity.source_identity(self.root),
             preset,
-            identity.build_metadata(identity.source_identity(self.root), BUILD_ENV),
+            identity.build_metadata(BUILD_ENV),
         )
 
     def reject(self) -> None:
@@ -101,8 +105,8 @@ class NativeIdentityTests(unittest.TestCase):
         self.library.write_bytes(b"changed artifact")
         self.reject()
 
-    def test_missing_manifest_library_and_private_presets(self) -> None:
-        """Reject incomplete artifacts, malformed manifests and private presets."""
+    def test_missing_manifest_library_and_turbo_presets(self) -> None:
+        """Reject incomplete artifacts, malformed manifests and Turbo preset builds."""
         manifest = self.library.parent / identity.MANIFEST
         original = manifest.read_bytes()
         manifest.unlink()
@@ -174,7 +178,7 @@ class NativeIdentityTests(unittest.TestCase):
                 self.library,
                 before,
                 None,
-                identity.build_metadata(before, BUILD_ENV),
+                identity.build_metadata(BUILD_ENV),
             )
 
     def test_config_inventory_and_requested_compiler_scope(self) -> None:
@@ -192,9 +196,8 @@ class NativeIdentityTests(unittest.TestCase):
             RUSTC="/custom/same-version-rustc",
             CARGO_BUILD_TARGET="custom-target",
         )
-        metadata = identity.build_metadata(identity.source_identity(self.root), env)
+        metadata = identity.build_metadata(env)
         self.assertEqual(metadata["environment"], env)
-        self.assertIn("not attested", str(metadata["scope"]))
 
     def test_reported_target_artifact_instead_of_stale_default(self) -> None:
         """Select Cargo's matching output and reject missing or ambiguous artifacts."""

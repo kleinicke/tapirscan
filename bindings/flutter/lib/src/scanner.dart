@@ -98,8 +98,9 @@ abstract final class Tapirscan {
 
 final _finalizer = Finalizer<int>(tapirscan_scanner_destroy);
 
-/// Scanners with a [Scanner.scan] in progress, kept reachable so the finalizer
-/// cannot release a native handle that a background isolate is using.
+/// Scanners with a [Scanner.scan] in progress. The background isolate looks up
+/// the handle only when its native call starts; until then, an unreachable
+/// scanner's finalizer could destroy the handle and fail the scan.
 final _scanning = <Scanner>[];
 
 /// A reusable barcode scanner. Create one and reuse it for every frame; calls
@@ -142,8 +143,8 @@ final class Scanner {
   /// Scan [image] on a background isolate, so the calling isolate stays
   /// responsive. [formats], if given, replaces the scanner's formats for this
   /// call. No detection is an empty result. Scans on one scanner run one at a
-  /// time. A scan already running when [dispose] is called completes; scans
-  /// that start after it throw [StateError].
+  /// time. Scans that start after [dispose] throw [StateError]; a pending scan
+  /// either completes or throws [StateError].
   Future<ScanResult> scan(PixelImage image, {Set<Format>? formats}) async {
     final handle = _live;
     final mask = formats == null ? 0 : _mask(formats);

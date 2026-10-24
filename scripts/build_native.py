@@ -106,6 +106,20 @@ def library_name() -> str:
     return "libtapirscan.dylib" if sys.platform == "darwin" else "libtapirscan.so"
 
 
+def apple_link_arguments(name: str) -> list[str]:
+    """Return `rustc` arguments for an Apple library that apps rebundle.
+
+    Dart, Flutter and Xcode rewrite the install name with install_name_tool,
+    which needs header padding.
+    """
+    return [
+        "-C",
+        f"link-arg=-Wl,-install_name,@rpath/{name}",
+        "-C",
+        "link-arg=-Wl,-headerpad_max_install_names",
+    ]
+
+
 def prepare_native_crate(public_crate: Path) -> Path:
     """Write the C ABI crate over the prepared public crate; return its directory."""
     native = ROOT / "build/native-crate"
@@ -141,7 +155,7 @@ def build(
     name = library_name()
     command = ["cargo", "rustc", "--release", "--lib", "--message-format=json", *common]
     if sys.platform == "darwin":
-        command += ["--", "-C", f"link-arg=-Wl,-install_name,@rpath/{name}"]
+        command += ["--", *apple_link_arguments(name)]
     elif sys.platform.startswith("linux"):
         command += ["--", "-C", f"link-arg=-Wl,-soname,{name}"]
     completed = subprocess.run(
@@ -175,7 +189,7 @@ def build(
         shutil.copy2(
             artifact.with_name("tapirscan.dll.lib"), destination / "tapirscan.dll.lib"
         )
-    record(ROOT, destination / name, identity, turbo, build_metadata(identity, env))
+    record(ROOT, destination / name, identity, turbo, build_metadata(env))
     print(f"Built {destination / name}", flush=True)
 
 
@@ -185,15 +199,15 @@ if __name__ == "__main__":
         "--output",
         type=Path,
         default=ROOT / "build/native",
-        help="Separate output directory for private artifacts",
+        help="Output directory (build_turbo.py uses a separate one)",
     )
     parser.add_argument(
         "--turbo",
         choices=TURBO_TIERS,
-        help="Private Turbo recipe; used by build_turbo.py",
+        help="Turbo preset recipe; used by build_turbo.py",
     )
     args = parser.parse_args()
     public = ROOT / "build/crates/tapirscan"
     identity = source_identity(ROOT)
-    with prepared_package(public, refresh=public.exists()):
+    with prepared_package(public, refresh=True):
         build(public, args.output, args.turbo, identity=identity)

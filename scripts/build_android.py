@@ -143,5 +143,5 @@ if __name__ == "__main__":
     if not args.ndk:
         parser.error("set ANDROID_NDK_HOME or pass --ndk")
     public = ROOT / "build/crates/tapirscan"
-    with prepared_package(public, refresh=public.exists()):
+    with prepared_package(public, refresh=True):
         build(public, Path(args.ndk))

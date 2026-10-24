@@ -100,5 +100,5 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     public = ROOT / "build/crates/tapirscan"
-    with prepared_package(public, refresh=public.exists()):
+    with prepared_package(public, refresh=True):
         build(public, args.output)

@@ -4,6 +4,7 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -43,6 +44,39 @@ public final class JniTest {
             }
         }
         size[0] = width;
+        return pixels;
+    }
+
+    /** Codabar characters as bar/space/bar/space/bar/space/bar; 1 marks a wide element. */
+    private static final String CODABAR_CHARS = "0123456789-$:/.+ABCD";
+    private static final String[] CODABAR = {"0000011", "0000110", "0001001", "1100000", "0010010",
+        "1000010", "0100001", "0100100", "0110000", "1001000", "0001100", "0011000", "1000101",
+        "1010001", "1010100", "0010101", "0011010", "0101001", "0001011", "0001110"};
+    /** Start, data and stop as CODABAR_SYMBOLS in scripts/fixture_data.py. */
+    static final String[][] CODABAR_SYMBOLS = {{"A", "123456", "B"}, {"C", "40156", "D"}, {"D", "7-$:/.+9", "A"}};
+    static final int CODABAR_WIDTH = 480, CODABAR_BAND = 120;
+
+    /** Codabar symbols stacked in bands, drawn as scripts/fixture_data.py draws them. */
+    static byte[] codabar() {
+        byte[] pixels = new byte[CODABAR_WIDTH * CODABAR_BAND * CODABAR_SYMBOLS.length];
+        Arrays.fill(pixels, (byte) 255);
+        for (int row = 0; row < CODABAR_SYMBOLS.length; row++) {
+            String[] symbol = CODABAR_SYMBOLS[row];
+            int x = 40;
+            for (char c : (symbol[0] + symbol[1] + symbol[2]).toCharArray()) {
+                String pattern = CODABAR[CODABAR_CHARS.indexOf(c)] + "0";
+                // Narrow elements are 2 px, wide 5 px; a narrow gap separates characters.
+                for (int i = 0; i < pattern.length(); i++) {
+                    int size = pattern.charAt(i) == '1' ? 5 : 2;
+                    if (i % 2 == 0 && i < pattern.length() - 1) {
+                        for (int y = row * CODABAR_BAND + 20; y < row * CODABAR_BAND + 100; y++) {
+                            Arrays.fill(pixels, y * CODABAR_WIDTH + x, y * CODABAR_WIDTH + x + size, (byte) 0);
+                        }
+                    }
+                    x += size;
+                }
+            }
+        }
         return pixels;
     }
 
@@ -131,6 +165,16 @@ public final class JniTest {
             } catch (IllegalArgumentException expected) {
                 // formats must be nonempty
             }
+        }
+        try (Scanner reader = new Scanner(ScannerOptions.defaults().withFormats(only(Format.CODABAR)))) {
+            Set<String> expected = new HashSet<>();
+            for (String[] symbol : CODABAR_SYMBOLS) expected.add(symbol[1] + " " + symbol[0] + symbol[2]);
+            Set<String> read = new HashSet<>();
+            ScanResult result = reader.scan(codabar(), CODABAR_WIDTH, CODABAR_BAND * CODABAR_SYMBOLS.length, 1, 0);
+            for (Barcode b : result.barcodes()) read.add(b.text() + " " + b.codabarStartStop().orElse("none"));
+            check(read.equals(expected), "codabar start/stop " + read);
+            check(!reader.scan(pixels, width, HEIGHT, 1, 0, ScanOptions.defaults().withFormats(only(Format.EAN13)))
+                    .best().get().codabarStartStop().isPresent(), "no start/stop outside Codabar");
         }
         Scanner closed = new Scanner();
         closed.close();

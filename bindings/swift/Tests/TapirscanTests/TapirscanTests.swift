@@ -31,6 +31,40 @@ private func ean13(_ text: String) -> (pixels: [UInt8], width: Int, height: Int)
     return (pixels, width, height)
 }
 
+/// Codabar characters as bar/space/bar/space/bar/space/bar; "1" is wide.
+private let codabarPatterns: [Character: String] = [
+    "0": "0000011", "1": "0000110", "2": "0001001", "3": "1100000", "4": "0010010",
+    "5": "1000010", "6": "0100001", "7": "0100100", "8": "0110000", "9": "1001000",
+    "-": "0001100", "$": "0011000", ":": "1000101", "/": "1010001", ".": "1010100",
+    "+": "0010101", "A": "0011010", "B": "0101001", "C": "0001011", "D": "0001110",
+]
+
+/// (start, data, stop) as `CODABAR_SYMBOLS` in scripts/fixture_data.py.
+private let codabarSymbols = [("A", "123456", "B"), ("C", "40156", "D"), ("D", "7-$:/.+9", "A")]
+
+/// Codabar symbols stacked in 120-pixel bands of gray pixels, as scripts/fixture_data.py draws them.
+private func codabar() -> (pixels: [UInt8], width: Int, height: Int) {
+    let width = 480, band = 120
+    var pixels = [UInt8](repeating: 255, count: width * band * codabarSymbols.count)
+    for (row, (start, data, stop)) in codabarSymbols.enumerated() {
+        var x = 40
+        for character in start + data + stop {
+            let pattern = codabarPatterns[character]!
+            // Narrow elements are 2 px, wide 5 px; a narrow gap separates characters.
+            for (i, wide) in (pattern + "0").enumerated() {
+                let size = wide == "1" ? 5 : 2
+                if i % 2 == 0 && i < pattern.count {
+                    for y in (row * band + 20)..<(row * band + 100) {
+                        for dx in 0..<size { pixels[y * width + x + dx] = 0 }
+                    }
+                }
+                x += size
+            }
+        }
+    }
+    return (pixels, width, band * codabarSymbols.count)
+}
+
 final class TapirscanTests: XCTestCase {
     let text = "4006381333931"
 
@@ -70,6 +104,18 @@ final class TapirscanTests: XCTestCase {
         XCTAssertThrowsError(try scanner.scan(
             pixels, width: width, height: height, channels: 1, options: ScanOptions(formats: []))
         ) { XCTAssertEqual(($0 as? TapirscanError)?.code, .invalidInput) }
+    }
+
+    func testReportsCodabarStartAndStopCharacters() throws {
+        let (pixels, width, height) = codabar()
+        let scanner = try BarcodeScanner(options: ScannerOptions(formats: .codabar))
+        let barcodes = try scanner.scan(pixels, width: width, height: height, channels: 1).barcodes
+        XCTAssertEqual(
+            Set(barcodes.map { "\($0.text) \($0.codabarStartStop ?? "nil")" }),
+            Set(codabarSymbols.map { "\($0.1) \($0.0)\($0.2)" }))
+        let (ean, eanWidth, eanHeight) = ean13(text)
+        let retail = try BarcodeScanner().scan(ean, width: eanWidth, height: eanHeight, channels: 1)
+        XCTAssertNil(try XCTUnwrap(retail.best).codabarStartStop)
     }
 
     func testNegativeStrideIsInvalidInput() throws {

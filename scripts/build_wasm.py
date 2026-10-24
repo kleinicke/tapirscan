@@ -181,7 +181,7 @@ def source_digest(inputs: dict[str, str]) -> str:
 def main() -> None:
     """Build the package's WASM files and describe them in ``build.json``."""
     args = arguments()
-    with prepared_package(PACKAGE, refresh=PACKAGE.exists()):
+    with prepared_package(PACKAGE, refresh=True):
         inputs = source_files()
         digest = source_digest(inputs)
         env = build_environment()

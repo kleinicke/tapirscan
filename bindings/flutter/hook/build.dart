@@ -3,34 +3,13 @@
 // with Cargo from a Tapirscan checkout (`source_dir`, default: the repository
 // containing this package). Unsupported targets, such as 32-bit Android, get no
 // library, and `Tapirscan.isSupported` is false there.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:code_assets/code_assets.dart';
 import 'package:hooks/hooks.dart';
 
 const _assetName = 'src/bindings.g.dart';
-
-/// Build inputs whose changes rebuild the library.
-const _sources = [
-  'core/src/',
-  'multiformat/src/',
-  'multiformat/Cargo.toml',
-  'multiformat/Cargo.lock',
-  'bindings/c/src/',
-  'bindings/c/Cargo.toml.in',
-  'bindings/rust/api/',
-  'bindings/rust/src/',
-  'bindings/rust/Cargo.toml',
-  'bindings/rust/Cargo.lock',
-  'config/',
-  'rust-toolchain.toml',
-  'scripts/build.py',
-  'scripts/build_flutter_native.py',
-  'scripts/build_native.py',
-  'scripts/build_turbo.py',
-  'scripts/native_identity.py',
-  'scripts/prepare_rust.py',
-];
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
@@ -172,7 +151,15 @@ Future<Uri> _buildFromSource(
       result.exitCode,
     );
   }
-  output.dependencies.addAll(_sources.map(sourceDir.resolve));
+  // The script lists its input files, the same set as the native library
+  // identity (scripts/native_identity.py).
+  final dependencies = File.fromUri(
+    input.outputDirectory.resolve('dependencies.json'),
+  );
+  output.dependencies.addAll([
+    for (final path in jsonDecode(await dependencies.readAsString()) as List)
+      Uri.file(path as String),
+  ]);
   return input.outputDirectory.resolve(
     code.targetOS.dylibFileName('tapirscan'),
   );

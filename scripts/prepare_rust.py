@@ -2,24 +2,38 @@
 """Assemble a self-contained Cargo package from maintained production sources."""
 
 import argparse
+import errno
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import BinaryIO, cast
 
 from build import MODES, ROOT, rust_toolchain
+
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
 # Embedded copies of the core and multiformat crates keep their full library APIs;
 # each mode's engine uses only part of them. Engine modules are linted normally.
 LIBRARY_LINTS = "#[allow(dead_code, unused_imports)]"
+# Seconds between attempts to take the package lock, and between the messages
+# that say a build is waiting for it.
+POLL_INTERVAL = 0.5
+WAIT_NOTICE = 60.0
+# Locks this process holds: a second acquisition would wait for itself.
+HELD: set[Path] = set()
+# Errors that mean another process holds the lock; others are raised.
+BUSY = {errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK, errno.EDEADLK}
 
 
 @dataclass
@@ -77,55 +91,38 @@ def source_rewriter() -> Path:
     version = subprocess.check_output(
         ["rustc", f"+{toolchain}", "-vV"], cwd=ROOT, text=True
     )
-    hosts = [
-        line.removeprefix("host: ").strip()
-        for line in version.splitlines()
-        if line.startswith("host: ")
-    ]
-    if len(hosts) != 1 or not hosts[0]:
-        message = "Pinned rustc did not report exactly one host target"
-        raise ValueError(message)
-    completed = subprocess.run(
+    host = next(
+        (
+            line.removeprefix("host: ").strip()
+            for line in version.splitlines()
+            if line.startswith("host: ")
+        ),
+        None,
+    )
+    if not host:
+        msg = f"`rustc +{toolchain} -vV` reported no host target:\n{version}"
+        raise ValueError(msg)
+    # An explicit host target and target directory fix the output path, even
+    # when the caller's Cargo configuration selects another target (WASM).
+    subprocess.run(
         [
             "cargo",
             f"+{toolchain}",
             "build",
             "--target",
-            hosts[0],
+            host,
             "--offline",
             "--locked",
-            "--message-format=json",
             "--manifest-path",
             str(ROOT / "tools/package-source/Cargo.toml"),
             "--target-dir",
             str(target),
         ],
         cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        check=False,
+        check=True,
     )
-    artifacts: set[Path] = set()
-    manifest = (ROOT / "tools/package-source/Cargo.toml").resolve()
-    for line in completed.stdout.splitlines():
-        message = json.loads(line)
-        if message.get("reason") == "compiler-message":
-            rendered = message.get("message", {}).get("rendered")
-            if rendered:
-                print(rendered, end="", file=sys.stderr)
-        if (
-            message.get("reason") == "compiler-artifact"
-            and Path(message.get("manifest_path", "")).resolve() == manifest
-            and message.get("target", {}).get("name") == "tapirscan-package-source"
-            and "bin" in message.get("target", {}).get("kind", [])
-            and message.get("executable")
-        ):
-            artifacts.add(Path(message["executable"]))
-    completed.check_returncode()
-    if len(artifacts) != 1:
-        message = "Cargo did not report exactly one package-source executable"
-        raise ValueError(message)
-    return artifacts.pop()
+    suffix = ".exe" if sys.platform == "win32" else ""
+    return target / host / "debug" / f"tapirscan-package-source{suffix}"
 
 
 def assemble(destination: Path) -> None:
@@ -301,21 +298,66 @@ def sync_tree(source: Path, destination: Path) -> None:
             shutil.copy2(item, target)
 
 
+def try_lock(handle: BinaryIO) -> bool:
+    """Take the exclusive lock on an open file without blocking."""
+    handle.seek(0)
+    try:
+        if sys.platform == "win32":
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        if error.errno in BUSY:
+            return False
+        raise
+    return True
+
+
+def unlock(handle: BinaryIO) -> None:
+    """Release a lock taken by try_lock; closing the file would also release it."""
+    handle.seek(0)
+    if sys.platform == "win32":
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def exclusive(lock: Path, *, notice: float = WAIT_NOTICE) -> Iterator[None]:
+    """Hold an OS file lock, waiting as long as another build holds it.
+
+    The operating system releases the lock when its holder exits, however it
+    exits, so a lock cannot go stale and the wait has no timeout: it only ever
+    waits for a build that is still running. The lock file itself stays.
+    """
+    if lock in HELD:
+        msg = f"This process already holds {lock}"
+        raise RuntimeError(msg)
+    with lock.open("a+b") as handle:
+        announced = None
+        while not try_lock(handle):
+            now = time.monotonic()
+            if announced is None or now - announced >= notice:
+                print(
+                    f"Waiting for another build to release {lock}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                announced = now
+            time.sleep(POLL_INTERVAL)
+        HELD.add(lock)
+        try:
+            yield
+        finally:
+            HELD.discard(lock)
+            unlock(handle)
+
+
 @contextmanager
 def prepared_package(destination: Path, *, refresh: bool = False) -> Iterator[Path]:
     """Hold an exclusive package lock through preparation and its consuming build."""
     destination.parent.mkdir(parents=True, exist_ok=True)
-    lock = destination.with_name(destination.name + ".lock")
-    try:
-        lock.mkdir()
-    except FileExistsError as error:
-        msg = (
-            f"Package is in use: {lock}. After interruption, "
-            "verify its owner stopped before removing the lock."
-        )
-        raise RuntimeError(msg) from error
-    try:
-        (lock / "owner").write_text(f"{os.getpid()}\n")
+    with exclusive(destination.with_name(destination.name + ".build-lock")):
         if destination.exists() and not refresh:
             raise FileExistsError(destination)
         subprocess.run(
@@ -336,8 +378,6 @@ def prepared_package(destination: Path, *, refresh: bool = False) -> Iterator[Pa
                     shutil.copy2(item, target)
         print(destination)
         yield destination
-    finally:
-        shutil.rmtree(lock)
 
 
 def prepare(destination: Path, *, refresh: bool = False) -> None:

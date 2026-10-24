@@ -82,8 +82,8 @@ jobs:
       - name: Check native artifact freshness and Rust package preparation
         run: |
           python3 scripts/test_native_identity.py
-          python3 scripts/test_prepare_rust_artifacts.py
           python3 scripts/test_prepare_rust.py
+          python3 scripts/test_turbo_recipes.py
       - run: python3 scripts/test_compare_scanners.py
       - name: Fetch pinned test-only supplement encoder
         uses: actions/checkout@v4
@@ -198,6 +198,13 @@ jobs:
           dart format --output=none --set-exit-if-changed lib hook test tool
           dart analyze --fatal-infos
           dart test
+      - name: Check bindings.g.dart against the C header
+        working-directory: bindings/flutter
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev
+          dart run tool/ffigen.dart
+          git diff --exit-code lib/src/bindings.g.dart
   android:
     runs-on: ubuntu-24.04
     steps:
