@@ -17,15 +17,39 @@ export function wasmSupported(): boolean {
 }
 
 /**
- * Whether `tapirscan/browser` scanners can run here: WebAssembly SIMD, workers and
- * `OffscreenCanvas` (Chrome 91, Firefox 114, Safari 16.4 or later). Scanners that
- * are created anyway reject with the `ScannerError` code `"unsupported"`.
+ * Whether `tapirscan/browser` scanners can run here: WebAssembly SIMD, module
+ * workers and `OffscreenCanvas` (Chrome 91, Firefox 114, Safari 16.4 or later).
+ * Scanners that are created anyway reject with the `ScannerError` code `"unsupported"`.
  */
 export function browserSupported(): boolean {
   return (
     wasmSupported() &&
     typeof Worker === "function" &&
     typeof OffscreenCanvas === "function" &&
-    typeof createImageBitmap === "function"
+    typeof createImageBitmap === "function" &&
+    moduleWorkersSupported()
   );
+}
+
+let moduleWorkers: boolean | undefined;
+
+/** Whether workers run modules (Firefox 105 to 113 lack them): browsers that do read `type`. */
+function moduleWorkersSupported(): boolean {
+  if (moduleWorkers !== undefined) return moduleWorkers;
+  let read = false;
+  const options = {
+    get type() {
+      read = true;
+      return "module" as const;
+    },
+  };
+  try {
+    // The options are read before the invalid URL throws, so nothing is fetched.
+    // Trusted Types may still check or report the string URL; the result holds.
+    new Worker("http://[", options).terminate();
+  } catch {
+    // Expected: the URL is invalid.
+  }
+  moduleWorkers = read;
+  return read;
 }

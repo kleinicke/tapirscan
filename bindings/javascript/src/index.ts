@@ -22,7 +22,6 @@ export {
 export type { Format, FormatSelection } from "./multiformat/formats.js";
 export type { ContentKind } from "./content-kind.js";
 export { ScannerError } from "./rust-session.js";
-export { wasmSupported } from "./support.js";
 
 export type Quad = readonly [
   readonly [number, number],

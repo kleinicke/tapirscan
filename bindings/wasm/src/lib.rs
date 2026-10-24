@@ -248,12 +248,11 @@ pub extern "C" fn tapirscan_prepare_rows(
         let Some(session) = registry.sessions.get_mut(&handle) else {
             return HANDLE;
         };
-        // Reuse a same-sized chunk, but release excess whole-image capacity.
+        // Reuse a same-sized chunk, but release excess whole-image capacity before
+        // zero-filling, so shrinking copies nothing.
         session.input.clear();
+        session.input.shrink_to(length);
         session.input.resize(length, 0);
-        if session.input.capacity() > length {
-            session.input.shrink_to_fit();
-        }
         session.output.clear();
         session.image = None;
         session.rows = Some(rows);

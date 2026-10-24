@@ -2,6 +2,7 @@
 // for browser image sources. Each entry supplies the worker that bundles its WASM.
 import type { WorkerRequest, WorkerResponse, WorkerSource } from "./browser-worker-core.js";
 import { freeze } from "./freeze.js";
+import { takeOver } from "./handover.js";
 import { pixelLayout } from "./layout.js";
 import type {
   EanAddOnPolicy,
@@ -61,7 +62,10 @@ interface Pending {
 
 function revive({ name, message, code }: { name: string; message: string; code?: string }): Error {
   if (code !== undefined) return new ScannerError(code, message);
-  return name === "TypeError" ? new TypeError(message) : new Error(message);
+  const error = name === "TypeError" ? new TypeError(message) : new Error(message);
+  // Keeps names such as EncodingError, for images the browser cannot decode.
+  error.name = name;
+  return error;
 }
 
 /** Snapshot mutable inputs before the first await; Blobs are immutable. */
@@ -92,6 +96,7 @@ async function prepare(
     const copy = new Uint8Array(data.buffer, data.byteOffset, addressed).slice();
     return [{ data: copy, width, height, channels, stride }, [copy.buffer]];
   }
+  if (source instanceof ImageBitmap && takeOver(source)) return [source, [source]];
   // A copy, so a caller's ImageBitmap stays usable after it is transferred.
   const bitmap = await createImageBitmap(source);
   return [bitmap, [bitmap]];
@@ -100,13 +105,7 @@ async function prepare(
 /** Options of a single-mode entry such as tapirscan/browser/medium. */
 export type SingleModeOptions = Omit<ScannerOptions, "mode" | "experimentalTurbo">;
 
-/**
- * A reusable scanner running in a dedicated worker, so scanning never blocks the
- * page. Construction is synchronous and starts loading in the background; during
- * server rendering it does nothing. Inputs and options are captured when a call
- * starts, and calls reach the worker in call order. Results are deeply frozen and
- * survive disposal. Call dispose() when done to stop the worker.
- */
+/** Every entry's `Scanner`, documented on tapirscan/browser's `Scanner`. */
 export class BrowserScanner {
   /** Resolves once the scanner is loaded; rejects with the loading error. Optional. */
   readonly ready: Promise<void>;
@@ -141,9 +140,30 @@ export class BrowserScanner {
         );
     }
     if (fixedMode !== undefined) options = { ...options, mode: fixedMode };
-    if (options.worker !== undefined && typeof options.worker !== "function")
+    const { wasmBaseUrl, worker: spawnCustom, ...rest } = options;
+    if (spawnCustom !== undefined && typeof spawnCustom !== "function")
       throw new TypeError("worker must be a function that returns a Worker");
-    if (typeof Worker === "undefined") {
+    if (
+      wasmBaseUrl !== undefined &&
+      typeof wasmBaseUrl !== "string" &&
+      !(wasmBaseUrl instanceof URL)
+    )
+      throw new TypeError("wasmBaseUrl must be a string or URL");
+    // Resolve now, so an invalid URL throws here. A server has no base to resolve
+    // against, and Deno without --location throws on reading location.
+    let resolved: string | undefined;
+    if (wasmBaseUrl !== undefined) {
+      let base: string | undefined;
+      if (typeof document !== "undefined") base = document.baseURI;
+      else
+        try {
+          base = location.href;
+        } catch {
+          base = undefined;
+        }
+      if (base !== undefined) resolved = new URL(wasmBaseUrl, base).href;
+    }
+    if (typeof window === "undefined" && typeof Worker === "undefined") {
       this.#closed = new Error(
         "tapirscan/browser scans in browsers; this environment has no Worker",
       );
@@ -152,22 +172,11 @@ export class BrowserScanner {
       // No worker is started, so nothing is downloaded.
       this.#closed = new ScannerError(
         "unsupported",
-        "Tapirscan needs WebAssembly SIMD, workers and OffscreenCanvas, which this browser lacks",
+        "Tapirscan needs WebAssembly SIMD, module workers and OffscreenCanvas, which this browser lacks",
       );
       this.ready = Promise.reject(this.#closed);
     } else {
-      const { wasmBaseUrl, worker: spawnCustom, ...rest } = options;
-      if (
-        wasmBaseUrl !== undefined &&
-        typeof wasmBaseUrl !== "string" &&
-        !(wasmBaseUrl instanceof URL)
-      )
-        throw new TypeError("wasmBaseUrl must be a string or URL");
-      const base = typeof document === "undefined" ? location.href : document.baseURI;
-      const workerOptions =
-        wasmBaseUrl === undefined
-          ? rest
-          : { ...rest, wasmBaseUrl: new URL(wasmBaseUrl, base).href };
+      const workerOptions = resolved === undefined ? rest : { ...rest, wasmBaseUrl: resolved };
       const worker = (spawnCustom ?? spawn)();
       this.#worker = worker;
       worker.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
@@ -305,6 +314,8 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 
 /** Options of the one-shot helpers: the scanner options plus the per-call `transfer`. */
 export type OneShotOptions = ScannerOptions & Pick<ScanOptions, "transfer">;
+/** `OneShotOptions` of a single-mode entry. */
+export type SingleModeOneShotOptions = SingleModeOptions & Pick<ScanOptions, "transfer">;
 
 /** An entry's one-shot `scan` and `inspect`: a temporary scanner per call. */
 export function oneShot<O extends SingleModeOptions>(Scanner: new (options: O) => BrowserScanner) {

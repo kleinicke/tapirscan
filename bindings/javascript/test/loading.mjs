@@ -100,6 +100,9 @@ test("custom loaders retain control over repeated loads", async () => {
 
 test("a runtime without WebAssembly SIMD is reported before any WASM loads", async (t) => {
   const { wasmSupported } = await import("../dist/support.js");
+  // Only tapirscan/support exports the checks, so they load nothing else.
+  assert.equal("wasmSupported" in (await import("../dist/index.js")), false);
+  assert.equal("browserSupported" in (await import("../dist/browser.js")), false);
   assert.equal(wasmSupported(), true);
   t.mock.method(WebAssembly, "validate", () => false);
   assert.equal(wasmSupported(), false);

@@ -6,11 +6,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { cp, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { extname, join, resolve } from "node:path";
-import { chromium } from "playwright-core";
+import { join, resolve } from "node:path";
 import { fixture } from "./fixtures.mjs";
+import { contentType, launchChrome, serve } from "./harness.mjs";
 
 const [tarball] = process.argv.slice(2).map((path) => resolve(path));
 assert.ok(tarball, "Supply the npm tarball");
@@ -60,24 +59,15 @@ try {
 
 /** Serve the production build and scan the test barcode as a PNG upload. */
 async function scanThroughPage(dist) {
-  const types = { ".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm" };
-  const server = createServer(async (request, response) => {
-    const path = new URL(request.url, "http://localhost").pathname;
-    try {
-      const body = await readFile(join(dist, path === "/" ? "index.html" : path));
-      response.writeHead(200, { "content-type": types[extname(path || ".html")] ?? "text/html" });
-      response.end(body);
-    } catch {
-      response.writeHead(404).end();
-    }
+  const server = await serve(async (path, response) => {
+    const file = path === "/" ? "/index.html" : path;
+    const body = await readFile(join(dist, file));
+    response.writeHead(200, { "content-type": contentType(file) }).end(body);
   });
-  await new Promise((done) => server.listen(0, "127.0.0.1", done));
-  const browser = await chromium.launch(
-    process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" },
-  );
+  const browser = await launchChrome();
   try {
     const page = await browser.newPage();
-    await page.goto(`http://127.0.0.1:${String(server.address().port)}/`);
+    await page.goto(`${server.origin}/`);
     await page.waitForSelector("input:not([disabled])");
     const { text, image } = fixture();
     await page.evaluate(
@@ -107,6 +97,6 @@ async function scanThroughPage(dist) {
     console.log("The bundled page scanned an uploaded PNG in Chrome.");
   } finally {
     await browser.close();
-    server.close();
+    await server.close();
   }
 }

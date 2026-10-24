@@ -56,9 +56,9 @@ async function load(url: URL): Promise<ArrayBuffer> {
 let decodeContext: OffscreenCanvasRenderingContext2D | undefined;
 const reusedPixels = 16 * 1024 * 1024;
 /**
- * Pixel bytes per band when a large image is decoded band by band. Each band of a
- * GPU-backed bitmap costs one readback: 64 MiB (three bands at 48 MP) measured
- * 17% slower than one full-size canvas for canvas sources and as fast for Blobs.
+ * Pixel bytes per band when a large image is decoded band by band. Bands are
+ * large, three at 48 MP, because each band of a GPU-backed bitmap costs one
+ * readback.
  */
 const bandBytes = 64 * 1024 * 1024;
 
@@ -156,7 +156,12 @@ async function handle(request: WorkerRequest, assets: WasmAssets): Promise<unkno
         ? {
             ...options,
             loadWasm: () => {
-              if (!asset) throw new Error("This tapirscan/browser entry does not bundle that mode");
+              if (!asset)
+                throw new Error(
+                  turbo === undefined
+                    ? `This tapirscan/browser entry does not bundle the ${mode} mode`
+                    : `This tapirscan/browser entry does not bundle the Turbo ${String(turbo)} preset`,
+                );
               return load(asset);
             },
           }

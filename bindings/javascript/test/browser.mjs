@@ -2,48 +2,34 @@
 // Uses the installed Google Chrome; set CHROME_PATH to use another Chromium build.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { chromium } from "playwright-core";
+import { contentType, launchChrome, serve } from "./harness.mjs";
 
 const root = new URL("../", import.meta.url);
-const types = { ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm" };
 let server, browser, page;
 /** A Content-Security-Policy that every response carries while it is set. */
 let csp = "";
 
 before(async () => {
-  server = createServer(async (request, response) => {
-    const path = new URL(request.url, "http://localhost").pathname;
+  server = await serve(async (path, response) => {
     const policy = csp ? { "content-security-policy": csp } : {};
-    try {
-      if (path === "/csp") {
-        response.writeHead(200, { "content-type": "text/html", ...policy }).end("<title>t</title>");
-        return;
-      }
-      if (path === "/") {
-        response
-          .writeHead(200, { "content-type": "text/html" })
-          .end("<!doctype html><title>t</title>");
-        return;
-      }
-      const body = await readFile(new URL(`.${path}`, root));
-      const type = types[path.slice(path.lastIndexOf("."))] ?? "application/octet-stream";
-      response.writeHead(200, { "content-type": type, ...policy }).end(body);
-    } catch {
-      response.writeHead(404).end();
+    if (path === "/csp") {
+      response.writeHead(200, { "content-type": "text/html", ...policy }).end("<title>t</title>");
+      return;
     }
+    if (path === "/") {
+      response
+        .writeHead(200, { "content-type": "text/html" })
+        .end("<!doctype html><title>t</title>");
+      return;
+    }
+    const body = await readFile(new URL(`.${path}`, root));
+    response.writeHead(200, { "content-type": contentType(path), ...policy }).end(body);
   });
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  browser = await chromium.launch(
-    process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" },
-  );
+  browser = await launchChrome();
   page = await browser.newPage();
   page.on("pageerror", (error) => console.error(error));
-  await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  await page.goto(`${server.origin}/`);
   // Shared helpers: the EAN-13 fixture as a canvas, plus the module under test.
   await page.evaluate(async () => {
     const { fixture } = await import("/test/fixtures.mjs");
@@ -62,7 +48,7 @@ before(async () => {
 
 after(async () => {
   await browser?.close();
-  server?.close();
+  await server?.close();
 });
 
 test("one-shot scan reads files and every image source kind", async () => {
@@ -173,6 +159,10 @@ test("errors keep their types, and disposal rejects queued work", async () => {
       notImage: await failure(scanner.scan(null)),
       missingWasm: await failure(new Scanner({ wasmBaseUrl: "/missing/" }).ready),
     };
+    // Browser decoding errors keep their DOMException name.
+    results.undecodable = await scanner
+      .scan(new Blob(["not an image"]))
+      .catch((error) => [error.constructor.name, error.name]);
     const queued = scanner.scan(canvas);
     scanner.dispose();
     scanner.dispose();
@@ -189,6 +179,7 @@ test("errors keep their types, and disposal rejects queued work", async () => {
   assert.equal(outcome.tiny[0], "TypeError");
   assert.deepEqual(outcome.notImage, ["TypeError", "Expected an image source"]);
   assert.match(outcome.missingWasm.join(" "), /^Error .*404/);
+  assert.deepEqual(outcome.undecodable, ["Error", "InvalidStateError"]);
   assert.deepEqual(outcome.queued, ["ScannerError", "Scanner was disposed"]);
   assert.deepEqual(outcome.afterDispose, ["ScannerError", "Scanner was disposed"]);
   assert.equal(outcome.scannerErrorExported, true);
@@ -205,6 +196,64 @@ test("server rendering can import and construct without browser globals", async 
   );
   scanner.dispose();
   await assert.rejects(scan(new Blob()), /scans in browsers/);
+  // Relative URLs cannot be resolved on a server; other values still throw.
+  new Scanner({ wasmBaseUrl: "/tapirscan/" }).dispose();
+  assert.throws(() => new Scanner({ wasmBaseUrl: 5 }), TypeError);
+});
+
+test("construction survives a location getter that throws, as in Deno", async () => {
+  // Deno without --location defines location but throws on reading it.
+  const { Scanner } = await import("../dist/browser.js");
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    get() {
+      throw new ReferenceError("Access to location requires --location");
+    },
+  });
+  try {
+    const scanners = [new Scanner(), new Scanner({ wasmBaseUrl: "/tapirscan/" })];
+    for (const scanner of scanners) {
+      await assert.rejects(scanner.ready, /scans in browsers/);
+      scanner.dispose();
+    }
+    assert.throws(() => new Scanner({ wasmBaseUrl: 5 }), TypeError);
+  } finally {
+    delete globalThis.location;
+  }
+});
+
+test("single-mode entries reject mode and Turbo options", async () => {
+  // The entry's worker fetches only medium.wasm.
+  const wasm = [];
+  const record = (request) => {
+    if (request.url().endsWith(".wasm")) wasm.push(request.url().split("/").pop());
+  };
+  page.on("request", record);
+  const outcome = await page.evaluate(async () => {
+    const medium = await import("/dist/browser-medium.js");
+    const attempt = (options) => {
+      try {
+        new medium.Scanner(options).dispose();
+        return "ok";
+      } catch (error) {
+        return error.message;
+      }
+    };
+    const scanner = new medium.Scanner();
+    await scanner.ready;
+    scanner.dispose();
+    return {
+      mode: attempt({ mode: "medium" }),
+      turbo: attempt({ experimentalTurbo: 8 }),
+    };
+  });
+  page.off("request", record);
+  assert.equal(
+    outcome.mode,
+    'tapirscan/browser/medium has no mode option; use "tapirscan/browser"',
+  );
+  assert.match(outcome.turbo, /has no experimentalTurbo option/);
+  assert.deepEqual(wasm, ["medium.wasm"]);
 });
 
 test("the worker's static WASM URLs match the packaged assets", async () => {
@@ -418,20 +467,35 @@ test("a custom worker runs a single-mode entry's worker module", async () => {
         return new Worker("/dist/browser-worker-medium.js", { type: "module" });
       },
     });
+    // Without wasmBaseUrl, the worker module must bundle the selected preset.
+    const { Scanner: AnyMode } = globalThis.fixture.tapirscan;
+    const turbo = new AnyMode({
+      experimentalTurbo: 8,
+      worker: () => new Worker("/dist/browser-worker-medium.js", { type: "module" }),
+    });
+    const missing = await turbo.ready.catch((error) => error.message);
+    turbo.dispose();
     try {
       const report = await scanner.inspect(canvas);
-      return { invalid, spawned, values: report.values, mode: report.mode };
+      return { invalid, spawned, values: report.values, mode: report.mode, missing };
     } finally {
       scanner.dispose();
     }
   });
   const text = await page.evaluate(() => globalThis.fixture.text);
-  assert.deepEqual(outcome, { invalid: "TypeError", spawned: 1, values: [text], mode: "medium" });
+  assert.deepEqual(outcome, {
+    invalid: "TypeError",
+    spawned: 1,
+    values: [text],
+    mode: "medium",
+    missing: "This tapirscan/browser entry does not bundle the Turbo 8 preset",
+  });
 });
 
 test("browsers without WebAssembly SIMD reject scanners without starting a worker", async () => {
   const outcome = await page.evaluate(async () => {
-    const { Scanner, browserSupported } = globalThis.fixture.tapirscan;
+    const { Scanner } = globalThis.fixture.tapirscan;
+    const { browserSupported } = await import("/dist/support.js");
     const { validate } = WebAssembly;
     const OriginalWorker = globalThis.Worker;
     let created = 0;
@@ -450,12 +514,21 @@ test("browsers without WebAssembly SIMD reject scanners without starting a worke
         scanner.scan(globalThis.fixture.canvas),
       ]);
       scanner.dispose();
+      const invalid = [5, "http://["].map((wasmBaseUrl) => {
+        try {
+          new Scanner({ wasmBaseUrl }).dispose();
+          return "accepted";
+        } catch (error) {
+          return error.name;
+        }
+      });
       return {
         supported,
         created,
         ready: ready.reason?.code,
         scan: scan.reason?.code,
         name: ready.reason?.name,
+        invalid,
       };
     } finally {
       WebAssembly.validate = validate;
@@ -468,7 +541,37 @@ test("browsers without WebAssembly SIMD reject scanners without starting a worke
     ready: "unsupported",
     scan: "unsupported",
     name: "ScannerError",
+    invalid: ["TypeError", "TypeError"],
   });
+});
+
+test("pages without module workers are unsupported", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { Scanner } = globalThis.fixture.tapirscan;
+    const OriginalWorker = globalThis.Worker;
+    // Each query string loads a fresh copy, so the support check runs again.
+    const supported = async (query) =>
+      (await import(`/dist/support.js?${query}`)).browserSupported();
+    try {
+      // Firefox 105 to 113 start only classic workers and never read the type option.
+      globalThis.Worker = class {
+        constructor(url) {
+          new URL(url);
+        }
+        terminate() {}
+      };
+      const classic = await supported("classic");
+      delete globalThis.Worker;
+      const scanner = new Scanner();
+      const missing = await scanner.ready.catch((error) => error.code);
+      scanner.dispose();
+      globalThis.Worker = OriginalWorker;
+      return { classic, missing, module: await supported("module") };
+    } finally {
+      globalThis.Worker = OriginalWorker;
+    }
+  });
+  assert.deepEqual(outcome, { classic: false, missing: "unsupported", module: true });
 });
 
 test("Turbo presets work in the browser entry", async () => {
@@ -561,7 +664,7 @@ test("Content-Security-Policy needs 'wasm-unsafe-eval'", async () => {
     csp = policy;
     const strict = await browser.newPage();
     try {
-      await strict.goto(`http://127.0.0.1:${server.address().port}/csp`);
+      await strict.goto(`${server.origin}/csp`);
       return await strict.evaluate(
         async ({ image }) => {
           const { scan } = await import("/dist/browser-medium.js");

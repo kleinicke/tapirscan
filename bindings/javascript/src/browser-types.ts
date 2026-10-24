@@ -1,6 +1,5 @@
 // Public names shared by every tapirscan/browser entry.
 export { ScannerError } from "./rust-session.js";
-export { browserSupported, wasmSupported } from "./support.js";
 export type {
   Barcode,
   Content,
@@ -22,9 +21,5 @@ export type {
   StructuredAppend,
   UndecodedRegion,
 } from "./index.js";
-export type {
-  ImageSource,
-  ScanOptions,
-  ScannerOptions,
-  SingleModeOptions,
-} from "./browser-scanner.js";
+// Each entry exports its own ScannerOptions and OneShotOptions.
+export type { ImageSource, ScanOptions } from "./browser-scanner.js";

@@ -1,12 +1,12 @@
 // Usage: node test/installed.mjs package.tgz fixtures/manifest.json
-// Uses the installed Google Chrome through the playwright-core dev dependency.
+// Uses the installed Google Chrome (or CHROME_PATH) through playwright-core.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, realpath, readFile, writeFile, mkdir, cp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, extname, sep } from "node:path";
-import http from "node:http";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { contentType, launchChrome, serve } from "./harness.mjs";
 
 const [tarball, fixturePath] = process.argv.slice(2).map((p) => resolve(p));
 assert.ok(tarball && fixturePath, "Supply npm tarball and fixture manifest");
@@ -52,38 +52,25 @@ try {
     recursive: true,
   });
   const loaded = [];
-  server = http.createServer(async (req, res) => {
-    try {
-      const pathname = new URL(req.url, "http://localhost").pathname;
-      const file = resolve(root, "." + pathname);
-      if (!file.startsWith(root + sep)) {
-        res.writeHead(403).end();
-        return;
-      }
-      if (pathname === "/app/") {
-        res.setHeader("Content-Type", "text/html");
-        res.end("<!doctype html><title>Installed scanner test</title>");
-        return;
-      }
-      if (pathname.endsWith(".wasm")) loaded.push(pathname);
-      const body = await readFile(file);
-      res.setHeader(
-        "Content-Type",
-        extname(file) === ".wasm" ? "application/wasm" : "text/javascript",
-      );
-      res.end(body);
-    } catch {
-      res.writeHead(404).end();
+  server = await serve(async (pathname, response) => {
+    const file = resolve(root, "." + pathname);
+    if (!file.startsWith(root + sep)) {
+      response.writeHead(403).end();
+      return;
     }
+    if (pathname === "/app/") {
+      response
+        .writeHead(200, { "content-type": "text/html" })
+        .end("<!doctype html><title>Installed scanner test</title>");
+      return;
+    }
+    if (pathname.endsWith(".wasm")) loaded.push(pathname);
+    const body = await readFile(file);
+    response.writeHead(200, { "content-type": contentType(file) }).end(body);
   });
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const { chromium } = await import("playwright-core");
-  browser = await chromium.launch({ channel: "chrome", headless: true });
+  browser = await launchChrome();
   const page = await browser.newPage();
-  await page.goto(`http://127.0.0.1:${server.address().port}/app/`);
+  await page.goto(`${server.origin}/app/`);
   const browserRuns = [];
   for (const relocated of [false, true]) {
     loaded.length = 0;
@@ -161,6 +148,6 @@ try {
   console.log(JSON.stringify({ node, browser: browserRuns, browserChecks: browserChecks.length }));
 } finally {
   await browser?.close();
-  if (server) await new Promise((resolve) => server.close(resolve));
+  await server?.close();
   await rm(root, { recursive: true, force: true });
 }

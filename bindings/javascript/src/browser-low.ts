@@ -2,6 +2,10 @@
 import { BrowserScanner, oneShot, type SingleModeOptions } from "./browser-scanner.js";
 
 export * from "./browser-types.js";
+export type {
+  SingleModeOptions as ScannerOptions,
+  SingleModeOneShotOptions as OneShotOptions,
+} from "./browser-scanner.js";
 
 /** tapirscan/browser's Scanner in low mode; bundlers emit only its WASM file. */
 export class Scanner extends BrowserScanner {

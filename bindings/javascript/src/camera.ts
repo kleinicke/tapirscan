@@ -1,11 +1,13 @@
 // tapirscan/camera: an optional camera loop for any tapirscan/browser scanner.
 // It owns acquisition, frame scheduling and cleanup; decoding stays in the scanner.
 import { freeze } from "./freeze.js";
+import { handOver } from "./handover.js";
 import type { Barcode, Quad, ScanOptions, ScanResult } from "./index.js";
 
 /**
  * Any tapirscan/browser `Scanner`; the controller never disposes it. With
- * `region`, `scan` receives an `ImageBitmap` of the region instead of the video.
+ * `region`, `scan` receives an `ImageBitmap` of the region instead of the video;
+ * a tapirscan/browser `Scanner` takes it over instead of copying it.
  */
 export interface FrameScanner {
   scan(source: HTMLVideoElement | ImageBitmap, options?: ScanOptions): Promise<ScanResult>;
@@ -27,16 +29,24 @@ export interface CameraSelection {
   facingMode?: "environment" | "user";
 }
 
+/** @experimental Options of the `CameraScanner` preview. */
 export interface CameraScannerOptions {
   /** Called with every scanned frame; `result.barcodes` is empty when nothing was read. */
   onScan?(result: ScanResult): void;
   /**
-   * Called once for a barcode that `confirmations` consecutive scans read with the
-   * same format and text. It is reported again after a scan without it, or when
-   * the camera reopens.
+   * Called once per appearance of a barcode, after `confirmations` consecutive
+   * scans read it with the same format and text. It counts as gone, and is
+   * reported again when it returns, only after it is missing from at least 3
+   * consecutive scans and for at least 500 ms, so a blurred frame does not repeat
+   * it. It is also reported again when the camera reopens. Barcodes with the same
+   * format and text count as one: `onDetect` fires once while any of them stays
+   * in view.
    */
   onDetect?(barcode: Barcode): void;
-  /** Consecutive scans that must read a barcode before `onDetect`. Default 1. */
+  /**
+   * Consecutive scans that must read a barcode before `onDetect`. Default 1. A scan
+   * without a barcode that was not yet reported restarts its count.
+   */
   confirmations?: number;
   /**
    * Minimum milliseconds from the start of one scan to the start of the next.
@@ -50,8 +60,9 @@ export interface CameraScannerOptions {
   region?: ScanRegion;
   /**
    * Called when scanning fails after `start()` resolved: the scanner failed or was
-   * disposed, the camera ended, or resuming after the page was hidden failed.
-   * Scanning has stopped and the camera is released.
+   * disposed, the camera ended, the video lost its stream, or resuming after the
+   * page was hidden failed. Scanning has stopped and the camera is released.
+   * Without `onError`, the error goes to the global error handler (`reportError`).
    */
   onError?(error: Error): void;
   /** Options for every frame, such as a smaller `formats` selection. */
@@ -69,6 +80,8 @@ export interface CameraScannerOptions {
 type TorchCapabilities = MediaTrackCapabilities & { torch?: boolean };
 
 /**
+ * @experimental Preview: may change in minor releases.
+ *
  * Scans a live camera into a `<video>` element with a tapirscan/browser scanner.
  * One frame is scanned at a time, so slow devices skip frames instead of queueing
  * them. After `stop()`, no further results arrive, and a camera that is granted
@@ -78,9 +91,19 @@ export class CameraScanner {
   readonly #video: HTMLVideoElement;
   readonly #scanner: FrameScanner;
   readonly #options: CameraScannerOptions;
-  /** Increments on every start and stop; work from an older session is dropped. */
+  /**
+   * Increments on every start, stop and visibility change; work from an older
+   * session is dropped.
+   */
   #session = 0;
   #stream: MediaStream | undefined;
+  /**
+   * The pending camera request, if any. It settles once the request does; a stream
+   * granted after its session ended is stopped by then.
+   */
+  #request: Promise<void> | undefined;
+  /** Removes the open stream's video listeners. */
+  #watching: AbortController | undefined;
   /** The camera to reopen when the page is shown again; undefined when stopped. */
   #selection: CameraSelection | undefined;
   readonly #onVisibility = () => {
@@ -142,7 +165,9 @@ export class CameraScanner {
    * false when `stop()` or another `start()` cancelled it or the page is hidden
    * (the camera then opens when the page is shown). Rejects when the camera cannot
    * be opened: permission denied, no camera, an insecure page or a browser without
-   * `requestVideoFrameCallback`.
+   * `requestVideoFrameCallback`. A camera request from an earlier `start()` that is
+   * still pending, such as an unanswered permission prompt, is waited for first,
+   * without a timeout; `stop()` makes this call resolve false once it settles.
    */
   async start(selection: CameraSelection = {}): Promise<boolean> {
     if (!("requestVideoFrameCallback" in this.#video))
@@ -187,7 +212,12 @@ export class CameraScanner {
     const { deviceId, facingMode = "environment" } = this.#selection ?? {};
     const { constraints = {} } = this.#options;
     const sized = "width" in constraints || "height" in constraints;
-    const stream = await mediaDevices().getUserMedia({
+    // Many phones open one camera at a time, so an earlier request settles first.
+    if (this.#request) {
+      await this.#request;
+      if (session !== this.#session) return false;
+    }
+    const request = mediaDevices().getUserMedia({
       audio: false,
       video: {
         ...(sized ? {} : { width: { ideal: 1280 }, height: { ideal: 720 } }),
@@ -197,6 +227,17 @@ export class CameraScanner {
         ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: facingMode } }),
       },
     });
+    const settled = request.then(
+      (stream) => {
+        if (session !== this.#session) stopTracks(stream);
+      },
+      () => undefined,
+    );
+    this.#request = settled;
+    void settled.then(() => {
+      if (this.#request === settled) this.#request = undefined;
+    });
+    const stream = await request;
     if (session !== this.#session) {
       // Stopped, restarted or hidden while the permission prompt was open.
       stopTracks(stream);
@@ -221,6 +262,7 @@ export class CameraScanner {
       throw error;
     }
     if (session !== this.#session) return false;
+    this.#watch(session, stream);
     void this.#loop(session);
     return true;
   }
@@ -241,7 +283,7 @@ export class CameraScanner {
         return;
       }
       if (session !== this.#session) return;
-      if (result) seen = this.#report(result, seen);
+      if (result) seen = this.#report(result, seen, session, started);
       const wait = started + scanInterval - performance.now();
       if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
     }
@@ -253,15 +295,12 @@ export class CameraScanner {
     const video = this.#video;
     if (!region) return this.#scanner.scan(video, scanOptions);
     const { videoWidth, videoHeight } = video;
-    if (!videoWidth || !videoHeight) return undefined;
-    // Round the edges, not the sizes, so the crop never reaches past the frame.
-    const left = Math.min(Math.round(region.left * videoWidth), videoWidth - 1);
-    const top = Math.min(Math.round(region.top * videoHeight), videoHeight - 1);
-    const right = Math.round((region.left + region.width) * videoWidth);
-    const bottom = Math.round((region.top + region.height) * videoHeight);
-    const width = Math.max(1, Math.min(right, videoWidth) - left);
-    const height = Math.max(1, Math.min(bottom, videoHeight) - top);
+    // Before the first frame, or below the scanner's minimum image size.
+    if (videoWidth < 3 || videoHeight < 3) return undefined;
+    const [left, width] = span(region.left, region.width, videoWidth);
+    const [top, height] = span(region.top, region.height, videoHeight);
     const crop = await createImageBitmap(video, left, top, width, height);
+    handOver(crop);
     try {
       return offset(await this.#scanner.scan(crop, scanOptions), left, top);
     } finally {
@@ -269,11 +308,14 @@ export class CameraScanner {
     }
   }
 
-  /** Call the app's handlers; returns the read counts for the next scan. */
-  #report(result: ScanResult, seen: Reads): Reads {
+  /**
+   * Call the app's handlers until one stops `session`; returns the barcodes to
+   * track in the next scan. `now` is when this scan started.
+   */
+  #report(result: ScanResult, seen: Reads, session: number, now: number): Reads {
     const options = this.#options;
     safely(() => options.onScan?.(result));
-    if (!options.onDetect) return seen;
+    if (!options.onDetect || session !== this.#session) return seen;
     const { confirmations = 1 } = options;
     const next: Reads = new Map();
     for (const barcode of result.barcodes) {
@@ -282,8 +324,20 @@ export class CameraScanner {
       const previous = seen.get(key);
       const reads = (previous?.reads ?? 0) + 1;
       const reported = previous?.reported === true || reads >= confirmations;
-      next.set(key, { reads, reported });
-      if (reported && !previous?.reported) safely(() => options.onDetect?.(barcode));
+      next.set(key, { reads, reported, missed: 0, lastRead: now });
+      if (reported && !previous?.reported) {
+        safely(() => options.onDetect?.(barcode));
+        if (session !== this.#session) return next;
+      }
+    }
+    // A reported barcode stays until it is missing from FORGET_SCANS scans and
+    // for FORGET_MS: the count covers fast scanning, the time slow scanning. An
+    // unreported one is dropped at once, so confirmations stay consecutive.
+    for (const [key, entry] of seen) {
+      if (next.has(key) || !entry.reported) continue;
+      const missed = entry.missed + 1;
+      if (missed < FORGET_SCANS || now - entry.lastRead < FORGET_MS)
+        next.set(key, { ...entry, missed });
     }
     return next;
   }
@@ -305,12 +359,38 @@ export class CameraScanner {
     });
   }
 
+  /**
+   * Stop `session` when the app replaces the video's stream. A paused video only
+   * pauses scanning: requestVideoFrameCallback waits until it plays again.
+   */
+  #watch(session: number, stream: MediaStream): void {
+    const video = this.#video;
+    const watching = new AbortController();
+    this.#watching = watching;
+    video.addEventListener(
+      "emptied",
+      () => {
+        if (session === this.#session && video.srcObject !== stream)
+          this.#fail(new Error("The video element's source was replaced"));
+      },
+      { signal: watching.signal },
+    );
+  }
+
+  /** Stop and report `error` to onError, or to the global error handler without one. */
   #fail(error: Error): void {
     this.stop();
-    this.#options.onError?.(error);
+    const options = this.#options;
+    if (options.onError)
+      safely(() => {
+        options.onError?.(error);
+      });
+    else reportError(error);
   }
 
   #release(): void {
+    this.#watching?.abort();
+    this.#watching = undefined;
     const stream = this.#stream;
     this.#stream = undefined;
     if (!stream) return;
@@ -319,8 +399,16 @@ export class CameraScanner {
   }
 }
 
-/** Consecutive reads of each barcode in view, and whether `onDetect` has seen it. */
-type Reads = Map<string, { reads: number; reported: boolean }>;
+/**
+ * Each tracked barcode: its consecutive reads, whether `onDetect` has seen it, the
+ * scans since it was last read and when that scan started.
+ */
+type Reads = Map<string, { reads: number; reported: boolean; missed: number; lastRead: number }>;
+
+/** A reported barcode counts as gone once it is missing from this many consecutive scans */
+const FORGET_SCANS = 3;
+/** and has not been read for this many milliseconds. */
+const FORGET_MS = 500;
 
 /** An error in the app's handlers is reported, not treated as a camera failure. */
 function safely(handler: () => void): void {
@@ -329,6 +417,16 @@ function safely(handler: () => void): void {
   } catch (error) {
     reportError(error);
   }
+}
+
+/**
+ * One side of a region in pixels: the offset and length of its rounded edges,
+ * widened and moved back inside the frame to the scanner's minimum of 3 pixels.
+ */
+function span(start: number, size: number, extent: number): [number, number] {
+  const from = Math.round(start * extent);
+  const length = Math.max(3, Math.min(Math.round((start + size) * extent), extent) - from);
+  return [Math.min(from, extent - length), length];
 }
 
 function validRegion(region: ScanRegion): boolean {

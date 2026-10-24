@@ -1,44 +1,27 @@
-// tapirscan/camera and the single-mode browser entries in real browsers: installed
-// Google Chrome (set CHROME_PATH for another Chromium) and Playwright's WebKit when
-// it is installed. Cameras are faked: Chrome's fake device, or a canvas stream of
+// tapirscan/camera in real browsers: installed Google Chrome (set CHROME_PATH for
+// another Chromium) and Playwright's WebKit when it is installed. Cameras are faked: Chrome's fake device, or a canvas stream of
 // the test barcode returned by a replaced getUserMedia.
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
-import { chromium, webkit } from "playwright-core";
+import { webkit } from "playwright-core";
+import { contentType, launchChrome, serve } from "./harness.mjs";
 
 const root = new URL("../", import.meta.url);
-const types = {
-  ".html": "text/html",
-  ".js": "text/javascript",
-  ".mjs": "text/javascript",
-  ".wasm": "application/wasm",
-};
 let server, origin;
 
 before(async () => {
-  server = createServer(async (request, response) => {
-    const path = new URL(request.url, "http://localhost").pathname;
-    try {
-      if (path === "/") {
-        response
-          .writeHead(200, { "content-type": "text/html" })
-          .end("<!doctype html><title>t</title><video></video>");
-        return;
-      }
-      const body = await readFile(new URL(`.${path}`, root));
-      const type = types[path.slice(path.lastIndexOf("."))] ?? "application/octet-stream";
-      response.writeHead(200, { "content-type": type }).end(body);
-    } catch {
-      response.writeHead(404).end();
+  server = await serve(async (path, response) => {
+    if (path === "/") {
+      response
+        .writeHead(200, { "content-type": "text/html" })
+        .end("<!doctype html><title>t</title><video></video>");
+      return;
     }
+    const body = await readFile(new URL(`.${path}`, root));
+    response.writeHead(200, { "content-type": contentType(path) }).end(body);
   });
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  origin = `http://127.0.0.1:${server.address().port}`;
+  origin = server.origin;
 });
 
 after(() => server?.close());
@@ -116,10 +99,7 @@ const browsers = [
   [
     "Chrome",
     () =>
-      chromium.launch({
-        ...(process.env.CHROME_PATH
-          ? { executablePath: process.env.CHROME_PATH }
-          : { channel: "chrome" }),
+      launchChrome({
         args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
       }),
   ],
@@ -494,55 +474,123 @@ for (const [name, launch] of browsers) {
       assert.ok(Math.min(...gaps) >= 245, `gaps: ${gaps.join(", ")}`);
     });
 
-    test("onDetect reports again after a scan without the barcode; its errors are reported", async (context) => {
+    /**
+     * Run onDetect with `confirmations: 2` while scans after the first detection
+     * read nothing until `hide(misses, ms)` returns false, given the scans missed
+     * and the milliseconds since the first miss. Resolves after `detections`
+     * detections, or `settle` ms after the barcode is shown again.
+     */
+    async function detectAround(hideScans, hideMs, detections, settle) {
+      return page.evaluate(
+        async ([hideScans, hideMs, detections, settle]) => {
+          const { camera, medium, video } = globalThis.t;
+          const scanner = new medium.Scanner({ formats: ["EAN13"] });
+          let scans = 0;
+          let hiding = false;
+          let misses = 0;
+          let hiddenSince = 0;
+          let lastHidden = -1;
+          let shown;
+          const shownAgain = new Promise((resolve) => (shown = resolve));
+          const flaky = {
+            async scan(source, options) {
+              scans++;
+              if (hiding) {
+                const now = performance.now();
+                if (misses === 0) hiddenSince = now;
+                if (misses < hideScans || now - hiddenSince < hideMs) {
+                  misses++;
+                  lastHidden = scans;
+                  return { barcodes: [], values: [], best: undefined };
+                }
+                hiding = false;
+                shown();
+              }
+              return scanner.scan(source, options);
+            },
+          };
+          const reported = [];
+          const onReported = (event) => {
+            reported.push(event.error.message);
+            event.preventDefault();
+          };
+          window.addEventListener("error", onReported);
+          const detectedAt = [];
+          let enough;
+          const done = new Promise((resolve) => (enough = resolve));
+          const controller = new camera.CameraScanner(video, flaky, {
+            confirmations: 2,
+            onDetect() {
+              detectedAt.push(scans);
+              if (detectedAt.length === detections) enough();
+              if (detectedAt.length === 1) {
+                hiding = true;
+                throw new Error("app bug");
+              }
+            },
+          });
+          await controller.start();
+          await Promise.race([
+            done,
+            shownAgain.then(() => new Promise((resolve) => setTimeout(resolve, settle))),
+          ]);
+          controller.stop();
+          scanner.dispose();
+          window.removeEventListener("error", onReported);
+          return { detectedAt, lastHidden, misses, reported };
+        },
+        [hideScans, hideMs, detections, settle],
+      );
+    }
+
+    test("onDetect ignores a barcode missing from a few scans; its errors are reported", async (context) => {
+      if (skip) return context.skip(skip);
+      // Three missed scans take far less than 500 ms.
+      const outcome = await detectAround(3, 0, 2, 800);
+      assert.equal(outcome.misses, 3);
+      assert.deepEqual(outcome.detectedAt.length, 1);
+      assert.deepEqual(outcome.reported, ["app bug"]);
+    });
+
+    test("onDetect ignores a barcode missing for 500 ms in fewer than three scans", async (context) => {
       if (skip) return context.skip(skip);
       const outcome = await page.evaluate(async () => {
         const { camera, medium, video } = globalThis.t;
         const scanner = new medium.Scanner({ formats: ["EAN13"] });
-        let scans = 0;
-        let hiddenAt = -1;
-        // The scan after the first detection reads nothing, as if the barcode left the view.
-        const flaky = {
+        let hide = 0;
+        // After the first detection, two scans read nothing and take 400 ms each.
+        const slow = {
           async scan(source, options) {
-            const result = await scanner.scan(source, options);
-            scans++;
-            if (hiddenAt === 0) {
-              hiddenAt = scans;
+            if (hide > 0) {
+              hide--;
+              await new Promise((resolve) => setTimeout(resolve, 400));
               return { barcodes: [], values: [], best: undefined };
             }
-            return result;
+            return scanner.scan(source, options);
           },
         };
-        const reported = [];
-        const onReported = (event) => {
-          reported.push(event.error.message);
-          event.preventDefault();
-        };
-        window.addEventListener("error", onReported);
-        const detectedAt = [];
-        let second;
-        const twice = new Promise((resolve) => (second = resolve));
-        const controller = new camera.CameraScanner(video, flaky, {
-          confirmations: 2,
+        let detections = 0;
+        const controller = new camera.CameraScanner(video, slow, {
           onDetect() {
-            detectedAt.push(scans);
-            if (detectedAt.length === 2) second();
-            if (detectedAt.length === 1) {
-              hiddenAt = 0;
-              throw new Error("app bug");
-            }
+            if (++detections === 1) hide = 2;
           },
         });
         await controller.start();
-        await twice;
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         controller.stop();
         scanner.dispose();
-        window.removeEventListener("error", onReported);
-        return { detectedAt, hiddenAt, reported };
+        return { detections, hide };
       });
-      // Two reads after the miss confirm the barcode again.
+      assert.deepEqual(outcome, { detections: 1, hide: 0 });
+    });
+
+    test("onDetect reports again after the barcode was gone for three scans and 500 ms", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await detectAround(3, 600, 2, 5000);
+      assert.ok(outcome.misses >= 3, `misses: ${outcome.misses}`);
+      // Two reads after the gap confirm the barcode again.
       assert.equal(outcome.detectedAt.length, 2);
-      assert.equal(outcome.detectedAt[1], outcome.hiddenAt + 2);
+      assert.equal(outcome.detectedAt[1], outcome.lastHidden + 2);
       assert.deepEqual(outcome.reported, ["app bug"]);
     });
 
@@ -598,6 +646,43 @@ for (const [name, launch] of browsers) {
       for (const [, y] of outcome.bandPolygon) assert.ok(y >= 0.25 * height - 1);
       assert.deepEqual(outcome.bandBest, outcome.band);
       assert.equal(outcome.blank, 0);
+    });
+
+    test("a tiny region scans at least 3×3 pixels, cropped once per frame", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const sizes = [];
+        const recording = {
+          scan(source, options) {
+            sizes.push(`${source.width}x${source.height}`);
+            return scanner.scan(source, options);
+          },
+        };
+        const errors = [];
+        const original = window.createImageBitmap;
+        let crops = 0;
+        window.createImageBitmap = (...args) => {
+          crops++;
+          return original(...args);
+        };
+        try {
+          const controller = new camera.CameraScanner(video, recording, {
+            region: { left: 0.999, top: 0.5, width: 0.001, height: 0.001 },
+            onError: (error) => errors.push(error.message),
+          });
+          await controller.start();
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          controller.stop();
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        } finally {
+          window.createImageBitmap = original;
+          scanner.dispose();
+        }
+        return { sizes: [...new Set(sizes)], errors, copies: crops / sizes.length };
+      });
+      assert.deepEqual(outcome, { sizes: ["3x3"], errors: [], copies: 1 });
     });
 
     test("invalid scan options are rejected", async (context) => {
@@ -670,6 +755,176 @@ for (const [name, launch] of browsers) {
         return { started, liveStreams };
       });
       assert.deepEqual(outcome, { started: [false, true], liveStreams: 1 });
+    });
+
+    test("a reopen waits for a camera request that is still pending", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video, log, setDelay, live, setVisibility } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const saved = navigator.mediaDevices;
+        let pending = 0;
+        let overlapped = 0;
+        Object.defineProperty(navigator, "mediaDevices", {
+          configurable: true,
+          value: {
+            async getUserMedia(constraints) {
+              if (++pending > 1) overlapped++;
+              try {
+                return await saved.getUserMedia(constraints);
+              } finally {
+                pending--;
+              }
+            },
+          },
+        });
+        const controller = new camera.CameraScanner(video, scanner);
+        const before = log.streams.length;
+        setDelay(300);
+        const starting = controller.start();
+        // Hidden and shown while the permission prompt is open.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        setVisibility("hidden");
+        setVisibility("visible");
+        const started = await starting;
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        setDelay(0);
+        const streams = log.streams.slice(before);
+        const result = {
+          started,
+          overlapped,
+          requests: streams.length,
+          live: streams.filter(live).length,
+          track: controller.track?.readyState,
+        };
+        controller.stop();
+        Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: saved });
+        scanner.dispose();
+        return result;
+      });
+      assert.deepEqual(outcome, {
+        started: false,
+        overlapped: 0,
+        requests: 2,
+        live: 1,
+        track: "live",
+      });
+    });
+
+    test("handlers that call stop() receive nothing more from that frame", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, video } = globalThis.t;
+        const barcodes = ["1", "2"].map((text) => ({ format: "QRCode", text }));
+        const scanner = {
+          scan: () => Promise.resolve({ barcodes, values: ["1", "2"], best: barcodes[0] }),
+        };
+        const run = async (stopIn) => {
+          const calls = [];
+          const controller = new camera.CameraScanner(video, scanner, {
+            onScan() {
+              calls.push("scan");
+              if (stopIn === "onScan") controller.stop();
+            },
+            onDetect(barcode) {
+              calls.push(barcode.text);
+              if (stopIn === "onDetect") controller.stop();
+            },
+          });
+          await controller.start();
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          controller.stop();
+          return calls;
+        };
+        return { onScan: await run("onScan"), onDetect: await run("onDetect") };
+      });
+      assert.deepEqual(outcome, { onScan: ["scan"], onDetect: ["scan", "1"] });
+    });
+
+    test("an error in onError is reported, not left unhandled", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const reported = [];
+        const unhandled = [];
+        const onReported = (event) => {
+          reported.push(event.error.message);
+          event.preventDefault();
+        };
+        const onUnhandled = (event) => {
+          unhandled.push(event.reason?.message);
+          event.preventDefault();
+        };
+        window.addEventListener("error", onReported);
+        window.addEventListener("unhandledrejection", onUnhandled);
+        const controller = new camera.CameraScanner(video, scanner, {
+          onError() {
+            throw new Error("app bug");
+          },
+        });
+        await controller.start();
+        scanner.dispose();
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        window.removeEventListener("error", onReported);
+        window.removeEventListener("unhandledrejection", onUnhandled);
+        return { reported, unhandled, running: controller.running };
+      });
+      assert.deepEqual(outcome, { reported: ["app bug"], unhandled: [], running: false });
+    });
+
+    test("a paused video pauses scanning; a replaced video source stops it", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video } = globalThis.t;
+        const scanner = new medium.Scanner();
+        let scans = 0;
+        const errors = [];
+        const controller = new camera.CameraScanner(video, scanner, {
+          onScan: () => scans++,
+          onError: (error) => errors.push(error.message),
+        });
+        await controller.start();
+        video.pause();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const before = scans;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const paused = { playing: !video.paused, scanning: scans > before };
+        await video.play();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const resumed = scans > before;
+        video.srcObject = null;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        scanner.dispose();
+        return { paused, resumed, errors, running: controller.running };
+      });
+      assert.deepEqual(outcome, {
+        paused: { playing: false, scanning: false },
+        resumed: true,
+        errors: ["The video element's source was replaced"],
+        running: false,
+      });
+    });
+
+    test("without onError, a failure is reported to the global handler", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, medium, video } = globalThis.t;
+        const scanner = new medium.Scanner();
+        const reported = [];
+        const onReported = (event) => {
+          reported.push(event.error.message);
+          event.preventDefault();
+        };
+        window.addEventListener("error", onReported);
+        const controller = new camera.CameraScanner(video, scanner);
+        await controller.start();
+        scanner.dispose();
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        window.removeEventListener("error", onReported);
+        return { reported, running: controller.running };
+      });
+      assert.deepEqual(outcome, { reported: ["Scanner was disposed"], running: false });
     });
 
     test("a failed reopen after the page is shown calls onError", async (context) => {
@@ -749,41 +1004,6 @@ for (const [name, launch] of browsers) {
         return error;
       });
       assert.match(message, /needs requestVideoFrameCallback/);
-    });
-
-    test("single-mode entries reject mode and Turbo options", async (context) => {
-      if (skip) return context.skip(skip);
-      // The entry's worker fetches only medium.wasm.
-      const wasm = [];
-      const record = (request) => {
-        if (request.url().endsWith(".wasm")) wasm.push(request.url().split("/").pop());
-      };
-      page.on("request", record);
-      const outcome = await page.evaluate(async () => {
-        const { medium } = globalThis.t;
-        const attempt = (options) => {
-          try {
-            new medium.Scanner(options).dispose();
-            return "ok";
-          } catch (error) {
-            return error.message;
-          }
-        };
-        const scanner = new medium.Scanner();
-        await scanner.ready;
-        scanner.dispose();
-        return {
-          mode: attempt({ mode: "medium" }),
-          turbo: attempt({ experimentalTurbo: 8 }),
-        };
-      });
-      assert.equal(
-        outcome.mode,
-        'tapirscan/browser/medium has no mode option; use "tapirscan/browser"',
-      );
-      assert.match(outcome.turbo, /has no experimentalTurbo option/);
-      page.off("request", record);
-      assert.deepEqual(wasm, ["medium.wasm"]);
     });
 
     if (name === "Chrome")

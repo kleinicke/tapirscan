@@ -120,7 +120,12 @@ export async function browserConsumer(file: File, video: HTMLVideoElement, image
 }
 
 // tapirscan/browser/<mode> and tapirscan/camera: one bundled mode, any scanner.
-import { Scanner as MediumScanner, scan as scanMedium } from "../dist/browser-medium.js";
+import {
+  Scanner as MediumScanner,
+  scan as scanMedium,
+  type OneShotOptions as MediumOneShotOptions,
+  type ScannerOptions as MediumOptions,
+} from "../dist/browser-medium.js";
 import { CameraScanner } from "../dist/camera.js";
 
 export async function cameraConsumer(video: HTMLVideoElement, image: Image) {
@@ -130,6 +135,15 @@ export async function cameraConsumer(video: HTMLVideoElement, image: Image) {
   // @ts-expect-error Turbo presets need tapirscan/browser.
   new MediumScanner({ experimentalTurbo: 8 });
   await scanMedium(image, { transfer: true });
+  // Each entry's option types list only the options it accepts.
+  const options: MediumOptions = { formats: "1D" };
+  // @ts-expect-error A single-mode entry has no mode option.
+  const withMode: MediumOptions = { mode: "high" };
+  const oneShot: MediumOneShotOptions = { ...options, transfer: true };
+  // @ts-expect-error Turbo presets need tapirscan/browser.
+  const withTurbo: MediumOneShotOptions = { experimentalTurbo: 8 };
+  await scanMedium(image, oneShot);
+  new MediumScanner(options);
   const values: string[][] = [];
   const camera = new CameraScanner(video, scanner, {
     onScan: (result) => values.push([...result.values]),
@@ -153,7 +167,7 @@ export async function cameraConsumer(video: HTMLVideoElement, image: Image) {
   const track: MediaStreamTrack | undefined = camera.track;
   camera.stop();
   scanner.dispose();
-  return [started, torch, track, camera.running, values, detected];
+  return [started, torch, track, camera.running, values, detected, withMode, withTurbo];
 }
 
 // tapirscan/support and a worker started by the application.
