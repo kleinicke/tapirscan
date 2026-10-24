@@ -168,7 +168,10 @@ jobs:
       - name: Publish the reviewed crate
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        # Unpack outside the checkout: inside it, cargo inspects the sparse
+        # partial clone and fails on blobs it does not have.
         run: |
-          mkdir crate
-          tar -xzf release/crates/tapirscan-*.crate -C crate --strip-components 1
-          cargo publish --locked --manifest-path crate/Cargo.toml
+          crate="$RUNNER_TEMP/crate"
+          mkdir "$crate"
+          tar -xzf release/crates/tapirscan-*.crate -C "$crate" --strip-components 1
+          cargo publish --locked --manifest-path "$crate/Cargo.toml"

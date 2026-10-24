@@ -78,6 +78,8 @@ guarantee that every symbol of these kinds is read on an arbitrary image. See th
 - Read small, densely packed QR codes, such as label sheets with dozens of
   symbols, in every mode; High and Very High read more QR codes in shaded or
   blurred photos.
+- Medium, High and Very High read a second QR code beside one already read
+  whose small finder pattern the first pass missed, as in 4K video frames.
 - Read small QR codes over a wider range of sizes and rotations, also in frames
   resampled to another aspect (a 4:3 camera image stretched to 16:9) or seen at
   an angle.
@@ -105,7 +107,7 @@ guarantee that every symbol of these kinds is read on an arbitrary image. See th
 
 ### Performance
 
-- Low and Medium scan as fast as 1.4.0, and frames with QR codes up to about 3%
+- Low and Medium scan as fast as 1.4.0, and frames with QR codes up to about 4%
   slower. High and Very High take about 6–11% longer when QR Code or Data Matrix
   is selected and are unchanged with only linear formats. These are WebAssembly timings in
   Chrome on the development evaluation sets; other images, devices and format
