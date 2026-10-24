@@ -18,6 +18,7 @@ DESKTOP = {
     "macosx_11_0_arm64": "macos-arm64",
     "macosx_11_0_x86_64": "macos-x64",
     "win_amd64": "windows-x64",
+    "win_arm64": "windows-arm64",
     "manylinux_2_28_x86_64": "linux-x64",
     "manylinux_2_28_aarch64": "linux-arm64",
 }
@@ -313,8 +314,8 @@ def main() -> None:
     native = native_assets(staging, wheels, version)
     write_bundle(destination, wheels, tarballs[0], crates[0], native)
     print(
-        f"Prepared {version}: five platform wheels, one npm package, one crate "
-        f"and {len(native)} native release assets"
+        f"Prepared {version}: {len(wheels)} platform wheels, one npm package, "
+        f"one crate and {len(native)} native release assets"
     )
 
 

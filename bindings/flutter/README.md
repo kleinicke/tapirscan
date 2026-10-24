@@ -30,11 +30,10 @@ build of each target needs network access to `github.com`; `http_proxy` and
 | iOS      | iOS 13 or later on arm64 devices and x86_64 simulators, iOS 14 on arm64 simulators |
 | macOS    | macOS 11 or later, arm64 and x86_64                                                |
 | Linux    | x86_64 and arm64, glibc 2.28 or later                                              |
-| Windows  | x64                                                                                |
+| Windows  | x64 and arm64                                                                      |
 
-Other 64-bit targets, such as Windows on ARM, need a `source_dir` (a Tapirscan
-checkout) or a `library_dir`. Settings go
-in the app's `pubspec.yaml`:
+Other 64-bit targets need a `source_dir` (a Tapirscan checkout) or a
+`library_dir`. Settings go in the app's `pubspec.yaml`:
 
 ```yaml
 hooks:
