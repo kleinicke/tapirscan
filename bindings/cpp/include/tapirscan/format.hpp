@@ -27,5 +27,10 @@ enum class Format : std::uint32_t {
     MsiPlessey = TAPIRSCAN_FORMAT_MSI_PLESSEY,
     Industrial25 = TAPIRSCAN_FORMAT_INDUSTRIAL25,
     Pharmacode = TAPIRSCAN_FORMAT_PHARMACODE,
+    DataBarLimited = TAPIRSCAN_FORMAT_DATA_BAR_LIMITED,
+    MicroQrCode = TAPIRSCAN_FORMAT_MICRO_QR_CODE,
+    Code39Extended = TAPIRSCAN_FORMAT_CODE39EXTENDED,
+    Iata25 = TAPIRSCAN_FORMAT_IATA25,
+    Matrix25 = TAPIRSCAN_FORMAT_MATRIX25,
 };
 }  // namespace tapirscan

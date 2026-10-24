@@ -198,7 +198,7 @@ Code128, so list every format you need.
 | `upc_reader`                                           | `UPCA`. With `EAN13` also selected, a zero-prefixed EAN-13 is returned as 12-digit `UPCA`.          |
 | `upc_e_reader`                                         | `UPCE`                                                                                              |
 | `code_128_reader`                                      | `Code128` (includes GS1-128)                                                                        |
-| `code_39_reader`                                       | `Code39` (standard characters; no full-ASCII expansion)                                             |
+| `code_39_reader`                                       | `Code39` (standard characters); `Code39Extended` (opt-in) expands full ASCII                        |
 | `code_39_vin_reader`                                   | No VIN reader. `Code39` reads the characters; validate the 17-character VIN (check digit) yourself. |
 | `code_93_reader`                                       | `Code93`                                                                                            |
 | `codabar_reader`                                       | `Codabar`; `text` omits the start/stop letters, `codabarStartStop` holds them.                      |

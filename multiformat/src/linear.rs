@@ -14,10 +14,13 @@ pub const CODABAR: u32 = crate::formats::CODABAR;
 pub const CODE93: u32 = crate::formats::CODE93;
 pub const DATABAR: u32 = crate::formats::DATA_BAR;
 pub const DATABAR_EXPANDED: u32 = crate::formats::DATA_BAR_EXPANDED;
+pub const DATABAR_LIMITED: u32 = crate::formats::DATA_BAR_LIMITED;
 pub const ADDON_READ: u32 = crate::formats::EAN_ADDON_READ_FLAG;
 pub const ADDON_REQUIRE: u32 = crate::formats::EAN_ADDON_REQUIRE_FLAG;
 pub const MSI_PLESSEY: u32 = crate::formats::MSI_PLESSEY;
 pub const INDUSTRIAL25: u32 = crate::formats::INDUSTRIAL25;
+pub const IATA25: u32 = crate::formats::IATA25;
+pub const MATRIX25: u32 = crate::formats::MATRIX25;
 /// Pharmacode has no start or stop: callers select it only for runs in the image's
 /// reading direction (see [`pharmacode_direction`]).
 pub const PHARMACODE: u32 = crate::formats::PHARMACODE;
@@ -1652,6 +1655,9 @@ fn decode_impl(
         if found.is_none() && mask & DATABAR != 0 {
             found = crate::databar::decode(r, s);
         }
+        if found.is_none() && mask & DATABAR_LIMITED != 0 {
+            found = crate::databar_limited::decode(r, s);
+        }
         if quiet && found.is_none() && mask & ITF != 0 {
             found = itf(r, s, limited);
         }
@@ -1663,6 +1669,12 @@ fn decode_impl(
         }
         if quiet && found.is_none() && mask & INDUSTRIAL25 != 0 {
             found = crate::industrial25::decode(r, s, limited);
+        }
+        if quiet && found.is_none() && mask & IATA25 != 0 {
+            found = crate::two_of_five::iata(r, s, limited);
+        }
+        if quiet && found.is_none() && mask & MATRIX25 != 0 {
+            found = crate::two_of_five::matrix(r, s, limited);
         }
         if quiet && found.is_none() && mask & PHARMACODE != 0 {
             found = crate::pharmacode::decode(r, s);

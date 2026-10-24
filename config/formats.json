@@ -40,6 +40,21 @@
       "Pharmacode",
       4194304,
       "Laetus Pharmacode (one-track), value 3 to 131070 (opt-in)."
+    ],
+    ["DataBarLimited", "DataBarLimited", 8388608, "GS1 `DataBar` Limited."],
+    ["MicroQRCode", "MicroQrCode", 16777216, "Micro QR Code, versions M1 to M4."],
+    [
+      "Code39Extended",
+      "Code39Extended",
+      33554432,
+      "Extended (full-ASCII) Code 39: a Code 39 symbol with shift pairs expanded (opt-in)."
+    ],
+    ["IATA25", "Iata25", 67108864, "IATA 2 of 5, bars-only, digits as printed (opt-in)."],
+    [
+      "Matrix25",
+      "Matrix25",
+      134217728,
+      "Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in)."
     ]
   ],
   "presets": {
@@ -57,12 +72,22 @@
       "Codabar",
       "Code93",
       "DataBar",
-      "DataBarExpanded"
+      "DataBarExpanded",
+      "DataBarLimited"
     ],
-    "2D": ["QRCode", "DataMatrix", "PDF417", "Aztec", "MaxiCode"]
+    "2D": ["QRCode", "DataMatrix", "PDF417", "Aztec", "MaxiCode", "MicroQRCode"]
   },
-  "optIn": ["Code32", "PZN", "MSIPlessey", "Industrial25", "Pharmacode"],
-  "engineOptIn": ["MSIPlessey", "Industrial25", "Pharmacode"],
+  "optIn": [
+    "Code32",
+    "PZN",
+    "MSIPlessey",
+    "Industrial25",
+    "Pharmacode",
+    "Code39Extended",
+    "IATA25",
+    "Matrix25"
+  ],
+  "engineOptIn": ["MSIPlessey", "Industrial25", "Pharmacode", "IATA25", "Matrix25"],
   "engineFlags": {
     "eanAddOnRead": 32768,
     "eanAddOnRequire": 65536

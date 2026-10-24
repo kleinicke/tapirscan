@@ -3,6 +3,7 @@
 mod alignment_cached;
 mod curved;
 mod finder_index;
+mod micro;
 use crate::{Detection, qr};
 mod partial;
 mod ring;
@@ -1127,6 +1128,10 @@ impl Pass {
 /// # Panics
 ///
 /// Panics if a supplied binary image or region dimensions are inconsistent.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The group reader carries the frame, shared region and threshold state, mode policy, effort and symbol selection."
+)]
 pub fn detect_group(
     image: &[u8],
     w: usize,
@@ -1135,17 +1140,21 @@ pub fn detect_group(
     binary_images: &mut crate::binarization::Images<'_>,
     policy: Policy,
     effort: usize,
+    symbols: Symbols,
 ) -> (Vec<Detection>, bool) {
     let pass = Pass::effort(effort > 1, effort > 2);
-    let (mut reads, mut limited) = detect_with(w, h, regions, binary_images, policy, pass.clone());
+    let (mut reads, mut limited) =
+        detect_symbols(w, h, regions, binary_images, policy, pass.clone(), symbols);
     if effort > 1 && w * h <= 1_048_576 {
         let enhanced = crate::qr_enhance::sharpen(image, w, h);
         let mut recovery = crate::binarization::Images::new(&enhanced, w, h);
-        let (extra, extra_limited) = detect_with(w, h, regions, &mut recovery, policy, pass);
+        let (extra, extra_limited) =
+            detect_symbols(w, h, regions, &mut recovery, policy, pass, symbols);
         limited |= extra_limited;
         for read in extra {
             if !reads.iter().any(|prior| {
-                prior.text == read.text
+                prior.format == read.format
+                    && prior.text == read.text
                     && prior.structured_append == read.structured_append
                     && crate::regions::overlap(&prior.polygon, &read.polygon) >= 0.65
             }) {
@@ -1210,11 +1219,42 @@ fn format_intact_under(
 /// # Panics
 ///
 /// Panics if a supplied binary image or region dimensions are inconsistent.
+pub fn detect_with(
+    w: usize,
+    h: usize,
+    regions: &mut crate::regions::Regions,
+    binary_images: &mut crate::binarization::Images<'_>,
+    policy: Policy,
+    pass: Pass,
+) -> (Vec<Detection>, bool) {
+    detect_symbols(w, h, regions, binary_images, policy, pass, Symbols::QR)
+}
+/// The QR-family symbols a detection reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Symbols {
+    /// QR Code (Model 2), from finder triples and the single- and two-finder recoveries.
+    pub qr: bool,
+    /// Micro QR, from finders no read claims.
+    pub micro: bool,
+}
+impl Symbols {
+    /// QR Code only.
+    pub const QR: Self = Self {
+        qr: true,
+        micro: false,
+    };
+}
+/// [`detect_with`] for the selected QR-family `symbols`; both share one finder
+/// search per threshold mode.
+///
+/// # Panics
+///
+/// Panics if a supplied binary image or region dimensions are inconsistent.
 #[expect(
     clippy::too_many_lines,
     reason = "QR detection preserves its ordered finder hypotheses and shared work budgets in one transaction."
 )]
-pub fn detect_with(
+pub fn detect_symbols(
     w: usize,
     h: usize,
     regions: &mut crate::regions::Regions,
@@ -1225,6 +1265,7 @@ pub fn detect_with(
         curved: curved_recovery,
         budget,
     }: Pass,
+    symbols: Symbols,
 ) -> (Vec<Detection>, bool) {
     let mut results: Vec<Detection> = Vec::new();
     let mut attempts = 0;
@@ -1235,6 +1276,8 @@ pub fn detect_with(
     let mut single_attempts = 0;
     let mut single_alignments = 0;
     let mut single_limited = false;
+    let mut micro_attempts = 0;
+    let mut micro_limited = false;
     let mut used: Vec<Finder> = Vec::new();
     let mut prior_count = 0;
     let mut partial_modes: Vec<(usize, Vec<Finder>)> = Vec::new();
@@ -1286,16 +1329,18 @@ pub fn detect_with(
         let (image, row_cache) = binary_images.get_with_runs(mode, step);
         let (mut finders, capped) = finders_with_rows(image, w, h, Some(row_cache));
         regions.limited |= capped;
-        single_limited |= single::recover(
-            image,
-            w,
-            h,
-            &finders,
-            &mut results,
-            &mut used,
-            &mut single_attempts,
-            &mut single_alignments,
-        );
+        if symbols.qr {
+            single_limited |= single::recover(
+                image,
+                w,
+                h,
+                &finders,
+                &mut results,
+                &mut used,
+                &mut single_attempts,
+                &mut single_alignments,
+            );
+        }
         // Already decoded patterns cannot form another physical QR symbol.
         // Removing them also exposes distant corners of a large remaining code
         // after surrounding small symbols were decoded on an earlier pass.
@@ -1306,7 +1351,9 @@ pub fn detect_with(
         });
         // Dense scenes skip the exhaustive fallback beyond the local triples.
         regions.limited |= finders.len() > 80;
-        'triples: for [a, b, c] in local_triples(&finders) {
+        // Micro QR alone needs no finder triples.
+        let triples = if symbols.qr { finders.as_slice() } else { &[] };
+        'triples: for [a, b, c] in local_triples(triples) {
             if results.len() > read_count {
                 read_count = results.len();
                 last_read = attempts;
@@ -1707,9 +1754,24 @@ pub fn detect_with(
                 }
             }
         }
+        if symbols.micro {
+            micro_limited |= micro::recover(
+                image,
+                w,
+                h,
+                &finders,
+                &mut results,
+                &mut used,
+                &mut micro_attempts,
+                regions,
+            );
+        }
         partial_modes.push((mode, finders));
     }
-    let mut limited = single_limited || curved_limited || starved;
+    let mut limited = single_limited || curved_limited || starved || micro_limited;
+    if !symbols.qr {
+        partial_modes.clear();
+    }
     for (mode, finders) in partial_modes {
         limited |= partial::recover(
             binary_images.get(mode),

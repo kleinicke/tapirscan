@@ -6,6 +6,11 @@
   new optional result field `codabarStartStop` (`codabar_start_stop` in Python,
   Rust, C and C++); `text` still omits them. C reads it with the new
   `TAPIRSCAN_FIELD_CODABAR_START_STOP`; native ABI 7 is unchanged.
+- Read GS1 DataBar Limited (`DataBarLimited`, in the `1D` preset) and Micro QR
+  M1–M4 (`MicroQRCode`, in the `2D` preset). Selecting `QRCode` alone reads no
+  Micro QR.
+- Read Extended (full-ASCII) Code 39, IATA 2 of 5 and Matrix 2 of 5 as the opt-in
+  formats `Code39Extended`, `IATA25` and `Matrix25`.
 - EAN-2 and EAN-5 supplements (`eanAddOnPolicy` `read` and `require`): all other
   formats now read exactly as with `ignore` (before, `read` lost Code 128, Code 93,
   Code 39, Codabar and ITF reads and took longer). Supplements next to blurred,

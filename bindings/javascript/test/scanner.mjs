@@ -668,3 +668,111 @@ test("Industrial 2 of 5 and Pharmacode are opt-in and read when selected", async
     }
   }
 });
+
+test("DataBar Limited and Micro QR are read with their presets", async () => {
+  // DataBar Limited 0123456789012 (Zint 2.16): element widths from the first bar.
+  const widths = [
+    1, 1, 1, 6, 3, 2, 1, 1, 1, 4, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 2, 2, 1, 1, 3, 3, 2,
+    2, 1, 1, 1, 1, 1, 1, 1, 4, 4, 1, 1, 1,
+  ];
+  const bits = widths.map((w, i) => (i % 2 === 0 ? "1" : "0").repeat(w)).join("");
+  const lw = bits.length * 3 + 120,
+    lh = 90,
+    linear = new Uint8Array(lw * lh).fill(255);
+  for (let y = 15; y < 75; y++)
+    for (let i = 0; i < bits.length; i++)
+      if (bits[i] === "1") linear.fill(0, y * lw + 60 + i * 3, y * lw + 63 + i * 3);
+  // Micro QR M1 "12345" (Zint 2.16) at 8 pixels per module with a 4-module margin.
+  const rows = [
+    "#######.#.#",
+    "#.....#.##.",
+    "#.###.#.#..",
+    "#.###.#....",
+    "#.###.#.###",
+    "#.....#..##",
+    "#######.#..",
+    ".........##",
+    "##..###..##",
+    ".#.#...##..",
+    "####.....##",
+  ];
+  const side = (11 + 8) * 8,
+    matrix = new Uint8Array(side * side).fill(255);
+  rows.forEach((row, y) => {
+    for (let x = 0; x < 11; x++)
+      if (row[x] === "#")
+        for (let yy = 0; yy < 8; yy++) {
+          const at = ((y + 4) * 8 + yy) * side + (x + 4) * 8;
+          matrix.fill(0, at, at + 8);
+        }
+  });
+  for (const [format, image, text, family] of [
+    ["DataBarLimited", { data: linear, width: lw, height: lh }, "0101234567890128", "DataBar"],
+    ["MicroQRCode", { data: matrix, width: side, height: side }, "12345", "QRCode"],
+  ]) {
+    const gray = { ...image, channels: 1, stride: image.width };
+    const scanner = await Scanner.create({ formats: format });
+    try {
+      const read = (formats) =>
+        scanner.scan(gray, { formats }).barcodes.map((b) => [b.format, b.text]);
+      assert.deepEqual(read(format), [[format, text]]);
+      assert.deepEqual(read("all"), [[format, text]]);
+      assert.deepEqual(read(family), []);
+    } finally {
+      scanner.dispose();
+    }
+  }
+});
+
+test("Extended Code 39, IATA 2 of 5 and Matrix 2 of 5 are opt-in", async () => {
+  const draw = (bits) => {
+    const width = bits.length * 3 + 120,
+      height = 90,
+      data = new Uint8Array(width * height).fill(255);
+    for (let y = 15; y < 75; y++)
+      for (let i = 0; i < bits.length; i++)
+        if (bits[i] === "1") data.fill(0, y * width + 60 + i * 3, y * width + 63 + i * 3);
+    return { data, width, height, channels: 1, stride: width };
+  };
+  const patterns = [
+    "nnwwn",
+    "wnnnw",
+    "nwnnw",
+    "wwnnn",
+    "nnwnw",
+    "wnwnn",
+    "nwwnn",
+    "nnnww",
+    "wnnwn",
+    "nwnwn",
+  ];
+  const twoOfFive = (text, matrix) => {
+    const widths = matrix ? [4, 1, 1, 1, 1, 1] : [1, 1, 1, 1];
+    for (const d of text) {
+      for (const c of patterns[Number(d)]) {
+        widths.push(c === "w" ? 3 : 1);
+        if (!matrix) widths.push(1);
+      }
+      if (matrix) widths.push(1);
+    }
+    widths.push(...(matrix ? [4, 1, 1, 1, 1] : [3, 1, 1]));
+    return widths.map((w, i) => (i % 2 === 0 ? "1" : "0").repeat(w)).join("");
+  };
+  // Code 39 "+H+I" (Zint 2.16 `-b 9 -d hi`).
+  const extended = "10010110110101001010010010110101001101010010100100101011010011010100101101101";
+  for (const [format, image, text] of [
+    ["Code39Extended", draw(extended), "hi"],
+    ["IATA25", draw(twoOfFive("4711", false)), "4711"],
+    ["Matrix25", draw(twoOfFive("4711", true)), "4711"],
+  ]) {
+    const scanner = await Scanner.create({ formats: format });
+    try {
+      const [barcode] = scanner.scan(image).barcodes;
+      assert.deepEqual([barcode.format, barcode.text], [format, text]);
+      const all = scanner.scan(image, { formats: "all" }).barcodes.map((b) => b.format);
+      assert.deepEqual(all, format === "Code39Extended" ? ["Code39"] : []);
+    } finally {
+      scanner.dispose();
+    }
+  }
+});

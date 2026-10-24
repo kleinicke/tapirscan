@@ -103,12 +103,13 @@ python -c 'import sys; from PIL import Image; import tapirscan; [print(f"{b.form
 | `CODE93`, `CODE128`         | `Code93`, `Code128`          | Code128 includes GS1-128: [GS1](#gs1).                          |
 | `CODABAR`                   | `Codabar`                    |                                                                 |
 | `DATABAR`, `DATABAR_EXP`    | `DataBar`, `DataBarExpanded` | Stacked variants included.                                      |
-| `QRCODE`                    | `QRCode`                     | Model 2; no Micro QR, Model 1 or rMQR.                          |
+| `QRCODE`                    | `QRCode`                     | Model 2; no Model 1 or rMQR (Micro QR is `MicroQRCode`).        |
 | `PDF417`                    | `PDF417`                     | No Micro PDF417.                                                |
 | `SQCODE`, `COMPOSITE`       | none                         | Not supported.                                                  |
 
-Tapirscan also reads `DataMatrix`, `Aztec`, `MaxiCode`, and, only when named,
-`Code32`, `PZN`, `MSIPlessey`, `Industrial25` and `Pharmacode`. Identifiers are case-sensitive. zbar-wasm
+Tapirscan also reads `DataMatrix`, `Aztec`, `MaxiCode`, `MicroQRCode`, `DataBarLimited`, and,
+only when named, `Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`,
+`IATA25` and `Matrix25`. Identifiers are case-sensitive. zbar-wasm
 `typeName` is `"ZBAR_EAN13"`; strip `ZBAR_`.
 
 ### EAN-13, UPC-A and ISBN
@@ -169,8 +170,8 @@ pyzbar returns `bytes`, Tapirscan `str`.
 | Tapirscan | `text` is a decoded string; for arbitrary binary it is a guess (a payload starting `FF FE` decoded as UTF-16).                                     |
 
 For exact bytes use `payload_bytes` (Python `bytes`) / `payloadBytes`
-(JavaScript `number[]`). QR Code, Data Matrix, Aztec, PDF417 and MaxiCode supply
-them, before character-set interpretation (a Kanji-mode QR gives Shift JIS bytes
+(JavaScript `number[]`). QR Code, Micro QR, Data Matrix, Aztec, PDF417 and MaxiCode
+supply them, before character-set interpretation (a Kanji-mode QR gives Shift JIS bytes
 while `text` is Unicode). Other formats give `None` / `undefined`; `text` is
 their data. `text.encode("utf-8")` does not reconstruct the payload.
 
@@ -209,7 +210,7 @@ Select only expected formats and validate content instead.
 | `X_DENSITY`, `Y_DENSITY`                                   | None; choose a mode: Python `mode=`, browser `tapirscan/browser/<mode>`                                    |
 | `MIN_LEN`, `MAX_LEN`                                       | None; filter on `len(barcode.text)`                                                                        |
 | `ADD_CHECK`, `EMIT_CHECK`                                  | None; check digits are returned as read                                                                    |
-| `ASCII` (Code 39 full ASCII)                               | Not supported                                                                                              |
+| `ASCII` (Code 39 full ASCII)                               | Select `Code39Extended` (opt-in)                                                                           |
 | `BINARY`                                                   | `payload_bytes`                                                                                            |
 
 Use Low for camera frames (`mode="low"`, `tapirscan/browser/low`), `"high"` for hard stills

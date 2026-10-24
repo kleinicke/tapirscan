@@ -24,6 +24,11 @@ Format: TypeAlias = Literal[
     "MSIPlessey",
     "Industrial25",
     "Pharmacode",
+    "DataBarLimited",
+    "MicroQRCode",
+    "Code39Extended",
+    "IATA25",
+    "Matrix25",
 ]
 FORMAT_BITS: dict[str, int] = {
     "EAN13": 1,
@@ -48,6 +53,11 @@ FORMAT_BITS: dict[str, int] = {
     "MSIPlessey": 1048576,
     "Industrial25": 2097152,
     "Pharmacode": 4194304,
+    "DataBarLimited": 8388608,
+    "MicroQRCode": 16777216,
+    "Code39Extended": 33554432,
+    "IATA25": 67108864,
+    "Matrix25": 134217728,
 }
 retail_formats: tuple[Format, ...] = (
     "EAN13",
@@ -87,6 +97,7 @@ linear_formats: tuple[Format, ...] = (
     "Code93",
     "DataBar",
     "DataBarExpanded",
+    "DataBarLimited",
 )
 matrix_formats: tuple[Format, ...] = (
     "QRCode",
@@ -94,4 +105,5 @@ matrix_formats: tuple[Format, ...] = (
     "PDF417",
     "Aztec",
     "MaxiCode",
+    "MicroQRCode",
 )

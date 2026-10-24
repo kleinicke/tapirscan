@@ -313,6 +313,17 @@ mod finder_gate_tests {
         }
     }
 }
+/// GTIN check digit of 13 ASCII digits (weights 3 and 1 from the right).
+pub(crate) fn gtin_check(digits: &str) -> usize {
+    (10 - digits
+        .bytes()
+        .rev()
+        .enumerate()
+        .map(|(i, d)| usize::from(d - b'0') * if i % 2 == 0 { 3 } else { 1 })
+        .sum::<usize>()
+        % 10)
+        % 10
+}
 fn finder(r: &[f32], reverse: bool) -> Option<(usize, f32)> {
     let best = match_finder(r, &FINDERS, reverse)?;
     (best.1 < 0.15).then_some(best)
@@ -367,15 +378,7 @@ pub fn decode(runs: &[f32], s: usize) -> Option<Read> {
         return None;
     }
     let digits = format!("{:013}", value % 10_000_000_000_000);
-    let check = (10
-        - digits
-            .bytes()
-            .rev()
-            .enumerate()
-            .map(|(i, d)| (d - b'0') as usize * if i % 2 == 0 { 3 } else { 1 })
-            .sum::<usize>()
-            % 10)
-        % 10;
+    let check = gtin_check(&digits);
     Some(Read {
         decoded: true,
         addon: None,
@@ -579,15 +582,7 @@ impl Stacked {
                     continue;
                 }
                 let digits = format!("{:013}", value % 10_000_000_000_000);
-                let check = (10
-                    - digits
-                        .bytes()
-                        .rev()
-                        .enumerate()
-                        .map(|(i, d)| (d - b'0') as usize * if i % 2 == 0 { 3 } else { 1 })
-                        .sum::<usize>()
-                        % 10)
-                    % 10;
+                let check = gtin_check(&digits);
                 let text = format!("01{digits}{check}");
                 let lo = a.lo.min(b.lo);
                 let hi = a.hi.max(b.hi);

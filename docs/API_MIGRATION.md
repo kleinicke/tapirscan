@@ -3,7 +3,10 @@
 ## Upgrading from 1.4.0
 
 Format selection adds the opt-in `Industrial25` (bit 2097152) and `Pharmacode`
-(bit 4194304) formats; no preset, `all` included, selects them. Native ABI 7 is
+(bit 4194304) formats; no preset, `all` included, selects them. `DataBarLimited`
+(bit 8388608) joins the `1D` preset and `MicroQRCode` (bit 16777216) the `2D`
+preset, so `all` reads both. The opt-in formats `Code39Extended` (bit 33554432),
+`IATA25` (bit 67108864) and `Matrix25` (bit 134217728) are new too. Native ABI 7 is
 unchanged. Rust matches on `Format` need the wildcard arm that its
 `#[non_exhaustive]` attribute already requires.
 

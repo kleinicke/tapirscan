@@ -74,17 +74,20 @@ Data Matrix; `"all"` reads all but the opt-in formats.
 | `ISBN`                                                   | none                                | `EAN13`                                    |
 | `Code128`                                                | `CODE_128`                          | `Code128` (includes GS1-128)               |
 | `Code39`, `Code39Std`                                    | `CODE_39`                           | `Code39`                                   |
-| `Code39Ext`                                              | none                                | none (no full-ASCII expansion)             |
+| `Code39Ext`                                              | none                                | `Code39Extended` (opt-in)                  |
 | `Code32`, `PZN`                                          | none                                | `Code32`, `PZN` (opt-in)                   |
 | `Code93`, `Codabar`                                      | `CODE_93`, `CODABAR`                | `Code93`, `Codabar`                        |
 | `ITF`, `ITF14`                                           | `ITF`                               | `ITF`                                      |
 | `DataBar`, `DataBarOmni`, `DataBarStk`, `DataBarStkOmni` | `RSS_14`                            | `DataBar`                                  |
 | `DataBarExp`, `DataBarExpStk`                            | `RSS_EXPANDED`                      | `DataBarExpanded`                          |
-| `DataBarLtd`, `Telepen*`, `DXFilmEdge`                   | none                                | none                                       |
+| `DataBarLtd`, `DataBarLimited`                           | none                                | `DataBarLimited`                           |
+| `Telepen*`, `DXFilmEdge`                                 | none                                | none                                       |
 | none                                                     | none                                | `MSIPlessey` (opt-in)                      |
 | none                                                     | none                                | `Industrial25`, `Pharmacode` (opt-in)      |
+| none                                                     | none                                | `IATA25`, `Matrix25` (opt-in)              |
 | `QRCode`, `QRCodeModel2`                                 | `QR_CODE`                           | `QRCode`                                   |
-| `QRCodeModel1`, `MicroQRCode`, `RMQRCode`                | `MICRO_QR_CODE`                     | none                                       |
+| `MicroQRCode`                                            | `MICRO_QR_CODE`                     | `MicroQRCode`                              |
+| `QRCodeModel1`, `RMQRCode`                               | none                                | none                                       |
 | `DataMatrix`                                             | `DATA_MATRIX`                       | `DataMatrix`                               |
 | `PDF417`, `CompactPDF417`                                | `PDF_417`                           | `PDF417`                                   |
 | `MicroPDF417`                                            | none                                | none                                       |
@@ -192,18 +195,19 @@ return all (`maxNumberOfSymbols` caps zxing-wasm at 255; use `barcodes.slice(0, 
 Effort is a mode, fixed when the scanner is created: in the browser import
 `tapirscan/browser/<mode>`; the core, `tapirscan/browser` and Python take `mode`.
 
-| ZXing                                                                                           | Tapirscan                                            |
-| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `tryHarder: false`                                                                              | Low (camera frames)                                  |
-| `tryHarder: true` (zxing-wasm default)                                                          | Medium (default); High for slow scans                |
-| none                                                                                            | Very High for hard stills                            |
-| `minLineCount`, `isPure`, `tryDownscale`                                                        | no equivalent                                        |
-| `binarizer`, `tryDenoise`, `tryInvert`                                                          | no equivalent                                        |
-| `tryRotate`                                                                                     | no option; orientation is always searched            |
-| `textMode`, `characterSet`, `returnErrors`, `validateOptionalChecksum`, `tryCode39ExtendedMode` | no equivalent                                        |
-| `eanAddOnSymbol` Ignore / Read / Require                                                        | `eanAddOnPolicy` `"ignore"` / `"read"` / `"require"` |
-| `bytes` / `getRawBytes()`                                                                       | `payload_bytes` / `payloadBytes`, 2D formats only    |
-| `orientation`, `isMirrored`, `ecLevel`                                                          | none; derive rotation from `polygon`                 |
+| ZXing                                                                  | Tapirscan                                                             |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `tryHarder: false`                                                     | Low (camera frames)                                                   |
+| `tryHarder: true` (zxing-wasm default)                                 | Medium (default); High for slow scans                                 |
+| none                                                                   | Very High for hard stills                                             |
+| `minLineCount`, `isPure`, `tryDownscale`                               | no equivalent                                                         |
+| `binarizer`, `tryDenoise`, `tryInvert`                                 | no equivalent                                                         |
+| `tryRotate`                                                            | no option; orientation is always searched                             |
+| `tryCode39ExtendedMode`                                                | select `Code39Extended`                                               |
+| `textMode`, `characterSet`, `returnErrors`, `validateOptionalChecksum` | no equivalent                                                         |
+| `eanAddOnSymbol` Ignore / Read / Require                               | `eanAddOnPolicy` `"ignore"` / `"read"` / `"require"`                  |
+| `bytes` / `getRawBytes()`                                              | `payload_bytes` / `payloadBytes`: 2D formats and the Code 39 variants |
+| `orientation`, `isMirrored`, `ecLevel`                                 | none; derive rotation from `polygon`                                  |
 
 ## No result
 

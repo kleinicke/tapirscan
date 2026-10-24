@@ -52,7 +52,7 @@ PRESETS = (
         "LINEAR",
         "All linear formats except the opt-in ones, including DataBar variants.",
     ),
-    ("2D", "MATRIX", "QR Code, Data Matrix, PDF417, Aztec and MaxiCode."),
+    ("2D", "MATRIX", "QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR."),
 )
 
 
@@ -176,7 +176,7 @@ def rust_bits_source(registry: dict[str, Any]) -> str:
 pub const RETAIL_MASK: u32 = {mask(registry, presets["retail"]):_};
 /// Retail formats plus Code 128, Code 39 and ITF.
 pub const COMMON_LINEAR_MASK: u32 = {mask(registry, presets["common1D"]):_};
-/// QR Code, Data Matrix, PDF417, Aztec and `MaxiCode`.
+/// QR Code, Data Matrix, PDF417, Aztec, `MaxiCode` and Micro QR.
 pub const MATRIX_MASK: u32 = {mask(registry, presets["2D"]):_};
 /// Every linear format the engine reads: the 1D preset plus the opt-in formats
 /// with their own reader.

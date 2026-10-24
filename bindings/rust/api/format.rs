@@ -58,6 +58,18 @@ pub enum Format {
     Industrial25 = 2_097_152,
     /// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
     Pharmacode = 4_194_304,
+    /// GS1 `DataBar` Limited.
+    DataBarLimited = 8_388_608,
+    #[serde(rename = "MicroQRCode")]
+    /// Micro QR Code, versions M1 to M4.
+    MicroQrCode = 16_777_216,
+    /// Extended (full-ASCII) Code 39: a Code 39 symbol with shift pairs expanded (opt-in).
+    Code39Extended = 33_554_432,
+    #[serde(rename = "IATA25")]
+    /// IATA 2 of 5, bars-only, digits as printed (opt-in).
+    Iata25 = 67_108_864,
+    /// Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in).
+    Matrix25 = 134_217_728,
 }
 
 impl Format {
@@ -84,6 +96,11 @@ impl Format {
         Self::MsiPlessey,
         Self::Industrial25,
         Self::Pharmacode,
+        Self::DataBarLimited,
+        Self::MicroQrCode,
+        Self::Code39Extended,
+        Self::Iata25,
+        Self::Matrix25,
     ];
 
     /// Stable schema name used by language adapters.
@@ -111,6 +128,11 @@ impl Format {
             Self::MsiPlessey => "MSIPlessey",
             Self::Industrial25 => "Industrial25",
             Self::Pharmacode => "Pharmacode",
+            Self::DataBarLimited => "DataBarLimited",
+            Self::MicroQrCode => "MicroQRCode",
+            Self::Code39Extended => "Code39Extended",
+            Self::Iata25 => "IATA25",
+            Self::Matrix25 => "Matrix25",
         }
     }
 }
@@ -124,9 +146,9 @@ impl std::fmt::Display for Format {
 pub(crate) const RETAIL_MASK: u32 = 15;
 pub(crate) const COMMON_LINEAR_MASK: u32 = 127;
 pub(crate) const COMMON_MASK: u32 = 1_663;
-pub(crate) const LINEAR_MASK: u32 = 25_087;
-pub(crate) const MATRIX_MASK: u32 = 138_752;
+pub(crate) const LINEAR_MASK: u32 = 8_413_695;
+pub(crate) const MATRIX_MASK: u32 = 16_915_968;
 pub(crate) const ALL_FORMATS_MASK: u32 = LINEAR_MASK | MATRIX_MASK;
 /// Opt-in formats: selected only by name, never by a preset or `ALL`.
-pub(crate) const OPT_IN_MASK: u32 = 8_126_464;
+pub(crate) const OPT_IN_MASK: u32 = 243_007_488;
 pub(crate) const SUPPORTED_MASK: u32 = ALL_FORMATS_MASK | OPT_IN_MASK;

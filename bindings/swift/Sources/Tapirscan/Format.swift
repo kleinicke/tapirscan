@@ -44,6 +44,16 @@ public enum Format: UInt32, CaseIterable, Sendable, CustomStringConvertible {
     case industrial25 = 2097152
     /// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
     case pharmacode = 4194304
+    /// GS1 `DataBar` Limited.
+    case dataBarLimited = 8388608
+    /// Micro QR Code, versions M1 to M4.
+    case microQrCode = 16777216
+    /// Extended (full-ASCII) Code 39: a Code 39 symbol with shift pairs expanded (opt-in).
+    case code39Extended = 33554432
+    /// IATA 2 of 5, bars-only, digits as printed (opt-in).
+    case iata25 = 67108864
+    /// Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in).
+    case matrix25 = 134217728
 
     /// Stable name shared with the other language bindings, such as `"QRCode"`.
     public var name: String {
@@ -69,6 +79,11 @@ public enum Format: UInt32, CaseIterable, Sendable, CustomStringConvertible {
         case .msiPlessey: "MSIPlessey"
         case .industrial25: "Industrial25"
         case .pharmacode: "Pharmacode"
+        case .dataBarLimited: "DataBarLimited"
+        case .microQrCode: "MicroQRCode"
+        case .code39Extended: "Code39Extended"
+        case .iata25: "IATA25"
+        case .matrix25: "Matrix25"
         }
     }
 
@@ -124,6 +139,16 @@ public struct Formats: OptionSet, Sendable {
     public static let industrial25 = Formats(.industrial25)
     /// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
     public static let pharmacode = Formats(.pharmacode)
+    /// GS1 `DataBar` Limited.
+    public static let dataBarLimited = Formats(.dataBarLimited)
+    /// Micro QR Code, versions M1 to M4.
+    public static let microQrCode = Formats(.microQrCode)
+    /// Extended (full-ASCII) Code 39: a Code 39 symbol with shift pairs expanded (opt-in).
+    public static let code39Extended = Formats(.code39Extended)
+    /// IATA 2 of 5, bars-only, digits as printed (opt-in).
+    public static let iata25 = Formats(.iata25)
+    /// Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in).
+    public static let matrix25 = Formats(.matrix25)
 
     /// EAN-13, UPC-A, EAN-8 and UPC-E.
     public static let retail: Formats = [.ean13, .upcA, .ean8, .upcE]
@@ -132,9 +157,9 @@ public struct Formats: OptionSet, Sendable {
     /// Common linear formats plus QR Code and Data Matrix.
     public static let common: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .qrCode, .dataMatrix]
     /// All linear formats except the opt-in ones, including DataBar variants.
-    public static let linear: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .codabar, .code93, .dataBar, .dataBarExpanded]
-    /// QR Code, Data Matrix, PDF417, Aztec and MaxiCode.
-    public static let matrix: Formats = [.qrCode, .dataMatrix, .pdf417, .aztec, .maxiCode]
+    public static let linear: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .codabar, .code93, .dataBar, .dataBarExpanded, .dataBarLimited]
+    /// QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR.
+    public static let matrix: Formats = [.qrCode, .dataMatrix, .pdf417, .aztec, .maxiCode, .microQrCode]
     /// Every format except the opt-in formats, which are selected by name.
-    public static let all: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .codabar, .code93, .dataBar, .dataBarExpanded, .qrCode, .dataMatrix, .pdf417, .aztec, .maxiCode]
+    public static let all: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .codabar, .code93, .dataBar, .dataBarExpanded, .dataBarLimited, .qrCode, .dataMatrix, .pdf417, .aztec, .maxiCode, .microQrCode]
 }

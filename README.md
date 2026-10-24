@@ -43,11 +43,11 @@ is included in that keyword group; — means it is not included, not unsupported
 | `EAN8`            | ✓        | ✓          | ✓        | ✓     | —     | ✓     | EAN-8                                             |
 | `UPCE`            | ✓        | ✓          | ✓        | ✓     | —     | ✓     | UPC-E                                             |
 | `Code128`         | —        | ✓          | ✓        | ✓     | —     | ✓     | Includes GS1-128                                  |
-| `Code39`          | —        | ✓          | ✓        | ✓     | —     | ✓     | Standard characters; no full-ASCII expansion      |
+| `Code39`          | —        | ✓          | ✓        | ✓     | —     | ✓     | Standard characters; full ASCII is Code39Extended |
 | `ITF`             | —        | ✓          | ✓        | ✓     | —     | ✓     | Interleaved 2 of 5                                |
 | `Codabar`         | —        | —          | —        | ✓     | —     | ✓     |                                                   |
 | `Code93`          | —        | —          | —        | ✓     | —     | ✓     |                                                   |
-| `QRCode`          | —        | —          | ✓        | —     | ✓     | ✓     | Model 2; no Micro QR, Model 1 or rMQR             |
+| `QRCode`          | —        | —          | ✓        | —     | ✓     | ✓     | Model 2; no Model 1 or rMQR                       |
 | `DataMatrix`      | —        | —          | ✓        | —     | ✓     | ✓     | ECC200 and DMRE                                   |
 | `PDF417`          | —        | —          | —        | —     | ✓     | ✓     | Normal/Compact and Macro; no Micro PDF417         |
 | `Aztec`           | —        | —          | —        | —     | ✓     | ✓     | Compact/full and Rune                             |
@@ -59,10 +59,16 @@ is included in that keyword group; — means it is not included, not unsupported
 | `MSIPlessey`      | —        | —          | —        | —     | —     | —     | Opt-in: mod-10 check digit required               |
 | `Industrial25`    | —        | —          | —        | —     | —     | —     | Opt-in: Industrial (Standard) 2 of 5              |
 | `Pharmacode`      | —        | —          | —        | —     | —     | —     | Opt-in: Laetus one-track Pharmacode               |
+| `DataBarLimited`  | —        | —          | —        | ✓     | —     | ✓     |                                                   |
+| `MicroQRCode`     | —        | —          | —        | —     | ✓     | ✓     | M1–M4                                             |
+| `Code39Extended`  | —        | —          | —        | —     | —     | —     | Opt-in: full-ASCII Code 39                        |
+| `IATA25`          | —        | —          | —        | —     | —     | —     | Opt-in: IATA 2 of 5                               |
+| `Matrix25`        | —        | —          | —        | —     | —     | —     | Opt-in: Matrix 2 of 5                             |
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN`, `MSIPlessey`, `Industrial25` and `Pharmacode` require explicit selection; no group includes
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and `Matrix25`
+require explicit selection; no group includes
 them, even `all`. Groups select readers, not effort levels or accuracy guarantees.
 
 Python and JavaScript accept these keywords as strings, for example

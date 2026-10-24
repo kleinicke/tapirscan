@@ -45,7 +45,17 @@ enum Format {
   /// Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in).
   industrial25('Industrial25', 2097152),
   /// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
-  pharmacode('Pharmacode', 4194304);
+  pharmacode('Pharmacode', 4194304),
+  /// GS1 `DataBar` Limited.
+  dataBarLimited('DataBarLimited', 8388608),
+  /// Micro QR Code, versions M1 to M4.
+  microQrCode('MicroQRCode', 16777216),
+  /// Extended (full-ASCII) Code 39: a Code 39 symbol with shift pairs expanded (opt-in).
+  code39Extended('Code39Extended', 33554432),
+  /// IATA 2 of 5, bars-only, digits as printed (opt-in).
+  iata25('IATA25', 67108864),
+  /// Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in).
+  matrix25('Matrix25', 134217728);
 
   const Format(this.id, this._bit);
 
@@ -64,13 +74,13 @@ enum Format {
   static const Set<Format> common = {ean13, upcA, ean8, upcE, code128, code39, itf, qrCode, dataMatrix};
 
   /// All linear formats except the opt-in ones, including DataBar variants.
-  static const Set<Format> linear = {ean13, upcA, ean8, upcE, code128, code39, itf, codabar, code93, dataBar, dataBarExpanded};
+  static const Set<Format> linear = {ean13, upcA, ean8, upcE, code128, code39, itf, codabar, code93, dataBar, dataBarExpanded, dataBarLimited};
 
-  /// QR Code, Data Matrix, PDF417, Aztec and MaxiCode.
-  static const Set<Format> matrix = {qrCode, dataMatrix, pdf417, aztec, maxiCode};
+  /// QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR.
+  static const Set<Format> matrix = {qrCode, dataMatrix, pdf417, aztec, maxiCode, microQrCode};
 
   /// Every format except the opt-in formats, which are selected by name.
-  static const Set<Format> all = {ean13, upcA, ean8, upcE, code128, code39, itf, codabar, code93, dataBar, dataBarExpanded, qrCode, dataMatrix, pdf417, aztec, maxiCode};
+  static const Set<Format> all = {ean13, upcA, ean8, upcE, code128, code39, itf, codabar, code93, dataBar, dataBarExpanded, dataBarLimited, qrCode, dataMatrix, pdf417, aztec, maxiCode, microQrCode};
 
   @override
   String toString() => id;

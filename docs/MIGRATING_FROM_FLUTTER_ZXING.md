@@ -38,15 +38,16 @@ The prefix avoids clashes: both packages export `Format`.
 
 flutter_zxing combines `int` constants with `|`; Tapirscan takes a `Set<Format>`.
 
-| flutter_zxing                                                                       | Tapirscan                                                            |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `ean13`, `ean8`, `upca`, `upce`                                                     | `ean13`, `ean8`, `upcA`, `upcE`, or `Format.retail`                  |
-| `code128`, `code39`, `code93`, `codabar`, `itf`                                     | the same names                                                       |
-| `dataBar`, `dataBarExpanded`                                                        | the same names                                                       |
-| `qrCode`, `dataMatrix`, `pdf417`, `aztec`, `maxiCode`                               | the same names                                                       |
-| `linearCodes`, `matrixCodes`, `any` (the default)                                   | `Format.linear`, `Format.matrix`, `Format.all`                       |
-| `microQRCode`, `rmqrCode`, `microPdf417`, `dataBarLimited`, `telepen`, `dxFilmEdge` | not supported                                                        |
-| none                                                                                | `code32`, `pzn`, `msiPlessey`, `industrial25`, `pharmacode` (opt-in) |
+| flutter_zxing                                         | Tapirscan                                                                                                    |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `ean13`, `ean8`, `upca`, `upce`                       | `ean13`, `ean8`, `upcA`, `upcE`, or `Format.retail`                                                          |
+| `code128`, `code39`, `code93`, `codabar`, `itf`       | the same names                                                                                               |
+| `dataBar`, `dataBarExpanded`                          | the same names                                                                                               |
+| `qrCode`, `dataMatrix`, `pdf417`, `aztec`, `maxiCode` | the same names                                                                                               |
+| `linearCodes`, `matrixCodes`, `any` (the default)     | `Format.linear`, `Format.matrix`, `Format.all`                                                               |
+| `microQRCode`, `dataBarLimited`                       | `microQrCode`, `dataBarLimited`                                                                              |
+| `rmqrCode`, `microPdf417`, `telepen`, `dxFilmEdge`    | not supported                                                                                                |
+| none                                                  | `code32`, `pzn`, `msiPlessey`, `industrial25`, `pharmacode`, `code39Extended`, `iata25`, `matrix25` (opt-in) |
 
 Tapirscan's default is `Format.retail`, not every format: each enabled 2D format
 searches the whole image, so select only what the app reads.

@@ -158,6 +158,10 @@ pub fn alignment_positions(version: usize) -> Vec<usize> {
     }
     p
 }
+/// Whether QR data mask `mask` inverts module (`x`, `y`); Micro QR uses masks 1, 4, 6 and 7.
+pub(crate) fn masked_pattern(mask: usize, x: usize, y: usize) -> bool {
+    masked(mask, x, y)
+}
 fn masked(mask: usize, x: usize, y: usize) -> bool {
     match mask {
         0 => (x + y).is_multiple_of(2),

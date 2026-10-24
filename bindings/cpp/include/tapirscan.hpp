@@ -77,7 +77,7 @@ public:
     static constexpr Formats common() { return Formats(TAPIRSCAN_FORMATS_COMMON); }
     /// All linear formats except the opt-in ones.
     static constexpr Formats linear() { return Formats(TAPIRSCAN_FORMATS_LINEAR); }
-    /// QR Code, Data Matrix, PDF417, Aztec and MaxiCode.
+    /// QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR.
     static constexpr Formats matrix() { return Formats(TAPIRSCAN_FORMATS_MATRIX); }
     /// Every format except the opt-in formats, which are selected by name.
     static constexpr Formats all() { return Formats(TAPIRSCAN_FORMATS_ALL); }

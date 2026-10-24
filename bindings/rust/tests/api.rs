@@ -633,6 +633,26 @@ fn opt_in_pharmacy_formats_convert_code39_reads() {
     assert!(Formats::try_from(Format::Code32 as u32 | Format::Pzn as u32).is_ok());
 }
 
+/// Code 39 modules for `+H+I`, Extended Code 39 of `hi` (Zint 2.16 `-b 9 -d hi`).
+const EXTENDED_BITS: &str =
+    "10010110110101001010010010110101001101010010100100101011010011010100101101101";
+
+#[test]
+fn extended_code39_expands_shift_pairs_only_when_selected() {
+    assert_eq!(
+        reads(Format::Code39Extended.into(), EXTENDED_BITS),
+        [(Format::Code39Extended, "hi".into(), Some(b"+H+I".to_vec()))]
+    );
+    let plain = reads(Formats::ALL, EXTENDED_BITS);
+    assert_eq!((plain[0].0, plain[0].1.as_str()), (Format::Code39, "+H+I"));
+    // Content without shift pairs stays Code 39 when Code 39 is selected too.
+    let both = Format::Code39Extended | Format::Code39;
+    assert_eq!(reads(both, PZN_BITS)[0].0, Format::Code39);
+    assert_eq!(reads(both, EXTENDED_BITS)[0].0, Format::Code39Extended);
+    assert_ne!(Formats::ALL | Format::Code39Extended, Formats::ALL);
+    assert_eq!(Format::Code39Extended.as_str(), "Code39Extended");
+}
+
 /// MSI Plessey modules: a `1` start bit, four bits per digit and a `0` stop bit,
 /// each bit three modules (`110` or `100`), then the closing bar.
 fn msi_bits(text: &str) -> String {
@@ -749,6 +769,169 @@ fn industrial25_and_pharmacode_are_read_only_when_selected() {
     let texts: Vec<_> = result.barcodes.iter().map(|b| b.text.as_str()).collect();
     assert_eq!(texts.len(), 1);
     assert_ne!(texts[0], "1234");
+}
+
+/// Module widths of IATA (`matrix` false) or Matrix 2 of 5 `text`, bars first.
+fn two_of_five_bits(text: &str, matrix: bool) -> String {
+    const PATTERNS: [&str; 10] = [
+        "nnwwn", "wnnnw", "nwnnw", "wwnnn", "nnwnw", "wnwnn", "nwwnn", "nnnww", "wnnwn", "nwnwn",
+    ];
+    let mut widths: Vec<usize> = if matrix {
+        vec![4, 1, 1, 1, 1, 1]
+    } else {
+        vec![1, 1, 1, 1]
+    };
+    for digit in text.bytes().map(|b| usize::from(b - b'0')) {
+        for c in PATTERNS[digit].chars() {
+            widths.push(if c == 'w' { 3 } else { 1 });
+            if !matrix {
+                widths.push(1);
+            }
+        }
+        if matrix {
+            widths.push(1);
+        }
+    }
+    widths.extend(if matrix {
+        [4, 1, 1, 1, 1].as_slice()
+    } else {
+        [3, 1, 1].as_slice()
+    });
+    widths
+        .iter()
+        .enumerate()
+        .map(|(i, &w)| (if i % 2 == 0 { "1" } else { "0" }).repeat(w))
+        .collect()
+}
+
+#[test]
+fn iata25_and_matrix25_are_read_only_when_selected() {
+    for (matrix, format) in [(false, Format::Iata25), (true, Format::Matrix25)] {
+        let (pixels, width, height) = code39_image(&two_of_five_bits("4711", matrix));
+        for mode in compiled_modes() {
+            let scan = |formats: Formats| {
+                let mut scanner = Scanner::new(ScannerOptions {
+                    mode,
+                    formats,
+                    ..ScannerOptions::default()
+                });
+                let result = scanner.scan(Image::gray(&pixels, width, height)).unwrap();
+                result
+                    .barcodes
+                    .into_iter()
+                    .map(|b| (b.format, b.text))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                scan(format.into()),
+                [(format, "4711".to_string())],
+                "{mode:?}"
+            );
+            assert_eq!(scan(Formats::ALL), Vec::new(), "{mode:?}");
+            assert_eq!(scan(Format::Industrial25.into()), Vec::new(), "{mode:?}");
+        }
+        assert_ne!(Formats::ALL | format, Formats::ALL);
+    }
+    assert_eq!(Format::Iata25.as_str(), "IATA25");
+    assert_eq!(Format::Matrix25.as_str(), "Matrix25");
+}
+
+/// GS1 `DataBar` Limited 0123456789012 (Zint 2.16): element widths from the first bar.
+const DATABAR_LIMITED: [u8; 45] = [
+    1, 1, 1, 6, 3, 2, 1, 1, 1, 4, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 2, 2, 1, 1, 3, 3, 2,
+    2, 1, 1, 1, 1, 1, 1, 1, 4, 4, 1, 1, 1,
+];
+/// Micro QR M1 "12345" (Zint 2.16).
+const MICRO_QR_M1: [&str; 11] = [
+    "#######.#.#",
+    "#.....#.##.",
+    "#.###.#.#..",
+    "#.###.#....",
+    "#.###.#.###",
+    "#.....#..##",
+    "#######.#..",
+    ".........##",
+    "##..###..##",
+    ".#.#...##..",
+    "####.....##",
+];
+
+#[test]
+fn databar_limited_and_micro_qr_are_read_with_their_presets() {
+    let bits: String = DATABAR_LIMITED
+        .iter()
+        .enumerate()
+        .map(|(i, &w)| (if i % 2 == 0 { "1" } else { "0" }).repeat(usize::from(w)))
+        .collect();
+    let linear = code39_image(&bits);
+    // The symbol upright, turned a quarter and mirrored.
+    let (scale, margin) = (8, 4);
+    let side = (11 + 2 * margin) * scale;
+    let micro = |place: fn(usize, usize) -> (usize, usize)| {
+        let mut matrix = vec![255; side * side];
+        for (y, row) in MICRO_QR_M1.iter().enumerate() {
+            for (x, cell) in row.bytes().enumerate() {
+                if cell == b'#' {
+                    let (px, py) = place(x, y);
+                    for yy in 0..scale {
+                        let at = ((py + margin) * scale + yy) * side + (px + margin) * scale;
+                        matrix[at..at + scale].fill(0);
+                    }
+                }
+            }
+        }
+        (matrix, side, side)
+    };
+    for ((pixels, width, height), format, text, family) in [
+        (
+            linear,
+            Format::DataBarLimited,
+            "0101234567890128",
+            Format::DataBar,
+        ),
+        (
+            micro(|x, y| (x, y)),
+            Format::MicroQrCode,
+            "12345",
+            Format::QrCode,
+        ),
+        (
+            micro(|x, y| (10 - y, x)),
+            Format::MicroQrCode,
+            "12345",
+            Format::QrCode,
+        ),
+        (
+            micro(|x, y| (10 - x, y)),
+            Format::MicroQrCode,
+            "12345",
+            Format::QrCode,
+        ),
+    ] {
+        for mode in compiled_modes() {
+            let scan = |formats: Formats| {
+                let mut scanner = Scanner::new(ScannerOptions {
+                    mode,
+                    formats,
+                    ..ScannerOptions::default()
+                });
+                let result = scanner.scan(Image::gray(&pixels, width, height)).unwrap();
+                result
+                    .barcodes
+                    .into_iter()
+                    .map(|b| (b.format, b.text))
+                    .collect::<Vec<_>>()
+            };
+            let expected = [(format, text.to_string())];
+            assert_eq!(scan(format.into()), expected, "{mode:?}");
+            assert_eq!(scan(Formats::ALL), expected, "{mode:?}");
+            assert_eq!(scan(family.into()), Vec::new(), "{mode:?}");
+        }
+    }
+    assert_eq!(Formats::LINEAR | Format::DataBarLimited, Formats::LINEAR);
+    assert_eq!(Formats::MATRIX | Format::MicroQrCode, Formats::MATRIX);
+    assert_eq!(Format::DataBarLimited.as_str(), "DataBarLimited");
+    assert_eq!(Format::MicroQrCode.as_str(), "MicroQRCode");
 }
 
 /// A 16x16 Data Matrix ("TAPIRSCAN-DM-42") drawn at 80 pixels per module, low

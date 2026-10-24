@@ -114,11 +114,21 @@ struct Observation {
     original_rows: u64,
     dense: bool,
 }
+/// Linear formats without a check that restored profiles must not add.
+const UNCHECKED_BARS: u32 =
+    linear::CODE39 | linear::INDUSTRIAL25 | linear::IATA25 | linear::MATRIX25 | linear::PHARMACODE;
 fn required_support(format: &str) -> u64 {
     // Checkless or weakly checked symbologies need a third agreeing row.
     if matches!(
         format,
-        "ITF" | "Code39" | "Codabar" | "MSIPlessey" | "Industrial25" | "Pharmacode"
+        "ITF"
+            | "Code39"
+            | "Codabar"
+            | "MSIPlessey"
+            | "Industrial25"
+            | "IATA25"
+            | "Matrix25"
+            | "Pharmacode"
     ) {
         3
     } else {
@@ -1175,7 +1185,7 @@ fn sample_line_density(
         // into B consistently across rows, so only original profiles may add it;
         // the same holds for the checkless opt-in bar codes.
         let active_mask = if method >= 3 {
-            candidate.mask & !(linear::CODE39 | linear::INDUSTRIAL25 | linear::PHARMACODE)
+            candidate.mask & !UNCHECKED_BARS
         } else {
             candidate.mask
         };

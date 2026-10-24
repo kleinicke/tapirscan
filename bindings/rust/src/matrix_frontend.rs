@@ -14,8 +14,8 @@ type ReaderRun = (Vec<Detection>, bool, regions::Regions);
 fn readers(mask: u32) -> Vec<u32> {
     matrix_readers::ORDER
         .into_iter()
-        .map(|(bit, _)| bit)
-        .filter(|bit| mask & bit != 0)
+        .map(|(bit, _)| bit & mask)
+        .filter(|&bit| bit != 0)
         .collect()
 }
 

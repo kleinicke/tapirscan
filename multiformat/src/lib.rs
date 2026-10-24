@@ -4,6 +4,7 @@ pub mod aztec_detect;
 pub mod binarization;
 pub mod component_geometry;
 pub mod databar;
+pub mod databar_limited;
 pub mod datamatrix;
 pub mod dm_detect;
 pub mod dm_gray;
@@ -20,6 +21,7 @@ pub mod matrix_readers;
 pub mod maxicode;
 pub mod maxicode_detect;
 mod maxicode_tables;
+pub mod micro_qr;
 #[doc(hidden)]
 pub mod numeric;
 pub mod pdf417;
@@ -36,6 +38,7 @@ pub mod regions;
 mod resample;
 mod retail_gray;
 pub mod retail_profile;
+pub mod two_of_five;
 use serde::Serialize;
 
 /// Largest accepted image side, in pixels.
@@ -493,7 +496,7 @@ pub fn scan_with_images(
             continue;
         }
         let (mut reads, limited) = matrix_readers::read(
-            bit,
+            bit & mask,
             image,
             [width, height],
             effort,
@@ -974,7 +977,12 @@ pub fn scan_with_images(
         }
         // The checkless opt-in bar codes need a third agreeing line, as in the
         // localized recovery.
-        if g.support < 3 && matches!(g.format.as_str(), "Industrial25" | "Pharmacode") {
+        if g.support < 3
+            && matches!(
+                g.format.as_str(),
+                "Industrial25" | "IATA25" | "Matrix25" | "Pharmacode"
+            )
+        {
             continue;
         }
         if !g.decoded && (g.support < 3 || g.error > 0.08) {
@@ -1093,7 +1101,7 @@ mod image_safety_tests {
                     }
                 })
                 .collect();
-            let scan = super::scan(&pixels, w, h, 163_839, 1);
+            let scan = super::scan(&pixels, w, h, 25_329_663, 1);
             assert!(
                 scan.barcodes
                     .iter()

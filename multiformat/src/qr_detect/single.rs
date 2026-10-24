@@ -62,7 +62,7 @@ fn version(word: u32) -> Option<usize> {
         .map(|i| i + 7)
 }
 
-fn frame(quad: [[f32; 2]; 4], rotation: usize, mirror: bool, span: f32) -> [f32; 6] {
+pub(super) fn frame(quad: [[f32; 2]; 4], rotation: usize, mirror: bool, span: f32) -> [f32; 6] {
     let ordered: [[f32; 2]; 4] =
         std::array::from_fn(|i| quad[(rotation + if mirror { 4 - i } else { i }) % 4]);
     std::array::from_fn(|i| {
@@ -316,7 +316,12 @@ fn recover_geometry(
     clippy::cast_precision_loss,
     reason = "The outer-ring finder clips finite projected geometry in its f32 image-coordinate domain before converting accepted bounds and seeds to indices."
 )]
-fn outer_quad(image: &[bool], w: usize, h: usize, finder: &Finder) -> Option<[[f32; 2]; 4]> {
+pub(super) fn outer_quad(
+    image: &[bool],
+    w: usize,
+    h: usize,
+    finder: &Finder,
+) -> Option<[[f32; 2]; 4]> {
     let inner = frame(finder.quad?, 0, false, 3.);
     let center = [inner[4], inner[5]];
     let module = inner[0].hypot(inner[1]).max(inner[2].hypot(inner[3]));

@@ -199,7 +199,7 @@ fn sweep_box(
 fn is_linear_read(read: &Read) -> bool {
     !matches!(
         read.format.as_str(),
-        "QRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
+        "QRCode" | "MicroQRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
     )
 }
 

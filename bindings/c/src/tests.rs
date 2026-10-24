@@ -809,7 +809,7 @@ fn parallel_setting_leaves_results_unchanged() {
     let reads = |parallel: u32| unsafe {
         let scanner = create(&ScannerOptionsC {
             mode: 1,
-            formats: 163_839, // every format except the opt-in ones
+            formats: 25_329_663, // every format except the opt-in ones
             ean_add_on_policy: 0,
             parallel,
         });

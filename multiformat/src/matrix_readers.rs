@@ -1,12 +1,13 @@
 //! Shared matrix-reader invocation. Callers own ordering, concurrency and finalization.
-use crate::formats::{AZTEC, DATA_MATRIX, MAXI_CODE, PDF417, QR_CODE};
+use crate::formats::{AZTEC, DATA_MATRIX, MAXI_CODE, MICRO_QR_CODE, PDF417, QR_CODE};
 use crate::{
     Detection, aztec_detect, binarization, dm_detect, maxicode_detect, pdf417, qr_detect, regions,
 };
 
-/// Fixed reader order, also used when merging concurrent reader results.
+/// Fixed reader order, also used when merging concurrent reader results. QR and
+/// Micro QR share one reader, which reads the selected ones of the two.
 pub const ORDER: [(u32, &str); 5] = [
-    (QR_CODE, "QRCode"),
+    (QR_CODE | MICRO_QR_CODE, "QRCode"),
     (DATA_MATRIX, "DataMatrix"),
     (AZTEC, "Aztec"),
     (MAXI_CODE, "MaxiCode"),
@@ -14,9 +15,10 @@ pub const ORDER: [(u32, &str); 5] = [
 ];
 
 /// Run exactly one reader using the caller's region accumulator and threshold cache.
+/// `bit` is the reader's entry in `ORDER`, restricted to the selected formats.
 ///
 /// # Panics
-/// Panics when `bit` is not one of the single-format bits in `ORDER`.
+/// Panics when `bit` selects no format of exactly one `ORDER` entry.
 pub fn read(
     bit: u32,
     image: &[u8],
@@ -27,7 +29,7 @@ pub fn read(
     binary_images: &mut binarization::Images<'_>,
 ) -> (Vec<Detection>, bool) {
     match bit {
-        QR_CODE => qr_detect::detect_group(
+        qr if qr & !(QR_CODE | MICRO_QR_CODE) == 0 => qr_detect::detect_group(
             image,
             width,
             height,
@@ -35,6 +37,10 @@ pub fn read(
             binary_images,
             qr_detect::Policy::for_mode(mode),
             effort,
+            qr_detect::Symbols {
+                qr: qr & QR_CODE != 0,
+                micro: qr & MICRO_QR_CODE != 0,
+            },
         ),
         DATA_MATRIX => dm_detect::detect(width, height, regions, binary_images, effort > 1, mode),
         // Aztec's enlarged retry follows the compiled mode, not group effort.

@@ -22,6 +22,11 @@ export const formatBits = Object.freeze({
   MSIPlessey: 1048576,
   Industrial25: 2097152,
   Pharmacode: 4194304,
+  DataBarLimited: 8388608,
+  MicroQRCode: 16777216,
+  Code39Extended: 33554432,
+  IATA25: 67108864,
+  Matrix25: 134217728,
 } as const);
 export type Format = keyof typeof formatBits;
 export const retailFormats: readonly Format[] = Object.freeze(["EAN13", "UPCA", "EAN8", "UPCE"]);
@@ -57,6 +62,7 @@ export const linearFormats: readonly Format[] = Object.freeze([
   "Code93",
   "DataBar",
   "DataBarExpanded",
+  "DataBarLimited",
 ]);
 export const matrixFormats: readonly Format[] = Object.freeze([
   "QRCode",
@@ -64,6 +70,7 @@ export const matrixFormats: readonly Format[] = Object.freeze([
   "PDF417",
   "Aztec",
   "MaxiCode",
+  "MicroQRCode",
 ]);
 export const eanAddOnReadFlag = 32768;
 export const eanAddOnRequireFlag = 65536;

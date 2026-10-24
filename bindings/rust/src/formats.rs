@@ -48,10 +48,10 @@ use barcode_multiformat::binarization::Images as Thresholds;
 use barcode_multiformat::formats::COMMON_LINEAR_MASK;
 use barcode_multiformat::formats::{
     AZTEC, CODE39, CODE128, DATA_BAR, DATA_BAR_EXPANDED, EAN8, EAN13, ITF, MATRIX_MASK, MAXI_CODE,
-    QR_CODE, RETAIL_MASK, UPCA, UPCE,
+    MICRO_QR_CODE, QR_CODE, RETAIL_MASK, UPCA, UPCE,
 };
 #[cfg(not(feature = "low"))]
-use barcode_multiformat::formats::{CODABAR, CODE93, DATA_MATRIX};
+use barcode_multiformat::formats::{CODABAR, CODE93, DATA_BAR_LIMITED, DATA_MATRIX};
 use barcode_multiformat::{MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE};
 use scanner_types::EngineScan;
 use serde_json::{Value, json};
@@ -60,10 +60,10 @@ use serde_json::{Value, json};
 pub(crate) const PRIMARY_RETAIL: u32 = EAN13 | UPCA;
 /// EAN-8 and UPC-E, the short retail formats.
 pub(crate) const SHORT_RETAIL: u32 = EAN8 | UPCE;
-/// Code 128, Code 39, ITF, Codabar and Code 93: the linear formats other than
-/// retail and the `DataBar` variants.
+/// Code 128, Code 39, ITF, Codabar, Code 93 and `DataBar` Limited: the linear
+/// formats other than retail, `DataBar` and `DataBar` Expanded, read in localized boxes.
 #[cfg(not(feature = "low"))]
-const NON_RETAIL_LINEAR: u32 = CODE128 | CODE39 | ITF | CODABAR | CODE93;
+const NON_RETAIL_LINEAR: u32 = CODE128 | CODE39 | ITF | CODABAR | CODE93 | DATA_BAR_LIMITED;
 
 #[cfg(not(feature = "low"))]
 mod linear_recovery;
@@ -395,16 +395,18 @@ fn along_same_bars(long: &crate::Quad, short: &crate::Quad, across_limit: f64) -
     }) && across(center(short)) <= across_limit * length
 }
 
-/// MSI Plessey, Industrial 2 of 5 and Pharmacode have no per-character check: a
+/// MSI Plessey, the 2 of 5 variants and Pharmacode have no per-character check: a
 /// threshold pass that erases part of a symbol can leave a fragment that still reads
-/// (an MSI prefix whose last digit passes the mod-10 check, Industrial 2 of 5 digits
-/// before an erased run that looks like its stop and quiet zone, any run of
+/// (an MSI prefix whose last digit passes the mod-10 check, Industrial, IATA or Matrix
+/// 2 of 5 digits before an erased run that looks like its stop and quiet zone, any run of
 /// Pharmacode bars). Drop such a read
 /// when a longer read of the same symbol that contains it covers it.
 fn drop_unchecked_fragments(reads: &mut Vec<Read>) {
     let contains = |long: &Read, short: &Read| match short.format.as_str() {
         "MSIPlessey" => long.text.len() > short.text.len() && long.text.starts_with(&short.text),
-        "Industrial25" => long.text.len() > short.text.len() && long.text.contains(&short.text),
+        "Industrial25" | "IATA25" | "Matrix25" => {
+            long.text.len() > short.text.len() && long.text.contains(&short.text)
+        }
         "Pharmacode" => match (pharmacode_bars(&long.text), pharmacode_bars(&short.text)) {
             (Some(long), Some(short)) => {
                 long.len() > short.len() && long.windows(short.len()).any(|w| w == short)
@@ -432,14 +434,16 @@ fn drop_unchecked_fragments(reads: &mut Vec<Read>) {
     // best-ranked one.
     let mut kept: Vec<Read> = Vec::with_capacity(reads.len());
     for read in reads.drain(..) {
-        let duplicate = matches!(read.format.as_str(), "Industrial25" | "Pharmacode")
-            && kept.iter().any(|other| {
-                other.format == read.format
-                    && other.text == read.text
-                    && (overlap_quads(&read.polygon, &other.polygon).0 >= 0.65
-                        || along_same_bars(&other.polygon, &read.polygon, 1.)
-                        || along_same_bars(&read.polygon, &other.polygon, 1.))
-            });
+        let duplicate = matches!(
+            read.format.as_str(),
+            "Industrial25" | "IATA25" | "Matrix25" | "Pharmacode"
+        ) && kept.iter().any(|other| {
+            other.format == read.format
+                && other.text == read.text
+                && (overlap_quads(&read.polygon, &other.polygon).0 >= 0.65
+                    || along_same_bars(&other.polygon, &read.polygon, 1.)
+                    || along_same_bars(&read.polygon, &other.polygon, 1.))
+        });
         if !duplicate {
             kept.push(read);
         }
@@ -454,7 +458,7 @@ fn drop_texture_reads(reads: &mut Vec<Read>, image: Image<'_>) {
     reads.retain_mut(|read| {
         if matches!(
             read.format.as_str(),
-            "QRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
+            "QRCode" | "MicroQRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
         ) || !crate::texture::texture_read(image, &read.polygon)
         {
             return true;
@@ -1038,7 +1042,10 @@ fn scan_additional(
     let mut scans = Vec::new();
     let mut coverage = Vec::new();
     // QR and MaxiCode selected with other 2D formats are reader groups of their
-    // own, so they get the reader and recoveries of a single-format selection.
+    // own, so they get the reader and recoveries of a single-format selection. Micro
+    // QR runs at the mode's QR effort: above effort 1 (High, Very High) in a group of
+    // its own; below, the other 2D readers' effort is the same and sharing their
+    // group shares their threshold images.
     // Whether a selection is QR-only or Data Matrix-only decides the 2D recoveries. Where
     // Medium moves EAN-8 and UPC-E to the primary retail scan, they do not count, with
     // or without add-ons.
@@ -1049,22 +1056,26 @@ fn scan_additional(
         mask
     };
     let qr_apart = matrix & QR_CODE != 0 && matrix != QR_CODE;
+    let micro_apart = qr_effort > 1 && matrix & MICRO_QR_CODE != 0 && matrix != MICRO_QR_CODE;
     let maxi_apart = matrix & MAXI_CODE != 0 && matrix != MAXI_CODE;
-    let matrix_rest =
-        matrix & !(if qr_apart { QR_CODE } else { 0 } | if maxi_apart { MAXI_CODE } else { 0 });
+    let matrix_rest = matrix
+        & !(if qr_apart { QR_CODE } else { 0 }
+            | if micro_apart { MICRO_QR_CODE } else { 0 }
+            | if maxi_apart { MAXI_CODE } else { 0 });
     let groups: Vec<(u32, usize)> = [
         (linear & !preserved, effort),
         (preserved, POLICY.preserved_sweep_effort),
         (coarse_preserved, 0),
         (
             matrix_rest,
-            if matrix_rest & QR_CODE != 0 {
+            if matrix_rest & !(QR_CODE | MICRO_QR_CODE) == 0 {
                 qr_effort
             } else {
                 1
             },
         ),
         (if maxi_apart { MAXI_CODE } else { 0 }, 1),
+        (if micro_apart { MICRO_QR_CODE } else { 0 }, qr_effort),
         // The QR group, usually the heaviest, comes last: `concurrent` runs the
         // last group on the calling thread.
         (if qr_apart { QR_CODE } else { 0 }, qr_effort),

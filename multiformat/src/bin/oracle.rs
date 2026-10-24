@@ -72,10 +72,13 @@ fn main() {
         "PDF417" => 2048,
         "DataBar" => 8192,
         "DataBarExpanded" => 16384,
+        "DataBarLimited" => 8_388_608,
         "MaxiCode" => 131_072,
         "MSIPlessey" => 1_048_576,
         "Industrial25" => 2_097_152,
         "Pharmacode" => 4_194_304,
+        "IATA25" => 67_108_864,
+        "Matrix25" => 134_217_728,
         _ => 0,
     };
     if linear_mask != 0 {

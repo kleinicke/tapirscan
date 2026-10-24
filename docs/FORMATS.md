@@ -23,11 +23,11 @@ is included in that keyword group; — means it is not included, not unsupported
 | `EAN8`            | ✓        | ✓          | ✓        | ✓     | —     | ✓     | EAN-8                                             |
 | `UPCE`            | ✓        | ✓          | ✓        | ✓     | —     | ✓     | UPC-E                                             |
 | `Code128`         | —        | ✓          | ✓        | ✓     | —     | ✓     | Includes GS1-128                                  |
-| `Code39`          | —        | ✓          | ✓        | ✓     | —     | ✓     | Standard characters; no full-ASCII expansion      |
+| `Code39`          | —        | ✓          | ✓        | ✓     | —     | ✓     | Standard characters; full ASCII is Code39Extended |
 | `ITF`             | —        | ✓          | ✓        | ✓     | —     | ✓     | Interleaved 2 of 5                                |
 | `Codabar`         | —        | —          | —        | ✓     | —     | ✓     |                                                   |
 | `Code93`          | —        | —          | —        | ✓     | —     | ✓     |                                                   |
-| `QRCode`          | —        | —          | ✓        | —     | ✓     | ✓     | Model 2; no Micro QR, Model 1 or rMQR             |
+| `QRCode`          | —        | —          | ✓        | —     | ✓     | ✓     | Model 2; no Model 1 or rMQR                       |
 | `DataMatrix`      | —        | —          | ✓        | —     | ✓     | ✓     | ECC200 and DMRE                                   |
 | `PDF417`          | —        | —          | —        | —     | ✓     | ✓     | Normal/Compact and Macro; no Micro PDF417         |
 | `Aztec`           | —        | —          | —        | —     | ✓     | ✓     | Compact/full and Rune                             |
@@ -39,10 +39,16 @@ is included in that keyword group; — means it is not included, not unsupported
 | `MSIPlessey`      | —        | —          | —        | —     | —     | —     | Opt-in: mod-10 check digit required               |
 | `Industrial25`    | —        | —          | —        | —     | —     | —     | Opt-in: Industrial (Standard) 2 of 5              |
 | `Pharmacode`      | —        | —          | —        | —     | —     | —     | Opt-in: Laetus one-track Pharmacode               |
+| `DataBarLimited`  | —        | —          | —        | ✓     | —     | ✓     |                                                   |
+| `MicroQRCode`     | —        | —          | —        | —     | ✓     | ✓     | M1–M4                                             |
+| `Code39Extended`  | —        | —          | —        | —     | —     | —     | Opt-in: full-ASCII Code 39                        |
+| `IATA25`          | —        | —          | —        | —     | —     | —     | Opt-in: IATA 2 of 5                               |
+| `Matrix25`        | —        | —          | —        | —     | —     | —     | Opt-in: Matrix 2 of 5                             |
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN`, `MSIPlessey`, `Industrial25` and `Pharmacode` require explicit selection; no group includes
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and `Matrix25`
+require explicit selection; no group includes
 them, even `all`. Groups select readers, not effort levels or accuracy guarantees.
 
 Native names follow each language: Rust `Formats::COMMON_1D`, C
@@ -61,29 +67,34 @@ The selected mode tunes EAN13/UPCA, common1D and QR Code.
 
 The supported public identifiers and native bits are:
 
-| Identifier      |     Bit | Scope                                                            |
-| --------------- | ------: | ---------------------------------------------------------------- |
-| EAN13           |       1 | Effort-mode scanner                                              |
-| UPCA            |       2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected |
-| EAN8            |       4 | Supported retail reader                                          |
-| UPCE            |       8 | Supported retail reader                                          |
-| Code128         |      16 | Supported, including GS1 metadata                                |
-| Code39          |      32 | Standard characters; no automatic full-ASCII expansion           |
-| ITF             |      64 | Supported                                                        |
-| Codabar         |     128 | Start/stop letters omitted from text, in `codabarStartStop`      |
-| Code93          |     256 | Supported                                                        |
-| QRCode          |     512 | Model 2; no Micro QR, Model 1 or rMQR                            |
-| DataMatrix      |    1024 | ECC200 and DMRE                                                  |
-| PDF417          |    2048 | Normal/Compact and Macro (structured append); no Micro PDF417    |
-| Aztec           |    4096 | Compact/full and Rune                                            |
-| DataBar         |    8192 | Omnidirectional, Stacked and Stacked Omnidirectional             |
-| DataBarExpanded |   16384 | Expanded and Expanded Stacked                                    |
-| MaxiCode        |  131072 | Modes 2–6; affine finder localization                            |
-| Code32          |  262144 | Opt-in Code 39 variant: Italian pharmacy code, 9-digit number    |
-| PZN             |  524288 | Opt-in Code 39 variant: German PZN8/PZN7, number without `-`     |
-| MSIPlessey      | 1048576 | Opt-in; mod-10 check digit required, returned with the data      |
-| Industrial25    | 2097152 | Opt-in Industrial (Standard) 2 of 5; digits as printed           |
-| Pharmacode      | 4194304 | Opt-in Laetus one-track Pharmacode; value 3 to 131070            |
+| Identifier      |       Bit | Scope                                                            |
+| --------------- | --------: | ---------------------------------------------------------------- |
+| EAN13           |         1 | Effort-mode scanner                                              |
+| UPCA            |         2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected |
+| EAN8            |         4 | Supported retail reader                                          |
+| UPCE            |         8 | Supported retail reader                                          |
+| Code128         |        16 | Supported, including GS1 metadata                                |
+| Code39          |        32 | Standard characters; full ASCII is `Code39Extended`              |
+| ITF             |        64 | Supported                                                        |
+| Codabar         |       128 | Start/stop letters omitted from text, in `codabarStartStop`      |
+| Code93          |       256 | Supported                                                        |
+| QRCode          |       512 | Model 2; no Model 1 or rMQR                                      |
+| DataMatrix      |      1024 | ECC200 and DMRE                                                  |
+| PDF417          |      2048 | Normal/Compact and Macro (structured append); no Micro PDF417    |
+| Aztec           |      4096 | Compact/full and Rune                                            |
+| DataBar         |      8192 | Omnidirectional, Stacked and Stacked Omnidirectional             |
+| DataBarExpanded |     16384 | Expanded and Expanded Stacked                                    |
+| MaxiCode        |    131072 | Modes 2–6; affine finder localization                            |
+| Code32          |    262144 | Opt-in Code 39 variant: Italian pharmacy code, 9-digit number    |
+| PZN             |    524288 | Opt-in Code 39 variant: German PZN8/PZN7, number without `-`     |
+| MSIPlessey      |   1048576 | Opt-in; mod-10 check digit required, returned with the data      |
+| Industrial25    |   2097152 | Opt-in Industrial (Standard) 2 of 5; digits as printed           |
+| Pharmacode      |   4194304 | Opt-in Laetus one-track Pharmacode; value 3 to 131070            |
+| DataBarLimited  |   8388608 | GTIN-14 with indicator 0 or 1, returned as `01` + 14 digits      |
+| MicroQRCode     |  16777216 | M1–M4, every error correction level                              |
+| Code39Extended  |  33554432 | Opt-in Code 39 variant: full-ASCII shift pairs expanded          |
+| IATA25          |  67108864 | Opt-in IATA 2 of 5; digits as printed                            |
+| Matrix25        | 134217728 | Opt-in Matrix 2 of 5 (Zint: Standard 2 of 5); digits as printed  |
 
 ### Pharmacy numbers in Code 39 (Code32, PZN)
 
@@ -99,6 +110,19 @@ are selected), never `Code39`.
 Both formats are opt-in, because an arbitrary six-character Code 39 passes the
 Code 32 check about one time in ten: select them only where these codes are
 expected.
+
+### Extended Code 39 (Code39Extended)
+
+Extended (full-ASCII) Code 39 writes the characters plain Code 39 lacks as pairs
+of a shift character and a letter: `+H+I` is `hi`, `$I` a tab, `/A` `!`, `%V`
+`@`. `Code39` returns the symbol's characters (`+H+I`); select `Code39Extended`
+to get the expanded text (`hi`), with the raw Code 39 text in the payload bytes.
+Reads whose shift characters do not form valid pairs stay Code 39 reads when
+`Code39` is selected, and are otherwise undecoded regions of `Code39Extended`. When `Code39`
+is selected too, reads without shift characters are reported as `Code39`, so
+only symbols that use full ASCII become `Code39Extended`. The symbology itself
+does not mark Extended Code 39, which is why it is opt-in: plain Code 39 data
+such as `A+B` would otherwise change meaning.
 
 ### MSI Plessey
 
@@ -119,7 +143,8 @@ or none are not read. The symbol also needs:
 Industrial 2 of 5, also called Standard 2 of 5 or Code 2 of 5 Industrial (Zint
 `C25IND`, Quagga2 `2of5`), stores digits in the bars only: five bars per digit,
 two of them wide, with narrow spaces, between a wide-wide-narrow start and a
-wide-narrow-wide stop. It is neither ITF nor Matrix 2 of 5. The symbology has no
+wide-narrow-wide stop. It is neither ITF nor Matrix 2 of 5 (which Zint 2.16 calls
+Standard 2 of 5). The symbology has no
 mandatory check digit, so the digits are returned as printed, including a check
 digit if the symbol has one. A read needs:
 
@@ -127,7 +152,25 @@ digit if the symbol has one. A read needs:
   the image edge is not read;
 - one narrow and one wide bar width and one space width across the symbol.
 
-`Industrial25` is opt-in. IATA 2 of 5 and Matrix 2 of 5 are not read.
+`Industrial25` is opt-in.
+
+### IATA 2 of 5 and Matrix 2 of 5
+
+Both use the same five-element digit patterns with two wide elements, with their
+own start and stop, and no mandatory check digit (digits are returned as printed):
+
+- IATA 2 of 5 (`IATA25`, Zint `C25IATA`), used on airline baggage tags, encodes
+  digits in the bars only like Industrial 2 of 5, between a start of two narrow
+  bars and a stop of a wide and a narrow bar.
+- Matrix 2 of 5 (`Matrix25`; Zint 2.16 calls it Standard 2 of 5, `C25STANDARD`)
+  encodes each digit in three bars and two spaces, followed by a narrow space,
+  between a four-module start bar with five narrow elements and a four-module
+  stop bar with four narrow elements.
+
+A read needs quiet zones of at least seven narrow modules on both sides and one
+narrow and one wide element width across the symbol (after removing ink spread).
+Both formats are opt-in; their symbols are never reported as another 2 of 5
+variant.
 
 ### Pharmacode
 

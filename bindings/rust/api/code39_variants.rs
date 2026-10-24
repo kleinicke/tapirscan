@@ -1,9 +1,12 @@
-//! Opt-in pharmacy-number interpretations of Code 39 reads (Code 32, PZN).
+//! Opt-in interpretations of Code 39 reads: the pharmacy numbers Code 32 and PZN,
+//! and Extended (full-ASCII) Code 39.
 //!
-//! Both are ordinary Code 39 symbols. Selecting `Code32` or `PZN` runs the
-//! Code 39 reader; a read whose content is a valid number of that scheme is
-//! reported with that format and the number as text. The Code 39 content stays
-//! available as payload bytes. Other Code 39 reads are kept only when Code 39
+//! All are ordinary Code 39 symbols. Selecting `Code32`, `PZN` or `Code39Extended`
+//! runs the Code 39 reader; a read whose content is valid in that scheme is
+//! reported with that format and the interpreted text (the number, or the
+//! content with its shift pairs expanded). The Code 39 content stays available as
+//! payload bytes. With Code 39 also selected, content without shift characters
+//! stays a Code 39 read. Other Code 39 reads are kept only when Code 39
 //! itself is selected; otherwise they and unread Code 39 regions are undecoded
 //! regions of the selected variant, or of unknown format when both are selected.
 
@@ -11,7 +14,8 @@ use crate::{Barcode, Format, UndecodedRegion, format::SUPPORTED_MASK};
 
 /// The opt-in formats read by the Code 39 reader. Other opt-in formats have
 /// their own readers.
-const VARIANT_MASK: u32 = Format::Code32 as u32 | Format::Pzn as u32;
+const VARIANT_MASK: u32 =
+    Format::Code32 as u32 | Format::Pzn as u32 | Format::Code39Extended as u32;
 
 /// Code 32 base-32 alphabet: digits and consonants (no A, E, I, O).
 const CODE32_ALPHABET: &[u8; 32] = b"0123456789BCDFGHJKLMNPQRSTUVWXYZ";
@@ -34,12 +38,17 @@ pub(crate) fn apply(bits: u32, barcodes: &mut Vec<Barcode>, undecoded: &mut Vec<
     }
     let code39 = Format::Code39 as u32;
     for barcode in barcodes.iter_mut().filter(|b| b.format == Format::Code39) {
+        let shifted = barcode.text.contains(['$', '%', '/', '+']);
         let converted = [
             (Format::Code32, code32_number as fn(&str) -> Option<String>),
             (Format::Pzn, pzn_number),
+            (Format::Code39Extended, full_ascii),
         ]
         .into_iter()
-        .filter(|(format, _)| bits & *format as u32 != 0)
+        .filter(|(format, _)| {
+            bits & *format as u32 != 0
+                && (*format != Format::Code39Extended || shifted || bits & code39 == 0)
+        })
         .find_map(|(format, convert)| convert(&barcode.text).map(|text| (format, text)));
         if let Some((format, text)) = converted {
             let raw = std::mem::replace(&mut barcode.text, text);
@@ -52,7 +61,7 @@ pub(crate) fn apply(bits: u32, barcodes: &mut Vec<Barcode>, undecoded: &mut Vec<
     if bits & code39 == 0 {
         // Report only selected formats: a Code 39 symbol that is no valid number
         // of the selected scheme is an unread candidate for it.
-        let variant = [Format::Code32, Format::Pzn]
+        let variant = [Format::Code32, Format::Pzn, Format::Code39Extended]
             .into_iter()
             .find(|format| bits & VARIANT_MASK == *format as u32);
         for region in undecoded.iter_mut() {
@@ -119,6 +128,48 @@ fn pzn_number(content: &str) -> Option<String> {
     (sum % 11 == check[0]).then(|| number.to_owned())
 }
 
+/// Extended Code 39: each `$`, `%`, `/` or `+` with the following letter stands for
+/// one ASCII character (ISO/IEC 16388 full-ASCII table). `None` when a shift
+/// character is not followed by a letter of its pair set.
+fn full_ascii(content: &str) -> Option<String> {
+    let mut out = String::with_capacity(content.len());
+    let mut chars = content.bytes();
+    while let Some(c) = chars.next() {
+        let code = match c {
+            b'$' | b'%' | b'/' | b'+' => {
+                let letter = chars.next().filter(u8::is_ascii_uppercase)?;
+                let k = letter - b'A';
+                match c {
+                    // $A-$Z: control characters 1-26.
+                    b'$' => k + 1,
+                    // +A-+Z: lower-case letters.
+                    b'+' => b'a' + k,
+                    // /A-/O: ! " # $ % & ' ( ) * + , - . /; /Z: colon.
+                    b'/' if k < 15 => b'!' + k,
+                    b'/' if letter == b'Z' => b':',
+                    b'/' => return None,
+                    // %A-%E: control characters 27-31; %F-%J: ; < = > ?;
+                    // %K-%O: [ \ ] ^ _; %P-%T: { | } ~ DEL; %U: NUL; %V: @;
+                    // %W: `; %X-%Z: DEL.
+                    _ => match letter {
+                        b'A'..=b'E' => 27 + k,
+                        b'F'..=b'J' => b';' + k - 5,
+                        b'K'..=b'O' => b'[' + k - 10,
+                        b'P'..=b'T' => b'{' + k - 15,
+                        b'U' => 0,
+                        b'V' => b'@',
+                        b'W' => b'`',
+                        _ => 127,
+                    },
+                }
+            }
+            other => other,
+        };
+        out.push(char::from(code));
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +200,69 @@ mod tests {
         // PZN7 4908802: 4*2 + 9*3 + 0*4 + 8*5 + 8*6 + 0*7 = 123, 123 % 11 = 2.
         assert_eq!(pzn_number("-4908802").as_deref(), Some("4908802"));
         assert_eq!(pzn_number("-4908803"), None);
+    }
+
+    #[test]
+    fn full_ascii_expands_every_pair_set() {
+        assert_eq!(full_ascii("+H+E+L+L+O").as_deref(), Some("hello"));
+        assert_eq!(full_ascii("$I%U%V%W%T").as_deref(), Some("\t\0@`\x7f"));
+        assert_eq!(
+            full_ascii("/A/O/Z%F%J%K%O%P%S").as_deref(),
+            Some("!/:;?[_{~")
+        );
+        assert_eq!(full_ascii("%A%E").as_deref(), Some("\x1b\x1f"));
+        assert_eq!(full_ascii("AB-12. ").as_deref(), Some("AB-12. "));
+        for invalid in ["$", "+1", "/P", "%-", "A$"] {
+            assert_eq!(full_ascii(invalid), None, "{invalid}");
+        }
+        // Every ASCII character is a plain Code 39 character or has a pair (`-`, `.`
+        // and DEL have two encodings).
+        let plain = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. ";
+        let mut seen = std::collections::HashSet::new();
+        for shift in ['$', '%', '/', '+'] {
+            for letter in 'A'..='Z' {
+                if let Some(text) = full_ascii(&format!("{shift}{letter}")) {
+                    let c = text.chars().next().unwrap();
+                    assert!(
+                        !plain.contains(c) || c == '-' || c == '.',
+                        "{shift}{letter}"
+                    );
+                    seen.insert(c);
+                }
+            }
+        }
+        assert!(
+            (0..128_u8).all(|b| plain.contains(char::from(b)) || seen.contains(&char::from(b)))
+        );
+    }
+
+    #[test]
+    fn extended_code39_reads_need_shifts_when_code39_is_selected() {
+        let ext = Format::Code39Extended as u32;
+        let code39 = Format::Code39 as u32;
+        let mut reads = vec![barcode("+H+I"), barcode("HI"), barcode("$1")];
+        apply(ext, &mut reads, &mut Vec::new());
+        let got: Vec<_> = reads.iter().map(|b| (b.format, b.text.as_str())).collect();
+        assert_eq!(
+            got,
+            [
+                (Format::Code39Extended, "hi"),
+                (Format::Code39Extended, "HI")
+            ]
+        );
+        assert_eq!(reads[0].payload_bytes.as_deref(), Some(&b"+H+I"[..]));
+        let mut reads = vec![barcode("+H+I"), barcode("HI"), barcode("$1")];
+        apply(ext | code39, &mut reads, &mut Vec::new());
+        let got: Vec<_> = reads.iter().map(|b| (b.format, b.text.as_str())).collect();
+        assert_eq!(
+            got,
+            [
+                (Format::Code39Extended, "hi"),
+                (Format::Code39, "HI"),
+                (Format::Code39, "$1")
+            ]
+        );
+        assert_eq!(engine_bits(ext), code39);
     }
 
     #[test]

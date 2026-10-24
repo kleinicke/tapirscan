@@ -48,7 +48,17 @@ public enum Format {
     /** Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in). */
     INDUSTRIAL25(2097152, "Industrial25"),
     /** Laetus Pharmacode (one-track), value 3 to 131070 (opt-in). */
-    PHARMACODE(4194304, "Pharmacode");
+    PHARMACODE(4194304, "Pharmacode"),
+    /** GS1 `DataBar` Limited. */
+    DATA_BAR_LIMITED(8388608, "DataBarLimited"),
+    /** Micro QR Code, versions M1 to M4. */
+    MICRO_QR_CODE(16777216, "MicroQRCode"),
+    /** Extended (full-ASCII) Code 39: a Code 39 symbol with shift pairs expanded (opt-in). */
+    CODE39EXTENDED(33554432, "Code39Extended"),
+    /** IATA 2 of 5, bars-only, digits as printed (opt-in). */
+    IATA25(67108864, "IATA25"),
+    /** Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in). */
+    MATRIX25(134217728, "Matrix25");
 
     /** EAN-13, UPC-A, EAN-8 and UPC-E. */
     public static final Set<Format> RETAIL =
@@ -61,13 +71,13 @@ public enum Format {
         Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, QR_CODE, DATA_MATRIX));
     /** All linear formats except the opt-in ones, including DataBar variants. */
     public static final Set<Format> LINEAR =
-        Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED));
-    /** QR Code, Data Matrix, PDF417, Aztec and MaxiCode. */
+        Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, DATA_BAR_LIMITED));
+    /** QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR. */
     public static final Set<Format> MATRIX =
-        Collections.unmodifiableSet(EnumSet.of(QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE));
+        Collections.unmodifiableSet(EnumSet.of(QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE, MICRO_QR_CODE));
     /** Every format except the opt-in formats, which are selected by name. */
     public static final Set<Format> ALL =
-        Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE));
+        Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, DATA_BAR_LIMITED, QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE, MICRO_QR_CODE));
 
     private final int bit;
     private final String schemaName;

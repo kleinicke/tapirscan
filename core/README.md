@@ -21,7 +21,8 @@ public scanner, see [the architecture overview](../docs/ARCHITECTURE.md).
   retry) with the decoder `multiformat/src/aztec.rs`. The facade's
   `matrix_frontend` runs it under `Policy::for_mode` (Low has smaller budgets and
   no bowed or adaptive sampling), sharing the original threshold images and row
-  runs with Data Matrix and PDF417; QR and MaxiCode are separate reader groups.
+  runs with Data Matrix and PDF417; QR and MaxiCode, and in High and Very High
+  Micro QR, are separate reader groups when other 2D formats are selected.
   The multiformat crate's own scan uses the same per-mode policies.
 
 - `qr_frontend` runs the QR-only reader: the multiformat QR detector

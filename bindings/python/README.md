@@ -50,11 +50,11 @@ keyword group; — means it is not included. `retail` is the default.
 | `EAN8`            | ✓        | ✓          | ✓        | ✓     | —     | ✓     | EAN-8                                             |
 | `UPCE`            | ✓        | ✓          | ✓        | ✓     | —     | ✓     | UPC-E                                             |
 | `Code128`         | —        | ✓          | ✓        | ✓     | —     | ✓     | Includes GS1-128                                  |
-| `Code39`          | —        | ✓          | ✓        | ✓     | —     | ✓     | Standard characters; no full-ASCII expansion      |
+| `Code39`          | —        | ✓          | ✓        | ✓     | —     | ✓     | Standard characters; full ASCII is Code39Extended |
 | `ITF`             | —        | ✓          | ✓        | ✓     | —     | ✓     | Interleaved 2 of 5                                |
 | `Codabar`         | —        | —          | —        | ✓     | —     | ✓     |                                                   |
 | `Code93`          | —        | —          | —        | ✓     | —     | ✓     |                                                   |
-| `QRCode`          | —        | —          | ✓        | —     | ✓     | ✓     | Model 2; no Micro QR, Model 1 or rMQR             |
+| `QRCode`          | —        | —          | ✓        | —     | ✓     | ✓     | Model 2; no Model 1 or rMQR                       |
 | `DataMatrix`      | —        | —          | ✓        | —     | ✓     | ✓     | ECC200 and DMRE                                   |
 | `PDF417`          | —        | —          | —        | —     | ✓     | ✓     | Normal/Compact and Macro; no Micro PDF417         |
 | `Aztec`           | —        | —          | —        | —     | ✓     | ✓     | Compact/full and Rune                             |
@@ -66,10 +66,16 @@ keyword group; — means it is not included. `retail` is the default.
 | `MSIPlessey`      | —        | —          | —        | —     | —     | —     | Opt-in: mod-10 check digit required               |
 | `Industrial25`    | —        | —          | —        | —     | —     | —     | Opt-in: Industrial (Standard) 2 of 5              |
 | `Pharmacode`      | —        | —          | —        | —     | —     | —     | Opt-in: Laetus one-track Pharmacode               |
+| `DataBarLimited`  | —        | —          | —        | ✓     | —     | ✓     |                                                   |
+| `MicroQRCode`     | —        | —          | —        | —     | ✓     | ✓     | M1–M4                                             |
+| `Code39Extended`  | —        | —          | —        | —     | —     | —     | Opt-in: full-ASCII Code 39                        |
+| `IATA25`          | —        | —          | —        | —     | —     | —     | Opt-in: IATA 2 of 5                               |
+| `Matrix25`        | —        | —          | —        | —     | —     | —     | Opt-in: Matrix 2 of 5                             |
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN`, `MSIPlessey`, `Industrial25` and `Pharmacode` require explicit selection; no group includes
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and `Matrix25`
+require explicit selection; no group includes
 them, even `all`. See the [format guide](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md)
 for variant details and EAN/UPC supplements.
 
@@ -115,7 +121,8 @@ for barcode in result.barcodes:
 `formats="1D"` enables linear formats except the opt-in formats. `"retail"` selects EAN13, UPCA, EAN8
 and UPCE; `"common1D"` adds Code128, Code39 and ITF; `"common"` adds QRCode and
 DataMatrix; `"2D"` and `"all"` are also available. `Code32`, `PZN`,
-`MSIPlessey`, `Industrial25` and `Pharmacode` require explicit selection, even with `"all"`. See
+`MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and `Matrix25` require
+explicit selection, even with `"all"`. See
 [format and keyword-group matrix](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md#format-matrix).
 
 ### PyTorch tensors
@@ -374,7 +381,8 @@ probability, and is not comparable across formats. In a mixed-format image,
 payload when your application knows what it expects. Checksums reduce
 wrong reads but cannot rule them out.
 
-`payload_bytes` is supplied by QR Code, Data Matrix, Aztec, PDF417 and MaxiCode.
+`payload_bytes` is supplied by QR Code, Micro QR, Data Matrix, Aztec, PDF417 and MaxiCode, and by
+the Code 39 variants (`Code32`, `PZN`, `Code39Extended`) as the raw Code 39 text.
 It holds decoded data bytes before character-set interpretation, not raw
 codewords; Aztec Rune gives its value as decimal ASCII. Encoding `text` as UTF-8
 does not reconstruct these bytes.

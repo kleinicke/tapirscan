@@ -396,7 +396,7 @@ fn opt_in_bar_code_reads_of_one_symbol_merge() {
         channels: 1,
         stride: 320,
     };
-    for format in ["Industrial25", "Pharmacode"] {
+    for format in ["Industrial25", "IATA25", "Matrix25", "Pharmacode"] {
         let mut first = crate::read::Read::primary(
             [0; 13],
             [[60., 50.], [252., 50.], [252., 140.], [60., 140.]],
