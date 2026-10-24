@@ -150,8 +150,10 @@ enum RecoveryAdmission {
     SeparatedRawUpce,
 }
 
-/// UPC-E recovery requiring spatially separated agreement on raw source rows.
-/// Ranking support remains capped by the ordinary refinement confirmation path.
+/// UPC-E recovery in unread proposals. A UPC-E read is kept only when original
+/// (unrefined) source rows that read it lie at three or more positions across the
+/// box, each at least the read's minimum span from the previous one, and then needs
+/// the same confirmation as other recovered reads.
 pub(crate) fn recover_uncovered_upce(
     image: Image<'_>,
     proposals: &[crate::Proposal],

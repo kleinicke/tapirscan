@@ -20,7 +20,7 @@
 
 use std::cmp::Ordering;
 
-use crate::linear::DIGITS;
+use crate::linear::{DIGITS, PARITY, UPC_PARITY, supplement_parity};
 
 /// Whether `value > limit`; false for NaN.
 fn exceeds(value: f32, limit: f32) -> bool {
@@ -35,21 +35,26 @@ fn reaches(value: f32, limit: f32) -> bool {
     )
 }
 
-/// Left-half parity of EAN-13 per leading digit; bit 5 is the first digit, set for G codes.
-const PARITY13: [u8; 10] = [0, 11, 13, 14, 19, 25, 28, 21, 22, 26];
-/// UPC-E parity per check digit (number system 0); bit 5 is the first digit, set for G codes.
-const PARITY_UPCE: [u8; 10] = [56, 52, 50, 49, 44, 38, 35, 42, 41, 37];
-/// EAN-5 parity pattern per check value; bit 4 is the first digit, set for G codes.
-const PARITY5: [u8; 10] = [24, 20, 18, 17, 12, 6, 3, 10, 9, 5];
+/// A B-spline of width w has standard deviation w / sqrt(3).
+const SQRT_3: f32 = 1.732_050_8;
+/// Width of an EAN-5 supplement in modules, from its guard to its last bar.
+const EAN5_MODULES: f32 = 47.;
 /// Profile samples per module.
 const SAMPLES_PER_MODULE: f32 = 4.;
 /// Modules sampled before the main symbol's estimated start.
 const LEADING_MODULES: f32 = 12.;
-/// Modules sampled after the main symbol's estimated end: widest gap plus EAN-5 and quiet zone.
+/// Modules sampled after the main symbol's estimated end: the widest gap tried, an
+/// EAN-5 and its quiet zone at the widest module scale after refinement (about 71
+/// modules), and margin for the main fit's length.
 const TRAILING_MODULES: f32 = 76.;
 /// Supplement gaps tried, in modules. The specification asks for 7-12; printed
 /// symbols also use narrower or wider gaps.
 const GAP_RANGE: (f32, f32) = (4.5, 16.);
+/// Placement refinement: steps tried to each side, of the origin (in modules) and of
+/// the module scale (relative).
+const REFINE_STEPS: i8 = 3;
+const REFINE_ORIGIN_STEP: f32 = 0.125;
+const REFINE_SCALE_STEP: f32 = 0.01;
 /// Gap hypotheses decoded per profile, best guard fits first.
 const GAP_HYPOTHESES: usize = 3;
 /// Supplement module widths tried relative to the main symbol's extended geometry.
@@ -64,8 +69,9 @@ const MIN_MAIN_CORRELATION: f32 = 0.8;
 const CLEAR_CORRELATION: f32 = 0.9;
 /// Bar-like darkness peaks required beside the symbol before any fitting.
 const MIN_BARS_BEYOND: usize = 4;
-/// Digit margin: the second-best code's squared error above the best, in modules'
-/// worth of the main symbol's mean squared residual per sample.
+/// Smallest digit margin (the second-best code's squared error minus the best's), in
+/// units of the main symbol's mean squared residual per sample summed over one
+/// supplement module's samples.
 const MIN_DIGIT_MARGIN: f32 = 6.;
 /// Supplement RMS residual allowed relative to the main symbol's.
 const MAX_RESIDUAL_RATIO: f32 = 1.6;
@@ -74,8 +80,8 @@ const RESIDUAL_FLOOR: f32 = 0.08;
 /// A digit's mean squared error above this multiple of the allowed squared RMS
 /// residual ends a gap hypothesis before the remaining digits.
 const ABORT_RESIDUAL_RATIO: f32 = 3.;
-/// Modules after the supplement that must be free of bars. The specification
-/// asks for five; labels often end sooner.
+/// Modules after the supplement that must be free of bars: fewer than the five of
+/// the specification, so a label edge soon after the supplement does not end it.
 const QUIET_MODULES: f32 = 3.5;
 /// Supplement bar contrast allowed relative to the main symbol's, and its inverse.
 const MIN_CONTRAST_RATIO: f32 = 0.6;
@@ -85,28 +91,15 @@ const MIN_AGREEING_PROFILES: usize = 2;
 /// first. The supplement is shorter than the main bars; its digits are printed above.
 const LINE_FRACTIONS: [f32; 9] = [0.55, 0.7, 0.4, 0.85, 0.25, 0.62, 0.48, 0.78, 0.32];
 
-/// Read the supplement right of a decoded EAN-13 or UPC-A symbol.
+/// Read the supplement right of a decoded EAN-13, UPC-A, EAN-8 or UPC-E symbol.
 ///
 /// `pixel(x, y)` returns the gray value of a pixel of the `width` x `height` image.
 /// `polygon` is the main symbol's outline in reading order (start guard edge first);
 /// `format` and `text` its decoded value (`EAN13`, `UPCA`, `EAN8` or `UPCE`). `profiles` bounds the scan
-/// lines across the symbol height. Returns the supplement digits when confirmed.
-#[must_use]
-pub fn read(
-    pixel: impl Fn(usize, usize) -> f32,
-    width: usize,
-    height: usize,
-    polygon: &[[f32; 2]; 4],
-    format: &str,
-    text: &str,
-    profiles: usize,
-) -> Option<String> {
-    read_with_evidence(pixel, width, height, polygon, format, text, profiles).0
-}
-
-/// [`read`], and whether a supplement may be printed although no value was
-/// confirmed: bars beside the symbol fit a supplement's first digit on some profile,
-/// or the main pattern itself did not fit a profile with bars beside it.
+/// lines across the symbol height. Returns the supplement digits when confirmed, and
+/// whether a supplement may be printed although no value was confirmed: bars beside
+/// the symbol fit a supplement's first digit on some profile, or the main pattern
+/// itself did not fit a profile with bars beside it.
 #[must_use]
 pub fn read_with_evidence(
     pixel: impl Fn(usize, usize) -> f32,
@@ -117,35 +110,27 @@ pub fn read_with_evidence(
     text: &str,
     profiles: usize,
 ) -> (Option<String>, bool) {
-    profile_supplement(pixel, width, height, polygon, format, text, profiles)
-        .unwrap_or((None, false))
-}
-
-fn profile_supplement(
-    pixel: impl Fn(usize, usize) -> f32,
-    width: usize,
-    height: usize,
-    polygon: &[[f32; 2]; 4],
-    format: &str,
-    text: &str,
-    profiles: usize,
-) -> Option<(Option<String>, bool)> {
-    let (bars, span) = main_pattern(format, text)?;
+    const NONE: (Option<String>, bool) = (None, false);
+    let Some((bars, span)) = main_pattern(format, text) else {
+        return NONE;
+    };
     if width < 8 || height < 8 {
-        return None;
+        return NONE;
     }
     let mut model = MainModel::new(bars, span);
     let normal = bar_normal(&pixel, width, height, polygon);
     // Outlines start at the start guard; a reversed outline fits the main pattern
     // only when read the other way.
-    let mut geometry = Geometry::new(polygon, normal, span)?;
+    let Some(mut geometry) = Geometry::new(polygon, normal, span) else {
+        return NONE;
+    };
     let mut values: Vec<(String, usize)> = Vec::new();
     let mut previous: Option<MainFit> = None;
     let mut lines = 0;
     let mut promising = false;
     for &fraction in LINE_FRACTIONS.iter().take(profiles) {
         // Two agreeing profiles out of three or more, without disagreement, settle it;
-        // two profiles on which no digit fits any code end the search.
+        // two profiles on which no hypothesis gets past its first digit end the search.
         if (lines >= 3
             && matches!(values.as_slice(), [(_, count)] if *count >= MIN_AGREEING_PROFILES))
             || (lines >= 2 && !promising)
@@ -161,17 +146,19 @@ fn profile_supplement(
             };
             (profile, fit)
         } else {
-            let reversed = Geometry::new(
+            let Some(reversed) = Geometry::new(
                 &[polygon[1], polygon[0], polygon[3], polygon[2]],
                 normal,
                 span,
-            )?;
+            ) else {
+                return NONE;
+            };
             let mut best: Option<(Profile, MainFit, Geometry)> = None;
             let profiles = [geometry, reversed].map(|g| g.profile(&pixel, width, height, fraction));
             // Plain paper after the symbol, read either way, holds no supplement:
             // most frames end here before any fitting.
             if !profiles.iter().flatten().any(Profile::ink_beyond) {
-                return None;
+                return NONE;
             }
             for (candidate, profile) in [geometry, reversed].into_iter().zip(profiles) {
                 let Some(profile) = profile else {
@@ -195,7 +182,7 @@ fn profile_supplement(
             // Bars beside a symbol whose pattern does not fit (glare, a curved
             // surface): no value, but no reason to rule a supplement out either.
             let Some((profile, fit, chosen)) = best else {
-                return Some((None, true));
+                return (None, true);
             };
             geometry = chosen;
             (profile, fit)
@@ -204,7 +191,7 @@ fn profile_supplement(
         let line = Line::new(&profile, fit, &model.bars);
         // Nothing but paper beside the first profile's symbol: no supplement.
         if values.is_empty() && lines == 0 && !ink_beyond(&line) {
-            return None;
+            return NONE;
         }
         lines += 1;
         let (decoded, hopeful) = decode_supplement(&line);
@@ -221,7 +208,7 @@ fn profile_supplement(
         [(value, count)] if *count >= MIN_AGREEING_PROFILES => Some(value.clone()),
         _ => None,
     };
-    Some((value, promising))
+    (value, promising)
 }
 
 fn digits(text: &str) -> Option<Vec<u8>> {
@@ -241,7 +228,7 @@ fn main_pattern(format: &str, text: &str) -> Option<(Vec<(f32, f32)>, f32)> {
             } else {
                 (0, &d[..])
             };
-            let parity = PARITY13[usize::from(first)];
+            let parity = PARITY[usize::from(first)];
             for (i, &digit) in rest[..6].iter().enumerate() {
                 runs.extend(code_runs(digit, parity & (1 << (5 - i)) != 0));
             }
@@ -262,7 +249,7 @@ fn main_pattern(format: &str, text: &str) -> Option<(Vec<(f32, f32)>, f32)> {
             runs.extend([1, 1, 1]);
         }
         ("UPCE", 8) if d[0] <= 1 => {
-            let parity = PARITY_UPCE[usize::from(d[7])] ^ if d[0] == 1 { 63 } else { 0 };
+            let parity = UPC_PARITY[usize::from(d[7])] ^ if d[0] == 1 { 63 } else { 0 };
             for (i, &digit) in d[1..7].iter().enumerate() {
                 runs.extend(code_runs(digit, parity & (1 << (5 - i)) != 0));
             }
@@ -328,8 +315,7 @@ fn spline_cdf(x: f32) -> f32 {
 
 /// Blurred ink coverage at `t` (modules) of sorted `bars` under blur `sigma` (modules).
 fn coverage(bars: &[(f32, f32)], t: f32, sigma: f32) -> f32 {
-    // A B-spline of width w has standard deviation w / sqrt(3).
-    let w = sigma * 1.732_050_8;
+    let w = sigma * SQRT_3;
     let reach = 2. * w;
     let mut value = 0.;
     for &(lo, hi) in bars {
@@ -481,7 +467,8 @@ fn bar_normal(
                 crate::numeric::f32_usize(x + 0.5),
                 crate::numeric::f32_usize(y + 0.5),
             );
-            if xi + 1 >= width || yi + 1 >= height {
+            // Compared without `+ 1`: a corrupt outline saturates the index to `usize::MAX`.
+            if xi >= width - 1 || yi >= height - 1 {
                 continue;
             }
             let gx = pixel(xi + 1, yi) - pixel(xi - 1, yi);
@@ -515,7 +502,7 @@ fn bilinear(
     }
     let x0 = crate::numeric::f32_usize(x);
     let y0 = crate::numeric::f32_usize(y);
-    if x0 + 1 >= width || y0 + 1 >= height {
+    if x0 >= width - 1 || y0 >= height - 1 {
         return None;
     }
     let fx = x - crate::numeric::usize_f32(x0);
@@ -562,7 +549,7 @@ impl Profile {
         let symbol = spread(self.range(0., self.span * m));
         let beyond = self.range(
             (self.span + GAP_RANGE.0) * m,
-            (self.span + GAP_RANGE.1 + 47.) * m,
+            (self.span + GAP_RANGE.1 + EAN5_MODULES) * m,
         );
         if beyond.is_empty() || spread(beyond.clone()) < symbol * 0.25 {
             return false;
@@ -669,7 +656,7 @@ impl MainModel {
         let len = crate::numeric::f32_usize((self.span - 2. * TABLE_FIRST) * TABLE_RESOLUTION) + 1;
         self.tables[sigma].get_or_insert_with(|| {
             // Positions increase: skip the bars left behind once.
-            let reach = 2. * SIGMAS[sigma] * 1.732_050_8;
+            let reach = 2. * SIGMAS[sigma] * SQRT_3;
             let mut first = 0;
             (0..len)
                 .map(|k| {
@@ -1036,7 +1023,7 @@ fn local_levels(
 /// any ink: its darkness range exceeds a quarter of the main bar contrast.
 fn ink_beyond(line: &Line<'_>) -> bool {
     let span = line.fit.map.span;
-    let range = line.range(span + GAP_RANGE.0 - 1., span + GAP_RANGE.1 + 47.);
+    let range = line.range(span + GAP_RANGE.0 - 1., span + GAP_RANGE.1 + EAN5_MODULES);
     let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
     for &v in &line.profile.values[range] {
         lo = lo.min(v);
@@ -1085,10 +1072,10 @@ fn decode_supplement(line: &Line<'_>) -> (Option<String>, bool) {
             continue;
         }
         tried.push(origin);
-        // Other module widths are tried only when the extended geometry's fails.
-        // A first digit that fits no code at the extended geometry ends the gap
-        // hypothesis: it lies next to the guard, where the width matters least.
-        // Other widths may fail there and still fit.
+        // The extended geometry's module width first; other widths only when it
+        // yields no value. A first digit that fits no code at the extended width
+        // ends the gap hypothesis (it lies next to the guard, where the width matters
+        // least); at another width it only moves on to the next width.
         'scales: for (index, scale) in SUPPLEMENT_SCALES.into_iter().enumerate() {
             for count in [5usize, 2] {
                 let (value, rms) = match decode_digits(line, Placement { origin, scale }, count) {
@@ -1114,18 +1101,29 @@ fn decode_supplement(line: &Line<'_>) -> (Option<String>, bool) {
     (best.map(|(value, _)| value), promising)
 }
 
-/// Bars that reach into digit slot `i`'s window: the guard or the previous digit and
-/// its separator, the digit itself, and the following separator and digit.
+/// Start of digit slot `i` in supplement modules: after the four-module guard, each
+/// digit takes seven modules and its separator two.
+fn slot_start(i: usize) -> f32 {
+    4. + 9. * crate::numeric::usize_f32(i)
+}
+
+/// End of a supplement of `count` digits in supplement modules (its last bar).
+fn supplement_end(count: usize) -> f32 {
+    slot_start(count) - 2.
+}
+
 /// [`slot_bars`] without the digit in slot `i` itself.
 fn context_bars(codes: &[(u8, bool)], i: usize, bars: &mut Vec<(f32, f32)>) {
     slot_bars(codes, i, bars);
-    let slot = 4. + 9. * crate::numeric::usize_f32(i);
+    let slot = slot_start(i);
     bars.retain(|&(lo, hi)| lo < slot || hi > slot + 7.);
 }
 
+/// Bars that reach into digit slot `i`'s window: the guard or the previous digit and
+/// its separator, the digit itself, and the following separator and digit.
 fn slot_bars(codes: &[(u8, bool)], i: usize, bars: &mut Vec<(f32, f32)>) {
     bars.clear();
-    let slot = 4. + 9. * crate::numeric::usize_f32(i);
+    let slot = slot_start(i);
     if i == 0 {
         push_bars(&[1, 1, 2], 0., bars);
     } else {
@@ -1173,7 +1171,7 @@ fn choose_codes(
     // The second sweep re-chooses each digit with both neighbours known.
     for sweep in 0..2 {
         for i in 0..count {
-            let slot = 4. + 9. * crate::numeric::usize_f32(i);
+            let slot = slot_start(i);
             if sweep == 0 && i > 0 {
                 slot_levels[i] = slot_levels[i - 1];
             }
@@ -1237,13 +1235,8 @@ fn parity_valid(codes: &[(u8, bool)]) -> bool {
     let parity = codes
         .iter()
         .fold(0u8, |p, &(_, even)| (p << 1) | u8::from(even));
-    let values: Vec<u32> = codes.iter().map(|&(d, _)| u32::from(d)).collect();
-    if values.len() == 2 {
-        u32::from(parity) == (values[0] * 10 + values[1]) % 4
-    } else {
-        let check = (3 * (values[0] + values[2] + values[4]) + 9 * (values[1] + values[3])) % 10;
-        PARITY5[check as usize] == parity
-    }
+    let digits: Vec<u8> = codes.iter().map(|&(d, _)| d).collect();
+    supplement_parity(&digits) == Some(parity)
 }
 
 /// Model of the gap, the supplement `codes` and its quiet zone, with the main end guard.
@@ -1253,18 +1246,18 @@ fn full_bars(line: &Line<'_>, place: Placement, codes: &[(u8, bool)]) -> Vec<(f3
     bars
 }
 
-/// Placement with the lowest whole-window error near `place`: the origin first,
-/// then the module width.
+/// Placement with the lowest error from the supplement guard to the end of its
+/// quiet zone near `place`: the origin first, then the module width.
 fn refine_placement(
     line: &Line<'_>,
     levels: (f32, f32),
     place: Placement,
     codes: &[(u8, bool)],
-    hi: f32,
 ) -> Placement {
+    let end = supplement_end(codes.len()) + QUIET_MODULES;
     let error = |candidate: Placement| {
         let bars = full_bars(line, candidate, codes);
-        let (error, n) = segment_error(line, levels, candidate, &bars, 0., hi);
+        let (error, n) = segment_error(line, levels, candidate, &bars, 0., end);
         if n == 0 {
             f32::INFINITY
         } else {
@@ -1272,17 +1265,18 @@ fn refine_placement(
         }
     };
     let mut best = (error(place), place);
+    // A grid around the best origin, then around the best module scale.
     for step in 1..=2 {
-        for k in -3i8..=3 {
-            let center = best.1;
+        let center = best.1;
+        for k in -REFINE_STEPS..=REFINE_STEPS {
             let candidate = if step == 1 {
                 Placement {
-                    origin: center.origin + f32::from(k) * 0.125,
+                    origin: center.origin + f32::from(k) * REFINE_ORIGIN_STEP,
                     ..center
                 }
             } else {
                 Placement {
-                    scale: center.scale * (1. + f32::from(k) * 0.01),
+                    scale: center.scale * (1. + f32::from(k) * REFINE_SCALE_STEP),
                     ..center
                 }
             };
@@ -1373,7 +1367,7 @@ fn final_residuals(
         (sum / crate::numeric::usize_f32(n.max(1))).sqrt()
     };
     let mut quiet_rms = mean_square(&mut quiet.iter().map(|q| q.1));
-    let w = sigma * 1.732_050_8;
+    let w = sigma * SQRT_3;
     let mut edge = total + 1.5;
     while edge <= end - 0.5 {
         // Least-squares height of a blurred step at `edge`.
@@ -1408,25 +1402,14 @@ enum Decoded {
     NoFirstDigit,
 }
 
+/// Decode a supplement of `count` digits at `place`.
 fn decode_digits(line: &Line<'_>, place: Placement, count: usize) -> Decoded {
-    match decode_inner(line, place, count) {
-        Ok(Some((value, rms))) => Decoded::Accepted(value, rms),
-        Ok(None) => Decoded::Rejected,
-        Err(()) => Decoded::NoFirstDigit,
-    }
-}
-
-fn decode_inner(
-    line: &Line<'_>,
-    place: Placement,
-    count: usize,
-) -> Result<Option<(String, f32)>, ()> {
     let fit = line.fit;
-    let total = 4. + 9. * crate::numeric::usize_f32(count) - 2.;
+    let total = supplement_end(count);
     let end = total + QUIET_MODULES;
     // The supplement and its quiet zone must lie inside the profile.
     if line.modules.last().is_none_or(|&t| t < place.to_main(end)) {
-        return Ok(None);
+        return Decoded::Rejected;
     }
     let noise = fit.noise.max(1.);
     let allowed = (noise.sqrt() * MAX_RESIDUAL_RATIO).max(fit.contrast * RESIDUAL_FLOOR);
@@ -1447,12 +1430,12 @@ fn decode_inner(
     let first = choose_codes(line, main_levels, place, count, abort);
     let codes = match first {
         Ok((codes, _)) => codes,
-        Err(0) => return Err(()),
-        Err(_) => return Ok(None),
+        Err(0) => return Decoded::NoFirstDigit,
+        Err(_) => return Decoded::Rejected,
     };
     // Align the supplement on its own bars, then choose again under its own levels:
     // light falls off across the label.
-    let place = refine_placement(line, main_levels, place, &codes, end);
+    let place = refine_placement(line, main_levels, place, &codes);
     let Some(levels) = local_levels(
         line,
         place,
@@ -1460,23 +1443,23 @@ fn decode_inner(
         place.to_supplement(fit.map.span + 0.5),
         end,
     ) else {
-        return Ok(None);
+        return Decoded::Rejected;
     };
     if !plausible_contrast(levels.1, fit.contrast) {
-        return Ok(None);
+        return Decoded::Rejected;
     }
     let Ok((codes, margins)) = choose_codes(line, levels, place, count, abort) else {
-        return Ok(None);
+        return Decoded::Rejected;
     };
     if !parity_valid(&codes) {
-        return Ok(None);
+        return Decoded::Rejected;
     }
     let samples_per_module = place.scale * fit.map.module / line.profile.step;
     if margins
         .iter()
         .any(|&m| m < MIN_DIGIT_MARGIN * noise * samples_per_module)
     {
-        return Ok(None);
+        return Decoded::Rejected;
     }
     // The gap from the main symbol's end, the supplement and its quiet zone: no
     // bars other than the modelled ones, so stray bars before or after are rejected.
@@ -1489,10 +1472,10 @@ fn decode_inner(
         total,
         end,
     ) else {
-        return Ok(None);
+        return Decoded::Rejected;
     };
     if rms > allowed || quiet_rms > allowed {
-        return Ok(None);
+        return Decoded::Rejected;
     }
     // A two-digit read must not be the start of a five-digit supplement cut by the
     // image border or blur: no separator bar may follow its second digit.
@@ -1503,13 +1486,13 @@ fn decode_inner(
         let (separator, _) =
             segment_error(line, levels, place, &separated, total + 0.25, total + 2.75);
         if n == 0 || separator < white {
-            return Ok(None);
+            return Decoded::Rejected;
         }
     }
-    Ok(Some((
+    Decoded::Accepted(
         codes.iter().map(|&(d, _)| char::from(b'0' + d)).collect(),
         rms,
-    )))
+    )
 }
 
 #[cfg(test)]
@@ -1553,12 +1536,7 @@ mod tests {
 
     fn supplement_codes(text: &str) -> Vec<(u8, bool)> {
         let values: Vec<u8> = text.bytes().map(|b| b - b'0').collect();
-        let parity = if values.len() == 2 {
-            (values[0] * 10 + values[1]) % 4
-        } else {
-            let v: Vec<u32> = values.iter().map(|&d| u32::from(d)).collect();
-            PARITY5[((3 * (v[0] + v[2] + v[4]) + 9 * (v[1] + v[3])) % 10) as usize]
-        };
+        let parity = supplement_parity(&values).unwrap();
         let n = values.len();
         values
             .iter()
@@ -1588,7 +1566,7 @@ mod tests {
                             .iter()
                             .map(|&(a, b)| (a + span + self.gap, b + span + self.gap)),
                     );
-                    end = span + self.gap + 4. + 9. * crate::numeric::usize_f32(codes.len()) - 2.;
+                    end = span + self.gap + supplement_end(codes.len());
                 }
                 bars.extend_from_slice(self.stray);
                 bars.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -1623,7 +1601,7 @@ mod tests {
 
         fn read(&self) -> Option<String> {
             let (image, width, height, polygon) = self.render();
-            read(
+            read_with_evidence(
                 |x, y| f32::from(image[y * width + x]),
                 width,
                 height,
@@ -1632,7 +1610,18 @@ mod tests {
                 self.text,
                 5,
             )
+            .0
         }
+    }
+
+    #[test]
+    fn profiles_reach_past_the_widest_supplement() {
+        let steps = f32::from(REFINE_STEPS);
+        let scale =
+            SUPPLEMENT_SCALES.iter().copied().fold(0., f32::max) * (1. + steps * REFINE_SCALE_STEP);
+        let reach =
+            GAP_RANGE.1 + steps * REFINE_ORIGIN_STEP + (supplement_end(5) + QUIET_MODULES) * scale;
+        assert!((70. ..TRAILING_MODULES).contains(&reach), "{reach}");
     }
 
     #[test]
@@ -1744,6 +1733,32 @@ mod tests {
                 ..SCENE
             };
             assert_eq!(scene.read(), None, "cut {cut} modules into the supplement");
+        }
+    }
+
+    #[test]
+    fn outlines_far_outside_the_image_read_nothing() {
+        let (image, width, height, _) = SCENE.render();
+        for polygon in [
+            [[1e30, 6.], [2e30, 6.], [2e30, 42.], [1e30, 42.]],
+            [[10., 1e30], [200., 1e30], [200., 2e30], [10., 2e30]],
+            [
+                [f32::MAX, 6.],
+                [f32::INFINITY, 6.],
+                [f32::INFINITY, 42.],
+                [f32::MAX, 42.],
+            ],
+        ] {
+            let read = read_with_evidence(
+                |x, y| f32::from(image[y * width + x]),
+                width,
+                height,
+                &polygon,
+                SCENE.format,
+                SCENE.text,
+                5,
+            );
+            assert_eq!(read, (None, false));
         }
     }
 

@@ -491,12 +491,12 @@ pub fn scan_with_images(
     let mut regions = regions::Regions::default();
     let mut matrix_results = Vec::new();
     let mut matrix_unfinished = false;
-    for (bit, name) in matrix_readers::ORDER {
-        if mask & bit == 0 {
-            continue;
-        }
+    for reader in matrix_readers::ORDER
+        .into_iter()
+        .filter_map(|reader| reader.select(mask))
+    {
         let (mut reads, limited) = matrix_readers::read(
-            bit & mask,
+            reader,
             image,
             [width, height],
             effort,
@@ -504,13 +504,9 @@ pub fn scan_with_images(
             &mut regions,
             binary_images,
         );
-        if matrix_results.is_empty() {
-            matrix_results = reads;
-        } else {
-            matrix_results.append(&mut reads);
-        }
+        matrix_results.append(&mut reads);
         matrix_unfinished |= limited;
-        observe(name, matrix_unfinished || regions.limited);
+        observe(reader.name(), matrix_unfinished || regions.limited);
     }
     if mask & formats::ENGINE_LINEAR_MASK == 0 {
         linear_geometry::distinct(&mut matrix_results);
@@ -1101,7 +1097,13 @@ mod image_safety_tests {
                     }
                 })
                 .collect();
-            let scan = super::scan(&pixels, w, h, 25_329_663, 1);
+            let scan = super::scan(
+                &pixels,
+                w,
+                h,
+                crate::formats::ENGINE_LINEAR_MASK | crate::formats::MATRIX_MASK,
+                1,
+            );
             assert!(
                 scan.barcodes
                     .iter()

@@ -331,7 +331,7 @@ fn weak_itf_requires_shared_bars_not_just_overlapping_retail_boxes() {
     assert_eq!(scan(&pixels, weak.clone()).len(), 1);
     let mut supported = weak.clone();
     supported.support = 3;
-    // The full measured footprint now proves this stronger alias uses the same bars.
+    // The full measured footprint proves this stronger alias uses the same bars.
     assert_eq!(scan(&pixels, supported).len(), 1);
     pixels[115 * 320..116 * 320].fill(255);
     assert_eq!(scan(&pixels, weak).len(), 2);

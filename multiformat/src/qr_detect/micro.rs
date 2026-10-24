@@ -8,6 +8,12 @@ use crate::{Detection, micro_qr};
 
 /// Grid decodes per detection pass.
 const ATTEMPTS: usize = 64;
+/// Finder quads whose orientations are scored in the standard threshold modes of
+/// a detection pass, and again in its foreground modes; a finder's
+/// central and outer quads count separately. Each quad checks the format and
+/// timing modules of eight orientations at every turn and scale correction, so
+/// this bounds a pass over texture with hundreds of finder-like squares.
+const SCORED_QUADS: usize = 256;
 /// Grid decodes per finder, best-ranked orientations first.
 const FINDER_CANDIDATES: usize = 4;
 /// Module-size corrections of the finder estimate.
@@ -17,6 +23,23 @@ const SCALES: [f32; 5] = [1., 0.94, 1.06, 0.88, 1.12];
 const TURNS: [f32; 5] = [0., -0.07, 0.07, -0.14, 0.14];
 /// Sampling offsets, in modules, of the grids tried per orientation.
 const OFFSETS: [f32; 3] = [0., -0.2, 0.2];
+
+/// Work of the Micro QR search in one detection pass, shared by its threshold
+/// modes; the foreground modes renew the scoring allowance.
+#[derive(Default)]
+pub(super) struct Budget {
+    /// Grid decodes, at most [`ATTEMPTS`].
+    attempts: usize,
+    /// Scored finder quads, at most [`SCORED_QUADS`].
+    scored: usize,
+}
+
+impl Budget {
+    /// Allow [`SCORED_QUADS`] more scored quads, keeping the decode count.
+    pub(super) fn renew_scoring(&mut self) {
+        self.scored = 0;
+    }
+}
 
 struct Candidate {
     score: usize,
@@ -191,7 +214,7 @@ fn decode_finder(
     w: usize,
     h: usize,
     finder: &Finder,
-    attempts: &mut usize,
+    budget: &mut Budget,
     limited: &mut bool,
     regions: &mut crate::regions::Regions,
 ) -> Option<Detection> {
@@ -199,6 +222,11 @@ fn decode_finder(
     let mut region: Option<(f32, [[f32; 2]; 4])> = None;
     let mut tried_outer = false;
     while let Some((quad, span)) = quads.pop() {
+        if budget.scored >= SCORED_QUADS {
+            *limited = true;
+            break;
+        }
+        budget.scored += 1;
         let mut candidates: Vec<Candidate> = Vec::new();
         for rotation in 0..4 {
             for mirror in [false, true] {
@@ -230,11 +258,11 @@ fn decode_finder(
             let mut refined = None;
             // The finder's grid first; the timing-fitted one only when it fails.
             for k in 0..=OFFSETS.len() {
-                if *attempts >= ATTEMPTS {
+                if budget.attempts >= ATTEMPTS {
                     *limited = true;
                     return None;
                 }
-                *attempts += 1;
+                budget.attempts += 1;
                 let (t, offset) = if k == 0 {
                     (&c.transform, 0.)
                 } else {
@@ -282,11 +310,12 @@ fn decode_finder(
 }
 
 /// Try every finder that no read claims as a Micro QR finder; well-localized
-/// symbols that fail to decode become undecoded regions. Returns whether the
-/// attempt budget cut the search.
+/// symbols that fail to decode become undecoded regions. Finders are tried in
+/// the given order, by support. Returns whether the decode or scoring budget cut
+/// the search.
 #[expect(
     clippy::too_many_arguments,
-    reason = "The pass shares its image, finders, reads, claimed finders, attempt budget and undecoded regions."
+    reason = "The pass shares its image, finders, reads, claimed finders, work budget and undecoded regions."
 )]
 pub(super) fn recover(
     image: &[bool],
@@ -295,7 +324,7 @@ pub(super) fn recover(
     finders: &[Finder],
     results: &mut Vec<Detection>,
     used: &mut Vec<Finder>,
-    attempts: &mut usize,
+    budget: &mut Budget,
     regions: &mut crate::regions::Regions,
 ) -> bool {
     let mut limited = false;
@@ -309,13 +338,76 @@ pub(super) fn recover(
         {
             continue;
         }
-        if let Some(read) = decode_finder(image, w, h, finder, attempts, &mut limited, regions) {
+        if let Some(read) = decode_finder(image, w, h, finder, budget, &mut limited, regions) {
             results.push(read);
             used.push(finder.clone());
         }
-        if *attempts >= ATTEMPTS {
+        if budget.attempts >= ATTEMPTS {
             break;
         }
     }
     limited
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::{Budget, SCORED_QUADS, recover};
+
+    /// A frame of `count` isolated finder patterns with two-pixel modules.
+    fn finder_grid(count: usize) -> (Vec<bool>, usize, usize) {
+        let (columns, cell) = (25, 23);
+        let (width, height) = (columns * cell, count.div_ceil(columns) * cell + 8);
+        let mut bits = vec![false; width * height];
+        for i in 0..count {
+            let (left, top) = ((i % columns) * cell + 4, (i / columns) * cell + 4);
+            for y in 0..14 {
+                for x in 0..14 {
+                    let (a, b) = (x / 2, y / 2);
+                    bits[(top + y) * width + left + x] = a == 0
+                        || a == 6
+                        || b == 0
+                        || b == 6
+                        || ((2..=4).contains(&a) && (2..=4).contains(&b));
+                }
+            }
+        }
+        (bits, width, height)
+    }
+
+    fn run(count: usize) -> (bool, Budget, usize) {
+        let (bits, w, h) = finder_grid(count);
+        let (finders, _) = super::super::finders(&bits, w, h);
+        let with_quads = finders.iter().filter(|f| f.quad.is_some()).count();
+        let mut budget = Budget::default();
+        let mut results = Vec::new();
+        let limited = recover(
+            &bits,
+            w,
+            h,
+            &finders,
+            &mut results,
+            &mut Vec::new(),
+            &mut budget,
+            &mut crate::regions::Regions::default(),
+        );
+        assert!(results.is_empty());
+        (limited, budget, with_quads)
+    }
+
+    #[test]
+    fn finder_heavy_frames_report_the_scoring_cut() {
+        let (limited, budget, with_quads) = run(500);
+        assert!(with_quads > SCORED_QUADS);
+        assert!(limited);
+        assert_eq!(budget.scored, SCORED_QUADS);
+        assert_eq!(budget.attempts, 0);
+    }
+
+    #[test]
+    fn few_finders_are_scored_without_a_cut() {
+        let (limited, budget, with_quads) = run(40);
+        assert!(with_quads > 0);
+        assert!(!limited);
+        assert!(budget.scored >= with_quads && budget.scored <= 2 * with_quads);
+    }
 }

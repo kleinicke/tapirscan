@@ -37,13 +37,9 @@ struct Localization {
     /// Segment-voting boxes beyond the proposal limit; on a sheet of symbols, those that
     /// are no texture are scanned.
     #[cfg(not(feature = "low"))]
-    sheet: Vec<Quad>,
+    sheet: Vec<Proposal>,
 }
 
-/// Linear reads of the first boxes that mark a sheet of symbols, whose further boxes are
-/// then scanned too.
-#[cfg(not(feature = "low"))]
-const SHEET_READS: usize = 8;
 /// Further boxes scanned together.
 #[cfg(not(feature = "low"))]
 const SHEET_BATCH: usize = 24;
@@ -198,11 +194,11 @@ fn scan_prepared_impl(
     let mut retail = finish_retail(&mut scan, &mut scanner.regions, im);
     // A sheet of symbols read through many of its first boxes: scan its further boxes.
     #[cfg(not(feature = "low"))]
-    if allow_restoration && scan.frame.barcodes.len() + retail.len() >= SHEET_READS {
+    if allow_restoration && scan.frame.barcodes.len() + retail.len() >= crate::SHEET_READS {
         let sheet: Vec<Quad> = localization
             .sheet
             .iter()
-            .copied()
+            .map(|p| p.polygon)
             .filter(|q| !source.texture(q))
             .collect();
         for batch in sheet.chunks(SHEET_BATCH) {
@@ -399,6 +395,8 @@ fn scan_prepared_impl(
     finish_primary(&mut scan, image, consolidate, options.multiple);
     Ok(Result {
         proposals: localization.proposals,
+        #[cfg(not(feature = "low"))]
+        further_proposals: localization.sheet,
         localization_omitted: localization.omitted,
         localization_work_limited: localization.work_limited,
         search_window: window_scanned.then_some(localization.search_window),
@@ -819,10 +817,7 @@ fn localize(
     #[cfg(feature = "medium")]
     let mut voted = segment_voting::localize(image);
     #[cfg(feature = "medium")]
-    let sheet: Vec<Quad> = std::mem::take(&mut voted.more)
-        .into_iter()
-        .map(|p| p.polygon)
-        .collect();
+    let sheet = std::mem::take(&mut voted.more);
     #[cfg(feature = "medium")]
     let found = stripes::Result {
         proposals: voted.proposals,
@@ -907,6 +902,9 @@ fn localize(
 /// Alternative boxes per segment-voting box.
 #[cfg(any(feature = "high", feature = "very-high"))]
 type Alternatives = Vec<(Quad, Vec<Quad>)>;
+/// Segment-voting boxes beyond the proposal limit.
+#[cfg(any(feature = "high", feature = "very-high"))]
+type Further = Vec<Proposal>;
 
 /// High and Very High also box symbols by segment voting; on tiny frames the stripe pass
 /// still supplies stripe evidence and boxes.
@@ -914,12 +912,9 @@ type Alternatives = Vec<(Quad, Vec<Quad>)>;
 fn high_boxes(
     mut found: stripes::Result,
     image: Image<'_>,
-) -> (stripes::Result, Alternatives, Vec<Quad>) {
+) -> (stripes::Result, Alternatives, Further) {
     let mut voted = segment_voting::localize(image);
-    let sheet = std::mem::take(&mut voted.more)
-        .into_iter()
-        .map(|p| p.polygon)
-        .collect();
+    let sheet = std::mem::take(&mut voted.more);
     if tiny_stripes(image) {
         // Voting has few segments on tiny frames; keep distinct stripe boxes after its boxes.
         let mut proposals = voted.proposals;

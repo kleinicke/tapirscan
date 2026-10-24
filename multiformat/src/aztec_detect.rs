@@ -136,6 +136,7 @@ fn cross(
 const SHEET_READS: usize = 8;
 /// Bullseye proposals by support, not yet checked with [`is_bullseye`] (callers
 /// verify only the proposals they use), and whether the check budget cut rows short.
+#[cfg(test)]
 fn centers_with_rows(
     bits: &[bool],
     w: usize,
@@ -1435,9 +1436,12 @@ pub fn detect(
                 true,
                 mode == 0,
             );
-            search.limited |= cut;
+            // As in the first pass, at most `MAX_FITTED` proposals by support are
+            // checked: textures beside a sheet can yield thousands.
+            search.limited |= cut || centers.len() > MAX_FITTED;
             let centers: Vec<Center> = centers
                 .into_iter()
+                .take(MAX_FITTED)
                 .filter(|c| is_bullseye(&|i| bits[i], w, h, c))
                 .collect();
             if !centers.is_empty() {
@@ -1461,14 +1465,20 @@ pub fn detect(
     (search.reads, search.limited)
 }
 
-/// Native diagnostic only; exposes the actual production bullseye proposals.
+/// Native diagnostic only; exposes the first pass's bullseye proposals on threshold
+/// `mode`, including those of the rows beside centers on the global threshold.
 #[cfg(not(target_arch = "wasm32"))]
 #[must_use]
-pub fn diagnostic_centers(bits: &[bool], w: usize, h: usize) -> serde_json::Value {
+pub fn diagnostic_centers(bits: &[bool], w: usize, h: usize, mode: usize) -> serde_json::Value {
     serde_json::Value::Array(
-        centers_with_rows(bits, w, h, &|_, row, out| {
-            crate::transition_offsets_into(row, out);
-        })
+        centers_from_runs(
+            w,
+            h,
+            &|i| bits[i],
+            |y, out| crate::transition_offsets_into(&bits[y * w..(y + 1) * w], out),
+            false,
+            mode == 0,
+        )
         .0
         .iter()
         .filter(|c| is_bullseye(&|i| bits[i], w, h, c))

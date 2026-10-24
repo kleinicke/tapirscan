@@ -30,8 +30,9 @@ pub const PHARMACODE: u32 = crate::formats::PHARMACODE;
 /// the symbol does not show, so the image defines it: along the diagonal half-plane
 /// `dx + dy > 0`, that is left to right for horizontal symbols and top to bottom for
 /// vertical ones. Each scan line is read in exactly one direction; the switch lies at
-/// symbols whose bars run from bottom left to top right at 45 degrees, away from the
-/// upright and quarter-turn orientations.
+/// symbols read along the 45-degree diagonal from bottom left to top right on the
+/// screen (their bars run from top left to bottom right), away from the upright and
+/// quarter-turn orientations.
 #[must_use]
 pub fn pharmacode_direction(dx: f64, dy: f64) -> bool {
     let along = dx + dy;
@@ -50,8 +51,26 @@ pub(crate) const DIGITS: [[u8; 4]; 10] = [
     [1, 2, 1, 3],
     [3, 1, 1, 2],
 ];
-const PARITY: [u8; 10] = [0, 11, 13, 14, 19, 25, 28, 21, 22, 26];
-const UPC_PARITY: [u8; 10] = [56, 52, 50, 49, 44, 38, 35, 42, 41, 37];
+/// Left-half parity of EAN-13 per leading digit; bit 5 is the first digit, set for G codes.
+pub(crate) const PARITY: [u8; 10] = [0, 11, 13, 14, 19, 25, 28, 21, 22, 26];
+/// UPC-E parity per check digit (number system 0); bit 5 is the first digit, set for G codes.
+pub(crate) const UPC_PARITY: [u8; 10] = [56, 52, 50, 49, 44, 38, 35, 42, 41, 37];
+/// EAN-5 parity pattern per check value; bit 4 is the first digit, set for G codes.
+pub(crate) const EAN5_PARITY: [u8; 10] = [24, 20, 18, 17, 12, 6, 3, 10, 9, 5];
+
+/// Parity pattern an EAN-2 or EAN-5 supplement of `digits` must show (bit 1 or 4
+/// is the first digit, set for G codes); `None` for other lengths.
+pub(crate) fn supplement_parity(digits: &[u8]) -> Option<u8> {
+    let d: Vec<u32> = digits.iter().map(|&x| u32::from(x)).collect();
+    match d.len() {
+        2 => u8::try_from((d[0] * 10 + d[1]) % 4).ok(),
+        5 => {
+            let check = (3 * (d[0] + d[2] + d[4]) + 9 * (d[1] + d[3])) % 10;
+            Some(EAN5_PARITY[check as usize])
+        }
+        _ => None,
+    }
+}
 const C128: [&[u8; 6]; 107] = [
     b"212222", b"222122", b"222221", b"121223", b"121322", b"131222", b"122213", b"122312",
     b"132212", b"221213", b"221312", b"231212", b"112232", b"122132", b"122231", b"113222",
@@ -75,6 +94,8 @@ const C39: [u16; 44] = [
     0x007, 0x106, 0x046, 0x016, 0x181, 0x0c1, 0x1c0, 0x091, 0x190, 0x0d0, 0x085, 0x184, 0x0c4,
     0x0a8, 0x0a2, 0x08a, 0x02a, 0x094,
 ];
+/// Smallest module width, in pixels, that the run-length matchers accept.
+pub(crate) const MIN_MODULE: f32 = 0.65;
 pub(crate) const ITF_DIGITS: [u8; 10] = [6, 17, 9, 24, 5, 20, 12, 3, 18, 10];
 const CODA: [u8; 20] = [
     3, 6, 9, 96, 18, 66, 33, 36, 48, 72, 12, 24, 69, 81, 84, 21, 26, 41, 11, 14,
@@ -141,8 +162,8 @@ fn c93_match(r: &[f32], previous: f32) -> Option<(usize, f32, bool)> {
     c93_edge_match(r).map(|(v, e)| (v, e, true))
 }
 /// Whether the six elements at `r` span within a quarter of `previous` pixels: the
-/// edge matchers run only where the character pitch continues, not on the merged
-/// or split runs that end most false starts.
+/// edge matchers run only where the character pitch continues, not on merged or
+/// split runs.
 fn similar_width(r: &[f32], previous: f32) -> bool {
     r.len() >= 6 && (r[..6].iter().sum::<f32>() - previous).abs() <= previous * 0.25
 }
@@ -151,19 +172,30 @@ fn similar_width(r: &[f32], previous: f32) -> bool {
 /// space, so these sums keep their nominal module counts; the 48 characters have
 /// distinct sums.
 fn c93_edge_match(r: &[f32]) -> Option<(usize, f32)> {
+    let (best, second) = edge_ranked(r, 9, C93.iter().map(|&bits| c93_pattern(bits)))?;
+    (best.1 < C93_EDGE_ERROR && second - best.1 > C93_EDGE_MARGIN).then_some(best)
+}
+/// The best match of the six elements at `r` among six-element `patterns` of
+/// `modules` modules each, by the four sums of adjacent elements, with the
+/// second-best error. A sum more than three quarters of a module off rules a
+/// pattern out.
+fn edge_ranked(
+    r: &[f32],
+    modules: u8,
+    patterns: impl Iterator<Item = [u8; 6]>,
+) -> Option<((usize, f32), f32)> {
     if r.len() < 6 {
         return None;
     }
     let total: f32 = r[..6].iter().sum();
-    let module = total / 9.;
-    if module < 0.65 {
+    let module = total / f32::from(modules);
+    if module < MIN_MODULE {
         return None;
     }
     let pairs: [f32; 4] = std::array::from_fn(|i| r[i] + r[i + 1]);
     let mut best = (0, 10f32);
     let mut second = 10f32;
-    for (i, &bits) in C93.iter().enumerate() {
-        let p = c93_pattern(bits);
+    for (i, p) in patterns.enumerate() {
         let mut e = 0.;
         for (j, &pair) in pairs.iter().enumerate() {
             let d = (pair - f32::from(p[j] + p[j + 1]) * module).abs();
@@ -181,12 +213,12 @@ fn c93_edge_match(r: &[f32]) -> Option<(usize, f32)> {
             second = second.min(e);
         }
     }
-    (best.1 < C93_EDGE_ERROR && second - best.1 > C93_EDGE_MARGIN).then_some(best)
+    Some((best, second))
 }
 const C93_EDGE_ERROR: f32 = 0.15;
 const C93_EDGE_MARGIN: f32 = 0.02;
-/// Quiet zone, in modules, on both sides of a Code 93 symbol. Labels often print
-/// less than the specified ten modules; the two checks guard shorter margins.
+/// Quiet zone required on both sides of a Code 93 symbol, in modules: less than the
+/// specified ten, which the two check characters make safe.
 const C93_QUIET_MODULES: f32 = 3.;
 #[expect(
     clippy::too_many_lines,
@@ -217,8 +249,8 @@ fn code93(
     // and never produce a retained failed-checksum candidate.
     let mut weak = 0usize;
     while at + 7 <= runs.len() && values.len() < 256 {
-        // Weak matches only after a spread start or two characters read (most
-        // false starts fail at their first characters) and at an unchanged pitch.
+        // Weak matches only after a spread start or two characters read, and at an
+        // unchanged pitch.
         let previous = if values.len() >= 2 || plain > 0.2 {
             runs[at - 6..at].iter().sum::<f32>()
         } else {
@@ -352,7 +384,7 @@ fn error_adjusted(r: &[f32], p: &[u8]) -> f32 {
     let sum: f32 = r[..p.len()].iter().sum();
     let units: f32 = p.iter().map(|&x| f32::from(x)).sum();
     let mut module = sum / units;
-    if module < 0.65 {
+    if module < MIN_MODULE {
         return 10.;
     }
     // Printing and thresholding can widen every bar while narrowing every
@@ -391,7 +423,7 @@ fn error(r: &[f32], p: &[u8]) -> f32 {
     }
     let sum: f32 = r[..p.len()].iter().sum();
     let module = sum / p.iter().map(|&x| f32::from(x)).sum::<f32>();
-    if module < 0.65 {
+    if module < MIN_MODULE {
         return 10.;
     }
     let mut e = 0.;
@@ -413,7 +445,7 @@ fn digit(r: &[f32], even: bool, gain: f32) -> Option<(u8, f32)> {
         std::array::from_fn(|i| r[i] - gain * module * if i % 2 == 0 { 1. } else { -1. });
     let sum: f32 = adjusted.iter().sum();
     let adjusted_module = sum / 7.;
-    if adjusted_module < 0.65 {
+    if adjusted_module < MIN_MODULE {
         return None;
     }
     let mut best = (0, 10.);
@@ -462,6 +494,19 @@ fn quiet(r: &[f32], start: usize, end: usize, module: f32, min: f32) -> bool {
                         min
                     }
             }))
+}
+/// Whether both quiet zones of the symbol in runs `start..end` lie inside the runs,
+/// not cut by the image or crop edge, and are at least `modules` modules wide.
+pub(crate) fn full_quiet_zones(
+    r: &[f32],
+    start: usize,
+    end: usize,
+    module: f32,
+    modules: f32,
+) -> bool {
+    start > 0
+        && r[start - 1] >= module * modules
+        && r.get(end).is_some_and(|&q| q >= module * modules)
 }
 fn ean_guards(r: &[f32], s: usize, end: usize, count: usize) -> bool {
     let center_ok = count == 6
@@ -669,7 +714,7 @@ fn ean_addon(r: &[f32], base_end: usize, module: f32, gain: f32) -> Option<Strin
             continue;
         }
         let mut digits = Vec::new();
-        let mut parity = 0;
+        let mut parity = 0u8;
         let mut at = s + 3;
         for i in 0..count {
             let odd = digit(&r[at..], false, -gain);
@@ -686,8 +731,8 @@ fn ean_addon(r: &[f32], base_end: usize, module: f32, gain: f32) -> Option<Strin
                 (None, Some(b)) => (b, true),
                 _ => break,
             };
-            digits.push(selected.0.0 as usize);
-            parity = parity * 2 + usize::from(selected.1);
+            digits.push(selected.0.0);
+            parity = parity * 2 + u8::from(selected.1);
             at += 4;
             if i + 1 < count {
                 if error(&r[at..], &[1, 1]) > 0.23 {
@@ -699,20 +744,8 @@ fn ean_addon(r: &[f32], base_end: usize, module: f32, gain: f32) -> Option<Strin
         if digits.len() != count {
             continue;
         }
-        let expected = if count == 2 {
-            (digits[0] * 10 + digits[1]) % 4
-        } else {
-            let check =
-                (3 * (digits[0] + digits[2] + digits[4]) + 9 * (digits[1] + digits[3])) % 10;
-            [24, 20, 18, 17, 12, 6, 3, 10, 9, 5][check]
-        };
-        if parity == expected {
-            return Some(
-                digits
-                    .iter()
-                    .map(|&d| (b'0' + (d).to_le_bytes()[0]) as char)
-                    .collect(),
-            );
+        if supplement_parity(&digits) == Some(parity) {
+            return Some(digits.iter().map(|&d| char::from(b'0' + d)).collect());
         }
     }
     None
@@ -743,7 +776,7 @@ fn c128_ranked(r: &[f32], lo: usize, hi: usize) -> Option<((usize, f32), f32)> {
     }
     let sum = r[..6].iter().sum::<f32>();
     let module = sum / 11.;
-    if module < 0.65 {
+    if module < MIN_MODULE {
         return None;
     }
     // Every six-element Code128 character spans eleven modules. Reuse its
@@ -788,35 +821,9 @@ fn c128_ranked(r: &[f32], lo: usize, hi: usize) -> Option<((usize, f32), f32)> {
 /// bar by as much as it narrows every space, so these sums keep their nominal
 /// module counts; the 107 patterns have distinct sums.
 fn c128_edge_match(r: &[f32], lo: usize, hi: usize) -> Option<(usize, f32)> {
-    if r.len() < 6 {
-        return None;
-    }
-    let sum = r[..6].iter().sum::<f32>();
-    let module = sum / 11.;
-    if module < 0.65 {
-        return None;
-    }
-    let pairs: [f32; 4] = std::array::from_fn(|i| r[i] + r[i + 1]);
-    let mut best = (0, 10f32);
-    let mut second = 10f32;
-    for (i, p) in (lo..hi).map(|i| (i, C128[i])) {
-        let mut e = 0.;
-        for (j, &pair) in pairs.iter().enumerate() {
-            let d = (pair - f32::from(p[j] - b'0' + p[j + 1] - b'0') * module).abs();
-            if d > module * 0.75 {
-                e = 10.;
-                break;
-            }
-            e += d;
-        }
-        let e = e / sum;
-        if e < best.1 {
-            second = best.1;
-            best = (i, e);
-        } else {
-            second = second.min(e);
-        }
-    }
+    let ((index, e), second) =
+        edge_ranked(r, 11, C128[lo..hi].iter().map(|p| p.map(|b| b - b'0')))?;
+    let best = (lo + index, e);
     (best.1 < C128_EDGE_ERROR && second - best.1 > C128_EDGE_MARGIN).then_some(best)
 }
 const C128_EDGE_ERROR: f32 = 0.12;
@@ -879,8 +886,8 @@ fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Opti
         };
         let (v, e) = plain.or_else(|| {
             weak += 1;
-            // Most false starts fail at their first characters: edge-match only
-            // inside a symbol with two characters read and an unchanged pitch.
+            // Edge-match only inside a symbol with two characters read after the
+            // start and an unchanged pitch.
             (values.len() >= 3 && similar_width(&r[at..], r[at - 6..at].iter().sum()))
                 .then(|| c128_edge_match(&r[at..], 0, 107))
                 .flatten()
@@ -1027,7 +1034,7 @@ fn wide_bits_sorted_ratio(
 ) -> Option<(u16, f32)> {
     let narrow = sorted[..n - wides].iter().sum::<f32>() / crate::numeric::usize_f32(n - wides);
     let wide = sorted[n - wides..].iter().sum::<f32>() / crate::numeric::usize_f32(wides);
-    if narrow < 0.65 || wide / narrow < min_ratio || wide / narrow > 3.8 {
+    if narrow < MIN_MODULE || wide / narrow < min_ratio || wide / narrow > 3.8 {
         return None;
     }
     let cut = f32::midpoint(sorted[n - wides - 1], sorted[n - wides]);
@@ -1046,20 +1053,71 @@ fn wide_bits_sorted_ratio(
 }
 /// Smallest measured wide/narrow ratio of a Code 39 character at about one pixel per
 /// narrow module: blur and thresholding shrink wide elements towards narrow ones
-/// (printed ratio 2 to 3). Tried only when the ordinary 1.45 bound fails.
+/// (printed ratio 2 to 3). Tried only when the ordinary 1.45 bound fails; a symbol
+/// with such a character must then fit [`code39_dense_model`].
 const C39_DENSE_RATIO: f32 = 1.25;
-fn code39_bits(r: &[f32; 9]) -> Option<(u16, f32)> {
-    wide_bits(r, 9, 3).or_else(|| {
-        let mut sorted = *r;
-        sorted.sort_by(f32::total_cmp);
-        // Code 39 has no check character: with compressed widths, accept only a
-        // clear split between the three wide and six narrow elements.
-        let narrow = sorted[..6].iter().sum::<f32>() / 6.;
-        let wide = sorted[6..].iter().sum::<f32>() / 3.;
-        (sorted[6] - sorted[5] >= (wide - narrow) * C39_DENSE_SPLIT)
-            .then(|| wide_bits_sorted_ratio(r, &sorted, 9, 3, C39_DENSE_RATIO))
-            .flatten()
-    })
+/// A Code 39 character's pattern and error, and whether it needed the dense ratio.
+fn code39_bits(r: &[f32; 9]) -> Option<(u16, f32, bool)> {
+    if let Some((bits, e)) = wide_bits(r, 9, 3) {
+        return Some((bits, e, false));
+    }
+    let mut sorted = *r;
+    sorted.sort_by(f32::total_cmp);
+    // Code 39 has no check character: with compressed widths, accept only a
+    // clear split between the three wide and six narrow elements.
+    let narrow = sorted[..6].iter().sum::<f32>() / 6.;
+    let wide = sorted[6..].iter().sum::<f32>() / 3.;
+    (sorted[6] - sorted[5] >= (wide - narrow) * C39_DENSE_SPLIT)
+        .then(|| wide_bits_sorted_ratio(r, &sorted, 9, 3, C39_DENSE_RATIO))
+        .flatten()
+        .map(|(bits, e)| (bits, e, true))
+}
+/// Whether the characters of a Code 39 symbol (`patterns`, from the start character
+/// at `start`, with the gain-corrected widths of `adjusted`) fit one narrow/wide
+/// model, as a symbol read with the dense ratio must. Widths are taken relative to
+/// their character's width, which perspective changes along the symbol. Per color,
+/// the wide and narrow means must lie at least [`C39_DENSE_RATIO`] apart, and the
+/// midpoint between them must classify every element as its character does, except
+/// for at most one element per two characters (noise at about a pixel per module).
+/// Each character fit alone could otherwise take its own split, and a blurred
+/// character read as another one.
+fn code39_dense_model(
+    adjusted: impl Fn(usize) -> [f32; 9],
+    start: usize,
+    patterns: &[u16],
+) -> bool {
+    let elements = || {
+        patterns.iter().enumerate().flat_map(|(k, &bits)| {
+            let widths = adjusted(start + 10 * k);
+            let total: f32 = widths.iter().sum();
+            (0..9).map(move |i| {
+                (
+                    widths[i] / total,
+                    (i % 2) * 2 + usize::from(bits & (256 >> i) != 0),
+                )
+            })
+        })
+    };
+    let mut sums = [0f32; 4];
+    let mut counts = [0f32; 4];
+    for (width, class) in elements() {
+        sums[class] += width;
+        counts[class] += 1.;
+    }
+    let means: [f32; 4] = std::array::from_fn(|i| sums[i] / counts[i].max(1.));
+    let cuts = [
+        f32::midpoint(means[0], means[1]),
+        f32::midpoint(means[2], means[3]),
+    ];
+    counts.iter().all(|&c| c > 0.)
+        && [0, 2]
+            .iter()
+            .all(|&i| means[i + 1] >= means[i] * C39_DENSE_RATIO)
+        && elements()
+            .filter(|&(width, class)| (width > cuts[class / 2]) != (class % 2 == 1))
+            .count()
+            * 2
+            <= patterns.len()
 }
 /// Required gap between the narrowest wide and the widest narrow element, as a
 /// fraction of the wide-narrow difference, for the dense-ratio fallback.
@@ -1111,16 +1169,19 @@ fn code39_with_gain(
     if start_index > 1 && runs[start_index - 1] < module * 5. {
         return None;
     }
-    let (p, mut err) = code39_bits(&start)?;
+    let (p, mut err, mut dense) = code39_bits(&start)?;
     if p != C39[43] {
         return None;
     }
+    let mut patterns = vec![p];
     let mut at = start_index + 10;
     let mut out = Vec::new();
     while at + 9 <= runs.len() && out.len() < 128 {
-        let (p, e) = code39_bits(&adjusted(at))?;
+        let (p, e, compressed) = code39_bits(&adjusted(at))?;
         let d = C39.iter().position(|&x| x == p)?;
         err += e;
+        dense |= compressed;
+        patterns.push(p);
         if d == 43 {
             // An image boundary can crop a quiet zone, but never a guard bar.
             // Interior symbols still require quiet space on both sides.
@@ -1138,12 +1199,11 @@ fn code39_with_gain(
             // longer symbol or a crop edge produces: require the full ten-module
             // quiet zones of the specification on both sides, measured in the image.
             if out.len() <= SHORT_UNCHECKED_CHARACTERS
-                && (start_index == 0
-                    || runs[start_index - 1] < module * SHORT_QUIET_MODULES
-                    || runs
-                        .get(end)
-                        .is_none_or(|&v| v < module * SHORT_QUIET_MODULES))
+                && !full_quiet_zones(runs, start_index, end, module, SHORT_QUIET_MODULES)
             {
+                return None;
+            }
+            if dense && !code39_dense_model(adjusted, start_index, &patterns) {
                 return None;
             }
             return Some(Read {
@@ -1201,8 +1261,8 @@ fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
             let error = err / crate::numeric::usize_f32(out.len());
             // A quiet zone cut by the edge of the runs is weaker evidence: then no
             // element may leave the model.
-            let cut = r[s - 1] < module * 7. || r.get(at + 3).is_none_or(|&q| q < module * 7.);
-            if !itf_consistent(r, s, at + 3, &out, cut) || code39_fits_better(r, s, at + 3, error) {
+            let cut = !full_quiet_zones(r, s, at + 3, module, 7.);
+            if !itf_consistent(r, s, &out, cut) || code39_fits_better(r, s, at + 3, error) {
                 return None;
             }
             return Some(Read {
@@ -1239,7 +1299,7 @@ fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
 /// a narrow module from their class; the others must lie on average within a quarter
 /// module. A misparsed Code 39 symbol puts narrow elements into wide classes across
 /// the whole symbol, which moves the class means and most of their members.
-fn itf_consistent(r: &[f32], s: usize, end: usize, digits: &[u8], cut: bool) -> bool {
+fn itf_consistent(r: &[f32], s: usize, digits: &[u8], cut: bool) -> bool {
     // Per class: bar narrow, bar wide, space narrow, space wide.
     let mut sums = [0f32; 4];
     let mut counts = [0u8; 4];
@@ -1263,7 +1323,7 @@ fn itf_consistent(r: &[f32], s: usize, end: usize, digits: &[u8], cut: bool) -> 
     }
     let mean: [f32; 4] = std::array::from_fn(|k| sums[k] / f32::from(counts[k].max(1)));
     let narrow = f32::midpoint(mean[0], mean[2]);
-    if narrow <= 0. || end > r.len() {
+    if narrow <= 0. {
         return false;
     }
     let mut total = 0f32;
@@ -1364,39 +1424,18 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
             // A checkless reader must fit one physical narrow/wide model
             // across the complete symbol. Independent per-character fits can
             // otherwise reinterpret a short fragment of another symbology.
-            let mut sums = [0f32; 4];
-            let mut counts = [0usize; 4];
-            for (index, &character) in characters.iter().enumerate() {
-                for element in 0..7 {
-                    let wide = usize::from(CODA[character] & (1 << (6 - element)) != 0);
-                    let bucket = (element % 2) * 2 + wide;
-                    sums[bucket] += r[s + index * 8 + element];
-                    counts[bucket] += 1;
-                }
-            }
-            if counts.contains(&0) {
-                return None;
-            }
-            let means: [f32; 4] =
-                std::array::from_fn(|i| sums[i] / crate::numeric::usize_f32(counts[i]));
-            if [0, 2]
-                .iter()
-                .any(|&i| !(1.4..=4.1).contains(&(means[i + 1] / means[i])))
-            {
-                return None;
-            }
-            let mut deviation = 0.;
-            for (index, &character) in characters.iter().enumerate() {
-                for element in 0..7 {
-                    let wide = usize::from(CODA[character] & (1 << (6 - element)) != 0);
-                    let bucket = (element % 2) * 2 + wide;
-                    let distance = (r[s + index * 8 + element] - means[bucket]).abs();
-                    if distance > (means[bucket & !1] * 0.75).max(0.65) {
-                        return None;
-                    }
-                    deviation += distance;
-                }
-            }
+            let elements = || {
+                characters
+                    .iter()
+                    .enumerate()
+                    .flat_map(move |(index, &character)| {
+                        (0..7).map(move |element| {
+                            let wide = usize::from(CODA[character] & (1 << (6 - element)) != 0);
+                            (r[s + index * 8 + element], (element % 2) * 2 + wide)
+                        })
+                    })
+            };
+            let (sums, means, deviation) = two_width_model(elements, &(1.4..=4.1), 0.75)?;
             let global_error = deviation / sums.iter().sum::<f32>();
             let module = f32::midpoint(means[0], means[2]);
             if global_error > 0.19 || !quiet(r, s, at + 7, module, 5.) {
@@ -1404,10 +1443,7 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
             }
             // As for Code 39: a one- or two-character symbol needs full quiet zones.
             if out.len() <= SHORT_UNCHECKED_CHARACTERS
-                && (s == 0
-                    || r[s - 1] < module * SHORT_QUIET_MODULES
-                    || r.get(at + 7)
-                        .is_none_or(|&v| v < module * SHORT_QUIET_MODULES))
+                && !full_quiet_zones(r, s, at + 7, module, SHORT_QUIET_MODULES)
             {
                 return None;
             }
@@ -1428,6 +1464,44 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     }
     *limited |= at + 7 <= r.len() && out.len() >= 128;
     None
+}
+
+/// One narrow/wide model for a whole symbol of `elements` (width and class: narrow
+/// bar 0, wide bar 1, narrow space 2, wide space 3), in symbol order. Returns the
+/// class sums, the class means and the total distance of the elements from their
+/// class means; `None` when a class is empty, a wide/narrow mean ratio lies outside
+/// `ratio`, or an element lies further than `deviation` times its color's narrow
+/// mean (at least [`MIN_MODULE`]) from its class mean.
+fn two_width_model<I: Iterator<Item = (f32, usize)>>(
+    elements: impl Fn() -> I,
+    ratio: &std::ops::RangeInclusive<f32>,
+    deviation: f32,
+) -> Option<([f32; 4], [f32; 4], f32)> {
+    let mut sums = [0f32; 4];
+    let mut counts = [0usize; 4];
+    for (width, class) in elements() {
+        sums[class] += width;
+        counts[class] += 1;
+    }
+    if counts.contains(&0) {
+        return None;
+    }
+    let means: [f32; 4] = std::array::from_fn(|i| sums[i] / crate::numeric::usize_f32(counts[i]));
+    if [0, 2]
+        .iter()
+        .any(|&i| !ratio.contains(&(means[i + 1] / means[i])))
+    {
+        return None;
+    }
+    let mut total = 0.;
+    for (width, class) in elements() {
+        let distance = (width - means[class]).abs();
+        if distance > (means[class & !1] * deviation).max(MIN_MODULE) {
+            return None;
+        }
+        total += distance;
+    }
+    Some((sums, means, total))
 }
 
 /// Mod-10 (Luhn) check digit over MSI data digits, rightmost digit doubled.
@@ -1530,38 +1604,16 @@ fn msi_finish(r: &[f32], s: usize, end: usize, digits: &[u8]) -> Option<Read> {
         bits.extend((0..4).rev().map(|b| d & (1 << b) != 0));
     }
     bits.push(false);
-    let mut sums = [0f32; 4];
-    let mut counts = [0usize; 4];
-    for (i, &one) in bits.iter().enumerate() {
-        let (bar, space) = (r[s + 2 * i], r[s + 2 * i + 1]);
-        sums[usize::from(one)] += bar;
-        sums[2 + usize::from(!one)] += space;
-        counts[usize::from(one)] += 1;
-        counts[2 + usize::from(!one)] += 1;
-    }
-    if counts.contains(&0) {
-        return None;
-    }
-    let means: [f32; 4] = std::array::from_fn(|i| sums[i] / crate::numeric::usize_f32(counts[i]));
-    if [0, 2]
-        .iter()
-        .any(|&i| !MSI_WIDE_NARROW_RATIO.contains(&(means[i + 1] / means[i])))
-    {
-        return None;
-    }
-    let mut deviation = 0.;
-    for (i, &one) in bits.iter().enumerate() {
-        for (value, bucket) in [
-            (r[s + 2 * i], usize::from(one)),
-            (r[s + 2 * i + 1], 2 + usize::from(!one)),
-        ] {
-            let distance = (value - means[bucket]).abs();
-            if distance > (means[bucket & !1] * MSI_ELEMENT_DEVIATION).max(0.65) {
-                return None;
-            }
-            deviation += distance;
-        }
-    }
+    let elements = || {
+        bits.iter().enumerate().flat_map(|(i, &one)| {
+            [
+                (r[s + 2 * i], usize::from(one)),
+                (r[s + 2 * i + 1], 2 + usize::from(!one)),
+            ]
+        })
+    };
+    let (_, _, deviation) =
+        two_width_model(elements, &MSI_WIDE_NARROW_RATIO, MSI_ELEMENT_DEVIATION)?;
     let total: f32 = r[s..end - 1].iter().sum();
     if deviation / total > MSI_MEAN_DEVIATION {
         return None;
@@ -1612,8 +1664,8 @@ fn decode_impl(
             59
         }
     } else if mask & PHARMACODE != 0 {
-        // Four bars, three spaces and both quiet zones.
-        9
+        // The shortest Pharmacode: its bars and the spaces between them.
+        crate::pharmacode::MIN_BARS * 2 - 1
     } else {
         16
     };
@@ -2432,6 +2484,60 @@ mod itf_tests {
         out
     }
 
+    /// Runs of a Code 39 symbol of 1 to 12 random characters at about a pixel per
+    /// narrow module, with wide elements blurred to 1.3 to 1.7 narrow widths and
+    /// element noise of up to `noise` / 2 narrow widths, and its value.
+    fn dense_code39(rnd: &mut impl FnMut() -> f32, noise: f32) -> (Vec<f32>, String) {
+        let n = 1 + crate::numeric::f32_usize(rnd() * 12.);
+        let mut text = vec![b'*'];
+        text.extend((0..n).map(|_| C39_ALPHABET[crate::numeric::f32_usize(rnd() * 43.) % 43]));
+        text.push(b'*');
+        let narrow = 1. + rnd() * 0.6;
+        let ratio = 1.3 + rnd() * 0.4;
+        let mut runs = vec![narrow * 14.];
+        for (k, &c) in text.iter().enumerate() {
+            let pattern = C39[C39_ALPHABET.iter().position(|&x| x == c).unwrap()];
+            for i in (0..9).rev() {
+                let width = if pattern & (1 << i) != 0 { ratio } else { 1. } * narrow;
+                runs.push((width + (rnd() - 0.5) * noise * narrow).max(0.3));
+            }
+            if k + 1 < text.len() {
+                runs.push((narrow + (rnd() - 0.5) * noise * narrow).max(0.3));
+            }
+        }
+        runs.push(narrow * 14.);
+        (
+            runs,
+            String::from_utf8(text[1..text.len() - 1].to_vec()).unwrap(),
+        )
+    }
+
+    #[test]
+    fn dense_code39_misreads_are_rare() {
+        let mut state = 0x77_u32;
+        let mut rnd = || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            f32::from(u16::try_from(state >> 16).unwrap()) / 65536.
+        };
+        let (mut right, mut wrong) = (0, 0);
+        for _ in 0..20_000 {
+            let (runs, text) = dense_code39(&mut rnd, 0.6);
+            for read in decode(&runs, false, CODE39) {
+                if read.text == text {
+                    right += 1;
+                } else {
+                    wrong += 1;
+                }
+            }
+        }
+        // Blurred wide elements need the dense ratio; Code 39 has no check
+        // character, so the whole-symbol model is what limits substitutions.
+        assert!(
+            right >= 6_000 && wrong <= 90,
+            "{right} read, {wrong} misread"
+        );
+    }
+
     #[test]
     fn cut_code39_symbols_rarely_parse_as_itf() {
         let mut state = 0x1234_5678_u32;
@@ -2447,8 +2553,8 @@ mod itf_tests {
                 .filter(|read| read.format == "ITF")
                 .count();
         }
-        // Without the narrow/wide model and the Code 39 structure check, 114 of these
-        // lines parsed as ITF; four still do.
+        // The narrow/wide model and the Code 39 structure check leave at most 1 in
+        // 10,000 of these lines reading as ITF.
         assert!(itf <= 5, "{itf} ITF reads");
     }
 }

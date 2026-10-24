@@ -1,7 +1,7 @@
 //! Ordered, bounded recovery of linear symbols inside localized source regions.
 use super::{
     NON_RETAIL_LINEAR, PRIMARY_RETAIL, SHORT_RETAIL, SWEPT, contains_point, gray_image,
-    is_label_sheet_sized, is_large_frame, policy::POLICY, scan_reader,
+    is_label_sheet_sized, is_large_frame, is_linear_read, policy::POLICY, scan_reader,
 };
 use crate::format_registry::{ENGINE_OPT_IN_MASK, LINEAR_MASK};
 use crate::read::{Read, Region};
@@ -101,10 +101,7 @@ fn strongest_new_proposals(
 
 /// Unread retail boxes whose central band is decoded for the other linear formats.
 const CORE_PROPOSALS: usize = 4;
-/// Linear reads of the first boxes that mark a sheet of symbols, whose further boxes are then
-/// decoded too.
-const SHEET_READS: usize = 8;
-/// Boxes that, with half of [`SHEET_READS`] read from them, also mark a sheet: rotated
+/// Boxes that, with half of [`crate::SHEET_READS`] read from them, also mark a sheet: rotated
 /// symbols spend the shared recovery budgets before eight of them are read.
 const SHEET_BOXES: usize = 16;
 
@@ -195,12 +192,19 @@ fn sweep_box(
         .collect())
 }
 
-/// Whether a read is of a linear format; 2D reads do not stop linear recovery.
-fn is_linear_read(read: &Read) -> bool {
-    !matches!(
-        read.format.as_str(),
-        "QRCode" | "MicroQRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
-    )
+/// Outlines that do not overlap an earlier one of them: the physical symbols of reads,
+/// where several boxes of one symbol can each read it.
+fn separate_outlines<'a>(outlines: impl IntoIterator<Item = &'a crate::Quad>) -> usize {
+    let mut kept: Vec<&crate::Quad> = Vec::new();
+    for outline in outlines {
+        if !kept
+            .iter()
+            .any(|polygon| overlap_quads(polygon, outline).0 > 0.)
+        {
+            kept.push(outline);
+        }
+    }
+    kept.len()
 }
 
 impl Scanner {
@@ -230,16 +234,19 @@ impl Scanner {
             |sampler| {
                 let mut deferred_reads = Vec::new();
                 let localized;
-                // Voting's boxes beyond its limit, when this pass localized itself.
-                let mut further = None;
-                let proposals = if let Some(primary) = primary {
-                    primary.proposals.as_slice()
+                let voted_further;
+                // The first boxes and voting's boxes beyond its limit: the primary scan's, or
+                // this pass's own segment voting, whose boxes follow rotated and warped bars.
+                let (proposals, further) = if let Some(primary) = primary {
+                    (
+                        primary.proposals.as_slice(),
+                        primary.further_proposals.as_slice(),
+                    )
                 } else {
-                    // Segment-voting boxes follow rotated and warped bars.
                     let voted = crate::pipeline::segment_voting::localize(image);
-                    further = Some(voted.more);
                     localized = voted.proposals;
-                    localized.as_slice()
+                    voted_further = voted.more;
+                    (localized.as_slice(), voted_further.as_slice())
                 };
                 // A broad mask can turn a short UPC-E interpretation of EAN-13 into a
                 // false extra read. The new rare-format recovery requires explicit
@@ -275,18 +282,18 @@ impl Scanner {
                     &mut hinted,
                 )?;
                 // A sheet of symbols read through many of its first boxes: decode the further
-                // segment-voting boxes that no read covers.
-                let sheet_like = found.len() >= SHEET_READS
-                    || (found.len() >= SHEET_READS / 2 && proposals.len() >= SHEET_BOXES);
+                // segment-voting boxes that no read covers. Boxes of one symbol can each read
+                // it, so only reads apart from each other count.
+                let symbols = separate_outlines(found.iter().map(|read| &read.polygon));
+                let sheet_like = symbols >= crate::SHEET_READS
+                    || (symbols >= crate::SHEET_READS / 2 && proposals.len() >= SHEET_BOXES);
                 if oriented_mask != 0 && sheet_like {
                     // The first boxes share the recovery budgets, which a sheet uses up:
                     // its unread first boxes and further boxes get Low's per box.
                     let sheet: Vec<_> = proposals
                         .iter()
+                        .chain(further)
                         .copied()
-                        .chain(further.take().unwrap_or_else(|| {
-                            crate::pipeline::segment_voting::localize(image).more
-                        }))
                         .filter(|p| {
                             !reads
                                 .iter()
@@ -697,6 +704,20 @@ impl Scanner {
         );
         self.fast_profiles = profiles;
         result
+    }
+}
+
+#[cfg(test)]
+mod separate_outlines_tests {
+    use super::separate_outlines;
+
+    #[test]
+    fn overlapping_reads_of_one_symbol_count_once() {
+        let at = |x: f64| [[x, 0.], [x + 100., 0.], [x + 100., 30.], [x, 30.]];
+        // Two boxes of the first symbol read it; two further symbols lie apart.
+        let outlines = [at(0.), at(10.), at(200.), at(400.)];
+        assert_eq!(separate_outlines(&outlines), 3);
+        assert_eq!(separate_outlines(&[]), 0);
     }
 }
 

@@ -183,8 +183,7 @@ pub(crate) struct Recovery {
     pub diagnostics: Option<serde_json::Value>,
 }
 
-// JSON previously represented non-finite coordinates as null, which the public
-// result parser rejected. Keep that malformed-reader contract without JSON.
+// A reader that reports non-finite coordinates is malformed; reject its output.
 fn validate_polygon(polygon: Quad) -> Result<(), Error> {
     if polygon
         .iter()

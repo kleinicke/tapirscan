@@ -113,7 +113,7 @@ pub(crate) fn lookup_character(
         return None;
     }
     let module = r[..8].iter().sum::<f32>() / crate::numeric::usize_f32(units);
-    if module < 0.65 {
+    if module < crate::linear::MIN_MODULE {
         return None;
     }
     let mut widths: [u8; 8] =
@@ -163,7 +163,7 @@ pub(crate) fn match_finder(r: &[f32], patterns: &[[u8; 5]], reverse: bool) -> Op
     }
     let sum = r[..5].iter().sum::<f32>();
     let module = sum / 15.;
-    if module < 0.65 {
+    if module < crate::linear::MIN_MODULE {
         return None;
     }
     let unit = |i: usize| (r[i] - module).abs() <= module;
@@ -214,7 +214,7 @@ mod finder_gate_tests {
         }
         let sum = r[..5].iter().sum::<f32>();
         let module = sum / 15.;
-        if module < 0.65 {
+        if module < crate::linear::MIN_MODULE {
             return None;
         }
         let unit = |i: usize| (r[i] - module).abs() <= module;

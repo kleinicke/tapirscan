@@ -467,6 +467,9 @@ struct Block {
     support: usize,
     line: usize,
 }
+/// Assembled symbols kept from one frame before [`Stacked::finish`] reports its
+/// work limit: the support-ranked duplicate filter that follows compares every pair.
+const MAX_ASSEMBLED: usize = 256;
 #[derive(Default)]
 pub struct Stacked {
     blocks: Vec<Block>,
@@ -559,11 +562,11 @@ impl Stacked {
             let sequence = SEQUENCES[(symbols - 3) / 2];
             let mut path = vec![i];
             self.search(sequence, symbols, &mut path, &mut attempts, &mut out, step);
-            if attempts >= 10000 {
+            if attempts >= 10000 || out.len() >= MAX_ASSEMBLED {
                 break;
             }
         }
-        let limited = attempts >= 10000 || self.blocks.len() >= 2048;
+        let limited = attempts >= 10000 || self.blocks.len() >= 2048 || out.len() >= MAX_ASSEMBLED;
         (out, limited)
     }
     #[expect(
@@ -580,7 +583,7 @@ impl Stacked {
         step: f32,
     ) {
         *attempts += 1;
-        if *attempts >= 10000 {
+        if *attempts >= 10000 || out.len() >= MAX_ASSEMBLED {
             return;
         }
         let root = &self.blocks[path[0]];
@@ -694,7 +697,7 @@ impl Stacked {
             path.push(i);
             self.search(sequence, symbols, path, attempts, out, step);
             path.pop();
-            if *attempts >= 10000 {
+            if *attempts >= 10000 || out.len() >= MAX_ASSEMBLED {
                 return;
             }
         }
@@ -751,7 +754,10 @@ mod stacked_instance_tests {
                 block(3, character(0), character(0), 141., 37.),
             ],
         };
-        let (mut reads, limited) = stacked.finish(1.);
+        let (mut reads, limited) = Stacked {
+            blocks: stacked.blocks.clone(),
+        }
+        .finish(1.);
         assert!(!limited);
         // Competing paths must reach the final support-ranked polygon filter.
         crate::linear_geometry::distinct(&mut reads);
@@ -769,5 +775,11 @@ mod stacked_instance_tests {
                 ]
             );
         }
+        // Copies of a lower row multiply the paths: assembly stops at its cap.
+        let mut blocks = stacked.blocks[..2].to_vec();
+        blocks.extend((0..300).map(|_| block(3, character(0), character(0), 1., 37.)));
+        let (reads, limited) = Stacked { blocks }.finish(1.);
+        assert!(limited);
+        assert_eq!(reads.len(), MAX_ASSEMBLED);
     }
 }

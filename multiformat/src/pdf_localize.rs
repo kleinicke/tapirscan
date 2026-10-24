@@ -39,6 +39,16 @@ fn zero_degree_exact(w: usize, h: usize, generated_width: usize, generated_heigh
 fn possible_guard(runs: &[f32]) -> bool {
     runs.len() >= 3 && runs[0] >= 3. * runs[1].max(runs[2])
 }
+/// Width of the start and stop patterns in modules.
+const START_MODULES: f32 = 17.;
+const STOP_MODULES: f32 = 18.;
+/// Guard runs accepted at this pattern error, as exact or (after undoing print
+/// gain) gain-corrected matches.
+const GUARD_ERROR: f32 = 0.12;
+/// Module width in pixels below which a guard's narrow runs round to one or two
+/// pixels, and the looser [`SMALL_GUARD_ERROR`] is accepted.
+const SMALL_GUARD_MODULE: f32 = 2.5;
+const SMALL_GUARD_ERROR: f32 = 0.2;
 /// Guard pattern error after undoing print gain: ink spread widens the bars
 /// and narrows the spaces by the same amount, so the sums of neighbouring runs
 /// stay put. The best of a few gain steps counts.
@@ -234,7 +244,7 @@ fn compact_quad(
     let norm = (1. + fit.slope * fit.slope).sqrt();
     let sign = if fit.reversed { -1. } else { 1. };
     let cross = |y: f32| ((fit.slope * y + fit.intercept) * fit.slope + y) / norm;
-    let delta = fit.module * 17. * fit.slope * sign;
+    let delta = fit.module * START_MODULES * fit.slope * sign;
     let top = cross(fit.top) - (-delta).max(0.) - crate::numeric::usize_f32(step);
     let bottom = cross(fit.bottom) + delta.max(0.) + crate::numeric::usize_f32(step);
     let point = |along: f32, across: f32| {
@@ -448,16 +458,17 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                             if s + pattern.len() > runs.len() {
                                 continue;
                             }
-                            // A guard of modules under 2.5 px rounds its narrow runs to one
-                            // or two pixels by where the symbol falls on the pixel grid; such
+                            // A guard of small modules rounds its narrow runs to one or two
+                            // pixels by where the symbol falls on the pixel grid; such
                             // looser matches join the print-gain slots, after the exact ones.
+                            let modules = if start { START_MODULES } else { STOP_MODULES };
                             let small = runs[s..s + pattern.len()].iter().sum::<f32>()
-                                < if start { 17. } else { 18. } * 2.5;
+                                < modules * SMALL_GUARD_MODULE;
                             let error = pattern_error(&runs[s..], pattern);
-                            let slot = if error <= 0.12 {
+                            let slot = if error <= GUARD_ERROR {
                                 mode
-                            } else if gain_error(&runs[s..], pattern) <= 0.12
-                                || (small && error <= 0.2)
+                            } else if gain_error(&runs[s..], pattern) <= GUARD_ERROR
+                                || (small && error <= SMALL_GUARD_ERROR)
                             {
                                 mode + 2
                             } else {
@@ -465,8 +476,7 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                             };
                             let strips = &mut strips_by_mode[slot];
                             let active = &mut active_by_mode[slot];
-                            let module = runs[s..s + pattern.len()].iter().sum::<f32>()
-                                / if start { 17. } else { 18. };
+                            let module = runs[s..s + pattern.len()].iter().sum::<f32>() / modules;
                             let edge = offsets[if start { s } else { s + 9 }];
                             let edge_x = crate::numeric::usize_f32(if reversed {
                                 width - edge
@@ -552,7 +562,7 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                     // edge interval is shorter than the actual bar height.
                     let extent = |g: &Fit| {
                         let delta = g.module
-                            * if g.start { 17. } else { 18. }
+                            * if g.start { START_MODULES } else { STOP_MODULES }
                             * slope
                             * if g.start == g.reversed { -1. } else { 1. };
                         (

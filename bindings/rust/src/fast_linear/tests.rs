@@ -15,8 +15,8 @@ fn public_low_selection_preserves_explicit_recovery_requests() {
 }
 
 /// Independent ZXing-writer module patterns, reproduced without an encoder dependency.
-/// Small UPC-E modules previously aliased into another checksum-valid payload; a
-/// large EAN-8 exposed a clipped sparse proposal and needs the bounded axis retry.
+/// Small UPC-E modules can alias into another checksum-valid payload; a large EAN-8
+/// exposes a clipped sparse proposal and needs the bounded axis retry.
 #[test]
 fn source_density_and_axis_retry_preserve_clean_retail_values() {
     let upce = b"101001110100100110111001001101101011110011001010101";

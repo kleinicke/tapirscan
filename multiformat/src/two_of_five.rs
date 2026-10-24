@@ -11,7 +11,7 @@
 //! As for Industrial 2 of 5, the whole symbol must fit one physical model and show
 //! quiet zones of at least seven narrow modules on both sides.
 
-use crate::linear::{ITF_DIGITS, Read, wide_bits};
+use crate::linear::{ITF_DIGITS, MIN_MODULE, Read, full_quiet_zones, wide_bits};
 
 /// Element classes of the physical model.
 #[derive(Clone, Copy, PartialEq)]
@@ -65,14 +65,14 @@ fn finish(
     };
     let narrow = mean(Class::Narrow)?;
     let wide = mean(Class::Wide)?;
-    if narrow < 0.65 || !(1.8..=4.).contains(&(wide / narrow)) {
+    if narrow < MIN_MODULE || !(1.8..=4.).contains(&(wide / narrow)) {
         return None;
     }
     let long = mean(Class::Long);
     if long.is_some_and(|l| l < wide * 1.05 || l > narrow * 6.) {
         return None;
     }
-    if r[s - 1] < narrow * 7. || r.get(end).is_none_or(|&q| q < narrow * 7.) {
+    if !full_quiet_zones(r, s, end, narrow, 7.) {
         return None;
     }
     // Every element within 0.4 of the wide-narrow difference of its class.

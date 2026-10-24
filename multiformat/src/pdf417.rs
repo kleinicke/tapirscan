@@ -50,7 +50,7 @@ fn quantized_symbol(r: &[f32]) -> Option<(usize, usize, f32)> {
         return None;
     }
     let module = r[..8].iter().sum::<f32>() / 17.;
-    if module < 0.65 {
+    if module < crate::linear::MIN_MODULE {
         return None;
     }
     let mut widths: [usize; 8] =
@@ -171,7 +171,7 @@ fn nearest_symbol(r: &[f32], cluster: usize) -> Option<usize> {
         return None;
     }
     let module = r[..8].iter().sum::<f32>() / 17.;
-    if module < 0.65 {
+    if module < crate::linear::MIN_MODULE {
         return None;
     }
     let mut best = (f32::INFINITY, 0);

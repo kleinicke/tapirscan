@@ -18,7 +18,7 @@ fn main() {
                 "mode":mode,
                 "qr":qr_detect::diagnostic_finders(bits,width,height),
                 "dm":dm_detect::diagnostic_candidates(bits,width,height),
-                "aztec":aztec_detect::diagnostic_centers(bits,width,height),
+                "aztec":aztec_detect::diagnostic_centers(bits,width,height,mode),
                 "maxicode":maxicode_detect::diagnostic_centers(bits,width,height)
             })
         })

@@ -185,7 +185,7 @@ fn width_rank(widths: [u8; 7], widest: u8, no_narrow: bool) -> u64 {
 /// elements furthest from their rounded width.
 fn widths<const N: usize>(r: &[f32], units: usize, widest: u8) -> Option<[u8; N]> {
     let module = r[..N].iter().sum::<f32>() / crate::numeric::usize_f32(units);
-    if module < 0.65 {
+    if module < crate::linear::MIN_MODULE {
         return None;
     }
     let mut out: [u8; N] = std::array::from_fn(|i| {

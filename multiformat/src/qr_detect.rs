@@ -211,7 +211,8 @@ fn finders_with_rows(
     found.retain(|f| isolated_finder_valid(image, w, h, f));
     (found, limited)
 }
-/// Single-row finders checked again on the skipped rows around them.
+/// Single-row finders checked again on the skipped rows around them: at most four
+/// times the finders kept, which bounds the extra cross checks per pass.
 const MAX_SUPPORT_RECHECKS: usize = 4 * MAX_FINDERS;
 /// Cross-check the rows skipped by the row step around finders seen on one row
 /// only. A finder's center band is three modules tall, so with a row step above
@@ -241,7 +242,8 @@ fn support_small_finders(
         let row = crate::numeric::f32_usize(y.max(0.));
         let x = crate::numeric::f32_usize(x.max(0.)).min(w - 1);
         hits.clear();
-        // Only rows through the three-module center band can pass the cross check.
+        // Only rows through the three-module center band (1.5 modules to each side of
+        // its center) can pass the cross check.
         let band = crate::numeric::f32_usize((1.5 * module).ceil()).min(step - 1);
         for yy in row.saturating_sub(band)..=(row + band).min(h - 1) {
             if yy.is_multiple_of(step) {
@@ -275,8 +277,8 @@ fn support_small_finders(
 /// Module size below which a finder's central quad, a few pixels across, places the
 /// isolated-pattern samples up to a pixel off; such finders get [`SMALL_FINDER_ERRORS`].
 const SMALL_FINDER_MODULE: f32 = 3.5;
-/// Isolated-pattern errors allowed for small finders; 14 for the others. Real finders of
-/// 2-pixel modules turned by 45 degrees show 15 to 21.
+/// Isolated-pattern errors allowed for small finders, against 14 of the 49 samples
+/// for the others: a finder of 2-pixel modules turned by 45 degrees must still pass.
 const SMALL_FINDER_ERRORS: usize = 21;
 fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) -> bool {
     let Some(quad) = finder.quad else {
@@ -291,7 +293,8 @@ fn isolated_finder_valid(image: &[bool], w: usize, h: usize, finder: &Finder) ->
         return true;
     };
     // The square pattern is invariant to quarter-turns, so its isolated
-    // component supplies orientation without borrowing another finder.
+    // component supplies orientation without borrowing another finder. The pattern
+    // is tried at the measured module and 15 % smaller and larger.
     [0.85, 1., 1.15].into_iter().any(|scale| {
         let mut errors = 0;
         let mut moat_errors = 0;
@@ -1055,6 +1058,9 @@ pub struct Policy {
     /// Extend a standard pass with the foreground split once it stopped with
     /// work left and likely holds further symbols (see [`further_symbols_likely`]).
     pub dense_foreground: bool,
+    /// Reads after which a pass that stopped with work left likely holds further
+    /// symbols whatever its finders look like; fewer reads need finders like a sheet's.
+    pub sheet_reads: usize,
 }
 /// Resampling module centers in gray with module-space thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1094,6 +1100,9 @@ impl Policy {
             },
             // High's standard pass already includes the foreground split.
             dense_foreground: mode <= 1,
+            // Low and Medium continue after two or three reads only where the
+            // finders look like a sheet's.
+            sheet_reads: if mode <= 1 { 4 } else { 2 },
         }
     }
 }
@@ -1108,13 +1117,21 @@ pub struct Pass {
     /// partial recovery or a work-limited flag.
     pub budget: usize,
 }
+/// Threshold modes of a standard pass: the global, local and their inverses.
+const STANDARD_MODES: usize = 4;
+/// Threshold modes of a pass extended by the foreground split.
+const EXTENDED_MODES: usize = 6;
 impl Pass {
     /// The standard threshold modes; `extended` adds the foreground split and
     /// `curved` the curved grids.
     #[must_use]
     pub fn effort(extended: bool, curved: bool) -> Self {
         Self {
-            modes: 0..if extended { 6 } else { 4 },
+            modes: 0..if extended {
+                EXTENDED_MODES
+            } else {
+                STANDARD_MODES
+            },
             curved,
             budget: FULL_BUDGET,
         }
@@ -1165,12 +1182,17 @@ pub fn detect_group(
     (reads, limited)
 }
 /// Whether a pass that stopped with work left likely holds further symbols: it
-/// read several, or it read one or used up its budget among `finders` that look
-/// like a sheet of equal symbols. There at least 12 finders (four symbols) share
-/// one module size within 25% and make up 85% of all; texture and the usual photo
-/// of a single symbol give finders of scattered sizes.
-fn further_symbols_likely(reads: usize, starved: bool, finders: &[Finder]) -> bool {
-    if reads >= 2 {
+/// read `sheet_reads` or more, or it read fewer than that, or used up its budget,
+/// among `finders` that look like a sheet of equal symbols. There at least 12
+/// finders (four symbols) share one module size within 25% and make up 85% of all;
+/// texture and the usual photo of one or two symbols give finders of scattered sizes.
+fn further_symbols_likely(
+    reads: usize,
+    sheet_reads: usize,
+    starved: bool,
+    finders: &[Finder],
+) -> bool {
+    if reads >= sheet_reads {
         return true;
     }
     if reads == 0 && !starved {
@@ -1276,7 +1298,8 @@ pub fn detect_symbols(
     let mut single_attempts = 0;
     let mut single_alignments = 0;
     let mut single_limited = false;
-    let mut micro_attempts = 0;
+    let mut micro_budget = micro::Budget::default();
+    let mut micro_renewed = false;
     let mut micro_limited = false;
     let mut used: Vec<Finder> = Vec::new();
     let mut prior_count = 0;
@@ -1287,13 +1310,13 @@ pub fn detect_symbols(
     // such as a sheet or a crop of one, continues with its foreground split: it
     // separates the symbols from a dark surround that the frame-wide thresholds
     // share with them.
-    let dense = if policy.dense_foreground && modes.end == 4 {
-        4..6
+    let dense = if policy.dense_foreground && modes.end == STANDARD_MODES {
+        STANDARD_MODES..EXTENDED_MODES
     } else {
         0..0
     };
     let standard_end = modes.end;
-    let foreground_follows = standard_end > 4 || !dense.is_empty();
+    let foreground_follows = standard_end > STANDARD_MODES || !dense.is_empty();
     // Set once the base thresholds (modes 0-3) used up the budget: the pass then
     // continues with its foreground split under `FOREGROUND_ALLOWANCE` extra
     // attempts instead of ending. The global threshold depends on the whole frame,
@@ -1301,23 +1324,29 @@ pub fn detect_symbols(
     // starve the split that reads them.
     let mut starved = false;
     for mode in modes.chain(dense) {
-        if starved && mode < 4 {
+        if mode >= STANDARD_MODES && !micro_renewed {
+            // Finders that fail in the standard modes are scored again in each of them; the
+            // foreground modes get their own scoring allowance so they are not starved.
+            micro_budget.renew_scoring();
+            micro_renewed = true;
+        }
+        if starved && mode < STANDARD_MODES {
             continue;
         }
         if mode >= standard_end
             && !(regions.limited
-                && partial_modes
-                    .iter()
-                    .any(|(_, finders)| further_symbols_likely(results.len(), starved, finders)))
+                && partial_modes.iter().any(|(_, finders)| {
+                    further_symbols_likely(results.len(), policy.sheet_reads, starved, finders)
+                }))
         {
             break;
         }
         let mut read_count = results.len();
         let mut last_read = attempts;
-        if (4..6).contains(&mode) && !binary_images.has_qr_contrast() {
+        if (STANDARD_MODES..EXTENDED_MODES).contains(&mode) && !binary_images.has_qr_contrast() {
             continue;
         }
-        if mode >= 6 && !binary_images.has_qr_upper_contrast() {
+        if mode >= EXTENDED_MODES && !binary_images.has_qr_upper_contrast() {
             continue;
         }
         if binary_images.is_duplicate(mode) && results.len() == prior_count {
@@ -1551,9 +1580,14 @@ pub fn detect_symbols(
                             let allowance = if starved { FOREGROUND_ALLOWANCE } else { 0 };
                             if attempts > budget + allowance + results.len() * ATTEMPTS_PER_READ {
                                 if !starved
-                                    && mode < 4
+                                    && mode < STANDARD_MODES
                                     && foreground_follows
-                                    && further_symbols_likely(results.len(), true, &finders)
+                                    && further_symbols_likely(
+                                        results.len(),
+                                        policy.sheet_reads,
+                                        true,
+                                        &finders,
+                                    )
                                 {
                                     starved = true;
                                     regions.limited = true;
@@ -1762,7 +1796,7 @@ pub fn detect_symbols(
                 &finders,
                 &mut results,
                 &mut used,
-                &mut micro_attempts,
+                &mut micro_budget,
                 regions,
             );
         }
@@ -2400,17 +2434,26 @@ mod policy_tests {
             .collect();
         sheet.extend([5., 9.]);
         let sheet = finders(&sheet);
-        assert!(super::further_symbols_likely(1, false, &sheet));
-        assert!(super::further_symbols_likely(0, true, &sheet));
-        assert!(!super::further_symbols_likely(0, false, &sheet));
+        assert!(super::further_symbols_likely(1, 2, false, &sheet));
+        assert!(super::further_symbols_likely(0, 2, true, &sheet));
+        assert!(!super::further_symbols_likely(0, 2, false, &sheet));
+        assert!(super::further_symbols_likely(3, 4, false, &sheet));
         // Texture or one symbol: finder sizes scattered over a decade.
         let scattered: Vec<f32> = (0..40).map(|i| 1.5_f32 * 1.06_f32.powi(i)).collect();
         let scattered = finders(&scattered);
-        assert!(!super::further_symbols_likely(1, false, &scattered));
-        assert!(!super::further_symbols_likely(0, true, &scattered));
-        assert!(super::further_symbols_likely(2, false, &scattered));
+        assert!(!super::further_symbols_likely(1, 2, false, &scattered));
+        assert!(!super::further_symbols_likely(0, 2, true, &scattered));
+        assert!(super::further_symbols_likely(2, 2, false, &scattered));
+        // Low and Medium continue after two or three reads only on sheet-like finders.
+        assert!(!super::further_symbols_likely(3, 4, false, &scattered));
+        assert!(super::further_symbols_likely(4, 4, false, &scattered));
         // Too few finders for four symbols.
-        assert!(!super::further_symbols_likely(1, false, &finders(&[2.; 9])));
+        assert!(!super::further_symbols_likely(
+            1,
+            2,
+            false,
+            &finders(&[2.; 9])
+        ));
     }
 
     #[test]

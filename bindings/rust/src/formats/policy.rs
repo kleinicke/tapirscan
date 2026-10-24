@@ -75,8 +75,7 @@ pub(super) struct ModePolicy {
     /// Mixed selections run the reduced QR copies on frames above `SMALL_FRAME_PIXELS`
     /// only where a low-resolution copy shows a large, square area of module-like
     /// blocks (`matrix_texture`). The copies rescue large symbols whose finder patterns
-    /// the full-resolution passes miss; retail photos without one paid about 12 ms per
-    /// frame (5%) for them in Chrome.
+    /// the full-resolution passes miss; without such an area they would only cost time.
     pub qr_reduced_needs_texture: bool,
     /// Pixel allowance for localized crop retries of pending matrix regions.
     pub matrix_crop_pixels: usize,

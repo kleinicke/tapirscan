@@ -12,10 +12,30 @@
 //! complete Industrial 2 of 5 symbol is left to that format. The image scan needs
 //! three agreeing lines.
 
-use crate::linear::{ITF_DIGITS, Read};
+use crate::linear::{MIN_MODULE, Read, full_quiet_zones};
 
-const MIN_BARS: usize = 5;
+/// Fewest bars read: shorter groups of two bar widths are too common in other prints.
+pub(crate) const MIN_BARS: usize = 5;
 const MAX_BARS: usize = 16;
+/// A space wider than this multiple of the mean space so far ends the symbol.
+const END_SPACE_RATIO: f32 = 2.5;
+/// A first space wider than this multiple of the first bar: no symbol starts there.
+const FIRST_SPACE_RATIO: f32 = 3.;
+/// Quiet zone required on both sides, in mean space widths.
+const QUIET_SPACES: f32 = 5.;
+/// Accepted ratio of the mean wide to the mean narrow bar (printed 3).
+const WIDE_RATIO: std::ops::RangeInclusive<f32> = 1.8..=5.;
+/// Accepted mean space relative to the wide-narrow bar difference (printed 1).
+const SPACE_TO_DELTA: std::ops::RangeInclusive<f32> = 0.5..=1.5;
+/// Largest distance of a bar from its class mean, as a fraction of the wide-narrow
+/// difference.
+const BAR_DEVIATION: f32 = 0.3;
+/// Largest distance of a space from the mean space, as a fraction of it.
+const SPACE_DEVIATION: f32 = 0.35;
+/// Largest total deviation from the model, as a fraction of the symbol width.
+const MAX_ERROR: f32 = 0.06;
+/// Smallest mean space relative to the narrow bar (printed 2).
+const MIN_SPACE_TO_NARROW: f32 = 1.2;
 
 /// Pharmacode runs starting at bar `s`; `r[s - 1]` must be the left quiet zone.
 pub(crate) fn decode(r: &[f32], s: usize) -> Option<Read> {
@@ -32,10 +52,10 @@ pub(crate) fn decode(r: &[f32], s: usize) -> Option<Read> {
         }
         let bars = (end - s).div_ceil(2);
         let spaces = bars - 1;
-        if spaces > 0 && r[end] > 2.5 * space_sum / crate::numeric::usize_f32(spaces) {
+        if spaces > 0 && r[end] > END_SPACE_RATIO * space_sum / crate::numeric::usize_f32(spaces) {
             break;
         }
-        if spaces == 0 && r[end] > 3. * r[s].max(r[end - 1]) {
+        if spaces == 0 && r[end] > FIRST_SPACE_RATIO * r[s] {
             return None;
         }
         if bars > MAX_BARS {
@@ -50,7 +70,7 @@ pub(crate) fn decode(r: &[f32], s: usize) -> Option<Read> {
     }
     let spaces: Vec<f32> = (s + 1..end).step_by(2).map(|i| r[i]).collect();
     let space = spaces.iter().sum::<f32>() / crate::numeric::usize_f32(spaces.len());
-    if space < 0.65 || r[s - 1] < space * 5. || r[end] < space * 5. {
+    if space < MIN_MODULE || !full_quiet_zones(r, s, end, space, QUIET_SPACES) {
         return None;
     }
     // Two bar classes split at the largest gap between sorted widths.
@@ -68,26 +88,28 @@ pub(crate) fn decode(r: &[f32], s: usize) -> Option<Read> {
     // Nominal widths are 1:3 with spaces of two narrow bars; ink spread changes bars
     // and spaces in opposite directions but leaves the bar width difference unchanged.
     let delta = wide - narrow;
-    if !(1.8..=5.).contains(&(wide / narrow)) || !(0.5..=1.5).contains(&(space / delta)) {
+    if !WIDE_RATIO.contains(&(wide / narrow)) || !SPACE_TO_DELTA.contains(&(space / delta)) {
         return None;
     }
     let mut total = 0f32;
     for &w in &bars {
         let deviation = (w - if w > threshold { wide } else { narrow }).abs();
-        if deviation > delta * 0.3 {
+        if deviation > delta * BAR_DEVIATION {
             return None;
         }
         total += deviation;
     }
     for &w in &spaces {
         let deviation = (w - space).abs();
-        if deviation > space * 0.35 {
+        if deviation > space * SPACE_DEVIATION {
             return None;
         }
         total += deviation;
     }
     let pattern: Vec<bool> = bars.iter().map(|&w| w > threshold).collect();
-    if industrial25(&pattern) || industrial25(&pattern.iter().rev().copied().collect::<Vec<_>>()) {
+    if crate::industrial25::bar_pattern(&pattern)
+        || crate::industrial25::bar_pattern(&pattern.iter().rev().copied().collect::<Vec<_>>())
+    {
         return None;
     }
     let value = pattern
@@ -96,7 +118,7 @@ pub(crate) fn decode(r: &[f32], s: usize) -> Option<Read> {
     let error = total / (bars.iter().sum::<f32>() + spaces.iter().sum::<f32>());
     // Spaces are nominally twice the narrow bar (1 mm and 0.5 mm); Industrial 2 of 5
     // and text strokes have spaces about as wide as their bars.
-    if error > 0.06 || space < narrow * 1.2 {
+    if error > MAX_ERROR || space < narrow * MIN_SPACE_TO_NARROW {
         return None;
     }
     Some(Read {
@@ -110,19 +132,6 @@ pub(crate) fn decode(r: &[f32], s: usize) -> Option<Read> {
         error,
         gs1: false,
     })
-}
-
-/// Whether wide/narrow bars form an Industrial 2 of 5 symbol (start, digits, stop).
-fn industrial25(wide: &[bool]) -> bool {
-    let n = wide.len();
-    n >= 11
-        && (n - 6).is_multiple_of(5)
-        && wide[..3] == [true, true, false]
-        && wide[n - 3..] == [true, false, true]
-        && wide[3..n - 3].chunks(5).all(|digit| {
-            let bits = digit.iter().fold(0u8, |v, &w| v * 2 + u8::from(w));
-            ITF_DIGITS.contains(&bits)
-        })
 }
 
 #[cfg(test)]
@@ -206,5 +215,27 @@ mod tests {
             decode(&industrial, false, PHARMACODE | INDUSTRIAL25).len(),
             1
         );
+    }
+
+    #[test]
+    fn two_width_stripes_rarely_read() {
+        use crate::industrial25::tests::stripes;
+        // Spaces as wide as the narrow bars (Industrial 2 of 5, most bar codes)
+        // never read: Pharmacode spaces are wider than its narrow bars.
+        let mut state = 0x5eed_u32;
+        for trial in 0..3_000 {
+            let runs = stripes(&mut state, 5 + trial % 12, false);
+            assert!(decode(&runs, false, PHARMACODE).is_empty(), "{runs:?}");
+        }
+        // Any evenly spaced group of two bar widths with wider spaces is a
+        // Pharmacode. Text-like strokes with uneven spaces sometimes are: at most
+        // 1 in 75 groups of 5 to 16 strokes read on one line (the image scan
+        // needs three agreeing lines).
+        let mut reads = 0;
+        for trial in 0..6_000 {
+            let runs = stripes(&mut state, 5 + trial % 12, true);
+            reads += decode(&runs, false, PHARMACODE).len();
+        }
+        assert!(reads <= 80, "{reads} reads");
     }
 }

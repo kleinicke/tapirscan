@@ -43,7 +43,7 @@ pub(crate) fn enabled(options: ScanOptions, mask: u32) -> bool {
         && !options.finish_candidates
 }
 
-// Selected policies; the earlier exploratory variants remain in experiment commits.
+// Scan-row positions, as fractions of the frame height, per Turbo tier.
 const ROWS: &[f64] = match TIER {
     16 => &[0.3, 0.5, 0.7],
     4 => &[0.08, 0.29, 0.5, 0.71, 0.92],
@@ -90,10 +90,6 @@ struct Budgets {
     dense: usize,
 }
 
-/// Reads of the first boxes that mark a sheet of symbols, whose further boxes Low then
-/// decodes too.
-#[cfg(feature = "low")]
-const SHEET_READS: usize = 8;
 /// The budgets of Low's fast path.
 const FAST_PATH_BUDGETS: Budgets = Budgets {
     continuity: 524_288,
@@ -235,7 +231,7 @@ pub(crate) fn scan(
             rescue_axes = reads.is_empty() && refined_reads.is_empty();
         }
         if index == local_count + 2 {
-            if reads.len() + refined_reads.len() < SHEET_READS {
+            if reads.len() + refined_reads.len() < crate::SHEET_READS {
                 break;
             }
             sheet_scanned = true;
@@ -1198,8 +1194,7 @@ fn sample_line_density(
                 sampler.restore_contrast_wide(1.5);
             } else if let Some(backward) = deghost {
                 // The profile spans 1.3 box lengths and an EAN-13 holds 95 modules. Boxes
-                // include some quiet zone, so 0.8 box modules approximate one symbol module
-                // (1.0 and 1.25 added little on the corpus).
+                // include some quiet zone, so 0.8 box modules approximate one symbol module.
                 sampler.restore_deghost(0.8 / (1.3 * 95.), 0.5, backward);
             } else if let Some(strength) = candidate.profile.highpass() {
                 sampler.restore_highpass(HIGHPASS_BOXES, strength);

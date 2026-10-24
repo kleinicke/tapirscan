@@ -451,16 +451,20 @@ fn drop_unchecked_fragments(reads: &mut Vec<Read>) {
     *reads = kept;
 }
 
+/// Whether a read is of a linear format; 2D reads do not stop linear recovery.
+fn is_linear_read(read: &Read) -> bool {
+    !matches!(
+        read.format.as_str(),
+        "QRCode" | "MicroQRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
+    )
+}
+
 /// Drop linear reads of periodic or two-dimensional textures (see [`crate::texture`]). A
 /// merged outline can cross the bars obliquely where none of the detections merged into it
 /// does: a read is kept when one of them passes, and then reports that outline.
 fn drop_texture_reads(reads: &mut Vec<Read>, image: Image<'_>) {
     reads.retain_mut(|read| {
-        if matches!(
-            read.format.as_str(),
-            "QRCode" | "MicroQRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
-        ) || !crate::texture::texture_read(image, &read.polygon)
-        {
+        if !is_linear_read(read) || !crate::texture::texture_read(image, &read.polygon) {
             return true;
         }
         let source = read
@@ -967,7 +971,8 @@ pub(crate) fn fast_additional(
 }
 
 /// Linear formats that Medium and above read only with the whole-image sweep:
-/// GS1 `DataBar` (stacked rows), `DataBar` Expanded and the opt-in MSI Plessey.
+/// GS1 `DataBar` (stacked rows), `DataBar` Expanded and the opt-in linear formats with their
+/// own reader.
 const SWEPT: u32 = DATA_BAR | DATA_BAR_EXPANDED | ENGINE_OPT_IN_MASK;
 
 /// Run the linear reader before primary discovery so strong reads can guide deep retries.
@@ -1356,8 +1361,8 @@ fn qr_reduced_wanted(pixels: &[u8], width: usize, height: usize, mask: u32) -> b
 
 /// Whether a frame admits the foreground-threshold and equalized/inverted QR
 /// recoveries. QR-only selections and small frames always do. From High up, a mixed
-/// selection's larger frames need an unread QR candidate region: retail photos
-/// without one paid about 63 ms per frame (20%) for these passes in Chrome.
+/// selection's larger frames need an unread QR candidate region; without one, these
+/// passes would add much time to retail photos that hold no QR code.
 #[cfg(not(feature = "low"))]
 fn qr_recovery_evidence(
     mask: u32,

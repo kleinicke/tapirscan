@@ -86,6 +86,10 @@ impl Default for ScanOptions {
 }
 pub struct Result {
     proposals: Vec<Proposal>,
+    /// Segment-voting boxes beyond the proposal limit, which localized linear recovery
+    /// decodes on a sheet of symbols.
+    #[cfg(not(feature = "low"))]
+    further_proposals: Vec<Proposal>,
     localization_omitted: usize,
     localization_work_limited: bool,
     /// Full-frame search window, when it was scanned.
@@ -283,6 +287,9 @@ pub const MODE_ID: u32 = if cfg!(feature = "low") {
 pub const MODE: &str = ["low", "medium", "high", "very-high"][MODE_ID as usize];
 /// High or Very High: the modes with the larger fixed recovery budgets.
 pub(crate) const HIGH_EFFORT: bool = cfg!(any(feature = "high", feature = "very-high"));
+/// Linear reads of the first boxes that mark a sheet of symbols, whose further boxes
+/// are then decoded too.
+pub(crate) const SHEET_READS: usize = 8;
 
 pub mod formats;
 #[cfg(not(feature = "low"))]

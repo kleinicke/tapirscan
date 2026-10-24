@@ -41,7 +41,7 @@ pub const PZN: u32 = 524_288;
 pub const MSI_PLESSEY: u32 = 1_048_576;
 /// Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in).
 pub const INDUSTRIAL25: u32 = 2_097_152;
-/// Laetus Pharmacode (one-track), value 3 to 131070 (opt-in).
+/// Laetus Pharmacode (one-track), values 32 to 131069 (opt-in).
 pub const PHARMACODE: u32 = 4_194_304;
 /// GS1 `DataBar` Limited.
 pub const DATA_BAR_LIMITED: u32 = 8_388_608;

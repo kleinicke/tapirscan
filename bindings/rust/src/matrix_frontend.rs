@@ -1,8 +1,7 @@
 //! Matrix reader orchestration with shared baseline thresholds and bounded Aztec recovery.
 //! Reader order and non-Aztec policies mirror `barcode_multiformat::scan_observed_for_mode`.
-#[cfg(not(target_family = "wasm"))]
-use barcode_multiformat::formats::PDF417;
-use barcode_multiformat::{Detection, Scan, binarization, matrix_readers, regions};
+use barcode_multiformat::matrix_readers::{self, Reader};
+use barcode_multiformat::{Detection, Scan, binarization, regions};
 /// Stack for reader threads, sized like a typical main-thread stack.
 #[cfg(not(target_family = "wasm"))]
 const READER_STACK: usize = 8 << 20;
@@ -11,17 +10,16 @@ const READER_STACK: usize = 8 << 20;
 type ReaderRun = (Vec<Detection>, bool, regions::Regions);
 
 /// The matrix readers selected by `mask`, in their fixed result order.
-fn readers(mask: u32) -> Vec<u32> {
+fn readers(mask: u32) -> Vec<Reader> {
     matrix_readers::ORDER
         .into_iter()
-        .map(|(bit, _)| bit & mask)
-        .filter(|&bit| bit != 0)
+        .filter_map(|reader| reader.select(mask))
         .collect()
 }
 
 /// Run one matrix reader with the shared regions and binarization cache.
 fn run_reader(
-    bit: u32,
+    reader: Reader,
     image: &[u8],
     width: usize,
     height: usize,
@@ -30,7 +28,7 @@ fn run_reader(
     binary_images: &mut binarization::Images<'_>,
 ) -> (Vec<Detection>, bool) {
     matrix_readers::read(
-        bit,
+        reader,
         image,
         [width, height],
         effort,
@@ -48,7 +46,7 @@ fn run_reader(
 /// have dropped one; that case returns `None` and the caller runs sequentially.
 #[cfg(not(target_family = "wasm"))]
 fn parallel_readers(
-    bits: &[u32],
+    readers: &[Reader],
     image: &[u8],
     width: usize,
     height: usize,
@@ -58,7 +56,7 @@ fn parallel_readers(
     // shared read-only (cloning the cache shares the images); binarization is
     // deterministic, so each reader sees what a fresh cache would compute.
     let mut shared = binarization::Images::new(image, width, height);
-    if bits.iter().any(|&bit| bit != PDF417) {
+    if readers.iter().any(|&reader| reader != Reader::Pdf417) {
         // A second thresholding thread pays off from about one megapixel.
         if width * height >= 1 << 20 {
             shared.prefill_parallel();
@@ -70,15 +68,15 @@ fn parallel_readers(
         let _ = shared.is_duplicate(1);
     }
     let shared = &shared;
-    let run = |bit: u32| {
+    let run = |reader: Reader| {
         let mut regions = regions::Regions::default();
-        let mut binary_images = if bit == PDF417 {
+        let mut binary_images = if reader == Reader::Pdf417 {
             binarization::Images::new(image, width, height)
         } else {
             shared.clone()
         };
         let (reads, limited) = run_reader(
-            bit,
+            reader,
             image,
             width,
             height,
@@ -91,20 +89,20 @@ fn parallel_readers(
     let runs: Vec<ReaderRun> = std::thread::scope(|scope| {
         // A reader whose thread cannot start runs here instead; its private regions
         // keep the result identical either way.
-        let pending: Vec<_> = bits
+        let pending: Vec<_> = readers
             .iter()
-            .map(|&bit| {
+            .map(|&reader| {
                 std::thread::Builder::new()
                     .stack_size(READER_STACK)
-                    .spawn_scoped(scope, move || run(bit))
-                    .map_err(|_| bit)
+                    .spawn_scoped(scope, move || run(reader))
+                    .map_err(|_| reader)
             })
             .collect();
         pending
             .into_iter()
             .map(|handle| match handle {
                 Ok(handle) => handle.join().expect("matrix reader thread panicked"),
-                Err(bit) => run(bit),
+                Err(reader) => run(reader),
             })
             .collect()
     });
@@ -221,12 +219,12 @@ fn scan_with(
     allow_parallel: bool,
     binary_images: &mut binarization::Images<'_>,
 ) -> Scan {
-    let bits = readers(mask);
+    let readers = readers(mask);
     let mut matrix_results = Vec::new();
     let mut matrix_unfinished = false;
     #[cfg(not(target_family = "wasm"))]
-    let parallel = if bits.len() > 1 && allow_parallel {
-        parallel_readers(&bits, image, width, height, effort)
+    let parallel = if readers.len() > 1 && allow_parallel {
+        parallel_readers(&readers, image, width, height, effort)
     } else {
         None
     };
@@ -243,9 +241,9 @@ fn scan_with(
         merged
     } else {
         let mut regions = regions::Regions::default();
-        for bit in bits {
+        for reader in readers {
             let (mut reads, limited) = run_reader(
-                bit,
+                reader,
                 image,
                 width,
                 height,
