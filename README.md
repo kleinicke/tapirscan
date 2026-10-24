@@ -1,6 +1,6 @@
 <div align="center">
 
-# Tapirscan
+<h1><img src="docs/assets/tapirscan-name.png" alt="Tapirscan" width="480"></h1>
 
 **Find barcodes at their own angle.**
 
