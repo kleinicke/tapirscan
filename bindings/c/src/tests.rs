@@ -668,23 +668,21 @@ fn detailed_errors_are_per_call_and_cleared_on_success() {
 fn barcode_json_preserves_optional_metadata() {
     let pixels = [255; 9];
     let mut result = Scanner::default().scan(Image::gray(&pixels, 3, 3)).unwrap();
-    result.barcodes.push(Barcode {
-        text: "a\0b".into(),
-        format: Format::QrCode,
-        polygon: [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]],
-        support: 3,
-        payload_bytes: Some(vec![0, 255]),
-        ean_add_on: Some("12".into()),
-        codabar_start_stop: Some("CD".into()),
-        gs1: Some(false),
-        reader_initialization: Some(true),
-        structured_append: Some(tapirscan_api::StructuredAppend {
-            index: 1,
-            count: 2,
-            id: Some("id".into()),
-            parity: Some(7),
-        }),
-    });
+    // Result types are non-exhaustive outside the crate; build one from its schema.
+    let barcode: Barcode = serde_json::from_value(serde_json::json!({
+        "text": "a\0b",
+        "format": "QRCode",
+        "polygon": [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0]],
+        "support": 3,
+        "bytes": [0, 255],
+        "eanAddOn": "12",
+        "codabarStartStop": "CD",
+        "gs1": false,
+        "readerInitialization": true,
+        "structuredAppend": { "index": 1, "count": 2, "id": "id", "parity": 7 },
+    }))
+    .unwrap();
+    result.barcodes.push(barcode);
     let output = Output {
         barcodes: result.barcodes,
         report: None,
@@ -705,18 +703,13 @@ fn barcode_json_preserves_optional_metadata() {
 
 #[test]
 fn json_carries_content_for_structured_text() {
-    let mut barcode = tapirscan_api::Barcode {
-        text: "WIFI:S:Cafe;T:WPA;P:secret;;".into(),
-        format: tapirscan_api::Format::QrCode,
-        polygon: [[0.0, 0.0]; 4],
-        support: 1,
-        payload_bytes: None,
-        ean_add_on: None,
-        codabar_start_stop: None,
-        gs1: None,
-        reader_initialization: None,
-        structured_append: None,
-    };
+    let mut barcode: Barcode = serde_json::from_value(serde_json::json!({
+        "text": "WIFI:S:Cafe;T:WPA;P:secret;;",
+        "format": "QRCode",
+        "polygon": [[0.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]],
+        "support": 1,
+    }))
+    .unwrap();
     let output = Output {
         barcodes: vec![barcode.clone()],
         report: None,

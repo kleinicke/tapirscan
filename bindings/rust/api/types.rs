@@ -184,6 +184,7 @@ pub type Quad = [[f64; 2]; 4];
 /// `{"kind": ..., "fields": [{"name": ..., "value": ...}]}`, omitted for plain
 /// text; deserializing ignores it, so a round trip recomputes it from `text`.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct Barcode {
     /// Decoded text, excluding the separately reported retail supplement.
     pub text: String,
@@ -314,6 +315,7 @@ pub struct Rect {
 }
 /// Structured-append metadata. Index is one-based; callers assemble sequences.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct StructuredAppend {
     /// One-based position in the sequence.
     pub index: usize,
@@ -326,6 +328,7 @@ pub struct StructuredAppend {
 }
 /// Localized but unread region, distinct from a decoded barcode.
 #[derive(Clone, Debug, Deserialize)]
+#[non_exhaustive]
 pub struct UndecodedRegion {
     /// Suspected symbology, or `None` when unknown.
     pub format: Option<Format>,
@@ -334,6 +337,7 @@ pub struct UndecodedRegion {
 }
 /// Optional search evidence. Raw reader schema is separate from the public API.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Diagnostics {
     /// Unstable engine-specific JSON, including proposals, work counters and recovery.
     /// Ordinary scanning and drawing barcodes do not require inspecting this value.
@@ -341,6 +345,7 @@ pub struct Diagnostics {
 }
 /// Decoded values and their source-image locations, without diagnostic collection.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ScanResult {
     /// All decoded instances; equal values at different locations stay separate.
     pub barcodes: Vec<Barcode>,
@@ -359,6 +364,7 @@ impl ScanResult {
 
 /// Owned scan output, including all decoded instances.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct InspectionResult {
     /// All decoded instances, including distinct physical copies with equal text.
     pub barcodes: Vec<Barcode>,
