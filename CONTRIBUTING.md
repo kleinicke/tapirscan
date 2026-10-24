@@ -42,22 +42,31 @@ See [upgrading from earlier versions](docs/API_MIGRATION.md) when moving between
 Versions 1.3.0 and 1.4.0 are explicit early-library exceptions to this policy.
 Version 1.4.0 retains its minor version despite Rust source changes and the
 native ABI 7 rebuild requirement; the migration guide lists the affected calls
-and types. The compatibility rules below apply to subsequent releases.
+and types. Version 1.5.0 makes the Rust result structs `#[non_exhaustive]`,
+which breaks struct literals and full destructuring, and adds a component to the
+Java `Barcode` record, which breaks record patterns; see
+[the migration notes](docs/API_MIGRATION.md#upgrading-from-140). The
+compatibility rules below apply to subsequent releases.
 
 Apart from the experimental APIs below, documented
 functions, defaults, result fields, identifiers and ownership/error contracts
 stay compatible within a major version. Minor releases add compatible
 capabilities; patch releases fix bugs. Compatible additions include new option
-fields with default values and new enum members: build Rust option structs with
-`..Default::default()`, give Rust matches on `#[non_exhaustive]` enums a wildcard
-arm, and initialize C option structs with their `_INIT` macro.
+fields with default values, new enum members and new result fields: build Rust
+option structs with `..Default::default()`, give Rust matches on
+`#[non_exhaustive]` enums a wildcard arm, and initialize C option structs with
+their `_INIT` macro. Rust result structs are `#[non_exhaustive]`: they come
+from scans or deserialization, not struct literals. Java result records keep their
+earlier constructors when they gain a component; record patterns that list
+every component do not stay compatible.
 
 Decoder improvements can change reads, geometry, ordering and runtime on a given
 image. Those outputs are not bit-for-bit compatibility promises. Supported format variants and limitations are documented in [format coverage](docs/FORMATS.md).
 Experimental APIs may change or be removed in minor releases: the JavaScript
 `experimentalTurbo` option, the content kinds marked experimental in
-[structured content](docs/CONTENT.md#kinds), and the Swift and Android bindings,
-which are a preview built from source.
+[structured content](docs/CONTENT.md#kinds), the JavaScript camera controller
+(`tapirscan/camera`), and the Swift, Android and Dart bindings. The camera
+controller and these bindings are previews; the bindings are built from source.
 
 Undocumented internal counters, private modules and generated build paths are not
 public interfaces. The C ABI is version 7; Rust binary ABI stability is not

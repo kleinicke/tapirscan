@@ -1,7 +1,7 @@
 # Tapirscan for Dart and Flutter
 
 > **Preview:** built from source; the API may change in minor releases. Not on
-> pub.dev yet.
+> pub.dev.
 
 A Dart package over the Tapirscan C library through `dart:ffi`, for Flutter apps
 and plain Dart programs. `scan` returns a `ScanResult` with `values`, `barcodes`
@@ -27,10 +27,9 @@ native library with Cargo on the first build of each target, so the machine
 needs the [development prerequisites](../../docs/DEVELOPMENT.md#prerequisites)
 (rustup, Python 3.10+), the Cargo dependencies fetched once in the checkout
 (`cargo fetch --locked` for `multiformat/` and `bindings/rust/`), and for Android
-the NDK that Flutter uses. Builds of the checkout take a lock under `build/crates/`;
-if an interrupted build leaves it behind, the error names the lock to remove. To use prebuilt libraries instead, or a
-checkout elsewhere (for example an F-Droid source library), set in the app's
-`pubspec.yaml`:
+the NDK that Flutter uses. Concurrent builds of one checkout wait for each
+other. To use prebuilt libraries instead, or a checkout elsewhere (for example
+an F-Droid source library), set in the app's `pubspec.yaml`:
 
 ```yaml
 hooks:
@@ -118,20 +117,19 @@ Coming from `flutter_zxing`: see the
 
 ## Platforms and errors
 
-64-bit Android (arm64-v8a, x86_64), iOS, macOS, Linux and Windows. Tested so far
-on macOS arm64, Linux x86_64 and an Android arm64 emulator. Native ABI 7 is
+64-bit Android (arm64-v8a, x86_64), iOS, macOS, Linux and Windows. Tested on
+macOS arm64, Linux x86_64 and an Android arm64 emulator. Native ABI 7 is
 64-bit only: on 32-bit Android `Tapirscan.isSupported` is false and `Scanner()`
 throws `UnsupportedError`, so an app can fall back to another scanner. The app
 build itself still succeeds.
 
 Failed calls throw `ScannerException` with a `ScannerErrorCode` (`invalidInput`
 or `engine`), the C `status` and the library's `message`. Calls on a disposed
-scanner throw `StateError`; a `scan` already running when `dispose` is called
-completes. No detection is an empty result, not an error.
+scanner throw `StateError`, and a pending `scan` either completes or throws it.
+No detection is an empty result, not an error.
 
-Not yet available: `inspect` (undecoded regions, timings), structured content
-parsing, and the cross-language parity tests and CI that the other bindings
-have.
+Not available in Dart: `inspect` (undecoded regions, timings), structured
+content parsing, and the cross-language parity tests the other bindings have.
 
 ## Development
 

@@ -2,18 +2,70 @@
 
 ## Upgrading from 1.4.0
 
-Format selection adds the opt-in `Industrial25` (bit 2097152) and `Pharmacode`
-(bit 4194304) formats; no preset, `all` included, selects them. `DataBarLimited`
-(bit 8388608) joins the `1D` preset and `MicroQRCode` (bit 16777216) the `2D`
-preset, so `all` reads both. The opt-in formats `Code39Extended` (bit 33554432),
-`IATA25` (bit 67108864) and `Matrix25` (bit 134217728) are new too. Native ABI 7 is
-unchanged. Rust matches on `Format` need the wildcard arm that its
-`#[non_exhaustive]` attribute already requires.
+Native ABI 7 is unchanged, so 1.4.0 native consumers load the new library
+without rebuilding.
+
+`DataBarLimited` (bit 8388608) joins `1D` and `all`, and `MicroQRCode`
+(bit 16777216) joins `2D` and `all`, so those selections can return the new
+formats and take a little longer on QR images. Selecting `QRCode` alone reads no
+Micro QR. C's `TAPIRSCAN_FORMATS_LINEAR`, `TAPIRSCAN_FORMATS_MATRIX` and
+`TAPIRSCAN_FORMATS_ALL` change value; recompile code that uses them.
+
+The other new formats are opt-in, selected only by name: `Industrial25`
+(bit 2097152), `Pharmacode` (bit 4194304), `Code39Extended` (bit 33554432),
+`IATA25` (bit 67108864) and `Matrix25` (bit 134217728). C's
+`TAPIRSCAN_FORMATS_OPT_IN` grows from 1835008 to 243007488.
 
 Barcodes gain the optional `codabarStartStop` (`codabar_start_stop`), and C the
-copy field `TAPIRSCAN_FIELD_CODABAR_START_STOP`. Rust struct literals and
-exhaustive patterns of `Barcode` need the new field; Java record patterns of
-`Barcode` need the new last component, while its previous constructor remains.
+copy field `TAPIRSCAN_FIELD_CODABAR_START_STOP`. Only a library from this release
+knows that field: header, binding and library must come from the same release.
+Java record patterns of `Barcode` need the new last component, while its
+previous constructor remains.
+
+Rust needs source changes where code relied on the exact shape of result types:
+
+- The result structs `Barcode`, `ScanResult`, `InspectionResult`,
+  `StructuredAppend`, `UndecodedRegion`, `Diagnostics`, `Content` and `Field` are
+  `#[non_exhaustive]`. Get them from a scan, deserialization or `parse_content`
+  instead of a struct literal, and end patterns that destructure them with `..`.
+  (`Format` and `ContentKind` were already `#[non_exhaustive]`.)
+
+Exhaustive switches over the format and content-kind enums need the new members
+or a default:
+
+- Java: a `switch` expression over `Format` handles `INDUSTRIAL25`, `PHARMACODE`,
+  `DATA_BAR_LIMITED`, `MICRO_QR_CODE`, `CODE39EXTENDED`, `IATA25` and `MATRIX25`,
+  and one over `ContentKind` handles `ISBN`.
+- C++: a `switch` over `Format` or `ContentKind` warns under `-Wswitch` until it
+  covers the new values or has a `default`.
+- Swift: a `switch` over `Format` or `ContentKind` needs the new cases or a
+  `default`.
+- Android: a Kotlin `when` or Java `switch` over `org.tapirscan.android.Format`
+  or `ContentKind` needs the new members or an `else`/`default` branch.
+
+Structured content recognizes more payloads, so apps that switch on
+`content.kind` can see other kinds for the same text:
+
+- 978 and 979 EAN-13 numbers (except 979-0, ISMN) and `ISBN …` or `urn:isbn:`
+  text are `ISBN` instead of having no content.
+- Bare e-mail addresses and `SMTP:` are `Email`; `www.` addresses and
+  `URLTO:`/`MEBKM:` bookmarks are `URL`; `mms:` links are `SMS`; `BIZCARD:` is
+  `Contact`. Leading whitespace no longer hides a prefix.
+- `SMS` content can have a `subject` field and `URL` content a `title` field
+  (from `mms:` links and `URLTO:`/`MEBKM:` bookmarks).
+- Some text loses its content: `http(s)` URLs without a host or with
+  whitespace, and an empty `TEL:`.
+
+Swift: `scan` and `inspect` for `[UInt8]` pixels and `CGImage` have `async`
+overloads. Inside an `async` function Swift selects them, so
+`try scanner.scan(image)` there no longer compiles; write
+`try await scanner.scan(image)`. Synchronous code and the `CVPixelBuffer`
+overloads are unchanged.
+
+Python wheel builds check the native library against the `native-build.json`
+that `scripts/build_native.py` writes beside it. A `TAPIRSCAN_NATIVE_DIR` must
+contain that file from a build of identical sources; see
+[installing local packages](DEVELOPMENT.md#install-local-packages).
 
 ## Upgrading from 1.3.0
 

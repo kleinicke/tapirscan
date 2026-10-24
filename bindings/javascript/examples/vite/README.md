@@ -14,8 +14,8 @@ The only configuration is `optimizeDeps.exclude` in `vite.config.js`, which the
 development server needs to serve those files from the package. Retail formats
 are enabled by default.
 
-To test a locally built package, install its npm tarball instead of
-the registry dependency before running the example:
+To use a package built from source, install its npm tarball before running the
+example:
 
 ```sh
 npm install /absolute/path/to/tapirscan-X.Y.Z.tgz

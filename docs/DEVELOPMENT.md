@@ -48,9 +48,9 @@ runs the selected core's tests. Plain Cargo defaults to Medium; use
 The public package is assembled under `build/crates/tapirscan` by
 `scripts/prepare_rust.py`; `--refresh` verifies the repository boundary and updates
 generated sources. Generated sources are build outputs, not a second implementation
-to edit. Native and WASM builds hold an exclusive lock on that package; a competing
-build fails with the lock path, and after an interruption you can remove the lock
-once its `owner` process has stopped.
+to edit. Native and WASM builds hold an operating-system lock on that package, so
+concurrent builds of one checkout wait for each other; the lock is released when
+its build exits, however it exits.
 
 ### Reproducible WASM builds
 
@@ -83,19 +83,15 @@ python3 -m pip install build/wheels/tapirscan-*.whl
 ```
 
 Python wheels include the native library. In a source checkout, use
-`library_dir="build/native"` or `TAPIRSCAN_LIBRARY_DIR`. The wheel builder accepts
-`TAPIRSCAN_NATIVE_DIR` for a prebuilt directory. That directory must contain the
-library and its `native-build.json` sidecar from `scripts/build_native.py`. Wheel
-creation checks the library hash, current native source inventory, ABI, package
-version and build recipe before copying it. Missing, stale or explicit private
-Turbo artifacts fail with rebuild instructions. Identical source checkouts may
-use a matching external build directory; verification does not load the library
-or require a compiler on the packaging machine.
+`library_dir="build/native"` or `TAPIRSCAN_LIBRARY_DIR`. The wheel builder takes
+the library from `build/native`, or from `TAPIRSCAN_NATIVE_DIR`. That directory
+must also hold the `native-build.json` that `scripts/build_native.py` writes
+beside the library. The wheel build compares it with the checkout: native source
+files, package version, ABI, toolchain channel and library hash. It rejects a
+missing or mismatched file and Turbo preset builds. The check does not load the
+library or need a compiler, so another checkout of identical sources can supply
+the build.
 
-`native-build.json` records the pinned toolchain request and supplied build
-settings. It establishes source freshness under trusted Cargo configuration;
-it does not attest the effective compiler or replace wheel platform/deployment
-validation. Rebuild older native libraries once to create this sidecar.
 Linux release wheels must be built for the advertised manylinux baseline; see
 [release preparation](RELEASING.md).
 

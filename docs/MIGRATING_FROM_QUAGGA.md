@@ -40,9 +40,6 @@ const result = await scan(blob, { formats: ["EAN13", "Code128"] });
 console.log(result.values); // [] when nothing is decoded; no error is thrown
 ```
 
-The one-shot `scan` starts a worker per call; reuse a `Scanner` for several
-images.
-
 ### Node
 
 quagga2 decodes the image file for you. Its `decodeSingle` scales every image to
@@ -118,7 +115,7 @@ Quagga.onDetected((result) => console.log(result.codeResult.code));
 Quagga.stop();
 ```
 
-`CameraScanner` plays the camera in a `<video>` element you place yourself:
+`CameraScanner` (preview) plays the camera in a `<video>` element you place yourself:
 
 ```js
 // After
@@ -154,7 +151,7 @@ camera.stop();
 | `frequency`                               | `scanInterval` in milliseconds (`frequency: 10` → `scanInterval: 100`).                             |
 | `decoder.readers`                         | `formats` on the scanner. See [reader mapping](#reader-mapping).                                    |
 | `locate`, `locator.*`, `inputStream.area` | See [localization and cropping](#localization-and-cropping).                                        |
-| `Quagga.offDetected`, `offProcessed`      | One `onScan` per controller; check a flag in it or call `camera.stop()`.                            |
+| `Quagga.offDetected`, `offProcessed`      | One `onScan` and one `onDetect` per controller; check a flag in them or call `camera.stop()`.       |
 | `inputStream.type: "VideoStream"`         | A frame loop on a `<video src>`: [recorded video](../bindings/javascript/README.md#recorded-video). |
 | `inputStream.type: "ImageStream"`         | `for (const file of files) await scanner.scan(file)`.                                               |
 | `Quagga.registerReader`                   | Not supported; Tapirscan has no reader plugins.                                                     |
@@ -209,7 +206,7 @@ Code128, so list every format you need.
 | `config.supplements: ["ean_5_reader", "ean_2_reader"]` | `eanAddOnPolicy`: `"ignore"`, `"read"` or `"require"`.                                              |
 
 Quagga apps list a supplement reader and a plain `ean_reader`, because a reader
-with supplements no longer reads plain EAN-13. Tapirscan uses one policy:
+with supplements does not read plain EAN-13. Tapirscan uses one policy:
 
 ```js
 // Before
@@ -286,8 +283,9 @@ scan the canvas, and add the offset in the same way.
 
 ## Bundle size and CSP
 
-Import a single-mode entry such as `tapirscan/browser/medium` (1 MB gzip). Sites
-with a Content Security Policy need `'wasm-unsafe-eval'`; see
+Import a single-mode entry such as `tapirscan/browser/medium`; sizes are under
+[bundle one mode](BROWSER_DEPLOYMENT.md#bundle-one-mode). Sites with a Content
+Security Policy need `'wasm-unsafe-eval'`; see
 [browser deployment](BROWSER_DEPLOYMENT.md).
 
 ## Python for server-side pipelines
@@ -312,4 +310,4 @@ for barcode in result.barcodes:
 
 `scan` also accepts NumPy arrays and PyTorch tensors; see the
 [Python guide](../bindings/python/README.md). For camera or video frames with
-OpenCV, see the [Python camera loop](MIGRATING_FROM_ZXING.md#python-camera-or-video).
+OpenCV, see the [Python OpenCV loop](../bindings/python/README.md#opencv).

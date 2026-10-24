@@ -138,7 +138,7 @@ per core, use `withParallel(false)`. Kotlin on the JVM uses the same API. See
 python3 scripts/build_native.py
 python3 scripts/build_java.py
 java --enable-native-access=ALL-UNNAMED -Dtapirscan.library=build/native/libtapirscan.dylib \
-    -cp build/java/tapirscan-1.4.0.jar:. MyApp
+    -cp build/java/tapirscan-1.5.0.jar:. MyApp
 ```
 
 The library is located through the `tapirscan.library` system property (a

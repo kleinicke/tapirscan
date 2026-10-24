@@ -174,7 +174,7 @@ that only adds code, so features enabled by other dependencies never remove a
 mode. For a smaller binary, disable the defaults and list what you need:
 
 ```toml
-tapirscan = { version = "1.4", default-features = false, features = ["mode-medium"] }
+tapirscan = { version = "1.5", default-features = false, features = ["mode-medium"] }
 ```
 
 Scanning with a mode that is not compiled in returns `Error::InvalidOptions`.

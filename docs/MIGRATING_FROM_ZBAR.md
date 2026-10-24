@@ -39,7 +39,8 @@ for barcode in result.barcodes:
     print(barcode.format, barcode.text, barcode.rect)
 ```
 
-NumPy arrays work in both (Tapirscan: uint8 HW, HWC or CHW; OpenCV needs
+NumPy arrays work in both (Tapirscan: uint8 HW, HWC or CHW; convert OpenCV
+frames with `cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)` or pass
 `color_order="BGR"`). pyzbar's `decode((data, width, height))` becomes
 `tapirscan.scan(tapirscan.PixelImage(data, width=width, height=height, channels=1))`.
 For many images, reuse a `tapirscan.Scanner` or call `tapirscan.scan_many`
@@ -71,7 +72,7 @@ In Node, `import { Scanner } from "tapirscan"` and
 Decode image files first; filenames and JPEG/PNG bytes are not inputs.
 
 Live camera: `new CameraScanner(video, scanner, { onScan, onError })` from
-`tapirscan/camera`, then `start()` and `stop()`, replaces the frame loop
+`tapirscan/camera` (preview), then `start()` and `stop()`, replaces the frame loop
 ([camera scanning](../bindings/javascript/README.md#camera-scanning); CSP and
 hosting in [browser deployment](BROWSER_DEPLOYMENT.md)). The JavaScript guide
 also shows [drawing results over the video](../bindings/javascript/README.md#drawing-results-over-the-video),
@@ -80,7 +81,7 @@ also shows [drawing results over the video](../bindings/javascript/README.md#dra
 [recorded video](../bindings/javascript/README.md#recorded-video).
 
 **`zbarcam`:** loop over `cv2.VideoCapture` frames (camera or video file) with
-one reused scanner; see the [Python camera loop](MIGRATING_FROM_ZXING.md#python-camera-or-video).
+one reused scanner; see the [Python OpenCV loop](../bindings/python/README.md#opencv).
 
 **`zbarimg`:** Tapirscan has no CLI. Replacement (first argument is a format or
 group; print `b.text` alone for `--raw`):
@@ -96,7 +97,7 @@ python -c 'import sys; from PIL import Image; import tapirscan; [print(f"{b.form
 | `EAN13`                     | `EAN13`                      | Becomes `UPCA` for zero-prefixed reads when `UPCA` is selected. |
 | `UPCA`                      | `UPCA`                       | 12 digits.                                                      |
 | `EAN8`, `UPCE`              | `EAN8`, `UPCE`               |                                                                 |
-| `ISBN13`, `ISBN10`          | `EAN13`                      | [Convert yourself](#ean-13-upc-a-and-isbn).                     |
+| `ISBN13`, `ISBN10`          | `EAN13`                      | Content kind `ISBN`: [ISBN](#ean-13-upc-a-and-isbn).            |
 | `EAN2`, `EAN5`              | none                         | [`ean_add_on_policy`](#ean-2-and-ean-5-supplements).            |
 | `I25`                       | `ITF`                        |                                                                 |
 | `CODE39`                    | `Code39`                     | Standard characters only; check characters stay in `text`.      |
@@ -124,17 +125,17 @@ A UPC-A symbol is an EAN-13 with a leading zero.
 | Tapirscan `retail` (default)       | `UPCA` `036000291452`                                            |
 | Tapirscan `formats=["UPCA"]`       | `UPCA` `036000291452`; non-zero-prefixed EAN-13 are not returned |
 
-ZBar reports `ISBN13`/`ISBN10` only when enabled; Tapirscan always reports
-`EAN13` (978/979 prefix). ISBN-10 conversion (port to JavaScript the same way):
+ZBar's `ISBN13` and `ISBN10` types become `EAN13` barcodes whose
+[structured content](CONTENT.md) has kind `ISBN`, with the fields `isbn13` and,
+for 978 numbers, `isbn10`:
 
 ```python
-def isbn10(ean13: str) -> str | None:
-    if len(ean13) != 13 or not ean13.startswith("978"):
-        return None  # 979 numbers have no ISBN-10
-    body = ean13[3:12]
-    check = (11 - sum((10 - i) * int(d) for i, d in enumerate(body)) % 11) % 11
-    return body + ("X" if check == 10 else str(check))
+content = barcode.content
+if content and content.kind == "ISBN":
+    isbn13, isbn10 = content.get("isbn13"), content.get("isbn10")
 ```
+
+In JavaScript, read `barcode.content?.fields` by `name` the same way.
 
 ### EAN-2 and EAN-5 supplements
 
@@ -166,7 +167,7 @@ pyzbar returns `bytes`, Tapirscan `str`.
 | Library   | Non-ASCII and binary content                                                                                                                       |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | pyzbar    | `data` is ZBar's UTF-8 conversion. QR bytes `E9` arrive as `C3 A9`; originals are unrecoverable. A UTF-8 QR without ECI can come back mis-decoded. |
-| zbar-wasm | `data` is an `Int8Array` of the raw bytes.                                                                                                         |
+| zbar-wasm | `data` is the same UTF-8 conversion as an `Int8Array`.                                                                                             |
 | Tapirscan | `text` is a decoded string; for arbitrary binary it is a guess (a payload starting `FF FE` decoded as UTF-16).                                     |
 
 For exact bytes use `payload_bytes` (Python `bytes`) / `payloadBytes`
@@ -182,10 +183,10 @@ Bytes for any result:
 
 Source-image pixels, origin top left, y down, in all libraries.
 
-| Field     | pyzbar                                                                           | Tapirscan                                                                                               |
-| --------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `rect`    | `Rect(left, top, width, height)`, ints                                           | Same fields in Python; `{ left, top, width, height }` in JavaScript. Can differ by a pixel.             |
-| `polygon` | `Point(x, y)` ints, convex hull: four or five points, counterclockwise on screen | Exactly four corners, clockwise on screen: `Point(x, y)` floats in Python, `[x, y]` pairs in JavaScript |
+| Field     | pyzbar                                                                                       | Tapirscan                                                                                               |
+| --------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `rect`    | `Rect(left, top, width, height)`, ints                                                       | Same fields in Python; `{ left, top, width, height }` in JavaScript. Can differ by a pixel.             |
+| `polygon` | `Point(x, y)` ints, convex hull with a variable number of points, counterclockwise on screen | Exactly four corners, clockwise on screen: `Point(x, y)` floats in Python, `[x, y]` pairs in JavaScript |
 
 The first Tapirscan corner follows the reading direction (a barcode rotated 90
 degrees starts at the bottom left); do not assume top left. zbar-wasm `points`
@@ -206,7 +207,7 @@ Select only expected formats and validate content instead.
 | ZBar                                                       | Tapirscan                                                                                                  |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `symbols=[...]`; `setConfig(NONE, ENABLE, 0)` plus enables | `formats=[...]` or a group (`retail`, `common1D`, `common`, `1D`, `2D`, `all`); unselected formats are off |
-| `ENABLE` for ISBN, EAN2, EAN5                              | [Supplement policy](#ean-2-and-ean-5-supplements); ISBN is not a format                                    |
+| `ENABLE` for ISBN, EAN2, EAN5                              | [Supplement policy](#ean-2-and-ean-5-supplements); ISBN is a content kind of `EAN13`, not a format         |
 | `X_DENSITY`, `Y_DENSITY`                                   | None; choose a mode: Python `mode=`, browser `tapirscan/browser/<mode>`                                    |
 | `MIN_LEN`, `MAX_LEN`                                       | None; filter on `len(barcode.text)`                                                                        |
 | `ADD_CHECK`, `EMIT_CHECK`                                  | None; check digits are returned as read                                                                    |

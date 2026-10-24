@@ -5,14 +5,14 @@ For [html5-qrcode](https://github.com/mebjas/html5-qrcode) 2.x: the
 
 - **No widget.** html5-qrcode builds its camera view, camera list, torch
   button and file picker inside a `<div>`. Tapirscan scans; `CameraScanner`
-  plays the camera in a `<video>` you place, and you add the controls you want
-  ([full page below](#replacing-html5qrcodescanner)).
+  (preview) plays the camera in a `<video>` you place, and you add the controls
+  you want ([full page below](#replacing-html5qrcodescanner)).
 - **Default formats are `retail`** (EAN13, UPCA, EAN8, UPCE). html5-qrcode reads
   all its formats unless `formatsToSupport` is set. Pass `formats`: `"common"`
   adds Code128, Code39, ITF, QR Code and Data Matrix; `"all"` reads all but the opt-in formats.
-- **Every frame is reported.** html5-qrcode calls the error callback for each
-  frame without a code; `onScan` receives every frame, with an empty
-  `barcodes` array when nothing was read.
+- **Empty results are reported.** html5-qrcode calls the error callback for each
+  frame without a code; `onScan` receives each scanned frame's result, with an
+  empty `barcodes` array when nothing was read.
 
 ## Install
 
@@ -22,8 +22,8 @@ npm install tapirscan
 ```
 
 Sites with a Content Security Policy need `'wasm-unsafe-eval'`; see
-[browser deployment](BROWSER_DEPLOYMENT.md). A single-mode entry such as
-`tapirscan/browser/medium` is 1 MB gzip.
+[browser deployment](BROWSER_DEPLOYMENT.md), which also lists the
+[size of each entry](BROWSER_DEPLOYMENT.md#bundle-one-mode).
 
 ## Scanning a file
 
@@ -103,7 +103,7 @@ camera.stop();
 | error callback per frame                                                     | `onScan` with empty `barcodes`; delete "No MultiFormat Readers" handling                                               |
 | `start()` rejection                                                          | `start()` rejection; later failures call `onError`                                                                     |
 | `stop()`, `clear()`                                                          | `camera.stop()`; remove your elements yourself. `scanner.dispose()` when done                                          |
-| `pause()` / `resume()`                                                       | `camera.stop()` / `camera.start()` (releases and reopens the camera)                                                   |
+| `pause()` / `resume()`                                                       | `video.pause()` / `video.play()` pauses scanning with the camera open; `camera.stop()` / `camera.start()` releases it  |
 | `getState()`, `isScanning`                                                   | `camera.running`                                                                                                       |
 | `Html5Qrcode.getCameras()` (`{ id, label }`)                                 | `CameraScanner.cameras()` (`MediaDeviceInfo`: `deviceId`, `label`)                                                     |
 | `applyVideoConstraints`, `getRunningTrackSettings`                           | `camera.track.applyConstraints(…)`, `camera.track.getSettings()`                                                       |
@@ -123,8 +123,9 @@ onScan({ barcodes }) {
 },
 ```
 
-For formats without a check digit (Code 39, Codabar), accept a value only after
-it appeared in two or three consecutive frames.
+For formats without a check digit (Code 39, Codabar), handle reads in
+`onDetect` with `confirmations: 2`: it is called once a barcode was read in two
+consecutive scans.
 
 ## Formats
 
@@ -158,7 +159,7 @@ format searches the whole frame, so select only what you expect.
 | `decodedResult.result.bounds` (when present) | `barcode.rect`; `barcode.polygon` has the four corners in frame pixels                     |
 | one code per frame                           | every code in the frame                                                                    |
 | none                                         | `barcode.content`: Wi-Fi, contact, GS1 and other fields ([structured content](CONTENT.md)) |
-| none                                         | `barcode.payloadBytes`: exact bytes of 2D symbols                                          |
+| none                                         | `barcode.payloadBytes`: decoded payload bytes, when available                              |
 
 html5-qrcode uses the browser's `BarcodeDetector` where available and
 `@zxing/library` otherwise, so its text varies by browser. Where it used ZXing,
@@ -252,7 +253,7 @@ one, import `dist/browser-medium.js` and `dist/camera.js` from where you serve t
 package ([browser deployment](BROWSER_DEPLOYMENT.md#serve-the-worker-from-the-pages-origin)).
 
 Requirements: HTTPS or `localhost`; browser versions are listed under
-[camera scanning](../bindings/javascript/README.md#camera-scanning). The scanner
+[browser apps](../bindings/javascript/README.md#browser-apps-react-and-svelte). The scanner
 runs in a worker, so the page stays responsive.
 
 ## Drawing results

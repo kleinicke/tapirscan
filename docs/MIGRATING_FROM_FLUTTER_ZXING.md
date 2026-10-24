@@ -62,7 +62,7 @@ and DataBar text differ. Check stored values for those formats; for Codabar,
 | flutter_zxing `DecodeParams`                  | Tapirscan                                                                                                                                                       |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tryHarder`, `tryRotate`, `tryInverted`       | `mode`: `low`, `medium` (default), `high`, `veryHigh`; rotation is always handled; inverted (light-on-dark) symbols are read for QR Code, Data Matrix and Aztec |
-| `maxSize` (768), `tryDownscale`               | none: full resolution up to 32 megapixels; pass a smaller image for speed                                                                                       |
+| `maxSize` (768), `tryDownscale`               | none: images up to 256 megapixels and 65,535 pixels per side; above 32 megapixels a reduced copy is scanned; pass a smaller image for speed                     |
 | `cropLeft`/`cropTop`/`cropWidth`/`cropHeight` | a view with a stride, see [camera frames](#camera-frames)                                                                                                       |
 | `maxNumberOfSymbols`, `isMultiScan`           | none: every scan returns all barcodes                                                                                                                           |
 | `imageFormat`                                 | `PixelImage` `channels` (1, 3, 4) or `PixelImage.bgra`                                                                                                          |
@@ -122,9 +122,8 @@ controller.startImageStream((image) async {
 });
 ```
 
-flutter_zxing 3.1 notes that `camera_desktop` on Linux and Windows reports RGBA
-frames as `bgra8888`; when `image.format.raw == 'RGBA'`, use
-`PixelImage(..., channels: 4)` instead.
+When `image.format.raw == 'RGBA'`, use `PixelImage(..., channels: 4)` instead
+of `PixelImage.bgra`.
 
 To scan only the centre of a frame, as `ReaderWidget`'s `cropPercent` does, pass a
 view and keep the frame's stride; add the offset back to the results:
@@ -141,7 +140,7 @@ final crop = ts.PixelImage(view, width: cropWidth, height: cropHeight, stride: p
 | `text` (nullable), `isValid`               | `text`; a result contains only decoded barcodes          |
 | `format` (`int`, `.name` via an extension) | `format` (`Format`, `.id` such as `'EAN13'`)             |
 | `position` (`topLeftX` … `bottomRightY`)   | `polygon` (four `PixelPoint`s) and `rect` (`PixelRect`)  |
-| `rawBytes`                                 | `payloadBytes` (matrix formats)                          |
+| `rawBytes`                                 | `payloadBytes`, when available                           |
 | `duration`                                 | none; time the call                                      |
 | none                                       | `support`, `eanAddOn`, `gs1`, `structuredAppend`, `best` |
 | Codabar start/stop letters in `text`       | `codabarStartStop` (`text` omits them)                   |
@@ -174,9 +173,6 @@ if (tapirscan != null) {
   final code = await zx.processCameraImage(image, params);
 }
 ```
-
-Both native libraries ship in the app; Tapirscan's library is 5.9 MB for arm64 and 7.5 MB for x86_64 (measured in a debug
-APK).
 
 ## Not available in Tapirscan
 

@@ -10,9 +10,9 @@ the [library execution map](LIBRARY_MAP.md).
 ## From pixels to results
 
 1. **Find candidate regions.** Bar-segment voting groups parallel edges into
-   barcode-like areas in Medium, High, Very High and Low's fast path. Low's
-   add-on path and the experimental Turbo presets use stripe detection, which
-   also adds candidates in selected recovery paths. Selected proposals receive
+   barcode-like areas in Medium, High, Very High and Low's fast path. Low
+   outside that path and the experimental Turbo presets use stripe detection, which also adds candidates
+   in selected recovery paths. Selected proposals receive
    geometric refinement.
 2. **Sample original pixels.** Oriented profiles follow each candidate's geometry.
    Medium adds a full-frame search only when its candidates read nothing but show
@@ -66,7 +66,11 @@ readers and supplement policies; `linear_duplicates.rs` reconciles physical read
 The `read` and `require` supplement policies run the same readers as `ignore`;
 `formats/supplements.rs` then reads each EAN/UPC result's supplement with
 `multiformat/src/addon_profile.rs`, which fits the decoded symbol on grayscale
-profiles and decodes the supplement beside it.
+profiles and decodes the supplement beside it. A profile reading is accepted
+when two profiles agree and none reads another value. Where bars beside a symbol
+suggest a supplement that the profiles do not confirm, a run-length sweep of the
+retail formats with supplement decoding runs once over those symbols and the
+space beside them.
 
 `read.rs` carries typed detections and regions across all readers. Supplement
 attachment, deduplication and ranking operate on those types; public results are

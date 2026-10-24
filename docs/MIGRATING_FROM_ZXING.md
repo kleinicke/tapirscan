@@ -1,9 +1,10 @@
 # Migrating from ZXing
 
-Covers `@zxing/library` with `@zxing/browser`, `zxing-wasm` and `zxing-cpp` (Python). Tapirscan
-returns every barcode in an image as `text`, `format`, `polygon` and `rect`; see the
-[JavaScript](../bindings/javascript/README.md) and [Python](../bindings/python/README.md) guides for
-the full API.
+Covers `@zxing/library` with `@zxing/browser`, `zxing-wasm` 3.x and `zxing-cpp`
+3.x (Python); format names follow those versions. Tapirscan returns every
+barcode in an image as `text`, `format`, `polygon` and `rect`; see the
+[JavaScript](../bindings/javascript/README.md) and
+[Python](../bindings/python/README.md) guides for the full API.
 
 ## Install and scan an image
 
@@ -61,41 +62,42 @@ for b in result.barcodes:
 ```
 
 `image` is a Pillow image or NumPy array in both. zxing-cpp reads arrays as BGR; Tapirscan reads
-RGB, so pass `color_order="BGR"` for OpenCV frames. Without `formats`, Tapirscan reads only EAN13,
+RGB, so convert OpenCV frames with `cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)` (faster) or pass
+`color_order="BGR"`. Without `formats`, Tapirscan reads only EAN13,
 UPCA, EAN8 and UPCE, where ZXing reads everything. `"common"` adds Code128, Code39, ITF, QR Code and
 Data Matrix; `"all"` reads all but the opt-in formats.
 
 ## Formats
 
-| zxing-cpp / zxing-wasm                                   | @zxing/library                      | Tapirscan                                  |
-| -------------------------------------------------------- | ----------------------------------- | ------------------------------------------ |
-| `EAN13`, `UPCA`, `EAN8`, `UPCE`                          | `EAN_13`, `UPC_A`, `EAN_8`, `UPC_E` | `EAN13`, `UPCA`, `EAN8`, `UPCE`            |
-| `EAN2`, `EAN5`                                           | `UPC_EAN_EXTENSION`                 | no format; `eanAddOnPolicy: "read"`        |
-| `ISBN`                                                   | none                                | `EAN13`                                    |
-| `Code128`                                                | `CODE_128`                          | `Code128` (includes GS1-128)               |
-| `Code39`, `Code39Std`                                    | `CODE_39`                           | `Code39`                                   |
-| `Code39Ext`                                              | none                                | `Code39Extended` (opt-in)                  |
-| `Code32`, `PZN`                                          | none                                | `Code32`, `PZN` (opt-in)                   |
-| `Code93`, `Codabar`                                      | `CODE_93`, `CODABAR`                | `Code93`, `Codabar`                        |
-| `ITF`, `ITF14`                                           | `ITF`                               | `ITF`                                      |
-| `DataBar`, `DataBarOmni`, `DataBarStk`, `DataBarStkOmni` | `RSS_14`                            | `DataBar`                                  |
-| `DataBarExp`, `DataBarExpStk`                            | `RSS_EXPANDED`                      | `DataBarExpanded`                          |
-| `DataBarLtd`, `DataBarLimited`                           | none                                | `DataBarLimited`                           |
-| `Telepen*`, `DXFilmEdge`                                 | none                                | none                                       |
-| none                                                     | none                                | `MSIPlessey` (opt-in)                      |
-| none                                                     | none                                | `Industrial25`, `Pharmacode` (opt-in)      |
-| none                                                     | none                                | `IATA25`, `Matrix25` (opt-in)              |
-| `QRCode`, `QRCodeModel2`                                 | `QR_CODE`                           | `QRCode`                                   |
-| `MicroQRCode`                                            | `MICRO_QR_CODE`                     | `MicroQRCode`                              |
-| `QRCodeModel1`, `RMQRCode`                               | none                                | none                                       |
-| `DataMatrix`                                             | `DATA_MATRIX`                       | `DataMatrix`                               |
-| `PDF417`, `CompactPDF417`                                | `PDF_417`                           | `PDF417`                                   |
-| `MicroPDF417`                                            | none                                | none                                       |
-| `Aztec`, `AztecCode`, `AztecRune`                        | `AZTEC`                             | `Aztec` (includes Rune)                    |
-| `MaxiCode`                                               | `MAXICODE`                          | `MaxiCode`                                 |
-| `All`, `AllReadable`                                     |                                     | `"all"` (opt-in formats stay excluded)     |
-| `AllLinear`, `AllMatrix`                                 |                                     | `"1D"`, `"2D"`                             |
-| `AllRetail`                                              |                                     | `"retail"` (no DataBar; add it explicitly) |
+| zxing-cpp / zxing-wasm                                   | @zxing/library                      | Tapirscan                                            |
+| -------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------- |
+| `EAN13`, `UPCA`, `EAN8`, `UPCE`                          | `EAN_13`, `UPC_A`, `EAN_8`, `UPC_E` | `EAN13`, `UPCA`, `EAN8`, `UPCE`                      |
+| `EAN2`, `EAN5`                                           | `UPC_EAN_EXTENSION`                 | no format; `eanAddOnPolicy: "read"`                  |
+| `ISBN`                                                   | none                                | `EAN13`; content kind `ISBN` with `isbn13`, `isbn10` |
+| `Code128`                                                | `CODE_128`                          | `Code128` (includes GS1-128)                         |
+| `Code39`, `Code39Std`                                    | `CODE_39`                           | `Code39`                                             |
+| `Code39Ext`                                              | none                                | `Code39Extended` (opt-in)                            |
+| `Code32`, `PZN`                                          | none                                | `Code32`, `PZN` (opt-in)                             |
+| `Code93`, `Codabar`                                      | `CODE_93`, `CODABAR`                | `Code93`, `Codabar`                                  |
+| `ITF`, `ITF14`                                           | `ITF`                               | `ITF`                                                |
+| `DataBar`, `DataBarOmni`, `DataBarStk`, `DataBarStkOmni` | `RSS_14`                            | `DataBar`                                            |
+| `DataBarExp`, `DataBarExpStk`                            | `RSS_EXPANDED`                      | `DataBarExpanded`                                    |
+| `DataBarLtd`, `DataBarLimited`                           | none                                | `DataBarLimited`                                     |
+| `Telepen*`, `DXFilmEdge`                                 | none                                | none                                                 |
+| none                                                     | none                                | `MSIPlessey` (opt-in)                                |
+| none                                                     | none                                | `Industrial25`, `Pharmacode` (opt-in)                |
+| none                                                     | none                                | `IATA25`, `Matrix25` (opt-in)                        |
+| `QRCode`, `QRCodeModel2`                                 | `QR_CODE`                           | `QRCode`                                             |
+| `MicroQRCode`                                            | `MICRO_QR_CODE`                     | `MicroQRCode`                                        |
+| `QRCodeModel1`, `RMQRCode`                               | none                                | none                                                 |
+| `DataMatrix`                                             | `DATA_MATRIX`                       | `DataMatrix`                                         |
+| `PDF417`, `CompactPDF417`                                | `PDF_417`                           | `PDF417`                                             |
+| `MicroPDF417`                                            | none                                | none                                                 |
+| `Aztec`, `AztecCode`, `AztecRune`                        | `AZTEC`                             | `Aztec` (includes Rune)                              |
+| `MaxiCode`                                               | `MAXICODE`                          | `MaxiCode`                                           |
+| `All`, `AllReadable`                                     |                                     | `"all"` (opt-in formats stay excluded)               |
+| `AllLinear`, `AllMatrix`                                 |                                     | `"1D"`, `"2D"`                                       |
+| `AllRetail`                                              |                                     | `"retail"` (no DataBar; add it explicitly)           |
 
 Result `format` values equal zxing-wasm's names except for the grouped rows. zxing-cpp's
 `str(format)` gives `"EAN-13"`; use `format.name` for `"EAN13"`.
@@ -241,9 +243,11 @@ await camera.start();
 camera.stop();
 ```
 
-An empty `onScan` replaces the per-frame `NotFoundException` callback. Opening failures
-(permission, no camera) reject `start()`; later failures arrive in `onError`. `controls.switchTorch` becomes `camera.setTorch(on)`; `start({ deviceId })` replaces the
-`deviceId` argument. Options, camera selection and torch:
+`CameraScanner` is a preview API. An empty `onScan` replaces the per-frame
+`NotFoundException` callback. Opening failures (permission, no camera) reject
+`start()`; later failures arrive in `onError`. `controls.switchTorch` becomes
+`camera.setTorch(on)`; `start({ deviceId })` replaces the `deviceId` argument.
+Options, camera selection and torch:
 [camera scanning](../bindings/javascript/README.md#camera-scanning).
 
 The other `@zxing/browser` entry points:
@@ -291,32 +295,9 @@ To scan part of each frame, pass `region` as in
 
 ## Python camera or video
 
-zxing-cpp has no camera loop; with OpenCV, reuse one scanner for all frames.
-`cv2.VideoCapture("clip.mp4")` reads a video file the same way.
-
-```python
-import cv2
-import numpy as np
-import tapirscan
-
-capture = cv2.VideoCapture(0)
-with tapirscan.Scanner(mode="low", formats=["EAN13", "QRCode"]) as scanner:
-    while True:
-        ok, frame = capture.read()
-        if not ok:
-            break
-        for barcode in scanner.scan(cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)).barcodes:
-            corners = np.array([(p.x, p.y) for p in barcode.polygon], np.int32)
-            cv2.polylines(frame, [corners], True, (0, 255, 0), 2)
-        cv2.imshow("scan", frame)
-        if cv2.waitKey(1) == 27:  # Esc
-            break
-capture.release()
-cv2.destroyAllWindows()
-```
-
-`Low` keeps up with live frames; use `Medium` for recorded video. To scan a
-region, pass a slice and add its offset:
+zxing-cpp has no camera loop; with OpenCV, reuse one scanner for all frames, as in the
+[Python OpenCV loop](../bindings/python/README.md#opencv). `Low` keeps up with live frames; use
+`Medium` for recorded video. To scan a region, pass a slice and add its offset:
 `scanner.scan(rgba[y0:y1, x0:x1])`, then `p.x + x0`, `p.y + y0`.
 
 ## Generating barcodes

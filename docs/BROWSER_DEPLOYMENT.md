@@ -1,7 +1,7 @@
 # Browser deployment
 
-What a site needs to serve `tapirscan/browser` and `tapirscan/camera`. For the API,
-see the [JavaScript README](../bindings/javascript/README.md#browser-apps-react-and-svelte).
+What a site needs to serve `tapirscan/browser` and `tapirscan/camera` (preview).
+For the API, see the [JavaScript README](../bindings/javascript/README.md#browser-apps-react-and-svelte).
 
 ## Bundle one mode
 
@@ -17,16 +17,14 @@ size, import a single-mode entry:
 | `tapirscan/browser/very-high` | `very-high.wasm` | 2.7 MB (1.0 MB) |
 | `tapirscan/browser`           | all modes, Turbo | 18 MB (7 MB)    |
 
-Tested with Vite and Angular; [Angular](#angular) starts the worker itself.
+Vite bundles the worker and WASM itself; [Angular](#angular) production builds
+need the app to start the worker.
 
 ## Load it fast
 
-Download time dominates: Chrome compiles `medium.wasm` in about 3 ms, while the
-file is 2.5 MB uncompressed.
-
-- **Compress `.wasm`.** Medium transfers as 0.95 MB with gzip and 0.72 MB with
-  brotli (Low: 0.77 and 0.61 MB). Browsers decompress both themselves; the app
-  changes nothing. Netlify, Vercel and Cloudflare compress automatically. Plain
+- **Compress `.wasm`.** gzip gives the sizes in the table above; brotli is about
+  a quarter smaller. Browsers decompress both themselves; the app changes
+  nothing. Netlify, Vercel and Cloudflare compress automatically. Plain
   nginx needs `application/wasm` in `gzip_types`, and brotli needs the
   `ngx_brotli` module.
 - **Cache it for good.** Bundlers put a content hash in the file name, so serve
@@ -103,11 +101,12 @@ const scanner = new Scanner({
 { "glob": "medium.wasm", "input": "node_modules/tapirscan/wasm", "output": "tapirscan" }
 ```
 
-The worker module and the WASM file must be the same mode. Each entry has one:
-`tapirscan/browser/low/worker`, `/medium/worker`, `/high/worker`,
-`/very-high/worker`, and `tapirscan/browser/worker` for every mode and Turbo
-preset (then copy the WASM files you select). Without `worker`, a production
-build reports that its worker failed to start.
+Each entry has a worker module: `tapirscan/browser/low/worker`, `/medium/worker`,
+`/high/worker`, `/very-high/worker`, and `tapirscan/browser/worker` for every mode
+and Turbo preset. With `wasmBaseUrl`, the worker loads the scanner's mode or
+preset from that directory, so copy the WASM files you select; without it, the
+worker module must bundle them. Without `worker`, a production build reports
+that its worker failed to start.
 
 ## Check support first
 
@@ -123,7 +122,8 @@ if (browserSupported()) {
 }
 ```
 
-`browserSupported()` checks WebAssembly SIMD, workers and `OffscreenCanvas`;
+`browserSupported()` checks the features a browser scanner needs: WebAssembly
+SIMD, module workers, `OffscreenCanvas` and `createImageBitmap`.
 `wasmSupported()` checks only SIMD, for the core. A scanner created anyway starts no
 worker and downloads nothing: its `ready` and scans reject with the `ScannerError`
 code `"unsupported"`, as does the core's `Scanner.create`.

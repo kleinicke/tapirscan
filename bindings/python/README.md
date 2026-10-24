@@ -29,7 +29,7 @@ pip install tapirscan
 
 Building wheels from source requires a full checkout and a matching native
 library with its `native-build.json` sidecar. See
-[development](../../docs/DEVELOPMENT.md#install-local-packages) for build commands
+[development](https://github.com/kleinicke/tapirscan/blob/main/docs/DEVELOPMENT.md#install-local-packages) for build commands
 and using a prebuilt library through `TAPIRSCAN_NATIVE_DIR`.
 
 Switching from [pyzbar](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZBAR.md) or
@@ -74,8 +74,8 @@ keyword group; — means it is not included. `retail` is the default.
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and `Matrix25`
-require explicit selection; no group includes
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and
+`Matrix25` require explicit selection; no group includes
 them, even `all`. See the [format guide](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md)
 for variant details and EAN/UPC supplements.
 
@@ -118,11 +118,9 @@ for barcode in result.barcodes:
     print(barcode.text, barcode.format, barcode.rect)
 ```
 
-`formats="1D"` enables linear formats except the opt-in formats. `"retail"` selects EAN13, UPCA, EAN8
+`formats="1D"` enables linear formats. `"retail"` selects EAN13, UPCA, EAN8
 and UPCE; `"common1D"` adds Code128, Code39 and ITF; `"common"` adds QRCode and
-DataMatrix; `"2D"` and `"all"` are also available. `Code32`, `PZN`,
-`MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and `Matrix25` require
-explicit selection, even with `"all"`. See
+DataMatrix; `"2D"` and `"all"` are also available. See
 [format and keyword-group matrix](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md#format-matrix).
 
 ### PyTorch tensors
@@ -295,7 +293,8 @@ result = tapirscan.scan(image, color_order="BGR")
 OpenCV is not a dependency. `color_order="BGR"` does not modify your array; it
 reorders the channels in a copy. Converting with OpenCV is faster: for a 12 MP
 frame, `scanner.scan(cv2.cvtColor(image, cv2.COLOR_BGR2RGBA))` is about twice as
-fast as `color_order="BGR"`. For a camera or video, reuse one scanner:
+fast as `color_order="BGR"`. For a camera or a video file
+(`cv2.VideoCapture("clip.mp4")`), reuse one scanner:
 
 ```python
 capture = cv2.VideoCapture(0)
@@ -361,7 +360,7 @@ same fields plus the ones marked _inspect_. Results are immutable.
 | `barcode.polygon`               | Tuple of four `Point(x, y)` source-image coordinates.                                       |
 | `barcode.rect`                  | Enclosing integer `Rect(left, top, width, height)`.                                         |
 | `barcode.support`               | Reader-specific ranking evidence used by `best`.                                            |
-| `barcode.payload_bytes`         | Decoded matrix payload bytes, or None.                                                      |
+| `barcode.payload_bytes`         | Decoded payload bytes, when available; otherwise None.                                      |
 | `barcode.gs1`                   | GS1 indicator, or None if not supplied by the reader.                                       |
 | `barcode.reader_initialization` | Data Matrix, PDF417, Aztec and MaxiCode reader-initialization flag; None for other formats. |
 | `barcode.structured_append`     | `StructuredAppend(index, count, id, parity)`, or None; index is one-based.                  |

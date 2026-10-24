@@ -67,9 +67,8 @@ is included in that keyword group; — means it is not included, not unsupported
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and `Matrix25`
-require explicit selection; no group includes
-them, even `all`. Groups select readers, not effort levels or accuracy guarantees.
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and
+`Matrix25` require explicit selection; no group includes them, even `all`.
 
 Python and JavaScript accept these keywords as strings, for example
 `formats="common"` in Python or `{ formats: "common" }` in JavaScript. Native
@@ -228,18 +227,18 @@ it expects. Wrong reads, duplicates and missed symbols remain possible.
 
 ## Documentation
 
-| I want to…                         | Start here                                                                                                                                                                                                                          |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Integrate in a browser or Node app | [JavaScript / TypeScript](bindings/javascript/README.md)                                                                                                                                                                            |
-| Deploy on a website                | [Browser deployment](docs/BROWSER_DEPLOYMENT.md)                                                                                                                                                                                    |
-| Switch from another scanner        | [ZXing](docs/MIGRATING_FROM_ZXING.md) · [ZBar](docs/MIGRATING_FROM_ZBAR.md) · [Quagga](docs/MIGRATING_FROM_QUAGGA.md) · [html5-qrcode](docs/MIGRATING_FROM_HTML5_QRCODE.md) · [flutter_zxing](docs/MIGRATING_FROM_FLUTTER_ZXING.md) |
-| Scan Python images and arrays      | [Python](bindings/python/README.md)                                                                                                                                                                                                 |
-| Use another native language        | [Rust](bindings/rust/README.md), [C](bindings/c/README.md), [C++](bindings/cpp/README.md), [Java](bindings/java/README.md)                                                                                                          |
-| Choose formats                     | [Format coverage](docs/FORMATS.md)                                                                                                                                                                                                  |
-| Make scanning fast                 | [Fast end-to-end scanning](docs/PERFORMANCE.md)                                                                                                                                                                                     |
-| Understand the scanner             | [Comparison](docs/COMPARISON.md) · [Architecture](docs/ARCHITECTURE.md)                                                                                                                                                             |
-| Evaluate performance fairly        | [Benchmark guide](docs/BENCHMARKS.md)                                                                                                                                                                                               |
-| Build or contribute                | [Development](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md)                                                                                                                                                                |
+| I want to…                         | Start here                                                                                                                                                                                                                                           |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Integrate in a browser or Node app | [JavaScript / TypeScript](bindings/javascript/README.md)                                                                                                                                                                                             |
+| Deploy on a website                | [Browser deployment](docs/BROWSER_DEPLOYMENT.md)                                                                                                                                                                                                     |
+| Switch from another scanner        | [ZXing](docs/MIGRATING_FROM_ZXING.md) · [ZBar](docs/MIGRATING_FROM_ZBAR.md) · [Quagga](docs/MIGRATING_FROM_QUAGGA.md) · [html5-qrcode](docs/MIGRATING_FROM_HTML5_QRCODE.md) · [flutter_zxing](docs/MIGRATING_FROM_FLUTTER_ZXING.md)                  |
+| Scan Python images and arrays      | [Python](bindings/python/README.md)                                                                                                                                                                                                                  |
+| Use another native language        | [Rust](bindings/rust/README.md), [C](bindings/c/README.md), [C++](bindings/cpp/README.md), [Java](bindings/java/README.md), [Swift](bindings/swift/README.md), [Android](bindings/android/README.md), [Dart and Flutter](bindings/flutter/README.md) |
+| Choose formats                     | [Format coverage](docs/FORMATS.md)                                                                                                                                                                                                                   |
+| Make scanning fast                 | [Fast end-to-end scanning](docs/PERFORMANCE.md)                                                                                                                                                                                                      |
+| Understand the scanner             | [Comparison](docs/COMPARISON.md) · [Architecture](docs/ARCHITECTURE.md)                                                                                                                                                                              |
+| Evaluate performance fairly        | [Benchmark guide](docs/BENCHMARKS.md)                                                                                                                                                                                                                |
+| Build or contribute                | [Development](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md)                                                                                                                                                                                 |
 
 The demo is a separate application. Its photos, UI, and comparison engines are
 not included in the npm package or Python wheels.
@@ -256,7 +255,8 @@ and refined the evaluation process.
 
 Tapirscan supports the linear and 2D formats listed in [format coverage](docs/FORMATS.md).
 Turbo presets, the content kinds marked experimental in
-[structured content](docs/CONTENT.md#kinds) and the Swift, Android and Dart previews may
+[structured content](docs/CONTENT.md#kinds), the JavaScript camera controller
+(`tapirscan/camera`) and the Swift, Android and Dart previews may
 change in minor releases. Release artifacts are published only for
 platforms whose release workflows pass. No general claim of superiority over
 ZXing or ZBar is made without a reproducible paired benchmark. See the

@@ -6,7 +6,7 @@ every decoded barcode with its `text`, `format` and source-image `polygon` / `re
 - **`tapirscan/browser/medium`** (or `/low`, `/high`, `/very-high`) for web apps:
   scan files, `<img>`, `<video>`, canvases or bitmaps in a bundled worker, with
   no WASM setup. `tapirscan/browser` offers every mode and Turbo preset.
-- **`tapirscan/camera`** scans a live camera with one of those scanners.
+- **`tapirscan/camera`** (preview) scans a live camera with one of those scanners.
 - **`tapirscan`** (the core) for Node and decoded pixels, scanning synchronously
   on the calling thread.
 
@@ -17,8 +17,7 @@ npm install tapirscan
 ```
 
 TypeScript declarations and WASM binaries are included. Your runtime must support
-WebAssembly SIMD; Node 20 or later is required. `tapirscan/support` checks this
-without loading anything.
+WebAssembly SIMD; Node 20 or later is required.
 
 ## Supported formats
 
@@ -59,8 +58,8 @@ keyword group; — means it is not included. `retail` is the default.
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and `Matrix25`
-require explicit selection; no group includes
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and
+`Matrix25` require explicit selection; no group includes
 them, even `all`. See the [format guide](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md)
 for variant details and EAN/UPC supplements.
 
@@ -85,17 +84,16 @@ const result = await scanner.scan(image); // a file, <img>, canvas, video frame,
 scanner.dispose(); // stops the worker
 ```
 
-**Entries:** bundlers emit every WASM file an entry references.
-`tapirscan/browser/low`, `/medium`, `/high` and `/very-high` reference one
-(Medium: 2.5 MB, 1 MB gzip) and have no `mode` option. `tapirscan/browser`
-references all eight (18 MB, 7 MB gzip) and downloads only the selected one at
-run time; use it to choose the mode or a Turbo preset at run time. The emitted
-size matters for deployments and service-worker precaches.
+**Entries:** `tapirscan/browser/low`, `/medium`, `/high` and `/very-high` fix
+the mode and put one WASM file into the build. `tapirscan/browser` takes a
+`mode` or Turbo preset at run time and downloads only that one, but bundlers
+emit all eight files. Sizes:
+[bundle one mode](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md#bundle-one-mode).
 
 ### Camera scanning
 
 `tapirscan/camera` runs a camera into a `<video>` and scans its frames with any
-browser scanner:
+browser scanner. It is a preview: its API may change in minor releases.
 
 ```js
 import { Scanner } from "tapirscan/browser/medium";
@@ -117,11 +115,17 @@ scanner.dispose();
 
 - **Frames:** one frame is scanned at a time; slow devices skip frames instead
   of queueing them. No result arrives after `stop()`. `scanInterval: 200` starts
-  scans at least 200 ms apart, for fewer scans per second.
-- **Confirmed reads:** `onDetect(barcode)` is called once a barcode was read in
-  `confirmations` consecutive scans (default 1). It is called again after a scan
-  without that barcode or when the camera reopens. `confirmations: 3` filters out
-  a single misread; `onScan` still receives every frame.
+  scans at least 200 ms apart, for fewer scans per second. Pausing the `<video>`
+  pauses scanning, for example to freeze the frame of a detection, until it
+  plays again; `stop()` also releases the camera.
+- **Confirmed reads:** `onDetect(barcode)` is called once per appearance of a
+  barcode, after `confirmations` consecutive scans read it (default 1). The
+  barcode counts as gone only after it is missing from at least 3 consecutive
+  scans and for at least 500 ms, so a single blurred frame does not report it
+  twice; it is reported again when it returns or the camera reopens. Barcodes
+  with the same format and text count as one, so `onDetect` fires once while any
+  of them stays in view. `confirmations: 3` filters out a single misread;
+  `onScan` still receives every scanned frame.
 - **Region:** `region` scans only part of each frame; see
   [Scanning a region](#scanning-a-region).
 - **Choosing a camera:** `start()` prefers the back camera and falls back to any
@@ -137,11 +141,15 @@ scanner.dispose();
   some browsers). The torch turns off when the camera reopens.
 - **`start()` result:** `true` once the camera is open; `false` when `stop()`
   or another `start()` cancelled it, or the page is hidden (the camera opens
-  when it is shown). Errors thrown by `onScan` or `onDetect` are reported to the
-  console and do not stop scanning.
+  when it is shown). A `start()` waits for a camera request of an earlier call
+  that is still pending, such as an unanswered permission prompt. Errors thrown
+  by `onScan` or `onDetect` go to the global error handler (`reportError`) and
+  do not stop scanning; without `onError`, a failure that stops scanning goes
+  there too.
 - **Other settings:** `constraints` adds video constraints other than the
-  camera choice; a `width` or `height` replaces the default 1280×720 ideal size. `camera.track` is the open
-  `MediaStreamTrack`, for example for zoom. `scanOptions` applies to every frame.
+  camera choice; a `width` or `height` replaces the default 1280×720 ideal size.
+  `camera.track` is the open `MediaStreamTrack`, for example for zoom.
+  `scanOptions` applies to every scanned frame.
 - **Requirements:** HTTPS or `localhost`, and `requestVideoFrameCallback`
   (Firefox 132 or later). The controller sets `muted` and `playsinline` for iOS.
 
@@ -158,7 +166,7 @@ export default function BarcodeScanner() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Select only the formats you need; tapirscan/browser/low keeps up on slow phones.
+    // Select only the formats you need.
     const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
     const camera = new CameraScanner(video.current, scanner, {
       // Skip re-rendering for consecutive empty frames.
@@ -317,10 +325,12 @@ Switching from [ZXing](https://github.com/kleinicke/tapirscan/blob/main/docs/MIG
 [Quagga](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_QUAGGA.md) or
 [html5-qrcode](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_HTML5_QRCODE.md): see the migration guides.
 
-**Bundlers:** Next.js (Turbopack or webpack), Vite 8 and production builds bundle
-the worker and WASM files with no configuration. The Vite 6 and 7 development
-servers (including SvelteKit on them) need one line, or the scanner reports that
-its worker failed to start:
+**Bundlers:** Next.js (Turbopack or webpack) and Vite bundle the worker and WASM
+files with no configuration. Angular production builds need the `worker` option
+and a copied WASM asset; see
+[Angular](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md#angular).
+The Vite 6 and 7 development servers (including SvelteKit on them) need one
+line, or the scanner reports that its worker failed to start:
 
 ```js
 // vite.config.js
@@ -333,37 +343,32 @@ export default defineConfig({
 - **Sources:** a `File` or `Blob` (any image the browser decodes), `<img>`,
   `<video>` (its current frame), `<canvas>`, `OffscreenCanvas`, `ImageBitmap`,
   `VideoFrame`, `ImageData`, or decoded pixels as in the core API. Inputs are not
-  modified or transferred, unless you pass `{ transfer: true }` (see Options). Images and canvases are composited onto white, so
-  transparent areas count as background; `ImageData` and pixel buffers are scanned
-  as given, with alpha ignored.
+  modified or transferred, unless you pass `{ transfer: true }`. Images and
+  canvases are composited onto white, so transparent areas count as background;
+  `ImageData` and pixel buffers are scanned as given, with alpha ignored.
 - **Methods:** `scan` and `inspect` work as in the core API but return promises.
   Each call captures its image and options when it starts, so buffers and option
   objects can be reused immediately. Calls reach the worker in call order.
-- **Options:** `formats` and `eanAddOnPolicy` work as in the core, and so do
-  `mode` and [`experimentalTurbo`](#experimental-turbo-presets) on
-  `tapirscan/browser`; single-mode entries have neither. Also,
-  `scan(image, { formats })` overrides the formats for one call. `wasmBaseUrl`
-  serves the WASM files from another directory. `loadWasm` needs the core.
-  `worker: () => new Worker(...)` starts the worker yourself, for bundlers that do
-  not emit workers from packages such as Angular; it runs an entry's worker module,
-  `tapirscan/browser/medium/worker` and so on (see
-  [Angular](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md#angular)).
-  `scan(pixels, { transfer: true })` hands a decoded-pixel buffer to the worker instead of
-  copying it, which saves one full copy per call; the buffer is detached (length 0) once
-  the call starts. It applies when the pixels span their whole, non-shared
-  `ArrayBuffer`; other inputs are copied as usual.
+- **Options:** listed under [all options](#all-options); `loadWasm` needs the
+  core. `worker` is for bundlers that do not emit workers from packages, such as
+  [Angular](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md#angular).
+  `transfer: true` saves one full copy per call when the pixels span their
+  whole, non-shared `ArrayBuffer`; other inputs are copied as usual.
 - **Lifecycle:** `scanner.ready` resolves once loaded; awaiting it is optional,
   because loading errors also reject every scan. During server rendering the
   constructor does nothing and scans reject. `dispose()` stops the worker and
   immediately rejects every unfinished scan; returned results stay valid.
-- **Errors:** unknown option names and invalid `wasmBaseUrl` values throw in the constructor; invalid option values
-  and scan arguments reject with `TypeError`; engine failures reject with
-  `ScannerError`. Browser image decoding and loading can also fail.
+- **Errors:** unknown option names and invalid `wasmBaseUrl` values throw in the
+  constructor; invalid option values and scan arguments reject with
+  `TypeError`; engine failures reject with `ScannerError`. Browser image
+  decoding and loading can also fail.
 - **Requirements:** module workers, `OffscreenCanvas` and WebAssembly SIMD:
   Chrome 91, Firefox 114, Safari 16.4 or later. The camera loop also needs
-  `requestVideoFrameCallback`. Images may have at most 65,535 pixels per side and 256 megapixels.
+  `requestVideoFrameCallback`. Images may have at most 65,535 pixels per side
+  and 256 megapixels.
 - **Support check:** `browserSupported()` from `tapirscan/support`, which imports
-  nothing, tells whether this browser can run a scanner, before any download. A
+  nothing, tells whether this browser can run a scanner, before any download
+  (`wasmSupported()` checks WebAssembly SIMD alone, for the core). A
   scanner created where it cannot starts no worker and rejects with `ScannerError`
   code `"unsupported"`.
 
@@ -373,22 +378,17 @@ export default defineConfig({
 - Reuse one `Scanner`. For camera loops, request 720p or 1080p frames, and use
   `tapirscan/browser/low` or a [Turbo preset](#experimental-turbo-presets) if
   the preview stutters.
-- Cheapest inputs first: decoded pixels with `{ transfer: true }`, decoded pixels or
-  `ImageData`, then `<video>`/canvas sources (a canvas readback each), then
+- Inputs from cheapest: decoded pixels with `{ transfer: true }`, decoded pixels
+  or `ImageData`, `<video>`/canvas sources (a canvas readback each), then
   `File`/`Blob` (includes image decoding). Pass pixels as you have them (RGBA is
-  cheapest for the retail formats); do not
-  convert color.
-- A scanner's WASM memory grows to its largest image (about 50 MB after
-  12 MP); on phones, scan occasional large photos with a separate
-  scanner and dispose it.
+  cheapest for the retail formats); do not convert color.
 
 See [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md)
 for measured costs.
 
 The [camera example](examples/camera.html) is a complete page: from this
 directory (or the installed package), run `python3 -m http.server` and open
-`/examples/camera.html` on localhost. Camera capture requires HTTPS; localhost
-works for development.
+`/examples/camera.html` on localhost.
 
 ## Core API
 
@@ -454,8 +454,8 @@ const scanner = new Scanner({ experimentalTurbo: 2, formats: "retail" });
 const result = await scanner.scan(video);
 ```
 
-Accepted values are **2, 4, 8 and 16**. Each roughly indicates the speedup over Low
-it targets; the actual speedup varies with images and devices and is not guaranteed.
+Accepted values are **2, 4, 8 and 16**. Each number is the targeted speedup over
+Low; the actual speedup varies with images and devices and is not guaranteed.
 Higher presets do less work and can miss more barcodes, including clean symbols
 placed close together. Start with 2 and check detection on your own inputs.
 The presets speed up EAN-13, UPC-A, EAN-8, UPC-E, Code 128, Code 39 and ITF.
@@ -565,10 +565,9 @@ custom loaders manage their own caching. Each scanner owns its own WASM instance
 
 `"retail"` selects EAN13, UPCA, EAN8 and UPCE. `"common1D"` adds Code128,
 Code39 and ITF; `"common"` adds QRCode and DataMatrix. `"1D"` and `"2D"`
-enable linear or 2D formats. `Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`,
-`Code39Extended`, `IATA25` and `Matrix25` require explicit selection and are excluded from every group, including `"all"`.
-The exports `retailFormats`, `commonLinearFormats`, `commonFormats`,
-`linearFormats` and `matrixFormats` help compose custom selections. See
+enable linear or 2D formats. The `tapirscan` entry exports `retailFormats`,
+`commonLinearFormats`, `commonFormats`, `linearFormats` and `matrixFormats` to
+compose custom selections; the browser entries do not. See
 [format and keyword-group matrix](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md#format-matrix) for identifiers and variants.
 
 ## Image input
@@ -616,7 +615,7 @@ same fields plus the ones marked _inspect_.
 | `barcode.polygon`              | `Quad`                                                         | Four `[x, y]` corners in input-image coordinates.                           |
 | `barcode.rect`                 | `{ left: number, top: number, width: number, height: number }` | Enclosing integer rectangle.                                                |
 | `barcode.support`              | `number`                                                       | Reader-specific ranking evidence used by `best`.                            |
-| `barcode.payloadBytes`         | `readonly number[] \| undefined`                               | Decoded matrix payload bytes, when available.                               |
+| `barcode.payloadBytes`         | `readonly number[] \| undefined`                               | Decoded payload bytes, when available.                                      |
 | `barcode.gs1`                  | `boolean \| undefined`                                         | GS1 indicator, when supplied by the reader.                                 |
 | `barcode.readerInitialization` | `boolean \| undefined`                                         | Data Matrix, PDF417, Aztec and MaxiCode reader-initialization flag.         |
 | `barcode.structuredAppend`     | `StructuredAppend \| undefined`                                | Multipart metadata: one-based `index`, `count`, optional `id` and `parity`. |
@@ -642,7 +641,9 @@ does not reconstruct these bytes. Use `Uint8Array.from(barcode.payloadBytes)`
 for a byte buffer.
 
 All types (`ScanResult`, `InspectionResult`, `Barcode`, `ScannerOptions`,
-`ScanOptions`, `Format` and others) are exported from both entries.
+`ScanOptions`, `Format` and others) are exported from `tapirscan` and every
+`tapirscan/browser` entry. Each entry's `ScannerOptions` lists the options it
+accepts.
 
 ## Structured content
 
@@ -698,16 +699,16 @@ the crop, not identifiers for tracking between frames.
 Invalid options throw `TypeError`. Engine and validation failures throw the
 exported `ScannerError` with `.message` and a `.code`:
 
-| Code                                                        | Meaning                                                              |
-| ----------------------------------------------------------- | -------------------------------------------------------------------- |
-| `"invalid_input"`                                           | The engine rejected the image or options.                            |
-| `"disposed"`                                                | The scanner was disposed.                                            |
-| `"engine"`                                                  | Internal scanner failure.                                            |
-| `"capacity"`                                                | Too many live scanners in this WASM instance.                        |
-| `"unsupported"`                                             | No WebAssembly SIMD (or, in browsers, workers or `OffscreenCanvas`). |
-| `"abi_shape"`, `"abi_version"`, `"abi_mode"`, `"abi_turbo"` | The loaded WASM file does not match this package or mode.            |
-| `"invalid_output"`                                          | The engine returned unreadable output.                               |
-| `"core_<n>"`                                                | An unexpected engine status `n`.                                     |
+| Code                                                        | Meaning                                                                                          |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `"invalid_input"`                                           | The engine rejected the image or options.                                                        |
+| `"disposed"`                                                | The scanner was disposed.                                                                        |
+| `"engine"`                                                  | Internal scanner failure.                                                                        |
+| `"capacity"`                                                | Too many live scanners in this WASM instance.                                                    |
+| `"unsupported"`                                             | No WebAssembly SIMD (or, in browsers, module workers, `OffscreenCanvas` or `createImageBitmap`). |
+| `"abi_shape"`, `"abi_version"`, `"abi_mode"`, `"abi_turbo"` | The loaded WASM file does not match this package or mode.                                        |
+| `"invalid_output"`                                          | The engine returned unreadable output.                                                           |
+| `"core_<n>"`                                                | An unexpected engine status `n`.                                                                 |
 
 Loader and fetch errors reject `Scanner.create` and the one-shot helpers. Dispose
 reusable scanners in `finally`.

@@ -7,7 +7,7 @@ The header is [`tapirscan.h`](../bindings/c/include/tapirscan.h). Format bits an
 presets are generated from `config/formats.json` into `tapirscan_formats.h`,
 the C++, Java, Swift, Android and Dart `Format` types; content kinds from
 `config/content_kinds.json` into `tapirscan_content_kinds.h` and the `ContentKind`
-of every binding that parses content (Dart does not yet).
+of every binding that parses content (Dart does not).
 
 Per-binding guides: [C](../bindings/c/README.md), [C++](../bindings/cpp/README.md),
 [Java](../bindings/java/README.md), [Python](../bindings/python/README.md),
@@ -32,12 +32,12 @@ reference for naming differences.
 | Java       | `values()`                          | `best()` (`Optional`) | `rect()` → `Rect`    | `elapsedMs()`                  | `width()`, `height()`                | `ScannerException` (`code`)                           |
 | Swift      | `values`                            | `best` (optional)     | `rect` → `Rect`      | `elapsedMs`                    | `width`, `height`                    | `TapirscanError` (`code`, `status`)                   |
 | Android    | `values()`                          | `best()` (`Optional`) | `rect()` → `Rect`    | `elapsedMs()`                  | `width()`, `height()`                | `ScannerException` (`code`)                           |
-| Dart       | `values`                            | `best` (nullable)     | `rect` → `PixelRect` | none (no `inspect` yet)        | none (no `inspect` yet)              | `ScannerException` (`code`, `status`)                 |
+| Dart       | `values`                            | `best` (nullable)     | `rect` → `PixelRect` | none (no `inspect`)            | none (no `inspect`)                  | `ScannerException` (`code`, `status`)                 |
 | Rust       | `values()`                          | `best()` (`Option`)   | `rect()` → `Rect`    | `elapsed` (`Duration`)         | `image_size` (`[width, height]`)     | `tapirscan::Error`                                    |
 | Python     | `values`                            | `best`                | `rect`               | `elapsed_ms`                   | `image`                              | `ScannerError`                                        |
 | JavaScript | `values`                            | `best`                | `rect`               | `elapsedMs`                    | `image`                              | `ScannerError`                                        |
 
-`Dart's `scan`is asynchronous and`scanSync` blocks; see
+Dart's `scan` is asynchronous and `scanSync` blocks; see
 [blocking and async](API_DESIGN.md#blocking-and-async).
 
 `Rect` (`PixelRect` in Dart, apart from Flutter's `Rect`) has integer `left`,
@@ -59,7 +59,7 @@ memory are outside that guarantee.
 Build and test steps are in [validation](VALIDATION.md). `scripts/test_bindings.py`
 compares results from Python, Rust, C++, Java and JavaScript in every mode and
 requires JDK 22+. Swift, Android and Dart run their own tests in CI and are not
-yet part of this comparison.
+part of this comparison.
 
 Python wheels bundle the native library; the Java JAR and the C/C++ package ship
 it separately.

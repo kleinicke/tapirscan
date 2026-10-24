@@ -47,9 +47,11 @@ is included in that keyword group; — means it is not included, not unsupported
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and `Matrix25`
-require explicit selection; no group includes
-them, even `all`. Groups select readers, not effort levels or accuracy guarantees.
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and
+`Matrix25` require explicit selection; no group includes them, even `all`.
+`Code32`, `PZN` and `Code39Extended` read Code 39 symbols another way, and the
+others have no check character or only a weak one, so other bars and noise can
+read as them.
 
 Native names follow each language: Rust `Formats::COMMON_1D`, C
 `TAPIRSCAN_FORMATS_COMMON_1D`, C++ `Formats::common_1d()` and Java
@@ -63,7 +65,6 @@ EAN13 and UPCA share the primary scan; selecting UPCA adds output normalization,
 not another image scan. Enabling more formats can add reader work. JavaScript
 loads one complete WASM scanner for the selected effort mode, not a separate
 module per format. Reuse a scanner across frames to amortize initialization.
-The selected mode tunes EAN13/UPCA, common1D and QR Code.
 
 The supported public identifiers and native bits are:
 
@@ -89,7 +90,7 @@ The supported public identifiers and native bits are:
 | PZN             |    524288 | Opt-in Code 39 variant: German PZN8/PZN7, number without `-`     |
 | MSIPlessey      |   1048576 | Opt-in; mod-10 check digit required, returned with the data      |
 | Industrial25    |   2097152 | Opt-in Industrial (Standard) 2 of 5; digits as printed           |
-| Pharmacode      |   4194304 | Opt-in Laetus one-track Pharmacode; value 3 to 131070            |
+| Pharmacode      |   4194304 | Opt-in Laetus one-track Pharmacode; values 32 to 131069          |
 | DataBarLimited  |   8388608 | GTIN-14 with indicator 0 or 1, returned as `01` + 14 digits      |
 | MicroQRCode     |  16777216 | M1–M4, every error correction level                              |
 | Code39Extended  |  33554432 | Opt-in Code 39 variant: full-ASCII shift pairs expanded          |
@@ -176,12 +177,13 @@ variant.
 
 Pharmacode (Laetus, one track) is 2 to 16 narrow or wide bars with equal
 spaces; read from the right, a narrow bar is worth 2^i and a wide bar 2^(i+1),
-so values run from 3 to 131070 and are returned as decimal text. The symbol has
-no start, stop or check, so the reader is strict:
+so the symbology encodes 3 to 131070. Values are returned as decimal text. The
+symbol has no start, stop or check, so the reader is strict and reads values 32
+to 131069:
 
-- at least five bars (values from 32), and both bar widths present: symbols of
-  only narrow bars (values 2^n − 1) or only wide bars (2^(n+1) − 2) are not read,
-  since nothing tells the two apart;
+- at least five bars, and both bar widths present: symbols of only narrow bars
+  (values 2^n − 1) or only wide bars (2^(n+1) − 2) are not read, since nothing
+  tells the two apart;
 - one narrow and one wide bar width and one space width across the symbol, with
   spaces wider than the narrow bars (nominally 1 mm and 0.5 mm), unlike text
   strokes and Industrial 2 of 5;
@@ -261,18 +263,12 @@ incomplete. Candidate, retry and parsing caps bound the search,
 which may still return valid reads. Fixed sampling strategies and
 unsupported format variants are not completeness guarantees. Scores are not calibrated probabilities.
 
-Every binding optionally exposes two- and five-digit EAN/UPC supplements
-through the creation policy `ignore` (default), `read` or `require` (`Ignore`, `Read`, `Require` in native bindings). EAN8
-supplements are a nonstandard extension.
-The policy changes only supplements: every format, including the main EAN/UPC
-values, reads exactly as with `ignore`. A supplement is read 4.5 to 16 modules after
-the main symbol's last bar, on grayscale profiles across the decoded main symbol,
-whose bar pattern fixes module width, perspective, blur and ink levels. Where bars beside a symbol suggest a supplement that the profiles do not
-confirm, a run-length sweep of the retail formats with supplement decoding runs once
-over the frame. A profile reading is reported when two profiles agree and none
-reads another value, and
-needs about 3.5 bar-free modules after it (or the edge of the label). A two-digit
-supplement followed by a separator bar, such as a five-digit one cut by the image
-border, is not reported.
-The localized-linear strategy is internal; public scanning
-uses the full-frame strategy.
+Every binding optionally reads two- and five-digit EAN/UPC supplements through
+the creation policy `ignore` (default), `read` or `require` (`Ignore`, `Read`,
+`Require` in native bindings). EAN8 supplements are a nonstandard extension.
+With `read`, every format, including the main EAN/UPC values, reads exactly as
+with `ignore`; `require` also drops EAN/UPC reads without a readable supplement.
+A supplement must start 4.5 to 16 modules after the main symbol's last bar and
+needs about 3.5 bar-free modules after it (or the edge of the label). A
+two-digit supplement followed by a separator bar, such as a five-digit one cut
+by the image border, is not reported.

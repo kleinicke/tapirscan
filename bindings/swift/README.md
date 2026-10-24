@@ -76,9 +76,7 @@ them in async code:
 let result = try await scanner.scan(cgImage) // in a SwiftUI .task or other async code
 ```
 
-Code that called `scan` inside an `async` function before these overloads existed
-now needs `await`. Camera frames already arrive on the capture queue; scan them
-synchronously there.
+Camera frames arrive on the capture queue; scan them synchronously there.
 
 ```swift
 let inspection = try scanner.inspect(cgImage)

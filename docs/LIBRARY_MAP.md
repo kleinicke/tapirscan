@@ -1,6 +1,6 @@
-# Library execution map and structural review
+# Library execution map
 
-Source reviewed on 20 October 2026. The tables map orchestration functions
+The tables map orchestration functions
 and their important branches, rather than every sampling/decoder helper.
 This execution map does not establish performance or accuracy.
 “Conditional” means the function is available but its image, format, evidence
@@ -10,7 +10,7 @@ or budget checks must also pass.
 
 | Layer                  | Responsibility                                                            | Source                                                                                         |
 | ---------------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Language bindings      | Input validation/conversion, ownership and result transport               | `bindings/{javascript,c,cpp,python,java,swift,android,wasm}`                                   |
+| Language bindings      | Input validation/conversion, ownership and result transport               | `bindings/{javascript,c,cpp,python,java,swift,android,flutter,wasm}`                           |
 | Public Rust API        | Persistent scanner, mode dispatch, large-image reduction, public results  | [api/lib.rs](../bindings/rust/api/lib.rs), [api/reduce.rs](../bindings/rust/api/reduce.rs)     |
 | Per-mode orchestration | Format routing, localization, recovery ordering, reconciliation           | [formats.rs](../bindings/rust/src/formats.rs), [pipeline.rs](../bindings/rust/src/pipeline.rs) |
 | Retail core            | Supplied-region EAN-13/UPC-A scanning, evidence, retries, frame ownership | [core/src](../core/src), [core guide](../core/README.md)                                       |
@@ -72,8 +72,9 @@ Low's `fast_linear::enabled` requires all of:
 - At least one selected format is linear.
 - Explicit candidate completion is off.
 
-The EAN add-on policy does not change routing: `Read` and `Require` scan exactly as
-`Ignore`, then read supplements beside the EAN/UPC results. QR-only Low does
+The EAN add-on policy does not change routing: `Read` and `Require` run the
+same readers as `Ignore`, then read supplements beside the EAN/UPC results;
+`Require` drops EAN/UPC results without a supplement. QR-only Low does
 not enter the linear fast path. Turbo presets use the Low compiled mode with
 different build settings; the same routing conditions still matter.
 
@@ -225,65 +226,6 @@ and disable the ordinary display-outline path. Turbo8/16 have distinct axis-row
 and confirmation rules; substituting a different row count alone does not
 reproduce a preset.
 
-## Structural findings
-
-### 1. Localized linear recovery has its own stage module
-
-[formats/linear_recovery.rs](../bindings/rust/src/formats/linear_recovery.rs) owns
-`recover_linear_regions`, its proposal helpers and local work limits. The format
-coordinator calls that stage after combining initial reader results. Recovery
-keeps its ordered passes, shared sampler and existing ownership checks.
-
-`formats.rs` still coordinates reader groups, matrix retries, supplement policy
-and final results. Further extraction should follow a complete stage boundary:
-`medium_retries`, for example, handles Code128 and DataBar as well as matrix
-formats, so moving it into a matrix-only module would misdescribe its role.
-
-### 2. Recovery selection shares evidence but keeps distinct policies
-
-In [pipeline.rs](../bindings/rust/src/pipeline.rs), `recovery_evidence` supplies
-one predicate to primary profile retries and deferred-proposal exclusion.
-Protected ownership, stable guard-pass ordering, proposal limits and recovery
-strategies remain at their call sites because they differ between passes.
-Primary recovery reuses the selected proposals for later dense profiles.
-
-### 3. Matrix readers share invocation and order
-
-[matrix_readers.rs](../multiformat/src/matrix_readers.rs) defines the fixed reader
-order and detector calls with mode policies. Both the parallel matrix frontend
-and multiformat scanner use it. Their orchestration remains separate:
-multiformat observers see cumulative work-limit flags, while the frontend can
-run readers concurrently and falls back to sequential execution if private
-regions would exceed the shared cap.
-
-Their finalization is also different: multiformat `linear_geometry::distinct`
-can join partial fragments; the matrix frontend only removes overlapping
-duplicates. Sharing detector invocation does not merge these ownership rules.
-
-QR enhancement and the host's matrix recovery passes share
-[`qr_enhance::sharpen`](../multiformat/src/qr_enhance.rs). The filter uses the same
-integer rounding, replicated image edges and fixed sharpening strength at each
-call site; the callers retain their own recovery triggers and pixel budgets.
-
-### 4. Mode configuration is spread across several legitimate layers
-
-Mode decisions live in `effort.rs`, `formats/policy.rs`, core feature branches,
-reader `Policy::for_mode` functions and Turbo build settings. Inheritance such as
-`HIGH { ..MEDIUM }` makes the complete effective policy harder to see.
-
-**Recommendation:** keep algorithm-specific decisions near their algorithms.
-Use this map and the existing policy tables to expose the effective values.
-If drift becomes frequent, generate a small policy report from the authoritative
-definitions. Replacing everything with one enormous runtime configuration would
-add complexity and weaken compile-time specialization.
-
-`ScanContext` carries output options, consolidation and shared-format decisions
-through primary scanning and recursive crop recovery. Crop rescans retain the
-mixed-linear restriction while resetting their retail and consolidation policy
-explicitly. These decisions are no longer temporary mutable state on `Scanner`.
-`matrix_frontend::with_parallel` still uses a scoped, restored thread-local
-setting; this review did not demonstrate a correctness bug in that mechanism.
-
 ## Complexity worth preserving
 
 - Different deduplication stages have different ownership contracts: candidate
@@ -299,9 +241,3 @@ setting; this review did not demonstrate a correctness bug in that mechanism.
   flags would lose information.
 - Per-mode generated source copies and thin language adapters are justified
   packaging boundaries, not duplicated scanner implementations.
-
-Scanner changes still require isolated worktrees and paired correctness checks
-across modes and format selections. Preserve output ordering, source geometry,
-undecoded coverage and work-limit behavior. Performance claims require paired
-measurements through the public JavaScript API in installed Chrome; see
-[comparing scanners](COMPARING_SCANNERS.md).
