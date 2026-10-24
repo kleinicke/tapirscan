@@ -20,7 +20,9 @@ dependencies:
       path: bindings/flutter
 ```
 
-Requires Dart 3.10+ (Flutter 3.38+). The package's build hook compiles the
+Requires Dart 3.10+ (Flutter 3.38+); tested with Flutter 3.44 and 3.47. The
+dependency ranges also accept the older `code_assets` 1.x and `hooks` 2.0 that
+other packages in an app may pin. The package's build hook compiles the
 native library with Cargo on the first build of each target, so the machine
 needs the [development prerequisites](../../docs/DEVELOPMENT.md#prerequisites)
 (rustup, Python 3.10+), the Cargo dependencies fetched once in the checkout

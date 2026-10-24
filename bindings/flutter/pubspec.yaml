@@ -6,9 +6,9 @@ environment:
   sdk: ^3.10.0
 
 dependencies:
-  code_assets: ^2.1.0
+  code_assets: ">=1.1.0 <3.0.0" # 1.x for apps whose other hooks still use it
   ffi: ^2.2.0
-  hooks: ^2.2.0
+  hooks: ">=2.0.0 <3.0.0" # 2.0 for Flutter 3.44, which pins meta 1.18
 
 dev_dependencies:
   ffigen: ^23.0.0
