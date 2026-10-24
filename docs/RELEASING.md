@@ -81,6 +81,7 @@ The manual **Build Python release wheels** workflow prepares:
 | Linux x86_64        | manylinux_2_28    | Build in manylinux, repair/audit, then installed-wheel scan |
 | Linux ARM64         | manylinux_2_28    | Same, on the ARM64 runner                                   |
 | Windows x64         | win_amd64         | MSVC build and installed-wheel scan                         |
+| Windows ARM64       | win_arm64         | Same, on the ARM64 runner with an ARM64 Python and Rust     |
 
 `scripts/build_native.py` compiles x86-64 libraries (macOS Intel, Linux x86_64,
 Windows x64) for `x86-64-v2` (SSE4.2 and POPCNT). CPUs without these instructions
@@ -95,7 +96,7 @@ platform wheels using ctypes, with Python 3.10+ declared in metadata.
 
 The PyPI distribution is wheel-only. Do not upload a Python-only sdist
 that cannot reproduce its native libraries. Unsupported platforms can build from
-the full Git checkout; musllinux and Windows ARM64 are not currently advertised.
+the full Git checkout; musllinux is not currently advertised.
 
 Normal CI checks the library bindings and uploads local npm/wheel artifacts.
 Validate the demo separately in the web repository.
@@ -113,7 +114,7 @@ The separate `publish.yml` workflow publishes only when explicitly selected.
    (`git push origin COMMIT:refs/tags/vX.Y.Z`) and run on the tag; the
    preflight rejects a branch run before building.
 3. The workflow checks the version and existing tag before building, then runs
-   **Validate scanner and bindings** and all five Python wheel builds in parallel.
+   **Validate scanner and bindings** and all six Python wheel builds in parallel.
    Both reusable workflows use the caller's exact commit. Preparation downloads
    only artifacts from this run, validates the complete package set, and uploads
    `release-bundle` with `npm/`, `wheels/`, `crates/`, `native/` (the
@@ -165,10 +166,10 @@ Every publishing run (any selection except `none`) makes sure the GitHub release
 | `SHA256SUMS`                       | Checksums of the assets above                                                          |
 
 `PLATFORM` names the Dart build hook's target. The desktop libraries
-(`linux-x64`, `linux-arm64`, `macos-arm64`, `macos-x64`, `windows-x64`) are the
-ones inside the tested wheels; `collect_release.py` requires the wheel job's
-native artifact to hold the identical file and adds the Windows import library
-from it. `android-arm64` and `android-x64` (API 24) come from the CI `android`
+(`linux-x64`, `linux-arm64`, `macos-arm64`, `macos-x64`, `windows-x64`,
+`windows-arm64`) are the ones inside the tested wheels; `collect_release.py`
+requires the wheel job's native artifact to hold the identical file and adds the
+Windows import libraries from it. `android-arm64` and `android-x64` (API 24) come from the CI `android`
 job; `ios-arm64`, `ios-arm64-simulator` and `ios-x64-simulator` (iOS 13; the arm64 simulator 14) from the
 CI `swift` job, both built with `scripts/build_flutter_native.py`.
 `collect_release.py` checks each library's CPU architecture.

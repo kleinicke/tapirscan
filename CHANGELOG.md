@@ -1,5 +1,10 @@
 # Release notes
 
+## Unreleased
+
+- Windows on ARM64: a `win_arm64` Python wheel and a `windows-arm64` native
+  library on each GitHub release, which the Dart build hook downloads.
+
 ## 1.5.0
 
 Native consumers need no rebuild: ABI 7 is unchanged. `1D` and `all` also read

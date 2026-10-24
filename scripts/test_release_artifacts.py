@@ -30,9 +30,27 @@ def library(platform: str) -> tuple[str, bytes]:
         machine = {"arm64": 0xB7, "x64": 0x3E}[arch]
         return "libtapirscan.so", b"\x7fELF" + bytes(14) + machine.to_bytes(2, "little")
     if system == "windows":
-        return "tapirscan.dll", b"MZ" + bytes(58) + b"\x40\0\0\0PE\0\0\x64\x86"
+        machine = {"arm64": 0xAA64, "x64": 0x8664}[arch]
+        pe = b"\x40\0\0\0PE\0\0" + machine.to_bytes(2, "little")
+        return "tapirscan.dll", b"MZ" + bytes(58) + pe
     cpu = {"arm64": 0x0100000C, "x64": 0x01000007}[arch]
     return "libtapirscan.dylib", b"\xcf\xfa\xed\xfe" + cpu.to_bytes(4, "little")
+
+
+def write_desktop(wheels: Path, native: Path, platform: str, data: bytes) -> Path:
+    """Write a wheel and its job's native artifact holding the same library."""
+    name = library(DESKTOP[platform])[0]
+    path = wheels / f"tapirscan-1.1.0-py3-none-{platform}.whl"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(
+            "tapirscan-1.1.0.dist-info/METADATA",
+            "Name: tapirscan\nVersion: 1.1.0\n",
+        )
+        archive.writestr(f"tapirscan/_native/{name}", data)
+    built = native / f"native-{DESKTOP[platform]}"
+    built.mkdir(parents=True, exist_ok=True)
+    (built / name).write_bytes(data)
+    return built
 
 
 def write_native_inputs(root: Path, wheels: Path, native: Path) -> None:
@@ -43,16 +61,7 @@ def write_native_inputs(root: Path, wheels: Path, native: Path) -> None:
         path.write_text(source)
     for platform in PLATFORMS:
         name, data = library(DESKTOP[platform])
-        path = wheels / f"tapirscan-1.1.0-py3-none-{platform}.whl"
-        with zipfile.ZipFile(path, "w") as archive:
-            archive.writestr(
-                "tapirscan-1.1.0.dist-info/METADATA",
-                "Name: tapirscan\nVersion: 1.1.0\n",
-            )
-            archive.writestr(f"tapirscan/_native/{name}", data)
-        built = native / f"native-{DESKTOP[platform]}"
-        built.mkdir(parents=True)
-        (built / name).write_bytes(data)
+        built = write_desktop(wheels, native, platform, data)
         if name == "tapirscan.dll":
             (built / "tapirscan.dll.lib").write_bytes(b"!<arch>\n")
     for target, platform in MOBILE.items():
@@ -134,9 +143,9 @@ class ReleaseArtifacts(unittest.TestCase):
                 main()
                 bundle = root / "build/release"
                 entries = (bundle / "SHA256SUMS").read_text().splitlines()
-                # Wheels, npm, crate, ten library archives, AAR, XCFramework and
-                # the release assets' own checksums.
-                self.assertEqual(len(entries), 20)
+                # Six wheels, npm, crate, eleven library archives, AAR,
+                # XCFramework and the release assets' own checksums.
+                self.assertEqual(len(entries), 22)
                 for entry in entries:
                     digest, filename = entry.split("  ")
                     self.assertEqual(
@@ -153,8 +162,25 @@ class ReleaseArtifacts(unittest.TestCase):
                         "tapirscan-1.1.0-windows-x64/lib/tapirscan.dll.lib",
                         archive.namelist(),
                     )
+                with zipfile.ZipFile(
+                    bundle / "native/tapirscan-1.1.0-windows-arm64.zip"
+                ) as archive:
+                    self.assertIn(
+                        "tapirscan-1.1.0-windows-arm64/lib/tapirscan.dll",
+                        archive.namelist(),
+                    )
 
                 shutil.rmtree(bundle)
+                # An x64 library in the ARM64 wheel and its native artifact.
+                x64 = library("windows-x64")[1]
+                write_desktop(wheels, native, "win_arm64", x64)
+                with self.assertRaisesRegex(
+                    SystemExit, r"windows-arm64 library is built for \['x64'\]"
+                ):
+                    main()
+                arm64 = library("windows-arm64")[1]
+                write_desktop(wheels, native, "win_arm64", arm64)
+
                 android = native / "native-mobile/flutter-native/x86_64-linux-android"
                 (android / "libtapirscan.so").write_bytes(library("android-arm64")[1])
                 with self.assertRaisesRegex(SystemExit, "android-x64 library is built"):

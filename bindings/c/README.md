@@ -177,7 +177,7 @@ caller's responsibility. The library targets 64-bit platforms.
 
 Each [GitHub release](https://github.com/kleinicke/tapirscan/releases) attaches `tapirscan-VERSION-PLATFORM.zip` for
 `linux-x64`, `linux-arm64` (glibc 2.28+), `macos-arm64`, `macos-x64` (macOS 11+),
-`windows-x64`, `android-arm64`, `android-x64` (API 24+), `ios-arm64`,
+`windows-x64`, `windows-arm64`, `android-arm64`, `android-x64` (API 24+), `ios-arm64`,
 `ios-x64-simulator` (iOS 13+) and `ios-arm64-simulator` (iOS 14+), with a `SHA256SUMS`
 file. Each archive is an install tree: `include/` (C and C++ headers), `lib/`
 (the shared library; on Windows `tapirscan.dll` and its import library
