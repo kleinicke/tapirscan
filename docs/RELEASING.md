@@ -135,8 +135,10 @@ The version input verifies existing manifests; it does not bump package versions
 The GitHub environment `release` must have `kleinicke` as a required reviewer,
 with self-review allowed so the maintainer can approve their own release run.
 This gate is separate from `pypi`, `npm` and `crates`, whose names must keep
-matching their trusted-publisher configurations. Never approve this gate from
-an automation; it is the maintainer's final review.
+matching their trusted-publisher configurations. Approve it only on the
+maintainer's instruction for that version, in the browser or with
+`gh api -X POST repos/kleinicke/tapirscan/actions/runs/RUN_ID/pending_deployments -F "environment_ids[]=ENV_ID" -f state=approved`
+(the pending deployment lists the environment ID).
 
 If one registry fails after others succeed, use GitHub's **Re-run failed jobs**
 to retry the failed publisher without rebuilding or republishing successful jobs.
