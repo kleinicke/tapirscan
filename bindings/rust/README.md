@@ -120,8 +120,9 @@ Per-call options never change the scanner's configuration.
 
 `Barcode` contains `text`, `format`, `polygon`, `support` and optional metadata
 (original payload bytes, supplement text, structured append, GS1 and
-reader-initialization flags). `rect()` returns a `Rect { left, top, width,
-height }` of `i32` pixel bounds. `None` flags mean unavailable, not false.
+reader-initialization flags, and `codabar_start_stop`: Codabar start and stop
+characters such as `"AB"`, which `text` omits). `rect()` returns a
+`Rect { left, top, width, height }` of `i32` pixel bounds. `None` flags mean unavailable, not false.
 Structured append indices are one-based; the caller assembles messages. Main
 geometry excludes supplements.
 

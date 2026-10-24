@@ -37,6 +37,9 @@ public struct Barcode: Equatable, Sendable {
     /// Whether the symbol programs the reader; `nil` when the reader does not report it.
     public let readerInitialization: Bool?
     public let structuredAppend: StructuredAppend?
+    /// Codabar start and stop characters (A to D) in reading order, such as `"AB"`;
+    /// `text` omits them. `nil` for other formats.
+    public let codabarStartStop: String?
 
     /// Enclosing integer pixel bounds, from floor(minimum) to ceil(maximum).
     public var rect: Rect {

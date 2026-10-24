@@ -25,13 +25,16 @@ try {
     JSON.stringify({
       mode: result.mode,
       best,
-      barcodes: result.barcodes.map(({ text, format, support, polygon, content }) => ({
-        text,
-        format,
-        support,
-        polygon,
-        content: content ?? null,
-      })),
+      barcodes: result.barcodes.map(
+        ({ text, format, support, polygon, content, codabarStartStop }) => ({
+          text,
+          format,
+          support,
+          polygon,
+          content: content ?? null,
+          codabarStartStop: codabarStartStop ?? null,
+        }),
+      ),
       undecoded: result.undecoded.map(({ format, polygon }) => ({ format, polygon })),
       // Drop the JS-only regions view so the raw engine JSON is comparable.
       debug: debug === "1" ? (({ regions: _, ...raw }) => raw)(result.diagnostics) : null,

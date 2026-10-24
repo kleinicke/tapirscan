@@ -59,6 +59,7 @@ interface RawDiagnosticBarcode {
   readerInitialization?: boolean;
   structuredAppend?: StructuredAppend;
   eanAddOn?: string;
+  codabarStartStop?: string;
   [key: string]: unknown;
 }
 export type DiagnosticBarcode = ReadonlyDeep<RawDiagnosticBarcode>;
@@ -101,6 +102,8 @@ export interface Barcode {
   readonly readerInitialization?: boolean;
   readonly structuredAppend?: StructuredAppend;
   readonly eanAddOn?: string;
+  /** Codabar start and stop characters (A to D) in reading order, such as "AB"; `text` omits them. Absent for other formats. */
+  readonly codabarStartStop?: string;
   /** Recognized structure of `text` (GS1 elements, Wi-Fi, contact, payment, ...); absent for plain text. */
   readonly content?: Content;
   readonly polygon: Quad;

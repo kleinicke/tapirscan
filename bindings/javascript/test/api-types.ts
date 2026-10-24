@@ -72,11 +72,12 @@ export async function consumer(data: Uint8Array, imageData: ImageData) {
     scanner.inspect(image, { extendedBudget: true });
     const support: number | undefined = best?.support;
     const append: number | undefined = best?.structuredAppend?.index;
+    const startStop: string | undefined = best?.codabarStartStop;
     if (best?.structuredAppend) {
       // @ts-expect-error Metadata remains immutable.
       best.structuredAppend.index = 2;
     }
-    return { best, values, support, append };
+    return { best, values, support, append, startStop };
   } finally {
     scanner.dispose();
   }

@@ -20,7 +20,7 @@ from unittest.mock import PropertyMock, patch
 
 import numpy as np
 import torch
-from fixture_data import TEXT, fixtures
+from fixture_data import CODABAR_SYMBOLS, TEXT, codabar, fixtures
 from PIL import Image
 from typing_extensions import override
 
@@ -396,7 +396,7 @@ class Images(unittest.TestCase):
             content,
             {"kind": "GS1", "fields": [{"name": "01", "value": "09506000134352"}]},
         )
-        self.assertEqual(Barcode.__match_args__[-1], "content")
+        self.assertEqual(Barcode.__match_args__[-2:], ("content", "codabar_start_stop"))
 
     def test_content_kind_names(self) -> None:
         """Every generated content kind matches the native name for its number."""
@@ -896,6 +896,24 @@ class Images(unittest.TestCase):
                         None if parity < 0 else parity,
                     ),
                 )
+
+    def test_codabar_start_stop(self) -> None:
+        """Codabar start/stop characters are separate from the stripped text."""
+        pixels = codabar()
+        with Scanner(formats="Codabar", library_dir=LIBS) as scanner:
+            result = scanner.scan(
+                PixelImage(pixels, width=480, height=len(pixels) // 480)
+            )
+        self.assertEqual(
+            sorted((b.text, b.codabar_start_stop) for b in result.barcodes),
+            sorted((data, start + stop) for start, data, stop in CODABAR_SYMBOLS),
+        )
+        self.assertEqual(
+            {b.as_dict()["codabar_start_stop"] for b in result.barcodes},
+            {"AB", "CD", "DA"},
+        )
+        with Scanner(library_dir=LIBS) as scanner:
+            self.assertIsNone(scanner.scan(GRAY).barcodes[0].codabar_start_stop)
 
     def test_runtime_type_hints(self) -> None:
         """Result types resolve at runtime, for introspection and Pydantic."""

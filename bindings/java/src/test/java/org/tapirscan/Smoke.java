@@ -101,7 +101,9 @@ public final class Smoke {
                     .append(",\"format\":").append(quoted(b.format().toString()))
                     .append(",\"support\":").append(b.support())
                     .append(",\"polygon\":").append(polygon(b.polygon()))
-                    .append(",\"content\":").append(content(b)).append('}');
+                    .append(",\"content\":").append(content(b))
+                    .append(",\"codabarStartStop\":").append(b.codabarStartStop().map(Smoke::quoted).orElse("null"))
+                    .append('}');
         }
         out.append("],\"undecoded\":[");
         for (int i = 0; i < result.undecoded().size(); i++) {

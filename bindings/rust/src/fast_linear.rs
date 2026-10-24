@@ -1127,6 +1127,7 @@ impl Candidate<'_> {
                 candidate_indices: None,
                 payload_bytes: None,
                 addon: None,
+                codabar_start_stop: found.codabar_start_stop,
                 gs1: Some(found.gs1),
                 reader_initialization: None,
                 structured_append: None,
@@ -1455,6 +1456,7 @@ fn supplement_ean(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<line
             out.push(linear::Read {
                 decoded: true,
                 addon: None,
+                codabar_start_stop: None,
                 format,
                 text,
                 start,
@@ -1501,6 +1503,7 @@ fn supplement_ean8_visual(runs: &[f32], first_black: bool, mask: u32, out: &mut 
             out.push(linear::Read {
                 decoded: true,
                 addon: None,
+                codabar_start_stop: None,
                 format: "EAN8",
                 text: digits.iter().map(|d| char::from(b'0' + d)).collect(),
                 start,

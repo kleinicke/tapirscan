@@ -266,6 +266,7 @@ pub(super) fn recover(
                             structured_append: read.structured_append,
                             reader_initialization: read.reader_initialization,
                             addon: None,
+                            codabar_start_stop: None,
                             format: "Aztec".into(),
                             text: read.text,
                             polygon,

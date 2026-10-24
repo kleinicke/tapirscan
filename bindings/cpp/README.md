@@ -94,8 +94,9 @@ would dangle; bind the result to a variable first.
 
 `Barcode` contains `text`, `format`, `polygon` (four `Point`s in source-image
 pixels, top-left origin), `support`, and optional `payload_bytes`, `ean_add_on`,
-`gs1`, `reader_initialization` and `structured_append`. An empty optional means
-the reader did not report it. `rect()` returns a `tapirscan::Rect` with
+`gs1`, `reader_initialization`, `structured_append` and `codabar_start_stop`
+(Codabar start and stop characters such as `"AB"`, which `text` omits). An empty
+optional means the reader did not report it. `rect()` returns a `tapirscan::Rect` with
 `std::int32_t` `left`, `top`, `width` and `height`.
 
 `to_string(format)` gives names such as `"QRCode"`.

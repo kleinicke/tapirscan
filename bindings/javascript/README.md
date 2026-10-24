@@ -615,6 +615,7 @@ same fields plus the ones marked _inspect_.
 | `barcode.readerInitialization` | `boolean \| undefined`                                         | Data Matrix, PDF417, Aztec and MaxiCode reader-initialization flag.         |
 | `barcode.structuredAppend`     | `StructuredAppend \| undefined`                                | Multipart metadata: one-based `index`, `count`, optional `id` and `parity`. |
 | `barcode.eanAddOn`             | `string \| undefined`                                          | EAN/UPC supplement, with `eanAddOnPolicy` `"read"` or `"require"`.          |
+| `barcode.codabarStartStop`     | `string \| undefined`                                          | Codabar start and stop characters, such as `"AB"`; `text` omits them.       |
 | `barcode.content`              | `Content \| undefined`                                         | [Structured content](#structured-content) of `text`; absent for plain text. |
 
 Separate labels with the same value stay separate entries. Results are deeply

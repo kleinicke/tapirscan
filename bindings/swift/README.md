@@ -54,8 +54,9 @@ let qrOnly = try scanner.scan(cgImage, options: ScanOptions(formats: .qrCode))
 ```
 
 Each `Barcode` has `text`, `format`, `polygon`, `rect`, `support`, `payloadBytes`,
-`eanAddOn`, `gs1`, `readerInitialization` and `structuredAppend`; optional fields
-are `nil` when unavailable.
+`eanAddOn`, `gs1`, `readerInitialization`, `structuredAppend` and
+`codabarStartStop` (Codabar start and stop characters such as `"AB"`, which
+`text` omits); optional fields are `nil` when unavailable.
 
 The class is named `BarcodeScanner` so that it does not clash with
 `Foundation.Scanner`. Pixel buffers are read in place:

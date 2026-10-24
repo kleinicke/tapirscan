@@ -423,6 +423,7 @@ pub fn decode(r: &[f32], s: usize) -> Option<Read> {
     Some(Read {
         decoded: true,
         addon: None,
+        codabar_start_stop: None,
         format: "DataBarExpanded",
         text: payload(&words)?,
         start: s,
@@ -647,6 +648,7 @@ impl Stacked {
                 structured_append: None,
                 reader_initialization: false,
                 addon: None,
+                codabar_start_stop: None,
                 format: "DataBarExpanded".into(),
                 text,
                 polygon,

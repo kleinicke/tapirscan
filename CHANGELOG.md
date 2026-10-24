@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Codabar barcodes report their start and stop characters, such as `"AB"`, in the
+  new optional result field `codabarStartStop` (`codabar_start_stop` in Python,
+  Rust, C and C++); `text` still omits them. C reads it with the new
+  `TAPIRSCAN_FIELD_CODABAR_START_STOP`; native ABI 7 is unchanged.
 - EAN-2 and EAN-5 supplements (`eanAddOnPolicy` `read` and `require`): all other
   formats now read exactly as with `ignore` (before, `read` lost Code 128, Code 93,
   Code 39, Codabar and ITF reads and took longer). Supplements next to blurred,

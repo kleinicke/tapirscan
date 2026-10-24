@@ -201,7 +201,7 @@ Code128, so list every format you need.
 | `code_39_reader`                                       | `Code39` (standard characters; no full-ASCII expansion)                                             |
 | `code_39_vin_reader`                                   | No VIN reader. `Code39` reads the characters; validate the 17-character VIN (check digit) yourself. |
 | `code_93_reader`                                       | `Code93`                                                                                            |
-| `codabar_reader`                                       | `Codabar`                                                                                           |
+| `codabar_reader`                                       | `Codabar`; `text` omits the start/stop letters, `codabarStartStop` holds them.                      |
 | `i2of5_reader`                                         | `ITF` (Interleaved 2 of 5)                                                                          |
 | `2of5_reader` (standard/industrial 2 of 5)             | `Industrial25` (opt-in).                                                                            |
 | `code_32_reader`                                       | `Code32`, opt-in: no keyword group includes it.                                                     |

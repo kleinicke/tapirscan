@@ -90,7 +90,7 @@ static jobject barcode_object(JNIEnv *env, jclass type, jmethodID init, tapirsca
         corners[2 * c + 1] = barcode.polygon[c].y;
     }
     jobject value = NULL;
-    jbyteArray payload = NULL, add_on = NULL, append_id = NULL;
+    jbyteArray payload = NULL, add_on = NULL, append_id = NULL, start_stop = NULL;
     jdoubleArray polygon = NULL;
     jbyteArray text =
         copy_bytes(env, tapirscan_result_copy, result, index, TAPIRSCAN_FIELD_TEXT, barcode.text_length);
@@ -104,6 +104,10 @@ static jobject barcode_object(JNIEnv *env, jclass type, jmethodID init, tapirsca
     append_id = copy_bytes(env, tapirscan_result_copy, result, index,
                            TAPIRSCAN_FIELD_STRUCTURED_APPEND_ID, barcode.structured_append_id_length);
     if ((*env)->ExceptionCheck(env)) goto cleanup;
+    start_stop = copy_bytes(env, tapirscan_result_copy, result, index,
+                            TAPIRSCAN_FIELD_CODABAR_START_STOP,
+                            barcode.format == TAPIRSCAN_FORMAT_CODABAR ? 2 : TAPIRSCAN_ABSENT);
+    if ((*env)->ExceptionCheck(env)) goto cleanup;
     polygon = (*env)->NewDoubleArray(env, 8);
     if (!polygon) goto cleanup;
     (*env)->SetDoubleArrayRegion(env, polygon, 0, 8, corners);
@@ -112,12 +116,13 @@ static jobject barcode_object(JNIEnv *env, jclass type, jmethodID init, tapirsca
                               (jint)barcode.reader_initialization,
                               (jlong)barcode.structured_append_index,
                               (jlong)barcode.structured_append_count, append_id,
-                              (jint)barcode.structured_append_parity);
+                              (jint)barcode.structured_append_parity, start_stop);
 cleanup:
     if (text) (*env)->DeleteLocalRef(env, text);
     if (payload) (*env)->DeleteLocalRef(env, payload);
     if (add_on) (*env)->DeleteLocalRef(env, add_on);
     if (append_id) (*env)->DeleteLocalRef(env, append_id);
+    if (start_stop) (*env)->DeleteLocalRef(env, start_stop);
     if (polygon) (*env)->DeleteLocalRef(env, polygon);
     return value;
 }
@@ -134,7 +139,7 @@ static jobjectArray barcode_array(JNIEnv *env, tapirscan_result result) {
     jmethodID init = NULL;
     jclass type = (*env)->FindClass(env, "org/tapirscan/android/Barcode");
     if (!type) goto cleanup;
-    init = (*env)->GetMethodID(env, type, "<init>", "([BI[DJ[B[BIIJJ[BI)V");
+    init = (*env)->GetMethodID(env, type, "<init>", "([BI[DJ[B[BIIJJ[BI[B)V");
     if (!init) goto cleanup;
     out = (*env)->NewObjectArray(env, (jsize)count, type, NULL);
     for (uint64_t i = 0; out && i < count; i++)

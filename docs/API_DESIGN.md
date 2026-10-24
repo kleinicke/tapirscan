@@ -45,7 +45,8 @@ serializing.
 - **Optional metadata.** GS1 and reader-initialization flags distinguish
   unavailable from false. Payload bytes are the original decoded bytes when the
   reader reports them, never a re-encoding of the text. Supplements stay separate
-  from the main text and polygon.
+  from the main text and polygon, and so do Codabar start and stop characters,
+  which `text` omits and `codabarStartStop` reports.
 - **No detection** is a successful empty result, never an error.
 - **No deadline.** A call has no timeout and no retry-until-finished loop. Work
   is bounded by the effort mode.

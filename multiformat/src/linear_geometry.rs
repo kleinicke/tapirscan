@@ -408,6 +408,7 @@ mod tests {
             structured_append: None,
             reader_initialization: false,
             addon: None,
+            codabar_start_stop: None,
             format: "EAN8".into(),
             text: "20013233".into(),
             polygon: [[20., top], [160., top], [160., bottom], [20., bottom]],

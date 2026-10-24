@@ -109,6 +109,7 @@ fn finish(r: &[f32], s: usize, stop: usize, digits: &[u8]) -> Option<Read> {
     Some(Read {
         decoded: true,
         addon: None,
+        codabar_start_stop: None,
         format: "Industrial25",
         text: digits.iter().map(|&d| char::from(b'0' + d)).collect(),
         start: s,

@@ -77,6 +77,11 @@ const CODA: [u8; 20] = [
     3, 6, 9, 96, 18, 66, 33, 36, 48, 72, 12, 24, 69, 81, 84, 21, 26, 41, 11, 14,
 ];
 const CODA_ALPHABET: &[u8] = b"0123456789-$:/.+ABCD";
+/// Codabar start and stop characters in reading order, indexed by
+/// `(start - 16) * 4 + stop - 16`.
+const CODA_START_STOP: [&str; 16] = [
+    "AA", "AB", "AC", "AD", "BA", "BB", "BC", "BD", "CA", "CB", "CC", "CD", "DA", "DB", "DC", "DD",
+];
 const C93: [u16; 48] = [
     0x114, 0x148, 0x144, 0x142, 0x128, 0x124, 0x122, 0x150, 0x112, 0x10a, 0x1a8, 0x1a4, 0x1a2,
     0x194, 0x192, 0x18a, 0x168, 0x164, 0x162, 0x134, 0x11a, 0x158, 0x14c, 0x146, 0x12c, 0x116,
@@ -254,6 +259,7 @@ fn code93(
                 return (retain_failed && weak == 0).then_some(Read {
                     decoded: false,
                     addon: None,
+                    codabar_start_stop: None,
                     format: "Code93",
                     text: String::new(),
                     start: start_index,
@@ -306,6 +312,7 @@ fn code93(
             return Some(Read {
                 decoded: true,
                 addon: None,
+                codabar_start_stop: None,
                 format: "Code93",
                 text: out,
                 start: start_index,
@@ -325,6 +332,8 @@ fn code93(
 pub struct Read {
     pub decoded: bool,
     pub addon: Option<String>,
+    /// Codabar start and stop characters (A to D), which `text` omits.
+    pub codabar_start_stop: Option<&'static str>,
     pub format: &'static str,
     pub text: String,
     pub start: usize,
@@ -593,6 +602,7 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
                     failed = Some(Read {
                         decoded: false,
                         addon: None,
+                        codabar_start_stop: None,
                         format,
                         text: String::new(),
                         start: s,
@@ -613,6 +623,7 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
                     failed = Some(Read {
                         decoded: false,
                         addon: None,
+                        codabar_start_stop: None,
                         format,
                         text: String::new(),
                         start: s,
@@ -626,6 +637,7 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
             return Some(Read {
                 decoded: true,
                 addon,
+                codabar_start_stop: None,
                 format,
                 text: digits.iter().map(|d| (b'0' + d) as char).collect(),
                 start: s,
@@ -901,6 +913,7 @@ fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Opti
             return Some(Read {
                 decoded: valid,
                 addon: None,
+                codabar_start_stop: None,
                 format: "Code128",
                 text,
                 start: s,
@@ -1133,6 +1146,7 @@ fn code39_with_gain(
             return Some(Read {
                 decoded: true,
                 addon: None,
+                codabar_start_stop: None,
                 format: "Code39",
                 text: String::from_utf8(out).ok()?,
                 start: start_index,
@@ -1191,6 +1205,7 @@ fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
             return Some(Read {
                 decoded: true,
                 addon: None,
+                codabar_start_stop: None,
                 format: "ITF",
                 text: out.iter().map(|d| (b'0' + d) as char).collect(),
                 start: s,
@@ -1396,6 +1411,7 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
             return Some(Read {
                 decoded: true,
                 addon: None,
+                codabar_start_stop: Some(CODA_START_STOP[(first - 16) * 4 + c - 16]),
                 format: "Codabar",
                 text: String::from_utf8(out).ok()?,
                 start: s,
@@ -1550,6 +1566,7 @@ fn msi_finish(r: &[f32], s: usize, end: usize, digits: &[u8]) -> Option<Read> {
     Some(Read {
         decoded: true,
         addon: None,
+        codabar_start_stop: None,
         format: "MSIPlessey",
         text: digits.iter().map(|&d| char::from(b'0' + d)).collect(),
         start: s,
@@ -1847,6 +1864,7 @@ mod tests {
                         failed = Some(Read {
                             decoded: false,
                             addon: None,
+                            codabar_start_stop: None,
                             format,
                             text: String::new(),
                             start: s,
@@ -1867,6 +1885,7 @@ mod tests {
                         failed = Some(Read {
                             decoded: false,
                             addon: None,
+                            codabar_start_stop: None,
                             format,
                             text: String::new(),
                             start: s,
@@ -1880,6 +1899,7 @@ mod tests {
                 return Some(Read {
                     decoded: true,
                     addon,
+                    codabar_start_stop: None,
                     format,
                     text: digits.iter().map(|d| (b'0' + d) as char).collect(),
                     start: s,
@@ -2213,6 +2233,7 @@ mod tests {
     ) -> Option<(
         bool,
         Option<String>,
+        Option<&'static str>,
         &'static str,
         String,
         usize,
@@ -2224,6 +2245,7 @@ mod tests {
             (
                 r.decoded,
                 r.addon,
+                r.codabar_start_stop,
                 r.format,
                 r.text,
                 r.start,

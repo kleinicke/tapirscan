@@ -359,16 +359,19 @@ private func readBarcodes(_ result: tapirscan_result) throws -> [Barcode] {
                 parity: barcode.structured_append_parity < 0 ? nil : Int(barcode.structured_append_parity)
             )
         }
+        let format = try nativeFormat(barcode.format)
         barcodes.append(Barcode(
             text: try copyText(result, index, TAPIRSCAN_FIELD_TEXT, barcode.text_length) ?? "",
-            format: try nativeFormat(barcode.format),
+            format: format,
             polygon: points(barcode.polygon),
             support: barcode.support,
             payloadBytes: try copyField(result, index, TAPIRSCAN_FIELD_PAYLOAD_BYTES, barcode.payload_bytes_length),
             eanAddOn: try copyText(result, index, TAPIRSCAN_FIELD_EAN_ADD_ON, barcode.ean_add_on_length),
             gs1: tristate(barcode.gs1),
             readerInitialization: tristate(barcode.reader_initialization),
-            structuredAppend: append
+            structuredAppend: append,
+            codabarStartStop: try copyText(
+                result, index, TAPIRSCAN_FIELD_CODABAR_START_STOP, format == .codabar ? 2 : UInt64.max)
         ))
     }
     return barcodes

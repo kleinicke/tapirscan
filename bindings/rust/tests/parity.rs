@@ -75,6 +75,10 @@ fn native_parity() {
             );
             assert_eq!(barcode.ean_add_on.as_deref(), raw["eanAddOn"].as_str());
             assert_eq!(
+                barcode.codabar_start_stop.as_deref(),
+                raw["codabarStartStop"].as_str()
+            );
+            assert_eq!(
                 barcode.structured_append,
                 serde_json::from_value(raw["structuredAppend"].clone()).unwrap()
             );

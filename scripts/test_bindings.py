@@ -14,7 +14,7 @@ from typing import Any, cast
 
 from build_java import JAR, tool
 from build_native import EXAMPLES, library_name
-from fixture_data import TEXT, fixtures
+from fixture_data import CODABAR_SYMBOLS, TEXT, codabar, fixtures
 
 from build import ROOT
 
@@ -121,6 +121,7 @@ def typed(result: InspectionResult) -> dict[str, Any]:
                 "support": b.support,
                 "polygon": [[p.x, p.y] for p in b.polygon],
                 "content": b.as_dict()["content"],
+                "codabarStartStop": b.codabar_start_stop,
             }
             for b in result.barcodes
         ],
@@ -223,6 +224,39 @@ class Bindings(unittest.TestCase):
                     assert_wasm_parity(other, reference, language)
                 else:
                     self.assertEqual(other, reference, language)
+
+    def test_codabar_start_stop_agrees_across_languages(self) -> None:
+        """Every binding reports Codabar start/stop letters beside the stripped text."""
+        pixels = codabar()
+        width, height = 480, len(pixels) // 480
+        expected = sorted((data, start + stop) for start, data, stop in CODABAR_SYMBOLS)
+        with tempfile.TemporaryDirectory(prefix="tapirscan-codabar-") as temp:
+            path = Path(temp) / "pixels.raw"
+            path.write_bytes(pixels)
+            for mode in MODES:
+                with (
+                    self.subTest(mode=mode),
+                    Scanner(mode, formats="Codabar", library_dir=LIBS) as scanner,
+                ):
+                    result = scanner.inspect(
+                        PixelImage(pixels, width=width, height=height)
+                    )
+                    self.assertEqual(
+                        sorted((b.text, b.codabar_start_stop) for b in result.barcodes),
+                        expected,
+                    )
+                    reference = typed(result)
+                    for language, other in harnesses(
+                        mode,
+                        (width, height, 1, width, path),
+                        debug=False,
+                        formats=(128, "Codabar"),
+                    ).items():
+                        other.pop("debug")
+                        if language == "js":
+                            assert_wasm_parity(other, reference, language)
+                        else:
+                            self.assertEqual(other, reference, language)
 
     def test_python_validation_and_lifetime(self) -> None:
         """Invalid input is rejected and results outlive their scanner."""

@@ -7,6 +7,7 @@ fn restored_upce_requires_source_quiet_space_or_actual_image_edge() {
     let read = linear::Read {
         decoded: true,
         addon: None,
+        codabar_start_stop: None,
         format: "UPCE",
         text: "01234565".into(),
         start: 1,
