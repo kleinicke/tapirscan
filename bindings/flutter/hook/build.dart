@@ -28,10 +28,10 @@ void main(List<String> args) async {
       );
       return;
     }
-    final prebuilt = _directory(input.userDefines.path('library_dir'));
+    final prebuilt = _directory(_userPath(input, 'library_dir'));
     final checkout = input.packageRoot.resolve('../../');
     final sourceDir =
-        _directory(input.userDefines.path('source_dir')) ??
+        _directory(_userPath(input, 'source_dir')) ??
         (File.fromUri(
               checkout.resolve('scripts/build_flutter_native.py'),
             ).existsSync()
@@ -71,6 +71,17 @@ String? _rustTarget(CodeConfig code) =>
       (OS.windows, Architecture.x64) => 'x86_64-pc-windows-msvc',
       _ => null,
     };
+
+/// A path user-define. hooks 2.0 resolves an absolute Windows path such as
+/// `C:/tapirscan` as a URL with scheme `c`, so absolute paths are read here;
+/// relative ones resolve against the app's pubspec.
+Uri? _userPath(BuildInput input, String key) {
+  final value = input.userDefines[key];
+  if (value is String && File(value).isAbsolute) {
+    return Uri.file(value);
+  }
+  return input.userDefines.path(key);
+}
 
 /// A user-defined directory as a URI that relative paths resolve inside.
 Uri? _directory(Uri? path) => path == null || path.path.endsWith('/')
