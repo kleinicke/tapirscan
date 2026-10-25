@@ -4,6 +4,10 @@
 
 - Windows on ARM64: a `win_arm64` Python wheel and a `windows-arm64` native
   library on each GitHub release, which the Dart build hook downloads.
+- Faster scans of selections with several 2D formats: PDF417 localization skips
+  angles without guard evidence, and the finer reduced QR copy runs only where a
+  QR candidate remains. Reads are unchanged; with every format selected, Medium
+  takes about 9% less time, with the 2D formats alone about 15% less.
 
 ## 1.5.0
 

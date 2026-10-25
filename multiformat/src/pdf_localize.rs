@@ -49,6 +49,32 @@ const GUARD_ERROR: f32 = 0.12;
 /// pixels, and the looser [`SMALL_GUARD_ERROR`] is accepted.
 const SMALL_GUARD_MODULE: f32 = 2.5;
 const SMALL_GUARD_ERROR: f32 = 0.2;
+
+/// An angle first probes every `GUARD_PROBE_STRIDE`-th sampled row. Without a guard
+/// match beside a match of a nearby earlier probe row, it skips its full row walk: a
+/// guard that can fit a strip (four rows) appears on at least two probe rows.
+const GUARD_PROBE_STRIDE: usize = 2;
+
+/// Whether the runs starting at `s` match a start or stop guard, exactly, after print
+/// gain or loosely for small modules: the acceptance of the full row walk.
+fn guard_at(runs: &[f32], s: usize) -> bool {
+    [true, false].into_iter().any(|start| {
+        let pattern: &[u8] = if start {
+            &[8, 1, 1, 1, 1, 1, 1, 3]
+        } else {
+            &[7, 1, 1, 3, 1, 1, 1, 2, 1]
+        };
+        if s + pattern.len() > runs.len() {
+            return false;
+        }
+        let modules = if start { START_MODULES } else { STOP_MODULES };
+        let small = runs[s..s + pattern.len()].iter().sum::<f32>() < modules * SMALL_GUARD_MODULE;
+        let error = pattern_error(&runs[s..], pattern);
+        error <= GUARD_ERROR
+            || gain_error(&runs[s..], pattern) <= GUARD_ERROR
+            || (small && error <= SMALL_GUARD_ERROR)
+    })
+}
 /// Guard pattern error after undoing print gain: ink spread widens the bars
 /// and narrows the spaces by the same amount, so the sums of neighbouring runs
 /// stay put. The best of a few gain steps counts.
@@ -403,7 +429,7 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                 })
                 .collect()
         };
-        for y in (0..height).step_by(step) {
+        let sample = |y: usize, row: &mut Vec<u8>| {
             row.clear();
             if direct_rows {
                 row.extend_from_slice(&gray[y * w..(y + 1) * w]);
@@ -420,6 +446,65 @@ pub fn proposals(gray: &[u8], w: usize, h: usize) -> (Vec<(Quad, usize)>, bool) 
                     }
                 }));
             }
+        };
+        // Probe sparse rows for a guard before the full row walk; most frames have no
+        // PDF417 symbol, and the walk at four angles dominates their localization time.
+        {
+            let mut bits = Vec::new();
+            let (mut runs, mut offsets) = (Vec::new(), Vec::new());
+            // Guard matches of the previous probe rows: (row, edge, module, reversed).
+            let mut recent: Vec<(usize, f32, f32, bool)> = Vec::new();
+            let probe_step = step * GUARD_PROBE_STRIDE;
+            let found = (0..height).step_by(probe_step).any(|y| {
+                sample(y, &mut row);
+                if row.iter().all(|&value| value == row[0]) {
+                    return false;
+                }
+                recent.retain(|&(row_y, ..)| y - row_y <= 2 * probe_step);
+                let mut matches = Vec::new();
+                for mode in 0..2 {
+                    crate::threshold_into(&row, mode, &mut bits);
+                    crate::runs_into(&bits, &mut runs, &mut offsets);
+                    for reversed in [false, true] {
+                        if reversed {
+                            crate::reverse_runs(&mut runs, &mut offsets, width);
+                        }
+                        let first_black = bits[if reversed { width - 1 } else { 0 }];
+                        for s in
+                            (usize::from(!first_black)..runs.len().saturating_sub(8)).step_by(2)
+                        {
+                            if possible_guard(&runs[s..]) && guard_at(&runs, s) {
+                                // A loose module estimate: only ratios and a tolerance use it.
+                                let module = runs[s..s + 8].iter().sum::<f32>() / 15.;
+                                let edge = crate::numeric::usize_f32(if reversed {
+                                    width - offsets[s]
+                                } else {
+                                    offsets[s]
+                                });
+                                matches.push((y, edge, module, reversed));
+                            }
+                        }
+                    }
+                }
+                // A guard is a vertical structure: a match only counts beside a match of
+                // a nearby earlier row at about the same place and module size.
+                let paired = matches.iter().any(|&(_, edge, module, reversed)| {
+                    recent.iter().any(|&(row_y, e, m, r)| {
+                        r == reversed
+                            && (m / module - 1.).abs() < 0.3
+                            && (e - edge).abs()
+                                <= crate::numeric::usize_f32(y - row_y) * 1.5 + module * 4.
+                    })
+                });
+                recent.extend(matches);
+                paired
+            });
+            if !found {
+                continue;
+            }
+        }
+        for y in (0..height).step_by(step) {
+            sample(y, &mut row);
             if row.iter().all(|&value| value == row[0]) {
                 continue;
             }

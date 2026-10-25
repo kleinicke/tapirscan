@@ -1492,9 +1492,16 @@ fn medium_retries(
         } else {
             &[1600, 1200]
         };
-        for &target in dimensions {
+        // In a mixed 2D selection the finer QR scale runs only where the first pass or
+        // the coarse scale left a QR candidate; a QR-only selection always tries both.
+        let mut candidate = matrix == QR_CODE || !scan.regions.is_empty();
+        for (i, &target) in dimensions.iter().enumerate() {
+            if mask == QR_CODE && i > 0 && !candidate {
+                break;
+            }
             let retry = scaled_matrix_retry(pixels, width, height, target, mask, level, false);
             let decoded = !retry.barcodes.is_empty();
+            candidate |= !retry.regions.is_empty();
             retries.push(retry);
             if decoded {
                 break;
