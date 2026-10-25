@@ -25,7 +25,11 @@ the [library execution map](LIBRARY_MAP.md).
    scan them with the Low instance of the maintained core. High and Very High can
    additionally try up to three seeds with crops of at most 512×512 pixels when
    reads remain absent or weakly supported.
-5. **Reconcile and return.** Decoded values have source-coordinate polygons and
+5. **Scan sheets in tiles.** When a frame above 1536 pixels already read at least
+   six distinct values (Medium, High and Very High), it is likely a sheet of small
+   symbols: overlapping 1024-pixel tiles are scanned again with the selected
+   non-retail linear formats, and new reads are added.
+6. **Reconcile and return.** Decoded values have source-coordinate polygons and
    support scores. Optional evidence retains undecoded regions, work limits,
    primary candidates, and recovery frames with explicit crop transforms.
 

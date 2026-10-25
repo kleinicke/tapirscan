@@ -43,7 +43,7 @@ flowchart TD
     I --> O
     N --> O
     O --> S["read/require: supplements::apply on EAN/UPC results"]
-    S --> P["Code32/PZN interpretation and source-coordinate restoration"]
+    S --> P["Code32/PZN interpretation, sheet tile pass and source-coordinate restoration"]
 ```
 
 The EAN13-only branch returns directly via `primary_result`, without the general
@@ -54,14 +54,14 @@ formats outside its common linear set; that subcall is omitted from the diagram.
 
 The entry points are in [api/lib.rs](../bindings/rust/api/lib.rs).
 
-| Function                                   | Used when                    | Effect                                                                                                                       |
-| ------------------------------------------ | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `Scanner::scan`, `scan_with_options`       | All standard modes           | Compact barcode results; optional region output disabled                                                                     |
-| `Scanner::inspect`, `inspect_with_options` | All standard modes           | Barcode results plus undecoded regions and diagnostics                                                                       |
-| `run`                                      | Ordinary image input         | Validates/prepares input and applies large-image reduction when needed                                                       |
-| `inspect_rows`                             | Internal WASM row-input path | Supports banded large-image input; diagnostics flag also permits compact output                                              |
-| `run_source`                               | Every prepared input         | Dispatches to the compiled mode instance; subsequently applies Code32/PZN interpretation and restores reduced-image geometry |
-| `scan_formats_inner`                       | Every selected engine        | Chooses Low fast path, EAN13-only shortcut, or general format orchestration                                                  |
+| Function                                   | Used when                    | Effect                                                                                                                                                                 |
+| ------------------------------------------ | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Scanner::scan`, `scan_with_options`       | All standard modes           | Compact barcode results; optional region output disabled                                                                                                               |
+| `Scanner::inspect`, `inspect_with_options` | All standard modes           | Barcode results plus undecoded regions and diagnostics                                                                                                                 |
+| `run`                                      | Ordinary image input         | Validates/prepares input and applies large-image reduction when needed                                                                                                 |
+| `inspect_rows`                             | Internal WASM row-input path | Supports banded large-image input; diagnostics flag also permits compact output                                                                                        |
+| `run_source`                               | Every prepared input         | Dispatches to the compiled mode instance; subsequently applies Code32/PZN interpretation, runs `scan_sheet_tiles` on likely sheets and restores reduced-image geometry |
+| `scan_formats_inner`                       | Every selected engine        | Chooses Low fast path, EAN13-only shortcut, or general format orchestration                                                                                            |
 
 Public calls set internal `multiple = true` and `finish_candidates = false`.
 Some internal/core APIs expose additional choices; their branches should not be

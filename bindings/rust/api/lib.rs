@@ -250,6 +250,7 @@ impl Scanner {
             size,
             options,
             diagnostics,
+            true,
         )?;
         // Like `inspect`, report the reduction and the scan, but not the caller's
         // time spent producing rows.
@@ -275,11 +276,16 @@ impl Scanner {
             [image.width, image.height],
             options,
             diagnostics,
+            true,
         )
     }
 
     /// Scan `source`, the supplied image or its reduction, reporting results in
-    /// the coordinates of the supplied `size`.
+    /// the coordinates of the supplied `size`. `tiles` permits the sheet tile pass.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The private entry carries the timer, reduction and tile permission of one call."
+    )]
     fn run_source(
         &mut self,
         start: &timer::Timer,
@@ -288,6 +294,7 @@ impl Scanner {
         size: [usize; 2],
         options: ScanOptions,
         diagnostics: bool,
+        tiles: bool,
     ) -> Result<InspectionResult, Error> {
         let formats = options.formats.unwrap_or(self.options.formats);
         let addons = self.options.ean_add_on_policy;
@@ -342,10 +349,141 @@ impl Scanner {
         };
         // Code32 and PZN are interpretations of Code 39 reads.
         code39_variants::apply(formats.bits(), &mut result.barcodes, &mut result.undecoded);
+        if tiles {
+            self.scan_sheet_tiles(start, source, formats, &mut result)?;
+        }
         if let Some(reduced) = reduced {
             result.restore_geometry(reduced.scale(size), [source.width, source.height]);
         }
         result.elapsed = start.elapsed();
         Ok(result)
     }
+
+    /// A large frame whose scan returned many distinct values is likely a sheet of small
+    /// symbols, most of which the 768-pixel localization raster loses. Scan overlapping
+    /// tiles with the selected non-retail linear formats (retail tiles would repeat the
+    /// costly retail recovery; retail batch frames have their own pass) and add each read
+    /// that no read of the same value already overlaps. Low never takes this pass; the
+    /// tiles' undecoded regions are not reported.
+    fn scan_sheet_tiles(
+        &mut self,
+        start: &timer::Timer,
+        source: Image<'_>,
+        formats: Formats,
+        result: &mut InspectionResult,
+    ) -> Result<(), Error> {
+        let bits = formats.bits() & Formats::LINEAR.bits() & !Formats::RETAIL.bits();
+        if self.options.mode == Mode::Low
+            || bits == 0
+            || source.width.max(source.height) <= TILE_SHEET_SIDE
+            || distinct_values(&result.barcodes) < TILE_SHEET_READS
+        {
+            return Ok(());
+        }
+        let options = ScanOptions {
+            formats: Some(Formats::try_from(bits)?),
+        };
+        let mut extra: Vec<Barcode> = Vec::new();
+        for [x, y, width, height] in sheet_tiles(source.width, source.height) {
+            let tile = Image {
+                data: &source.data[y * source.stride + x * source.channels..],
+                width,
+                height,
+                channels: source.channels,
+                stride: source.stride,
+            };
+            let tile_result =
+                self.run_source(start, tile, None, [width, height], options, false, false)?;
+            let offset = [pixel(x), pixel(y)];
+            for mut barcode in tile_result.barcodes {
+                for point in &mut barcode.polygon {
+                    point[0] += offset[0];
+                    point[1] += offset[1];
+                }
+                if !result.barcodes.iter().chain(&extra).any(|known| {
+                    known.format == barcode.format
+                        && known.text == barcode.text
+                        && boxes_overlap(&known.polygon, &barcode.polygon)
+                }) {
+                    extra.push(barcode);
+                }
+            }
+        }
+        result.barcodes.extend(extra);
+        Ok(())
+    }
+}
+
+/// Frames above this long side may take the sheet tile pass.
+const TILE_SHEET_SIDE: usize = 1536;
+/// Distinct values whose full-frame scan marks a sheet of symbols. Only frames with many
+/// symbols pay for the tiles; about half of them read more there.
+const TILE_SHEET_READS: usize = 6;
+/// Sheet tile side and overlap, in source pixels: a tile puts the localization raster
+/// at about full resolution, and the overlap keeps a symbol of a few hundred pixels whole.
+const SHEET_TILE: usize = 1024;
+const SHEET_TILE_OVERLAP: usize = 256;
+
+/// Distinct (format, text) pairs among the reads.
+fn distinct_values(barcodes: &[Barcode]) -> usize {
+    let mut seen: Vec<(Format, &str)> = Vec::new();
+    for barcode in barcodes {
+        if !seen
+            .iter()
+            .any(|(format, text)| *format == barcode.format && *text == barcode.text)
+        {
+            seen.push((barcode.format, &barcode.text));
+        }
+    }
+    seen.len()
+}
+
+/// Overlapping [`SHEET_TILE`] tiles covering a `width` x `height` frame, as `[x, y, w, h]`.
+fn sheet_tiles(width: usize, height: usize) -> Vec<[usize; 4]> {
+    let starts = |n: usize| -> Vec<usize> {
+        if n <= SHEET_TILE {
+            return vec![0];
+        }
+        let mut out: Vec<usize> = (0..n - SHEET_TILE)
+            .step_by(SHEET_TILE - SHEET_TILE_OVERLAP)
+            .collect();
+        out.push(n - SHEET_TILE);
+        out
+    };
+    let mut tiles = Vec::new();
+    for y in starts(height) {
+        for x in starts(width) {
+            tiles.push([x, y, SHEET_TILE.min(width - x), SHEET_TILE.min(height - y)]);
+        }
+    }
+    tiles
+}
+
+/// A pixel coordinate as `f64`; image sides are at most 65,535 pixels.
+fn pixel(value: usize) -> f64 {
+    f64::from(u32::try_from(value).unwrap_or(u32::MAX))
+}
+
+/// Whether the bounding boxes of two quads intersect.
+fn boxes_overlap(a: &Quad, b: &Quad) -> bool {
+    let bounds = |q: &Quad| {
+        q.iter().fold(
+            [
+                f64::INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NEG_INFINITY,
+            ],
+            |m, p| {
+                [
+                    m[0].min(p[0]),
+                    m[1].min(p[1]),
+                    m[2].max(p[0]),
+                    m[3].max(p[1]),
+                ]
+            },
+        )
+    };
+    let (a, b) = (bounds(a), bounds(b));
+    a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3]
 }

@@ -8,6 +8,11 @@
   angles without guard evidence, and the finer reduced QR copy runs only where a
   QR candidate remains. Reads are unchanged; with every format selected, Medium
   takes about 9% less time, with the 2D formats alone about 15% less.
+- Sheets of many small linear symbols: when a frame above 1536 pixels already
+  read at least six distinct values, Medium, High and Very High scan it again in
+  overlapping tiles with the selected non-retail linear formats. On crowded
+  label-sheet photos Medium reads about a quarter more symbols and takes about
+  half as long again there; other frames are unchanged.
 
 ## 1.5.0
 
