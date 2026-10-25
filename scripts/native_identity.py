@@ -43,7 +43,7 @@ def sha256(path: Path) -> str:
 
 def scalar(path: Path, pattern: str) -> str:
     """Read a required scalar from a maintained source/configuration file."""
-    match = re.search(pattern, path.read_text(), re.MULTILINE)
+    match = re.search(pattern, path.read_text(encoding="utf-8"), re.MULTILINE)
     if match is None:
         message = f"Missing identity field in {path}"
         raise ValueError(message)
@@ -160,7 +160,7 @@ def record(
     }
     destination = library.parent / MANIFEST
     temporary = destination.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(manifest, indent=2) + "\n")
+    temporary.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     temporary.replace(destination)
 
 
@@ -179,7 +179,7 @@ def verify(root: Path, library: Path) -> str:
 
 def _verify_manifest(root: Path, library: Path) -> str:
     """Validate manifest fields before adding caller-facing rebuild guidance."""
-    manifest = json.loads((library.parent / MANIFEST).read_text())
+    manifest = json.loads((library.parent / MANIFEST).read_text(encoding="utf-8"))
     if manifest["schema"] != 1 or manifest["preset"] is not None:
         message = "Unsupported manifest or Turbo preset build"
         raise ValueError(message)

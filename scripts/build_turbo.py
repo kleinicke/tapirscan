@@ -81,7 +81,9 @@ def main() -> None:
         },
         "artifacts": artifacts,
     }
-    (destination / "manifest.json").write_text(json.dumps(record, indent=2) + "\n")
+    (destination / "manifest.json").write_text(
+        json.dumps(record, indent=2) + "\n", encoding="utf-8"
+    )
     print(destination)
 
 

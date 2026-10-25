@@ -54,7 +54,7 @@ def copy_module(
 ) -> dict[str, bool]:
     """Relocate crate paths and select mode features; keep target cfgs intact."""
     files = {
-        str(path.relative_to(source)): path.read_text()
+        str(path.relative_to(source)): path.read_text(encoding="utf-8")
         for path in sorted(source.rglob("*.rs"))
         if "bin" not in path.relative_to(source).parts
     }
@@ -76,7 +76,7 @@ def copy_module(
     for relative, text in result["files"].items():
         target = destination / ("mod.rs" if relative == "lib.rs" else relative)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text)
+        target.write_text(text, encoding="utf-8")
     fixtures = source.parent / "fixtures"
     if fixtures.exists():
         shutil.copytree(fixtures, destination.parent / "fixtures", dirs_exist_ok=True)
@@ -194,7 +194,7 @@ def assemble(destination: Path) -> None:
         )
     )
     modules.append(f"{LIBRARY_LINTS}\npub(crate) mod multiformat;")
-    (generated / "mod.rs").write_text("\n".join(modules) + "\n")
+    (generated / "mod.rs").write_text("\n".join(modules) + "\n", encoding="utf-8")
     entries = [
         f'    ("{name}", {str(enabled).lower()}),'
         for name, enabled in sorted(flags.items())
@@ -222,7 +222,8 @@ def assemble(destination: Path) -> None:
         + "    for (name, enabled) in FLAGS {\n"
         + '        println!("cargo::rustc-check-cfg=cfg({name})");\n'
         + '        if *enabled { println!("cargo::rustc-cfg={name}"); }\n'
-        + "    }\n}\n"
+        + "    }\n}\n",
+        encoding="utf-8",
     )
     provenance = {
         "modes": list(MODES),
@@ -271,7 +272,7 @@ def assemble(destination: Path) -> None:
         },
     }
     (destination / "provenance.json").write_text(
-        json.dumps(provenance, indent=2) + "\n"
+        json.dumps(provenance, indent=2) + "\n", encoding="utf-8"
     )
 
 

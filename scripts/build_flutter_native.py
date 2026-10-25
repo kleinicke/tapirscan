@@ -119,7 +119,8 @@ def build(
     # inputs plus this recipe.
     sources = [*cast("dict[str, str]", identity["sourceFiles"]), DEPENDENCY_SELF]
     (destination / DEPENDENCIES).write_text(
-        json.dumps([str(ROOT / source) for source in sources], indent=1) + "\n"
+        json.dumps([str(ROOT / source) for source in sources], indent=1) + "\n",
+        encoding="utf-8",
     )
     return destination / name
 

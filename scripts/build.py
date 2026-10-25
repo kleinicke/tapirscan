@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-_CONFIG = json.loads((ROOT / "config/modes.json").read_text())
+_CONFIG = json.loads((ROOT / "config/modes.json").read_text(encoding="utf-8"))
 # Mode order defines engine IDs; budgets live in bindings/rust/src/effort.rs.
 MODES = tuple(_CONFIG["modes"])
 TURBO_PRESETS = tuple(_CONFIG["experimentalTurbo"])
@@ -37,7 +37,7 @@ def rust_toolchain() -> str:
     """Return the Rust channel pinned by rust-toolchain.toml, the single source."""
     match = re.search(
         r'^channel\s*=\s*"([^"]+)"',
-        (ROOT / "rust-toolchain.toml").read_text(),
+        (ROOT / "rust-toolchain.toml").read_text(encoding="utf-8"),
         re.MULTILINE,
     )
     if match is None:

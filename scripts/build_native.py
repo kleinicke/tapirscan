@@ -127,7 +127,7 @@ def prepare_native_crate(public_crate: Path) -> Path:
     write_changed(
         native / "Cargo.toml",
         (ROOT / "bindings/c/Cargo.toml.in")
-        .read_text()
+        .read_text(encoding="utf-8")
         .replace("@PUBLIC_CRATE@", public_crate.as_posix())
         .encode(),
     )
