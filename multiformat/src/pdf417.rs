@@ -919,13 +919,11 @@ fn detect_axes(
             let mut refined_runs = Vec::new();
             for y in (0..height).step_by((height / target_scanlines).max(1)) {
                 row.clear();
-                row.extend((0..width).map(|x| {
-                    if vertical {
-                        gray[x * w + y]
-                    } else {
-                        gray[y * w + x]
-                    }
-                }));
+                if vertical {
+                    row.extend(gray[y..].iter().step_by(w).take(width));
+                } else {
+                    row.extend_from_slice(&gray[y * w..y * w + width]);
+                }
                 // A constant scanline cannot contain a start guard. Avoid
                 // thresholding and run extraction for both directions.
                 if row.iter().all(|&value| value == row[0]) {

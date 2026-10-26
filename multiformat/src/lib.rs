@@ -221,17 +221,40 @@ fn adaptive_threshold_into(row: &[u8], radius: usize, bits: &mut Vec<bool>) {
         count += 1;
         bits.push((u32::from(row[i]) + 3) * count < sum);
     }
-    count = (radius * 2 + 1) as u32;
-    for i in radius + 1..row.len() - radius {
-        sum -= u32::from(row[i - radius - 1]);
-        sum += u32::from(row[i + radius]);
-        bits.push((u32::from(row[i]) + 3) * count < sum);
-    }
+    // The interior compares each pixel with its full window. Prefix sums make the
+    // windows independent of each other, so the comparison loop vectorizes. They wrap
+    // on very long rows, but each window's difference stays exact: it is below 2^32.
+    let width = (radius * 2 + 1) as u32;
+    PREFIX.with_borrow_mut(|prefix| {
+        prefix.clear();
+        prefix.reserve(row.len() + 1);
+        let mut total = 0u32;
+        prefix.push(0);
+        prefix.extend(row.iter().map(|&v| {
+            total = total.wrapping_add(u32::from(v));
+            total
+        }));
+        let interior = radius + 1..row.len() - radius;
+        let upper = &prefix[interior.start + radius + 1..=interior.end + radius];
+        let lower = &prefix[interior.start - radius..interior.end - radius];
+        bits.extend(
+            row[interior]
+                .iter()
+                .zip(upper.iter().zip(lower))
+                .map(|(&v, (&hi, &lo))| (u32::from(v) + 3) * width < hi.wrapping_sub(lo)),
+        );
+        sum = prefix[row.len()].wrapping_sub(prefix[row.len() - 2 * radius - 1]);
+    });
+    count = width;
     for i in row.len() - radius..row.len() {
         sum -= u32::from(row[i - radius - 1]);
         count -= 1;
         bits.push((u32::from(row[i]) + 3) * count < sum);
     }
+}
+thread_local! {
+    /// Prefix sums of the row being thresholded, reused across rows.
+    static PREFIX: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 #[cfg(test)]
 fn runs(bits: &[bool]) -> (Vec<f32>, Vec<usize>) {

@@ -249,10 +249,13 @@ impl Scanner {
                     (localized.as_slice(), voted_further.as_slice())
                 };
                 // A broad mask can turn a short UPC-E interpretation of EAN-13 into a
-                // false extra read. The new rare-format recovery requires explicit
-                // selection; the established Medium readers keep their broad behavior.
-                let selected_rare = if matches!(mask, UPCE | DATA_BAR_EXPANDED) {
+                // false extra read. UPC-E selected without EAN-13 and UPC-A decodes the
+                // boxes as when it is selected alone, so adding a 2D or other format keeps
+                // its reads; the established Medium readers keep their broad behavior.
+                let selected_rare = if mask == DATA_BAR_EXPANDED {
                     mask
+                } else if mask & UPCE != 0 && mask & PRIMARY_RETAIL == 0 {
+                    UPCE
                 } else {
                     0
                 };
