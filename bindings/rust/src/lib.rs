@@ -136,6 +136,8 @@ impl Scanner {
                 shared_retail: false,
                 #[cfg(not(feature = "low"))]
                 shared_linear: false,
+                #[cfg(not(feature = "low"))]
+                primary_selected: true,
             },
             &[],
         )
