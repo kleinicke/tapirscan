@@ -555,12 +555,12 @@ fn parse(
     Some((out, text, gs1, structured_append))
 }
 
-/// Conservative localization evidence after payload failure: two agreeing BCH
-/// copies plus both timing tracks. This never manufactures a decoded value.
+/// Whether both format copies of a sampled grid lie within two bits of the same
+/// format word.
 #[must_use]
-pub fn localization_score(matrix: &[bool], n: usize) -> Option<f32> {
+pub fn format_copies_agree(matrix: &[bool], n: usize) -> bool {
     if n < 21 || matrix.len() != n * n {
-        return None;
+        return false;
     }
     let (a, b) = format_coordinates(n);
     let read = |p: &[(usize, usize)]| {
@@ -569,10 +569,17 @@ pub fn localization_score(matrix: &[bool], n: usize) -> Option<f32> {
         })
     };
     let (a, b) = (read(&a), read(&b));
-    if !(0..32).any(|d| {
+    (0..32).any(|d| {
         let c = format_code(d);
         (a ^ c).count_ones() <= 2 && (b ^ c).count_ones() <= 2
-    }) {
+    })
+}
+
+/// Conservative localization evidence after payload failure: two agreeing BCH
+/// copies plus both timing tracks. This never manufactures a decoded value.
+#[must_use]
+pub fn localization_score(matrix: &[bool], n: usize) -> Option<f32> {
+    if !format_copies_agree(matrix, n) {
         return None;
     }
     let errors = (8..n - 8)

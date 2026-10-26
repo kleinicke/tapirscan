@@ -1,9 +1,9 @@
 //! QR-only production frontend: the shared multiformat detector under this
-//! mode's [`Policy`], plus block-threshold, finder-pair window and sharpened
+//! mode's [`Policy`], plus block-threshold, evidence, finder-pair window and sharpened
 //! retries. The multi-format groups use the same detector and policy without the
 //! window retry.
 use barcode_multiformat::numeric::{f32_usize, usize_f32};
-use barcode_multiformat::qr_detect::{self, FULL_BUDGET, Pass, Policy};
+use barcode_multiformat::qr_detect::{self, FULL_BUDGET, Pass, Policy, Symbols};
 use barcode_multiformat::{Detection, Scan, binarization, qr_enhance};
 
 /// This mode's QR detection choices.
@@ -330,6 +330,18 @@ fn scan_frame(
             let (extra, _) = detect(width, height, &mut regions, &mut hybrid, pass);
             reads.extend(extra);
         }
+    }
+    // Low retries a frame that read nothing but holds QR evidence.
+    if !foreground && !window {
+        qr_detect::evidence_retry(
+            image,
+            [width, height],
+            &mut reads,
+            &regions,
+            binary,
+            POLICY,
+            Symbols::QR,
+        );
     }
     // A second symbol whose third finder was lost is searched in windows around its
     // finder pairs. Only beside a read: a frame without one takes the facade's

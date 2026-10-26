@@ -1064,12 +1064,21 @@ pub struct Policy {
     /// Finders of the standard threshold modes recorded in
     /// [`crate::regions::Regions::qr_finders`] for the QR frontend's window retry.
     pub recorded_finders: usize,
+    /// Decode attempts of each pass of [`evidence_retry`], which retries a frame that
+    /// read nothing but holds QR or Micro QR evidence; 0 turns the retry off. Texture
+    /// that gave the evidence can hold hundreds of false triples; the budget bounds
+    /// what a frame without QR pays, and the pass stops quietly.
+    pub evidence_budget: usize,
 }
 /// Resampling module centers in gray with module-space thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GrayRetry {
     /// No gray resampling.
     Off,
+    /// Decode the gray resampling where the first threshold sampling reads intact
+    /// format information. Triples of texture that pass the cheaper header check
+    /// rarely do, so frames without QR keep their cost.
+    Intact,
     /// Decode the gray resampling.
     Hard,
     /// Also retry the gray resampling with its weakest modules as erasures.
@@ -1094,10 +1103,10 @@ impl Policy {
             // nothing.
             align_anyway: mode != 0,
             offset_erasures: true,
-            // Low keeps its live-frame budget without the gray resampling pass. In
-            // Medium its erasure retry read nothing extra.
+            // Low resamples in gray only grids with intact format information. In
+            // Medium the erasure retry read nothing extra.
             gray: match mode {
-                0 => GrayRetry::Off,
+                0 => GrayRetry::Intact,
                 1 => GrayRetry::Hard,
                 _ => GrayRetry::Erasures,
             },
@@ -1112,6 +1121,8 @@ impl Policy {
             } else {
                 crate::regions::MAX_QR_FINDERS
             },
+            // Medium and above run their own foreground and sharpened recoveries.
+            evidence_budget: if mode == 0 { 200 } else { 0 },
         }
     }
 }
@@ -1171,7 +1182,16 @@ pub fn detect_group(
     let pass = Pass::effort(effort > 1, effort > 2);
     let (mut reads, mut limited) =
         detect_symbols(w, h, regions, binary_images, policy, pass.clone(), symbols);
-    if effort > 1 && w * h <= 1_048_576 {
+    evidence_retry(
+        image,
+        [w, h],
+        &mut reads,
+        regions,
+        binary_images,
+        policy,
+        symbols,
+    );
+    if effort > 1 && w * h <= SHARPEN_MAX_PIXELS {
         let enhanced = crate::qr_enhance::sharpen(image, w, h);
         let mut recovery = crate::binarization::Images::new(&enhanced, w, h);
         let (extra, extra_limited) =
@@ -1189,6 +1209,67 @@ pub fn detect_group(
         }
     }
     (reads, limited)
+}
+/// Frames up to this size take the sharpened passes of [`detect_group`] and
+/// [`evidence_retry`].
+pub const SHARPEN_MAX_PIXELS: usize = 1_048_576;
+/// Retry a frame whose standard pass read nothing (`reads` empty) but left an
+/// undecoded region of the selected `symbols`, or a grid close to one
+/// ([`crate::regions::Regions::near_qr`], [`crate::regions::Regions::near_micro_qr`]):
+/// the localization found a symbol that the frame-wide thresholds or blur kept from
+/// decoding. The foreground split first separates the symbol from a dark surround,
+/// then frames up to [`SHARPEN_MAX_PIXELS`] are searched again after sharpening.
+/// Without such evidence, or under a policy without [`Policy::evidence_budget`], it
+/// does nothing, so frames without QR keep their cost. QR evidence from a pass cut
+/// by its work limits does not count: dense texture yields accidental QR grids, and
+/// the retry would repeat its costly finder search.
+///
+/// # Panics
+///
+/// Panics if a supplied binary image or region dimensions are inconsistent.
+pub fn evidence_retry(
+    image: &[u8],
+    [w, h]: [usize; 2],
+    reads: &mut Vec<Detection>,
+    regions: &crate::regions::Regions,
+    binary_images: &mut crate::binarization::Images<'_>,
+    policy: Policy,
+    symbols: Symbols,
+) {
+    let found = |format: &str| regions.candidates.iter().any(|r| r.format == format);
+    let qr = symbols.qr && !regions.limited && (regions.near_qr || found("QRCode"));
+    let micro = symbols.micro && (regions.near_micro_qr || found("MicroQRCode"));
+    if policy.evidence_budget == 0 || !reads.is_empty() || !(qr || micro) {
+        return;
+    }
+    // The frame's undecoded regions and work flag stay those of its standard pass:
+    // the retry's other geometry would displace the regions that later
+    // recoveries resample.
+    let mut scratch = crate::regions::Regions::default();
+    let foreground = Pass {
+        modes: STANDARD_MODES..EXTENDED_MODES,
+        curved: false,
+        budget: policy.evidence_budget,
+    };
+    *reads = detect_symbols(
+        w,
+        h,
+        &mut scratch,
+        binary_images,
+        policy,
+        foreground,
+        symbols,
+    )
+    .0;
+    if reads.is_empty() && w * h <= SHARPEN_MAX_PIXELS {
+        let enhanced = crate::qr_enhance::sharpen(image, w, h);
+        let mut recovery = crate::binarization::Images::new(&enhanced, w, h);
+        let pass = Pass {
+            budget: policy.evidence_budget,
+            ..Pass::effort(false, false)
+        };
+        *reads = detect_symbols(w, h, &mut scratch, &mut recovery, policy, pass, symbols).0;
+    }
 }
 /// Whether a pass that stopped with work left likely holds further symbols: it
 /// read `sheet_reads` or more, or it read fewer than that, or used up its budget,
@@ -1726,6 +1807,8 @@ pub fn detect_symbols(
                                         score,
                                         tl.support.min(tr.support).min(bl.support),
                                     );
+                                } else if policy.evidence_budget > 0 && !regions.near_qr {
+                                    regions.near_qr = qr::format_copies_agree(&matrix, n);
                                 }
                             }
                             if keep_samples {
@@ -1777,6 +1860,8 @@ pub fn detect_symbols(
                         }
                         if policy.gray != GrayRetry::Off
                             && !samples.is_empty()
+                            && (policy.gray != GrayRetry::Intact
+                                || qr::format_intact(n, |x, y| Some(samples[0][y * n + x])))
                             && let Some(read) = gray_decode(
                                 gray,
                                 [w, h],
@@ -2432,6 +2517,79 @@ mod policy_tests {
             assert!(policy.several_patience >= medium.patience, "mode {mode}");
         }
         assert!(Policy::for_mode(0).patience < medium.patience);
+    }
+
+    #[test]
+    fn only_low_retries_and_only_on_evidence() {
+        use super::{Symbols, evidence_retry};
+        use crate::{binarization::Images, regions::Regions};
+        assert!(Policy::for_mode(0).evidence_budget > 0);
+        for mode in 1..4 {
+            assert_eq!(Policy::for_mode(mode).evidence_budget, 0, "mode {mode}");
+        }
+        // Version 1-M "TAPIRSCAN" with 4-pixel modules, which a retry reads.
+        let rows = [
+            "111111101101001111111",
+            "100000101100001000001",
+            "101110100011001011101",
+            "101110101110101011101",
+            "101110100001001011101",
+            "100000100111101000001",
+            "111111101010101111111",
+            "000000001111100000000",
+            "101101110111101001011",
+            "000001001001111100011",
+            "011110110111000001001",
+            "100011010001001011111",
+            "001100100010100100000",
+            "000000001101001010111",
+            "111111101111100101101",
+            "100000101010000110100",
+            "101110100010111000111",
+            "101110101101001101010",
+            "101110101000101100000",
+            "100000100110010100100",
+            "111111101000010011010",
+        ];
+        let (w, h) = (140, 140);
+        let mut gray = vec![220_u8; w * h];
+        for (y, row) in rows.iter().enumerate() {
+            for (x, bit) in row.bytes().enumerate() {
+                if bit == b'1' {
+                    for dy in 0..4 {
+                        let start = (28 + 4 * y + dy) * w + 28 + 4 * x;
+                        gray[start..start + 4].fill(30);
+                    }
+                }
+            }
+        }
+        let retry = |policy: Policy, regions: &Regions| {
+            let mut reads = Vec::new();
+            let mut images = Images::new(&gray, w, h);
+            evidence_retry(
+                &gray,
+                [w, h],
+                &mut reads,
+                regions,
+                &mut images,
+                policy,
+                Symbols::QR,
+            );
+            reads
+        };
+        let mut evidence = Regions {
+            near_qr: true,
+            ..Regions::default()
+        };
+        let reads = retry(Policy::for_mode(0), &evidence);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].text, "TAPIRSCAN");
+        // No retry without evidence, after a work-limited pass, or above Low.
+        assert!(retry(Policy::for_mode(0), &Regions::default()).is_empty());
+        evidence.limited = true;
+        assert!(retry(Policy::for_mode(0), &evidence).is_empty());
+        evidence.limited = false;
+        assert!(retry(Policy::for_mode(1), &evidence).is_empty());
     }
 
     #[test]

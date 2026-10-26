@@ -96,6 +96,13 @@ pub struct Regions {
     /// records them. Not part of the output: the QR frontend pairs the unread ones
     /// into windows for a local retry.
     pub qr_finders: Vec<[f32; 4]>,
+    /// Whether an unread QR grid came close to localization without reaching an
+    /// undecoded region: its two format copies agree. Not part of the output: Low's
+    /// evidence retry runs on it.
+    pub near_qr: bool,
+    /// Whether an unread Micro QR orientation came close to localization: at most a
+    /// quarter of its format and timing evidence is wrong. Not part of the output.
+    pub near_micro_qr: bool,
 }
 impl Regions {
     pub fn add(&mut self, format: &str, polygon: Quad, score: f32, support: usize) {
