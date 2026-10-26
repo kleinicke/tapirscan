@@ -1069,8 +1069,8 @@ pub struct Policy {
     /// that gave the evidence can hold hundreds of false triples; the budget bounds
     /// what a frame without QR pays, and the pass stops quietly.
     pub evidence_budget: usize,
-    /// Whether [`evidence_retry`] also retries QR Code evidence; otherwise only Micro QR.
-    pub evidence_qr: bool,
+    /// The symbols whose evidence [`evidence_retry`] retries.
+    pub evidence_symbols: Symbols,
 }
 /// Resampling module centers in gray with module-space thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1126,7 +1126,10 @@ impl Policy {
             // Low and Medium retry Micro QR evidence; for QR Code, Medium and above run
             // their own foreground and sharpened recoveries.
             evidence_budget: if mode <= 1 { 200 } else { 0 },
-            evidence_qr: mode == 0,
+            evidence_symbols: Symbols {
+                qr: mode == 0,
+                micro: true,
+            },
         }
     }
 }
@@ -1242,10 +1245,12 @@ pub fn evidence_retry(
 ) {
     let found = |format: &str| regions.candidates.iter().any(|r| r.format == format);
     let qr = symbols.qr
-        && policy.evidence_qr
+        && policy.evidence_symbols.qr
         && !regions.limited
         && (regions.near_qr || found("QRCode"));
-    let micro = symbols.micro && (regions.near_micro_qr || found("MicroQRCode"));
+    let micro = symbols.micro
+        && policy.evidence_symbols.micro
+        && (regions.near_micro_qr || found("MicroQRCode"));
     if policy.evidence_budget == 0 || !reads.is_empty() || !(qr || micro) {
         return;
     }
@@ -1814,7 +1819,7 @@ pub fn detect_symbols(
                                         score,
                                         tl.support.min(tr.support).min(bl.support),
                                     );
-                                } else if policy.evidence_qr && !regions.near_qr {
+                                } else if policy.evidence_symbols.qr && !regions.near_qr {
                                     regions.near_qr = qr::format_copies_agree(&matrix, n);
                                 }
                             }
@@ -2530,8 +2535,10 @@ mod policy_tests {
     fn low_retries_qr_and_micro_medium_micro_only_on_evidence() {
         use super::{Symbols, evidence_retry};
         use crate::{binarization::Images, regions::Regions};
-        assert!(Policy::for_mode(0).evidence_budget > 0 && Policy::for_mode(0).evidence_qr);
-        assert!(Policy::for_mode(1).evidence_budget > 0 && !Policy::for_mode(1).evidence_qr);
+        assert!(Policy::for_mode(0).evidence_budget > 0 && Policy::for_mode(0).evidence_symbols.qr);
+        assert!(
+            Policy::for_mode(1).evidence_budget > 0 && !Policy::for_mode(1).evidence_symbols.qr
+        );
         for mode in 2..4 {
             assert_eq!(Policy::for_mode(mode).evidence_budget, 0, "mode {mode}");
         }
