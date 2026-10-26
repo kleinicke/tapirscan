@@ -1661,6 +1661,13 @@ struct Retries {
     /// resampled to another aspect) is read in the first pass by High and Very High,
     /// and by Low and Medium only in that retry.
     aspect: [f32; 2],
+    /// Unread candidates that recorded a region (a clean border that did not decode) whose
+    /// grayscale refinement tries two further sizes, after the other refinements and
+    /// with attempts of their own; a full list takes such candidates in addition. On busy
+    /// frames the first 64 candidates are often the module texture of other symbols, so
+    /// the symbol's own candidate, found later, would never be refined, and a bare L fits
+    /// a wrong size about as well as the right one.
+    recorded: usize,
 }
 /// Retry limits per frame for Low, Medium and High; modes beyond the table (Very High)
 /// use its last entry. Medium retries only its four best-ranked candidates; Low and
@@ -1673,6 +1680,7 @@ const MODE_RETRIES: [Retries; 3] = [
         candidates: 64,
         ranked: false,
         aspect: [0.65, 1.55],
+        recorded: 2,
     },
     Retries {
         gray: 3,
@@ -1681,6 +1689,7 @@ const MODE_RETRIES: [Retries; 3] = [
         candidates: 4,
         ranked: true,
         aspect: [0.65, 1.55],
+        recorded: 0,
     },
     Retries {
         gray: 6,
@@ -1689,6 +1698,7 @@ const MODE_RETRIES: [Retries; 3] = [
         candidates: 64,
         ranked: false,
         aspect: [0.55, 1.8],
+        recorded: 0,
     },
 ];
 /// The retry limits of a scanner `mode`.
@@ -1705,6 +1715,7 @@ const CROP_PASS: Retries = Retries {
     candidates: 64,
     ranked: false,
     aspect: [0.65, 1.55],
+    recorded: 0,
 };
 #[expect(
     clippy::too_many_lines,
@@ -1723,8 +1734,9 @@ fn detect_with_retries(
     let mut attempts = 0;
     let mut refinements = 0;
     let gray = binary_images.gray();
-    let mut gray_attempts = retries.gray;
-    let mut failed: Vec<(Vec<[Point; 4]>, usize, f32)> = Vec::new();
+    let mut failed: Vec<(Vec<[Point; 4]>, usize, f32, bool)> = Vec::new();
+    // Candidates that recorded a region after the list was full (see `recorded`).
+    let mut late: Vec<(Vec<[Point; 4]>, usize, f32, bool)> = Vec::new();
     let mut unread: Vec<[Point; 4]> = Vec::new();
     // Modes 2 and 3 invert modes 0 and 1; their candidates come with those.
     let mut inverse_candidates: [Option<(Vec<[Point; 4]>, bool)>; 2] = [None, None];
@@ -1874,6 +1886,7 @@ fn detect_with_retries(
                     |h| h.0,
                 );
                 let before = results.len();
+                let mut recorded = false;
                 for (score, size, t, polygon) in hypotheses.into_iter().take(12) {
                     attempts += 1;
                     if attempts > 800 {
@@ -1882,6 +1895,7 @@ fn detect_with_retries(
                     if sample_grid(image, [w, h], &t, [size.w, size.h], &mut matrix) {
                         if score <= 0.08 {
                             regions.add("DataMatrix", polygon, 1. - score, 1);
+                            recorded = true;
                         }
                         if let Some(read) = datamatrix::decode_matrix(&matrix, size.w, size.h) {
                             results.push(Detection {
@@ -1907,13 +1921,15 @@ fn detect_with_retries(
                 // full, gives its worst entry to a better one.
                 if results.len() == before && (!retries.ranked || !orientations.is_empty()) {
                     if failed.len() < retries.candidates {
-                        failed.push((orientations, mode, best_score));
+                        failed.push((orientations, mode, best_score, recorded));
+                    } else if recorded && late.len() < retries.recorded {
+                        late.push((orientations, mode, best_score, recorded));
                     } else if retries.ranked
                         && let Some(worst) =
                             (0..failed.len()).max_by(|&a, &b| failed[a].2.total_cmp(&failed[b].2))
                         && failed[worst].2 > best_score
                     {
-                        failed[worst] = (orientations, mode, best_score);
+                        failed[worst] = (orientations, mode, best_score, recorded);
                     }
                 }
             }
@@ -1923,7 +1939,10 @@ fn detect_with_retries(
     // ratio window of the first pass; unread candidates retry with a wider one.
     // Fair but unclean borders queue for the grayscale refinement below.
     let mut queue: Vec<(f32, datamatrix::Size, [Point; 4], bool)> = Vec::new();
-    for (orientations, mode, _) in failed {
+    let mut recorded_queue: Vec<(f32, datamatrix::Size, [Point; 4], bool)> = Vec::new();
+    let mut recorded_left = retries.recorded;
+    let listed = failed.len();
+    for (index, (orientations, mode, _, recorded)) in failed.into_iter().chain(late).enumerate() {
         if orientations
             .first()
             .is_some_and(|first| near_result(&results, first))
@@ -1990,25 +2009,73 @@ fn detect_with_retries(
         if let Some(read) = found {
             results.push(read);
         } else {
-            // Only candidates with a clean-looking border earn an averaged crop.
-            if !fair.is_empty() {
+            // Only candidates with a clean-looking border earn an averaged crop. A late
+            // candidate leaves the crops and the shared refinements to the listed ones.
+            if index < listed && !fair.is_empty() {
                 unread.push(orientations[0]);
             }
             fair.sort_by(|a, b| a.0.total_cmp(&b.0));
-            queue.extend(fair.into_iter().take(GRAY_SIZES_PER_CANDIDATE));
+            let mut fair = fair.into_iter();
+            if index < listed {
+                queue.extend(fair.by_ref().take(GRAY_SIZES_PER_CANDIDATE));
+            }
+            if recorded && recorded_left > 0 {
+                recorded_left -= 1;
+                let sizes = if index < listed { 1 } else { 2 } * GRAY_SIZES_PER_CANDIDATE;
+                recorded_queue.extend(fair.take(sizes));
+            }
         }
     }
     queue.sort_by(|a, b| a.0.total_cmp(&b.0));
+    refine_queue(
+        gray,
+        (w, h),
+        queue,
+        retries.gray,
+        retries.region_grids,
+        &mut results,
+    );
+    recorded_queue.sort_by(|a, b| a.0.total_cmp(&b.0));
+    refine_queue(
+        gray,
+        (w, h),
+        recorded_queue,
+        retries.recorded * GRAY_SIZES_PER_CANDIDATE,
+        retries.region_grids,
+        &mut results,
+    );
+    if retries.crops > 0 {
+        results.extend(crop_retries_for(
+            gray,
+            (w, h),
+            &unread,
+            &results,
+            retries.crops,
+        ));
+    }
+    (results, false)
+}
+
+/// Refine up to `attempts` hypotheses of `queue` on grayscale, skipping symbols already
+/// read, and add what they read to `results`.
+fn refine_queue(
+    gray: &[u8],
+    (w, h): (usize, usize),
+    queue: Vec<(f32, datamatrix::Size, [Point; 4], bool)>,
+    mut attempts: usize,
+    region_grids: bool,
+    results: &mut Vec<Detection>,
+) {
     for (score, size, q, inverted) in queue {
-        if gray_attempts == 0 {
+        if attempts == 0 {
             break;
         }
-        if near_result(&results, &q) {
+        if near_result(results, &q) {
             continue;
         }
-        gray_attempts -= 1;
+        attempts -= 1;
         if let Some((read, polygon)) =
-            crate::dm_gray::recover(gray, (w, h), q, size, inverted, retries.region_grids)
+            crate::dm_gray::recover(gray, (w, h), q, size, inverted, region_grids)
         {
             results.push(Detection {
                 assembled_rows: false,
@@ -2026,16 +2093,6 @@ fn detect_with_retries(
             });
         }
     }
-    if retries.crops > 0 {
-        results.extend(crop_retries_for(
-            gray,
-            (w, h),
-            &unread,
-            &results,
-            retries.crops,
-        ));
-    }
-    (results, false)
 }
 
 /// Bounding box of a quad padded by `pad` of its size, clamped to the frame.
