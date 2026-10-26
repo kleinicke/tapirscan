@@ -286,7 +286,7 @@ impl Scanner {
                 #[cfg(not(feature = "low"))]
                 shared_linear: mask & LINEAR_MASK & !RETAIL_MASK != 0,
                 #[cfg(not(feature = "low"))]
-                primary_selected: mask & PRIMARY_RETAIL != 0,
+                selected: mask,
             },
             coverage,
         )

@@ -53,13 +53,19 @@ pub(crate) struct ScanContext {
     /// Other linear formats share this scan: Medium retail crops decode only their box.
     #[cfg(not(feature = "low"))]
     pub shared_linear: bool,
-    /// EAN-13 or UPC-A is selected. Medium's late recoveries read only those formats, so a
-    /// selection of EAN-8 and UPC-E alone skips them.
+    /// The selected formats. Medium's late recoveries read only EAN-13 and UPC-A, so a
+    /// selection without them skips those recoveries.
     #[cfg(not(feature = "low"))]
-    pub primary_selected: bool,
+    pub selected: u32,
 }
 
 impl ScanContext {
+    /// Whether EAN-13 or UPC-A is selected.
+    #[cfg(not(feature = "low"))]
+    fn primary_selected(self) -> bool {
+        self.selected & crate::formats::PRIMARY_RETAIL != 0
+    }
+
     /// Crop rescans retain format context but decode only primary retail formats.
     #[cfg(not(feature = "low"))]
     fn for_crop(self, consolidate: bool) -> Self {
@@ -264,7 +270,7 @@ fn scan_prepared_impl(
     }
 
     #[cfg(feature = "medium")]
-    if context.primary_selected {
+    if context.primary_selected() {
         recover_primary_proposals(
             image,
             &localization.proposals,
@@ -333,7 +339,7 @@ fn scan_prepared_impl(
         && (!cfg!(feature = "medium")
             || !shared_retail
             || options.finish_candidates
-            || (scan.frame.barcodes.is_empty() && context.primary_selected))
+            || (scan.frame.barcodes.is_empty() && context.primary_selected()))
     {
         recover_restored_regions(
             scanner,
@@ -365,7 +371,7 @@ fn scan_prepared_impl(
     }
     #[cfg(feature = "medium")]
     if allow_restoration
-        && context.primary_selected
+        && context.primary_selected()
         && scan.frame.barcodes.is_empty()
         && retail.is_empty()
     {
@@ -380,7 +386,7 @@ fn scan_prepared_impl(
     }
     // Blurred but well localized symbols: deblurred upright crops of the strongest boxes.
     #[cfg(feature = "medium")]
-    let unread = context.primary_selected && scan.frame.barcodes.is_empty() && retail.is_empty();
+    let unread = context.primary_selected() && scan.frame.barcodes.is_empty() && retail.is_empty();
     #[cfg(any(feature = "high", feature = "very-high"))]
     let unread = scan.frame.barcodes.is_empty();
     #[cfg(not(feature = "low"))]

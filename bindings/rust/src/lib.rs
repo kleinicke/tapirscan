@@ -137,7 +137,7 @@ impl Scanner {
                 #[cfg(not(feature = "low"))]
                 shared_linear: false,
                 #[cfg(not(feature = "low"))]
-                primary_selected: true,
+                selected: crate::formats::PRIMARY_RETAIL,
             },
             &[],
         )
