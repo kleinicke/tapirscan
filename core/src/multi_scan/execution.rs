@@ -660,19 +660,17 @@ fn add_short_reads(
     retail: &crate::retail_pipeline::Collector,
     scaled: bool,
 ) {
-    let primary = |reads: &[candidate_scanner::Detection]| {
+    let initial = || {
         outputs
             .iter()
             .flat_map(|c| c.detections.iter())
-            .chain(reads)
-            .cloned()
-            .collect::<Vec<_>>()
+            .chain(discovery_reads.iter())
     };
-    if !scaled || primary(discovery_reads).iter().any(|d| d.support >= 4) {
+    if !scaled || initial().any(|d| d.support >= 4) {
         return;
     }
     let short = retail.probe(im);
-    if !multiple_initial(primary(discovery_reads).iter().chain(&short)) {
+    if !multiple_initial(initial().chain(&short)) {
         discovery_reads.extend(short);
     }
 }

@@ -32,10 +32,10 @@ public scanner, see [the architecture overview](../docs/ARCHITECTURE.md).
   for a further symbol whose third finder was lost. In Low, a frame that read
   nothing but left an undecoded QR or Micro QR region, or a grid close to one, is
   searched again (`qr_detect::evidence_retry`, also in the multi-format groups): the
-  foreground split, then a sharpened copy, each with a small decode budget. The
-  multi-format reader groups
-  run the same detector under the same `Policy::for_mode`, without the window retry;
-  there is one detector and one threshold cache. `qr_grid` resamples unresolved regions from original
+  foreground split, then a sharpened copy, each with a small decode budget. Medium
+  retries Micro QR evidence the same way. The multi-format reader groups run the
+  same detector under the same `Policy::for_mode`, without the window retry; there
+  is one detector and one threshold cache. `qr_grid` resamples unresolved regions from original
   grayscale pixels. The Rust facade selects QR-only reader groups and enforces
   the mode-specific frame retry limits. EAN add-on policies scan exactly as without
   add-ons and read supplements afterwards.

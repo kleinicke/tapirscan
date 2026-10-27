@@ -1082,8 +1082,7 @@ pub enum Settle {
     /// Once a symbol is read, the inverse modes are skipped, and the local mode too
     /// when the global mode left no finder unclaimed. A symbol of the other polarity
     /// beside a read one is rare, and the local threshold seldom finds a further
-    /// symbol without its finders showing on the global one; on development images
-    /// neither skip lost a read, and they save about a quarter of a QR-only scan.
+    /// symbol without its finders showing on the global one.
     Explained,
 }
 /// Resampling module centers in gray with module-space thresholds.

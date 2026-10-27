@@ -248,8 +248,8 @@ fn decode_finder(
         for c in candidates.iter().take(FINDER_CANDIDATES) {
             let n = micro_qr::size(c.symbol);
             // An orientation whose score, with format bit errors counting double,
-            // stays within a quarter of its checked modules is evidence for Low's
-            // retry even when it fails to decode.
+            // stays within a quarter of its checked modules is evidence for the Low
+            // and Medium retry even when it fails to decode.
             regions.near_micro_qr |= c.score * 4 <= 2 * (n - 8) + 16;
             if let Some(score) = c.localization
                 && region.is_none_or(|(best, _)| score > best)

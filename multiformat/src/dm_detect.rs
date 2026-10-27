@@ -388,7 +388,7 @@ impl Labeller {
     fn row(&mut self, y: usize, row: usize, runs: &[[usize; 2]]) {
         let mut current = std::mem::take(&mut self.current);
         current.clear();
-        let previous = &self.previous;
+        let previous = std::mem::take(&mut self.previous);
         let mut previous_start = 0;
         for &[left, right] in runs {
             while previous_start < previous.len() && previous[previous_start].1 < left {
@@ -401,16 +401,7 @@ impl Labeller {
                 label = if label == NO_RUN {
                     previous_label
                 } else {
-                    Self::union(
-                        &mut self.parents,
-                        &mut self.origin,
-                        &mut self.count,
-                        &mut self.bounds,
-                        &mut self.ends,
-                        &mut self.runs,
-                        label,
-                        previous_label,
-                    )
+                    self.union(label, previous_label)
                 };
                 overlap += 1;
             }
@@ -446,24 +437,21 @@ impl Labeller {
             }
             current.push((left, right, label));
         }
-        self.current = std::mem::replace(&mut self.previous, current);
+        self.previous = current;
+        self.current = previous;
     }
 
     /// Unite the components of roots `a` and `b` and return the new root.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "The union borrows the labeller's columns apart from its row buffer."
-    )]
-    fn union(
-        parents: &mut [usize],
-        origin: &mut [usize],
-        count: &mut [usize],
-        bounds: &mut [[usize; 4]],
-        ends: &mut [[usize; 2]],
-        runs: &mut [Run],
-        a: usize,
-        b: usize,
-    ) -> usize {
+    fn union(&mut self, a: usize, b: usize) -> usize {
+        let Self {
+            parents,
+            origin,
+            count,
+            bounds,
+            ends,
+            runs,
+            ..
+        } = self;
         if a == b {
             return a;
         }
@@ -1805,8 +1793,8 @@ fn detect_with_retries(
             DENSE_BASE_PROPOSALS
         };
         for mode in 0..4 {
-            // Low and Medium settle once a frame has read a symbol: the inverse
-            // thresholds then add no read on the development sets.
+            // Low and Medium skip the inverse thresholds once every failed
+            // candidate lies on a read symbol.
             let settled = retries.settle
                 && !results.is_empty()
                 && failed

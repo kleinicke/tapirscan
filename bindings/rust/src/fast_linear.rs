@@ -72,7 +72,7 @@ const DENSITY: f64 = 1.5;
 const HIGHPASS_BOXES: [usize; 3] = [5, 6, 5];
 /// Runs below this share of the lower-quartile run width are noise specks in Low's retry
 /// (`Sampler::remove_specks`). A narrow element thresholded from a blurred profile stays
-/// well above it; a quarter merged true elements of retail symbols into wrong values.
+/// well above it.
 const SPECK_FRACTION: f32 = 0.2;
 /// Fruitless speck-free attempts after which Low stops retrying a box that no row decoded:
 /// noise specks split most rows of a symbol, so its retries succeed early.
@@ -997,7 +997,8 @@ struct Candidate<'a> {
     remaining: usize,
     observations: Vec<Observation>,
     row_positions: Vec<f64>,
-    /// Rows whose speck-free retry read nothing either (Low).
+    /// Low's fruitless speck retries: threshold attempts without specks, or whose
+    /// speck-free decode read nothing.
     speck_misses: usize,
 }
 impl Candidate<'_> {

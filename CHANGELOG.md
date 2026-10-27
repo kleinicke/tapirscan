@@ -15,15 +15,16 @@
   half as long again there; other frames are unchanged.
 - Low reads more: Data Matrix and QR retry evidence they would have dropped,
   and blurred, oversampled or faint EAN/UPC rows are decoded again (about 7%
-  more EAN-8 on development images). Medium also retries Micro QR evidence, no
-  longer loses linear reads when more formats are selected, and reads the UPC-E
-  symbols Low reads.
+  more EAN-8 on development images). Medium also retries Micro QR evidence,
+  loses fewer linear reads when more formats are selected, and reads more of the
+  UPC-E symbols Low reads.
 - Faster Low and Medium: QR and Data Matrix stop searching further thresholds
   once reads explain the frame (QR-only scans of QR images about 20% faster),
   Medium spends less retry effort on large retail photos (about 9% less) and
   skips its EAN-13/UPC-A recoveries when neither is selected. Overall, Medium
   takes about 3–4% less time on retail, common and all-format selections, and
-  Low about 3–4% less on common and all formats.
+  Low about 3% less on common and 4% less on all formats; Low retail scans take
+  as long as before.
 
 ## 1.5.0
 

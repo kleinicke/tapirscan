@@ -351,7 +351,7 @@ fn scan_frame(
             reads.extend(scan_window(image, width, found));
         }
     }
-    if !foreground && effort > 1 && width * height <= 1_048_576 {
+    if !foreground && effort > 1 && width * height <= qr_detect::SHARPEN_MAX_PIXELS {
         let enhanced = qr_enhance::sharpen(image, width, height);
         let mut recovery = binarization::Images::new(&enhanced, width, height);
         let pass = Pass::effort(true, effort > 2);

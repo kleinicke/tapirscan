@@ -552,6 +552,18 @@ impl Sampler {
 }
 
 impl Sampler {
+    /// The lower-quartile width of the runs at least one sample wide, given twenty of them.
+    fn lower_quartile_width(&mut self) -> Option<f32> {
+        self.widths.clear();
+        self.widths
+            .extend(self.runs.iter().copied().filter(|w| *w >= 1.));
+        if self.widths.len() < 20 {
+            return None;
+        }
+        let k = self.widths.len() / 4;
+        Some(*self.widths.select_nth_unstable_by(k, f32::total_cmp).1)
+    }
+
     /// Local min/max envelopes follow illumination without repairing transitions.
     pub fn adaptive_threshold(&mut self) {
         let n = self.values.len();
@@ -561,17 +573,11 @@ impl Sampler {
             self.first_black = false;
             return;
         }
-        self.widths.clear();
-        self.widths
-            .extend(self.runs.iter().copied().filter(|w| *w >= 1.));
-        let widths = &mut self.widths;
-        let radius = if widths.len() >= 20 {
-            let k = widths.len() / 4;
-            let w = *widths.select_nth_unstable_by(k, f32::total_cmp).1;
-            crate::numeric::f32_usize(w * 6.).clamp(6, 256)
-        } else {
-            (n / 32).clamp(6, 128)
-        };
+        let radius = self
+            .lower_quartile_width()
+            .map_or((n / 32).clamp(6, 128), |w| {
+                crate::numeric::f32_usize(w * 6.).clamp(6, 256)
+            });
         if self.load_threshold(1, radius) {
             return;
         }
@@ -644,14 +650,10 @@ impl Sampler {
         if fraction * (self.edges[n] - self.edges[0]) < crate::numeric::usize_f32(n) {
             return false;
         }
-        self.widths.clear();
-        self.widths
-            .extend(self.runs.iter().copied().filter(|w| *w >= 1.));
-        if self.widths.len() < 20 {
+        let Some(width) = self.lower_quartile_width() else {
             return false;
-        }
-        let k = self.widths.len() / 4;
-        let speck = fraction * *self.widths.select_nth_unstable_by(k, f32::total_cmp).1;
+        };
+        let speck = fraction * width;
         // The first and last runs border the profile ends and are never specks.
         if speck < 1. || !self.runs[1..n - 1].iter().any(|&w| w < speck) {
             return false;
