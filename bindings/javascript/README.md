@@ -408,12 +408,15 @@ a phone is slower, but the proportions hold.
   your own frames read equally well.
 - **Pass the `<video>`, not a canvas copy.** `scan(video)` hands the current
   frame to the worker as a `VideoFrame` in about 2 ms; drawing the video into a
-  canvas first costs up to 7 ms more on the page (WebKit). `ImageData` and pixel buffers
-  you already have are cheapest.
+  canvas first costs up to 7 ms more on the page (WebKit). `ImageData` and pixel
+  buffers you already have are cheapest. Ask the camera for 720p or 1080p
+  (`CameraScanner` asks for 1280×720); larger frames cost more to scan.
 - **Scan the next frame when a scan finishes.** `CameraScanner` and the
   [recorded video](#recorded-video) loop do this. A fixed wait after each scan,
   such as `setTimeout(next, 120)`, adds that wait to every attempt, and so does
-  sharing frames between several decoders in turn.
+  sharing frames between several decoders in turn. Replaying phone video,
+  `CameraScanner` read the code in a median 0.24-0.27 s from the first frame, a
+  scan-then-wait-120-ms loop in 0.62-0.65 s.
 - **After a scan error, scan the next frame.** A failed scan does not break the
   scanner. A frame the browser cannot read (a video before its first frame, a
   zero-size canvas) rejects with its `DOMException`; check
