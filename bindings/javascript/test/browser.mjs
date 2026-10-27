@@ -627,6 +627,24 @@ test("a custom worker that imports the worker module asynchronously still loads"
   assert.deepEqual(outcome, [await page.evaluate(() => globalThis.fixture.text)]);
 });
 
+test("a video without a frame yet rejects with a message that says so", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { canvas, tapirscan } = globalThis.fixture;
+    const scanner = new tapirscan.Scanner();
+    try {
+      const error = await scanner.scan(document.createElement("video")).catch((e) => e);
+      // The scanner keeps working.
+      const values = (await scanner.scan(canvas)).values;
+      return { name: error.name, message: error.message, values };
+    } finally {
+      scanner.dispose();
+    }
+  });
+  assert.equal(outcome.name, "InvalidStateError");
+  assert.match(outcome.message, /no frame yet/);
+  assert.deepEqual(outcome.values, [await page.evaluate(() => globalThis.fixture.text)]);
+});
+
 test("a worker that fails while loading is not replaced", async () => {
   const outcome = await page.evaluate(async () => {
     const { canvas } = globalThis.fixture;

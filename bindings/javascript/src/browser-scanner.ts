@@ -102,6 +102,16 @@ async function prepare(
     return [{ data: copy, width, height, channels, stride }, [copy.buffer]];
   }
   if (source instanceof ImageBitmap && takeOver(source)) return [source, [source]];
+  // The browser's own error ("The image source is not usable") does not say why.
+  if (
+    typeof HTMLVideoElement !== "undefined" &&
+    source instanceof HTMLVideoElement &&
+    source.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+  )
+    throw new DOMException(
+      "The video has no frame yet: scan once it shows one (readyState 2 or more, or in requestVideoFrameCallback)",
+      "InvalidStateError",
+    );
   const frame = videoFrame(source);
   if (frame) return [frame, [frame]];
   // A copy, so a caller's ImageBitmap stays usable after it is transferred.
