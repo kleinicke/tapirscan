@@ -65,9 +65,15 @@ fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort
 /// Windows around unread finder pairs searched again per frame. Low serves live
 /// frames, where the next frame is the retry.
 const WINDOWS: usize = if cfg!(feature = "mode-low") { 0 } else { 3 };
-/// Longest window side in pixels. It bounds the cost of a window; a symbol too large
-/// for it has modules wide enough for the frame's own finder rows.
+/// Longest side in pixels of the image a window is scanned in. It bounds the cost
+/// of a window: a larger window is scanned on an area-averaged copy reduced by an
+/// integer factor to fit.
 const WINDOW_MAX: f32 = 640.;
+/// Longest window side in frame pixels. Large symbols beside a read can lose a
+/// finder to the frame-wide thresholds too, such as dark symbols on a sheet that
+/// a lamp lights unevenly; at a reduction of up to 3 their modules stay wider
+/// than the finder rows need.
+const WINDOW_REACH: f32 = 3. * WINDOW_MAX;
 /// Decode attempts of each window pass. A window holds one candidate symbol, whose
 /// triples rank first; the rest are triples of texture around it.
 const WINDOW_BUDGET: usize = 60;
@@ -155,7 +161,7 @@ impl Counts {
 /// finder the frame's row step or thresholds lost.
 ///
 /// A pair needs modules within a factor 1.43 and a distance of 12 to 75 modules
-/// (version 1 side to version 10 diagonal); the window must fit [`WINDOW_MAX`]. The
+/// (version 1 side to version 10 diagonal); the window must fit [`WINDOW_REACH`]. The
 /// square window reaches 1.15 finder distances from the pair's midpoint, which covers
 /// a symbol on either side of a side pair (its far corners lie 1.12 distances away),
 /// plus 8 modules of finder half-width and quiet zone. Bars and text produce clusters
@@ -202,7 +208,7 @@ fn local_windows(
             let half = 1.15 * distance + 8. * module;
             if !(0.7..=1.43).contains(&(a[2] / b[2]))
                 || !(12. ..=75.).contains(&(distance / module))
-                || 2. * half > WINDOW_MAX
+                || 2. * half > WINDOW_REACH
             {
                 continue;
             }
@@ -249,23 +255,60 @@ fn local_windows(
         .collect()
 }
 
+/// The pixels of window `[x0, y0, x1, y1]` of a frame `width` pixels wide, averaged
+/// over `factor` x `factor` blocks; a partial last block is dropped.
+fn window_pixels(
+    image: &[u8],
+    width: usize,
+    [x0, y0, x1, y1]: [usize; 4],
+    factor: usize,
+) -> (Vec<u8>, usize, usize) {
+    let (w, h) = ((x1 - x0) / factor, (y1 - y0) / factor);
+    if factor == 1 {
+        let crop = (y0..y1)
+            .flat_map(|y| image[y * width + x0..y * width + x1].iter().copied())
+            .collect();
+        return (crop, w, h);
+    }
+    let area = factor * factor;
+    let mut sums = vec![0_usize; w];
+    let mut out = Vec::with_capacity(w * h);
+    for y in 0..h {
+        sums.fill(0);
+        for row in y0 + y * factor..y0 + (y + 1) * factor {
+            let pixels = &image[row * width + x0..row * width + x0 + w * factor];
+            for (sum, block) in sums.iter_mut().zip(pixels.chunks_exact(factor)) {
+                *sum += block.iter().map(|&v| usize::from(v)).sum::<usize>();
+            }
+        }
+        out.extend(
+            sums.iter()
+                .map(|&sum| u8::try_from((sum + area / 2) / area).unwrap_or(u8::MAX)),
+        );
+    }
+    (out, w, h)
+}
+
 /// Scan one window with its own thresholds, then its foreground split if that read
-/// nothing, and map the reads back to frame coordinates.
-fn scan_window(image: &[u8], width: usize, [x0, y0, x1, y1]: [usize; 4]) -> Vec<Detection> {
-    let (w, h) = (x1 - x0, y1 - y0);
-    let crop: Vec<u8> = (y0..y1)
-        .flat_map(|y| image[y * width + x0..y * width + x1].iter().copied())
-        .collect();
+/// nothing, and map the reads back to frame coordinates. Windows beyond
+/// [`WINDOW_MAX`] are scanned reduced.
+fn scan_window(image: &[u8], width: usize, window: [usize; 4]) -> Vec<Detection> {
+    let [x0, y0, x1, y1] = window;
+    let factor = (x1 - x0)
+        .max(y1 - y0)
+        .div_ceil(f32_usize(WINDOW_MAX))
+        .max(1);
+    let (crop, w, h) = window_pixels(image, width, window, factor);
     let mut binary = binarization::Images::new(&crop, w, h);
     let mut reads = scan_frame(&crop, w, h, false, WINDOW_EFFORT, &mut binary, true).barcodes;
     if reads.is_empty() {
         reads = scan_frame(&crop, w, h, true, 0, &mut binary, true).barcodes;
     }
-    let (dx, dy) = (usize_f32(x0), usize_f32(y0));
+    let (dx, dy, scale) = (usize_f32(x0), usize_f32(y0), usize_f32(factor));
     for read in &mut reads {
         for p in &mut read.polygon {
-            p[0] += dx;
-            p[1] += dy;
+            p[0] = p[0] * scale + dx;
+            p[1] = p[1] * scale + dy;
         }
     }
     reads
@@ -393,7 +436,7 @@ fn scan_frame(
 
 #[cfg(test)]
 mod tests {
-    use super::{WINDOW_MAX, local_windows, scan_window, scan_with_effort};
+    use super::{WINDOW_REACH, local_windows, scan_window, scan_with_effort, window_pixels};
 
     /// Version 1-M "TAPIRSCAN", drawn dark on light with `scale`-pixel modules at
     /// `origin` in a `width` x `height` frame.
@@ -453,6 +496,37 @@ mod tests {
     }
 
     #[test]
+    fn large_windows_read_reduced_in_source_coordinates() {
+        let (width, height) = (1000, 900);
+        let gray = frame(width, height, [300, 250], 16);
+        let whole = scan_with_effort(&gray, width, height, 1).barcodes;
+        assert_eq!(whole.len(), 1);
+        // A 900 x 800 window is scanned reduced by 2.
+        let local = scan_window(&gray, width, [50, 50, 950, 850]);
+        assert_eq!(local.len(), 1);
+        assert_eq!(local[0].text, "TAPIRSCAN");
+        for (a, b) in local[0].polygon.iter().zip(&whole[0].polygon) {
+            assert!(
+                (a[0] - b[0]).abs() <= 4. && (a[1] - b[1]).abs() <= 4.,
+                "{a:?} vs {b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn reduced_windows_average_whole_blocks() {
+        let image: Vec<u8> = (0..36).map(|v| v * 7).collect();
+        assert_eq!(
+            window_pixels(&image, 6, [1, 1, 4, 3], 1).0,
+            [49, 56, 63, 91, 98, 105]
+        );
+        // Blocks of 2 x 2 from (1, 1); the partial last column is dropped.
+        let (reduced, w, h) = window_pixels(&image, 6, [1, 1, 6, 5], 2);
+        assert_eq!((w, h), (2, 2));
+        assert_eq!(reduced, [74, 88, 158, 172]);
+    }
+
+    #[test]
     fn windows_need_a_plausible_unread_pair() {
         let (width, height) = (1000, 1000);
         // Two finders 100 pixels apart with 4-pixel modules: one window around them.
@@ -479,7 +553,10 @@ mod tests {
             local_windows(&close, &[], width, height, 3),
             Vec::<[usize; 4]>::new()
         );
-        let far = [[100., 100., 4., 3.], [100., 100. + WINDOW_MAX / 2., 4., 3.]];
+        let far = [
+            [100., 100., 4., 3.],
+            [100., 100. + WINDOW_REACH / 2., 4., 3.],
+        ];
         assert_eq!(
             local_windows(&far, &[], width, height, 3),
             Vec::<[usize; 4]>::new()

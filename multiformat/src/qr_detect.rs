@@ -1153,11 +1153,10 @@ impl Policy {
             } else {
                 Settle::Never
             },
-            grid_budget: match mode {
-                0 => 2,
-                1 => 16,
-                _ => 16,
-            },
+            // Low tries the alignment grid of two large candidates per pass; Medium
+            // and above of sixteen, as the false triples in the data area of a
+            // large symbol rank among the true one.
+            grid_budget: if mode == 0 { 2 } else { 16 },
         }
     }
 }
@@ -1967,7 +1966,7 @@ pub fn detect_symbols(
                     grid_calls += 1;
                     // A read version settles the triple; otherwise the next
                     // candidate version may still read it.
-                    let read_version = grid::read_version(image, [w, h], n, &t);
+                    let read_version = grid::read_version(image, [w, h], version, &t);
                     grid_tried = read_version.is_some();
                     if let Some((read, polygon)) =
                         grid::recover(image, [w, h], version, read_version.unwrap_or(version), &t)
