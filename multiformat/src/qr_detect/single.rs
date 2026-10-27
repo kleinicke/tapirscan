@@ -21,7 +21,7 @@ const fn version_word(version: u32) -> u32 {
     clippy::cast_possible_truncation,
     reason = "The fixed 34-entry version-word table has indices 0 through 33."
 )]
-const WORDS: [u32; 34] = {
+pub(super) const WORDS: [u32; 34] = {
     let mut words = [0; 34];
     let mut index = 0;
     while index < words.len() {

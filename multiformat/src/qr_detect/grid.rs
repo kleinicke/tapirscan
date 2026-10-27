@@ -106,28 +106,38 @@ fn locate(image: &[bool], size: [usize; 2], t: &[f32; 8], centres: &[usize]) -> 
             found[j * k + i] = true;
             continue;
         }
+        let at = |ni: usize, nj: usize| found[nj * k + ni].then(|| points[nj * k + ni]);
+        // Found neighbours to the left, above and diagonally predict a centre
+        // with the local scale and skew of the grid; otherwise `t` shifted by
+        // the displacement of whichever neighbours were found.
+        let parallelogram = (i > 0 && j > 0)
+            .then(|| Some((at(i - 1, j)?, at(i, j - 1)?, at(i - 1, j - 1)?)))
+            .flatten()
+            .map(|(l, u, d)| [l[0] + u[0] - d[0], l[1] + u[1] - d[1]]);
         let mut shift = [0.; 2];
         let mut count = 0.;
         for (ni, nj) in [(-1, 0), (0, -1), (-1, -1), (1, -1), (-1, 1)] {
             let (Some(ni), Some(nj)) = (i.checked_add_signed(ni), j.checked_add_signed(nj)) else {
                 continue;
             };
-            if ni < k && nj < k && found[nj * k + ni] {
-                let p = points[nj * k + ni];
+            if ni < k
+                && nj < k
+                && let Some(p) = at(ni, nj)
+            {
                 let q = map(t, module(ni), module(nj));
                 shift[0] += p[0] - q[0];
                 shift[1] += p[1] - q[1];
                 count += 1.;
             }
         }
-        let guess = if count > 0. {
+        let guess = parallelogram.unwrap_or(if count > 0. {
             [
                 predicted[0] + shift[0] / count,
                 predicted[1] + shift[1] / count,
             ]
         } else {
             predicted
-        };
+        });
         let (ex, ey) = axes(t, x, y);
         match find(image, size, guess, ex, ey) {
             Some(p) => {
@@ -140,21 +150,82 @@ fn locate(image: &[bool], size: [usize; 2], t: &[f32; 8], centres: &[usize]) -> 
     points
 }
 
-/// Samples the `version` symbol under transform `t` cell by cell between its
-/// alignment patterns and decodes it in both orientations.
+/// Versions a read version may differ from the finder estimate.
+const MAX_VERSION_SHIFT: usize = 2;
+
+/// Bit distance up to which the BCH(18, 6) version word corrects errors.
+const VERSION_ERRORS: u32 = 3;
+
+/// The version read from either version-information block of a symbol that
+/// `t` maps as `n` modules wide. The blocks are read relative to the top-right
+/// and bottom-left finder centres, so a nearby wrong `n` still finds them.
+pub(super) fn read_version(
+    image: &[bool],
+    size: [usize; 2],
+    n: usize,
+    t: &[f32; 8],
+) -> Option<usize> {
+    let far = crate::numeric::usize_f32(n) - 3.5;
+    let mut best: Option<(u32, usize)> = None;
+    for transposed in [false, true] {
+        let mut word = 0_u32;
+        for bit in 0..18_u8 {
+            // Bit i lies at column i % 3 - 7 and row i / 3 - 3 from the top-right
+            // finder centre; the bottom-left copy is its transpose.
+            let along = f32::from(bit % 3) - 7.;
+            let across = f32::from(bit / 3) - 3.;
+            let p = if transposed {
+                map(t, 3.5 + across, far + along)
+            } else {
+                map(t, far + along, 3.5 + across)
+            };
+            word |= u32::from(pixel(image, size, p)?) << bit;
+        }
+        for (i, &expected) in super::single::WORDS.iter().enumerate() {
+            let distance = (word ^ expected).count_ones();
+            if distance <= VERSION_ERRORS && best.is_none_or(|(d, _)| distance < d) {
+                best = Some((distance, i + MIN_VERSION));
+            }
+        }
+    }
+    best.map(|(_, version)| version)
+}
+
+/// Samples the symbol that `t` maps as a `candidate` version as `version`
+/// (read with [`read_version`]), cell by cell between its alignment patterns,
+/// and decodes it in both orientations.
 pub(super) fn recover(
     image: &[bool],
     size: [usize; 2],
+    candidate: usize,
     version: usize,
     t: &[f32; 8],
 ) -> Option<(qr::Payload, [[f32; 2]; 4])> {
-    if version < MIN_VERSION {
+    // The finder distance bounds the size: a version far from it belongs to a
+    // false triple.
+    if version < MIN_VERSION || version.abs_diff(candidate) > MAX_VERSION_SHIFT {
         return None;
     }
+    let old = 17 + 4 * candidate;
     let n = 17 + 4 * version;
+    // Re-index `t` to the read size at the finder centres and the bottom-right
+    // alignment centre.
+    let reindex = |m: usize| {
+        let m = crate::numeric::usize_f32(m);
+        [
+            [3.5, 3.5],
+            [m - 3.5, 3.5],
+            [m - 6.5, m - 6.5],
+            [3.5, m - 3.5],
+        ]
+    };
+    let t = &homography(reindex(n), reindex(old).map(|[x, y]| map(t, x, y)))?;
     let centres = qr::alignment_positions(version);
     let k = centres.len();
     let points = locate(image, size, t, &centres);
+    if std::env::var_os("QRDBG").is_some() {
+        eprintln!("grid v{version} at {:?}", map(t, 0., 0.));
+    }
     let module = |i: usize| crate::numeric::usize_f32(centres[i]) + 0.5;
     let mut cells = Vec::with_capacity((k - 1) * (k - 1));
     for j in 0..k - 1 {
@@ -197,6 +268,12 @@ pub(super) fn recover(
         map(&cells[last * (k - 1) + last], nf, nf),
         map(&cells[last * (k - 1)], 0., nf),
     ];
+    if std::env::var_os("QRDBG").is_some() {
+        eprintln!(
+            "  sampled; format_intact={}",
+            qr::format_intact(n, |x, y| Some(matrix[y * n + x]))
+        );
+    }
     [false, true].into_iter().find_map(|mirror| {
         let matrix = super::transpose_if_mirrored(&matrix, n, mirror);
         qr::decode_matrix(&matrix, n).map(|read| (read, polygon))
