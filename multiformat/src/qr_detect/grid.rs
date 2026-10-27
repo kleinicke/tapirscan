@@ -223,9 +223,6 @@ pub(super) fn recover(
     let centres = qr::alignment_positions(version);
     let k = centres.len();
     let points = locate(image, size, t, &centres);
-    if std::env::var_os("QRDBG").is_some() {
-        eprintln!("grid v{version} at {:?}", map(t, 0., 0.));
-    }
     let module = |i: usize| crate::numeric::usize_f32(centres[i]) + 0.5;
     let mut cells = Vec::with_capacity((k - 1) * (k - 1));
     for j in 0..k - 1 {
@@ -268,12 +265,6 @@ pub(super) fn recover(
         map(&cells[last * (k - 1) + last], nf, nf),
         map(&cells[last * (k - 1)], 0., nf),
     ];
-    if std::env::var_os("QRDBG").is_some() {
-        eprintln!(
-            "  sampled; format_intact={}",
-            qr::format_intact(n, |x, y| Some(matrix[y * n + x]))
-        );
-    }
     [false, true].into_iter().find_map(|mirror| {
         let matrix = super::transpose_if_mirrored(&matrix, n, mirror);
         qr::decode_matrix(&matrix, n).map(|read| (read, polygon))

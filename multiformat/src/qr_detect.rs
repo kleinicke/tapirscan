@@ -1155,7 +1155,7 @@ impl Policy {
             },
             grid_budget: match mode {
                 0 => 2,
-                1 => 64,
+                1 => 16,
                 _ => 16,
             },
         }
@@ -1623,12 +1623,6 @@ pub fn detect_symbols(
             let nearest = crate::numeric::f32_isize(estimate.round());
             // One grid retry per triple: its version comes from the symbol.
             let mut grid_tried = false;
-            if std::env::var_os("QRDBG").is_some() && estimate > 15. {
-                eprintln!(
-                    "mode {mode} triple est {estimate:.1} module {module:.2} tl {:.0},{:.0}",
-                    tl.x, tl.y
-                );
-            }
             'versions: for delta in [0, -1, 1, -2, 2] {
                 let version = nearest + delta;
                 if !(1..=40).contains(&version) {
@@ -1975,9 +1969,6 @@ pub fn detect_symbols(
                     // candidate version may still read it.
                     let read_version = grid::read_version(image, [w, h], n, &t);
                     grid_tried = read_version.is_some();
-                    if std::env::var_os("QRDBG").is_some() {
-                        eprintln!("grid mode {mode} cand v{version} read {read_version:?}");
-                    }
                     if let Some((read, polygon)) =
                         grid::recover(image, [w, h], version, read_version.unwrap_or(version), &t)
                     {
