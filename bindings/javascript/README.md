@@ -391,7 +391,8 @@ a phone is slower, but the proportions hold.
   needs to deliver its first frame, so creating the scanner when the camera
   opens is early enough. The download is 0.8-1 MB gzip per mode. Once loaded and
   idle, a scanner scans a small built-in frame (25-160 ms in Low and Medium,
-  depending on formats) so that its first camera frame runs near full speed.
+  depending on formats): a fresh scanner's first scans are two to three times
+  slower while the engine compiles, and this halves the first camera frame's time.
 - **Select only the formats you accept.** On 720×1280 phone video frames, Low
   takes about 5 ms with the retail formats and 31 ms with nine 1D formats plus QR
   Code, Data Matrix, Aztec and PDF417; Medium takes 17 and 44 ms. Each 2D format
