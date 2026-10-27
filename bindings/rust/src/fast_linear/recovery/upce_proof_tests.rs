@@ -22,6 +22,7 @@ fn candidate(positions: &[f64], raw_rows: u64) -> Candidate<'static> {
         localized: true,
         remaining: 0,
         row_positions: positions.to_vec(),
+        speck_misses: 0,
         observations: vec![super::super::Observation {
             read,
             left: 0.,

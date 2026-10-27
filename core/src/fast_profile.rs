@@ -56,6 +56,9 @@ pub struct Sampler {
     positions: Vec<f64>,
     envelope: Vec<[f32; 4]>,
     widths: Vec<f32>,
+    /// Thresholded runs and edges set aside while their speck-free copy is decoded.
+    speck_runs: Vec<f32>,
+    speck_edges: Vec<f32>,
     extrema: Vec<(usize, f32)>,
     pub edges: Vec<f32>,
     pub runs: Vec<f32>,
@@ -626,6 +629,63 @@ impl Sampler {
         self.runs.extend(self.edges.windows(2).map(|p| p[1] - p[0]));
         self.save_threshold(1, radius);
     }
+
+    /// Absorb specks, runs narrower than `fraction` of the lower-quartile run width, into
+    /// their neighbours. Noise on a blurred, heavily oversampled profile crosses the
+    /// threshold inside wide elements and splits them. The thresholded runs are set aside
+    /// until [`Self::restore_specks`]; returns false, changing nothing, without specks.
+    pub fn remove_specks(&mut self, fraction: f32) -> bool {
+        let n = self.runs.len();
+        if n < 20 || self.edges.len() != n + 1 {
+            return false;
+        }
+        // Noise cannot split a run below one sample wide. A profile whose mean run is
+        // narrower than that bound is resolved too coarsely to carry specks.
+        if fraction * (self.edges[n] - self.edges[0]) < crate::numeric::usize_f32(n) {
+            return false;
+        }
+        self.widths.clear();
+        self.widths
+            .extend(self.runs.iter().copied().filter(|w| *w >= 1.));
+        if self.widths.len() < 20 {
+            return false;
+        }
+        let k = self.widths.len() / 4;
+        let speck = fraction * *self.widths.select_nth_unstable_by(k, f32::total_cmp).1;
+        // The first and last runs border the profile ends and are never specks.
+        if speck < 1. || !self.runs[1..n - 1].iter().any(|&w| w < speck) {
+            return false;
+        }
+        std::mem::swap(&mut self.runs, &mut self.speck_runs);
+        std::mem::swap(&mut self.edges, &mut self.speck_edges);
+        let (runs, edges) = (&self.speck_runs, &self.speck_edges);
+        self.runs.clear();
+        self.edges.clear();
+        self.runs.push(runs[0]);
+        self.edges.push(edges[0]);
+        let mut i = 1;
+        while i < n {
+            if i + 1 < n && runs[i] < speck {
+                // Equal colours on both sides: one run spans the speck and its successor.
+                if let Some(last) = self.runs.last_mut() {
+                    *last += runs[i] + runs[i + 1];
+                }
+                i += 2;
+            } else {
+                self.edges.push(edges[i]);
+                self.runs.push(runs[i]);
+                i += 1;
+            }
+        }
+        self.edges.push(edges[n]);
+        true
+    }
+
+    /// Return the runs and edges set aside by a successful [`Self::remove_specks`].
+    pub fn restore_specks(&mut self) {
+        std::mem::swap(&mut self.runs, &mut self.speck_runs);
+        std::mem::swap(&mut self.edges, &mut self.speck_edges);
+    }
 }
 
 #[cfg(test)]
@@ -867,6 +927,47 @@ mod tests {
             sampler.threshold(false);
             assert!(sampler.runs.len() <= 2);
         }
+    }
+    fn set_runs(sampler: &mut Sampler, runs: &[f32]) {
+        sampler.runs = runs.to_vec();
+        sampler.edges = std::iter::once(0.)
+            .chain(runs.iter().scan(0., |at, w| {
+                *at += w;
+                Some(*at)
+            }))
+            .collect();
+    }
+    #[test]
+    fn speck_removal_merges_noise_runs_and_restores_the_threshold() {
+        let mut sampler = Sampler::default();
+        let mut runs = vec![10_f32; 24];
+        runs.splice(5..6, [4.75, 0.5, 4.75]);
+        runs.splice(12..13, [6., 1.5, 1., 0.5, 1.]);
+        set_runs(&mut sampler, &runs);
+        let (thresholded, edges) = (sampler.runs.clone(), sampler.edges.clone());
+        assert!(sampler.remove_specks(0.2));
+        // Each speck joins its two neighbours, of the other colour, into one run.
+        assert_eq!(sampler.runs, vec![10.; 24]);
+        assert_eq!(sampler.edges.len(), 25);
+        for (pair, run) in sampler.edges.windows(2).zip(&sampler.runs) {
+            assert!((pair[1] - pair[0] - run).abs() < 1e-4);
+        }
+        sampler.restore_specks();
+        assert_eq!(sampler.runs, thresholded);
+        assert_eq!(sampler.edges, edges);
+    }
+    #[test]
+    fn speck_removal_leaves_clean_and_coarse_profiles_unchanged() {
+        let mut sampler = Sampler::default();
+        set_runs(&mut sampler, &[10.; 24]);
+        assert!(!sampler.remove_specks(0.2));
+        assert_eq!(sampler.runs, vec![10.; 24]);
+        // Runs a few samples wide cannot hold specks below one sample.
+        let mut coarse = vec![3_f32; 24];
+        coarse[6] = 0.4;
+        set_runs(&mut sampler, &coarse);
+        assert!(!sampler.remove_specks(0.2));
+        assert_eq!(sampler.runs, coarse);
     }
 }
 

@@ -34,6 +34,7 @@ fn probe_requires_a_value_and_restores_confirmation_state() {
             remaining: 131_072,
             observations: Vec::new(),
             row_positions: Vec::new(),
+            speck_misses: 0,
         };
         let mut sampler = barcode_research_core::fast_profile::Sampler::default();
         sampler.runs = vec![1., 2., 3.];

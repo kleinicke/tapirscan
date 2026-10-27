@@ -254,6 +254,7 @@ fn recover_variant(
             remaining: continuity_budget,
             observations: Vec::new(),
             row_positions: Vec::new(),
+            speck_misses: 0,
         };
         #[cfg(not(feature = "low"))]
         if matches!(profile, SourceProfile::BandEan(_))

@@ -196,6 +196,7 @@ fn nearby_confirmation_counts_distinct_rows_and_preserves_extent() {
         remaining: 100_000,
         observations: Vec::new(),
         row_positions: Vec::new(),
+        speck_misses: 0,
     };
     let read = || linear::Read {
         decoded: true,
@@ -378,4 +379,76 @@ fn short_retail_reads_inside_an_ean13_are_dropped() {
 
     let alone = drop_nested_short_retail(vec![read("EAN8", "96385074", inside)]);
     assert_eq!(alone.len(), 1);
+}
+
+fn set_runs(sampler: &mut barcode_research_core::fast_profile::Sampler, speck: bool) {
+    let mut runs = vec![10_f32; 24];
+    if speck {
+        runs.splice(5..6, [4.75, 0.5, 4.75]);
+    }
+    sampler.edges = std::iter::once(0.)
+        .chain(runs.iter().scan(0., |at, w| {
+            *at += w;
+            Some(*at)
+        }))
+        .collect();
+    sampler.runs = runs;
+}
+
+#[test]
+fn speck_retries_stay_bounded_in_boxes_without_reads() {
+    let pixels = vec![255_u8; 100];
+    let image = Image {
+        data: &pixels,
+        width: 10,
+        height: 10,
+        channels: 1,
+        stride: 10,
+    };
+    let mut candidate = Candidate {
+        image,
+        im: ImageView::new(&pixels, 10, 10, 1, 10).unwrap(),
+        quad: [[0., 0.], [9., 0.], [9., 9.], [0., 9.]],
+        mask: linear::EAN8,
+        localized: true,
+        dense: false,
+        restored: false,
+        profile: SourceProfile::Gray(0.),
+        remaining: 0,
+        observations: Vec::new(),
+        row_positions: Vec::new(),
+        speck_misses: 0,
+    };
+    let mut sampler = barcode_research_core::fast_profile::Sampler::default();
+    set_runs(&mut sampler, true);
+    assert!(despeckle(&mut candidate, &mut sampler));
+    sampler.restore_specks();
+    // Restored hypotheses and the unlocalized full-frame axes never retry.
+    candidate.restored = true;
+    assert!(!despeckle(&mut candidate, &mut sampler));
+    candidate.restored = false;
+    candidate.localized = false;
+    assert!(!despeckle(&mut candidate, &mut sampler));
+    candidate.localized = true;
+    // Rows without specks count as fruitless attempts; a box that no row decoded stops.
+    set_runs(&mut sampler, false);
+    for _ in 0..SPECK_MISSES {
+        assert!(!despeckle(&mut candidate, &mut sampler));
+    }
+    set_runs(&mut sampler, true);
+    assert!(!despeckle(&mut candidate, &mut sampler));
+    // Once a row decoded, the box keeps retrying.
+    let read = linear::Read {
+        decoded: true,
+        addon: None,
+        codabar_start_stop: None,
+        format: "EAN8",
+        text: "96385074".into(),
+        start: 0,
+        end: 43,
+        error: 0.,
+        gs1: false,
+    };
+    candidate.admit(read, 0., 1., 0, 0.5);
+    assert!(despeckle(&mut candidate, &mut sampler));
 }

@@ -70,6 +70,18 @@ const DENSITY: f64 = 1.5;
 /// Running-box half-widths, in profile samples, of the high-pass local mean:
 /// boxes of 11, 13 and 11 samples, about a four-pixel Gaussian at `DENSITY`.
 const HIGHPASS_BOXES: [usize; 3] = [5, 6, 5];
+/// Runs below this share of the lower-quartile run width are noise specks in Low's retry
+/// (`Sampler::remove_specks`). A narrow element thresholded from a blurred profile stays
+/// well above it; a quarter merged true elements of retail symbols into wrong values.
+const SPECK_FRACTION: f32 = 0.2;
+/// Fruitless speck-free attempts after which Low stops retrying a box that no row decoded:
+/// noise specks split most rows of a symbol, so its retries succeed early.
+const SPECK_MISSES: usize = 6;
+/// Strength of Low's last contrast hypothesis (`SourceProfile::Sharpened`). Heavy blur
+/// leaves the narrow elements of a low-contrast print a few gray levels deep; the
+/// ordinary 2.25 restoration does not separate them for the whole-profile threshold.
+#[cfg(feature = "low")]
+const SHARPENED_CONTRAST: f32 = 6.;
 const SAMPLE_LIMIT: usize = match TIER {
     2 => 3072,
     4 | 8 | 16 => 2048,
@@ -256,6 +268,7 @@ pub(crate) fn scan(
             remaining: continuity_budget,
             observations: Vec::new(),
             row_positions: Vec::new(),
+            speck_misses: 0,
         };
         // A bounded normalized axis retry recovers large clean symbols when sparse
         // localization clips their start/stop bars. Both axes run after an empty local pass.
@@ -380,6 +393,7 @@ pub(crate) fn scan(
                 remaining: continuity_budget,
                 observations: Vec::new(),
                 row_positions: Vec::new(),
+                speck_misses: 0,
             };
             for (row, &v) in ROWS.iter().enumerate() {
                 sample_line(&mut candidate, &mut scanner.fast_profiles, row, v);
@@ -424,10 +438,13 @@ pub(crate) fn scan(
         let mut remaining = 32_768;
         // Contrast and wide high-pass hypotheses for the two strongest proposals.
         let profiles = [SourceProfile::Gray(2.25), SourceProfile::Highpass(1.5)];
-        for (proposal, &profile) in proposals
+        // Boxes in which these hypotheses decoded any retail value.
+        let mut evidence = [false; 2];
+        for (index, proposal, &profile) in proposals
             .iter()
             .take(local_count.min(if TIER == 0 { 2 } else { 1 }))
-            .flat_map(|p| profiles.iter().map(move |s| (p, s)))
+            .enumerate()
+            .flat_map(|(i, p)| profiles.iter().map(move |s| (i, p, s)))
         {
             let mut candidate = Candidate {
                 image,
@@ -441,12 +458,14 @@ pub(crate) fn scan(
                 remaining,
                 observations: Vec::new(),
                 row_positions: Vec::new(),
+                speck_misses: 0,
             };
             for (row, &v) in ROWS.iter().enumerate() {
                 sample_line(&mut candidate, &mut scanner.fast_profiles, row, v);
                 lines += 1;
             }
             remaining = candidate.remaining;
+            evidence[index] |= !candidate.observations.is_empty();
             candidate.append_confirmed(false, &mut recovered, &mut unused);
         }
         recovered.retain(|read| read.support >= 4);
@@ -468,6 +487,7 @@ pub(crate) fn scan(
                         remaining,
                         observations: Vec::new(),
                         row_positions: Vec::new(),
+                        speck_misses: 0,
                     };
                     for (row, &v) in ROWS.iter().enumerate() {
                         sample_line(&mut candidate, &mut scanner.fast_profiles, row, v);
@@ -481,6 +501,37 @@ pub(crate) fn scan(
                 }
             }
             ghosted.retain(|read| read.support >= 4);
+        }
+        // Heavy blur on a low-contrast print leaves narrow elements a few gray levels deep.
+        // Restore contrast much more strongly in the two strongest boxes once every other
+        // hypothesis read nothing, where the weaker ones decoded some retail value on a
+        // row. It has its own row-connection budget: the earlier hypotheses can spend
+        // theirs connecting partial rows of the same box.
+        if TIER == 0 && recovered.is_empty() && ghosted.is_empty() {
+            let mut remaining = 32_768;
+            for (proposal, _) in proposals.iter().zip(evidence).filter(|(_, seen)| *seen) {
+                let mut candidate = Candidate {
+                    image,
+                    im,
+                    quad: proposal.polygon,
+                    dense: false,
+                    restored: false,
+                    profile: SourceProfile::Sharpened(SHARPENED_CONTRAST),
+                    localized: true,
+                    mask: mask & RETAIL_MASK,
+                    remaining,
+                    observations: Vec::new(),
+                    row_positions: Vec::new(),
+                    speck_misses: 0,
+                };
+                for (row, &v) in ROWS.iter().enumerate() {
+                    sample_line(&mut candidate, &mut scanner.fast_profiles, row, v);
+                    lines += 1;
+                }
+                remaining = candidate.remaining;
+                candidate.append_confirmed(false, &mut recovered, &mut unused);
+            }
+            recovered.retain(|read| read.support >= 4);
         }
         let mut accepted = Vec::new();
         for (r, strong) in recovered
@@ -534,6 +585,7 @@ pub(crate) fn scan(
             remaining: 32768,
             observations: Vec::new(),
             row_positions: Vec::new(),
+            speck_misses: 0,
         };
         for (row, v) in [anchor - delta, anchor, anchor + delta]
             .into_iter()
@@ -784,6 +836,7 @@ fn border_discovery(
                 remaining: budget,
                 observations: Vec::new(),
                 row_positions: Vec::new(),
+                speck_misses: 0,
             };
             for (row, offset) in [2., 6., 14., 30.].into_iter().enumerate() {
                 let fraction = offset * scale / height;
@@ -829,6 +882,11 @@ pub(crate) enum SourceProfile {
     BandEan(f64),
     /// Wide high-pass hypothesis for blurred or ghosted photographs.
     Highpass(f32),
+    /// Strong contrast restoration of a heavily blurred print, read only by the
+    /// whole-profile threshold: local thresholds follow the amplified noise and misread
+    /// such profiles consistently across rows.
+    #[cfg(feature = "low")]
+    Sharpened(f32),
     /// Ghosting hypothesis (camera shake): undo a half-strength copy about one EAN-13 module
     /// behind each sample, or ahead of it when `true`.
     Deghost(bool),
@@ -857,6 +915,8 @@ impl SourceProfile {
             #[cfg(not(feature = "low"))]
             Self::WideEan | Self::BandEan(_) => 2.25,
             Self::Highpass(strength) => strength,
+            #[cfg(feature = "low")]
+            Self::Sharpened(strength) => strength,
             // Restored attempts and the single-format sampling density, as for high-pass.
             Self::Deghost(_) => 1.,
             #[cfg(not(feature = "low"))]
@@ -880,7 +940,21 @@ impl SourceProfile {
             #[cfg(not(feature = "low"))]
             Self::WideEan | Self::BandEan(_) => false,
             Self::Highpass(_) => false,
+            #[cfg(feature = "low")]
+            Self::Sharpened(_) => false,
             Self::Deghost(_) => false,
+        }
+    }
+    /// Profiles read by the whole-profile threshold of their restored copy only.
+    fn global_only(self) -> bool {
+        #[cfg(feature = "low")]
+        {
+            matches!(self, Self::Sharpened(_))
+        }
+        #[cfg(not(feature = "low"))]
+        {
+            let _ = self;
+            false
         }
     }
     fn deghost(self) -> Option<bool> {
@@ -905,6 +979,8 @@ impl SourceProfile {
             #[cfg(not(feature = "low"))]
             Self::WideEan | Self::BandEan(_) => true,
             Self::Highpass(_) => false,
+            #[cfg(feature = "low")]
+            Self::Sharpened(_) => false,
             Self::Deghost(_) => false,
         }
     }
@@ -921,6 +997,8 @@ struct Candidate<'a> {
     remaining: usize,
     observations: Vec<Observation>,
     row_positions: Vec<f64>,
+    /// Rows whose speck-free retry read nothing either (Low).
+    speck_misses: usize,
 }
 impl Candidate<'_> {
     fn append_confirmed(
@@ -1154,10 +1232,6 @@ fn sample_line(
 ) {
     sample_line_density(candidate, sampler, row, v, false);
 }
-#[expect(
-    clippy::many_single_char_names,
-    reason = "Coordinates of one sampling line."
-)]
 fn sample_line_density(
     candidate: &mut Candidate<'_>,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
@@ -1168,7 +1242,6 @@ fn sample_line_density(
     if candidate.mask == 0 {
         return;
     }
-    let im = candidate.im;
     let Some([a, b]) = sample_candidate_profile(candidate, sampler, v, dense) else {
         return;
     };
@@ -1202,71 +1275,30 @@ fn sample_line_density(
                 sampler.restore_contrast(candidate.profile.contrast());
             }
         }
+        if candidate.profile.global_only() && method != 5 {
+            continue;
+        }
         let method = method % 3;
-        let mut decoded_wide = false;
         if method == 1 {
             sampler.adaptive_threshold();
         } else {
             sampler.threshold(method == 0);
         }
-
-        for reverse in [false, true] {
-            if reverse {
-                sampler.runs.reverse();
-            }
-            let first = candidate.profile.inverted()
-                ^ if reverse {
-                    sampler.first_black ^ (sampler.runs.len().is_multiple_of(2))
-                } else {
-                    sampler.first_black
-                };
-            let (from, to) = if reverse { (b, a) } else { (a, b) };
-            let mut decoded =
-                linear::decode(&sampler.runs, first, directed_mask(active_mask, from, to));
-            supplement_ean(&sampler.runs, first, active_mask, &mut decoded);
-            #[cfg(any(feature = "low", feature = "medium"))]
-            if TIER == 0 && enhanced && decoded.is_empty() {
-                supplement_ean8_visual(
-                    &sampler.runs,
-                    first,
-                    active_mask & linear::EAN8,
-                    &mut decoded,
-                );
-            }
-            let endpoints = if reverse { [b, a] } else { [a, b] };
-            decoded.retain(|read| {
-                source_quiet(&sampler.runs, read, im, endpoints)
-                    && (candidate.profile.contrast() <= 0.
-                        || read.format != "UPCE"
-                        || recovered_upce_quiet(&sampler.runs, read, im, endpoints))
-                    && (candidate.profile.contrast() <= 0.
-                        || read.format != "Code39"
-                        || code39_source_resolution(
-                            &sampler.runs,
-                            read,
-                            endpoints,
-                            sampler.samples,
-                        ))
-            });
-            if reverse {
-                sampler.runs.reverse();
-            }
-            for found in decoded {
-                let (start, end) = if reverse {
-                    (
-                        sampler.runs.len() - found.end,
-                        sampler.runs.len() - found.start,
-                    )
-                } else {
-                    (found.start, found.end)
-                };
-                let l =
-                    -0.15 + 1.3 * f64::from(sampler.edges[start]) / usize_f64(sampler.samples - 1);
-                let r =
-                    -0.15 + 1.3 * f64::from(sampler.edges[end]) / usize_f64(sampler.samples - 1);
-                decoded_wide |= r - l >= 0.5;
-                candidate.admit(found, l, r, row, v);
-            }
+        let (decoded, mut decoded_wide) =
+            decode_runs(candidate, sampler, [a, b], active_mask, row, v);
+        if !decoded && despeckle(candidate, sampler) {
+            let (decoded, wide) = decode_runs(
+                candidate,
+                sampler,
+                [a, b],
+                active_mask & !UNCHECKED_BARS,
+                row,
+                v,
+            );
+            decoded_wide |= wide;
+            candidate.speck_misses += usize::from(!decoded);
+            // The next threshold method sizes its window from these runs.
+            sampler.restore_specks();
         }
         // Every row and candidate still receives its first all-symbol decode.
         // Narrow reads leave room for another barcode, so retain alternate thresholds.
@@ -1274,6 +1306,100 @@ fn sample_line_density(
             break;
         }
     }
+}
+
+/// Low retries an original row that read nothing without the specks that noise leaves on a
+/// blurred, oversampled profile ([`Sampler::remove_specks`], checked formats only); earlier
+/// reads are unchanged. A box that no row decoded stops after a few fruitless attempts.
+///
+/// [`Sampler::remove_specks`]: barcode_research_core::fast_profile::Sampler::remove_specks
+fn despeckle(
+    candidate: &mut Candidate<'_>,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+) -> bool {
+    if !cfg!(feature = "low")
+        || TIER != 0
+        || !candidate.localized
+        || candidate.restored
+        || (candidate.observations.is_empty() && candidate.speck_misses >= SPECK_MISSES)
+    {
+        return false;
+    }
+    let removed = sampler.remove_specks(SPECK_FRACTION);
+    candidate.speck_misses += usize::from(!removed);
+    removed
+}
+
+/// Decode the thresholded runs along and against the line from `a` to `b` and admit the
+/// reads. Returns whether anything decoded and whether a read spans half the box.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "Coordinates of one sampling line."
+)]
+fn decode_runs(
+    candidate: &mut Candidate<'_>,
+    sampler: &mut barcode_research_core::fast_profile::Sampler,
+    [a, b]: [[f64; 2]; 2],
+    active_mask: u32,
+    row: usize,
+    v: f64,
+) -> (bool, bool) {
+    let im = candidate.im;
+    let mut decoded_any = false;
+    let mut decoded_wide = false;
+    for reverse in [false, true] {
+        if reverse {
+            sampler.runs.reverse();
+        }
+        let first = candidate.profile.inverted()
+            ^ if reverse {
+                sampler.first_black ^ (sampler.runs.len().is_multiple_of(2))
+            } else {
+                sampler.first_black
+            };
+        let (from, to) = if reverse { (b, a) } else { (a, b) };
+        let mut decoded =
+            linear::decode(&sampler.runs, first, directed_mask(active_mask, from, to));
+        supplement_ean(&sampler.runs, first, active_mask, &mut decoded);
+        #[cfg(any(feature = "low", feature = "medium"))]
+        if TIER == 0 && candidate.profile.contrast() > 0. && decoded.is_empty() {
+            supplement_ean8_visual(
+                &sampler.runs,
+                first,
+                active_mask & linear::EAN8,
+                &mut decoded,
+            );
+        }
+        let endpoints = if reverse { [b, a] } else { [a, b] };
+        decoded.retain(|read| {
+            source_quiet(&sampler.runs, read, im, endpoints)
+                && (candidate.profile.contrast() <= 0.
+                    || read.format != "UPCE"
+                    || recovered_upce_quiet(&sampler.runs, read, im, endpoints))
+                && (candidate.profile.contrast() <= 0.
+                    || read.format != "Code39"
+                    || code39_source_resolution(&sampler.runs, read, endpoints, sampler.samples))
+        });
+        if reverse {
+            sampler.runs.reverse();
+        }
+        decoded_any |= !decoded.is_empty();
+        for found in decoded {
+            let (start, end) = if reverse {
+                (
+                    sampler.runs.len() - found.end,
+                    sampler.runs.len() - found.start,
+                )
+            } else {
+                (found.start, found.end)
+            };
+            let l = -0.15 + 1.3 * f64::from(sampler.edges[start]) / usize_f64(sampler.samples - 1);
+            let r = -0.15 + 1.3 * f64::from(sampler.edges[end]) / usize_f64(sampler.samples - 1);
+            decoded_wide |= r - l >= 0.5;
+            candidate.admit(found, l, r, row, v);
+        }
+    }
+    (decoded_any, decoded_wide)
 }
 
 /// Pharmacode has no start or stop: it is read only along the image's reading
