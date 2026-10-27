@@ -3,6 +3,7 @@
 mod alignment_cached;
 mod curved;
 mod finder_index;
+mod grid;
 mod micro;
 use crate::{Detection, qr};
 mod partial;
@@ -1073,6 +1074,9 @@ pub struct Policy {
     pub evidence_symbols: Symbols,
     /// The standard threshold modes a pass skips once earlier ones read symbols.
     pub settle: Settle,
+    /// Piecewise alignment-grid samplings per detection pass, for version 7 and
+    /// larger candidates whose header passed but whose single grid did not decode.
+    pub grid_budget: usize,
 }
 /// The standard threshold modes a pass skips after reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1148,6 +1152,11 @@ impl Policy {
                 Settle::Explained
             } else {
                 Settle::Never
+            },
+            grid_budget: match mode {
+                0 => 2,
+                1 => 4,
+                _ => 16,
             },
         }
     }
@@ -1414,6 +1423,7 @@ pub fn detect_symbols(
     let mut attempts = 0;
     let mut header_rejects = 0_usize;
     let mut align_calls = 0_usize;
+    let mut grid_calls = 0_usize;
     let mut curved_attempts = 0;
     let mut curved_limited = false;
     let mut single_attempts = 0;
@@ -1625,6 +1635,8 @@ pub fn detect_symbols(
                     .all(|finder| finder_grid_valid(image, w, h, [finder.x, finder.y], ex, ey));
                 let br = [tr.x + bl.x - tl.x, tr.y + bl.y - tl.y];
                 let mut any_valid = affine_valid;
+                // The latest transform whose header passed seeds the grid retry.
+                let mut grid_seed: Option<[f32; 8]> = None;
                 // Preserve transform and offset order while avoiding unused geometric fits.
                 let mut early: Vec<[f32; 8]> = Vec::new();
                 for stage in 0..4 {
@@ -1825,6 +1837,9 @@ pub fn detect_symbols(
                                 }
                                 continue;
                             }
+                            if offset_index == 0 {
+                                grid_seed = Some(t);
+                            }
                             let Some(matrix) = sample(image, w, h, n, &t, offset) else {
                                 continue;
                             };
@@ -1939,6 +1954,31 @@ pub fn detect_symbols(
                             });
                             break 'versions;
                         }
+                    }
+                }
+                let version = version.cast_unsigned();
+                if let Some(t) = grid_seed
+                    && version >= grid::MIN_VERSION
+                    && grid_calls < policy.grid_budget
+                {
+                    grid_calls += 1;
+                    if let Some((read, polygon)) = grid::recover(image, [w, h], version, &t) {
+                        used.extend(finder_triple.iter().map(|p| (*p).clone()));
+                        results.push(Detection {
+                            assembled_rows: false,
+                            bytes: Some(read.bytes),
+                            structured_append: read.structured_append,
+                            reader_initialization: false,
+                            addon: None,
+                            codabar_start_stop: None,
+                            format: "QRCode".into(),
+                            text: read.text,
+                            polygon,
+                            support: tl.support.min(tr.support).min(bl.support),
+                            error: crate::numeric::usize_f32(read.corrected),
+                            gs1: read.gs1,
+                        });
+                        break 'versions;
                     }
                 }
             }
