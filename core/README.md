@@ -29,7 +29,10 @@ public scanner, see [the architecture overview](../docs/ARCHITECTURE.md).
   (`multiformat/src/qr_detect.rs`) under this mode's `Policy`, then bounded
   block-threshold, foreground-threshold and sharpened retries. Above Low, a frame
   that read a QR also searches up to three windows around pairs of unread finders,
-  for a further symbol whose third finder was lost. In Low, a frame that read
+  for a further symbol whose third finder was lost; windows above 640 pixels are
+  searched on a copy reduced to fit. The detector retries a version 7 or larger
+  candidate whose header reads but whose grid does not decode cell by cell
+  between its alignment patterns (`qr_detect/grid.rs`). In Low, a frame that read
   nothing but left an undecoded QR or Micro QR region, or a grid close to one, is
   searched again (`qr_detect::evidence_retry`, also in the multi-format groups): the
   foreground split, then a sharpened copy, each with a small decode budget. Medium
