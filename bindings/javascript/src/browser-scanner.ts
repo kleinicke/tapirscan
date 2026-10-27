@@ -351,8 +351,7 @@ export class BrowserScanner {
     try {
       const [prepared, transferList] = await this.#untilClosed(preparing);
       await this.#untilClosed(previous);
-      // Replace a worker that failed after loading.
-      if (!this.#worker && !this.#closed) this.#ready = this.#start(this.#options);
+      this.#replace();
       await this.#untilClosed(this.#ready);
       const result = this.#request({ type, source: prepared, options: scanOptions }, transferList);
       submitted();
@@ -369,6 +368,11 @@ export class BrowserScanner {
         () => undefined,
       );
     }
+  }
+
+  /** Start a replacement for a worker that failed after loading, unless disposed. */
+  #replace(): void {
+    if (!this.#worker && !this.#closed) this.#ready = this.#start(this.#options);
   }
 
   /** Wait for `promise`, but reject at once on dispose. Leaves nothing behind. */
