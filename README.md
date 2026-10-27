@@ -209,8 +209,8 @@ Effort modes tune every format; see [effort levels](docs/FORMATS.md#effort-level
 ## Scan fast
 
 Speed is mostly decided by four choices: enable only the formats you need (each 2D
-format adds a search of the whole image), reuse one scanner, use `low` for camera
-frames, and pass decoded 8-bit pixels at the size you need (1-2 megapixel camera
+format adds a search of the whole image), reuse one scanner, keep `medium` unless
+`low` reads your camera frames equally well, and pass decoded 8-bit pixels at the size you need (1-2 megapixel camera
 frames rather than 12-megapixel stills). On 960×960 photos, Low with retail formats
 takes about 5 ms per scan natively, Medium with all formats about 35-58 ms. See
 [fast end-to-end scanning](docs/PERFORMANCE.md) for measured costs and the fastest

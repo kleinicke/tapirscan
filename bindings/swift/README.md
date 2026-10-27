@@ -132,7 +132,8 @@ frames instead of queueing them, and use a 1280×720 or 1920×1080 session prese
 ## Fast scanning
 
 - Select only the formats you need; each enabled 2D format searches the whole image.
-- Create one `BarcodeScanner` and reuse it; use `.low` for live camera frames.
+- Create one `BarcodeScanner` and reuse it. Medium suits live camera frames too:
+  `.low` is faster per frame but reads fewer blurred and small codes.
 - Camera luma planes are the cheapest camera input: they are read in place, with no
   color conversion; `CGImage`s are rendered once into a buffer the scanner reuses.
 - Calls on one scanner run one at a time; use one scanner per queue to scan in

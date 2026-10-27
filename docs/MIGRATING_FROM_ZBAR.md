@@ -214,7 +214,8 @@ Select only expected formats and validate content instead.
 | `ASCII` (Code 39 full ASCII)                               | Select `Code39Extended` (opt-in)                                                                           |
 | `BINARY`                                                   | `payload_bytes`                                                                                            |
 
-Use Low for camera frames (`mode="low"`, `tapirscan/browser/low`), `"high"` for hard stills
+Use Medium for camera frames and photos, Low (`mode="low"`, `tapirscan/browser/low`) when
+codes are large and sharp and speed matters most, `"high"` for hard stills
 ([effort levels](FORMATS.md#effort-levels)). ZBar's usual symbologies:
 
 ```python

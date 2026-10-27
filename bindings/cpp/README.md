@@ -140,7 +140,8 @@ const auto result = scanner.scan(image);
 
 Create one `tapirscan::Scanner` and reuse it for every frame; the free functions
 create a scanner per call. Select only the formats you need, since each enabled 2D
-format searches the whole image, and use `Mode::Low` for camera frames. Use one
+format searches the whole image. Medium suits camera frames too: `Mode::Low` is
+faster per frame but reads fewer blurred and small codes. Use one
 scanner per thread; scans with several formats also use extra threads
 internally (`options.parallel = false` keeps each scan on one thread). See
 [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).

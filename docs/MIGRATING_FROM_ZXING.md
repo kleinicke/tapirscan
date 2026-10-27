@@ -199,7 +199,7 @@ Effort is a mode, fixed when the scanner is created: in the browser import
 
 | ZXing                                                                  | Tapirscan                                                             |
 | ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `tryHarder: false`                                                     | Low (camera frames)                                                   |
+| `tryHarder: false`                                                     | Low (fast frames; Medium reads more blurred ones)                     |
 | `tryHarder: true` (zxing-wasm default)                                 | Medium (default); High for slow scans                                 |
 | none                                                                   | Very High for hard stills                                             |
 | `minLineCount`, `isPure`, `tryDownscale`                               | no equivalent                                                         |

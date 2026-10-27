@@ -127,7 +127,8 @@ not convert it to gray for scanning.
 
 Create one `Scanner` per thread and reuse it; `Tapirscan.scan` creates a scanner
 per call. Select only the formats you need, since each enabled 2D format searches
-the whole image, and use `Mode.LOW` for camera frames. Scans with several
+the whole image. Medium suits camera frames too: `Mode.LOW` is faster per frame
+but reads fewer blurred and small codes. Scans with several
 formats also use extra threads internally; on servers that already run one scanner
 per core, use `withParallel(false)`. Kotlin on the JVM uses the same API. See
 [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md).

@@ -64,3 +64,39 @@ evidence; desktop Chromium is not a mobile benchmark.
 `--allow-differences` records algorithm changes without treating unequal outputs
 as a failed parity check; it does not ignore load or scan errors. Keep the strict
 default for structural refactors. Dataset labels are never passed to the scanner.
+
+## Measuring an integration on a phone
+
+Comparing scanners inside an app on a phone measures the whole path: camera
+start, frame hand-over, scheduling and decoding. Small mistakes in the setup
+outweigh the differences between decoders:
+
+- **Time from the first camera frame**, not from the tap. Camera permission and
+  start-up (often 0.5-1 s) vary between runs and are not the decoder's. Record
+  when the `<video>` shows its first frame (`requestVideoFrameCallback`, or
+  `readyState >= 2` with `currentTime > 0`) and when the code is read.
+- **Skip the first opening** after a page load: it includes downloads,
+  compilation and engine warm-up. Report it separately as start-up.
+- **One code at a time**, held the same way for every scanner, and several
+  repetitions per code. Alternate the scanner order between repetitions.
+- **Log which decoder read each code** when an app runs several decoders, in
+  turn or as fallbacks, and how many frames each one received. A decoder that
+  gets every third frame reads later for reasons that have nothing to do with it.
+- **Count readability and speed separately.** First: which codes each scanner
+  reads at all within a time limit, and its wrong reads. Then: the time to read
+  for the codes both read. A scanner that reads more hard codes looks slower in
+  a mean over its reads.
+- **Serve it like production:** a production build, with the server's
+  compression and caching headers, over HTTPS (a tunnel to a local server works),
+  and the service worker if the app has one. A development server serves
+  unminified, uncompressed files.
+- **Frame loop and formats** decide most of the time per frame: note the
+  selected formats, the mode, the frame size and any fixed wait between scans,
+  and keep them equal across scanners where the app allows it.
+- **Safari's user agent is frozen.** Since Safari 26 it no longer reports the
+  current iOS version (as macOS Safari reports 10_15_7), it never names the device
+  model, and every iOS browser uses WebKit. Record the iOS version, browser and
+  device model by hand.
+- **Indicative, not general:** a dozen codes on one phone shows where a scanner
+  helps or fails; it is not a recall or speed benchmark. Keep the codes, so the
+  same set can be repeated after a change.

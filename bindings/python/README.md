@@ -145,8 +145,8 @@ runs on CPU. See [array and tensor inputs](#array-and-tensor-inputs).
 
 - **Select only the formats you need.** Each enabled 2D format searches the whole
   image; `formats="all"` is for exploration.
-- **Reuse a `Scanner`** for more than one image, and use `mode="low"` for camera
-  frames.
+- **Reuse a `Scanner`** for more than one image. Medium suits camera frames too:
+  `mode="low"` is faster per frame but reads fewer blurred and small codes.
 - **Inputs, cheapest first:** contiguous uint8 NumPy arrays (RGBA, then RGB or gray,
   a small extra copy for large frames); uint8 tensors; float arrays and tensors (validated
   and rounded, on several threads for large arrays); Pillow images (one `tobytes()`

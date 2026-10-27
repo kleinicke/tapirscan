@@ -12,8 +12,10 @@ over. This guide describes the input paths and how to avoid unnecessary copies.
    `retail` or `common1D`. Keep `all` for exploration.
 2. **Create one scanner and reuse it.** The one-shot `scan()` helpers create and
    dispose a scanner on every call; in the browser that also starts a worker.
-3. **Pick the mode for the job.** `low` for live camera frames, `medium` for
-   photos, `high` and `very-high` only when an image needs it.
+3. **Pick the mode for the job.** `medium` for photos and camera frames, `low`
+   when codes are large and sharp and every frame must be fast, `high` and
+   `very-high` only when an image needs it. Low is faster per frame but reads
+   fewer blurred and small codes, so a camera can take longer to its first read.
 4. **Scan the size you need.** Camera frames of 1-2 megapixels (720p, 1080p) are
    much cheaper than 12-megapixel stills, especially with 2D formats enabled.
    Images above 32 megapixels are reduced internally, but still cost decoding,
@@ -53,12 +55,16 @@ follow the [evaluation protocol](BENCHMARKS.md).
 
 ## Browser
 
-- **Reuse one `Scanner`** from `tapirscan/browser/<mode>` and `dispose()` it when
-  the view closes. It runs in its own worker, so scans never block the page.
-- **Camera loops:** use [`tapirscan/camera`](../bindings/javascript/README.md#camera-scanning)
-  with `tapirscan/browser/low` (or an experimental Turbo preset for 1D) and only
-  your formats. It scans one frame at a time at 1280×720 by default.
+[Scanners in apps and on phones](../bindings/javascript/README.md#scanners-in-apps-and-on-phones)
+covers when to create the scanner, formats, mode, frame loops, errors, memory and
+start-up, with measurements. In short:
 
+- **One long-lived `Scanner`** from `tapirscan/browser/<mode>`, created when the
+  app starts or the scanning view opens, and kept when a dialog closes. It runs in
+  its own worker, so scans never block the page.
+- **Camera loops:** [`tapirscan/camera`](../bindings/javascript/README.md#camera-scanning)
+  or a loop that scans the next frame when a scan finishes, passing the `<video>`
+  itself. It scans one frame at a time at 1280×720 by default.
 - **Pixels you already have:** pass `ImageData` or `{ data, width, height, channels }`.
   `scanner.scan(pixels, { transfer: true })` hands the buffer to the worker instead
   of copying it; the buffer is then detached.
@@ -67,10 +73,6 @@ follow the [evaluation protocol](BENCHMARKS.md).
 - **Memory:** a scanner's WASM memory grows to its largest image and is released by
   `dispose()`. On phones, scan occasional large photos with a separate scanner and
   dispose it; keep one long-lived scanner for the camera.
-- **Frameworks:** create the scanner when the component mounts and dispose it when
-  it unmounts (React `useEffect`, Vue `onMounted`/`onBeforeUnmount`, Svelte
-  `onMount`/`onDestroy`). The [JavaScript guide](../bindings/javascript/README.md)
-  has React, Svelte, Vite and Next.js examples.
 
 ## Node
 

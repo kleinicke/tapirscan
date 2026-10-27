@@ -153,12 +153,18 @@ scanner.dispose();
 - **Requirements:** HTTPS or `localhost`, and `requestVideoFrameCallback`
   (Firefox 132 or later). The controller sets `muted` and `playsinline` for iOS.
 
-The controller never disposes the scanner. In React (add `"use client";` at the top in Next.js):
+The controller never disposes the scanner. In React (add `"use client";` at the top in Next.js),
+one scanner serves every mount of the component; only the camera starts and stops with it:
 
 ```jsx
 import { useEffect, useRef, useState } from "react";
 import { Scanner } from "tapirscan/browser/medium";
 import { CameraScanner } from "tapirscan/camera";
+
+// One scanner for the page, created on first use; call getScanner() early to preload it.
+// Select only the formats you need.
+let scanner;
+export const getScanner = () => (scanner ??= new Scanner({ formats: ["EAN13", "QRCode"] }));
 
 export default function BarcodeScanner() {
   const video = useRef(null);
@@ -166,19 +172,14 @@ export default function BarcodeScanner() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Select only the formats you need.
-    const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
-    const camera = new CameraScanner(video.current, scanner, {
+    const camera = new CameraScanner(video.current, getScanner(), {
       // Skip re-rendering for consecutive empty frames.
       onScan: ({ barcodes }) =>
         setBarcodes((shown) => (barcodes.length || shown.length ? barcodes : shown)),
       onError: (cause) => setError(cause.message),
     });
     camera.start().catch((cause) => setError(cause.message));
-    return () => {
-      camera.stop();
-      scanner.dispose();
-    };
+    return () => camera.stop();
   }, []);
 
   return (
@@ -372,19 +373,93 @@ export default defineConfig({
   scanner created where it cannot starts no worker and rejects with `ScannerError`
   code `"unsupported"`.
 
-**Fast scanning in the browser:**
+### Scanners in apps and on phones
 
-- Select only the formats you need; each enabled 2D format searches the whole image.
-- Reuse one `Scanner`. For camera loops, request 720p or 1080p frames, and use
-  `tapirscan/browser/low` or a [Turbo preset](#experimental-turbo-presets) if
-  the preview stutters.
-- Inputs from cheapest: decoded pixels with `{ transfer: true }`, decoded pixels
-  or `ImageData`, `<video>`/canvas sources (a canvas readback each), then
-  `File`/`Blob` (includes image decoding). Pass pixels as you have them (RGBA is
-  cheapest for the retail formats); do not convert color.
+Measured in desktop Chrome and WebKit (the engine of iOS Safari) on 720p frames;
+a phone is slower, but the proportions hold.
 
-See [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/docs/PERFORMANCE.md)
-for measured costs.
+- **Create one scanner early and keep it.** Create it when the app starts, or at
+  the latest when the scanning view opens, at the same time as the camera, not
+  after it, and not after awaiting `ready`. In Angular, a root service holds it
+  (see [below](#angular-root-service)); in React, a module-level scanner (see
+  the [React example](#camera-scanning)). Closing a scanning dialog stops the
+  camera, not the scanner: a new scanner downloads (from the cache) and compiles
+  again, and its first scans are two to three times slower. Dispose it when the
+  app no longer scans at all.
+- **Start-up:** a scanner is ready about 25-50 ms after construction from a
+  local server (12-15 ms once cached), far less than the 0.5-1 s a phone camera
+  needs to deliver its first frame, so creating the scanner when the camera
+  opens is early enough. The download is 0.8-1 MB gzip per mode. Once loaded and
+  idle, a scanner scans a small built-in frame (25-160 ms in Low and Medium,
+  depending on formats) so that its first camera frame runs near full speed.
+- **Select only the formats you accept.** On 720×1280 phone video frames, Low
+  takes about 5 ms with the retail formats and 31 ms with nine 1D formats plus QR
+  Code, Data Matrix, Aztec and PDF417; Medium takes 17 and 44 ms. Each 2D format
+  searches the whole frame, Data Matrix most (about 12 ms), and fine background
+  textures such as wood grain or fabric can multiply that (140 ms on one such
+  frame). When 2D codes are rare, scan them on every other frame with the
+  per-call `formats` option.
+- **Keep Medium for camera frames.** Low is 1.3-5 times faster per frame, but
+  reads far fewer blurred and small codes. In two phone videos of an EAN-13,
+  Medium read 27 of 144 frames and Low 6, so from a random start Medium reached
+  its first read in about 0.2 s and Low in about 1 s. Try Low or a
+  [Turbo preset](#experimental-turbo-presets) when codes are large and sharp and
+  your own frames read equally well.
+- **Pass the `<video>`, not a canvas copy.** `scan(video)` hands the current
+  frame to the worker as a `VideoFrame` in about 2 ms; drawing the video into a
+  canvas first costs up to 7 ms more on the page (WebKit). `ImageData` and pixel buffers
+  you already have are cheapest.
+- **Scan the next frame when a scan finishes.** `CameraScanner` and the
+  [recorded video](#recorded-video) loop do this. A fixed wait after each scan,
+  such as `setTimeout(next, 120)`, adds that wait to every attempt, and so does
+  sharing frames between several decoders in turn.
+- **After a scan error, scan the next frame.** A failed scan does not break the
+  scanner. A frame the browser cannot read (a video before its first frame, a
+  zero-size canvas) rejects with its `DOMException`; check
+  `video.readyState >= 2` first. An engine failure, such as running out of
+  memory, rejects with `ScannerError` code `"engine"`, and the next scan starts a
+  fresh engine. A worker that stops after loading rejects its scans, and the
+  next scan starts a new worker. Only a scanner that never loaded (`ready`
+  rejects: download, Content Security Policy, unsupported browser) or was
+  disposed rejects every scan; create a new one or fall back to another decoder.
+  `CameraScanner` skips a failed frame and stops after three failures in a row.
+- **Memory:** WASM memory grows to the largest image scanned and never shrinks
+  until `dispose()`. After 300 portrait 720p frames, a camera scanner holds
+  7-13 MiB in Low and 12-15 MiB in Medium (24-46 MiB in High), the upper figure
+  with 2D formats; it stops growing after about 50 frames. One 12-megapixel photo
+  grows it to 54-58 MiB with the retail formats and to about 146 MiB with 2D
+  formats. Scan occasional large photos with a separate scanner and dispose it
+  afterwards, or scan a smaller copy when the codes are large.
+- **Hidden pages:** `CameraScanner` releases the camera while the page is hidden;
+  the scanner keeps its memory and needs nothing on return.
+
+#### Angular root service
+
+```ts
+// scanner.service.ts
+import { Injectable } from "@angular/core";
+import { Scanner } from "tapirscan/browser/medium";
+
+@Injectable({ providedIn: "root" })
+export class ScannerService {
+  // Created when first injected, shared by every scanning dialog, never disposed.
+  readonly scanner = new Scanner({
+    formats: ["EAN13", "QRCode"],
+    wasmBaseUrl: new URL("tapirscan/", document.baseURI),
+    worker: () => new Worker(new URL("./scanner.worker", import.meta.url), { type: "module" }),
+  });
+}
+```
+
+Inject it where the app starts, such as the root component, to load it before
+the first dialog opens. The `worker` and `wasmBaseUrl` options are needed for
+production builds; see
+[Angular](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md#angular).
+With server-side rendering, `document` is missing on the server: inject the
+service only in the browser, for example in `afterNextRender`.
+
+To compare scanners in your app, follow the
+[phone measurement checklist](https://github.com/kleinicke/tapirscan/blob/main/docs/COMPARING_SCANNERS.md#measuring-an-integration-on-a-phone).
 
 The [camera example](examples/camera.html) is a complete page: from this
 directory (or the installed package), run `python3 -m http.server` and open
@@ -588,9 +663,9 @@ coordinates, but barcodes that are small in such an image may be missed. Such im
 are copied into WASM a few rows at a time, so only the reduction is held, not the
 whole image. Keep the buffer unchanged during the call.
 
-A scanner's WASM memory grows to fit the largest image it has scanned (about 50 MB
-after a 12-megapixel photo) and is released only by
-`dispose()`. On phones, where browsers close memory-hungry tabs, scan occasional
+A scanner's WASM memory grows to fit the largest image it has scanned (about 55 MB
+after a 12-megapixel photo with the retail formats, 146 MB with 2D formats) and is
+released only by `dispose()`. On phones, where browsers close memory-hungry tabs, scan occasional
 large photos with a separate scanner and dispose it afterwards; keep one long-lived
 scanner for camera frames. Coordinates start at the top left, x rightward and y
 downward. If you resize or rotate before scanning, map coordinates back yourself.

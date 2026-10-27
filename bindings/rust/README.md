@@ -47,7 +47,8 @@ Support, undecoded regions and image limits are described in
 
 Reuse one `Scanner` per thread; the free `scan` and `inspect` functions create one
 per call. Select only the formats you need, since each enabled 2D format searches
-the whole image, and use `Mode::Low` for camera frames. Pass the 8-bit buffer you
+the whole image. Medium suits camera frames too: `Mode::Low` is faster per frame
+but reads fewer blurred and small codes. Pass the 8-bit buffer you
 already have; packed RGBA is the cheapest input for the retail formats (gray and
 RGB are copied to RGBA internally), so do not convert to gray for scanning. Scans
 with several formats also use extra threads internally; set

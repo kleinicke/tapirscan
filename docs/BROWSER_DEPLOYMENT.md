@@ -31,8 +31,9 @@ need the app to start the worker.
   those files with `Cache-Control: public, max-age=31536000, immutable`; repeat
   visits then load nothing.
 - **Start early.** Constructing a `Scanner` starts the download in the
-  background. Create it when the page loads, not when the user taps "scan", so
-  the download overlaps the camera permission prompt.
+  background. Create it when the app starts, or at the latest together with the
+  camera, so the download overlaps the permission prompt, and keep it for later
+  scans. See [scanners in apps and on phones](../bindings/javascript/README.md#scanners-in-apps-and-on-phones).
 
 ## Serve the worker from the page's origin
 
@@ -96,6 +97,10 @@ const scanner = new Scanner({
   worker: () => new Worker(new URL("./scanner.worker", import.meta.url), { type: "module" }),
 });
 ```
+
+Create it once, in a root service that every scanning dialog shares, as in
+[this example](../bindings/javascript/README.md#angular-root-service), not in the
+dialog component.
 
 ```json
 { "glob": "medium.wasm", "input": "node_modules/tapirscan/wasm", "output": "tapirscan" }
