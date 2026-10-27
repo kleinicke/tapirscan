@@ -1071,6 +1071,20 @@ pub struct Policy {
     pub evidence_budget: usize,
     /// The symbols whose evidence [`evidence_retry`] retries.
     pub evidence_symbols: Symbols,
+    /// The standard threshold modes a pass skips once earlier ones read symbols.
+    pub settle: Settle,
+}
+/// The standard threshold modes a pass skips after reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Settle {
+    /// Every mode runs.
+    Never,
+    /// Once a symbol is read, the inverse modes are skipped, and the local mode too
+    /// when the global mode left no finder unclaimed. A symbol of the other polarity
+    /// beside a read one is rare, and the local threshold seldom finds a further
+    /// symbol without its finders showing on the global one; on development images
+    /// neither skip lost a read, and they save about a quarter of a QR-only scan.
+    Explained,
 }
 /// Resampling module centers in gray with module-space thresholds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1129,6 +1143,12 @@ impl Policy {
             evidence_symbols: Symbols {
                 qr: mode == 0,
                 micro: true,
+            },
+            // High and above search every mode.
+            settle: if mode <= 1 {
+                Settle::Explained
+            } else {
+                Settle::Never
             },
         }
     }
@@ -1406,6 +1426,8 @@ pub fn detect_symbols(
     let mut used: Vec<Finder> = Vec::new();
     let mut prior_count = 0;
     let mut partial_modes: Vec<(usize, Vec<Finder>)> = Vec::new();
+    // Finders of the latest mode that no read claims.
+    let mut unexplained = usize::MAX;
     // The offset samplings are kept only for the retries that use them.
     let keep_samples = policy.offset_erasures || policy.gray != GrayRetry::Off;
     // A standard pass that stopped with work left and likely holds more symbols,
@@ -1452,6 +1474,12 @@ pub fn detect_symbols(
             continue;
         }
         if binary_images.is_duplicate(mode) && results.len() == prior_count {
+            continue;
+        }
+        if policy.settle == Settle::Explained
+            && !results.is_empty()
+            && ((2..STANDARD_MODES).contains(&mode) || (mode == 1 && unexplained == 0))
+        {
             continue;
         }
         prior_count = results.len();
@@ -1917,6 +1945,14 @@ pub fn detect_symbols(
                 regions,
             );
         }
+        unexplained = finders
+            .iter()
+            .filter(|p| {
+                !used
+                    .iter()
+                    .any(|q| distance(p, q) < p.module.min(q.module) * 2.)
+            })
+            .count();
         partial_modes.push((mode, finders));
     }
     let mut limited = single_limited || curved_limited || starved || micro_limited;
@@ -2529,6 +2565,19 @@ mod policy_tests {
             assert!(policy.several_patience >= medium.patience, "mode {mode}");
         }
         assert!(Policy::for_mode(0).patience < medium.patience);
+    }
+
+    #[test]
+    fn low_and_medium_settle_high_searches_every_mode() {
+        use super::Settle;
+        for mode in 0..4 {
+            let expected = if mode <= 1 {
+                Settle::Explained
+            } else {
+                Settle::Never
+            };
+            assert_eq!(Policy::for_mode(mode).settle, expected, "mode {mode}");
+        }
     }
 
     #[test]
