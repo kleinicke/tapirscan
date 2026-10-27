@@ -221,6 +221,9 @@ struct Component {
     // rightmost point, which `component_hull` reduces the spans to.
     first_span: Span,
     spans: Vec<Span>,
+    // First entry of the labeller's run list, or `NO_RUN` when the spans above
+    // hold the rows (the reference extractor).
+    head: usize,
 }
 
 // Union-find parents are kept apart from the component data: lookups walk a
@@ -238,61 +241,7 @@ fn find_component(parents: &mut [usize], mut index: usize) -> usize {
     root
 }
 
-fn union_components(
-    parents: &mut [usize],
-    components: &mut [Component],
-    a: usize,
-    b: usize,
-    merged: &mut Vec<usize>,
-    pool: &mut Vec<Vec<Span>>,
-) -> usize {
-    let a = find_component(parents, a);
-    let b = find_component(parents, b);
-    if a == b {
-        return a;
-    }
-    // Keep the larger retained span vector as the parent. Candidate tie order
-    // is carried separately by origin, so it does not require the oldest root
-    // to receive every appended child vector.
-    let a_spans = 1 + components[a].spans.len();
-    let b_spans = 1 + components[b].spans.len();
-    let (root, child) = if a_spans > b_spans
-        || (a_spans == b_spans && components[a].origin <= components[b].origin)
-    {
-        (a, b)
-    } else {
-        (b, a)
-    };
-    merged.push(child);
-    parents[child] = root;
-    let (origin, count, x0, x1, y0, y1, first_span, mut spans) = {
-        let component = &mut components[child];
-        (
-            component.origin,
-            component.count,
-            component.x0,
-            component.x1,
-            component.y0,
-            component.y1,
-            component.first_span,
-            std::mem::take(&mut component.spans),
-        )
-    };
-    let component = &mut components[root];
-    component.origin = component.origin.min(origin);
-    component.count += count;
-    component.x0 = component.x0.min(x0);
-    component.x1 = component.x1.max(x1);
-    component.y0 = component.y0.min(y0);
-    component.y1 = component.y1.max(y1);
-    append_component_span(component, first_span);
-    component.spans.append(&mut spans);
-    if spans.capacity() > 0 {
-        pool.push(spans);
-    }
-    root
-}
-
+#[cfg(test)]
 fn append_component_span(component: &mut Component, span: Span) {
     if component.spans.is_empty() && component.first_span.y == span.y {
         component.first_span.left = component.first_span.left.min(span.left);
@@ -305,31 +254,22 @@ fn append_component_span(component: &mut Component, span: Span) {
     }
 }
 
-fn add_span(component: &mut Component, span: Span) {
-    component.count += span.right - span.left;
-    component.x0 = component.x0.min(span.left);
-    component.x1 = component.x1.max(span.right - 1);
-    component.y0 = component.y0.min(span.y);
-    component.y1 = component.y1.max(span.y);
-    append_component_span(component, span);
-}
-
 // Connected-component labelling over horizontal runs. A current run overlaps
 // the previous row when their half-open intervals are at most one pixel apart;
 // that is precisely 8-connectivity. Each source pixel is inspected once while
 // locating its run, avoiding the flood fill's repeated neighbor scans.
 //
-// A component is complete once no run of the current row continues it. Then it
-// is kept if eligible (or for tests) and its slot is recycled, like the slots of
-// components merged into another root, so memory follows one row of runs rather
-// than the whole image. Downstream orders proposals by size and origin, so the
-// order in which components complete does not matter.
-fn fast_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
+// Labelling keeps only each component's size, bounds and origin, and links its
+// row extremes into a list. Proposals use the largest eligible components only, so the
+// rows of a component are gathered when a proposal needs its hull. Downstream
+// orders proposals by size and origin, so the order of the returned components
+// does not matter.
+fn fast_components(image: &[bool], w: usize, h: usize) -> Components {
     fast_components_impl(image, w, h, false)
 }
 
 #[cfg(test)]
-fn fast_all_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
+fn fast_all_components(image: &[bool], w: usize, h: usize) -> Components {
     fast_components_impl(image, w, h, true)
 }
 
@@ -338,8 +278,8 @@ fn fast_components_impl(
     w: usize,
     h: usize,
     retain_ineligible_for_test: bool,
-) -> Vec<Component> {
-    let mut labeller = Labeller::new(retain_ineligible_for_test);
+) -> Components {
+    let mut labeller = Labeller::default();
     let mut offsets = Vec::new();
     for y in 0..h {
         let line = &image[y * w..(y + 1) * w];
@@ -349,14 +289,14 @@ fn fast_components_impl(
         let first_set = usize::from(!line.first().copied().unwrap_or(false));
         labeller.row(y, y * w, offsets[first_set..].as_chunks::<2>().0);
     }
-    labeller.finish(h)
+    labeller.finish(retain_ineligible_for_test)
 }
 
 /// The components of `image` and of its inverse. The inverse image has the same
 /// transition offsets, with the set and unset runs exchanged, so one extraction
 /// per row serves both labellings.
-fn fast_component_pair(image: &[bool], w: usize, h: usize) -> [Vec<Component>; 2] {
-    let mut labellers = [Labeller::new(false), Labeller::new(false)];
+fn fast_component_pair(image: &[bool], w: usize, h: usize) -> [Components; 2] {
+    let mut labellers = [Labeller::default(), Labeller::default()];
     let mut offsets = Vec::new();
     for y in 0..h {
         let line = &image[y * w..(y + 1) * w];
@@ -365,159 +305,222 @@ fn fast_component_pair(image: &[bool], w: usize, h: usize) -> [Vec<Component>; 2
         labellers[0].row(y, y * w, offsets[first_set..].as_chunks::<2>().0);
         labellers[1].row(y, y * w, offsets[1 - first_set..].as_chunks::<2>().0);
     }
-    labellers.map(|labeller| labeller.finish(h))
+    labellers.map(|labeller| labeller.finish(false))
 }
 
-/// Streaming state of `fast_components_impl`, fed one row of runs at a time.
+/// No run: the end of a component's run list.
+const NO_RUN: usize = usize::MAX;
+
+/// A labelled run and the next run of its component.
+#[derive(Clone, Copy)]
+struct Run {
+    span: Span,
+    next: usize,
+}
+
+/// Components with the run lists that [`Components::spans`] walks.
+struct Components {
+    list: Vec<Component>,
+    runs: Vec<Run>,
+}
+
+impl Components {
+    /// Components that carry their spans, without run lists.
+    #[cfg(test)]
+    fn stored(list: Vec<Component>) -> Self {
+        Self {
+            list,
+            runs: Vec::new(),
+        }
+    }
+
+    /// The row spans of `component`: its run list, or the spans the reference
+    /// extractor stored.
+    fn spans<'a>(&'a self, component: &'a Component) -> impl Iterator<Item = Span> + 'a {
+        let stored = component
+            .spans
+            .iter()
+            .chain(std::iter::once(&component.first_span))
+            .copied()
+            .filter(move |_| component.head == NO_RUN);
+        let listed = std::iter::successors(
+            (component.head != NO_RUN).then_some(component.head),
+            move |&run| Some(self.runs[run].next).filter(|&next| next != NO_RUN),
+        )
+        .map(move |run| self.runs[run].span);
+        stored.chain(listed)
+    }
+
+    /// Fill the spans of `component` from its run list, once.
+    #[cfg(test)]
+    fn gather(&self, component: &mut Component) {
+        let mut run = std::mem::replace(&mut component.head, NO_RUN);
+        if run == NO_RUN {
+            return;
+        }
+        component.first_span = self.runs[run].span;
+        run = self.runs[run].next;
+        while run != NO_RUN {
+            append_component_span(component, self.runs[run].span);
+            run = self.runs[run].next;
+        }
+    }
+}
+
+/// Union-find state of `fast_components_impl`, fed one row of runs at a time.
+/// The statistics and run list of a label are current only while it is a root.
+#[derive(Default)]
 struct Labeller {
     parents: Vec<usize>,
-    components: Vec<Component>,
-    free: Vec<usize>,
-    merged: Vec<usize>,
-    // Row in which each slot's root last had a run; marks completed roots.
-    seen_row: Vec<usize>,
-    done: Vec<Component>,
+    origin: Vec<usize>,
+    count: Vec<usize>,
+    // Inclusive bounds x0, x1, y0, y1.
+    bounds: Vec<[usize; 4]>,
+    // First and last run of each root's list.
+    ends: Vec<[usize; 2]>,
+    runs: Vec<Run>,
     previous: Vec<(usize, usize, usize)>,
     current: Vec<(usize, usize, usize)>,
-    // Span vectors of discarded components are reused, so texture specks that
-    // span a few rows do not allocate one each.
-    pool: Vec<Vec<Span>>,
-    retain_ineligible_for_test: bool,
 }
 
 impl Labeller {
-    fn new(retain_ineligible_for_test: bool) -> Self {
-        Self {
-            parents: Vec::new(),
-            components: Vec::new(),
-            free: Vec::new(),
-            merged: Vec::new(),
-            seen_row: Vec::new(),
-            done: Vec::new(),
-            previous: Vec::new(),
-            current: Vec::new(),
-            pool: Vec::new(),
-            retain_ineligible_for_test,
-        }
-    }
-
-    /// Keep the completed root's component if eligible and free its slot.
-    fn complete(&mut self, root: usize) {
-        let component = std::mem::take(&mut self.components[root]);
-        if self.retain_ineligible_for_test || component_is_eligible(&component) {
-            self.done.push(component);
-        } else if component.spans.capacity() > 0 {
-            let mut spans = component.spans;
-            spans.clear();
-            self.pool.push(spans);
-        }
-    }
-
     /// Label the set runs `[left, right)` of row `y`, which starts at pixel `row`.
     fn row(&mut self, y: usize, row: usize, runs: &[[usize; 2]]) {
-        let Self {
-            parents,
-            components,
-            free,
-            merged,
-            seen_row,
-            previous,
-            current,
-            pool,
-            ..
-        } = self;
+        let mut current = std::mem::take(&mut self.current);
         current.clear();
+        let previous = &self.previous;
         let mut previous_start = 0;
         for &[left, right] in runs {
             while previous_start < previous.len() && previous[previous_start].1 < left {
                 previous_start += 1;
             }
             let mut overlap = previous_start;
-            let mut label = None;
+            let mut label = NO_RUN;
             while overlap < previous.len() && previous[overlap].0 <= right {
-                let previous_label = find_component(parents, previous[overlap].2);
-                label = Some(match label {
-                    Some(existing) => union_components(
-                        parents,
-                        components,
-                        existing,
+                let previous_label = find_component(&mut self.parents, previous[overlap].2);
+                label = if label == NO_RUN {
+                    previous_label
+                } else {
+                    Self::union(
+                        &mut self.parents,
+                        &mut self.origin,
+                        &mut self.count,
+                        &mut self.bounds,
+                        &mut self.ends,
+                        &mut self.runs,
+                        label,
                         previous_label,
-                        merged,
-                        pool,
-                    ),
-                    None => previous_label,
-                });
+                    )
+                };
                 overlap += 1;
             }
             let span = Span { y, left, right };
             // Lookups and unions return roots, so `label` is a root here.
-            let label = if let Some(label) = label {
-                add_span(&mut components[label], span);
-                label
+            if label == NO_RUN {
+                label = self.parents.len();
+                self.parents.push(label);
+                self.origin.push(row + left);
+                self.count.push(right - left);
+                self.bounds.push([left, right - 1, y, y]);
+                self.ends.push([self.runs.len(); 2]);
+                self.runs.push(Run { span, next: NO_RUN });
             } else {
-                let fresh = Component {
-                    origin: row + left,
-                    count: right - left,
-                    x0: left,
-                    x1: right - 1,
-                    y0: y,
-                    y1: y,
-                    first_span: span,
-                    spans: pool.pop().unwrap_or_default(),
-                };
-                if let Some(index) = free.pop() {
-                    components[index] = fresh;
-                    parents[index] = index;
-                    index
+                self.count[label] += right - left;
+                let bounds = &mut self.bounds[label];
+                bounds[0] = bounds[0].min(left);
+                bounds[1] = bounds[1].max(right - 1);
+                bounds[3] = y;
+                // The hull needs only each row's extremes: a run on the row of
+                // the list's last entry widens that entry.
+                let last = self.ends[label][1];
+                let tail = &mut self.runs[last].span;
+                if tail.y == y {
+                    tail.left = tail.left.min(left);
+                    tail.right = tail.right.max(right);
                 } else {
-                    components.push(fresh);
-                    parents.push(components.len() - 1);
-                    seen_row.push(usize::MAX);
-                    components.len() - 1
+                    let run = self.runs.len();
+                    self.runs.push(Run { span, next: NO_RUN });
+                    self.runs[last].next = run;
+                    self.ends[label][1] = run;
                 }
-            };
+            }
             current.push((left, right, label));
         }
-        // Resolve this row's labels to roots and mark them as continuing.
-        for run in current.iter_mut() {
-            run.2 = find_component(parents, run.2);
-            seen_row[run.2] = y;
-        }
-        // Roots of the previous row that no current run continues are complete.
-        for index in 0..self.previous.len() {
-            let root = find_component(&mut self.parents, self.previous[index].2);
-            if self.seen_row[root] != y {
-                self.seen_row[root] = y;
-                self.complete(root);
-                self.free.push(root);
-            }
-        }
-        // Merged children are referenced by no run once labels are resolved.
-        self.free.append(&mut self.merged);
-        std::mem::swap(&mut self.previous, &mut self.current);
+        self.current = std::mem::replace(&mut self.previous, current);
     }
 
-    /// Complete the components of the last row, `h - 1`, and return all kept ones.
-    fn finish(mut self, h: usize) -> Vec<Component> {
-        for index in 0..self.previous.len() {
-            let root = self.previous[index].2;
-            if self.seen_row[root] != h {
-                self.seen_row[root] = h;
-                self.complete(root);
+    /// Unite the components of roots `a` and `b` and return the new root.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The union borrows the labeller's columns apart from its row buffer."
+    )]
+    fn union(
+        parents: &mut [usize],
+        origin: &mut [usize],
+        count: &mut [usize],
+        bounds: &mut [[usize; 4]],
+        ends: &mut [[usize; 2]],
+        runs: &mut [Run],
+        a: usize,
+        b: usize,
+    ) -> usize {
+        if a == b {
+            return a;
+        }
+        let (root, child) = if count[a] >= count[b] { (a, b) } else { (b, a) };
+        parents[child] = root;
+        origin[root] = origin[root].min(origin[child]);
+        count[root] += count[child];
+        let child_bounds = bounds[child];
+        let root_bounds = &mut bounds[root];
+        root_bounds[0] = root_bounds[0].min(child_bounds[0]);
+        root_bounds[1] = root_bounds[1].max(child_bounds[1]);
+        root_bounds[2] = root_bounds[2].min(child_bounds[2]);
+        root_bounds[3] = root_bounds[3].max(child_bounds[3]);
+        let [child_first, child_last] = ends[child];
+        runs[ends[root][1]].next = child_first;
+        ends[root][1] = child_last;
+        root
+    }
+
+    /// The eligible components (all of them for tests); their spans are gathered later.
+    fn finish(self, retain_ineligible_for_test: bool) -> Components {
+        let mut list = Vec::new();
+        for (label, &parent) in self.parents.iter().enumerate() {
+            if parent != label {
+                continue;
+            }
+            let [x0, x1, y0, y1] = self.bounds[label];
+            let component = Component {
+                origin: self.origin[label],
+                count: self.count[label],
+                x0,
+                x1,
+                y0,
+                y1,
+                first_span: Span::default(),
+                spans: Vec::new(),
+                head: self.ends[label][0],
+            };
+            if retain_ineligible_for_test || component_is_eligible(&component) {
+                list.push(component);
             }
         }
-        self.done
+        Components {
+            list,
+            runs: self.runs,
+        }
     }
 }
 
 // Flood-fill reference extractor; tests check the streaming labeller against it.
 #[cfg(test)]
-fn flood_fill_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
+fn flood_fill_components(image: &[bool], w: usize, h: usize) -> Components {
     flood_fill_components_impl(image, w, h, false)
 }
 
 #[cfg(test)]
-fn flood_fill_all_components(image: &[bool], w: usize, h: usize) -> Vec<Component> {
+fn flood_fill_all_components(image: &[bool], w: usize, h: usize) -> Components {
     flood_fill_components_impl(image, w, h, true)
 }
 
@@ -527,7 +530,7 @@ fn flood_fill_components_impl(
     w: usize,
     h: usize,
     retain_ineligible_for_test: bool,
-) -> Vec<Component> {
+) -> Components {
     let mut seen = vec![false; image.len()];
     let mut components = Vec::new();
     let mut row_min = vec![w; h];
@@ -619,6 +622,7 @@ fn flood_fill_components_impl(
                 y1,
                 first_span,
                 spans,
+                head: NO_RUN,
             });
         } else {
             for &y in &touched_rows {
@@ -627,11 +631,11 @@ fn flood_fill_components_impl(
             }
         }
     }
-    components
+    Components::stored(components)
 }
 
 fn component_hull(
-    component: &Component,
+    spans: impl Iterator<Item = Span>,
     row_min: &mut [usize],
     row_max: &mut [usize],
     touched_rows: &mut Vec<usize>,
@@ -640,11 +644,7 @@ fn component_hull(
     // are not necessarily ordered. `hull` sorts its input and depends only on
     // these per-row extrema, so reduce them in image-height scratch rather than
     // sorting all raw spans and allocating a boundary sized to their count.
-    for span in component
-        .spans
-        .iter()
-        .chain(std::iter::once(&component.first_span))
-    {
+    for span in spans {
         if row_min[span.y] == usize::MAX {
             touched_rows.push(span.y);
         }
@@ -716,7 +716,7 @@ const DENSE_BASE_PROPOSALS: usize = 400;
 /// Reads that mark a frame as a sheet of symbols whose candidate list may grow.
 const DENSE_READS: usize = 8;
 fn proposals_from_components(
-    components: Vec<Component>,
+    components: Components,
     h: usize,
     base_limit: usize,
 ) -> (Vec<[Point; 4]>, bool) {
@@ -727,17 +727,25 @@ fn proposals_from_components(
     // (unique per component). The hull test below only drops components, so
     // building hulls and quadrilaterals lazily in that order, until the
     // proposal budget is filled, gives the same proposals.
-    let mut eligible_components: Vec<Component> = components
-        .into_iter()
-        .filter(component_is_eligible)
-        .collect();
+    let Components { list, runs } = components;
+    let components = Components {
+        list: Vec::new(),
+        runs,
+    };
+    let mut eligible_components: Vec<Component> =
+        list.into_iter().filter(component_is_eligible).collect();
     eligible_components
         .sort_unstable_by(|a, b| b.count.cmp(&a.count).then(a.origin.cmp(&b.origin)));
     let mut proposals = Vec::new();
     let mut base_count = 0;
     let mut limited = false;
     for component in eligible_components {
-        let polygon = component_hull(&component, &mut row_min, &mut row_max, &mut touched_rows);
+        let polygon = component_hull(
+            components.spans(&component),
+            &mut row_min,
+            &mut row_max,
+            &mut touched_rows,
+        );
         let mut area = 0_f32;
         let mut perimeter = 0_f32;
         for i in 0..polygon.len() {
@@ -844,17 +852,43 @@ mod component_fastpath_tests {
         hull: Vec<Point>,
     }
 
-    fn signatures(components: Vec<Component>, h: usize) -> Vec<ComponentSignature> {
+    fn stored_spans(component: &Component) -> impl Iterator<Item = Span> + '_ {
+        component
+            .spans
+            .iter()
+            .chain(std::iter::once(&component.first_span))
+            .copied()
+    }
+
+    /// The components with their spans gathered.
+    fn gathered(components: Components) -> Vec<Component> {
+        let mut list = std::mem::take(&mut { components.list });
+        let components = Components {
+            list: Vec::new(),
+            runs: components.runs,
+        };
+        for component in &mut list {
+            components.gather(component);
+        }
+        list
+    }
+
+    fn signatures(components: Components, h: usize) -> Vec<ComponentSignature> {
         let mut row_min = vec![usize::MAX; h];
         let mut row_max = vec![0; h];
         let mut touched_rows = Vec::new();
-        let mut signatures: Vec<_> = components
+        let mut signatures: Vec<_> = gathered(components)
             .into_iter()
             .map(|component| ComponentSignature {
                 origin: component.origin,
                 count: component.count,
                 bounds: (component.x0, component.x1, component.y0, component.y1),
-                hull: component_hull(&component, &mut row_min, &mut row_max, &mut touched_rows),
+                hull: component_hull(
+                    stored_spans(&component),
+                    &mut row_min,
+                    &mut row_max,
+                    &mut touched_rows,
+                ),
             })
             .collect();
         signatures.sort_by_key(|component| component.origin);
@@ -887,12 +921,17 @@ mod component_fastpath_tests {
         let mut row_min = vec![usize::MAX; h];
         let mut row_max = vec![0; h];
         let mut touched_rows = Vec::new();
-        for component in fast_all_components(image, w, h)
+        for component in gathered(fast_all_components(image, w, h))
             .into_iter()
-            .chain(fast_all_components(&inverse, w, h))
+            .chain(gathered(fast_all_components(&inverse, w, h)))
         {
             assert_eq!(
-                component_hull(&component, &mut row_min, &mut row_max, &mut touched_rows),
+                component_hull(
+                    stored_spans(&component),
+                    &mut row_min,
+                    &mut row_max,
+                    &mut touched_rows,
+                ),
                 sorted_component_hull_reference(&component),
                 "integer-sorted hull differs from the float-sorted hull"
             );
@@ -977,12 +1016,18 @@ mod component_fastpath_tests {
                     right: 11,
                 },
             ],
+            head: NO_RUN,
         };
         let mut row_min = vec![usize::MAX; 10];
         let mut row_max = vec![0; 10];
         let mut touched_rows = Vec::new();
         assert_eq!(
-            component_hull(&component, &mut row_min, &mut row_max, &mut touched_rows),
+            component_hull(
+                stored_spans(&component),
+                &mut row_min,
+                &mut row_max,
+                &mut touched_rows,
+            ),
             sorted_component_hull_reference(&component)
         );
         assert!(touched_rows.is_empty(), "{touched_rows:?}");
@@ -1044,7 +1089,7 @@ mod component_fastpath_tests {
         }
         paint(&mut image, w, 3, 1);
         paint(&mut image, w, 20, 1);
-        let components = fast_all_components(&image, w, h);
+        let components = gathered(fast_all_components(&image, w, h));
         assert_eq!(components.len(), 1);
         assert_eq!(components[0].spans.len(), 1);
         assert_streaming_matches_flood_fill(&image, w, h);
@@ -1063,7 +1108,7 @@ mod component_fastpath_tests {
         for x in 2..24 {
             paint(&mut image, w, x, 2);
         }
-        let components = fast_all_components(&image, w, h);
+        let components = gathered(fast_all_components(&image, w, h));
         assert_eq!(components.len(), 1);
         assert_eq!(components[0].origin, 1);
         assert_streaming_matches_flood_fill(&image, w, h);
@@ -1668,6 +1713,8 @@ struct Retries {
     /// the symbol's own candidate, found later, would never be refined, and a bare L fits
     /// a wrong size about as well as the right one.
     recorded: usize,
+    /// Whether a frame that read a symbol skips the inverse thresholds (modes 2 and 3).
+    settle: bool,
 }
 /// Retry limits per frame for Low, Medium and High; modes beyond the table (Very High)
 /// use its last entry. Medium retries only its four best-ranked candidates; Low and
@@ -1681,6 +1728,7 @@ const MODE_RETRIES: [Retries; 3] = [
         ranked: false,
         aspect: [0.65, 1.55],
         recorded: 2,
+        settle: true,
     },
     Retries {
         gray: 3,
@@ -1690,6 +1738,7 @@ const MODE_RETRIES: [Retries; 3] = [
         ranked: true,
         aspect: [0.65, 1.55],
         recorded: 0,
+        settle: true,
     },
     Retries {
         gray: 6,
@@ -1699,6 +1748,7 @@ const MODE_RETRIES: [Retries; 3] = [
         ranked: false,
         aspect: [0.55, 1.8],
         recorded: 0,
+        settle: false,
     },
 ];
 /// The retry limits of a scanner `mode`.
@@ -1716,6 +1766,7 @@ const CROP_PASS: Retries = Retries {
     ranked: false,
     aspect: [0.65, 1.55],
     recorded: 0,
+    settle: false,
 };
 #[expect(
     clippy::too_many_lines,
@@ -1754,11 +1805,20 @@ fn detect_with_retries(
             DENSE_BASE_PROPOSALS
         };
         for mode in 0..4 {
-            if binary_images.is_duplicate(mode) {
+            // Low and Medium settle once a frame has read a symbol: the inverse
+            // thresholds then add no read on the development sets.
+            let settled = retries.settle
+                && !results.is_empty()
+                && failed
+                    .iter()
+                    .all(|f| f.0.first().is_none_or(|first| near_result(&results, first)));
+            if binary_images.is_duplicate(mode) || (settled && mode >= 2) {
                 continue;
             }
             let image = binary_images.get(mode);
-            let (proposals, limited) = if mode < 2 {
+            let (proposals, limited) = if mode < 2 && settled {
+                proposals_from_components(fast_components(image, w, h), h, base_limit)
+            } else if mode < 2 {
                 let [direct, inverse] = candidate_pair(image, w, h, base_limit);
                 inverse_candidates[mode] = Some(inverse);
                 direct
