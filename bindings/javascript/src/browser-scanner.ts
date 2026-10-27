@@ -236,28 +236,38 @@ export class BrowserScanner {
     this.#worker = worker;
     this.#options = options;
     const calls = this.#calls;
-    const loading = this.#request({ type: "create", options }, []).then(
-      () => {
-        if (this.#worker !== worker) return;
-        this.#loaded = true;
-        // Warm up while idle, unless a scan is waiting or follows at once.
-        setTimeout(() => {
-          if (this.#worker === worker && this.#calls === calls)
-            this.#request({ type: "warm" }, []).catch(() => undefined);
-        }, 0);
-      },
-      (error: unknown) => {
-        // A worker that never loaded stays failed: retrying would repeat the download.
-        this.#close(error instanceof Error ? error : new Error(String(error)));
-        throw error;
-      },
-    );
+    const listening = new Promise<void>((resolve) => {
+      worker?.addEventListener("message", function heard({ data }: MessageEvent<WorkerResponse>) {
+        if (!("listening" in data)) return;
+        worker.removeEventListener("message", heard);
+        resolve();
+      });
+    });
+    const loading = this.#untilClosed(listening)
+      .then(() => this.#request({ type: "create", options }, []))
+      .then(
+        () => {
+          if (this.#worker !== worker) return;
+          this.#loaded = true;
+          // Warm up while idle, unless a scan is waiting or follows at once.
+          setTimeout(() => {
+            if (this.#worker === worker && this.#calls === calls)
+              this.#request({ type: "warm" }, []).catch(() => undefined);
+          }, 0);
+        },
+        (error: unknown) => {
+          // A worker that never loaded stays failed: retrying would repeat the download.
+          this.#close(error instanceof Error ? error : new Error(String(error)));
+          throw error;
+        },
+      );
     loading.catch(() => undefined);
     return loading;
   }
 
   #watch(worker: Worker): void {
     worker.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
+      if (!("id" in data)) return;
       const pending = this.#pending.get(data.id);
       if (!pending) return;
       this.#pending.delete(data.id);

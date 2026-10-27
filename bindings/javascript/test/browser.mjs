@@ -605,6 +605,28 @@ test("an idle scanner warms up once loaded; one with a scan waiting does not", a
   });
 });
 
+test("a custom worker that imports the worker module asynchronously still loads", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { canvas } = globalThis.fixture;
+    const { Scanner } = await import("/dist/browser-medium.js");
+    // A worker file with a top-level await: messages sent before the module
+    // listens would be lost, so the scanner waits for it.
+    const source = `await new Promise((r) => setTimeout(r, 200));
+      await import("${location.origin}/dist/browser-worker-medium.js");`;
+    const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+    const scanner = new Scanner({
+      wasmBaseUrl: "/wasm/",
+      worker: () => new Worker(url, { type: "module" }),
+    });
+    try {
+      return (await scanner.scan(canvas)).values;
+    } finally {
+      scanner.dispose();
+    }
+  });
+  assert.deepEqual(outcome, [await page.evaluate(() => globalThis.fixture.text)]);
+});
+
 test("a worker that fails while loading is not replaced", async () => {
   const outcome = await page.evaluate(async () => {
     const { canvas } = globalThis.fixture;

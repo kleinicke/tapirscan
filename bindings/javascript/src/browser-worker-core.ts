@@ -28,6 +28,7 @@ export type WorkerRequest =
   | { id: number; type: "warm" }
   | { id: number; type: "scan" | "inspect"; source: WorkerSource; options: ScanOptions };
 export type WorkerResponse =
+  | { listening: true }
   | { id: number; value: unknown }
   | { id: number; error: { name: string; message: string; code?: string } };
 
@@ -245,4 +246,7 @@ export function serve(assets: WasmAssets): void {
       },
     );
   };
+  // The scanner sends its first request only now: a worker file that imports this
+  // module with a top-level await would lose messages sent before it listens.
+  scope.postMessage({ listening: true });
 }
