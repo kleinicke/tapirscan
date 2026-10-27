@@ -290,11 +290,15 @@ export class RustScannerSession {
    * call opens a fresh instance of the same compiled module.
    */
   private guarded<T>(scan: () => T): T {
-    if (this.stopped) {
-      [this.exports, this.handle] = open(new WebAssembly.Instance(this.module, {}), this.settings);
-      this.stopped = false;
-    }
     try {
+      // Reopening can fail as the trap did, for example out of memory again.
+      if (this.stopped) {
+        [this.exports, this.handle] = open(
+          new WebAssembly.Instance(this.module, {}),
+          this.settings,
+        );
+        this.stopped = false;
+      }
       return scan();
     } catch (error) {
       if (!(error instanceof WebAssembly.RuntimeError || error instanceof RangeError)) throw error;

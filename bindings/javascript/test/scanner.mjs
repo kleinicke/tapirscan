@@ -802,6 +802,30 @@ test("an engine trap fails one scan; the next scan starts a fresh engine", async
   // Other errors leave the engine in place.
   assert.throws(() => scanner.scan({ data: new Uint8Array(4), width: 2, height: 2, channels: 1 }));
   assert.deepEqual(scanner.scan(image).values, [text]);
+  // A reopen that fails the same way is reported as an engine failure and retried.
+  host.exports = {
+    ...host.exports,
+    tapirscan_scan: () => {
+      throw new WebAssembly.RuntimeError("unreachable");
+    },
+  };
+  assert.throws(
+    () => scanner.scan(image),
+    (error) => error.code === "engine",
+  );
+  const Instance = WebAssembly.Instance;
+  WebAssembly.Instance = function () {
+    throw new RangeError("out of memory");
+  };
+  try {
+    assert.throws(
+      () => scanner.scan(image),
+      (error) => error.code === "engine" && error.cause.message === "out of memory",
+    );
+  } finally {
+    WebAssembly.Instance = Instance;
+  }
+  assert.deepEqual(scanner.scan(image).values, [text]);
   // A stopped engine stays disposed after dispose().
   host.exports = {
     ...host.exports,
