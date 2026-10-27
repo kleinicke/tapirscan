@@ -122,19 +122,35 @@ async function prepare(
 /**
  * The current frame of a video, or a clone of a caller's VideoFrame, where the
  * browser has VideoFrame: it reaches the worker without the copy that
- * createImageBitmap makes, and draws there to the same pixels.
+ * createImageBitmap makes, and draws there to the same pixels. A rotated or
+ * mirrored frame (phone cameras can tag them) takes the bitmap path, which shows
+ * it as the video does.
  */
 function videoFrame(source: ImageBitmapSource): VideoFrame | undefined {
   if (typeof VideoFrame === "undefined") return undefined;
-  if (source instanceof VideoFrame) return source.clone();
-  if (typeof HTMLVideoElement === "undefined" || !(source instanceof HTMLVideoElement))
-    return undefined;
+  const video =
+    typeof HTMLVideoElement !== "undefined" && source instanceof HTMLVideoElement
+      ? source
+      : undefined;
+  let frame: VideoFrame;
   try {
-    return new VideoFrame(source);
+    if (source instanceof VideoFrame) frame = source.clone();
+    else if (video) frame = new VideoFrame(video);
+    else return undefined;
   } catch {
-    // Before the first frame, for example; createImageBitmap reports it.
+    // createImageBitmap reports the browser's own error.
     return undefined;
   }
+  // `rotation` and `flip` are newer than TypeScript's DOM types.
+  const { rotation = 0, flip = false } = frame as { rotation?: number; flip?: boolean };
+  const upright =
+    rotation === 0 &&
+    !flip &&
+    (!video ||
+      (frame.displayWidth === video.videoWidth && frame.displayHeight === video.videoHeight));
+  if (upright) return frame;
+  frame.close();
+  return undefined;
 }
 
 /** Options of a single-mode entry such as tapirscan/browser/medium. */
@@ -240,11 +256,15 @@ export class BrowserScanner {
     this.#ready.catch(() => undefined);
   }
 
-  /** Start a worker and load the scanner in it; resolves once it is loaded. */
-  #start(options: WorkerScannerOptions): Promise<void> {
+  /**
+   * Start a worker and load the scanner in it; resolves once it is loaded. A
+   * replacement does not warm up: the scan that started it is waiting.
+   */
+  #start(options: WorkerScannerOptions, warm = true): Promise<void> {
     const worker = this.#spawn?.();
     this.#worker = worker;
     this.#options = options;
+    this.#failure = undefined;
     const calls = this.#calls;
     const listening = new Promise<void>((resolve) => {
       worker?.addEventListener("message", function heard({ data }: MessageEvent<WorkerResponse>) {
@@ -261,7 +281,7 @@ export class BrowserScanner {
           this.#loaded = true;
           // Warm up while idle, unless a scan is waiting or follows at once.
           setTimeout(() => {
-            if (this.#worker === worker && this.#calls === calls)
+            if (warm && this.#worker === worker && this.#calls === calls)
               this.#request({ type: "warm" }, []).catch(() => undefined);
           }, 0);
         },
@@ -382,7 +402,7 @@ export class BrowserScanner {
 
   /** Start a replacement for a worker that failed after loading, unless disposed. */
   #replace(): void {
-    if (!this.#worker && !this.#closed) this.#ready = this.#start(this.#options);
+    if (!this.#worker && !this.#closed) this.#ready = this.#start(this.#options, false);
   }
 
   /** Wait for `promise`, but reject at once on dispose. Leaves nothing behind. */

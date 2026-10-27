@@ -515,10 +515,18 @@ test("a worker that fails after loading is replaced on the next scan", async () 
     const { canvas } = globalThis.fixture;
     const { Scanner } = await import("/dist/browser-medium.js");
     const workers = [];
+    const sent = [];
     const scanner = new Scanner({
       worker: () => {
         const worker = new Worker("/dist/browser-worker-medium.js", { type: "module" });
+        const types = [];
+        const post = worker.postMessage.bind(worker);
+        worker.postMessage = (message, transfer) => {
+          types.push(message.type);
+          post(message, transfer);
+        };
         workers.push(worker);
+        sent.push(types);
         return worker;
       },
     });
@@ -545,7 +553,8 @@ test("a worker that fails after loading is replaced on the next scan", async () 
       kill(workers[1]);
       const again = (await scanner.scan(canvas)).values;
       await scanner.ready;
-      return { first, failed, replaced, again, workers: workers.length };
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { first, failed, replaced, again, workers: workers.length, sent: sent.slice(1) };
     } finally {
       scanner.dispose();
     }
@@ -557,6 +566,11 @@ test("a worker that fails after loading is replaced on the next scan", async () 
     replaced: [[text], [text]],
     again: [text],
     workers: 3,
+    // Replacements do not warm up: a scan is already waiting.
+    sent: [
+      ["create", "scan", "scan"],
+      ["create", "scan"],
+    ],
   });
 });
 

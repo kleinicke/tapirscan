@@ -211,7 +211,9 @@ async function handle(request: WorkerRequest, assets: WasmAssets): Promise<unkno
   }
   if (!scanner) throw new Error("Scanner is not created");
   if (request.type === "warm") {
-    scanner.scan(warmUpImage());
+    // High and Very High warm up for hundreds of milliseconds, long enough to
+    // delay the first camera frame on a phone.
+    if (scanner.mode === "low" || scanner.mode === "medium") scanner.scan(warmUpImage());
     return undefined;
   }
   const decoded = await decode(request.source);

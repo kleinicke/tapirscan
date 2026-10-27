@@ -376,7 +376,7 @@ export default defineConfig({
 ### Scanners in apps and on phones
 
 Measured in desktop Chrome and WebKit (the engine of iOS Safari) on 720p frames;
-a phone is slower, but the proportions hold.
+phones were not measured and are slower.
 
 - **Create one scanner early and keep it.** Create it when the app starts, or at
   the latest when the scanning view opens, at the same time as the camera, not
@@ -386,13 +386,14 @@ a phone is slower, but the proportions hold.
   camera, not the scanner: a new scanner downloads (from the cache) and compiles
   again, and its first scans are two to three times slower. Dispose it when the
   app no longer scans at all.
-- **Start-up:** a scanner is ready about 25-50 ms after construction from a
+- **Start-up:** a scanner is ready about 20-50 ms after construction from a
   local server (12-15 ms once cached), far less than the 0.5-1 s a phone camera
   needs to deliver its first frame, so creating the scanner when the camera
   opens is early enough. The download is 0.8-1 MB gzip per mode. Once loaded and
-  idle, a scanner scans a small built-in frame (25-160 ms in Low and Medium,
+  idle, a Low or Medium scanner scans a small built-in frame (25-160 ms,
   depending on formats): a fresh scanner's first scans are two to three times
-  slower while the engine compiles, and this halves the first camera frame's time.
+  slower while the engine compiles, and this cuts the first camera frame's time
+  by 30% (WebKit) to 50% (Chrome).
 - **Select only the formats you accept.** On 720×1280 phone video frames, Low
   takes about 5 ms with the retail formats and 31 ms with nine 1D formats plus QR
   Code, Data Matrix, Aztec and PDF417; Medium takes 17 and 44 ms. Each 2D format
@@ -407,7 +408,8 @@ a phone is slower, but the proportions hold.
   [Turbo preset](#experimental-turbo-presets) when codes are large and sharp and
   your own frames read equally well.
 - **Pass the `<video>`, not a canvas copy.** `scan(video)` hands the current
-  frame to the worker as a `VideoFrame` in about 2 ms; drawing the video into a
+  frame to the worker as a `VideoFrame` in about 2 ms (rotated or mirrored
+  frames take a bitmap copy); drawing the video into a
   canvas first costs up to 7 ms more on the page (WebKit). `ImageData` and pixel
   buffers you already have are cheapest. Ask the camera for 720p or 1080p
   (`CameraScanner` asks for 1280×720); larger frames cost more to scan.
@@ -422,8 +424,8 @@ a phone is slower, but the proportions hold.
   zero-size canvas) rejects with its `DOMException`; check
   `video.readyState >= 2` first. An engine failure, such as running out of
   memory, rejects with `ScannerError` code `"engine"`, and the next scan starts a
-  fresh engine. A worker that stops after loading rejects its scans, and the
-  next scan starts a new worker. Only a scanner that never loaded (`ready`
+  fresh engine. A worker that reports an error after loading rejects its scans,
+  and the next scan starts a new worker; one that stops silently is not detected. Only a scanner that never loaded (`ready`
   rejects: download, Content Security Policy, unsupported browser) or was
   disposed rejects every scan; create a new one or fall back to another decoder.
   `CameraScanner` skips a failed frame and stops after three failures in a row.
@@ -434,8 +436,8 @@ a phone is slower, but the proportions hold.
   grows it to 54-58 MiB with the retail formats and to about 146 MiB with 2D
   formats. Scan occasional large photos with a separate scanner and dispose it
   afterwards, or scan a smaller copy when the codes are large.
-- **Hidden pages:** `CameraScanner` releases the camera while the page is hidden;
-  the scanner keeps its memory and needs nothing on return.
+- **Hidden pages:** `CameraScanner` releases the camera while the page is hidden
+  and reopens it when the page is shown; the scanner keeps its memory.
 
 #### Angular root service
 

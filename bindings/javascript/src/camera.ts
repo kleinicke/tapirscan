@@ -377,7 +377,7 @@ export class CameraScanner {
 
   /**
    * Stop `session` when the app replaces the video's stream. A paused video only
-   * pauses scanning: requestVideoFrameCallback waits until it plays again.
+   * pauses scanning: the scan loop waits until it plays again.
    */
   #watch(session: number, stream: MediaStream): void {
     const video = this.#video;

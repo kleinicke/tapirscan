@@ -27,13 +27,13 @@
   take as long as before.
 - Browser scanners recover instead of failing for good: a WASM engine failure
   (out of memory, stack overflow) fails that one scan and the next scan starts
-  a fresh engine, also in the core `Scanner`; a worker that stops after loading
-  is replaced on the next scan. `CameraScanner` skips a failed frame and stops
+  a fresh engine, also in the core `Scanner`; a worker that reports an error
+  after loading is replaced on the next scan. `CameraScanner` skips a failed frame and stops
   only when the scanner is disposed or after three failures in a row.
 - Faster first frames and video hand-over in the browser: an idle scanner warms
-  up once loaded, so its first camera frame takes about half as long as before;
-  `<video>` and `VideoFrame` inputs reach the worker as `VideoFrame`s, 2.5-4 ms
-  faster per 720p frame. Results are unchanged.
+  up once loaded in Low and Medium, so its first camera frame takes 30% (WebKit)
+  to 50% (Chrome) less time; `<video>` and `VideoFrame` inputs reach the worker
+  as `VideoFrame`s, 2-4 ms faster per 720p frame. Results are unchanged.
 - `CameraScanner` pauses scanning while the video is paused in Safari too, and a
   custom worker file that imports the worker module with a top-level `await`
   no longer leaves the scanner waiting forever.
