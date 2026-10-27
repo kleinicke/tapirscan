@@ -89,7 +89,7 @@ impl CandidateScanner {
             c.work.structural_discovery_complete = true;
         }
         let verified = claims(im, &mut outputs, &mut run.reuse);
-        let refresh = select_effort(im, &mut outputs, &mut run, scaled);
+        let refresh = select_effort(im, &mut outputs, &mut run, scaled, &self.retail);
         let plans = prepare_retries(&mut outputs, &mut run, scaled, &verified);
         self.execute_retries(im, &mut outputs, &mut run, &plans, refresh);
         let verified = claims(im, &mut outputs, &mut run.reuse);
@@ -546,15 +546,20 @@ fn select_effort(
     outputs: &mut [Candidate],
     run: &mut Execution,
     scaled: bool,
+    retail: &crate::retail_pipeline::Collector,
 ) -> bool {
     #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     let policy = run.policy;
     #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     let budget = &mut run.association;
     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
-    let _ = (im, outputs, run, scaled);
-    #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
-    let discovery_reads = probe_discovery(im, outputs, policy, budget, scaled);
+    let _ = (im, outputs, run, scaled, retail);
+    #[cfg(feature = "mode-low")]
+    let (discovery_reads, _) = (probe_discovery(im, outputs, policy, budget, scaled), retail);
+    #[cfg(feature = "mode-medium")]
+    let mut discovery_reads = probe_discovery(im, outputs, policy, budget, scaled);
+    #[cfg(feature = "mode-medium")]
+    add_short_reads(im, outputs, &mut discovery_reads, retail, scaled);
     #[cfg(any(feature = "mode-low", feature = "mode-medium"))]
     let strong = outputs
         .iter()
@@ -642,6 +647,33 @@ fn select_effort(
     #[cfg(any(feature = "mode-high", feature = "mode-very-high"))]
     {
         false
+    }
+}
+/// Medium also counts the EAN-8 and UPC-E reads the shared retail rows already assemble,
+/// unless a primary read is already confident or they show further symbols: they may lower
+/// the frame's effort, never raise it.
+#[cfg(feature = "mode-medium")]
+fn add_short_reads(
+    im: ImageView<'_>,
+    outputs: &[Candidate],
+    discovery_reads: &mut Vec<candidate_scanner::Detection>,
+    retail: &crate::retail_pipeline::Collector,
+    scaled: bool,
+) {
+    let primary = |reads: &[candidate_scanner::Detection]| {
+        outputs
+            .iter()
+            .flat_map(|c| c.detections.iter())
+            .chain(reads)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    if !scaled || primary(discovery_reads).iter().any(|d| d.support >= 4) {
+        return;
+    }
+    let short = retail.probe(im);
+    if !multiple_initial(primary(discovery_reads).iter().chain(&short)) {
+        discovery_reads.extend(short);
     }
 }
 fn prepare_retries(

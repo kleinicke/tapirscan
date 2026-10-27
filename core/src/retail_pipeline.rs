@@ -289,6 +289,39 @@ impl Collector {
             });
         }
     }
+    /// Medium: EAN-8 and UPC-E reads the rows collected so far already assemble into, for
+    /// effort selection only. A small probe budget per box, separate from the frame's and the
+    /// final assembly's; a truncated box contributes nothing.
+    #[cfg(feature = "mode-medium")]
+    pub(crate) fn probe(&self, im: ImageView<'_>) -> Vec<crate::candidate_scanner::Detection> {
+        let mut reads = Vec::new();
+        for (q, obs) in &self.groups {
+            if obs.len() < 2 {
+                continue;
+            }
+            let Ok(m) = crate::scan::transform(*q) else {
+                continue;
+            };
+            let mut budget = AssociationBudget {
+                checks_left: 2_000,
+                pixels_left: 32_768,
+            };
+            let mut work = Work::default();
+            let found = crate::candidate_scanner::assemble_many_budget_options(
+                im,
+                m.0,
+                obs,
+                &mut work,
+                true,
+                &mut budget,
+                false,
+            );
+            if work.association_truncated == 0 {
+                reads.extend(found);
+            }
+        }
+        reads
+    }
     pub fn finish_typed(&mut self, im: ImageView<'_>, diagnostics: bool) -> RetailResult {
         let mut budget = AssociationBudget {
             checks_left: 100_000,

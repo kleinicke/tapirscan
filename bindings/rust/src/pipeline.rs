@@ -271,9 +271,11 @@ fn scan_prepared_impl(
 
     #[cfg(feature = "medium")]
     if context.primary_selected() {
+        let short: Vec<Quad> = retail.iter().map(|r| r.polygon).collect();
         recover_primary_proposals(
             image,
             &localization.proposals,
+            &short,
             &mut scan,
             &mut scanner.fast_profiles,
         )?;
@@ -319,6 +321,7 @@ fn scan_prepared_impl(
         recover_primary_proposals(
             image,
             &localization.proposals,
+            &[],
             &mut scan,
             &mut scanner.fast_profiles,
         )?;
@@ -609,6 +612,7 @@ fn recover_highpass_proposals(
     proposals: &[Proposal],
     scan: &super::ScanResult,
     protected: &[Barcode],
+    short: &[Quad],
     sampler: &mut barcode_research_core::fast_profile::Sampler,
 ) -> std::result::Result<Vec<super::read::Read>, Error> {
     let selected: Vec<_> = proposals
@@ -622,9 +626,7 @@ fn recover_highpass_proposals(
                     && (cfg!(feature = "medium")
                         || c.work.guard_pass > 0
                         || c.work.forward_blur_windows >= 2)
-            }) && !protected
-                .iter()
-                .any(|b| super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3)
+            }) && !owned_box(p, protected, short)
         })
         .map(|(_, p)| *p)
         .take(HIGHPASS_PROPOSALS)
@@ -701,6 +703,7 @@ fn recovery_evidence(
 fn recover_primary_proposals(
     image: Image<'_>,
     proposals: &[Proposal],
+    short: &[Quad],
     scan: &mut super::ScanResult,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
 ) -> std::result::Result<(), Error> {
@@ -708,19 +711,31 @@ fn recover_primary_proposals(
     {
         // Only profile retries share this transaction; recursive crop scans start later.
         sampler.with_source_cache(checked_image(image)?, true, |sampler| {
-            recover_primary_profiles(image, proposals, scan, sampler)
+            recover_primary_profiles(image, proposals, short, scan, sampler)
         })
     }
     #[cfg(not(feature = "medium"))]
     {
-        recover_primary_profiles(image, proposals, scan, sampler)
+        recover_primary_profiles(image, proposals, short, scan, sampler)
     }
 }
 
+/// Whether a box is mostly covered by a read: its bars are no unresolved EAN-13/UPC-A.
+#[cfg(not(feature = "low"))]
+fn owned_box(p: &Proposal, protected: &[Barcode], short: &[Quad]) -> bool {
+    protected
+        .iter()
+        .map(|b| &b.detection.polygon)
+        .chain(short)
+        .any(|q| super::geometry::overlap_quads(&p.polygon, q).1 >= 0.3)
+}
+
+/// `short` holds the frame's EAN-8 and UPC-E reads, whose boxes are not retried.
 #[cfg(not(feature = "low"))]
 fn recover_primary_profiles(
     image: Image<'_>,
     proposals: &[Proposal],
+    short: &[Quad],
     scan: &mut super::ScanResult,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
 ) -> std::result::Result<(), Error> {
@@ -730,10 +745,7 @@ fn recover_primary_profiles(
         .iter()
         .enumerate()
         .filter(|(i, p)| {
-            recovery_evidence(p, scan.frame.candidates.get(*i))
-                && !protected.iter().any(|b| {
-                    super::geometry::overlap_quads(&p.polygon, &b.detection.polygon).1 >= 0.3
-                })
+            recovery_evidence(p, scan.frame.candidates.get(*i)) && !owned_box(p, &protected, short)
         })
         .collect();
     unresolved.sort_by_key(|(i, _)| std::cmp::Reverse(scan.frame.candidates[*i].work.guard_pass));
@@ -753,7 +765,8 @@ fn recover_primary_profiles(
         sampler,
         SourceProfile::Color(2),
     )?;
-    let highpass = recover_highpass_proposals(image, all_proposals, scan, &protected, sampler)?;
+    let highpass =
+        recover_highpass_proposals(image, all_proposals, scan, &protected, short, sampler)?;
     admit_primary_reads(
         image,
         scan,

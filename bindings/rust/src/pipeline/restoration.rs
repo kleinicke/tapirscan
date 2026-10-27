@@ -387,27 +387,36 @@ pub(super) fn reduce_gray(image: Image<'_>, factor: f64) -> (Vec<u8>, usize, usi
         let end = f64_usize((usize_f64(o + 1) / factor).ceil()).clamp(start + 1, length);
         start..end
     };
+    let columns: Vec<_> = (0..w).map(|ox| span(ox, image.width)).collect();
+    let used = columns[0].start..columns[w - 1].end;
+    // Per output row, sum each source column over the row span once, then each output
+    // pixel adds its column sums: the same integer sums as per-pixel area loops.
+    let mut sums = vec![0u32; image.width];
     let mut out = vec![0u8; w * h];
     for (oy, row) in out.chunks_exact_mut(w).enumerate() {
         let rows = span(oy, image.height);
-        for (ox, value) in row.iter_mut().enumerate() {
-            let columns = span(ox, image.width);
-            let mut sum = 0u32;
-            for line in image
-                .data
-                .chunks(image.stride)
-                .skip(rows.start)
-                .take(rows.len())
-            {
-                for x in columns.clone() {
-                    let p = &line[x * image.channels..];
-                    sum += if image.channels == 1 {
-                        u32::from(p[0])
-                    } else {
-                        (u32::from(p[0]) * 77 + u32::from(p[1]) * 150 + u32::from(p[2]) * 29) >> 8
-                    };
+        sums[used.clone()].fill(0);
+        for line in image
+            .data
+            .chunks(image.stride)
+            .skip(rows.start)
+            .take(rows.len())
+        {
+            let sums = &mut sums[used.clone()];
+            if image.channels == 1 {
+                for (sum, &p) in sums.iter_mut().zip(&line[used.clone()]) {
+                    *sum += u32::from(p);
+                }
+            } else {
+                let line = &line[used.start * image.channels..used.end * image.channels];
+                for (sum, p) in sums.iter_mut().zip(line.chunks_exact(image.channels)) {
+                    *sum +=
+                        (u32::from(p[0]) * 77 + u32::from(p[1]) * 150 + u32::from(p[2]) * 29) >> 8;
                 }
             }
+        }
+        for (value, columns) in row.iter_mut().zip(&columns) {
+            let sum: u32 = sums[columns.clone()].iter().sum();
             let count = u32::try_from(rows.len() * columns.len()).unwrap_or(u32::MAX);
             *value = u8::try_from((sum + count / 2) / count).unwrap_or(u8::MAX);
         }

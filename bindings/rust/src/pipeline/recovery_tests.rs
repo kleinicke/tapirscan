@@ -137,3 +137,64 @@ fn source_veto_requires_a_conflicting_symbol_at_the_same_location() {
     };
     assert!(!source_contradiction(blank, q, other, &mut sampler).unwrap());
 }
+
+/// The per-pixel area loop that `reduce_gray` replaces with column sums.
+fn reduce_gray_reference(image: Image<'_>, factor: f64) -> Vec<u8> {
+    use barcode_research_core::numeric::{f64_usize, usize_f64};
+    let w = f64_usize((usize_f64(image.width) * factor).floor()).max(3);
+    let h = f64_usize((usize_f64(image.height) * factor).floor()).max(3);
+    let span = |o: usize, length: usize| {
+        let start = f64_usize((usize_f64(o) / factor).floor()).min(length - 1);
+        let end = f64_usize((usize_f64(o + 1) / factor).ceil()).clamp(start + 1, length);
+        start..end
+    };
+    let mut out = vec![0u8; w * h];
+    for (oy, row) in out.chunks_exact_mut(w).enumerate() {
+        let rows = span(oy, image.height);
+        for (ox, value) in row.iter_mut().enumerate() {
+            let columns = span(ox, image.width);
+            let mut sum = 0u32;
+            for line in image
+                .data
+                .chunks(image.stride)
+                .skip(rows.start)
+                .take(rows.len())
+            {
+                for x in columns.clone() {
+                    let p = &line[x * image.channels..];
+                    sum += if image.channels == 1 {
+                        u32::from(p[0])
+                    } else {
+                        (u32::from(p[0]) * 77 + u32::from(p[1]) * 150 + u32::from(p[2]) * 29) >> 8
+                    };
+                }
+            }
+            let count = u32::try_from(rows.len() * columns.len()).unwrap();
+            *value = u8::try_from((sum + count / 2) / count).unwrap();
+        }
+    }
+    out
+}
+
+#[test]
+fn reduce_gray_matches_per_pixel_area_sums() {
+    for (width, height) in [(3, 3), (17, 9), (101, 67), (640, 37)] {
+        for channels in [1, 3, 4] {
+            let stride = width * channels + 5;
+            let data: Vec<u8> = (0..stride * height)
+                .map(|i| u8::try_from((i * 73 + i / 7 * 31 + 19) % 256).unwrap())
+                .collect();
+            let image = Image {
+                data: &data[..stride * (height - 1) + width * channels],
+                width,
+                height,
+                channels,
+                stride,
+            };
+            for factor in [0.9, 0.5, 0.37, 0.188, 0.05] {
+                let (reduced, _, _) = super::restoration::reduce_gray(image, factor);
+                assert_eq!(reduced, reduce_gray_reference(image, factor));
+            }
+        }
+    }
+}
