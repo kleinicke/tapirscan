@@ -181,6 +181,7 @@ fn retain_separated_raw_upce(candidate: &mut Candidate<'_>) {
     let payload_rows: Vec<(String, u64)> = candidate
         .observations
         .iter()
+        .filter(|observation| observation.read.format == "UPCE")
         .map(|observation| (observation.read.text.clone(), observation.original_rows))
         .collect();
     candidate.observations.retain(|observation| {

@@ -1079,10 +1079,10 @@ pub struct Policy {
 pub enum Settle {
     /// Every mode runs.
     Never,
-    /// Once a symbol is read, the inverse modes are skipped, and the local mode too
-    /// when the global mode left no finder unclaimed. A symbol of the other polarity
-    /// beside a read one is rare, and the local threshold seldom finds a further
-    /// symbol without its finders showing on the global one.
+    /// Once a symbol is read, the inverse modes are skipped, and the local mode
+    /// decodes only when its own finders include unclaimed ones: three for a QR Code,
+    /// one for a Micro QR. A further symbol in shadow shows its finders there; one of
+    /// the other polarity beside a read symbol is left to High.
     Explained,
 }
 /// Resampling module centers in gray with module-space thresholds.
@@ -1426,7 +1426,6 @@ pub fn detect_symbols(
     let mut prior_count = 0;
     let mut partial_modes: Vec<(usize, Vec<Finder>)> = Vec::new();
     // Finders of the latest mode that no read claims.
-    let mut unexplained = usize::MAX;
     // The offset samplings are kept only for the retries that use them.
     let keep_samples = policy.offset_erasures || policy.gray != GrayRetry::Off;
     // A standard pass that stopped with work left and likely holds more symbols,
@@ -1475,10 +1474,9 @@ pub fn detect_symbols(
         if binary_images.is_duplicate(mode) && results.len() == prior_count {
             continue;
         }
-        if policy.settle == Settle::Explained
-            && !results.is_empty()
-            && ((2..STANDARD_MODES).contains(&mode) || (mode == 1 && unexplained == 0))
-        {
+        let settled =
+            policy.settle == Settle::Explained && !results.is_empty() && mode < STANDARD_MODES;
+        if settled && mode >= 2 {
             continue;
         }
         prior_count = results.len();
@@ -1486,6 +1484,19 @@ pub fn detect_symbols(
         let gray = binary_images.gray();
         let (image, row_cache) = binary_images.get_with_runs(mode, step);
         let (mut finders, capped) = finders_with_rows(image, w, h, Some(row_cache));
+        if settled {
+            let unclaimed = finders
+                .iter()
+                .filter(|p| {
+                    !used
+                        .iter()
+                        .any(|q| distance(p, q) < p.module.min(q.module) * 2.)
+                })
+                .count();
+            if unclaimed < if symbols.micro { 1 } else { 3 } {
+                continue;
+            }
+        }
         regions.limited |= capped;
         if symbols.qr && mode < STANDARD_MODES {
             let room = policy
@@ -1944,14 +1955,6 @@ pub fn detect_symbols(
                 regions,
             );
         }
-        unexplained = finders
-            .iter()
-            .filter(|p| {
-                !used
-                    .iter()
-                    .any(|q| distance(p, q) < p.module.min(q.module) * 2.)
-            })
-            .count();
         partial_modes.push((mode, finders));
     }
     let mut limited = single_limited || curved_limited || starved || micro_limited;
@@ -2553,6 +2556,47 @@ mod bounded_work_tests {
 mod policy_tests {
     use super::Policy;
 
+    /// Version 1-M "TAPIRSCAN".
+    const TAPIRSCAN: [&str; 21] = [
+        "111111101101001111111",
+        "100000101100001000001",
+        "101110100011001011101",
+        "101110101110101011101",
+        "101110100001001011101",
+        "100000100111101000001",
+        "111111101010101111111",
+        "000000001111100000000",
+        "101101110111101001011",
+        "000001001001111100011",
+        "011110110111000001001",
+        "100011010001001011111",
+        "001100100010100100000",
+        "000000001101001010111",
+        "111111101111100101101",
+        "100000101010000110100",
+        "101110100010111000111",
+        "101110101101001101010",
+        "101110101000101100000",
+        "100000100110010100100",
+        "111111101000010011010",
+    ];
+
+    /// `TAPIRSCAN` with 4-pixel modules and a 4-module quiet zone at `x0` in a
+    /// `w`-pixel-wide gray frame, dark and light modules as given.
+    fn draw_tapirscan(gray: &mut [u8], w: usize, x0: usize, [dark, light]: [u8; 2]) {
+        for y in 0..29 {
+            for x in 0..29 {
+                let bit = (4..25).contains(&y)
+                    && (4..25).contains(&x)
+                    && TAPIRSCAN[y - 4].as_bytes()[x - 4] == b'1';
+                for dy in 0..4 {
+                    let start = (12 + 4 * y + dy) * w + x0 + 4 * x;
+                    gray[start..start + 4].fill(if bit { dark } else { light });
+                }
+            }
+        }
+    }
+
     #[test]
     fn several_reads_get_medium_patience_in_every_mode() {
         // Low stops early after a single read only; a sheet of several symbols
@@ -2567,15 +2611,35 @@ mod policy_tests {
     }
 
     #[test]
-    fn low_and_medium_settle_high_searches_every_mode() {
-        use super::Settle;
+    fn settled_modes_still_read_a_symbol_in_shadow_but_not_one_inverted() {
+        use super::{Pass, detect_with};
+        use crate::{binarization::Images, regions::Regions};
+        let (w, h) = (264, 140);
+        let reads = |second: [u8; 2], mode: usize| {
+            let mut gray = vec![200_u8; w * h];
+            draw_tapirscan(&mut gray, w, 8, [30, 220]);
+            draw_tapirscan(&mut gray, w, 136, second);
+            let mut images = Images::new(&gray, w, h);
+            let pass = Pass::effort(false, false);
+            let found = detect_with(
+                w,
+                h,
+                &mut Regions::default(),
+                &mut images,
+                Policy::for_mode(mode),
+                pass,
+            );
+            found.0.len()
+        };
         for mode in 0..4 {
-            let expected = if mode <= 1 {
-                Settle::Explained
-            } else {
-                Settle::Never
-            };
-            assert_eq!(Policy::for_mode(mode).settle, expected, "mode {mode}");
+            // The local threshold shows the shaded symbol's finders.
+            assert_eq!(reads([40, 95], mode), 2, "shadow, mode {mode}");
+            // Low and Medium leave a symbol of the other polarity beside a read one to High.
+            assert_eq!(
+                reads([220, 30], mode),
+                if mode <= 1 { 1 } else { 2 },
+                "inverted, mode {mode}"
+            );
         }
     }
 
@@ -2591,29 +2655,7 @@ mod policy_tests {
             assert_eq!(Policy::for_mode(mode).evidence_budget, 0, "mode {mode}");
         }
         // Version 1-M "TAPIRSCAN" with 4-pixel modules, which a retry reads.
-        let rows = [
-            "111111101101001111111",
-            "100000101100001000001",
-            "101110100011001011101",
-            "101110101110101011101",
-            "101110100001001011101",
-            "100000100111101000001",
-            "111111101010101111111",
-            "000000001111100000000",
-            "101101110111101001011",
-            "000001001001111100011",
-            "011110110111000001001",
-            "100011010001001011111",
-            "001100100010100100000",
-            "000000001101001010111",
-            "111111101111100101101",
-            "100000101010000110100",
-            "101110100010111000111",
-            "101110101101001101010",
-            "101110101000101100000",
-            "100000100110010100100",
-            "111111101000010011010",
-        ];
+        let rows = TAPIRSCAN;
         let (w, h) = (140, 140);
         let mut gray = vec![220_u8; w * h];
         for (y, row) in rows.iter().enumerate() {
