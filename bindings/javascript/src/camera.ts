@@ -59,9 +59,11 @@ export interface CameraScannerOptions {
    */
   region?: ScanRegion;
   /**
-   * Called when scanning fails after `start()` resolved: the scanner failed or was
-   * disposed, the camera ended, the video lost its stream, or resuming after the
-   * page was hidden failed. Scanning has stopped and the camera is released.
+   * Called when scanning fails after `start()` resolved: the scanner was disposed
+   * or failed three scans in a row, the camera ended, the video lost its stream, or
+   * resuming after the page was hidden failed. Scanning has stopped and the camera
+   * is released. A single failed scan is skipped, since browser scanners recover
+   * from engine and worker failures on the next scan.
    * Without `onError`, the error goes to the global error handler (`reportError`).
    */
   onError?(error: Error): void;
@@ -271,6 +273,7 @@ export class CameraScanner {
     const video = this.#video;
     const { scanInterval = 0 } = this.#options;
     let seen: Reads = new Map();
+    let failures = 0;
     while (session === this.#session) {
       await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
       if (session !== this.#session) return;
@@ -283,9 +286,17 @@ export class CameraScanner {
       let result: ScanResult | undefined;
       try {
         result = await this.#scanFrame();
+        failures = 0;
       } catch (error) {
-        if (session === this.#session) this.#fail(toError(error));
-        return;
+        if (session !== this.#session) return;
+        // A failed frame is skipped: browser scanners recover from engine and
+        // worker failures on their next scan. Repeated or final failures stop.
+        const { code } = error as { code?: unknown };
+        if (code === "disposed" || code === "unsupported" || ++failures >= MAX_FAILURES) {
+          this.#fail(toError(error));
+          return;
+        }
+        continue;
       }
       if (session !== this.#session) return;
       if (result) seen = this.#report(result, seen, session, started);
@@ -409,6 +420,9 @@ export class CameraScanner {
  * scans since it was last read and when that scan started.
  */
 type Reads = Map<string, { reads: number; reported: boolean; missed: number; lastRead: number }>;
+
+/** Consecutive failed scans after which scanning stops; disposal stops it at once. */
+const MAX_FAILURES = 3;
 
 /** A reported barcode counts as gone once it is missing from this many consecutive scans */
 const FORGET_SCANS = 3;

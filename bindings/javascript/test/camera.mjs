@@ -262,6 +262,42 @@ for (const [name, launch] of browsers) {
       });
     });
 
+    test("a failed scan is skipped; three in a row stop scanning", async (context) => {
+      if (skip) return context.skip(skip);
+      const outcome = await page.evaluate(async () => {
+        const { camera, video } = globalThis.t;
+        const empty = { barcodes: [], values: [], best: undefined };
+        // Fails the scans listed in `failing` (1-based), succeeds otherwise.
+        const run = (failing) =>
+          new Promise((resolve) => {
+            let scans = 0;
+            const scanner = {
+              scan: async () => {
+                scans++;
+                if (failing.includes(scans)) throw new Error(`scan ${scans} failed`);
+                return empty;
+              },
+            };
+            let results = 0;
+            const controller = new camera.CameraScanner(video, scanner, {
+              onScan: () => {
+                if (++results === 3) {
+                  controller.stop();
+                  resolve({ scans, results });
+                }
+              },
+              onError: (error) => resolve({ scans, results, error: error.message }),
+            });
+            void controller.start();
+          });
+        return { recovers: await run([1, 2, 4]), stops: await run([2, 3, 4]) };
+      });
+      assert.deepEqual(outcome, {
+        recovers: { scans: 6, results: 3 },
+        stops: { scans: 4, results: 1, error: "scan 4 failed" },
+      });
+    });
+
     test("pauses while the page is hidden and resumes when shown", async (context) => {
       if (skip) return context.skip(skip);
       const outcome = await page.evaluate(async () => {
