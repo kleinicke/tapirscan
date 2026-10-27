@@ -673,15 +673,24 @@ impl Scanner {
                     )?;
                 }
                 if mask & UPCE != 0 && mask != UPCE && reads.iter().any(is_linear_read) {
-                    // Retry proposals that do not intersect a current read;
+                    // Retry proposals that do not intersect a current read, then those that a
+                    // read covers less than half of (a UPC-E beside an EAN-13 in one box);
                     // keep proposal and unread lists intact.
+                    let free = |proposal: &&crate::Proposal| {
+                        !reads
+                            .iter()
+                            .any(|read| overlap_quads(&read.polygon, &proposal.polygon).0 > 0.)
+                    };
+                    let partly = |proposal: &&crate::Proposal| {
+                        !free(proposal)
+                            && !reads.iter().any(|read| {
+                                overlap_quads(&proposal.polygon, &read.polygon).1 >= 0.5
+                            })
+                    };
                     let uncovered: Vec<_> = proposals
                         .iter()
-                        .filter(|proposal| {
-                            !reads
-                                .iter()
-                                .any(|read| overlap_quads(&read.polygon, &proposal.polygon).0 > 0.)
-                        })
+                        .filter(free)
+                        .chain(proposals.iter().filter(partly))
                         .take(2)
                         .copied()
                         .collect();

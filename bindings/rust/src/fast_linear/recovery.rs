@@ -151,8 +151,8 @@ enum RecoveryAdmission {
 }
 
 /// UPC-E recovery in unread proposals. A UPC-E read is kept only when original
-/// (unrefined) source rows that read it lie at three or more positions across the
-/// box, each at least the read's minimum span from the previous one, and then needs
+/// (unrefined) source rows that read its payload lie at three or more positions across
+/// the box, each at least the read's minimum span from the previous one, and then needs
 /// the same confirmation as other recovered reads.
 pub(crate) fn recover_uncovered_upce(
     image: Image<'_>,
@@ -176,15 +176,26 @@ fn retain_separated_raw_upce(candidate: &mut Candidate<'_>) {
     let top = point(candidate.quad, 0.5, 0.);
     let bottom = point(candidate.quad, 0.5, 1.);
     let height = (bottom[0] - top[0]).hypot(bottom[1] - top[1]);
+    // Rows of one symbol far apart in the box become separate observations of its payload;
+    // they count together.
+    let payload_rows: Vec<(String, u64)> = candidate
+        .observations
+        .iter()
+        .map(|observation| (observation.read.text.clone(), observation.original_rows))
+        .collect();
     candidate.observations.retain(|observation| {
         if observation.read.format != "UPCE" {
             return false;
         }
+        let rows = payload_rows
+            .iter()
+            .filter(|(text, _)| *text == observation.read.text)
+            .fold(0, |all, (_, rows)| all | rows);
         let mut positions: Vec<_> = candidate
             .row_positions
             .iter()
             .enumerate()
-            .filter(|(index, _)| observation.original_rows & (1_u64 << index) != 0)
+            .filter(|(index, _)| rows & (1_u64 << index) != 0)
             .map(|(_, v)| v * height)
             .collect();
         positions.sort_by(f64::total_cmp);
