@@ -274,6 +274,11 @@ export class CameraScanner {
     while (session === this.#session) {
       await new Promise((resolve) => video.requestVideoFrameCallback(resolve));
       if (session !== this.#session) return;
+      // WebKit keeps calling back while a camera video is paused: wait for play.
+      if (video.paused) {
+        await played(video, this.#watching?.signal);
+        continue;
+      }
       const started = performance.now();
       let result: ScanResult | undefined;
       try {
@@ -453,6 +458,23 @@ function offset(result: ScanResult, left: number, top: number): ScanResult {
   // `best` is one of `barcodes`; the worker's structured clone keeps that identity.
   const best = result.best && barcodes[result.barcodes.indexOf(result.best)];
   return freeze({ ...result, barcodes, best });
+}
+
+/** Resolves when `video` plays, or when `signal` aborts (the stream was released). */
+function played(video: HTMLVideoElement, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve) => {
+    if (!signal || signal.aborted) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      video.removeEventListener("play", done);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    video.addEventListener("play", done);
+    signal.addEventListener("abort", done);
+  });
 }
 
 function mediaDevices(): MediaDevices {

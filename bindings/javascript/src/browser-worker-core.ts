@@ -22,7 +22,7 @@ export interface WorkerScannerOptions {
   wasmBaseUrl?: string;
 }
 /** Inputs that are cheap to send: everything else becomes an ImageBitmap first. */
-export type WorkerSource = Blob | ImageBitmap | PixelImage;
+export type WorkerSource = Blob | ImageBitmap | VideoFrame | PixelImage;
 export type WorkerRequest =
   | { id: number; type: "create"; options: WorkerScannerOptions }
   | { id: number; type: "scan" | "inspect"; source: WorkerSource; options: ScanOptions };
@@ -80,7 +80,11 @@ function context2d(width: number, height: number): OffscreenCanvasRenderingConte
 }
 
 /** Composite `bitmap` onto white, as images are displayed, with its row `top` at y = 0. */
-function draw(context: OffscreenCanvasRenderingContext2D, bitmap: ImageBitmap, top: number): void {
+function draw(
+  context: OffscreenCanvasRenderingContext2D,
+  bitmap: ImageBitmap | VideoFrame,
+  top: number,
+): void {
   // The scanner ignores alpha, so transparent areas would otherwise read as black.
   context.fillStyle = "#fff";
   context.fillRect(0, 0, context.canvas.width, context.canvas.height);
@@ -91,19 +95,23 @@ type Decoded =
   { image: PixelImage; release(): void } | { rows: RowImage; read: RowReader; release(): void };
 
 /**
- * Decode a Blob or ImageBitmap onto white RGBA pixels; pixel inputs pass through.
- * Images above the working size are read band by band, so neither a full-size
- * canvas nor a full-size pixel copy is needed.
+ * Decode a Blob, ImageBitmap or VideoFrame onto white RGBA pixels; pixel inputs
+ * pass through. Images above the working size are read band by band, so neither
+ * a full-size canvas nor a full-size pixel copy is needed.
  */
 async function decode(source: WorkerSource): Promise<Decoded> {
-  if (!(source instanceof Blob) && !(source instanceof ImageBitmap))
-    return { image: source, release: () => undefined };
+  const frame = typeof VideoFrame !== "undefined" && source instanceof VideoFrame;
+  if (!(source instanceof Blob) && !(source instanceof ImageBitmap) && !frame)
+    return { image: source as PixelImage, release: () => undefined };
   const bitmap = source instanceof Blob ? await createImageBitmap(source) : source;
   const release = () => {
     bitmap.close();
   };
   try {
-    const { width, height } = bitmap;
+    const [width, height] =
+      bitmap instanceof ImageBitmap
+        ? [bitmap.width, bitmap.height]
+        : [bitmap.displayWidth, bitmap.displayHeight];
     // Reject before allocating a canvas; the scanner enforces the same limits.
     if (!validSize(width, height))
       throw new TypeError(

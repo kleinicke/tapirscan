@@ -1,6 +1,11 @@
 // Shared by the tapirscan/browser entries: the core API, run in a bundled worker,
 // for browser image sources. Each entry supplies the worker that bundles its WASM.
-import type { WorkerRequest, WorkerResponse, WorkerSource } from "./browser-worker-core.js";
+import type {
+  WorkerRequest,
+  WorkerResponse,
+  WorkerScannerOptions,
+  WorkerSource,
+} from "./browser-worker-core.js";
 import { freeze } from "./freeze.js";
 import { takeOver } from "./handover.js";
 import { pixelLayout } from "./layout.js";
@@ -97,9 +102,29 @@ async function prepare(
     return [{ data: copy, width, height, channels, stride }, [copy.buffer]];
   }
   if (source instanceof ImageBitmap && takeOver(source)) return [source, [source]];
+  const frame = videoFrame(source);
+  if (frame) return [frame, [frame]];
   // A copy, so a caller's ImageBitmap stays usable after it is transferred.
   const bitmap = await createImageBitmap(source);
   return [bitmap, [bitmap]];
+}
+
+/**
+ * The current frame of a video, or a clone of a caller's VideoFrame, where the
+ * browser has VideoFrame: it reaches the worker without the copy that
+ * createImageBitmap makes, and draws there to the same pixels.
+ */
+function videoFrame(source: ImageBitmapSource): VideoFrame | undefined {
+  if (typeof VideoFrame === "undefined") return undefined;
+  if (source instanceof VideoFrame) return source.clone();
+  if (typeof HTMLVideoElement === "undefined" || !(source instanceof HTMLVideoElement))
+    return undefined;
+  try {
+    return new VideoFrame(source);
+  } catch {
+    // Before the first frame, for example; createImageBitmap reports it.
+    return undefined;
+  }
 }
 
 /** Options of a single-mode entry such as tapirscan/browser/medium. */
@@ -107,12 +132,26 @@ export type SingleModeOptions = Omit<ScannerOptions, "mode" | "experimentalTurbo
 
 /** Every entry's `Scanner`, documented on tapirscan/browser's `Scanner`. */
 export class BrowserScanner {
-  /** Resolves once the scanner is loaded; rejects with the loading error. Optional. */
-  readonly ready: Promise<void>;
-  readonly #worker: Worker | undefined;
+  /**
+   * Resolves once the scanner is loaded; rejects with the loading error. Optional.
+   * After a worker failure it is the replacement worker's load.
+   */
+  get ready(): Promise<void> {
+    return this.#ready;
+  }
+  #ready: Promise<void>;
+  /** Undefined until the first worker starts and after a loaded worker failed. */
+  #worker: Worker | undefined;
+  /** Starts a worker with the creation options; undefined where none can run. */
+  readonly #spawn: (() => Worker) | undefined;
   readonly #pending = new Map<number, Pending>();
   #nextId = 0;
   #closed: Error | undefined;
+  /** Whether the current worker has loaded the scanner. */
+  #loaded = false;
+  /** Why the last loaded worker failed; calls fail with it until a replacement is sent. */
+  #failure: Error | undefined;
+  #options: WorkerScannerOptions = {};
   /** Rejecters of calls still waiting; each removes itself when its wait ends. */
   readonly #waiting = new Set<(reason: Error) => void>();
   /** Settles once the previous call has been sent, keeping submissions in call order. */
@@ -167,48 +206,87 @@ export class BrowserScanner {
       this.#closed = new Error(
         "tapirscan/browser scans in browsers; this environment has no Worker",
       );
-      this.ready = Promise.reject(this.#closed);
+      this.#ready = Promise.reject(this.#closed);
     } else if (!browserSupported()) {
       // No worker is started, so nothing is downloaded.
       this.#closed = new ScannerError(
         "unsupported",
         "Tapirscan needs WebAssembly SIMD, module workers and OffscreenCanvas, which this browser lacks",
       );
-      this.ready = Promise.reject(this.#closed);
+      this.#ready = Promise.reject(this.#closed);
     } else {
       const workerOptions = resolved === undefined ? rest : { ...rest, wasmBaseUrl: resolved };
-      const worker = (spawnCustom ?? spawn)();
-      this.#worker = worker;
-      worker.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
-        const pending = this.#pending.get(data.id);
-        if (!pending) return;
-        this.#pending.delete(data.id);
-        if ("error" in data) pending.reject(revive(data.error));
-        else pending.resolve(data.value);
+      const start = spawnCustom ?? spawn;
+      this.#spawn = () => {
+        const worker = start();
+        this.#watch(worker);
+        return worker;
       };
-      worker.onerror = (event) => {
-        event.preventDefault();
-        // A worker script that cannot load gives no message; name the usual cause.
-        this.#close(
-          new Error(
-            event.message ||
-              'Scanner worker failed to start: its script was not served. Vite 6/7 dev server: add optimizeDeps: { exclude: ["tapirscan"] }. Other setups: see docs/BROWSER_DEPLOYMENT.md.',
-          ),
-        );
-      };
-      worker.onmessageerror = () => {
-        this.#close(new Error("Could not read a scanner worker message"));
-      };
-      this.ready = this.#request({ type: "create", options: workerOptions }, []).then(
-        () => undefined,
-        (error: unknown) => {
-          this.#close(error instanceof Error ? error : new Error(String(error)));
-          throw error;
-        },
-      );
+      this.#ready = this.#start(workerOptions);
     }
     // Loading errors also reject every scan; awaiting ready is optional.
-    this.ready.catch(() => undefined);
+    this.#ready.catch(() => undefined);
+  }
+
+  /** Start a worker and load the scanner in it; resolves once it is loaded. */
+  #start(options: WorkerScannerOptions): Promise<void> {
+    const worker = this.#spawn?.();
+    this.#worker = worker;
+    this.#options = options;
+    const loading = this.#request({ type: "create", options }, []).then(
+      () => {
+        if (this.#worker === worker) this.#loaded = true;
+      },
+      (error: unknown) => {
+        // A worker that never loaded stays failed: retrying would repeat the download.
+        this.#close(error instanceof Error ? error : new Error(String(error)));
+        throw error;
+      },
+    );
+    loading.catch(() => undefined);
+    return loading;
+  }
+
+  #watch(worker: Worker): void {
+    worker.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
+      const pending = this.#pending.get(data.id);
+      if (!pending) return;
+      this.#pending.delete(data.id);
+      if ("error" in data) pending.reject(revive(data.error));
+      else pending.resolve(data.value);
+    };
+    worker.onerror = (event) => {
+      event.preventDefault();
+      // A worker script that cannot load gives no message; name the usual cause.
+      this.#fail(
+        worker,
+        new Error(
+          event.message ||
+            'Scanner worker failed to start: its script was not served. Vite 6/7 dev server: add optimizeDeps: { exclude: ["tapirscan"] }. Other setups: see docs/BROWSER_DEPLOYMENT.md.',
+        ),
+      );
+    };
+    worker.onmessageerror = () => {
+      this.#fail(worker, new Error("Could not read a scanner worker message"));
+    };
+  }
+
+  /**
+   * A worker failed. Before it loaded, the scanner fails for good; afterwards,
+   * its calls reject and the next scan starts a replacement worker.
+   */
+  #fail(worker: Worker, reason: Error): void {
+    if (worker !== this.#worker) return;
+    if (!this.#loaded) {
+      this.#close(reason);
+      return;
+    }
+    worker.terminate();
+    this.#worker = undefined;
+    this.#loaded = false;
+    this.#failure = reason;
+    for (const pending of this.#pending.values()) pending.reject(reason);
+    this.#pending.clear();
   }
 
   /** Decode barcodes with source-image positions. No detection returns empty values and barcodes. */
@@ -253,7 +331,9 @@ export class BrowserScanner {
     try {
       const [prepared, transferList] = await this.#untilClosed(preparing);
       await this.#untilClosed(previous);
-      await this.#untilClosed(this.ready);
+      // Replace a worker that failed after loading.
+      if (!this.#worker && !this.#closed) this.#ready = this.#start(this.#options);
+      await this.#untilClosed(this.#ready);
       const result = this.#request({ type, source: prepared, options: scanOptions }, transferList);
       submitted();
       return await result;
@@ -261,10 +341,10 @@ export class BrowserScanner {
       // A failed call releases its successor only once its own predecessor was
       // sent, so later calls never overtake earlier ones.
       void previous.then(submitted);
-      // Release a bitmap snapshot that was not sent, including one still being prepared.
+      // Release a snapshot that was not sent, including one still being prepared.
       void preparing.then(
         ([prepared]) => {
-          if (prepared instanceof ImageBitmap) prepared.close();
+          if ("close" in prepared) prepared.close();
         },
         () => undefined,
       );
@@ -285,9 +365,9 @@ export class BrowserScanner {
 
   #request(message: DistributiveOmit<WorkerRequest, "id">, transfer: Transferable[]) {
     const worker = this.#worker;
-    // Without a worker, the constructor has already recorded why.
+    // Without a worker, the constructor or a worker failure has recorded why.
     if (this.#closed || !worker)
-      return Promise.reject(this.#closed ?? new Error("No scanner worker"));
+      return Promise.reject(this.#closed ?? this.#failure ?? new Error("No scanner worker"));
     const id = this.#nextId++;
     return new Promise<unknown>((resolve, reject) => {
       this.#pending.set(id, { resolve, reject });

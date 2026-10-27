@@ -776,3 +776,43 @@ test("Extended Code 39, IATA 2 of 5 and Matrix 2 of 5 are opt-in", async () => {
     }
   }
 });
+
+test("an engine trap fails one scan; the next scan starts a fresh engine", async () => {
+  const scanner = await Scanner.create({ loadWasm, formats: "EAN13" });
+  const { text, image } = fixture();
+  // Exports objects are frozen, so the session's reference is replaced instead:
+  // the next scan traps as an out-of-memory abort would.
+  const host = scanner.host;
+  const exports = host.exports;
+  for (const trap of [new WebAssembly.RuntimeError("unreachable"), new RangeError("stack")]) {
+    host.exports = {
+      ...exports,
+      tapirscan_scan: () => {
+        throw trap;
+      },
+    };
+    assert.throws(
+      () => scanner.scan(image),
+      (error) => error.name === "ScannerError" && error.code === "engine" && error.cause === trap,
+    );
+    assert.equal(host.exports, undefined);
+    assert.deepEqual(scanner.scan(image).values, [text]);
+    assert.notEqual(host.exports, exports);
+  }
+  // Other errors leave the engine in place.
+  assert.throws(() => scanner.scan({ data: new Uint8Array(4), width: 2, height: 2, channels: 1 }));
+  assert.deepEqual(scanner.scan(image).values, [text]);
+  // A stopped engine stays disposed after dispose().
+  host.exports = {
+    ...host.exports,
+    tapirscan_scan: () => {
+      throw new WebAssembly.RuntimeError("unreachable");
+    },
+  };
+  assert.throws(() => scanner.scan(image), /next scan starts a fresh one/);
+  scanner.dispose();
+  assert.throws(
+    () => scanner.scan(image),
+    (error) => error.code === "disposed",
+  );
+});

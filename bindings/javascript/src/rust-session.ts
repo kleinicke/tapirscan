@@ -5,8 +5,9 @@ export class ScannerError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "ScannerError";
   }
 }
@@ -79,8 +80,46 @@ function status(code: number, operation: string): void {
   );
 }
 
+/** What a session is opened with, kept to reopen it after an engine trap. */
+interface Settings {
+  mode: number;
+  formats: number;
+  addOnPolicy: number;
+  experimentalTurbo: number;
+}
+
+/** Check the instance's ABI and open a scanner session in it. */
+function open(instance: WebAssembly.Instance, settings: Settings): [RustExports, number] {
+  const { mode, formats, addOnPolicy, experimentalTurbo } = settings;
+  const exports = instance.exports as RustExports;
+  if (!(exports.memory instanceof WebAssembly.Memory))
+    throw new ScannerError("abi_shape", "Missing WASM memory");
+  for (const name of exportNames)
+    if (typeof exports[name] !== "function")
+      throw new ScannerError("abi_shape", `Missing WASM export: ${name}`);
+  if (exports.tapirscan_abi_version() !== 3)
+    throw new ScannerError("abi_version", "Unsupported scanner ABI");
+  if (exports.tapirscan_mode() !== mode)
+    throw new ScannerError("abi_mode", "Scanner WASM mode does not match the requested mode");
+  const tier = exports.tapirscan_experimental_turbo;
+  const actualTurbo = typeof tier === "function" ? tier() : 0;
+  if (actualTurbo !== experimentalTurbo)
+    throw new ScannerError(
+      "abi_turbo",
+      "Scanner WASM does not match the requested experimentalTurbo preset",
+    );
+  const handle = exports.tapirscan_create(mode, formats, addOnPolicy);
+  if (!handle) throw new ScannerError("capacity", "Could not create scanner session");
+  return [exports, handle];
+}
+
 export class RustScannerSession {
+  /** Set when a trap stopped the engine; the next scan opens a fresh instance. */
+  private stopped = false;
+
   private constructor(
+    private readonly module: WebAssembly.Module,
+    private readonly settings: Settings,
     private exports: RustExports | undefined,
     private handle: number,
   ) {}
@@ -92,37 +131,41 @@ export class RustScannerSession {
     addOnPolicy: number,
     experimentalTurbo = 0,
   ): Promise<RustScannerSession> {
-    let module = compiled.get(bytes);
-    if (!module) {
-      module = WebAssembly.compile(bytes);
-      compiled.set(bytes, module);
+    let pending = compiled.get(bytes);
+    if (!pending) {
+      pending = WebAssembly.compile(bytes);
+      compiled.set(bytes, pending);
       // A failed compile is retried with the next scanner.
-      module.catch(() => compiled.delete(bytes));
+      pending.catch(() => compiled.delete(bytes));
     }
-    const instance = await WebAssembly.instantiate(await module, {});
-    const exports = instance.exports as RustExports;
-    if (!(exports.memory instanceof WebAssembly.Memory))
-      throw new ScannerError("abi_shape", "Missing WASM memory");
-    for (const name of exportNames)
-      if (typeof exports[name] !== "function")
-        throw new ScannerError("abi_shape", `Missing WASM export: ${name}`);
-    if (exports.tapirscan_abi_version() !== 3)
-      throw new ScannerError("abi_version", "Unsupported scanner ABI");
-    if (exports.tapirscan_mode() !== mode)
-      throw new ScannerError("abi_mode", "Scanner WASM mode does not match the requested mode");
-    const tier = exports.tapirscan_experimental_turbo;
-    const actualTurbo = typeof tier === "function" ? tier() : 0;
-    if (actualTurbo !== experimentalTurbo)
-      throw new ScannerError(
-        "abi_turbo",
-        "Scanner WASM does not match the requested experimentalTurbo preset",
-      );
-    const handle = exports.tapirscan_create(mode, formats, addOnPolicy);
-    if (!handle) throw new ScannerError("capacity", "Could not create scanner session");
-    return new RustScannerSession(exports, handle);
+    const module = await pending;
+    const settings = { mode, formats, addOnPolicy, experimentalTurbo };
+    const [exports, handle] = open(await WebAssembly.instantiate(module, {}), settings);
+    return new RustScannerSession(module, settings, exports, handle);
   }
 
   scan(
+    image: { data: Uint8Array; width: number; height: number; channels: number; stride: number },
+    flags: number,
+    formats: number,
+  ): unknown {
+    return this.guarded(() => this.scanImage(image, flags, formats));
+  }
+
+  /**
+   * Scan an image above the working size whose packed rows `read` writes on
+   * demand, top to bottom, so no full-size copy has to exist anywhere.
+   */
+  scanRows(
+    image: { width: number; height: number; channels: number },
+    read: RowReader,
+    flags: number,
+    formats: number,
+  ): unknown {
+    return this.guarded(() => this.scanStream(image, read, flags, formats));
+  }
+
+  private scanImage(
     image: { data: Uint8Array; width: number; height: number; channels: number; stride: number },
     flags: number,
     formats: number,
@@ -159,11 +202,7 @@ export class RustScannerSession {
     return this.finish(exports, flags, formats);
   }
 
-  /**
-   * Scan an image above the working size whose packed rows `read` writes on
-   * demand, top to bottom, so no full-size copy has to exist anywhere.
-   */
-  scanRows(
+  private scanStream(
     image: { width: number; height: number; channels: number },
     read: RowReader,
     flags: number,
@@ -235,6 +274,7 @@ export class RustScannerSession {
   }
 
   dispose(): void {
+    this.stopped = false;
     if (!this.handle || !this.exports) return;
     const exports = this.exports;
     const handle = this.handle;
@@ -242,6 +282,31 @@ export class RustScannerSession {
     this.exports = undefined;
     this.handle = 0;
     status(exports.tapirscan_destroy(handle), "Scanner disposal");
+  }
+
+  /**
+   * Run `scan` against the live instance. A trap (out of memory, stack overflow)
+   * can leave the instance's memory inconsistent, so it is dropped and the next
+   * call opens a fresh instance of the same compiled module.
+   */
+  private guarded<T>(scan: () => T): T {
+    if (this.stopped) {
+      [this.exports, this.handle] = open(new WebAssembly.Instance(this.module, {}), this.settings);
+      this.stopped = false;
+    }
+    try {
+      return scan();
+    } catch (error) {
+      if (!(error instanceof WebAssembly.RuntimeError || error instanceof RangeError)) throw error;
+      this.exports = undefined;
+      this.handle = 0;
+      this.stopped = true;
+      throw new ScannerError(
+        "engine",
+        `The scanner engine stopped (${error.message}); the next scan starts a fresh one`,
+        { cause: error },
+      );
+    }
   }
 
   private activeExports(): RustExports {

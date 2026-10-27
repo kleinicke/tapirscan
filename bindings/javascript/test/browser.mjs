@@ -91,8 +91,24 @@ test("one-shot scan reads files and every image source kind", async () => {
     const results = {};
     for (const [name, source] of Object.entries(sources))
       results[name] = (await scan(source)).values;
-    // The caller's bitmap is copied before transfer, so it stays usable.
+    // The caller's bitmap is copied and its frame cloned before transfer, so both stay usable.
     results.bitmapUsable = bitmap.width === canvas.width;
+    results.frameUsable = frame.displayWidth === canvas.width;
+    // Videos and frames reach the worker as VideoFrames, without a bitmap copy.
+    const OriginalWorker = globalThis.Worker;
+    const sent = [];
+    globalThis.Worker = class extends OriginalWorker {
+      postMessage(message, transfer) {
+        if (message.source) sent.push(message.source.constructor.name);
+        super.postMessage(message, transfer);
+      }
+    };
+    try {
+      for (const source of [video, frame, canvas]) await scan(source);
+    } finally {
+      globalThis.Worker = OriginalWorker;
+    }
+    results.sent = sent;
     frame.close();
     clearInterval(redraw);
     video.srcObject.getTracks().forEach((track) => track.stop());
@@ -104,6 +120,8 @@ test("one-shot scan reads files and every image source kind", async () => {
   for (const name of [...kinds, "offscreen", "frame", "video"])
     assert.deepEqual(read[name], expected, name);
   assert.equal(read.bitmapUsable, true);
+  assert.equal(read.frameUsable, true);
+  assert.deepEqual(read.sent, ["VideoFrame", "VideoFrame", "ImageBitmap"]);
 });
 
 test("a reusable scanner queues concurrent scans and freezes results", async () => {
@@ -490,6 +508,76 @@ test("a custom worker runs a single-mode entry's worker module", async () => {
     mode: "medium",
     missing: "This tapirscan/browser entry does not bundle the Turbo 8 preset",
   });
+});
+
+test("a worker that fails after loading is replaced on the next scan", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { canvas } = globalThis.fixture;
+    const { Scanner } = await import("/dist/browser-medium.js");
+    const workers = [];
+    const scanner = new Scanner({
+      worker: () => {
+        const worker = new Worker("/dist/browser-worker-medium.js", { type: "module" });
+        workers.push(worker);
+        return worker;
+      },
+    });
+    // As when a browser stops the worker: it ends and reports an error.
+    const kill = (worker) => {
+      worker.terminate();
+      worker.onerror(new ErrorEvent("error", { message: "worker stopped", cancelable: true }));
+    };
+    try {
+      const first = (await scanner.scan(canvas)).values;
+      // Stop the worker once it has received the next scan.
+      const post = workers[0].postMessage.bind(workers[0]);
+      workers[0].postMessage = (message, transfer) => {
+        post(message, transfer);
+        kill(workers[0]);
+      };
+      const failed = await scanner.scan(canvas).then(
+        () => "resolved",
+        (error) => error.message,
+      );
+      const queued = [scanner.scan(canvas), scanner.scan(canvas)];
+      const replaced = (await Promise.all(queued)).map((result) => result.values);
+      // The replacement fails the same way and is replaced again.
+      kill(workers[1]);
+      const again = (await scanner.scan(canvas)).values;
+      await scanner.ready;
+      return { first, failed, replaced, again, workers: workers.length };
+    } finally {
+      scanner.dispose();
+    }
+  });
+  const text = await page.evaluate(() => globalThis.fixture.text);
+  assert.deepEqual(outcome, {
+    first: [text],
+    failed: "worker stopped",
+    replaced: [[text], [text]],
+    again: [text],
+    workers: 3,
+  });
+});
+
+test("a worker that fails while loading is not replaced", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { canvas } = globalThis.fixture;
+    const { Scanner } = await import("/dist/browser-medium.js");
+    let spawned = 0;
+    const scanner = new Scanner({
+      worker: () => {
+        spawned++;
+        return new Worker("/missing-worker.js", { type: "module" });
+      },
+    });
+    const errors = [];
+    for (let i = 0; i < 3; i++)
+      errors.push(await scanner.scan(canvas).catch((error) => error.message));
+    scanner.dispose();
+    return { spawned, same: new Set(errors).size, failed: errors[0].includes("failed to start") };
+  });
+  assert.deepEqual(outcome, { spawned: 1, same: 1, failed: true });
 });
 
 test("browsers without WebAssembly SIMD reject scanners without starting a worker", async () => {
