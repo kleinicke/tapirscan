@@ -189,9 +189,11 @@ fn reindex(t: &[f32; 8], from: usize, to: usize) -> Option<[f32; 8]> {
     homography(centres(to), centres(from).map(|[x, y]| map(t, x, y)))
 }
 
-/// The version, within [`MAX_VERSION_SHIFT`] of `candidate`, whose own size puts
-/// one of its version-information blocks (beside the top-right and bottom-left
-/// finders) on its version word; `t` maps the symbol as a `candidate` version.
+/// The version within [`MAX_VERSION_SHIFT`] of `candidate` whose word one of
+/// the version-information blocks (beside the top-right and bottom-left finders)
+/// holds; `t` maps the symbol as a `candidate` version. The blocks are read at
+/// the module size of every version in that range: the finder estimate can be a
+/// module off near a finder, so the block of one size may be read at another.
 pub(super) fn read_version(
     image: &[bool],
     size: [usize; 2],
@@ -200,13 +202,13 @@ pub(super) fn read_version(
 ) -> Option<usize> {
     let mut best: Option<(u32, usize)> = None;
     let lowest = candidate.saturating_sub(MAX_VERSION_SHIFT).max(MIN_VERSION);
-    for version in lowest..=(candidate + MAX_VERSION_SHIFT).min(40) {
-        let n = 17 + 4 * version;
+    let highest = (candidate + MAX_VERSION_SHIFT).min(40);
+    for scale in lowest..=highest {
+        let n = 17 + 4 * scale;
         let Some(t) = reindex(t, 17 + 4 * candidate, n) else {
             continue;
         };
         let far = crate::numeric::usize_f32(n) - 3.5;
-        let expected = super::single::WORDS[version - MIN_VERSION];
         for transposed in [false, true] {
             let mut word = 0_u32;
             for bit in 0..18_u8 {
@@ -221,9 +223,12 @@ pub(super) fn read_version(
                 };
                 word |= u32::from(pixel(image, size, p).unwrap_or(false)) << bit;
             }
-            let distance = (word ^ expected).count_ones();
-            if distance <= VERSION_ERRORS && best.is_none_or(|(d, _)| distance < d) {
-                best = Some((distance, version));
+            for version in lowest..=highest {
+                let expected = super::single::WORDS[version - MIN_VERSION];
+                let distance = (word ^ expected).count_ones();
+                if distance <= VERSION_ERRORS && best.is_none_or(|(d, _)| distance < d) {
+                    best = Some((distance, version));
+                }
             }
         }
     }
