@@ -25,6 +25,7 @@ export interface WorkerScannerOptions {
 export type WorkerSource = Blob | ImageBitmap | VideoFrame | PixelImage;
 export type WorkerRequest =
   | { id: number; type: "create"; options: WorkerScannerOptions }
+  | { id: number; type: "warm" }
   | { id: number; type: "scan" | "inspect"; source: WorkerSource; options: ScanOptions };
 export type WorkerResponse =
   | { id: number; value: unknown }
@@ -152,6 +153,36 @@ async function decode(source: WorkerSource): Promise<Decoded> {
   }
 }
 
+/** EAN-13 4006381333931 as 95 modules, for the warm-up frame. */
+const warmUpModules =
+  "10100011010100111010111101111010001001011001101010100001010000101000010111010010000101100110101";
+
+/**
+ * A 320×240 frame of block noise with an EAN-13 in it. Scanning it once makes the
+ * engine compile and optimize its search and decoding paths, which otherwise
+ * makes the first camera frames two to three times slower. Deterministic.
+ */
+function warmUpImage(): PixelImage {
+  const width = 320;
+  const height = 240;
+  const data = new Uint8Array(width * height * 4).fill(255);
+  let seed = 1;
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      seed = (seed * 1103515245 + 12345) >>> 0;
+      let value = seed >>> 31 ? 215 : 40;
+      // 2 pixels per module, 60 rows high.
+      const module = (x - 30) >> 1;
+      if (y >= 35 && y < 95 && module >= 0 && module < warmUpModules.length)
+        value = warmUpModules[module] === "1" ? 20 : 235;
+      else if (y >= 25 && y < 105 && x >= 10 && x < 240) value = 235;
+      else if (((x >> 3) * 31 + (y >> 3) * 17) % 7 > 3) value = 128 + (value - 128) / 3;
+      const i = (y * width + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = value;
+    }
+  return { data, width, height, channels: 4 };
+}
+
 async function handle(request: WorkerRequest, assets: WasmAssets): Promise<unknown> {
   if (request.type === "create") {
     const { wasmBaseUrl, ...options } = request.options;
@@ -178,6 +209,10 @@ async function handle(request: WorkerRequest, assets: WasmAssets): Promise<unkno
     return { mode: scanner.mode, formats: scanner.formats, eanAddOnPolicy: scanner.eanAddOnPolicy };
   }
   if (!scanner) throw new Error("Scanner is not created");
+  if (request.type === "warm") {
+    scanner.scan(warmUpImage());
+    return undefined;
+  }
   const decoded = await decode(request.source);
   try {
     const inspect = request.type === "inspect";

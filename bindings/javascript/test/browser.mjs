@@ -560,6 +560,51 @@ test("a worker that fails after loading is replaced on the next scan", async () 
   });
 });
 
+test("an idle scanner warms up once loaded; one with a scan waiting does not", async () => {
+  const outcome = await page.evaluate(async () => {
+    const { canvas } = globalThis.fixture;
+    const { Scanner } = await import("/dist/browser-medium.js");
+    const OriginalWorker = globalThis.Worker;
+    const sent = [];
+    globalThis.Worker = class extends OriginalWorker {
+      postMessage(message, transfer) {
+        sent.push(message.type);
+        super.postMessage(message, transfer);
+      }
+    };
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+    try {
+      const idle = new Scanner();
+      await idle.ready;
+      await settle();
+      const values = (await idle.scan(canvas)).values;
+      idle.dispose();
+      const idleSent = sent.splice(0);
+      // A scan requested before loading, or right after, skips the warm-up.
+      const busy = new Scanner();
+      await busy.scan(canvas);
+      await settle();
+      busy.dispose();
+      const busySent = sent.splice(0);
+      const prompt = new Scanner();
+      await prompt.ready;
+      await prompt.scan(canvas);
+      await settle();
+      prompt.dispose();
+      return { idleSent, values, busySent, promptSent: sent.splice(0) };
+    } finally {
+      globalThis.Worker = OriginalWorker;
+    }
+  });
+  const text = await page.evaluate(() => globalThis.fixture.text);
+  assert.deepEqual(outcome, {
+    idleSent: ["create", "warm", "scan"],
+    values: [text],
+    busySent: ["create", "scan"],
+    promptSent: ["create", "scan"],
+  });
+});
+
 test("a worker that fails while loading is not replaced", async () => {
   const outcome = await page.evaluate(async () => {
     const { canvas } = globalThis.fixture;

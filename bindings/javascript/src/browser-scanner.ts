@@ -152,6 +152,8 @@ export class BrowserScanner {
   /** Why the last loaded worker failed; calls fail with it until a replacement is sent. */
   #failure: Error | undefined;
   #options: WorkerScannerOptions = {};
+  /** Scan and inspect calls so far; a worker warms up only if none came since it started. */
+  #calls = 0;
   /** Rejecters of calls still waiting; each removes itself when its wait ends. */
   readonly #waiting = new Set<(reason: Error) => void>();
   /** Settles once the previous call has been sent, keeping submissions in call order. */
@@ -233,9 +235,16 @@ export class BrowserScanner {
     const worker = this.#spawn?.();
     this.#worker = worker;
     this.#options = options;
+    const calls = this.#calls;
     const loading = this.#request({ type: "create", options }, []).then(
       () => {
-        if (this.#worker === worker) this.#loaded = true;
+        if (this.#worker !== worker) return;
+        this.#loaded = true;
+        // Warm up while idle, unless a scan is waiting or follows at once.
+        setTimeout(() => {
+          if (this.#worker === worker && this.#calls === calls)
+            this.#request({ type: "warm" }, []).catch(() => undefined);
+        }, 0);
       },
       (error: unknown) => {
         // A worker that never loaded stays failed: retrying would repeat the download.
@@ -307,6 +316,7 @@ export class BrowserScanner {
 
   async #scan(type: "scan" | "inspect", source: ImageSource, options: ScanOptions) {
     if (this.#closed) throw this.#closed;
+    this.#calls++;
     // Capture the options and the frame before any await, so later changes by the
     // caller (a reused options object or buffer, the next video frame) cannot leak in.
     // Plain copies (scan options hold at most a format selection); invalid values
