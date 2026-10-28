@@ -64,8 +64,8 @@ fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort
 
 /// Windows around unread finder pairs searched again per frame. Low serves live
 /// frames, where the next frame is the retry. High and above read more symbols before
-/// their windows, so their unread finders pair differently from Medium's; more windows
-/// let them reach at least the symbols Medium's windows reach.
+/// their windows, so their unread finders pair differently from Medium's; they search
+/// more windows.
 const WINDOWS: usize = if cfg!(feature = "mode-low") {
     0
 } else if cfg!(feature = "mode-medium") {
@@ -82,9 +82,8 @@ const WINDOW_MAX: usize = 640;
 /// a lamp lights unevenly.
 const WINDOW_REACH: f32 = 3. * usize_f32(WINDOW_MAX);
 /// Share of a window's half side within which a read's center skips the window. Medium
-/// skips any window that holds a read. High, which reads more symbols before its windows,
-/// keeps windows that hold a read away from their core, so it searches at least the
-/// symbols beside a read that Medium's windows reach.
+/// skips any window that holds a read. High and above, which read more symbols before
+/// their windows, keep windows that hold a read away from their core.
 const READ_CENTER_REACH: f32 = if cfg!(feature = "mode-medium") {
     1.
 } else {
@@ -298,7 +297,12 @@ fn local_windows(
 
 /// The pixels of window `[x0, y0, x1, y1]` of a frame `width` pixels wide, averaged
 /// over `factor` x `factor` blocks; a partial last block is dropped.
-fn window_pixels(
+///
+/// # Panics
+///
+/// Panics if the window does not lie within the frame or `factor` is 0.
+#[must_use]
+pub fn window_pixels(
     image: &[u8],
     width: usize,
     [x0, y0, x1, y1]: [usize; 4],
