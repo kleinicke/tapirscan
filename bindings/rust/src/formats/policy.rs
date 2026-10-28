@@ -84,6 +84,9 @@ pub(super) struct ModePolicy {
     /// located but unread symbol larger than that allowance is still retried; it then
     /// uses up the allowance.
     pub qr_first_crop_pixels: usize,
+    /// Located QR regions too large for the crop allowance retried per frame on a
+    /// reduced copy (see `signal_recovery::region_retries`).
+    pub qr_reduced_region_retries: usize,
     /// Effort of those crop retries.
     pub matrix_crop_effort: usize,
     /// Long sides of the area-averaged Data Matrix copies, in order; empty in modes
@@ -142,6 +145,7 @@ impl ModePolicy {
         qr_reduced_needs_texture: false,
         matrix_crop_pixels: 0,
         qr_first_crop_pixels: 0,
+        qr_reduced_region_retries: 0,
         matrix_crop_effort: 0,
         data_matrix_averaged_scales: &[],
         data_matrix_averaged_needs_candidate: false,
@@ -166,6 +170,7 @@ impl ModePolicy {
         qr_grid_projection: true,
         matrix_crop_pixels: 65_536,
         qr_first_crop_pixels: 131_072,
+        qr_reduced_region_retries: 1,
         matrix_crop_effort: 1,
         source_profile_cache: true,
         retail_batch_half_scale: true,

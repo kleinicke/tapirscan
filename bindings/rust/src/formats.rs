@@ -1666,6 +1666,7 @@ fn matrix_retries(
     scan: &mut barcode_multiformat::Scan,
 ) -> Vec<barcode_multiformat::Scan> {
     let mut crop_budget = POLICY.matrix_crop_pixels;
+    let mut reduced = POLICY.qr_reduced_region_retries;
     let mut retries: Vec<barcode_multiformat::Scan> = Vec::new();
     // Pending recovery remains unfinished even when its shared allowance or
     // crop size cap prevents a retry, including candidates beyond those retried.
@@ -1719,6 +1720,7 @@ fn matrix_retries(
                 POLICY.matrix_crop_effort,
                 &pending,
                 &mut allowance,
+                &mut reduced,
             ));
             crop_budget = crop_budget.saturating_sub(before - allowance);
         }
@@ -1762,6 +1764,31 @@ mod matrix_budget_tests {
         if super::POLICY.matrix_crop_pixels < 352 * 352 {
             assert!(retries(0.95).is_empty());
         }
+    }
+
+    #[test]
+    fn a_located_qr_region_too_large_for_a_crop_is_retried_reduced_once() {
+        // Two 700-pixel regions: each needs a crop far beyond every crop allowance.
+        let region = |x: f32, score: f32| barcode_multiformat::regions::Region {
+            format: "QRCode".into(),
+            text: String::new(),
+            polygon: [[x, 300.], [x + 700., 300.], [x + 700., 1000.], [x, 1000.]],
+            localization_score: score,
+            support: 4,
+        };
+        let pending = |score: f32| barcode_multiformat::Scan {
+            barcodes: Vec::new(),
+            regions: vec![region(200., score), region(1100., score)],
+            unfinished: false,
+            lines: 0,
+        };
+        let pixels = vec![200; 2000 * 1300];
+        let retries = |score| matrix_retries(&pixels, [2000, 1300], QR_CODE, &mut pending(score));
+        assert_eq!(
+            retries(1.).len(),
+            super::POLICY.qr_reduced_region_retries.min(2)
+        );
+        assert!(retries(0.95).is_empty());
     }
 }
 

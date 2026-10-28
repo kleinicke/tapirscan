@@ -1,4 +1,17 @@
 //! Bounded source contrast recovery for selected matrix readers.
+/// Longest side of the reduced copy a located QR region too large for its crop
+/// allowance is retried in.
+const REDUCED_REGION_SIDE: usize = 640;
+
+/// Crop retries of pending matrix regions within `budget` pixels. A QR region whose
+/// timing patterns read without error (localization score 1) but whose crop exceeds the
+/// budget is instead retried once on an area-averaged copy of at most
+/// [`REDUCED_REGION_SIDE`] pixels, while `reduced` allows: such large symbols decode
+/// from a coarser grid that blur and module noise affect less.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The retry keeps the frame, selection, effort, region and both shared allowances explicit."
+)]
 pub(crate) fn region_retries(
     pixels: &[u8],
     width: usize,
@@ -7,6 +20,7 @@ pub(crate) fn region_retries(
     effort: usize,
     scan: &barcode_multiformat::Scan,
     budget: &mut usize,
+    reduced: &mut usize,
 ) -> Vec<barcode_multiformat::Scan> {
     let mut output = Vec::new();
     for region in scan.regions.iter().take(8) {
@@ -38,6 +52,15 @@ pub(crate) fn region_retries(
             continue;
         }
         let (w, h) = (x1 - x0, y1 - y0);
+        if *reduced > 0
+            && mask == barcode_multiformat::formats::QR_CODE
+            && region.localization_score >= 1.
+            && w * h > *budget
+        {
+            *reduced -= 1;
+            output.push(reduced_retry(pixels, width, [x0, y0, w, h], mask, effort));
+            continue;
+        }
         if w.min(h) < 3 || w * h > 262_144 || w * h > *budget {
             continue;
         }
@@ -83,6 +106,55 @@ pub(crate) fn region_retries(
         }
     }
     output
+}
+/// Scan the `w` x `h` window at `(x0, y0)` averaged down by the integer factor that
+/// fits [`REDUCED_REGION_SIDE`] (at least 2), with polygons in frame coordinates.
+fn reduced_retry(
+    pixels: &[u8],
+    width: usize,
+    [x0, y0, w, h]: [usize; 4],
+    mask: u32,
+    effort: usize,
+) -> barcode_multiformat::Scan {
+    let factor = w.max(h).div_ceil(REDUCED_REGION_SIDE).max(2);
+    let (rw, rh) = (w / factor, h / factor);
+    let mut small = Vec::with_capacity(rw * rh);
+    for y in 0..rh {
+        for x in 0..rw {
+            let sum: usize = (0..factor)
+                .map(|dy| {
+                    let row = (y0 + y * factor + dy) * width + x0 + x * factor;
+                    pixels[row..row + factor]
+                        .iter()
+                        .map(|&v| usize::from(v))
+                        .sum::<usize>()
+                })
+                .sum();
+            // A rounded mean of bytes fits a byte.
+            small.push(
+                u8::try_from((sum + factor * factor / 2) / (factor * factor)).unwrap_or(u8::MAX),
+            );
+        }
+    }
+    let mut retry = crate::formats::scan_reader(&small, rw, rh, mask, effort);
+    let scale = barcode_multiformat::numeric::usize_f32(factor);
+    let (dx, dy) = (
+        barcode_multiformat::numeric::usize_f32(x0),
+        barcode_multiformat::numeric::usize_f32(y0),
+    );
+    for polygon in retry
+        .barcodes
+        .iter_mut()
+        .map(|r| &mut r.polygon)
+        .chain(retry.regions.iter_mut().map(|r| &mut r.polygon))
+    {
+        for point in polygon {
+            point[0] = point[0] * scale + dx;
+            point[1] = point[1] * scale + dy;
+        }
+    }
+    retry.unfinished = true;
+    retry
 }
 fn double(pixels: &[u8], width: usize, height: usize) -> Vec<u8> {
     let mut output = vec![0; width * height * 4];
