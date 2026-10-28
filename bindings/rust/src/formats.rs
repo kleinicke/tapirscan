@@ -1676,6 +1676,34 @@ fn fair_data_matrix(region: &barcode_multiformat::regions::Region) -> bool {
         && region.localization_score < barcode_multiformat::dm_detect::CLEAN_REGION_SCORE
 }
 
+/// Reads a crop copy of `region` (`pixels`, `width` x `height`). Fair Data Matrix crops
+/// take Medium's detector limits in every mode: a crop holds one candidate, and High's
+/// long unranked retry list lets the crop's texture take the refinements its symbol needs.
+#[cfg(not(feature = "low"))]
+pub(crate) fn scan_crop(
+    region: &barcode_multiformat::regions::Region,
+    pixels: &[u8],
+    width: usize,
+    height: usize,
+    mask: u32,
+    effort: usize,
+) -> barcode_multiformat::Scan {
+    if !fair_data_matrix(region) {
+        return scan_reader(pixels, width, height, mask, effort);
+    }
+    let mut binary_images = Thresholds::new(pixels, width, height);
+    barcode_multiformat::scan_with_images(
+        pixels,
+        width,
+        height,
+        mask,
+        effort,
+        1, // Medium
+        &mut binary_images,
+        |_, _| {},
+    )
+}
+
 /// The crop copies of `region` that `signal_recovery::region_retries` reads, by method.
 #[cfg(not(feature = "low"))]
 pub(crate) fn crop_copies(

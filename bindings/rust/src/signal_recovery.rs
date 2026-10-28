@@ -28,7 +28,8 @@ pub(crate) fn region_retries(
                 1 => (barcode_multiformat::qr_enhance::sharpen(&crop, w, h), 1),
                 _ => (double(&crop, w, h), 2),
             };
-            let mut retry = crate::formats::scan_reader(&image, w * scale, h * scale, mask, effort);
+            let mut retry =
+                crate::formats::scan_crop(region, &image, w * scale, h * scale, mask, effort);
             retry.barcodes.retain(|r| {
                 !(mask == barcode_multiformat::formats::AZTEC
                     && r.text.len() == 3
