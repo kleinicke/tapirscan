@@ -73,6 +73,15 @@ const WINDOW_MAX: usize = 640;
 /// finder to the frame-wide thresholds too, such as dark symbols on a sheet that
 /// a lamp lights unevenly.
 const WINDOW_REACH: f32 = 3. * usize_f32(WINDOW_MAX);
+/// Share of a window's half side within which a read's center skips the window. Medium
+/// skips any window that holds a read. High, which reads more symbols before its windows,
+/// keeps windows that hold a read away from their core, so it searches at least the
+/// symbols beside a read that Medium's windows reach.
+const READ_CENTER_REACH: f32 = if cfg!(feature = "mode-medium") {
+    1.
+} else {
+    0.5
+};
 /// Smallest module width in pixels a window may hold once scanned (reduced or not). Pairs
 /// of finders this small rarely form a symbol a window reads; skipping them leaves the
 /// window for a pair that does.
@@ -174,8 +183,8 @@ impl Counts {
 /// a symbol on either side of a side pair (its far corners lie 1.12 distances away),
 /// plus 8 modules of finder half-width and quiet zone. Bars and text produce clusters
 /// of finder candidates while a symbol's data area holds few, so pairs rank by
-/// support over the candidates around them. A window that holds a read's center,
-/// or whose pair lies in the core of a chosen window, is skipped.
+/// support over the candidates around them. A window that holds a read's center (within
+/// [`READ_CENTER_REACH`]), or whose pair lies in the core of a chosen window, is skipped.
 fn local_windows(
     finders: &[[f32; 4]],
     reads: &[Detection],
@@ -223,10 +232,10 @@ fn local_windows(
                 continue;
             }
             let middle = [f32::midpoint(a[0], b[0]), f32::midpoint(a[1], b[1])];
-            if read_centers
-                .iter()
-                .any(|c| (c[0] - middle[0]).abs() < half && (c[1] - middle[1]).abs() < half)
-            {
+            if read_centers.iter().any(|c| {
+                (c[0] - middle[0]).abs() < half * READ_CENTER_REACH
+                    && (c[1] - middle[1]).abs() < half * READ_CENTER_REACH
+            }) {
                 continue;
             }
             let crowd = counts.around(middle, half).max(2);
