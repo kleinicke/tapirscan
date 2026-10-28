@@ -11,11 +11,10 @@
   reach up to 1,920 pixels, scanned reduced to at most 640 pixels, and may then
   cover most of the frame. High and Very High search up to 12 such windows and
   keep windows whose read symbol lies outside their core.
-- Located but unread QR codes (timing patterns without error) larger than
-  Medium's crop allowance: one per frame may take a crop of up to 131,072
-  pixels outside the allowance the other matrix regions share, and one too
-  large for any crop is retried on a copy reduced to at most 640 pixels, from
-  Medium up.
+- Large QR codes whose grid is found but whose data does not decode get a
+  second try from Medium up: one per frame in a larger crop, and one too large
+  for any crop on a copy reduced to at most 640 pixels. With the windows above,
+  Medium reads 9 more of the 1,258 codes in BoofCV's QR images and High 8 more.
 - Windows on ARM64: a `win_arm64` Python wheel and a `windows-arm64` native
   library on each GitHub release, which the Dart build hook downloads.
 - Faster scans of selections with several 2D formats: PDF417 localization skips
