@@ -79,6 +79,10 @@ pub(super) struct ModePolicy {
     pub qr_reduced_needs_texture: bool,
     /// Pixel allowance for localized crop retries of pending matrix regions.
     pub matrix_crop_pixels: usize,
+    /// The first QR region crop of a frame may take up to this many pixels while
+    /// `matrix_crop_pixels` is untouched, so one unread symbol larger than that
+    /// allowance is still retried; it then uses up the allowance.
+    pub qr_first_crop_pixels: usize,
     /// Effort of those crop retries.
     pub matrix_crop_effort: usize,
     /// Long sides of the area-averaged Data Matrix copies, in order; empty in modes
@@ -136,6 +140,7 @@ impl ModePolicy {
         qr_reduced_scales: &[],
         qr_reduced_needs_texture: false,
         matrix_crop_pixels: 0,
+        qr_first_crop_pixels: 0,
         matrix_crop_effort: 0,
         data_matrix_averaged_scales: &[],
         data_matrix_averaged_needs_candidate: false,
@@ -159,6 +164,7 @@ impl ModePolicy {
         qr_effort: 1,
         qr_grid_projection: true,
         matrix_crop_pixels: 65_536,
+        qr_first_crop_pixels: 131_072,
         matrix_crop_effort: 1,
         source_profile_cache: true,
         retail_batch_half_scale: true,

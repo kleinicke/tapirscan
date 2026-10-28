@@ -1698,6 +1698,12 @@ fn matrix_retries(
             lines: 0,
         };
         if crop_budget > 0 {
+            let mut allowance = if hinted == QR_CODE && crop_budget == POLICY.matrix_crop_pixels {
+                crop_budget.max(POLICY.qr_first_crop_pixels)
+            } else {
+                crop_budget
+            };
+            let before = allowance;
             retries.extend(crate::signal_recovery::region_retries(
                 pixels,
                 width,
@@ -1705,8 +1711,9 @@ fn matrix_retries(
                 hinted,
                 POLICY.matrix_crop_effort,
                 &pending,
-                &mut crop_budget,
+                &mut allowance,
             ));
+            crop_budget = crop_budget.saturating_sub(before - allowance);
         }
     }
     retries
