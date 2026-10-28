@@ -2,13 +2,14 @@
 
 ## Unreleased
 
-- Small Data Matrix symbols in busy frames, High and Very High: a dark-on-light
-  candidate whose border fits only fairly against the frame-wide thresholds is
-  kept as an undecoded region and retried on a crop with thresholds of its own,
-  after the clean regions. On the development Data Matrix images High reads 30
-  more symbols (24 synthetic stress variants, 6 photos), with no reads lost;
-  Low and Medium are unchanged. High also reports more undecoded Data Matrix
-  regions on frames without one (52 instead of 11 on 300 such images).
+- High and Very High read more small Data Matrix symbols in busy frames. A
+  candidate that almost passes the border check is now retried on a crop of its
+  own, after every other pending region. On the development images High now
+  reads the symbol in 30 more images (13 distinct symbols from 9 sources, 2 of
+  them real-photo groups), with no reads lost; Low and Medium are unchanged. High takes about
+  0.5% longer on the timing set and about 2% longer on frames without a code,
+  and lists more undecoded Data Matrix regions there (52 instead of 11 on 300
+  such images).
 - Large QR codes (version 7 and up) on paper that is not quite flat: a symbol
   whose header reads but whose grid does not decode is sampled again cell by
   cell between its alignment patterns, with the version taken from its version

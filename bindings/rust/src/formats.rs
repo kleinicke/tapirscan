@@ -1275,8 +1275,8 @@ fn scan_additional(
     // beyond what the module-scale localizer expects. Unread frames are retried
     // on area-averaged copies, which also take the corner-refining search.
     // High tries the two cheap scales, the finer one on mixed selections' large frames
-    // below `CLOSE_UP_PIXELS` only after the coarse copy left a candidate. Medium has no
-    // copies.
+    // below `CLOSE_UP_PIXELS` only after the coarse copy left a candidate with a clean
+    // border (fair ones, often texture, do not count). Medium has no copies.
     #[cfg(not(feature = "low"))]
     if !POLICY.data_matrix_averaged_scales.is_empty()
         && matrix & DATA_MATRIX != 0
@@ -1286,9 +1286,7 @@ fn scan_additional(
         let needs_candidate = POLICY.data_matrix_averaged_needs_candidate
             && two_d_mask != DATA_MATRIX
             && (SMALL_FRAME_PIXELS + 1..CLOSE_UP_PIXELS).contains(&(image.width * image.height))
-            && !scans
-                .iter()
-                .any(|scan| has_format_region(scan, "DataMatrix"));
+            && !scans.iter().any(has_clean_data_matrix_region);
         for &target in POLICY.data_matrix_averaged_scales {
             if long < target * 3 / 2 {
                 continue;
@@ -1296,7 +1294,7 @@ fn scan_additional(
             let retry =
                 averaged_matrix_retry(pixels, image.width, image.height, target, DATA_MATRIX, 2);
             let done = !retry.barcodes.is_empty()
-                || (needs_candidate && !has_format_region(&retry, "DataMatrix"));
+                || (needs_candidate && !has_clean_data_matrix_region(&retry));
             scans.push(retry);
             if done {
                 break;
@@ -1451,6 +1449,14 @@ fn has_qr_read(scan: &barcode_multiformat::Scan) -> bool {
 /// Whether a scan left a candidate region of this format.
 fn has_format_region(scan: &barcode_multiformat::Scan, format: &str) -> bool {
     scan.regions.iter().any(|region| region.format == format)
+}
+
+#[cfg(not(feature = "low"))]
+/// Whether a scan left a Data Matrix candidate region with a clean border.
+fn has_clean_data_matrix_region(scan: &barcode_multiformat::Scan) -> bool {
+    scan.regions
+        .iter()
+        .any(|region| region.format == "DataMatrix" && !fair_data_matrix(region))
 }
 
 #[cfg(not(feature = "low"))]
