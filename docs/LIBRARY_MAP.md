@@ -192,9 +192,10 @@ Detector policy is separate from group effort:
 
 - QR `Policy::for_mode` gives Low/Medium alignment budgets of 150/25; High and
   Very High have no finite alignment counter cap there, but other pass limits
-  still apply. Gray retry is off/hard/erasures/erasures. Alignment-grid retries
-  of large candidates are bounded to 2 per pass in Low and 16 above. Very High's
-  effort enables curved-grid attempts. These values are deliberately not monotonic.
+  still apply. Gray retry is off/hard/erasures/erasures. Very High's effort
+  enables curved-grid attempts. These values are deliberately not monotonic.
+  Alignment-grid retries of large candidates are bounded per pass: 2 in Low, 16
+  above, and 2 in the bounded window, block-threshold and evidence passes.
   The gray pass computes confidence margins only for erasure retries. Normal
   orientation borrows the sampled matrix; mirrored attempts share a transpose
   helper across hard decoding and both erasure-retry paths.

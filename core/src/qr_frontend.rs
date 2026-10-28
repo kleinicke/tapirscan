@@ -216,7 +216,7 @@ fn local_windows(
             if !(0.7..=1.43).contains(&(a[2] / b[2]))
                 || !(12. ..=75.).contains(&(distance / module))
                 || 2. * half > WINDOW_REACH
-                || module / reduction < REDUCED_MODULE
+                || reduction > 1. && module / reduction < REDUCED_MODULE
             {
                 continue;
             }
@@ -228,18 +228,24 @@ fn local_windows(
                 continue;
             }
             let crowd = counts.around(middle, half).max(2);
-            let score = (a[3] + b[3]) / usize_f32(crowd as usize);
-            pairs.push((score, middle, half));
+            pairs.push(((a[3] + b[3]) / usize_f32(crowd as usize), middle, half));
         }
     }
     pairs.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let (wf, hf) = (usize_f32(width), usize_f32(height));
+    // Whether the window, clamped to the frame as it is scanned, needs a reduction.
+    let reduced = |[x, y]: [f32; 2], half: f32| {
+        let side = |c: f32, max: f32| (c + half).min(max) - (c - half).max(0.);
+        side(x, wf).max(side(y, hf)) > usize_f32(WINDOW_MAX)
+    };
     let mut chosen: Vec<([f32; 2], f32)> = Vec::new();
     for (_, middle, half) in pairs {
         if chosen.len() == limit {
             break;
         }
-        let reduced = |h: f32| 2. * h > usize_f32(WINDOW_MAX);
-        if reduced(half) && chosen.iter().filter(|&&(_, h)| reduced(h)).count() >= REDUCED_WINDOWS {
+        if reduced(middle, half)
+            && chosen.iter().filter(|&&(m, h)| reduced(m, h)).count() >= REDUCED_WINDOWS
+        {
             continue;
         }
         if !chosen
@@ -249,7 +255,6 @@ fn local_windows(
             chosen.push((middle, half));
         }
     }
-    let (wf, hf) = (usize_f32(width), usize_f32(height));
     chosen
         .into_iter()
         .map(|([x, y], half)| {
@@ -447,7 +452,10 @@ fn scan_frame(
 
 #[cfg(test)]
 mod tests {
-    use super::{WINDOW_REACH, local_windows, scan_window, scan_with_effort, window_pixels};
+    use super::{
+        REDUCED_WINDOWS, WINDOW_MAX, WINDOW_REACH, local_windows, scan_window, scan_with_effort,
+        window_pixels,
+    };
 
     /// Version 1-M "TAPIRSCAN", drawn dark on light with `scale`-pixel modules at
     /// `origin` in a `width` x `height` frame.
@@ -538,6 +546,18 @@ mod tests {
     }
 
     #[test]
+    fn reduced_windows_per_frame_are_bounded() {
+        // Three distant pairs with 12-pixel modules, each needing a reduction by 3.
+        let finders: Vec<[f32; 4]> = [1000., 3000., 5000.]
+            .iter()
+            .flat_map(|&x| [[x, 1000., 12., 9.], [x, 1600., 12., 9.]])
+            .collect();
+        let windows = local_windows(&finders, &[], 6000, 6000, 3);
+        assert_eq!(windows.len(), REDUCED_WINDOWS.min(3), "{windows:?}");
+        assert!(windows.iter().all(|w| w[2] - w[0] > WINDOW_MAX));
+    }
+
+    #[test]
     fn windows_need_a_plausible_unread_pair() {
         let (width, height) = (1000, 1000);
         // Two finders 100 pixels apart with 4-pixel modules: one window around them.
@@ -572,7 +592,10 @@ mod tests {
             local_windows(&far, &[], width, height, 3),
             Vec::<[usize; 4]>::new()
         );
-        // A 754-pixel window halved would leave 2-pixel modules.
+        // Small modules are fine at full resolution...
+        let small = [[400., 400., 2., 3.], [400., 500., 2., 3.]];
+        assert_eq!(local_windows(&small, &[], width, height, 3).len(), 1);
+        // ...but a 754-pixel window halved would leave 2-pixel modules.
         let fine = [[400., 400., 4., 3.], [400., 700., 4., 3.]];
         assert_eq!(
             local_windows(&fine, &[], width, height, 3),

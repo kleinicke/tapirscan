@@ -5,7 +5,7 @@
 //! This retry locates every alignment pattern near where its found neighbours
 //! put it and samples each cell of the alignment grid with its own homography.
 //! It only proposes a grid; the QR payload and error correction validate it.
-use super::{homography, map};
+use super::{homography, map, pixel};
 use crate::qr;
 
 /// The smallest version with a full grid of alignment patterns (3 x 3).
@@ -17,16 +17,6 @@ const SEARCH_MODULES: f32 = 2.5;
 /// Mismatches of the 5 x 5 alignment pattern accepted at a found centre.
 const MAX_ERRORS: usize = 3;
 
-fn pixel(image: &[bool], [width, height]: [usize; 2], point: [f32; 2]) -> Option<bool> {
-    if !point[0].is_finite() || !point[1].is_finite() {
-        return None;
-    }
-    let column = crate::numeric::f32_isize(point[0].floor());
-    let row = crate::numeric::f32_isize(point[1].floor());
-    (column >= 0 && row >= 0 && column < width.cast_signed() && row < height.cast_signed())
-        .then(|| image[row.cast_unsigned() * width + column.cast_unsigned()])
-}
-
 /// Local module axes of `t` at module coordinate `(x, y)`.
 fn axes(t: &[f32; 8], x: f32, y: f32) -> ([f32; 2], [f32; 2]) {
     let p = map(t, x, y);
@@ -35,7 +25,10 @@ fn axes(t: &[f32; 8], x: f32, y: f32) -> ([f32; 2], [f32; 2]) {
     ([px[0] - p[0], px[1] - p[1]], [py[0] - p[0], py[1] - p[1]])
 }
 
-/// The alignment centre nearest `guess` with the fewest pattern mismatches.
+/// The alignment centre nearest `guess` with the fewest pattern mismatches. Unlike
+/// [`super::alignment_cached::search`], which looks 8 modules around a guess from the
+/// finders alone, this looks 2.5 modules around a guess from found neighbours, so a
+/// pattern in the data area nearby does not win.
 fn find(
     image: &[bool],
     size: [usize; 2],
@@ -66,7 +59,7 @@ fn find(
                         centre[1] + fx * ex[1] + fy * ey[1],
                     ];
                     let expected = mx.abs().max(my.abs()) != 1;
-                    if pixel(image, size, p) != Some(expected) {
+                    if pixel(image, size[0], size[1], p) != Some(expected) {
                         errors += 1;
                         if errors > MAX_ERRORS {
                             break 'pattern;
@@ -109,7 +102,8 @@ fn locate(
         let (mx, my) = (module(column), module(row));
         let predicted = map(transform, mx, my);
         let cell = row * span + column;
-        // The three corners beside the finders are where `transform` was fitted.
+        // The three corners beside the finders lie 3 modules from the finder centres
+        // `transform` was fitted to; no alignment pattern marks them.
         if (column == 0 && (row == 0 || row == last)) || (row == 0 && column == last) {
             points[cell] = predicted;
             found[cell] = true;
@@ -221,7 +215,7 @@ pub(super) fn read_version(
                 } else {
                     map(&t, far + along, 3.5 + across)
                 };
-                word |= u32::from(pixel(image, size, p).unwrap_or(false)) << bit;
+                word |= u32::from(pixel(image, size[0], size[1], p).unwrap_or(false)) << bit;
             }
             for version in lowest..=highest {
                 let expected = super::single::WORDS[version - MIN_VERSION];
@@ -245,8 +239,7 @@ pub(super) fn recover(
     version: usize,
     t: &[f32; 8],
 ) -> Option<(qr::Payload, [[f32; 2]; 4])> {
-    // The finder distance bounds the size: a version far from it belongs to a
-    // false triple.
+    // A version far from the one whose header passed belongs to a false triple.
     if version < MIN_VERSION || version.abs_diff(candidate) > MAX_VERSION_SHIFT {
         return None;
     }
@@ -286,7 +279,7 @@ pub(super) fn recover(
                 crate::numeric::usize_f32(x) + 0.5,
                 crate::numeric::usize_f32(y) + 0.5,
             );
-            matrix.push(pixel(image, size, p)?);
+            matrix.push(pixel(image, size[0], size[1], p)?);
         }
     }
     let nf = crate::numeric::usize_f32(n);
@@ -369,7 +362,8 @@ mod tests {
     /// The symbol with `SCALE`-pixel modules in a square gray frame, pushed down by
     /// a bump of `bump` modules inside its lower right quarter, as on paper that is
     /// not flat; the finders, timing patterns and format information stay in place.
-    fn draw(bump: f32) -> (Vec<u8>, usize) {
+    /// `mirror` draws the symbol transposed, as seen through the back of a label.
+    fn draw(bump: f32, mirror: bool) -> (Vec<u8>, usize) {
         let size = (45 + 2 * QUIET + 4) * SCALE;
         let scale = usize_f32(SCALE);
         let mut gray = vec![220_u8; size * size];
@@ -381,7 +375,11 @@ mod tests {
                 let v = v0 - bump * (-((a - 0.62).powi(2) + (b - 0.62).powi(2)) / 0.045).exp();
                 if (0. ..45.).contains(&u)
                     && (0. ..45.).contains(&v)
-                    && dark(f32_usize(u), f32_usize(v))
+                    && if mirror {
+                        dark(f32_usize(v), f32_usize(u))
+                    } else {
+                        dark(f32_usize(u), f32_usize(v))
+                    }
                 {
                     gray[py * size + px] = 30;
                 }
@@ -414,20 +412,23 @@ mod tests {
     fn bent_symbols_read_only_cell_by_cell() {
         // The bump bends the rows between the alignment patterns; one homography
         // through the finders and an alignment pattern misses it by a module.
-        let (gray, size) = draw(2.);
-        assert_eq!(medium_reads(&gray, size, 0), Vec::<String>::new());
-        assert_eq!(
-            medium_reads(&gray, size, Policy::for_mode(1).grid_budget),
-            [TEXT]
-        );
+        for mirror in [false, true] {
+            let (gray, size) = draw(2., mirror);
+            assert_eq!(medium_reads(&gray, size, 0), Vec::<String>::new());
+            assert_eq!(
+                medium_reads(&gray, size, Policy::for_mode(1).grid_budget),
+                [TEXT],
+                "mirror {mirror}"
+            );
+        }
         // A flat symbol needs no retry.
-        let (flat, size) = draw(0.);
+        let (flat, size) = draw(0., false);
         assert_eq!(medium_reads(&flat, size, 0), [TEXT]);
     }
 
     #[test]
     fn the_version_comes_from_the_symbol() {
-        let (gray, size) = draw(0.);
+        let (gray, size) = draw(0., false);
         let bits: Vec<bool> = gray.iter().map(|&v| v < 128).collect();
         let pixel = |m: f32| (m + usize_f32(QUIET)) * usize_f32(SCALE);
         for candidate in [5, 6, 8, 9] {

@@ -898,6 +898,16 @@ pub fn homography(src: [[f32; 2]; 4], dst: [[f32; 2]; 4]) -> Option<[f32; 8]> {
     }
     Some(std::array::from_fn(|i| equations[i][8]))
 }
+/// The binary pixel under `point`, or `None` outside the image.
+fn pixel(image: &[bool], width: usize, height: usize, point: [f32; 2]) -> Option<bool> {
+    if !point[0].is_finite() || !point[1].is_finite() {
+        return None;
+    }
+    let x = crate::numeric::f32_isize(point[0].floor());
+    let y = crate::numeric::f32_isize(point[1].floor());
+    (x >= 0 && y >= 0 && x < width.cast_signed() && y < height.cast_signed())
+        .then(|| image[y.cast_unsigned() * width + x.cast_unsigned()])
+}
 #[must_use]
 pub fn map(t: &[f32; 8], x: f32, y: f32) -> [f32; 2] {
     let z = t[6] * x + t[7] * y + 1.;
@@ -1023,6 +1033,8 @@ fn finder_grid_valid(
     }
     true
 }
+/// Alignment-grid retries of a bounded pass (budget below [`FULL_BUDGET`]).
+const BOUNDED_GRID_RETRIES: usize = 2;
 /// Decode attempts of a complete detection; reaching it starts partial recovery.
 pub const FULL_BUDGET: usize = 1200;
 /// Attempts each read adds to [`FULL_BUDGET`], so frames without reads keep its bound.
@@ -1423,6 +1435,13 @@ pub fn detect_symbols(
     let mut header_rejects = 0_usize;
     let mut align_calls = 0_usize;
     let mut grid_calls = 0_usize;
+    // Bounded extra passes (windows, block thresholds, evidence) of the same frame
+    // share its candidates: they take few grid retries.
+    let grid_budget = if budget < FULL_BUDGET {
+        policy.grid_budget.min(BOUNDED_GRID_RETRIES)
+    } else {
+        policy.grid_budget
+    };
     let mut curved_attempts = 0;
     let mut curved_limited = false;
     let mut single_attempts = 0;
@@ -1637,7 +1656,8 @@ pub fn detect_symbols(
                     .all(|finder| finder_grid_valid(image, w, h, [finder.x, finder.y], ex, ey));
                 let br = [tr.x + bl.x - tl.x, tr.y + bl.y - tl.y];
                 let mut any_valid = affine_valid;
-                // The latest transform whose header passed for this version.
+                // The latest transform whose header passed for this version: the
+                // later stages, through an alignment pattern, fit a large symbol best.
                 let mut grid_seed: Option<[f32; 8]> = None;
                 // Preserve transform and offset order while avoiding unused geometric fits.
                 let mut early: Vec<[f32; 8]> = Vec::new();
@@ -1966,7 +1986,7 @@ pub fn detect_symbols(
             // sampled once more cell by cell, at the version its own version
             // information gives.
             if results.len() == reads_before
-                && grid_calls < policy.grid_budget
+                && grid_calls < grid_budget
                 && let Some((candidate, t)) = triple_seed
                 && let Some(version) = grid::read_version(image, [w, h], candidate, &t)
                     .or((candidate >= grid::MIN_VERSION).then_some(candidate))

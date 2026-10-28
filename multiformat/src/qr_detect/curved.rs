@@ -1,5 +1,5 @@
 //! Bounded timing-guided nonplanar sampling for Very High QR effort.
-use super::map;
+use super::{map, pixel};
 
 fn shifted(
     transform: &[f32; 8],
@@ -22,15 +22,6 @@ fn shifted(
     } else {
         map(transform, x + amplitude * basis, y)
     }
-}
-fn pixel(image: &[bool], width: usize, height: usize, point: [f32; 2]) -> Option<bool> {
-    if !point[0].is_finite() || !point[1].is_finite() {
-        return None;
-    }
-    let x = crate::numeric::f32_isize(point[0].floor());
-    let y = crate::numeric::f32_isize(point[1].floor());
-    (x >= 0 && y >= 0 && x < width.cast_signed() && y < height.cast_signed())
-        .then(|| image[y.cast_unsigned() * width + x.cast_unsigned()])
 }
 pub(super) fn recover(
     image: &[bool],
