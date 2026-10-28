@@ -6,7 +6,7 @@
   whose header reads but whose grid does not decode is sampled again cell by
   cell between its alignment patterns, with the version taken from its version
   information. On BoofCV's high-version QR images Medium reads 28 of 37 codes
-  instead of 8, High 34 instead of 10 and Low 23 instead of 6. Medium and High
+  instead of 8, High 34 instead of 10 and Low 24 instead of 6. Medium and High
   also search larger windows around unread finder pairs beside a read symbol,
   reduced to at most 640 pixels, which reads more codes on dark sheets.
 - Windows on ARM64: a `win_arm64` Python wheel and a `windows-arm64` native
