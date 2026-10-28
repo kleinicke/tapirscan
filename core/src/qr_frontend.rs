@@ -101,6 +101,11 @@ const REDUCED_WINDOWS: usize = if cfg!(feature = "mode-medium") { 1 } else { 3 }
 const UPPER_CONTRAST: std::ops::Range<usize> = 6..7;
 /// Distinct finder patterns an unread frame needs for the upper contrast pass.
 const UPPER_CONTRAST_FINDERS: usize = 3;
+/// Long side in pixels up to which an unread frame with large finders is also
+/// scanned on a halved copy.
+const HALF_COPY_FRAME: usize = 1920;
+/// Module size in pixels of the three finders that admit the halved copy.
+const HALF_COPY_MODULE: f32 = 16.;
 /// Decode attempts of each window pass. A window holds one candidate symbol, whose
 /// triples rank first; the rest are triples of texture around it.
 const WINDOW_BUDGET: usize = 60;
@@ -414,6 +419,22 @@ fn unread_passes(
     reads
 }
 
+/// Scan the frame averaged over 2 x 2 blocks with the standard pass, and map the
+/// reads back.
+fn scan_half(image: &[u8], width: usize, height: usize) -> Vec<Detection> {
+    let (copy, w, h) = window_pixels(image, width, [0, 0, width, height], 2);
+    let mut binary = binarization::Images::new(&copy, w, h);
+    let mut regions = barcode_multiformat::regions::Regions::default();
+    let (mut reads, _) = detect(w, h, &mut regions, &mut binary, Pass::effort(false, false));
+    for read in &mut reads {
+        for p in &mut read.polygon {
+            p[0] *= 2.;
+            p[1] *= 2.;
+        }
+    }
+    reads
+}
+
 fn scan_frame(
     image: &[u8],
     width: usize,
@@ -456,6 +477,21 @@ fn scan_frame(
     if !foreground && !window && reads.is_empty() {
         let extra = unread_passes(image, width, height, effort, &mut regions, binary);
         reads.extend(extra);
+    }
+    // A large symbol's modules hold blur and noise that a copy averaged over 2 x 2
+    // blocks smooths; frames above Full HD take the facade's reduced copies instead.
+    if !foreground
+        && !window
+        && reads.is_empty()
+        && effort >= 1
+        && width.max(height) <= HALF_COPY_FRAME
+        && unread_finders(&regions.qr_finders, &[])
+            .iter()
+            .filter(|f| f[2] >= HALF_COPY_MODULE)
+            .count()
+            >= 3
+    {
+        reads.extend(scan_half(image, width, height));
     }
     // Low retries a frame that read nothing but holds QR evidence.
     if !foreground && !window {
@@ -520,8 +556,8 @@ fn scan_frame(
 #[cfg(test)]
 mod tests {
     use super::{
-        REDUCED_WINDOWS, WINDOW_MAX, WINDOW_REACH, local_windows, scan_window, scan_with_effort,
-        unread_finders, window_pixels,
+        REDUCED_WINDOWS, WINDOW_MAX, WINDOW_REACH, local_windows, scan_half, scan_window,
+        scan_with_effort, unread_finders, window_pixels,
     };
 
     /// Version 1-M "TAPIRSCAN", drawn dark on light with `scale`-pixel modules at
@@ -611,6 +647,21 @@ mod tests {
         let distinct = unread_finders(&finders, &[]);
         assert_eq!(distinct.len(), 2);
         assert!(distinct.contains(&[101., 100., 5., 4.]));
+    }
+
+    #[test]
+    fn halved_frames_read_in_source_coordinates() {
+        let image = frame(600, 500, [100, 100], 16);
+        let reads = scan_half(&image, 600, 500);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].text, "TAPIRSCAN");
+        let expected = [[100., 100.], [436., 100.], [436., 436.], [100., 436.]];
+        for (corner, want) in reads[0].polygon.iter().zip(expected) {
+            assert!(
+                (corner[0] - want[0]).abs() <= 4. && (corner[1] - want[1]).abs() <= 4.,
+                "{corner:?} vs {want:?}"
+            );
+        }
     }
 
     #[test]

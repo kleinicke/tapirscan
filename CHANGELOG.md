@@ -15,6 +15,11 @@
   cell between its alignment patterns, with the version taken from its version
   information. On BoofCV's high-version QR images Medium reads 28 of 37 codes
   instead of 8, High 34 instead of 10 and Low 24 instead of 6.
+- Large QR codes in frames up to Full HD: a frame that read nothing but holds
+  three finder patterns of 16-pixel modules or more is scanned again on a copy
+  halved by averaging, which smooths blur and noise across the large modules,
+  from Medium up. Medium reads 29 more codes of a 4,619-image QR set and 10
+  more of BoofCV's 1,258 labelled codes.
 - QR codes whose finder patterns are found but whose modules the usual
   thresholds split, mostly synthetic codes with cropped quiet zones: a frame
   that read nothing but holds finder patterns is tried with one more global
