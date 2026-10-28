@@ -1956,7 +1956,7 @@ mod matrix_budget_tests {
     }
 
     #[test]
-    fn medium_crops_one_fair_data_matrix_region_once() {
+    fn fair_data_matrix_crops_per_mode() {
         let fair = |x: f32| barcode_multiformat::regions::Region {
             format: "DataMatrix".into(),
             text: String::new(),
