@@ -76,12 +76,9 @@ const WINDOW_REACH: f32 = 3. * usize_f32(WINDOW_MAX);
 /// Smallest module width in pixels a reduced window may leave.
 const REDUCED_MODULE: f32 = 2.5;
 /// Reduced windows per frame. Each costs a full window scan plus the reduction, on
-/// frames that mostly read nothing more: Medium takes one, High all [`WINDOWS`].
-const REDUCED_WINDOWS: usize = if cfg!(feature = "mode-medium") {
-    1
-} else {
-    WINDOWS
-};
+/// frames that mostly read nothing more: Medium takes one, High and above any of
+/// their three windows (Low has none).
+const REDUCED_WINDOWS: usize = if cfg!(feature = "mode-medium") { 1 } else { 3 };
 /// Decode attempts of each window pass. A window holds one candidate symbol, whose
 /// triples rank first; the rest are triples of texture around it.
 const WINDOW_BUDGET: usize = 60;
