@@ -22,7 +22,7 @@ pub(crate) fn region_retries(
         for y in y0..y1 {
             crop.extend_from_slice(&pixels[y * width + x0..y * width + x1]);
         }
-        for method in 0..3 {
+        for method in crate::formats::crop_copies(region) {
             let (image, scale) = match method {
                 0 => (crop.clone(), 1),
                 1 => (barcode_multiformat::qr_enhance::sharpen(&crop, w, h), 1),

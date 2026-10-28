@@ -89,6 +89,12 @@ pub(super) struct ModePolicy {
     /// larger than what is left of `matrix_crop_pixels`, may take a crop of up to this many
     /// pixels outside that shared allowance.
     pub qr_located_crop_pixels: usize,
+    /// Crop copies of a fair Data Matrix region (`fair_data_matrix`) by method: 0 plain,
+    /// 1 sharpened, 2 doubled. Texture with a fair border fails every copy, a whole scan
+    /// each; Medium's sharpened copy alone reads most of the symbols the three copies read.
+    pub fair_data_matrix_copies: core::ops::Range<usize>,
+    /// Fair Data Matrix regions cropped per frame.
+    pub fair_data_matrix_crops: usize,
     /// Located QR regions too large for either crop allowance retried per frame on a
     /// reduced copy (`signal_recovery::reduced_retry`).
     pub qr_reduced_region_retries: usize,
@@ -150,6 +156,8 @@ impl ModePolicy {
         matrix_crop_effort: 0,
         maxi_code_crop_retries: false,
         qr_located_crop_pixels: 0,
+        fair_data_matrix_copies: 0..0,
+        fair_data_matrix_crops: 0,
         qr_reduced_region_retries: 0,
         data_matrix_averaged_scales: &[],
         data_matrix_averaged_needs_candidate: false,
@@ -175,6 +183,8 @@ impl ModePolicy {
         matrix_crop_pixels: 65_536,
         matrix_crop_effort: 1,
         qr_located_crop_pixels: 131_072,
+        fair_data_matrix_copies: 1..2,
+        fair_data_matrix_crops: 1,
         qr_reduced_region_retries: 1,
         source_profile_cache: true,
         retail_batch_half_scale: true,
@@ -201,6 +211,8 @@ impl ModePolicy {
         matrix_crop_pixels: 131_072,
         matrix_crop_effort: 2,
         maxi_code_crop_retries: true,
+        fair_data_matrix_copies: 0..3,
+        fair_data_matrix_crops: usize::MAX,
         // The cheap coarse copy runs first; the finer one only after it left a candidate.
         data_matrix_averaged_scales: &[256, 400],
         data_matrix_averaged_needs_candidate: true,

@@ -1705,8 +1705,8 @@ struct Retries {
     settle: bool,
     /// Largest border error of a sampled but undecoded dark-on-light hypothesis that
     /// records a region, which the facade crops and reads again with thresholds of its
-    /// own. Each region costs a crop retry, also for texture that fits as fairly, so only
-    /// High and Very High accept fair borders.
+    /// own. Each region costs a crop retry, also for texture that fits as fairly; Low
+    /// keeps clean borders only, and the facade limits Medium's crops of fair ones.
     region_error: f32,
 }
 /// Retry limits per frame for Low, Medium and High; modes beyond the table (Very High)
@@ -1733,7 +1733,7 @@ const MODE_RETRIES: [Retries; 3] = [
         aspect: [0.65, 1.55],
         recorded: 0,
         settle: true,
-        region_error: CLEAN_BORDER,
+        region_error: FAIR_BORDER,
     },
     Retries {
         gray: 6,
@@ -2704,11 +2704,11 @@ mod region_error_tests {
     }
 
     #[test]
-    fn a_fair_border_records_a_region_in_high() {
-        // Low and Medium keep clean borders only; High records the fair one, so the
-        // facade retries it on a crop.
+    fn a_fair_border_records_a_region_from_medium() {
+        // Low keeps clean borders only; Medium and up record the fair one, so the facade
+        // retries it on a crop.
         assert_eq!(recorded(mode_retries(0), false), 0);
-        assert_eq!(recorded(mode_retries(1), false), 0);
+        assert_eq!(recorded(mode_retries(1), false), 1);
         assert_eq!(recorded(mode_retries(2), false), 1);
         assert_eq!(recorded(mode_retries(3), false), 1);
         assert_eq!(recorded(CROP_PASS, false), 0);

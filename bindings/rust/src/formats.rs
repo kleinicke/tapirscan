@@ -1676,6 +1676,18 @@ fn fair_data_matrix(region: &barcode_multiformat::regions::Region) -> bool {
         && region.localization_score < barcode_multiformat::dm_detect::CLEAN_REGION_SCORE
 }
 
+/// The crop copies of `region` that `signal_recovery::region_retries` reads, by method.
+#[cfg(not(feature = "low"))]
+pub(crate) fn crop_copies(
+    region: &barcode_multiformat::regions::Region,
+) -> core::ops::Range<usize> {
+    if fair_data_matrix(region) {
+        POLICY.fair_data_matrix_copies
+    } else {
+        0..3
+    }
+}
+
 /// Localized crop retries of pending matrix regions under one pixel allowance for the
 /// whole matrix group, independent of how many formats are enabled. Initial readers
 /// have already tried every format; finder hints prioritize bounded recovery without
@@ -1692,6 +1704,7 @@ fn matrix_retries(
     let mut crop_budget = POLICY.matrix_crop_pixels;
     let mut reduced = POLICY.qr_reduced_region_retries;
     let mut located_crop = POLICY.qr_located_crop_pixels;
+    let mut fair_crops = POLICY.fair_data_matrix_crops;
     let mut retries: Vec<barcode_multiformat::Scan> = Vec::new();
     // Pending recovery remains unfinished even when its shared allowance or
     // crop size cap prevents a retry, including candidates beyond those retried.
@@ -1726,6 +1739,12 @@ fn matrix_retries(
             })
         {
             continue;
+        }
+        if fair_data_matrix(region) {
+            if fair_crops == 0 {
+                continue;
+            }
+            fair_crops -= 1;
         }
         let pending = barcode_multiformat::Scan {
             barcodes: Vec::new(),
@@ -1934,6 +1953,26 @@ mod matrix_budget_tests {
         ];
         let reads = fair_region_first(&rows, "QRCode", 0.5, DATA_MATRIX | QR_CODE);
         assert!(reads.iter().any(|text| text == "TAPIRSCAN"));
+    }
+
+    #[test]
+    fn medium_crops_one_fair_data_matrix_region_once() {
+        let fair = |x: f32| barcode_multiformat::regions::Region {
+            format: "DataMatrix".into(),
+            text: String::new(),
+            polygon: [[x, 10.], [x + 20., 10.], [x + 20., 30.], [x, 30.]],
+            localization_score: 0.9,
+            support: 1,
+        };
+        let mut scan = barcode_multiformat::Scan {
+            barcodes: Vec::new(),
+            regions: vec![fair(10.), fair(60.)],
+            unfinished: false,
+            lines: 0,
+        };
+        let crops = matrix_retries(&[255; 100 * 40], [100, 40], DATA_MATRIX, &mut scan, &[]);
+        // Medium reads the sharpened copy of the first; High every copy of both.
+        assert_eq!(crops.len(), if cfg!(feature = "medium") { 1 } else { 6 });
     }
 
     #[test]
