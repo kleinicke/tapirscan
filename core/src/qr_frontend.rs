@@ -73,8 +73,10 @@ const WINDOW_MAX: usize = 640;
 /// finder to the frame-wide thresholds too, such as dark symbols on a sheet that
 /// a lamp lights unevenly.
 const WINDOW_REACH: f32 = 3. * usize_f32(WINDOW_MAX);
-/// Smallest module width in pixels a reduced window may leave.
-const REDUCED_MODULE: f32 = 2.5;
+/// Smallest module width in pixels a window may hold once scanned (reduced or not). Pairs
+/// of finders this small rarely form a symbol a window reads; skipping them leaves the
+/// window for a pair that does.
+const WINDOW_MODULE: f32 = 2.5;
 /// Reduced windows per frame. Each costs a full window scan plus the reduction, on
 /// frames that mostly read nothing more: Medium takes one, High and above any of
 /// their three windows (Low has none).
@@ -167,7 +169,7 @@ impl Counts {
 ///
 /// A pair needs modules within a factor 1.43 and a distance of 12 to 75 modules
 /// (version 1 side to version 10 diagonal); the window must fit [`WINDOW_REACH`],
-/// and the reduction it needs must leave modules of [`REDUCED_MODULE`]. The
+/// and its modules, after the reduction it needs, must be [`WINDOW_MODULE`] wide. The
 /// square window reaches 1.15 finder distances from the pair's midpoint, which covers
 /// a symbol on either side of a side pair (its far corners lie 1.12 distances away),
 /// plus 8 modules of finder half-width and quiet zone. Bars and text produce clusters
@@ -216,7 +218,7 @@ fn local_windows(
             if !(0.7..=1.43).contains(&(a[2] / b[2]))
                 || !(12. ..=75.).contains(&(distance / module))
                 || 2. * half > WINDOW_REACH
-                || reduction > 1. && module / reduction < REDUCED_MODULE
+                || module / reduction < WINDOW_MODULE
             {
                 continue;
             }
@@ -592,10 +594,12 @@ mod tests {
             local_windows(&far, &[], width, height, 3),
             Vec::<[usize; 4]>::new()
         );
-        // Small modules are fine at full resolution...
+        // Nor for 2-pixel modules, at full resolution or in a 754-pixel window halved.
         let small = [[400., 400., 2., 3.], [400., 500., 2., 3.]];
-        assert_eq!(local_windows(&small, &[], width, height, 3).len(), 1);
-        // ...but a 754-pixel window halved would leave 2-pixel modules.
+        assert_eq!(
+            local_windows(&small, &[], width, height, 3),
+            Vec::<[usize; 4]>::new()
+        );
         let fine = [[400., 400., 4., 3.], [400., 700., 4., 3.]];
         assert_eq!(
             local_windows(&fine, &[], width, height, 3),
