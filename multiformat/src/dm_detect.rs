@@ -2711,6 +2711,7 @@ mod region_error_tests {
         assert_eq!(recorded(mode_retries(1), false), 0);
         assert_eq!(recorded(mode_retries(2), false), 1);
         assert_eq!(recorded(mode_retries(3), false), 1);
+        assert_eq!(recorded(CROP_PASS, false), 0);
     }
 
     #[test]
