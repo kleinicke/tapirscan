@@ -8,10 +8,9 @@
   information. On BoofCV's high-version QR images Medium reads 28 of 37 codes
   instead of 8, High 34 instead of 10 and Low 24 instead of 6.
 - QR codes whose finder patterns are found but whose modules the usual
-  thresholds split, such as synthetic codes with cropped quiet zones and
-  light-colored codes: a frame that read nothing but holds finder patterns is
-  tried with one more global threshold, in High and Very High and in Medium's
-  retry of unread QR frames. High reads 19 more codes of a 4,619-image QR set
+  thresholds split, mostly synthetic codes with cropped quiet zones: a frame
+  that read nothing but holds finder patterns is tried with one more global
+  threshold, in High and Very High and in Medium's retry of unread QR frames. High reads 19 more codes of a 4,619-image QR set
   and Medium 3.
 - More QR codes beside a read symbol: the windows around unread finder pairs
   reach up to 1,920 pixels, scanned reduced to at most 640 pixels, and may then

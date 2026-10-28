@@ -406,7 +406,10 @@ fn unread_passes(
             curved: false,
             budget: HYBRID_BUDGET,
         };
-        reads.extend(detect(width, height, regions, binary, pass).0);
+        // Candidates it leaves unread stay out of the frame's regions, which steer the
+        // facade's later recoveries.
+        let mut scratch = barcode_multiformat::regions::Regions::default();
+        reads.extend(detect(width, height, &mut scratch, binary, pass).0);
     }
     reads
 }
