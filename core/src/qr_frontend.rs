@@ -68,12 +68,13 @@ const WINDOWS: usize = if cfg!(feature = "mode-low") { 0 } else { 3 };
 /// Longest side in pixels of the image a window is scanned in. It bounds the cost
 /// of a window: a larger window is scanned on an area-averaged copy reduced by an
 /// integer factor to fit.
-const WINDOW_MAX: f32 = 640.;
+const WINDOW_MAX: usize = 640;
 /// Longest window side in frame pixels. Large symbols beside a read can lose a
 /// finder to the frame-wide thresholds too, such as dark symbols on a sheet that
-/// a lamp lights unevenly; at a reduction of up to 3 their modules stay wider
-/// than the finder rows need.
-const WINDOW_REACH: f32 = 3. * WINDOW_MAX;
+/// a lamp lights unevenly.
+const WINDOW_REACH: f32 = 3. * usize_f32(WINDOW_MAX);
+/// Smallest module width in pixels a reduced window may leave.
+const REDUCED_MODULE: f32 = 2.5;
 /// Decode attempts of each window pass. A window holds one candidate symbol, whose
 /// triples rank first; the rest are triples of texture around it.
 const WINDOW_BUDGET: usize = 60;
@@ -161,7 +162,8 @@ impl Counts {
 /// finder the frame's row step or thresholds lost.
 ///
 /// A pair needs modules within a factor 1.43 and a distance of 12 to 75 modules
-/// (version 1 side to version 10 diagonal); the window must fit [`WINDOW_REACH`]. The
+/// (version 1 side to version 10 diagonal); the window must fit [`WINDOW_REACH`],
+/// and the reduction it needs must leave modules of [`REDUCED_MODULE`]. The
 /// square window reaches 1.15 finder distances from the pair's midpoint, which covers
 /// a symbol on either side of a side pair (its far corners lie 1.12 distances away),
 /// plus 8 modules of finder half-width and quiet zone. Bars and text produce clusters
@@ -206,9 +208,11 @@ fn local_windows(
             let module = f32::midpoint(a[2], b[2]);
             let distance = (a[0] - b[0]).hypot(a[1] - b[1]);
             let half = 1.15 * distance + 8. * module;
+            let reduction = (2. * half / usize_f32(WINDOW_MAX)).ceil().max(1.);
             if !(0.7..=1.43).contains(&(a[2] / b[2]))
                 || !(12. ..=75.).contains(&(distance / module))
                 || 2. * half > WINDOW_REACH
+                || module / reduction < REDUCED_MODULE
             {
                 continue;
             }
@@ -220,7 +224,8 @@ fn local_windows(
                 continue;
             }
             let crowd = counts.around(middle, half).max(2);
-            pairs.push(((a[3] + b[3]) / usize_f32(crowd as usize), middle, half));
+            let score = (a[3] + b[3]) / usize_f32(crowd as usize);
+            pairs.push((score, middle, half));
         }
     }
     pairs.sort_by(|a, b| b.0.total_cmp(&a.0));
@@ -283,6 +288,7 @@ fn window_pixels(
         }
         out.extend(
             sums.iter()
+                // A rounded mean of bytes fits a byte.
                 .map(|&sum| u8::try_from((sum + area / 2) / area).unwrap_or(u8::MAX)),
         );
     }
@@ -294,10 +300,7 @@ fn window_pixels(
 /// [`WINDOW_MAX`] are scanned reduced.
 fn scan_window(image: &[u8], width: usize, window: [usize; 4]) -> Vec<Detection> {
     let [x0, y0, x1, y1] = window;
-    let factor = (x1 - x0)
-        .max(y1 - y0)
-        .div_ceil(f32_usize(WINDOW_MAX))
-        .max(1);
+    let factor = (x1 - x0).max(y1 - y0).div_ceil(WINDOW_MAX).max(1);
     let (crop, w, h) = window_pixels(image, width, window, factor);
     let mut binary = binarization::Images::new(&crop, w, h);
     let mut reads = scan_frame(&crop, w, h, false, WINDOW_EFFORT, &mut binary, true).barcodes;
@@ -559,6 +562,12 @@ mod tests {
         ];
         assert_eq!(
             local_windows(&far, &[], width, height, 3),
+            Vec::<[usize; 4]>::new()
+        );
+        // A 754-pixel window halved would leave 2-pixel modules.
+        let fine = [[400., 400., 4., 3.], [400., 700., 4., 3.]];
+        assert_eq!(
+            local_windows(&fine, &[], width, height, 3),
             Vec::<[usize; 4]>::new()
         );
         // Windows are clamped to the frame.

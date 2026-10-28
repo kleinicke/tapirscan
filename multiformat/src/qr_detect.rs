@@ -1620,8 +1620,9 @@ pub fn detect_symbols(
                 continue;
             }
             let nearest = crate::numeric::f32_isize(estimate.round());
-            // One grid retry per triple: its version comes from the symbol.
-            let mut grid_tried = false;
+            // The first version whose header passed seeds the grid retry below.
+            let mut triple_seed: Option<(usize, [f32; 8])> = None;
+            let reads_before = results.len();
             'versions: for delta in [0, -1, 1, -2, 2] {
                 let version = nearest + delta;
                 if !(1..=40).contains(&version) {
@@ -1636,7 +1637,7 @@ pub fn detect_symbols(
                     .all(|finder| finder_grid_valid(image, w, h, [finder.x, finder.y], ex, ey));
                 let br = [tr.x + bl.x - tl.x, tr.y + bl.y - tl.y];
                 let mut any_valid = affine_valid;
-                // The latest transform whose header passed seeds the grid retry.
+                // The latest transform whose header passed for this version.
                 let mut grid_seed: Option<[f32; 8]> = None;
                 // Preserve transform and offset order while avoiding unused geometric fits.
                 let mut early: Vec<[f32; 8]> = Vec::new();
@@ -1957,37 +1958,37 @@ pub fn detect_symbols(
                         }
                     }
                 }
-                let version = version.cast_unsigned();
-                if let Some(t) = grid_seed
-                    && !grid_tried
-                    && version + 2 >= grid::MIN_VERSION
-                    && grid_calls < policy.grid_budget
+                if triple_seed.is_none() {
+                    triple_seed = grid_seed.map(|t| (version.cast_unsigned(), t));
+                }
+            }
+            // A large candidate whose header passed but no version decoded is
+            // sampled once more cell by cell, at the version its own version
+            // information gives.
+            if results.len() == reads_before
+                && grid_calls < policy.grid_budget
+                && let Some((candidate, t)) = triple_seed
+                && let Some(version) = grid::read_version(image, [w, h], candidate, &t)
+                    .or((candidate >= grid::MIN_VERSION).then_some(candidate))
+            {
+                grid_calls += 1;
+                if let Some((read, polygon)) = grid::recover(image, [w, h], candidate, version, &t)
                 {
-                    grid_calls += 1;
-                    // A read version settles the triple; otherwise the next
-                    // candidate version may still read it.
-                    let read_version = grid::read_version(image, [w, h], version, &t);
-                    grid_tried = read_version.is_some();
-                    if let Some((read, polygon)) =
-                        grid::recover(image, [w, h], version, read_version.unwrap_or(version), &t)
-                    {
-                        used.extend(finder_triple.iter().map(|p| (*p).clone()));
-                        results.push(Detection {
-                            assembled_rows: false,
-                            bytes: Some(read.bytes),
-                            structured_append: read.structured_append,
-                            reader_initialization: false,
-                            addon: None,
-                            codabar_start_stop: None,
-                            format: "QRCode".into(),
-                            text: read.text,
-                            polygon,
-                            support: tl.support.min(tr.support).min(bl.support),
-                            error: crate::numeric::usize_f32(read.corrected),
-                            gs1: read.gs1,
-                        });
-                        break 'versions;
-                    }
+                    used.extend(finder_triple.iter().map(|p| (*p).clone()));
+                    results.push(Detection {
+                        assembled_rows: false,
+                        bytes: Some(read.bytes),
+                        structured_append: read.structured_append,
+                        reader_initialization: false,
+                        addon: None,
+                        codabar_start_stop: None,
+                        format: "QRCode".into(),
+                        text: read.text,
+                        polygon,
+                        support: tl.support.min(tr.support).min(bl.support),
+                        error: crate::numeric::usize_f32(read.corrected),
+                        gs1: read.gs1,
+                    });
                 }
             }
         }

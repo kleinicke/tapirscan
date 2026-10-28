@@ -133,7 +133,7 @@ fn locate(
             });
         let mut shift = [0.; 2];
         let mut count = 0.;
-        for (dc, dr) in [(-1, 0), (0, -1), (-1, -1), (1, -1), (-1, 1)] {
+        for (dc, dr) in [(-1, 0), (0, -1), (-1, -1), (1, -1)] {
             let (Some(c), Some(r)) = (column.checked_add_signed(dc), row.checked_add_signed(dr))
             else {
                 continue;
