@@ -97,6 +97,10 @@ const WINDOW_MODULE: f32 = 2.5;
 /// frames that mostly read nothing more: Medium takes one, High and above three
 /// (Low has none).
 const REDUCED_WINDOWS: usize = if cfg!(feature = "mode-medium") { 1 } else { 3 };
+/// Threshold mode of the upper contrast cut of [`binarization::Images`].
+const UPPER_CONTRAST: std::ops::Range<usize> = 6..7;
+/// Finder candidates an unread frame needs for the upper contrast pass.
+const UPPER_CONTRAST_FINDERS: usize = 3;
 /// Decode attempts of each window pass. A window holds one candidate symbol, whose
 /// triples rank first; the rest are triples of texture around it.
 const WINDOW_BUDGET: usize = 60;
@@ -357,6 +361,46 @@ fn scan_window(image: &[u8], width: usize, window: [usize; 4]) -> Vec<Detection>
     reads
 }
 
+/// Further threshold passes of a frame whose first pass read nothing, each with a
+/// bounded budget that stops quietly.
+///
+/// Block thresholds follow sharp shadow edges and large modules that the 33-pixel local
+/// mean misses: Medium tries them where a QR candidate stayed unread, High and Very High
+/// on every unread frame. The upper contrast cut separates light-colored modules
+/// (purple, blue or red on white) that the local thresholds split, so finders are found
+/// but form no symbol: High and Very High only, as in Medium it would add 4 to 5% to
+/// mixed selections, whose QR group scans retail photos with texture finders.
+fn unread_passes(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    effort: usize,
+    regions: &mut barcode_multiformat::regions::Regions,
+    binary: &mut binarization::Images<'_>,
+) -> Vec<Detection> {
+    let mut reads = Vec::new();
+    if effort >= 1 && (effort >= 2 || !regions.candidates.is_empty()) {
+        let mut hybrid = binarization::Images::new_hybrid(image, width, height);
+        for modes in [1..2, 3..4] {
+            let pass = Pass {
+                modes,
+                curved: false,
+                budget: HYBRID_BUDGET,
+            };
+            reads.extend(detect(width, height, regions, &mut hybrid, pass).0);
+        }
+    }
+    if reads.is_empty() && effort >= 2 && regions.qr_finders.len() >= UPPER_CONTRAST_FINDERS {
+        let pass = Pass {
+            modes: UPPER_CONTRAST,
+            curved: false,
+            budget: HYBRID_BUDGET,
+        };
+        reads.extend(detect(width, height, regions, binary, pass).0);
+    }
+    reads
+}
+
 fn scan_frame(
     image: &[u8],
     width: usize,
@@ -396,26 +440,9 @@ fn scan_frame(
         },
     };
     let (mut reads, mut limited) = detect(width, height, &mut regions, binary, pass);
-    // Block thresholds follow sharp shadow edges and large modules that the
-    // 33-pixel local mean misses. Medium tries them where a QR candidate stayed
-    // unread; High and Very High on every unread frame. Each pass has a bounded
-    // budget and stops quietly.
-    if !foreground
-        && !window
-        && reads.is_empty()
-        && effort >= 1
-        && (effort >= 2 || !regions.candidates.is_empty())
-    {
-        let mut hybrid = binarization::Images::new_hybrid(image, width, height);
-        for modes in [1..2, 3..4] {
-            let pass = Pass {
-                modes,
-                curved: false,
-                budget: HYBRID_BUDGET,
-            };
-            let (extra, _) = detect(width, height, &mut regions, &mut hybrid, pass);
-            reads.extend(extra);
-        }
+    if !foreground && !window && reads.is_empty() {
+        let extra = unread_passes(image, width, height, effort, &mut regions, binary);
+        reads.extend(extra);
     }
     // Low retries a frame that read nothing but holds QR evidence.
     if !foreground && !window {

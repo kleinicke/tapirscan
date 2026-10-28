@@ -7,6 +7,10 @@
   cell between its alignment patterns, with the version taken from its version
   information. On BoofCV's high-version QR images Medium reads 28 of 37 codes
   instead of 8, High 34 instead of 10 and Low 24 instead of 6.
+- QR codes in light colors (purple, blue or red modules on white), whose
+  finders split under the usual thresholds: High and Very High try the upper
+  contrast cut on a frame that read nothing but holds finder candidates. High
+  reads 19 more codes of a 4,619-image QR set and Medium 3.
 - More QR codes beside a read symbol: the windows around unread finder pairs
   reach up to 1,920 pixels, scanned reduced to at most 640 pixels, and may then
   cover most of the frame. High and Very High search up to 12 such windows and
