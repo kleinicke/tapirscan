@@ -37,7 +37,7 @@ fn main() -> Result<(), tapirscan::Error> {
 }
 ```
 
-Defaults are Medium effort and common formats (EAN13, UPCA, EAN8, UPCE, Code128, Code39, ITF, QRCode and DataMatrix). If
+Defaults are Medium effort and common formats (EAN13, UPCA, EAN8, UPCE, Code128, Code39, ITF, `QRCode` and `DataMatrix`). If
 nothing is decoded, `barcodes` is empty. Invalid input or engine failures are
 `Error` values. Results own their data and outlive the input and scanner.
 Support, undecoded regions and image limits are described in
