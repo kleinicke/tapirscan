@@ -20,6 +20,10 @@
   second try from Medium up: one per frame in a larger crop, and one too large
   for any crop on a copy reduced to at most 640 pixels. With the windows above,
   Medium reads 9 more of the 1,258 codes in BoofCV's QR images and High 8 more.
+- MaxiCode and Micro QR codes that were located but not read get a second try
+  in a crop from Medium up, as QR, Data Matrix and Aztec codes already did. On
+  the development selection Medium and High read 25 more MaxiCode and 4 more
+  Micro QR codes.
 - Windows on ARM64: a `win_arm64` Python wheel and a `windows-arm64` native
   library on each GitHub release, which the Dart build hook downloads.
 - Faster scans of selections with several 2D formats: PDF417 localization skips
