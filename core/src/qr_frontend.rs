@@ -103,7 +103,7 @@ const UPPER_CONTRAST: std::ops::Range<usize> = 6..7;
 const UPPER_CONTRAST_FINDERS: usize = 3;
 /// Long side in pixels up to which an unread frame with large finders is also
 /// scanned on a halved copy: the facade's `REDUCED_COPY_SIDE`, above which it scans
-/// reduced copies itself.
+/// reduced copies itself (which, like its crops, then pass here).
 const HALF_COPY_FRAME: usize = 1920;
 /// Smallest module size in pixels of the three finders that admit the halved copy.
 const HALF_COPY_MODULE: f32 = 16.;
@@ -406,10 +406,8 @@ fn unread_passes(
             reads.extend(detect(width, height, regions, &mut hybrid, pass).0);
         }
     }
-    if reads.is_empty()
-        && effort >= 2
-        && unread_finders(&regions.qr_finders, &[]).len() >= UPPER_CONTRAST_FINDERS
-    {
+    let distinct = unread_finders(&regions.qr_finders, &[]);
+    if reads.is_empty() && effort >= 2 && distinct.len() >= UPPER_CONTRAST_FINDERS {
         let pass = Pass {
             modes: UPPER_CONTRAST,
             curved: false,
@@ -423,7 +421,7 @@ fn unread_passes(
     if reads.is_empty()
         && effort >= 1
         && width.max(height) <= HALF_COPY_FRAME
-        && large_triple(&unread_finders(&regions.qr_finders, &[]))
+        && large_triple(&distinct)
     {
         reads.extend(scan_half(image, width, height, effort));
     }
@@ -431,33 +429,44 @@ fn unread_passes(
 }
 
 /// Whether three finder patterns of [`HALF_COPY_MODULE`] or more could be one symbol's:
-/// modules within a factor 1.43 and 7 to 180 modules apart.
+/// modules within a factor 1.43, 7 to 180 modules apart, and a symbol's corner
+/// triangle (two legs within a factor 1.5, the third side 0.75 to 1.35 times the
+/// diagonal those legs span), which texture and other symbologies' rings rarely form.
 fn large_triple(finders: &[[f32; 4]]) -> bool {
     let large: Vec<&[f32; 4]> = finders
         .iter()
         .filter(|f| f[2] >= HALF_COPY_MODULE)
         .collect();
+    let distance = |a: &[f32; 4], b: &[f32; 4]| (a[0] - b[0]).hypot(a[1] - b[1]);
     let pair = |a: &[f32; 4], b: &[f32; 4]| {
-        let module = f32::midpoint(a[2], b[2]);
         (0.7..=1.43).contains(&(a[2] / b[2]))
-            && (7. ..=180.).contains(&((a[0] - b[0]).hypot(a[1] - b[1]) / module))
+            && (7. ..=180.).contains(&(distance(a, b) / f32::midpoint(a[2], b[2])))
+    };
+    let corner = |a: &[f32; 4], b: &[f32; 4], c: &[f32; 4]| {
+        let mut sides = [distance(a, b), distance(a, c), distance(b, c)];
+        sides.sort_by(f32::total_cmp);
+        let diagonal = sides[0].hypot(sides[1]);
+        sides[1] <= 1.5 * sides[0] && (0.75..=1.35).contains(&(sides[2] / diagonal))
     };
     large.iter().enumerate().any(|(i, a)| {
-        large[i + 1..]
-            .iter()
-            .enumerate()
-            .any(|(j, b)| pair(a, b) && large[i + j + 2..].iter().any(|c| pair(a, c) && pair(b, c)))
+        large[i + 1..].iter().enumerate().any(|(j, b)| {
+            pair(a, b)
+                && large[i + j + 2..]
+                    .iter()
+                    .any(|c| pair(a, c) && pair(b, c) && corner(a, b, c))
+        })
     })
 }
 
-/// Scan the frame averaged over 2 x 2 blocks with the pass of `effort` (so Medium's
-/// extended retry of the same frame tries the extended modes), bounded like the other
-/// unread passes, and map the reads back.
+/// Scan the frame averaged over 2 x 2 blocks with the full pass of `effort` (Medium's
+/// extended retry of the same frame thus also tries the extended modes; a budget like
+/// the other unread passes' lost reads), and map the reads back. Its limited flag is
+/// not kept: the frame's own passes report the frame.
 fn scan_half(image: &[u8], width: usize, height: usize, effort: usize) -> Vec<Detection> {
     let (copy, w, h) = window_pixels(image, width, [0, 0, width, height], 2);
     let mut binary = binarization::Images::new(&copy, w, h);
     let mut regions = barcode_multiformat::regions::Regions::default();
-    let pass = Pass::effort(effort > 1, false);
+    let pass = Pass::effort(effort > 1, effort > 2);
     let (mut reads, _) = detect(w, h, &mut regions, &mut binary, pass);
     for read in &mut reads {
         for p in &mut read.polygon {
@@ -699,6 +708,22 @@ mod tests {
         assert!(!large_triple(&small));
         let close = symbol.map(|[x, y, m, s]| [x / 10., y / 10., m, s]);
         assert!(!large_triple(&close));
+        // More than 180 modules apart.
+        let far = symbol.map(|[x, y, m, s]| [x * 11., y * 11., m, s]);
+        assert!(!large_triple(&far));
+        // Modules of exactly 16 pixels count.
+        let edge = symbol.map(|[x, y, _, s]| [x, y, 16., s]);
+        assert!(large_triple(&edge));
+        // Three in a row are no symbol's corner; a fourth finder at the corner makes one.
+        let row = [
+            [100., 100., 20., 3.],
+            [460., 100., 20., 3.],
+            [820., 100., 20., 3.],
+        ];
+        assert!(!large_triple(&row));
+        let mut four = row.to_vec();
+        four.push([460., 460., 20., 3.]);
+        assert!(large_triple(&four));
     }
 
     #[test]

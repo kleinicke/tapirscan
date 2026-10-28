@@ -18,7 +18,7 @@
 - Large QR codes in frames up to Full HD: a frame that read nothing but holds
   three large finder patterns (16-pixel modules or more) that could belong to
   one symbol is scanned again on a copy halved by averaging, from Medium up.
-  Medium reads 8 more of BoofCV's 1,258 labelled QR codes.
+  Medium reads 7 more of BoofCV's 1,258 labelled QR codes.
 - QR codes whose finder patterns are found but whose modules the usual
   thresholds split, mostly synthetic codes with cropped quiet zones: a frame
   that read nothing but holds finder patterns is tried with one more global
