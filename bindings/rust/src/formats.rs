@@ -1740,6 +1740,29 @@ mod matrix_budget_tests {
         assert!(matrix_retries(&[255; 64], [8, 8], QR_CODE | DATA_MATRIX, &mut scan).is_empty());
         assert!(!scan.unfinished);
     }
+
+    #[test]
+    fn a_located_qr_region_gets_a_larger_first_crop() {
+        // A 240-pixel square region needs a 352 x 352 crop (123,904 pixels).
+        let pending = |score: f32| barcode_multiformat::Scan {
+            barcodes: Vec::new(),
+            regions: vec![barcode_multiformat::regions::Region {
+                format: "QRCode".into(),
+                text: String::new(),
+                polygon: [[400., 400.], [640., 400.], [640., 640.], [400., 640.]],
+                localization_score: score,
+                support: 4,
+            }],
+            unfinished: false,
+            lines: 0,
+        };
+        let pixels = vec![200; 1000 * 1000];
+        let retries = |score| matrix_retries(&pixels, [1000, 1000], QR_CODE, &mut pending(score));
+        assert!(!retries(1.).is_empty());
+        if super::POLICY.matrix_crop_pixels < 352 * 352 {
+            assert!(retries(0.95).is_empty());
+        }
+    }
 }
 
 #[cfg(all(test, not(feature = "low")))]

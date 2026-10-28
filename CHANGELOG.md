@@ -9,6 +9,10 @@
   instead of 8, High 34 instead of 10 and Low 24 instead of 6. Medium and High
   also search larger windows around unread finder pairs beside a read symbol,
   reduced to at most 640 pixels, which reads more codes on dark sheets.
+- Medium retries a located but unread QR code larger than its crop allowance:
+  the first QR region of a frame whose timing patterns read without error may
+  take a crop of up to 131,072 pixels. On BoofCV's rotation images Medium reads
+  131 of 133 codes instead of 128; other frames are unchanged.
 - Windows on ARM64: a `win_arm64` Python wheel and a `windows-arm64` native
   library on each GitHub release, which the Dart build hook downloads.
 - Faster scans of selections with several 2D formats: PDF417 localization skips
