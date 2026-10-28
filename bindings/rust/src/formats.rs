@@ -1641,6 +1641,9 @@ fn extend_primary_retail(reads: &mut Vec<Read>, primary: Option<&crate::Result>,
     }
 }
 
+/// The format whose pending regions get crop retries. `MaxiCode` regions get them from
+/// High up only: their recoveries come from the sharpened and doubled copies, which in
+/// Medium would cost every `MaxiCode` frame with an unread region a few milliseconds.
 #[cfg(not(feature = "low"))]
 fn retry_format(format: &str) -> u32 {
     match format {
@@ -1648,7 +1651,7 @@ fn retry_format(format: &str) -> u32 {
         "MicroQRCode" => MICRO_QR_CODE,
         "DataMatrix" => DATA_MATRIX,
         "Aztec" => AZTEC,
-        "MaxiCode" => MAXI_CODE,
+        "MaxiCode" if POLICY.matrix_crop_effort >= 2 => MAXI_CODE,
         _ => 0,
     }
 }
@@ -1766,7 +1769,7 @@ fn matrix_retries(
 
 #[cfg(all(test, not(feature = "low")))]
 mod matrix_budget_tests {
-    use super::{DATA_MATRIX, QR_CODE, matrix_retries};
+    use super::{DATA_MATRIX, MAXI_CODE, MICRO_QR_CODE, QR_CODE, matrix_retries};
     #[test]
     fn no_pending_candidates_do_not_invent_work() {
         let mut scan = barcode_multiformat::Scan {
@@ -1779,6 +1782,35 @@ mod matrix_budget_tests {
             matrix_retries(&[255; 64], [8, 8], QR_CODE | DATA_MATRIX, &mut scan, &[]).is_empty()
         );
         assert!(!scan.unfinished);
+    }
+
+    #[test]
+    fn micro_qr_regions_are_cropped_and_maxicode_regions_from_high_up() {
+        let pending = |format: &str| barcode_multiformat::Scan {
+            barcodes: Vec::new(),
+            regions: vec![barcode_multiformat::regions::Region {
+                format: format.into(),
+                text: String::new(),
+                polygon: [[50., 50.], [90., 50.], [90., 90.], [50., 90.]],
+                localization_score: 1.,
+                support: 1,
+            }],
+            unfinished: false,
+            lines: 0,
+        };
+        let pixels = vec![255; 200 * 200];
+        // Three crop methods, none of which reads the blank crop.
+        let mut micro_qr = pending("MicroQRCode");
+        assert_eq!(
+            matrix_retries(&pixels, [200, 200], MICRO_QR_CODE, &mut micro_qr, &[]).len(),
+            3
+        );
+        assert!(micro_qr.unfinished);
+        let mut maxicode = pending("MaxiCode");
+        let crops = matrix_retries(&pixels, [200, 200], MAXI_CODE, &mut maxicode, &[]).len();
+        let high = super::POLICY.matrix_crop_effort >= 2;
+        assert_eq!(crops, if high { 3 } else { 0 });
+        assert_eq!(maxicode.unfinished, high);
     }
 
     #[test]
@@ -1916,46 +1948,6 @@ mod matrix_budget_tests {
         assert!(
             matrix_retries(&pixels, [width, height], QR_CODE, &mut pending(0.95), &[]).is_empty()
         );
-    }
-}
-
-#[cfg(all(test, not(feature = "low")))]
-mod region_crop_tests {
-    use super::{MAXI_CODE, MICRO_QR_CODE, matrix_retries};
-    use barcode_multiformat::regions::Region;
-
-    fn region(format: &str, polygon: [[f32; 2]; 4]) -> Region {
-        Region {
-            format: format.into(),
-            text: String::new(),
-            polygon,
-            localization_score: 1.,
-            support: 1,
-        }
-    }
-
-    fn pending(regions: Vec<Region>) -> barcode_multiformat::Scan {
-        barcode_multiformat::Scan {
-            barcodes: Vec::new(),
-            regions,
-            unfinished: false,
-            lines: 0,
-        }
-    }
-
-    #[test]
-    fn pending_micro_qr_and_maxicode_regions_are_cropped() {
-        let pixels = vec![255; 200 * 200];
-        let square = [[50., 50.], [90., 50.], [90., 90.], [50., 90.]];
-        for (format, mask) in [("MicroQRCode", MICRO_QR_CODE), ("MaxiCode", MAXI_CODE)] {
-            let mut scan = pending(vec![region(format, square)]);
-            // A blank crop reads nothing, so all three copies are tried.
-            assert_eq!(
-                matrix_retries(&pixels, [200, 200], mask, &mut scan, &[]).len(),
-                3
-            );
-            assert!(scan.unfinished);
-        }
     }
 }
 

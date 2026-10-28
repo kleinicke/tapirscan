@@ -244,8 +244,11 @@ These are internal reader effort levels, not comparable work or confidence score
   an enlarged window; Low uses smaller refinement budgets.
 - **PDF417:** High and Very High re-read localized symbols that the row reader
   cannot finish by matching blurred codeword templates.
-- **MaxiCode** reads the same way in every mode and, from Medium up, retries
-  large unread frames (over 1920 pixels) on reduced copies.
+- **MaxiCode:** Medium and above retry large unread frames (over 1920 pixels)
+  on reduced copies; High and Very High also retry symbols that were found but
+  not read on a crop of their region.
+- **Micro QR:** Medium and above retry symbols that were found but not read on a
+  crop of their region.
 
 When EAN13 and UPCA are both enabled, zero-prefixed EAN13 is returned as UPCA.
 
