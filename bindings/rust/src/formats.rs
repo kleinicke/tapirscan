@@ -1641,9 +1641,7 @@ fn extend_primary_retail(reads: &mut Vec<Read>, primary: Option<&crate::Result>,
     }
 }
 
-/// The format whose pending regions get crop retries. `MaxiCode` regions get them from
-/// High up only: their recoveries come from the sharpened and doubled copies, which in
-/// Medium would cost every `MaxiCode` frame with an unread region a few milliseconds.
+/// The reader flag for a region's format name, or 0 when that format gets no crop retry.
 #[cfg(not(feature = "low"))]
 fn retry_format(format: &str) -> u32 {
     match format {
@@ -1651,7 +1649,7 @@ fn retry_format(format: &str) -> u32 {
         "MicroQRCode" => MICRO_QR_CODE,
         "DataMatrix" => DATA_MATRIX,
         "Aztec" => AZTEC,
-        "MaxiCode" if POLICY.matrix_crop_effort >= 2 => MAXI_CODE,
+        "MaxiCode" if POLICY.maxi_code_crop_retries => MAXI_CODE,
         _ => 0,
     }
 }
@@ -1808,7 +1806,7 @@ mod matrix_budget_tests {
         assert!(micro_qr.unfinished);
         let mut maxicode = pending("MaxiCode");
         let crops = matrix_retries(&pixels, [200, 200], MAXI_CODE, &mut maxicode, &[]).len();
-        let high = super::POLICY.matrix_crop_effort >= 2;
+        let high = cfg!(any(feature = "high", feature = "very-high"));
         assert_eq!(crops, if high { 3 } else { 0 });
         assert_eq!(maxicode.unfinished, high);
     }

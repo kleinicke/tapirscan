@@ -81,6 +81,10 @@ pub(super) struct ModePolicy {
     pub matrix_crop_pixels: usize,
     /// Effort of the crop retries of pending matrix regions.
     pub matrix_crop_effort: usize,
+    /// Pending `MaxiCode` regions get crop retries too. Their recoveries come from the
+    /// sharpened and doubled copies, which would cost Medium's `MaxiCode` frames a few
+    /// milliseconds each.
+    pub maxi_code_crop_retries: bool,
     /// One QR region per frame whose timing patterns read without error, and whose crop is
     /// larger than what is left of `matrix_crop_pixels`, may take a crop of up to this many
     /// pixels outside that shared allowance.
@@ -144,6 +148,7 @@ impl ModePolicy {
         qr_reduced_needs_texture: false,
         matrix_crop_pixels: 0,
         matrix_crop_effort: 0,
+        maxi_code_crop_retries: false,
         qr_located_crop_pixels: 0,
         qr_reduced_region_retries: 0,
         data_matrix_averaged_scales: &[],
@@ -195,6 +200,7 @@ impl ModePolicy {
         qr_reduced_needs_texture: true,
         matrix_crop_pixels: 131_072,
         matrix_crop_effort: 2,
+        maxi_code_crop_retries: true,
         // The cheap coarse copy runs first; the finer one only after it left a candidate.
         data_matrix_averaged_scales: &[256, 400],
         data_matrix_averaged_needs_candidate: true,

@@ -245,10 +245,9 @@ These are internal reader effort levels, not comparable work or confidence score
 - **PDF417:** High and Very High re-read localized symbols that the row reader
   cannot finish by matching blurred codeword templates.
 - **MaxiCode:** Medium and above retry large unread frames (over 1920 pixels)
-  on reduced copies; High and Very High also retry symbols that were found but
-  not read on a crop of their region.
-- **Micro QR:** Medium and above retry symbols that were found but not read on a
-  crop of their region.
+  on reduced copies.
+- **Crop retries:** Medium and above retry found-but-unread QR, Micro QR, Data
+  Matrix and Aztec symbols on a crop of their region; MaxiCode from High.
 
 When EAN13 and UPCA are both enabled, zero-prefixed EAN13 is returned as UPCA.
 

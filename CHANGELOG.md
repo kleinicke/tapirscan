@@ -21,7 +21,7 @@
   for any crop on a copy reduced to at most 640 pixels. With the windows above,
   Medium reads 9 more of the 1,258 codes in BoofCV's QR images and High 8 more.
 - MaxiCode and Micro QR symbols that are found but not read get a crop retry,
-  as QR, Data Matrix and Aztec symbols already did (MaxiCode: High and Very
+  like QR, Data Matrix and Aztec symbols (MaxiCode: High and Very
   High; Micro QR: Medium and above).
 - Windows on ARM64: a `win_arm64` Python wheel and a `windows-arm64` native
   library on each GitHub release, which the Dart build hook downloads.
