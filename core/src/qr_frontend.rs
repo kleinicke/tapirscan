@@ -1,7 +1,8 @@
 //! QR-only production frontend: the shared multiformat detector under this
 //! mode's [`Policy`], plus block-threshold, evidence, finder-pair window and sharpened
-//! retries. The multi-format groups use the same detector and policy without the
-//! window retry.
+//! retries, halved copies of unread frames with large finders and, from High, reduced
+//! copies of large read frames. The multi-format groups use the same detector and
+//! policy without the window retry.
 use barcode_multiformat::numeric::{f32_usize, usize_f32};
 use barcode_multiformat::qr_detect::{self, FULL_BUDGET, Pass, Policy, Symbols};
 use barcode_multiformat::{Detection, Scan, binarization, qr_enhance};
@@ -105,7 +106,7 @@ const COPY_AFTER_READ: bool = !cfg!(feature = "mode-low") && !cfg!(feature = "mo
 /// Long side in pixels above which a frame is larger than Full HD.
 const COPY_FRAME: usize = 1920;
 /// Long side in pixels the copy is reduced towards, by the largest integer factor that
-/// keeps it at least this long (960 to 1,919 pixels).
+/// keeps it at least this long (960 to 1,439 pixels).
 const COPY_SIDE: usize = 960;
 /// Threshold mode of the upper contrast cut of [`binarization::Images`].
 const UPPER_CONTRAST: std::ops::Range<usize> = 6..7;
