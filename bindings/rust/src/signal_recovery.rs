@@ -53,6 +53,7 @@ pub(crate) fn region_retries(
     }
     output
 }
+
 /// The crop of `region` in a `width` x `height` frame: its bounding box grown by a fifth
 /// of its longer side plus 8 pixels, clamped to the frame, as `[x0, y0, x1, y1]`.
 pub(crate) fn crop_bounds(
@@ -86,14 +87,11 @@ pub(crate) fn crop_bounds(
     Some([x0, y0, x1, y1])
 }
 
-/// Longest side of the reduced copy a located QR region too large to crop is retried in,
-/// as for the QR frontend's windows.
-const REDUCED_REGION_SIDE: usize = 640;
-
-/// Scan `window` of the frame averaged down by the integer factor that fits
-/// [`REDUCED_REGION_SIDE`] (at least 2), with polygons in frame coordinates. A large
-/// symbol whose grid was located but whose data did not decode reads from a coarser grid
-/// that blur and module noise affect less.
+/// Scan `window` of the frame averaged down by the integer factor that fits the QR
+/// frontend's [`WINDOW_MAX`](barcode_research_core::qr_frontend::WINDOW_MAX) (at least
+/// 2), with polygons in frame coordinates. A large symbol whose grid was located but
+/// whose data did not decode reads from a coarser grid that blur and module noise affect
+/// less.
 pub(crate) fn reduced_retry(
     pixels: &[u8],
     width: usize,
@@ -102,7 +100,10 @@ pub(crate) fn reduced_retry(
     effort: usize,
 ) -> barcode_multiformat::Scan {
     let [x0, y0, x1, y1] = window;
-    let factor = (x1 - x0).max(y1 - y0).div_ceil(REDUCED_REGION_SIDE).max(2);
+    let factor = (x1 - x0)
+        .max(y1 - y0)
+        .div_ceil(barcode_research_core::qr_frontend::WINDOW_MAX)
+        .max(2);
     let (small, w, h) =
         barcode_research_core::qr_frontend::window_pixels(pixels, width, window, factor);
     let mut retry = crate::formats::scan_reader(&small, w, h, mask, effort);

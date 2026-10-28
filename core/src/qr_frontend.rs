@@ -76,7 +76,7 @@ const WINDOWS: usize = if cfg!(feature = "mode-low") {
 /// Longest side in pixels of the image a window is scanned in. It bounds the cost
 /// of a window: a larger window is scanned on an area-averaged copy reduced by an
 /// integer factor to fit.
-const WINDOW_MAX: usize = 640;
+pub const WINDOW_MAX: usize = 640;
 /// Longest window side in frame pixels. Large symbols beside a read can lose a
 /// finder to the frame-wide thresholds too, such as dark symbols on a sheet that
 /// a lamp lights unevenly.

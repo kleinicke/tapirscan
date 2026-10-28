@@ -1194,7 +1194,13 @@ fn scan_additional(
         let mut scan = scan;
         #[cfg(not(feature = "low"))]
         let grid_retries = if selected & LINEAR_MASK == 0 {
-            matrix_retries(pixels, [image.width, image.height], selected, &mut scan)
+            matrix_retries(
+                pixels,
+                [image.width, image.height],
+                selected,
+                &mut scan,
+                &retries,
+            )
         } else {
             Vec::new()
         };
@@ -1657,17 +1663,19 @@ const REGION_RETRIES: usize = 32;
 /// Localized crop retries of pending matrix regions under one pixel allowance for the
 /// whole matrix group, independent of how many formats are enabled. Initial readers
 /// have already tried every format; finder hints prioritize bounded recovery without
-/// discarding pending regions.
+/// discarding pending regions. A region that an `earlier` retry of the frame (a scaled
+/// copy) has read is not retried.
 #[cfg(not(feature = "low"))]
 fn matrix_retries(
     pixels: &[u8],
     [width, height]: [usize; 2],
     mask: u32,
     scan: &mut barcode_multiformat::Scan,
+    earlier: &[barcode_multiformat::Scan],
 ) -> Vec<barcode_multiformat::Scan> {
     let mut crop_budget = POLICY.matrix_crop_pixels;
     let mut reduced = POLICY.qr_reduced_region_retries;
-    let mut first_crop = POLICY.qr_first_crop_pixels;
+    let mut located_crop = POLICY.qr_located_crop_pixels;
     let mut retries: Vec<barcode_multiformat::Scan> = Vec::new();
     // Pending recovery remains unfinished even when its shared allowance or
     // crop size cap prevents a retry, including candidates beyond those retried.
@@ -1689,7 +1697,7 @@ fn matrix_retries(
         if scan
             .barcodes
             .iter()
-            .chain(retries.iter().flat_map(|s| &s.barcodes))
+            .chain(earlier.iter().chain(&retries).flat_map(|s| &s.barcodes))
             .any(|r| {
                 r.format == region.format
                     && crate::signal_recovery::covered(region.polygon, r.polygon)
@@ -1711,7 +1719,7 @@ fn matrix_retries(
         let crop = crate::signal_recovery::crop_bounds(region, width, height);
         if located && let Some(window @ [x0, y0, x1, y1]) = crop {
             let area = (x1 - x0) * (y1 - y0);
-            if area > POLICY.qr_first_crop_pixels.max(POLICY.matrix_crop_pixels) {
+            if area > POLICY.qr_located_crop_pixels.max(POLICY.matrix_crop_pixels) {
                 if reduced > 0 {
                     reduced -= 1;
                     retries.push(crate::signal_recovery::reduced_retry(
@@ -1724,8 +1732,8 @@ fn matrix_retries(
                 }
                 continue;
             }
-            if area > crop_budget && area <= first_crop {
-                first_crop = 0;
+            if area > crop_budget && area <= located_crop {
+                located_crop = 0;
                 let mut allowance = area;
                 retries.extend(crate::signal_recovery::region_retries(
                     pixels,
@@ -1765,12 +1773,14 @@ mod matrix_budget_tests {
             unfinished: false,
             lines: 0,
         };
-        assert!(matrix_retries(&[255; 64], [8, 8], QR_CODE | DATA_MATRIX, &mut scan).is_empty());
+        assert!(
+            matrix_retries(&[255; 64], [8, 8], QR_CODE | DATA_MATRIX, &mut scan, &[]).is_empty()
+        );
         assert!(!scan.unfinished);
     }
 
     #[test]
-    fn a_located_qr_region_gets_a_larger_first_crop() {
+    fn a_located_qr_region_gets_a_larger_crop() {
         // A 240-pixel square region needs a 352 x 352 crop (123,904 pixels).
         let pending = |score: f32| barcode_multiformat::Scan {
             barcodes: Vec::new(),
@@ -1785,11 +1795,41 @@ mod matrix_budget_tests {
             lines: 0,
         };
         let pixels = vec![200; 1000 * 1000];
-        let retries = |score| matrix_retries(&pixels, [1000, 1000], QR_CODE, &mut pending(score));
+        let retries =
+            |score| matrix_retries(&pixels, [1000, 1000], QR_CODE, &mut pending(score), &[]);
         // Three crop methods, none of which reads the flat crop.
         assert_eq!(retries(1.).len(), 3);
         if super::POLICY.matrix_crop_pixels < 352 * 352 {
             assert!(retries(0.95).is_empty());
+        }
+    }
+
+    #[test]
+    fn only_the_first_located_qr_region_gets_the_larger_crop() {
+        let region = |[x, y]: [f32; 2], side: f32| barcode_multiformat::regions::Region {
+            format: "QRCode".into(),
+            text: String::new(),
+            polygon: [[x, y], [x + side, y], [x + side, y + side], [x, y + side]],
+            localization_score: 1.,
+            support: 4,
+        };
+        let mut scan = barcode_multiformat::Scan {
+            barcodes: Vec::new(),
+            regions: vec![
+                region([100., 100.], 240.),
+                region([500., 500.], 240.),
+                region([100., 800.], 40.),
+            ],
+            unfinished: false,
+            lines: 0,
+        };
+        let pixels = vec![200; 1000 * 1000];
+        let retries = matrix_retries(&pixels, [1000, 1000], QR_CODE, &mut scan, &[]);
+        // The first large region takes the larger crop; the second fits neither that
+        // (spent) nor the shared allowance, which the small region still gets whole.
+        // Three crop methods each.
+        if super::POLICY.matrix_crop_pixels < 352 * 352 {
+            assert_eq!(retries.len(), 6);
         }
     }
 
@@ -1833,27 +1873,26 @@ mod matrix_budget_tests {
             }
         }
         let outline = [[300., 300.], [888., 300.], [888., 888.], [300., 888.]];
+        let flat = [[950., 50.], [1350., 50.], [1350., 1250.], [950., 1250.]];
+        // The detector's region lies inside the read's outline.
+        let region = [[304., 304.], [884., 304.], [884., 884.], [304., 884.]];
         let pending = |score: f32| barcode_multiformat::Scan {
             barcodes: Vec::new(),
-            regions: vec![
-                barcode_multiformat::regions::Region {
+            regions: [region, flat]
+                .map(|polygon| barcode_multiformat::regions::Region {
                     format: "QRCode".into(),
                     text: String::new(),
-                    polygon: outline,
+                    polygon,
                     localization_score: score,
                     support: 4,
-                };
-                2
-            ],
+                })
+                .to_vec(),
             unfinished: false,
             lines: 0,
         };
-        let retries = matrix_retries(&pixels, [width, height], QR_CODE, &mut pending(1.));
-        // One reduced retry per frame, whatever the further regions.
-        assert_eq!(
-            retries.len(),
-            super::POLICY.qr_reduced_region_retries.min(1)
-        );
+        let retries = matrix_retries(&pixels, [width, height], QR_CODE, &mut pending(1.), &[]);
+        // One reduced retry per frame: the flat region beside the code gets none.
+        assert_eq!(retries.len(), 1);
         let read = &retries[0].barcodes[0];
         assert_eq!(read.text, "TAPIRSCAN");
         for (corner, expected) in read.polygon.iter().zip(outline) {
@@ -1862,7 +1901,19 @@ mod matrix_budget_tests {
                 "{corner:?} vs {expected:?}"
             );
         }
-        assert!(matrix_retries(&pixels, [width, height], QR_CODE, &mut pending(0.95)).is_empty());
+        // Read by an earlier retry, the code is not retried again; the flat region now is.
+        let again = matrix_retries(
+            &pixels,
+            [width, height],
+            QR_CODE,
+            &mut pending(1.),
+            &retries,
+        );
+        assert_eq!(again.len(), 1);
+        assert!(again[0].barcodes.is_empty());
+        assert!(
+            matrix_retries(&pixels, [width, height], QR_CODE, &mut pending(0.95), &[]).is_empty()
+        );
     }
 }
 
@@ -1885,16 +1936,13 @@ mod pending_recovery_tests {
         };
         let pixels = vec![255; 1_000_000];
         let mut scan = pending(0.95);
-        assert!(super::matrix_retries(&pixels, [1000, 1000], QR_CODE, &mut scan).is_empty());
+        assert!(super::matrix_retries(&pixels, [1000, 1000], QR_CODE, &mut scan, &[]).is_empty());
         assert!(scan.unfinished);
         assert_eq!(scan.regions.len(), 1);
         // A located one gets only its reduced retry, which reads nothing here.
         let mut scan = pending(1.);
-        let retries = super::matrix_retries(&pixels, [1000, 1000], QR_CODE, &mut scan);
-        assert_eq!(
-            retries.len(),
-            super::POLICY.qr_reduced_region_retries.min(1)
-        );
+        let retries = super::matrix_retries(&pixels, [1000, 1000], QR_CODE, &mut scan, &[]);
+        assert_eq!(retries.len(), 1);
         assert!(retries.iter().all(|retry| retry.barcodes.is_empty()));
         assert!(scan.unfinished);
     }

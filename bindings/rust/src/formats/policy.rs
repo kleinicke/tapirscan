@@ -79,15 +79,15 @@ pub(super) struct ModePolicy {
     pub qr_reduced_needs_texture: bool,
     /// Pixel allowance for localized crop retries of pending matrix regions.
     pub matrix_crop_pixels: usize,
+    /// Effort of the crop retries of pending matrix regions.
+    pub matrix_crop_effort: usize,
     /// One QR region per frame whose timing patterns read without error, and whose crop is
     /// larger than what is left of `matrix_crop_pixels`, may take a crop of up to this many
     /// pixels outside that shared allowance.
-    pub qr_first_crop_pixels: usize,
+    pub qr_located_crop_pixels: usize,
     /// Located QR regions too large for either crop allowance retried per frame on a
     /// reduced copy (`signal_recovery::reduced_retry`).
     pub qr_reduced_region_retries: usize,
-    /// Effort of those crop retries.
-    pub matrix_crop_effort: usize,
     /// Long sides of the area-averaged Data Matrix copies, in order; empty in modes
     /// without them.
     pub data_matrix_averaged_scales: &'static [usize],
@@ -143,9 +143,9 @@ impl ModePolicy {
         qr_reduced_scales: &[],
         qr_reduced_needs_texture: false,
         matrix_crop_pixels: 0,
-        qr_first_crop_pixels: 0,
-        qr_reduced_region_retries: 0,
         matrix_crop_effort: 0,
+        qr_located_crop_pixels: 0,
+        qr_reduced_region_retries: 0,
         data_matrix_averaged_scales: &[],
         data_matrix_averaged_needs_candidate: false,
         source_profile_cache: false,
@@ -168,9 +168,9 @@ impl ModePolicy {
         qr_effort: 1,
         qr_grid_projection: true,
         matrix_crop_pixels: 65_536,
-        qr_first_crop_pixels: 131_072,
-        qr_reduced_region_retries: 1,
         matrix_crop_effort: 1,
+        qr_located_crop_pixels: 131_072,
+        qr_reduced_region_retries: 1,
         source_profile_cache: true,
         retail_batch_half_scale: true,
         checksum_free_recovery_proposals: 8,
