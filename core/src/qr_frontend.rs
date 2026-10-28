@@ -99,7 +99,7 @@ const WINDOW_MODULE: f32 = 2.5;
 const REDUCED_WINDOWS: usize = if cfg!(feature = "mode-medium") { 1 } else { 3 };
 /// Threshold mode of the upper contrast cut of [`binarization::Images`].
 const UPPER_CONTRAST: std::ops::Range<usize> = 6..7;
-/// Finder candidates an unread frame needs for the upper contrast pass.
+/// Distinct finder patterns an unread frame needs for the upper contrast pass.
 const UPPER_CONTRAST_FINDERS: usize = 3;
 /// Decode attempts of each window pass. A window holds one candidate symbol, whose
 /// triples rank first; the rest are triples of texture around it.
@@ -184,6 +184,28 @@ impl Counts {
     }
 }
 
+/// The finders that no read accounts for, one per pattern: the threshold modes find
+/// the same pattern repeatedly, and the best supported copy is kept.
+fn unread_finders(finders: &[[f32; 4]], reads: &[Detection]) -> Vec<[f32; 4]> {
+    let mut unread: Vec<[f32; 4]> = Vec::new();
+    for f in finders {
+        if reads.iter().any(|r| near([f[0], f[1]], &r.polygon)) {
+            continue;
+        }
+        if let Some(same) = unread
+            .iter_mut()
+            .find(|u| (u[0] - f[0]).hypot(u[1] - f[1]) < 1.5 * u[2].max(f[2]))
+        {
+            if f[3] > same[3] {
+                *same = *f;
+            }
+        } else {
+            unread.push(*f);
+        }
+    }
+    unread
+}
+
 /// Windows around pairs of unread QR finders: two corners of a symbol whose third
 /// finder the frame's row step or thresholds lost.
 ///
@@ -206,23 +228,7 @@ fn local_windows(
     if limit == 0 {
         return Vec::new();
     }
-    let mut unread: Vec<[f32; 4]> = Vec::new();
-    for f in finders {
-        if reads.iter().any(|r| near([f[0], f[1]], &r.polygon)) {
-            continue;
-        }
-        // The threshold modes find the same pattern repeatedly; keep the best support.
-        if let Some(same) = unread
-            .iter_mut()
-            .find(|u| (u[0] - f[0]).hypot(u[1] - f[1]) < 1.5 * u[2].max(f[2]))
-        {
-            if f[3] > same[3] {
-                *same = *f;
-            }
-        } else {
-            unread.push(*f);
-        }
-    }
+    let unread = unread_finders(finders, reads);
     if unread.len() < 2 {
         return Vec::new();
     }
@@ -366,10 +372,11 @@ fn scan_window(image: &[u8], width: usize, window: [usize; 4]) -> Vec<Detection>
 ///
 /// Block thresholds follow sharp shadow edges and large modules that the 33-pixel local
 /// mean misses: Medium tries them where a QR candidate stayed unread, High and Very High
-/// on every unread frame. The upper contrast cut separates light-colored modules
-/// (purple, blue or red on white) that the local thresholds split, so finders are found
-/// but form no symbol: High and Very High only, as in Medium it would add 4 to 5% to
-/// mixed selections, whose QR group scans retail photos with texture finders.
+/// on every unread frame. The global upper contrast cut reads symbols whose finders the
+/// other thresholds find but whose modules they split (light modules, cropped quiet
+/// zones): from effort 2 (High, Very High and Medium's extended retry), where finder
+/// patterns were found; retail texture forms such patterns on most frames of a mixed
+/// selection, so Medium's first scan does not take it.
 fn unread_passes(
     image: &[u8],
     width: usize,
@@ -390,7 +397,10 @@ fn unread_passes(
             reads.extend(detect(width, height, regions, &mut hybrid, pass).0);
         }
     }
-    if reads.is_empty() && effort >= 2 && regions.qr_finders.len() >= UPPER_CONTRAST_FINDERS {
+    if reads.is_empty()
+        && effort >= 2
+        && unread_finders(&regions.qr_finders, &[]).len() >= UPPER_CONTRAST_FINDERS
+    {
         let pass = Pass {
             modes: UPPER_CONTRAST,
             curved: false,
@@ -508,7 +518,7 @@ fn scan_frame(
 mod tests {
     use super::{
         REDUCED_WINDOWS, WINDOW_MAX, WINDOW_REACH, local_windows, scan_window, scan_with_effort,
-        window_pixels,
+        unread_finders, window_pixels,
     };
 
     /// Version 1-M "TAPIRSCAN", drawn dark on light with `scale`-pixel modules at
@@ -584,6 +594,20 @@ mod tests {
                 "{a:?} vs {b:?}"
             );
         }
+    }
+
+    #[test]
+    fn finder_patterns_count_once_across_threshold_modes() {
+        // One pattern found by three threshold modes, and a second pattern.
+        let finders = [
+            [100., 100., 5., 3.],
+            [101., 100., 5., 4.],
+            [100., 102., 5., 2.],
+            [300., 100., 5., 3.],
+        ];
+        let distinct = unread_finders(&finders, &[]);
+        assert_eq!(distinct.len(), 2);
+        assert!(distinct.contains(&[101., 100., 5., 4.]));
     }
 
     #[test]
