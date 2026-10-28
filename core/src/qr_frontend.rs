@@ -63,8 +63,16 @@ fn scan_impl(image: &[u8], width: usize, height: usize, foreground: bool, effort
 }
 
 /// Windows around unread finder pairs searched again per frame. Low serves live
-/// frames, where the next frame is the retry.
-const WINDOWS: usize = if cfg!(feature = "mode-low") { 0 } else { 3 };
+/// frames, where the next frame is the retry. High and above read more symbols before
+/// their windows, so their unread finders pair differently from Medium's; more windows
+/// let them reach at least the symbols Medium's windows reach.
+const WINDOWS: usize = if cfg!(feature = "mode-low") {
+    0
+} else if cfg!(feature = "mode-medium") {
+    3
+} else {
+    12
+};
 /// Longest side in pixels of the image a window is scanned in. It bounds the cost
 /// of a window: a larger window is scanned on an area-averaged copy reduced by an
 /// integer factor to fit.
@@ -87,8 +95,8 @@ const READ_CENTER_REACH: f32 = if cfg!(feature = "mode-medium") {
 /// window for a pair that does.
 const WINDOW_MODULE: f32 = 2.5;
 /// Reduced windows per frame. Each costs a full window scan plus the reduction, on
-/// frames that mostly read nothing more: Medium takes one, High and above any of
-/// their three windows (Low has none).
+/// frames that mostly read nothing more: Medium takes one, High and above three
+/// (Low has none).
 const REDUCED_WINDOWS: usize = if cfg!(feature = "mode-medium") { 1 } else { 3 };
 /// Decode attempts of each window pass. A window holds one candidate symbol, whose
 /// triples rank first; the rest are triples of texture around it.
@@ -277,10 +285,9 @@ fn local_windows(
                 clamp(y + half, hf),
             ]
         })
-        // A window covering most of the frame repeats the frame's own search.
-        .filter(|&[x0, y0, x1, y1]| {
-            x1 > x0 + 16 && y1 > y0 + 16 && 4 * (x1 - x0) * (y1 - y0) <= width * height
-        })
+        // A window may cover most of the frame: its own thresholds and foreground split
+        // still differ from the frame's.
+        .filter(|&[x0, y0, x1, y1]| x1 > x0 + 16 && y1 > y0 + 16)
         .collect()
 }
 
@@ -614,6 +621,9 @@ mod tests {
             local_windows(&fine, &[], width, height, 3),
             Vec::<[usize; 4]>::new()
         );
+        // A window may cover most of a small frame.
+        let wide = [[150., 100., 4., 3.], [150., 200., 4., 3.]];
+        assert_eq!(local_windows(&wide, &[], 300, 300, 3).len(), 1);
         // Windows are clamped to the frame.
         let corner = [[10., 10., 4., 3.], [10., 110., 4., 3.]];
         assert_eq!(
