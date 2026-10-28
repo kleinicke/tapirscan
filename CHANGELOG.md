@@ -13,6 +13,12 @@
   the first QR region of a frame whose timing patterns read without error may
   take a crop of up to 131,072 pixels. On BoofCV's rotation images Medium reads
   131 of 133 codes instead of 128; other frames are unchanged.
+- A located QR code too large for any crop (its timing patterns read, its data
+  did not) is retried once per frame on a copy reduced to at most 640 pixels,
+  from Medium up. Windows around unread finder pairs may cover most of a large
+  frame when they are scanned reduced, and High and Very High search up to 12
+  of them, so High reads at least the symbols beside a read that Medium's
+  windows reach.
 - Windows on ARM64: a `win_arm64` Python wheel and a `windows-arm64` native
   library on each GitHub release, which the Dart build hook downloads.
 - Faster scans of selections with several 2D formats: PDF417 localization skips
