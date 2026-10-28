@@ -1871,22 +1871,32 @@ mod pending_recovery_tests {
     use super::QR_CODE;
     #[test]
     fn oversized_pending_qr_remains_unfinished_without_a_retry() {
-        let mut scan = barcode_multiformat::Scan {
+        let pending = |score: f32| barcode_multiformat::Scan {
             barcodes: Vec::new(),
             regions: vec![barcode_multiformat::regions::Region {
                 format: "QRCode".into(),
                 text: String::new(),
                 polygon: [[0., 0.], [999., 0.], [999., 999.], [0., 999.]],
-                localization_score: 1.,
+                localization_score: score,
                 support: 1,
             }],
             unfinished: false,
             lines: 0,
         };
         let pixels = vec![255; 1_000_000];
+        let mut scan = pending(0.95);
         assert!(super::matrix_retries(&pixels, [1000, 1000], QR_CODE, &mut scan).is_empty());
         assert!(scan.unfinished);
         assert_eq!(scan.regions.len(), 1);
+        // A located one gets only its reduced retry, which reads nothing here.
+        let mut scan = pending(1.);
+        let retries = super::matrix_retries(&pixels, [1000, 1000], QR_CODE, &mut scan);
+        assert_eq!(
+            retries.len(),
+            super::POLICY.qr_reduced_region_retries.min(1)
+        );
+        assert!(retries.iter().all(|retry| retry.barcodes.is_empty()));
+        assert!(scan.unfinished);
     }
 }
 
