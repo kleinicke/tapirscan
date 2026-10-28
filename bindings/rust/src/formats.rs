@@ -1663,6 +1663,13 @@ const LOCATED_QR_SCORE: f32 = 1.;
 /// symbols is read.
 #[cfg(not(feature = "low"))]
 const REGION_RETRIES: usize = 32;
+#[cfg(not(feature = "low"))]
+/// Whether `region` is a Data Matrix candidate whose border is only fair, not clean.
+fn fair_data_matrix(region: &barcode_multiformat::regions::Region) -> bool {
+    region.format == "DataMatrix"
+        && region.localization_score < barcode_multiformat::dm_detect::CLEAN_REGION_SCORE
+}
+
 /// Localized crop retries of pending matrix regions under one pixel allowance for the
 /// whole matrix group, independent of how many formats are enabled. Initial readers
 /// have already tried every format; finder hints prioritize bounded recovery without
@@ -1691,12 +1698,12 @@ fn matrix_retries(
             })
     });
     // Fair Data Matrix borders, often texture, queue after the other regions.
-    let mut order: Vec<_> = scan.regions.iter().collect();
-    order.sort_by_key(|region| {
-        region.format == "DataMatrix"
-            && region.localization_score < barcode_multiformat::dm_detect::CLEAN_REGION_SCORE
-    });
-    for region in order.into_iter().take(REGION_RETRIES) {
+    let regions = &scan.regions;
+    let order = regions
+        .iter()
+        .filter(|region| !fair_data_matrix(region))
+        .chain(regions.iter().filter(|region| fair_data_matrix(region)));
+    for region in order.take(REGION_RETRIES) {
         let hinted = retry_format(&region.format);
         if mask & hinted == 0 {
             continue;
@@ -1817,11 +1824,61 @@ mod matrix_budget_tests {
         assert_eq!(maxicode.unfinished, high);
     }
 
+    /// Reads of the crop retries of a frame with `rows` drawn at 4 pixels per module from
+    /// (100, 100), listed as a `format` region after a blank fair Data Matrix region whose
+    /// crop alone (side * 1.4 + 16 pixels square) takes all but 5,000 pixels of the shared
+    /// allowance.
+    fn fair_region_first(rows: &[&str], format: &str, score: f32, mask: u32) -> Vec<String> {
+        let (width, height) = (1200, 600);
+        let mut pixels = vec![235; width * height];
+        for (row, bits) in rows.iter().enumerate() {
+            for (column, bit) in bits.bytes().enumerate() {
+                if bit == b'1' {
+                    for y in 0..4 {
+                        let start = (100 + row * 4 + y) * width + 100 + column * 4;
+                        pixels[start..start + 4].fill(20);
+                    }
+                }
+            }
+        }
+        let region =
+            |format: &str, polygon, localization_score| barcode_multiformat::regions::Region {
+                format: format.into(),
+                text: String::new(),
+                polygon,
+                localization_score,
+                support: 1,
+            };
+        let budget = barcode_multiformat::numeric::usize_f32(super::POLICY.matrix_crop_pixels);
+        let side = ((budget - 5000.).sqrt() - 17.) / 1.4;
+        let fair = [
+            [600., 100.],
+            [600. + side, 100.],
+            [600. + side, 100. + side],
+            [600., 100. + side],
+        ];
+        let end = barcode_multiformat::numeric::usize_f32(100 + 4 * rows.len());
+        let symbol = [[100., 100.], [end, 100.], [end, end], [100., end]];
+        let mut scan = barcode_multiformat::Scan {
+            barcodes: Vec::new(),
+            regions: vec![
+                region("DataMatrix", fair, 0.9),
+                region(format, symbol, score),
+            ],
+            unfinished: false,
+            lines: 0,
+        };
+        matrix_retries(&pixels, [width, height], mask, &mut scan, &[])
+            .into_iter()
+            .flat_map(|retry| retry.barcodes)
+            .map(|read| read.text)
+            .collect()
+    }
+
     #[test]
     fn fair_data_matrix_regions_queue_after_clean_ones() {
-        // "TAPIRSCAN-DM-42" at 4 pixels per module inside the clean region; a blank fair
-        // region listed first whose crop alone fits the shared allowance.
-        const ROWS: [&str; 16] = [
+        // "TAPIRSCAN-DM-42".
+        let rows = [
             "1010101010101010",
             "1111010001001111",
             "1110010101000000",
@@ -1839,48 +1896,38 @@ mod matrix_budget_tests {
             "1011000000100010",
             "1111111111111111",
         ];
-        let (width, height) = (1200, 600);
-        let mut pixels = vec![235; width * height];
-        for (row, bits) in ROWS.iter().enumerate() {
-            for (column, bit) in bits.bytes().enumerate() {
-                if bit == b'1' {
-                    for y in 0..4 {
-                        let start = (100 + row * 4 + y) * width + 100 + column * 4;
-                        pixels[start..start + 4].fill(20);
-                    }
-                }
-            }
-        }
-        let region = |polygon, localization_score| barcode_multiformat::regions::Region {
-            format: "DataMatrix".into(),
-            text: String::new(),
-            polygon,
-            localization_score,
-            support: 1,
-        };
-        // The fair crop (side * 1.4 + 16 pixels square) takes all but 5,000 pixels.
-        let budget = barcode_multiformat::numeric::usize_f32(super::POLICY.matrix_crop_pixels);
-        let side = ((budget - 5000.).sqrt() - 17.) / 1.4;
-        let fair = [
-            [600., 100.],
-            [600. + side, 100.],
-            [600. + side, 100. + side],
-            [600., 100. + side],
+        let reads = fair_region_first(&rows, "DataMatrix", 1., DATA_MATRIX);
+        assert!(reads.iter().any(|text| text == "TAPIRSCAN-DM-42"));
+    }
+
+    #[test]
+    fn fair_data_matrix_regions_queue_after_other_formats() {
+        // Version 1-M "TAPIRSCAN", as an unlocated QR region (score below a located one).
+        let rows = [
+            "111111101101001111111",
+            "100000101100001000001",
+            "101110100011001011101",
+            "101110101110101011101",
+            "101110100001001011101",
+            "100000100111101000001",
+            "111111101010101111111",
+            "000000001111100000000",
+            "101101110111101001011",
+            "000001001001111100011",
+            "011110110111000001001",
+            "100011010001001011111",
+            "001100100010100100000",
+            "000000001101001010111",
+            "111111101111100101101",
+            "100000101010000110100",
+            "101110100010111000111",
+            "101110101101001101010",
+            "101110101000101100000",
+            "100000100110010100100",
+            "111111101000010011010",
         ];
-        let clean = [[100., 100.], [164., 100.], [164., 164.], [100., 164.]];
-        let mut scan = barcode_multiformat::Scan {
-            barcodes: Vec::new(),
-            regions: vec![region(fair, 0.9), region(clean, 1.)],
-            unfinished: false,
-            lines: 0,
-        };
-        let retries = matrix_retries(&pixels, [width, height], DATA_MATRIX, &mut scan, &[]);
-        assert!(
-            retries
-                .iter()
-                .flat_map(|retry| &retry.barcodes)
-                .any(|read| read.text == "TAPIRSCAN-DM-42")
-        );
+        let reads = fair_region_first(&rows, "QRCode", 0.5, DATA_MATRIX | QR_CODE);
+        assert!(reads.iter().any(|text| text == "TAPIRSCAN"));
     }
 
     #[test]

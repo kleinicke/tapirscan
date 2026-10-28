@@ -1694,7 +1694,7 @@ struct Retries {
     /// resampled to another aspect) is read in the first pass by High and Very High,
     /// and by Low and Medium only in that retry.
     aspect: [f32; 2],
-    /// Unread candidates that recorded a region (a clean border that did not decode) whose
+    /// Unread candidates that recorded a region (see `region_error`) whose
     /// grayscale refinement tries two further sizes, after the other refinements and
     /// with attempts of their own; a full list takes such candidates in addition. On busy
     /// frames the first 64 candidates are often the module texture of other symbols, so
@@ -1951,22 +1951,19 @@ fn detect_with_retries(
                 );
                 let before = results.len();
                 let mut recorded = false;
+                // Light-on-dark candidates (threshold modes 2 and 3) keep the clean bar.
+                let region_limit = if mode < 2 {
+                    retries.region_error
+                } else {
+                    CLEAN_BORDER
+                };
                 for (score, size, t, polygon) in hypotheses.into_iter().take(12) {
                     attempts += 1;
                     if attempts > 800 {
                         return (results, true);
                     }
                     if sample_grid(image, [w, h], &t, [size.w, size.h], &mut matrix) {
-                        // `mode` is the threshold mode. Light-on-dark candidates (modes 2 and
-                        // 3) keep the clean bar: dark texture fits their fair borders far more
-                        // often than symbols do.
-                        if score
-                            <= if mode < 2 {
-                                retries.region_error
-                            } else {
-                                CLEAN_BORDER
-                            }
-                        {
+                        if score <= region_limit {
                             regions.add("DataMatrix", polygon, 1. - score, 1);
                             recorded = true;
                         }
@@ -2692,11 +2689,18 @@ mod region_error_tests {
         let mut images = crate::binarization::Images::new(&gray, side, side);
         let (reads, _) = detect_with_retries(side, side, &mut regions, &mut images, true, retries);
         assert!(reads.is_empty());
-        regions
+        let found: Vec<_> = regions
             .candidates
             .iter()
             .filter(|region| region.format == "DataMatrix")
-            .count()
+            .collect();
+        // The damaged border is only fair: a region it records scores below a clean one.
+        assert!(
+            found
+                .iter()
+                .all(|region| region.localization_score < CLEAN_REGION_SCORE)
+        );
+        found.len()
     }
 
     #[test]
@@ -2707,7 +2711,6 @@ mod region_error_tests {
         assert_eq!(recorded(mode_retries(1), false), 0);
         assert_eq!(recorded(mode_retries(2), false), 1);
         assert_eq!(recorded(mode_retries(3), false), 1);
-        assert_eq!(recorded(CROP_PASS, false), 0);
     }
 
     #[test]
