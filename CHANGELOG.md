@@ -20,8 +20,8 @@
   one symbol is scanned again on a copy halved by averaging, from Medium up.
   Medium reads 7 more of BoofCV's 1,258 labelled QR codes.
 - QR codes seen at a steep angle: the corner finder of a symbol is taken from
-  the finders' own axes where the side between two finders has grown longer
-  than the diagonal, in every mode. Low, Medium and High read 12 to 13 more
+  the finders' own axes when the finder opposite the longest side does not
+  point along both sides, in every mode. Low, Medium and High read 12 to 13 more
   codes of a 4,619-image QR set.
 - QR codes whose finder patterns are found but whose modules the usual
   thresholds split, mostly synthetic codes with cropped quiet zones: a frame

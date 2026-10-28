@@ -9,9 +9,6 @@ use crate::{Detection, qr};
 mod partial;
 mod ring;
 mod single;
-/// Least alignment, as a cosine, of both directions from a corner finder to the
-/// other two with its own axes.
-const AXES_ALIGNMENT: f32 = 0.9;
 #[derive(Clone, Debug)]
 struct Finder {
     x: f32,
@@ -671,40 +668,54 @@ fn least_squares_homography(pairs: &[([f32; 2], [f32; 2])]) -> Option<[f32; 8]> 
         crate::numeric::f64_f32(normal[i][8])
     }))
 }
+/// Least alignment, as a cosine, of both directions from a corner finder to the
+/// other two with its own axes.
+const AXES_ALIGNMENT: f32 = 0.9;
+/// How much better another finder's alignment must be than that of the corner
+/// opposite the longest side to replace it.
+const AXES_MARGIN: f32 = 0.1;
 /// The top-left finder of a triple: the one opposite the longest side, `longest`,
-/// unless its own axes (the edges of its central square) fail to point at both other
-/// finders while another finder's do. Under strong foreshortening a side can outgrow
-/// the diagonal; at the true corner both directions run along the symbol's edges,
-/// at the other two corners one runs along its diagonal.
+/// unless its own axes fail to point at both other finders while another finder's
+/// do, by a margin. Under strong foreshortening a side can outgrow the diagonal; at
+/// the true corner the two directions run along the symbol's two edges, at the other
+/// two corners one runs along its diagonal. The axes average opposite edges of the
+/// finder's central square, as a single edge of a few pixels is noisy.
 fn top_left(triple: [&Finder; 3], longest: usize) -> usize {
+    let unit = |v: [f32; 2]| {
+        let length = v[0].hypot(v[1]);
+        (length >= 1.).then(|| [v[0] / length, v[1] / length])
+    };
     let alignment = |i: usize| -> Option<f32> {
         let finder = triple[i];
         let q = finder.quad?;
-        let edges = [1, 3].map(|k| {
-            let e = [q[k][0] - q[0][0], q[k][1] - q[0][1]];
-            let length = e[0].hypot(e[1]);
-            [e[0] / length, e[1] / length]
-        });
-        Some(
-            (0..3)
-                .filter(|&j| j != i)
-                .map(|j| {
-                    let v = [triple[j].x - finder.x, triple[j].y - finder.y];
-                    let length = v[0].hypot(v[1]);
-                    edges
-                        .iter()
-                        .map(|e| ((v[0] * e[0] + v[1] * e[1]) / length).abs())
-                        .fold(0f32, f32::max)
-                })
-                .fold(1f32, f32::min),
-        )
+        let first = unit([
+            q[1][0] - q[0][0] + q[2][0] - q[3][0],
+            q[1][1] - q[0][1] + q[2][1] - q[3][1],
+        ])?;
+        let second = unit([
+            q[3][0] - q[0][0] + q[2][0] - q[1][0],
+            q[3][1] - q[0][1] + q[2][1] - q[1][1],
+        ])?;
+        let [a, b] = [(i + 1) % 3, (i + 2) % 3]
+            .map(|j| unit([triple[j].x - finder.x, triple[j].y - finder.y]));
+        let (a, b) = (a?, b?);
+        let cos = |v: [f32; 2], e: [f32; 2]| (v[0] * e[0] + v[1] * e[1]).abs();
+        // Each direction along its own edge.
+        Some(f32::max(
+            cos(a, first).min(cos(b, second)),
+            cos(a, second).min(cos(b, first)),
+        ))
     };
-    if alignment(longest).is_none_or(|a| a >= AXES_ALIGNMENT) {
+    let Some(kept) = alignment(longest) else {
+        return longest;
+    };
+    if kept >= AXES_ALIGNMENT {
         return longest;
     }
     (0..3)
+        .filter(|&i| i != longest)
         .filter_map(|i| Some((i, alignment(i)?)))
-        .filter(|&(_, a)| a >= AXES_ALIGNMENT)
+        .filter(|&(_, a)| a >= AXES_ALIGNMENT && a >= kept + AXES_MARGIN)
         .max_by(|a, b| a.1.total_cmp(&b.1))
         .map_or(longest, |(i, _)| i)
 }
@@ -2118,6 +2129,28 @@ mod corner_tests {
         );
         assert_eq!(top_left([&a, &b, &c], 0), 1);
     }
+    #[test]
+    fn squashed_small_triples_keep_their_corner() {
+        // A version 1 symbol of 2-pixel modules squashed to 0.4 along y, its finder
+        // squares 6 by 2.4 pixels with one vertex of the top-left square off by a
+        // pixel, which tilts its short edge. The longest side joins the other two
+        // finders; along the squashed axis both of them see their diagonal neighbor
+        // near one of their own axes.
+        let quad = |x: f32, y: f32, jitter: f32| {
+            [
+                [x - 3. + jitter, y - 1.2],
+                [x + 3., y - 1.2],
+                [x + 3., y + 1.2],
+                [x - 3., y + 1.2 - jitter],
+            ]
+        };
+        let tl = finder(100., 100., quad(100., 100., 1.));
+        let tr = finder(128., 100., quad(128., 100., 0.));
+        let bl = finder(100., 111.2, quad(100., 111.2, 0.));
+        let longest = 0;
+        assert_eq!(top_left([&tl, &tr, &bl], longest), longest);
+    }
+
     #[test]
     fn square_triples_keep_the_corner_opposite_the_longest_side() {
         let square = |x: f32, y: f32| {
