@@ -102,9 +102,10 @@ const UPPER_CONTRAST: std::ops::Range<usize> = 6..7;
 /// Distinct finder patterns an unread frame needs for the upper contrast pass.
 const UPPER_CONTRAST_FINDERS: usize = 3;
 /// Long side in pixels up to which an unread frame with large finders is also
-/// scanned on a halved copy.
+/// scanned on a halved copy: the facade's `REDUCED_COPY_SIDE`, above which it scans
+/// reduced copies itself.
 const HALF_COPY_FRAME: usize = 1920;
-/// Module size in pixels of the three finders that admit the halved copy.
+/// Smallest module size in pixels of the three finders that admit the halved copy.
 const HALF_COPY_MODULE: f32 = 16.;
 /// Decode attempts of each window pass. A window holds one candidate symbol, whose
 /// triples rank first; the rest are triples of texture around it.
@@ -381,7 +382,10 @@ fn scan_window(image: &[u8], width: usize, window: [usize; 4]) -> Vec<Detection>
 /// other thresholds find but whose modules they split (light modules, cropped quiet
 /// zones): from effort 2 (High, Very High and Medium's extended retry), where finder
 /// patterns were found; retail texture forms such patterns on most frames of a mixed
-/// selection, so Medium's first scan does not take it.
+/// selection, so Medium's first scan does not take it. A frame up to Full HD whose
+/// finders include three large ones that could be one symbol is scanned on a halved
+/// copy, from Medium up: there the finder cores span more than the local mean's 33
+/// pixels, as in the block thresholds' case, and averaging also smooths the modules.
 fn unread_passes(
     image: &[u8],
     width: usize,
@@ -416,16 +420,45 @@ fn unread_passes(
         let mut scratch = barcode_multiformat::regions::Regions::default();
         reads.extend(detect(width, height, &mut scratch, binary, pass).0);
     }
+    if reads.is_empty()
+        && effort >= 1
+        && width.max(height) <= HALF_COPY_FRAME
+        && large_triple(&unread_finders(&regions.qr_finders, &[]))
+    {
+        reads.extend(scan_half(image, width, height, effort));
+    }
     reads
 }
 
-/// Scan the frame averaged over 2 x 2 blocks with the standard pass, and map the
-/// reads back.
-fn scan_half(image: &[u8], width: usize, height: usize) -> Vec<Detection> {
+/// Whether three finder patterns of [`HALF_COPY_MODULE`] or more could be one symbol's:
+/// modules within a factor 1.43 and 7 to 180 modules apart.
+fn large_triple(finders: &[[f32; 4]]) -> bool {
+    let large: Vec<&[f32; 4]> = finders
+        .iter()
+        .filter(|f| f[2] >= HALF_COPY_MODULE)
+        .collect();
+    let pair = |a: &[f32; 4], b: &[f32; 4]| {
+        let module = f32::midpoint(a[2], b[2]);
+        (0.7..=1.43).contains(&(a[2] / b[2]))
+            && (7. ..=180.).contains(&((a[0] - b[0]).hypot(a[1] - b[1]) / module))
+    };
+    large.iter().enumerate().any(|(i, a)| {
+        large[i + 1..]
+            .iter()
+            .enumerate()
+            .any(|(j, b)| pair(a, b) && large[i + j + 2..].iter().any(|c| pair(a, c) && pair(b, c)))
+    })
+}
+
+/// Scan the frame averaged over 2 x 2 blocks with the pass of `effort` (so Medium's
+/// extended retry of the same frame tries the extended modes), bounded like the other
+/// unread passes, and map the reads back.
+fn scan_half(image: &[u8], width: usize, height: usize, effort: usize) -> Vec<Detection> {
     let (copy, w, h) = window_pixels(image, width, [0, 0, width, height], 2);
     let mut binary = binarization::Images::new(&copy, w, h);
     let mut regions = barcode_multiformat::regions::Regions::default();
-    let (mut reads, _) = detect(w, h, &mut regions, &mut binary, Pass::effort(false, false));
+    let pass = Pass::effort(effort > 1, false);
+    let (mut reads, _) = detect(w, h, &mut regions, &mut binary, pass);
     for read in &mut reads {
         for p in &mut read.polygon {
             p[0] *= 2.;
@@ -477,21 +510,6 @@ fn scan_frame(
     if !foreground && !window && reads.is_empty() {
         let extra = unread_passes(image, width, height, effort, &mut regions, binary);
         reads.extend(extra);
-    }
-    // A large symbol's modules hold blur and noise that a copy averaged over 2 x 2
-    // blocks smooths; frames above Full HD take the facade's reduced copies instead.
-    if !foreground
-        && !window
-        && reads.is_empty()
-        && effort >= 1
-        && width.max(height) <= HALF_COPY_FRAME
-        && unread_finders(&regions.qr_finders, &[])
-            .iter()
-            .filter(|f| f[2] >= HALF_COPY_MODULE)
-            .count()
-            >= 3
-    {
-        reads.extend(scan_half(image, width, height));
     }
     // Low retries a frame that read nothing but holds QR evidence.
     if !foreground && !window {
@@ -556,8 +574,8 @@ fn scan_frame(
 #[cfg(test)]
 mod tests {
     use super::{
-        REDUCED_WINDOWS, WINDOW_MAX, WINDOW_REACH, local_windows, scan_half, scan_window,
-        scan_with_effort, unread_finders, window_pixels,
+        REDUCED_WINDOWS, WINDOW_MAX, WINDOW_REACH, large_triple, local_windows, scan_half,
+        scan_window, scan_with_effort, unread_finders, window_pixels,
     };
 
     /// Version 1-M "TAPIRSCAN", drawn dark on light with `scale`-pixel modules at
@@ -652,7 +670,7 @@ mod tests {
     #[test]
     fn halved_frames_read_in_source_coordinates() {
         let image = frame(600, 500, [100, 100], 16);
-        let reads = scan_half(&image, 600, 500);
+        let reads = scan_half(&image, 600, 500, 1);
         assert_eq!(reads.len(), 1);
         assert_eq!(reads[0].text, "TAPIRSCAN");
         let expected = [[100., 100.], [436., 100.], [436., 436.], [100., 436.]];
@@ -662,6 +680,25 @@ mod tests {
                 "{corner:?} vs {want:?}"
             );
         }
+    }
+
+    #[test]
+    fn halved_copies_need_three_large_finders_of_one_symbol() {
+        // Finders of a version 2 symbol with 20-pixel modules: 18 modules apart.
+        let symbol = [
+            [100., 100., 20., 3.],
+            [460., 100., 21., 3.],
+            [100., 460., 19., 3.],
+        ];
+        assert!(large_triple(&symbol));
+        // A finder of other modules, small modules, or too close together: no symbol.
+        let mut mixed = symbol;
+        mixed[2][2] = 40.;
+        assert!(!large_triple(&mixed));
+        let small = symbol.map(|[x, y, _, s]| [x, y, 12., s]);
+        assert!(!large_triple(&small));
+        let close = symbol.map(|[x, y, m, s]| [x / 10., y / 10., m, s]);
+        assert!(!large_triple(&close));
     }
 
     #[test]
