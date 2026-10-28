@@ -27,6 +27,11 @@
   the finders' own axes when the finder opposite the longest side does not
   point along both sides, in every mode. Low, Medium and High read 12 to 13 more
   codes of a 4,619-image QR set.
+- High and Very High no longer read fewer QR codes than Medium on sheets of
+  several codes above Full HD: a frame that read one code but leaves finder
+  patterns unread is also scanned on a reduced copy, as Medium's frames that
+  read nothing are. High reads 6 more of BoofCV's 1,258 labelled QR codes; it
+  costs High about 8% on such large frames.
 - QR codes whose finder patterns are found but whose modules the usual
   thresholds split, mostly synthetic codes with cropped quiet zones: a frame
   that read nothing but holds finder patterns is tried with one more global

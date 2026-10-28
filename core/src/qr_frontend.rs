@@ -97,6 +97,16 @@ const WINDOW_MODULE: f32 = 2.5;
 /// frames that mostly read nothing more: Medium takes one, High and above three
 /// (Low has none).
 const REDUCED_WINDOWS: usize = if cfg!(feature = "mode-medium") { 1 } else { 3 };
+/// Whether a read frame above [`COPY_FRAME`] that leaves a pair of finders unread is
+/// also scanned on a reduced copy (High and Very High). Medium's full-resolution pass
+/// reads none of a dark sheet's symbols there and so takes the facade's reduced copy,
+/// which reads them all; High's extended pass reads one and would not.
+const COPY_AFTER_READ: bool = !cfg!(feature = "mode-low") && !cfg!(feature = "mode-medium");
+/// Long side in pixels above which a frame is larger than Full HD.
+const COPY_FRAME: usize = 1920;
+/// Long side in pixels the copy is reduced towards, by the largest integer factor that
+/// keeps it at least this long (960 to 1,919 pixels).
+const COPY_SIDE: usize = 960;
 /// Threshold mode of the upper contrast cut of [`binarization::Images`].
 const UPPER_CONTRAST: std::ops::Range<usize> = 6..7;
 /// Distinct finder patterns an unread frame needs for the upper contrast pass.
@@ -373,6 +383,69 @@ fn scan_window(image: &[u8], width: usize, window: [usize; 4]) -> Vec<Detection>
     reads
 }
 
+/// Scan the whole frame averaged over `factor` x `factor` blocks, `factor` the largest
+/// that keeps the long side at [`COPY_SIDE`] or more, with the standard pass of this
+/// mode's policy, and map the reads back. Its limited flag is not kept: like a
+/// window's, the copy's budget stops it quietly.
+fn scan_copy(image: &[u8], width: usize, height: usize) -> Vec<Detection> {
+    let factor = (width.max(height) / COPY_SIDE).max(2);
+    let (copy, w, h) = window_pixels(image, width, [0, 0, width, height], factor);
+    let mut binary = binarization::Images::new(&copy, w, h);
+    let mut regions = barcode_multiformat::regions::Regions::default();
+    let (mut reads, _) = detect(w, h, &mut regions, &mut binary, Pass::effort(false, false));
+    let scale = usize_f32(factor);
+    for read in &mut reads {
+        for p in &mut read.polygon {
+            p[0] *= scale;
+            p[1] *= scale;
+        }
+    }
+    reads
+}
+
+/// The reads of `extra` that repeat none of `prior`: a coarser copy's read of a symbol
+/// the frame already read would otherwise replace the finer one.
+fn fresh(prior: &[&Detection], extra: Vec<Detection>) -> Vec<Detection> {
+    extra
+        .into_iter()
+        .filter(|read| {
+            !prior.iter().any(|p| {
+                p.text == read.text
+                    && p.structured_append == read.structured_append
+                    && barcode_multiformat::regions::overlap(&p.polygon, &read.polygon) >= 0.65
+            })
+        })
+        .collect()
+}
+
+/// Symbols beside the reads of a frame. A second symbol whose third finder was lost is
+/// searched in windows around its finder pairs. Only beside a read: a frame without one
+/// takes the facade's foreground and reduced-copy retries, which a window read would
+/// suppress. High also scans a reduced copy of a frame above [`COPY_FRAME`] that leaves
+/// a pair of finders unread ([`COPY_AFTER_READ`]); the frame's reads, not the windows',
+/// decide, as a window can read one of a sheet's symbols and leave the other unread.
+fn further_symbols(
+    image: &[u8],
+    width: usize,
+    height: usize,
+    finders: &[[f32; 4]],
+    reads: &[Detection],
+) -> Vec<Detection> {
+    let mut found = Vec::new();
+    for window in local_windows(finders, reads, width, height, WINDOWS) {
+        found.extend(scan_window(image, width, window));
+    }
+    if COPY_AFTER_READ
+        && width.max(height) > COPY_FRAME
+        && unread_finders(finders, reads).len() >= 2
+    {
+        let prior: Vec<&Detection> = reads.iter().chain(&found).collect();
+        let copy = fresh(&prior, scan_copy(image, width, height));
+        found.extend(copy);
+    }
+    found
+}
+
 /// Further threshold passes of a frame whose first pass read nothing, each with a
 /// bounded budget that stops quietly.
 ///
@@ -532,13 +605,9 @@ fn scan_frame(
             Symbols::QR,
         );
     }
-    // A second symbol whose third finder was lost is searched in windows around its
-    // finder pairs. Only beside a read: a frame without one takes the facade's
-    // foreground and reduced-copy retries, which a window read would suppress.
     if !window && !foreground && !reads.is_empty() {
-        for found in local_windows(&regions.qr_finders, &reads, width, height, WINDOWS) {
-            reads.extend(scan_window(image, width, found));
-        }
+        let further = further_symbols(image, width, height, &regions.qr_finders, &reads);
+        reads.extend(further);
     }
     if !foreground && effort > 1 && width * height <= qr_detect::SHARPEN_MAX_PIXELS {
         let enhanced = qr_enhance::sharpen(image, width, height);
@@ -583,8 +652,8 @@ fn scan_frame(
 #[cfg(test)]
 mod tests {
     use super::{
-        REDUCED_WINDOWS, WINDOW_MAX, WINDOW_REACH, large_triple, local_windows, scan_half,
-        scan_window, scan_with_effort, unread_finders, window_pixels,
+        REDUCED_WINDOWS, WINDOW_MAX, WINDOW_REACH, fresh, large_triple, local_windows, scan_copy,
+        scan_half, scan_window, scan_with_effort, unread_finders, window_pixels,
     };
 
     /// Version 1-M "TAPIRSCAN", drawn dark on light with `scale`-pixel modules at
@@ -724,6 +793,31 @@ mod tests {
         let mut four = row.to_vec();
         four.push([460., 460., 20., 3.]);
         assert!(large_triple(&four));
+    }
+
+    #[test]
+    fn frame_copies_read_in_source_coordinates() {
+        let image = frame(2400, 1400, [200, 200], 12);
+        let reads = scan_copy(&image, 2400, 1400);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].text, "TAPIRSCAN");
+        let expected = [[200., 200.], [452., 200.], [452., 452.], [200., 452.]];
+        for (corner, want) in reads[0].polygon.iter().zip(expected) {
+            assert!(
+                (corner[0] - want[0]).abs() <= 6. && (corner[1] - want[1]).abs() <= 6.,
+                "{corner:?} vs {want:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn copy_reads_leave_prior_reads_in_place() {
+        let image = frame(2400, 1400, [200, 200], 12);
+        let prior = scan_with_effort(&image, 2400, 1400, 1).barcodes;
+        assert_eq!(prior.len(), 1);
+        let prior: Vec<_> = prior.iter().collect();
+        assert!(fresh(&prior, scan_copy(&image, 2400, 1400)).is_empty());
+        assert_eq!(fresh(&[], scan_copy(&image, 2400, 1400)).len(), 1);
     }
 
     #[test]
