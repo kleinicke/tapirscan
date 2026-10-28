@@ -285,9 +285,14 @@ fn local_windows(
                 clamp(y + half, hf),
             ]
         })
-        // A window may cover most of the frame: its own thresholds and foreground split
-        // still differ from the frame's.
-        .filter(|&[x0, y0, x1, y1]| x1 > x0 + 16 && y1 > y0 + 16)
+        // A window covering most of the frame at full resolution repeats the frame's own
+        // search; a reduced one does not, as its coarser grid sees the symbol differently.
+        .filter(|&[x0, y0, x1, y1]| {
+            x1 > x0 + 16
+                && y1 > y0 + 16
+                && (4 * (x1 - x0) * (y1 - y0) <= width * height
+                    || (x1 - x0).max(y1 - y0) > WINDOW_MAX)
+        })
         .collect()
 }
 
@@ -621,9 +626,12 @@ mod tests {
             local_windows(&fine, &[], width, height, 3),
             Vec::<[usize; 4]>::new()
         );
-        // A window may cover most of a small frame.
+        // A window covering most of a small frame repeats the frame's own search...
         let wide = [[150., 100., 4., 3.], [150., 200., 4., 3.]];
-        assert_eq!(local_windows(&wide, &[], 300, 300, 3).len(), 1);
+        assert_eq!(local_windows(&wide, &[], 300, 300, 3).len(), 0);
+        // ...but not when it is scanned reduced.
+        let large = [[500., 300., 8., 3.], [500., 700., 8., 3.]];
+        assert_eq!(local_windows(&large, &[], 1100, 1000, 3).len(), 1);
         // Windows are clamped to the frame.
         let corner = [[10., 10., 4., 3.], [10., 110., 4., 3.]];
         assert_eq!(
