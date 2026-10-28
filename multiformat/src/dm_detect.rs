@@ -1703,6 +1703,14 @@ struct Retries {
     recorded: usize,
     /// Whether a frame that read a symbol skips the inverse thresholds (modes 2 and 3).
     settle: bool,
+    /// Largest border error of a sampled but undecoded dark-on-light hypothesis that
+    /// records a region. The facade crops recorded regions and reads them again; in busy
+    /// frames a small symbol's border often scores 0.09 to 0.125 against the frame-wide
+    /// thresholds, while a crop with thresholds of its own reads it. Each such region
+    /// costs a crop retry, also for the texture of other symbols that fits as fairly, so
+    /// only High and Very High record fair borders. In Low a recorded region also earns
+    /// `recorded` refinements.
+    region_error: f32,
 }
 /// Retry limits per frame for Low, Medium and High; modes beyond the table (Very High)
 /// use its last entry. Medium retries only its four best-ranked candidates; Low and
@@ -1717,6 +1725,7 @@ const MODE_RETRIES: [Retries; 3] = [
         aspect: [0.65, 1.55],
         recorded: 2,
         settle: true,
+        region_error: CLEAN_BORDER,
     },
     Retries {
         gray: 3,
@@ -1727,6 +1736,7 @@ const MODE_RETRIES: [Retries; 3] = [
         aspect: [0.65, 1.55],
         recorded: 0,
         settle: true,
+        region_error: CLEAN_BORDER,
     },
     Retries {
         gray: 6,
@@ -1737,8 +1747,13 @@ const MODE_RETRIES: [Retries; 3] = [
         aspect: [0.55, 1.8],
         recorded: 0,
         settle: false,
+        region_error: FAIR_BORDER,
     },
 ];
+/// Border error of a clean Data Matrix border.
+const CLEAN_BORDER: f32 = 0.08;
+/// Border error up to which a sampled candidate is still recorded for a crop retry.
+const FAIR_BORDER: f32 = 0.125;
 /// The retry limits of a scanner `mode`.
 fn mode_retries(mode: usize) -> Retries {
     MODE_RETRIES[mode.min(MODE_RETRIES.len() - 1)]
@@ -1755,6 +1770,7 @@ const CROP_PASS: Retries = Retries {
     aspect: [0.65, 1.55],
     recorded: 0,
     settle: false,
+    region_error: CLEAN_BORDER,
 };
 #[expect(
     clippy::too_many_lines,
@@ -1941,7 +1957,9 @@ fn detect_with_retries(
                         return (results, true);
                     }
                     if sample_grid(image, [w, h], &t, [size.w, size.h], &mut matrix) {
-                        if score <= 0.08 {
+                        // Light-on-dark candidates (modes 2 and 3) keep the clean bar: dark
+                        // texture fits their fair borders far more often than symbols do.
+                        if score <= CLEAN_BORDER || (score <= retries.region_error && mode < 2) {
                             regions.add("DataMatrix", polygon, 1. - score, 1);
                             recorded = true;
                         }
@@ -2619,5 +2637,73 @@ mod l_border_gate_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod region_error_tests {
+    use super::*;
+
+    /// A 12 x 12 module border with an empty interior, 8 pixels per module and a
+    /// four-module quiet zone. Five light clock-track modules are dark, so the right
+    /// grid scores a border error of 5 / 48 and never decodes.
+    fn damaged_border() -> (Vec<u8>, usize) {
+        let (modules, scale, quiet) = (12, 8, 4);
+        let side = (modules + 2 * quiet) * scale;
+        let dark = |column: usize, row: usize| {
+            let flipped = (row == 0 && [1, 3, 5].contains(&column))
+                || (column == modules - 1 && [2, 4].contains(&row));
+            flipped
+                || column == 0
+                || row == modules - 1
+                || (row == 0 && column.is_multiple_of(2))
+                || (column == modules - 1 && row % 2 == 1)
+        };
+        let gray = (0..side * side)
+            .map(|i| {
+                let (x, y) = (i % side / scale, i / side / scale);
+                let inside =
+                    (quiet..quiet + modules).contains(&x) && (quiet..quiet + modules).contains(&y);
+                if inside && dark(x - quiet, y - quiet) {
+                    20
+                } else {
+                    235
+                }
+            })
+            .collect();
+        (gray, side)
+    }
+
+    fn recorded(retries: Retries, inverted: bool) -> usize {
+        let (mut gray, side) = damaged_border();
+        if inverted {
+            for value in &mut gray {
+                *value = 255 - *value;
+            }
+        }
+        let mut regions = crate::regions::Regions::default();
+        let mut images = crate::binarization::Images::new(&gray, side, side);
+        let (reads, _) = detect_with_retries(side, side, &mut regions, &mut images, true, retries);
+        assert!(reads.is_empty());
+        regions
+            .candidates
+            .iter()
+            .filter(|region| region.format == "DataMatrix")
+            .count()
+    }
+
+    #[test]
+    fn a_fair_border_records_a_region_in_high() {
+        // Low and Medium keep clean borders only; High records the fair one, so the
+        // facade retries it on a crop.
+        assert_eq!(recorded(mode_retries(0), false), 0);
+        assert_eq!(recorded(mode_retries(1), false), 0);
+        assert_eq!(recorded(mode_retries(2), false), 1);
+        assert_eq!(recorded(CROP_PASS, false), 0);
+    }
+
+    #[test]
+    fn a_fair_light_on_dark_border_records_no_region() {
+        assert_eq!(recorded(mode_retries(2), true), 0);
     }
 }
