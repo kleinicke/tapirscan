@@ -79,9 +79,10 @@ pub(super) struct ModePolicy {
     pub qr_reduced_needs_texture: bool,
     /// Pixel allowance for localized crop retries of pending matrix regions.
     pub matrix_crop_pixels: usize,
-    /// The first QR region crop of a frame may take up to this many pixels while
-    /// `matrix_crop_pixels` is untouched, so one unread symbol larger than that
-    /// allowance is still retried; it then uses up the allowance.
+    /// The first QR region crop of a frame whose timing patterns read without error may
+    /// take up to this many pixels while `matrix_crop_pixels` is untouched, so one
+    /// located but unread symbol larger than that allowance is still retried; it then
+    /// uses up the allowance.
     pub qr_first_crop_pixels: usize,
     /// Effort of those crop retries.
     pub matrix_crop_effort: usize,

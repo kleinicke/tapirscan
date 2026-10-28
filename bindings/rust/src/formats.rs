@@ -1645,6 +1645,10 @@ fn retry_format(format: &str) -> u32 {
     }
 }
 
+/// Localization score of a QR region whose timing patterns read without error.
+#[cfg(not(feature = "low"))]
+const LOCATED_QR_SCORE: f32 = 1.;
+
 /// Unresolved matrix regions retried per frame. The crop pixel budget bounds the work; a
 /// sheet of small symbols leaves many small regions within it, often before any of its
 /// symbols is read.
@@ -1698,7 +1702,10 @@ fn matrix_retries(
             lines: 0,
         };
         if crop_budget > 0 {
-            let mut allowance = if hinted == QR_CODE && crop_budget == POLICY.matrix_crop_pixels {
+            // A QR region whose timing patterns read without error is a located symbol whose
+            // data did not decode: the first one may take a larger crop.
+            let located = hinted == QR_CODE && region.localization_score >= LOCATED_QR_SCORE;
+            let mut allowance = if located && crop_budget == POLICY.matrix_crop_pixels {
                 crop_budget.max(POLICY.qr_first_crop_pixels)
             } else {
                 crop_budget
