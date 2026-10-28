@@ -9,7 +9,7 @@ types.
 - **No system library.** pyzbar fails at import without `libzbar0` (apt) or
   `zbar` (Homebrew); Tapirscan wheels bundle the native library and the npm
   package its WASM.
-- **Default formats are `retail`** (EAN13, UPCA, EAN8, UPCE); ZBar enables most
+- **Default formats are `common`** (retail, Code128, Code39, ITF, QRCode and DataMatrix); ZBar enables most
   symbologies. Set `formats`: `"common"` adds Code128, Code39, ITF, QR Code and
   Data Matrix ([configuration](#configuration)).
 - **Results are `text` and a format identifier**, plus exact bytes for matrix
@@ -122,7 +122,7 @@ A UPC-A symbol is an EAN-13 with a leading zero.
 | pyzbar default                     | `EAN13` `0036000291452`                                          |
 | pyzbar with `ZBarSymbol.UPCA` also | `UPCA` `036000291452`                                            |
 | Tapirscan `formats=["EAN13"]`      | `EAN13` `0036000291452`                                          |
-| Tapirscan `retail` (default)       | `UPCA` `036000291452`                                            |
+| Tapirscan `retail`                 | `UPCA` `036000291452`                                            |
 | Tapirscan `formats=["UPCA"]`       | `UPCA` `036000291452`; non-zero-prefixed EAN-13 are not returned |
 
 ZBar's `ISBN13` and `ISBN10` types become `EAN13` barcodes whose

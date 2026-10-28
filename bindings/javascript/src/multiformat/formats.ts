@@ -31,7 +31,7 @@ export function resolveFormats(input?: readonly string[] | string): Format[] {
   if (input === "1D") return [...linearFormats];
   if (input === "2D") return [...matrixFormats];
   if (input === "all") return [...linearFormats, ...matrixFormats];
-  if (input === undefined) return [...retailFormats];
+  if (input === undefined) return [...commonFormats];
   if (typeof input === "string") {
     if (hasKey(formatBits, input)) return [input as Format];
     throw new TypeError(`Unsupported barcode format or preset: ${input}`);

@@ -7,9 +7,9 @@ For [html5-qrcode](https://github.com/mebjas/html5-qrcode) 2.x: the
   button and file picker inside a `<div>`. Tapirscan scans; `CameraScanner`
   (preview) plays the camera in a `<video>` you place, and you add the controls
   you want ([full page below](#replacing-html5qrcodescanner)).
-- **Default formats are `retail`** (EAN13, UPCA, EAN8, UPCE). html5-qrcode reads
-  all its formats unless `formatsToSupport` is set. Pass `formats`: `"common"`
-  adds Code128, Code39, ITF, QR Code and Data Matrix; `"all"` reads all but the opt-in formats.
+- **Default formats are `common`** (retail, Code128, Code39, ITF, QR Code and
+  Data Matrix). html5-qrcode reads all its formats unless `formatsToSupport`
+  is set. Pass `formats: "all"` to read all but the opt-in formats.
 - **Empty results are reported.** html5-qrcode calls the error callback for each
   frame without a code; `onScan` receives each scanned frame's result, with an
   empty `barcodes` array when nothing was read.

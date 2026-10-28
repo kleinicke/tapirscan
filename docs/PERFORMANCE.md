@@ -6,7 +6,7 @@ over. This guide describes the input paths and how to avoid unnecessary copies.
 
 ## The five rules
 
-1. **Enable only the formats you need.** The default is retail EAN/UPC. Every
+1. **Enable only the formats you need.** The default is the common format group. Every
    enabled 2D reader (QR Code, Data Matrix, Aztec, PDF417, MaxiCode) adds its own
    search of the whole image. Use an exact list such as `["EAN13", "QRCode"]`, or
    `retail` or `common1D`. Keep `all` for exploration.
@@ -23,7 +23,7 @@ over. This guide describes the input paths and how to avoid unnecessary copies.
    Pillow's `Image.draft` for JPEGs. Check that the reduction preserves the smallest
    symbols you need to read.
 5. **Hand over decoded 8-bit pixels as you have them.** Packed RGBA is the cheapest
-   input for the default retail formats; gray and RGB inputs are copied to RGBA
+   input for retail formats; gray and RGB inputs are copied to RGBA
    internally, so do not convert RGBA to gray
    for scanning. If you must convert anyway, for example from OpenCV's BGR, convert
    to RGBA. Skip encode/decode

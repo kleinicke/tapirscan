@@ -33,7 +33,7 @@ int main(void) {
     tapirscan_scanner scanner = 0;
     tapirscan_result result = 123;
     tapirscan_scanner_options options = TAPIRSCAN_SCANNER_OPTIONS_INIT;
-    assert(options.mode == TAPIRSCAN_MODE_MEDIUM && options.formats == TAPIRSCAN_FORMATS_RETAIL);
+    assert(options.mode == TAPIRSCAN_MODE_MEDIUM && options.formats == TAPIRSCAN_FORMATS_COMMON);
     assert(options.parallel == TAPIRSCAN_PARALLEL_DEFAULT);
     options.mode = TAPIRSCAN_MODE_HIGH;
     assert(tapirscan_scanner_create(&options, &scanner, NULL) == TAPIRSCAN_OK);

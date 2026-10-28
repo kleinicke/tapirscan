@@ -10,7 +10,7 @@ Use `tapirscan_inspect` to also get unread regions, timing and diagnostics.
 `tapirscan_result_info` and `tapirscan_result_undecoded` require an inspection
 result and return `TAPIRSCAN_INVALID_ARGUMENT` for ordinary scan results.
 
-Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8 and UPCE). One
+Defaults are Medium effort and common formats (EAN13, UPCA, EAN8, UPCE, Code128, Code39, ITF, QRCode and DataMatrix). One
 shared library contains all four effort modes.
 
 ```c
@@ -91,7 +91,7 @@ tapirscan_inspect(scanner, &image, &scan, &result, NULL);
 | Scanner option      | Default                       | Choices                                      |
 | ------------------- | ----------------------------- | -------------------------------------------- |
 | `mode`              | `TAPIRSCAN_MODE_MEDIUM`       | `_LOW`, `_MEDIUM`, `_HIGH`, `_VERY_HIGH`     |
-| `formats`           | `TAPIRSCAN_FORMATS_RETAIL`    | `TAPIRSCAN_FORMAT_*` bits combined with `\|` |
+| `formats`           | `TAPIRSCAN_FORMATS_COMMON`    | `TAPIRSCAN_FORMAT_*` bits combined with `\|` |
 | `ean_add_on_policy` | `TAPIRSCAN_EAN_ADD_ON_IGNORE` | `_IGNORE`, `_READ`, `_REQUIRE`               |
 | `parallel`          | `TAPIRSCAN_PARALLEL_DEFAULT`  | `_OFF`, `_ON`, `_DEFAULT`                    |
 

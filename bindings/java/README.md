@@ -12,7 +12,7 @@ for (var barcode : result.barcodes()) System.out.println(barcode.text());
 Reuse `Scanner.scan` across images. Call `inspect` for an `InspectionResult`
 with unread regions, timing and diagnostics.
 
-Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8 and UPCE). The
+Defaults are Medium effort and common formats (EAN13, UPCA, EAN8, UPCE, Code128, Code39, ITF, QRCode and DataMatrix). The
 dependency-free binding needs JDK 22 or newer, where the foreign function and
 memory API (FFM) is final, and uses one native library that contains all four
 effort modes.
@@ -57,7 +57,7 @@ concurrently.
 | Scanner option   | Default                  | Choices                                  |
 | ---------------- | ------------------------ | ---------------------------------------- |
 | `mode`           | `Mode.MEDIUM`            | `LOW`, `MEDIUM`, `HIGH`, `VERY_HIGH`     |
-| `formats`        | `Format.RETAIL`          | Any nonempty `Set<Format>`, or a preset  |
+| `formats`        | `Format.COMMON`          | Any nonempty `Set<Format>`, or a preset  |
 | `eanAddOnPolicy` | `EanAddOnPolicy.IGNORE`  | `IGNORE`, `READ`, `REQUIRE`              |
 | `parallel`       | `null` (process default) | `true`, `false`; set with `withParallel` |
 

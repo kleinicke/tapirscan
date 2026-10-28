@@ -37,7 +37,7 @@ fn main() -> Result<(), tapirscan::Error> {
 }
 ```
 
-Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8 and UPCE). If
+Defaults are Medium effort and common formats (EAN13, UPCA, EAN8, UPCE, Code128, Code39, ITF, QRCode and DataMatrix). If
 nothing is decoded, `barcodes` is empty. Invalid input or engine failures are
 `Error` values. Results own their data and outlive the input and scanner.
 Support, undecoded regions and image limits are described in
@@ -93,7 +93,7 @@ field stops compiling when one is added.
 | Scanner option      | Default                  | Choices                                     |
 | ------------------- | ------------------------ | ------------------------------------------- |
 | `mode`              | `Mode::Medium`           | `Low`, `Medium`, `High`, `VeryHigh`         |
-| `formats`           | `Formats::RETAIL`        | One format, combinations with `\|`, presets |
+| `formats`           | `Formats::COMMON`        | One format, combinations with `\|`, presets |
 | `ean_add_on_policy` | `EanAddOnPolicy::Ignore` | `Ignore`, `Read`, `Require`                 |
 | `parallel`          | `true`                   | `false` keeps each scan on one thread       |
 

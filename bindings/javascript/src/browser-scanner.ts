@@ -42,7 +42,7 @@ export interface ScanOptions extends CoreScanOptions {
 export interface ScannerOptions {
   /** Effort; defaults to "medium". */
   mode?: Mode;
-  /** Formats to read; defaults to retail EAN/UPC. */
+  /** Formats to read; defaults to the common format group. */
   formats?: FormatSelection;
   /** EAN/UPC supplement policy; defaults to "ignore". */
   eanAddOnPolicy?: EanAddOnPolicy;

@@ -36,7 +36,7 @@ enum EanAddOnPolicy {
 final class ScannerOptions {
   const ScannerOptions({
     this.mode = Mode.medium,
-    this.formats = Format.retail,
+    this.formats = Format.common,
     this.eanAddOnPolicy = EanAddOnPolicy.ignore,
     this.parallel,
   });

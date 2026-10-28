@@ -97,7 +97,7 @@ constexpr Formats operator|(Format a, Format b) { return Formats(a) | Formats(b)
 /// Scanner configuration; per-image settings live in `ScanOptions`.
 struct ScannerOptions {
     Mode mode = Mode::Medium;
-    Formats formats = Formats::retail();
+    Formats formats = Formats::common();
     EanAddOnPolicy ean_add_on_policy = EanAddOnPolicy::Ignore;
     /// Run one scan's formats on separate threads where the host allows it.
     /// Results are identical either way; `false` suits servers that already run

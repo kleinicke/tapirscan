@@ -50,7 +50,7 @@ val result = withContext(Dispatchers.Default) { scanner.scan(pixels, width, heig
 ```
 
 `ScannerOptions` holds the `Mode` (default `MEDIUM`), a `Set<Format>` (default
-`Format.RETAIL`), the `EanAddOnPolicy` (default `IGNORE`) and `parallel`, fixed when
+`Format.COMMON`), the `EanAddOnPolicy` (default `IGNORE`) and `parallel`, fixed when
 the scanner is created. `withParallel(false)` keeps each scan on the calling thread,
 for apps that already scan on several threads; unset, the
 [process default](../../docs/PERFORMANCE.md#threads-and-servers) applies. `Format` is generated from `config/formats.json` with the presets

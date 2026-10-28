@@ -38,7 +38,7 @@ for barcode in result.barcodes {
 }
 ```
 
-`ScannerOptions` holds `mode` (default `.medium`), `formats` (default `.retail`),
+`ScannerOptions` holds `mode` (default `.medium`), `formats` (default `.common`),
 `eanAddOnPolicy` (default `.ignore`) and `parallel`, fixed when the scanner is
 created. `parallel: false` keeps each scan on the calling thread, for apps that
 already scan on several threads; `nil` uses the

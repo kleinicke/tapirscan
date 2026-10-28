@@ -133,7 +133,7 @@ pub enum EanAddOnPolicy {
 pub struct ScannerOptions {
     /// Effort mode. Scanner configuration defaults to [`Mode::Medium`].
     pub mode: Mode,
-    /// Default readers, initially all retail formats.
+    /// Default readers, initially the common formats.
     pub formats: Formats,
     /// Retail supplement policy, initially [`EanAddOnPolicy::Ignore`].
     pub ean_add_on_policy: EanAddOnPolicy,
@@ -159,7 +159,7 @@ impl Default for ScannerOptions {
     fn default() -> Self {
         Self {
             mode: Mode::Medium,
-            formats: Formats::RETAIL,
+            formats: Formats::COMMON,
             ean_add_on_policy: EanAddOnPolicy::Ignore,
             parallel: default_parallel(),
         }

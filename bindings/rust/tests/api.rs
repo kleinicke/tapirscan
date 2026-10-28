@@ -21,8 +21,8 @@ fn fixture(pair: bool) -> (Vec<u8>, usize, usize) {
 }
 
 #[test]
-fn default_formats_are_retail() {
-    assert_eq!(ScannerOptions::default().formats, Formats::RETAIL);
+fn default_formats_are_common() {
+    assert_eq!(ScannerOptions::default().formats, Formats::COMMON);
 }
 
 /// Modes compiled into this test build: all four by default, fewer with

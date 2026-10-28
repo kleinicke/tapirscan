@@ -29,7 +29,7 @@ public final class Scanner implements AutoCloseable {
     private final ScannerOptions options;
     private long handle;
 
-    /** Medium effort, Retail formats and ignored supplements. */
+    /** Medium effort, Common formats and ignored supplements. */
     public Scanner() {
         this(ScannerOptions.defaults());
     }

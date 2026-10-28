@@ -13,7 +13,7 @@ import java.util.Optional;
 public final class Tapirscan {
     private Tapirscan() {}
 
-    /** Scan with Medium effort and Retail formats. */
+    /** Scan with Medium effort and Common formats. */
     public static ScanResult scan(Image image) {
         return scan(image, ScannerOptions.defaults());
     }
@@ -23,7 +23,7 @@ public final class Tapirscan {
             return scanner.scan(image);
         }
     }
-    /** Inspect with Medium effort and Retail formats. */
+    /** Inspect with Medium effort and Common formats. */
     public static InspectionResult inspect(Image image) {
         return inspect(image, ScannerOptions.defaults());
     }

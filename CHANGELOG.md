@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Scanner formats now default to `common` in every binding: EAN13, UPCA, EAN8,
+  UPCE, Code128, Code39, ITF, QRCode and DataMatrix. Select `retail` explicitly
+  to keep the previous EAN/UPC-only behavior.
+
 - High and Very High read more small Data Matrix symbols in busy frames. A
   candidate that almost passes the border check is now retried on a crop of its
   own, after every other pending region. On the development images High now

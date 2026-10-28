@@ -49,7 +49,7 @@ flutter_zxing combines `int` constants with `|`; Tapirscan takes a `Set<Format>`
 | `rmqrCode`, `microPdf417`, `telepen`, `dxFilmEdge`    | not supported                                                                                                |
 | none                                                  | `code32`, `pzn`, `msiPlessey`, `industrial25`, `pharmacode`, `code39Extended`, `iata25`, `matrix25` (opt-in) |
 
-Tapirscan's default is `Format.retail`, not every format: each enabled 2D format
+Tapirscan's default is `Format.common`, not every format: each enabled 2D format
 searches the whole image, so select only what the app reads.
 
 flutter_zxing decodes with zxing-cpp, so values follow the zxing-cpp column of the

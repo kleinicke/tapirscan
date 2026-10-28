@@ -489,7 +489,7 @@ test("shared format presets cannot be changed by callers", async () => {
   }
   const scanner = await Scanner.create();
   try {
-    assert.deepEqual(scanner.formats, ["EAN13", "UPCA", "EAN8", "UPCE"]);
+    assert.deepEqual(scanner.formats, commonFormats);
   } finally {
     scanner.dispose();
   }

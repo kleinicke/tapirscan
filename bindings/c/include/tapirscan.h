@@ -56,7 +56,7 @@ typedef enum tapirscan_parallel {
 } tapirscan_parallel;
 
 /* Scanner configuration. Passing NULL to tapirscan_scanner_create selects
-   TAPIRSCAN_MODE_MEDIUM, TAPIRSCAN_FORMATS_RETAIL, ..._ADD_ON_IGNORE and
+   TAPIRSCAN_MODE_MEDIUM, TAPIRSCAN_FORMATS_COMMON, ..._ADD_ON_IGNORE and
    TAPIRSCAN_PARALLEL_DEFAULT. */
 typedef struct tapirscan_scanner_options {
     uint32_t mode;              /* tapirscan_mode */
@@ -64,7 +64,7 @@ typedef struct tapirscan_scanner_options {
     uint32_t ean_add_on_policy; /* tapirscan_ean_add_on_policy */
     uint32_t parallel;          /* tapirscan_parallel */
 } tapirscan_scanner_options;
-#define TAPIRSCAN_SCANNER_OPTIONS_INIT {TAPIRSCAN_MODE_MEDIUM, TAPIRSCAN_FORMATS_RETAIL, TAPIRSCAN_EAN_ADD_ON_IGNORE, TAPIRSCAN_PARALLEL_DEFAULT}
+#define TAPIRSCAN_SCANNER_OPTIONS_INIT {TAPIRSCAN_MODE_MEDIUM, TAPIRSCAN_FORMATS_COMMON, TAPIRSCAN_EAN_ADD_ON_IGNORE, TAPIRSCAN_PARALLEL_DEFAULT}
 
 /* Optional caller-owned output for create/scan. Cleared on success; on failure
    holds NUL-terminated UTF-8, truncated at a character boundary if necessary.

@@ -185,8 +185,8 @@ candidate; the nearest Tapirscan equivalent is `scanner.inspect(video)`, whose
 
 `formats` takes an identifier, a keyword group such as `"retail"`, or an array
 ([format guide](FORMATS.md)). Quagga's default reader is `code_128_reader`;
-Tapirscan's default, `retail` (EAN13, UPCA, EAN8, UPCE), does not include
-Code128, so list every format you need.
+Tapirscan's default, `common`, includes Code128 alongside retail formats,
+Code39, ITF, QRCode and DataMatrix. Select only the formats you need.
 
 | Quagga reader / setting                                | Tapirscan                                                                                           |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |

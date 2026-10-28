@@ -13,7 +13,7 @@ Reuse `Scanner::scan` across images. Call `inspect` for an `InspectionResult`
 with unread regions, timing and diagnostics. The free functions `scan` and
 `inspect` take `(image, ScannerOptions, ScanOptions)`, with the options optional.
 
-Defaults are Medium effort and retail formats (EAN13, UPCA, EAN8 and UPCE). The
+Defaults are Medium effort and common formats (EAN13, UPCA, EAN8, UPCE, Code128, Code39, ITF, QRCode and DataMatrix). The
 header-only C++17 wrapper uses one shared library that contains all four effort
 modes.
 
@@ -63,7 +63,7 @@ scanner for one image.
 | Scanner option      | Default                  | Choices                                     |
 | ------------------- | ------------------------ | ------------------------------------------- |
 | `mode`              | `Mode::Medium`           | `Low`, `Medium`, `High`, `VeryHigh`         |
-| `formats`           | `Formats::retail()`      | One format, combinations with `\|`, presets |
+| `formats`           | `Formats::common()`      | One format, combinations with `\|`, presets |
 | `ean_add_on_policy` | `EanAddOnPolicy::Ignore` | `Ignore`, `Read`, `Require`                 |
 | `parallel`          | unset (process default)  | `true`, `false`; `std::optional<bool>`      |
 

@@ -290,7 +290,7 @@ pub extern "C" fn tapirscan_format_name(format: u32) -> *const c_char {
         .map_or(std::ptr::null(), |(_, name)| name.as_ptr())
 }
 
-/// Null options select Medium, Retail formats and ignored EAN/UPC supplements.
+/// Null options select Medium, Common formats and ignored EAN/UPC supplements.
 /// # Safety
 /// `options` must be null or readable; `out` must be null or writable for one `u64`.
 /// `error` must be null or writable for one `ErrorC`, disjoint from other arguments.

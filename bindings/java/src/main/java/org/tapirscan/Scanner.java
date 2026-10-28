@@ -33,7 +33,7 @@ public final class Scanner implements AutoCloseable {
     private Arena stagingArena;
     private MemorySegment staging = MemorySegment.NULL;
 
-    /** Medium effort, Retail formats and ignored supplements. */
+    /** Medium effort, Common formats and ignored supplements. */
     public Scanner() {
         this(ScannerOptions.defaults());
     }

@@ -91,7 +91,7 @@ on the calling isolate. Scans on one scanner run one at a time; create a scanner
 once and reuse it. Results stay valid after `dispose`.
 
 `ScannerOptions` holds `mode` (default `Mode.medium`), `formats` (default
-`Format.retail`), `eanAddOnPolicy` (default `EanAddOnPolicy.ignore`) and
+`Format.common`), `eanAddOnPolicy` (default `EanAddOnPolicy.ignore`) and
 `parallel`. `Format` and its presets (`retail`, `common1D`, `common`, `linear`,
 `matrix`, `all`) are generated from `config/formats.json`; see the
 [format matrix](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md#format-matrix). New formats may be added

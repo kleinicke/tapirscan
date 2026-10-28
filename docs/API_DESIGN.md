@@ -78,7 +78,7 @@ list the conversions.
 
 ## Configuration
 
-Defaults are Medium effort, retail formats and ignored supplements. Effort,
+Defaults are Medium effort, common formats and ignored supplements. Effort,
 supplement policy and, in native bindings, `parallel` are fixed when a scanner is
 created. A per-call `formats`
 selection overrides the scanner's formats for that call only and never changes

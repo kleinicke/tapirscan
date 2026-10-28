@@ -31,9 +31,9 @@ public final class ScannerOptions {
         this(mode, formats, eanAddOnPolicy, null);
     }
 
-    /** Medium effort, Retail formats, ignored supplements and the process-default threading. */
+    /** Medium effort, Common formats, ignored supplements and the process-default threading. */
     public static ScannerOptions defaults() {
-        return new ScannerOptions(Mode.MEDIUM, Format.RETAIL, EanAddOnPolicy.IGNORE, null);
+        return new ScannerOptions(Mode.MEDIUM, Format.COMMON, EanAddOnPolicy.IGNORE, null);
     }
 
     public Mode mode() {

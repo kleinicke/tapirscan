@@ -33,7 +33,7 @@ public enum EanAddOnPolicy: UInt32, Sendable {
 }
 
 /// Scanner configuration, fixed when the scanner is created. Medium effort,
-/// retail formats and ignored supplements by default.
+/// common formats and ignored supplements by default.
 public struct ScannerOptions: Equatable, Sendable {
     public var mode: Mode
     public var formats: Formats
@@ -44,7 +44,7 @@ public struct ScannerOptions: Equatable, Sendable {
 
     public init(
         mode: Mode = .medium,
-        formats: Formats = .retail,
+        formats: Formats = .common,
         eanAddOnPolicy: EanAddOnPolicy = .ignore,
         parallel: Bool? = nil
     ) {
