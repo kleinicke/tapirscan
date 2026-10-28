@@ -9,6 +9,9 @@ use crate::{Detection, qr};
 mod partial;
 mod ring;
 mod single;
+/// Least alignment, as a cosine, of both directions from a corner finder to the
+/// other two with its own axes.
+const AXES_ALIGNMENT: f32 = 0.9;
 #[derive(Clone, Debug)]
 struct Finder {
     x: f32,
@@ -667,6 +670,43 @@ fn least_squares_homography(pairs: &[([f32; 2], [f32; 2])]) -> Option<[f32; 8]> 
     Some(std::array::from_fn(|i| {
         crate::numeric::f64_f32(normal[i][8])
     }))
+}
+/// The top-left finder of a triple: the one opposite the longest side, `longest`,
+/// unless its own axes (the edges of its central square) fail to point at both other
+/// finders while another finder's do. Under strong foreshortening a side can outgrow
+/// the diagonal; at the true corner both directions run along the symbol's edges,
+/// at the other two corners one runs along its diagonal.
+fn top_left(triple: [&Finder; 3], longest: usize) -> usize {
+    let alignment = |i: usize| -> Option<f32> {
+        let finder = triple[i];
+        let q = finder.quad?;
+        let edges = [1, 3].map(|k| {
+            let e = [q[k][0] - q[0][0], q[k][1] - q[0][1]];
+            let length = e[0].hypot(e[1]);
+            [e[0] / length, e[1] / length]
+        });
+        Some(
+            (0..3)
+                .filter(|&j| j != i)
+                .map(|j| {
+                    let v = [triple[j].x - finder.x, triple[j].y - finder.y];
+                    let length = v[0].hypot(v[1]);
+                    edges
+                        .iter()
+                        .map(|e| ((v[0] * e[0] + v[1] * e[1]) / length).abs())
+                        .fold(0f32, f32::max)
+                })
+                .fold(1f32, f32::min),
+        )
+    };
+    if alignment(longest).is_none_or(|a| a >= AXES_ALIGNMENT) {
+        return longest;
+    }
+    (0..3)
+        .filter_map(|i| Some((i, alignment(i)?)))
+        .filter(|&(_, a)| a >= AXES_ALIGNMENT)
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+        .map_or(longest, |(i, _)| i)
 }
 fn finder_homography(tl: &Finder, tr: &Finder, bl: &Finder, n: f32) -> Option<[f32; 8]> {
     let ex = [(tr.x - tl.x) / (n - 7.), (tr.y - tl.y) / (n - 7.)];
@@ -1590,9 +1630,10 @@ pub fn detect_symbols(
                 distance(finder_triple[0], finder_triple[2]),
                 distance(finder_triple[0], finder_triple[1]),
             ];
-            let corner = (0..3)
+            let longest = (0..3)
                 .max_by(|&i, &j| distances[i].total_cmp(&distances[j]))
                 .unwrap();
+            let corner = top_left(finder_triple, longest);
             let tl = finder_triple[corner];
             let mut tr = finder_triple[(corner + 1) % 3];
             let mut bl = finder_triple[(corner + 2) % 3];
@@ -2044,6 +2085,63 @@ pub fn detect_symbols(
     (results, limited)
 }
 
+#[cfg(test)]
+mod corner_tests {
+    use super::{Finder, top_left};
+    fn finder(x: f32, y: f32, quad: [[f32; 2]; 4]) -> Finder {
+        Finder {
+            x,
+            y,
+            module: 6.,
+            support: 3,
+            quad: Some(quad),
+        }
+    }
+    #[test]
+    fn foreshortened_triples_take_the_corner_their_axes_name() {
+        // Finders of a version 2 symbol seen at a steep angle: the side from the
+        // top-left finder to the bottom-left one is the longest of the triple.
+        let a = finder(
+            436.,
+            341.,
+            [[429., 337.], [437., 329.], [442., 347.], [436., 354.]],
+        );
+        let b = finder(
+            487.,
+            282.,
+            [[488., 268.], [496., 287.], [485., 296.], [479., 280.]],
+        );
+        let c = finder(
+            533.,
+            400.,
+            [[523., 394.], [535., 386.], [542., 406.], [530., 413.]],
+        );
+        assert_eq!(top_left([&a, &b, &c], 0), 1);
+    }
+    #[test]
+    fn square_triples_keep_the_corner_opposite_the_longest_side() {
+        let square = |x: f32, y: f32| {
+            finder(
+                x,
+                y,
+                [
+                    [x - 9., y - 9.],
+                    [x + 9., y - 9.],
+                    [x + 9., y + 9.],
+                    [x - 9., y + 9.],
+                ],
+            )
+        };
+        let (tl, tr, bl) = (square(100., 100.), square(300., 100.), square(100., 300.));
+        assert_eq!(top_left([&tl, &tr, &bl], 0), 0);
+        // Without central squares the longest side decides.
+        let bare = Finder {
+            quad: None,
+            ..tl.clone()
+        };
+        assert_eq!(top_left([&bare, &tr, &bl], 0), 0);
+    }
+}
 #[cfg(test)]
 mod gray_decode_tests {
     use super::gray_decode;
