@@ -464,14 +464,7 @@ fn local_shape_error(triple: [&Finder; 3]) -> Option<(f32, f32)> {
     let origin = triple[corner];
     let quad = origin.quad?;
     // Per-module axes: the central quad spans three modules on each side.
-    let axis_x = [
-        (quad[1][0] - quad[0][0] + quad[2][0] - quad[3][0]) / 6.,
-        (quad[1][1] - quad[0][1] + quad[2][1] - quad[3][1]) / 6.,
-    ];
-    let axis_y = [
-        (quad[3][0] - quad[0][0] + quad[2][0] - quad[1][0]) / 6.,
-        (quad[3][1] - quad[0][1] + quad[2][1] - quad[1][1]) / 6.,
-    ];
+    let [axis_x, axis_y] = quad_axes(quad).map(|a| a.map(|v| v / 6.));
     let det = axis_x[0] * axis_y[1] - axis_x[1] * axis_y[0];
     if det.is_nan() || det.abs() < 0.25 {
         return None;
@@ -668,6 +661,43 @@ fn least_squares_homography(pairs: &[([f32; 2], [f32; 2])]) -> Option<[f32; 8]> 
         crate::numeric::f64_f32(normal[i][8])
     }))
 }
+/// A triple as top-left, top-right and bottom-left finders with `corner` as the
+/// top-left one, if its sides are of similar length (within a factor 2.5) and near
+/// right angles.
+fn oriented(triple: [&Finder; 3], corner: usize) -> Option<[&Finder; 3]> {
+    let tl = triple[corner];
+    let mut tr = triple[(corner + 1) % 3];
+    let mut bl = triple[(corner + 2) % 3];
+    let cross = (tr.x - tl.x) * (bl.y - tl.y) - (tr.y - tl.y) * (bl.x - tl.x);
+    if cross < 0. {
+        std::mem::swap(&mut tr, &mut bl);
+    }
+    let dx = distance(tl, tr);
+    let dy = distance(tl, bl);
+    if dx / dy < 0.4 || dx / dy > 2.5 {
+        return None;
+    }
+    let dot = ((tr.x - tl.x) * (bl.x - tl.x) + (tr.y - tl.y) * (bl.y - tl.y)) / (dx * dy);
+    if dot.abs() > 0.55 {
+        None
+    } else {
+        Some([tl, tr, bl])
+    }
+}
+/// The two axes of a finder's central square, each the sum of two opposite edges
+/// (three modules each), so a noisy vertex moves them half as much.
+fn quad_axes(q: [[f32; 2]; 4]) -> [[f32; 2]; 2] {
+    [
+        [
+            q[1][0] - q[0][0] + q[2][0] - q[3][0],
+            q[1][1] - q[0][1] + q[2][1] - q[3][1],
+        ],
+        [
+            q[3][0] - q[0][0] + q[2][0] - q[1][0],
+            q[3][1] - q[0][1] + q[2][1] - q[1][1],
+        ],
+    ]
+}
 /// Least alignment, as a cosine, of both directions from a corner finder to the
 /// other two with its own axes.
 const AXES_ALIGNMENT: f32 = 0.9;
@@ -676,10 +706,9 @@ const AXES_ALIGNMENT: f32 = 0.9;
 const AXES_MARGIN: f32 = 0.1;
 /// The top-left finder of a triple: the one opposite the longest side, `longest`,
 /// unless its own axes fail to point at both other finders while another finder's
-/// do, by a margin. Under strong foreshortening a side can outgrow the diagonal; at
+/// do, by a margin. A collapsed central square, or none, keeps that corner. Under strong foreshortening a side can outgrow the diagonal; at
 /// the true corner the two directions run along the symbol's two edges, at the other
-/// two corners one runs along its diagonal. The axes average opposite edges of the
-/// finder's central square, as a single edge of a few pixels is noisy.
+/// two corners one runs along its diagonal.
 fn top_left(triple: [&Finder; 3], longest: usize) -> usize {
     let unit = |v: [f32; 2]| {
         let length = v[0].hypot(v[1]);
@@ -687,15 +716,12 @@ fn top_left(triple: [&Finder; 3], longest: usize) -> usize {
     };
     let alignment = |i: usize| -> Option<f32> {
         let finder = triple[i];
-        let q = finder.quad?;
-        let first = unit([
-            q[1][0] - q[0][0] + q[2][0] - q[3][0],
-            q[1][1] - q[0][1] + q[2][1] - q[3][1],
-        ])?;
-        let second = unit([
-            q[3][0] - q[0][0] + q[2][0] - q[1][0],
-            q[3][1] - q[0][1] + q[2][1] - q[1][1],
-        ])?;
+        let [first, second] = quad_axes(finder.quad?).map(unit);
+        let (first, second) = (first?, second?);
+        // A collapsed square has no axes.
+        if (first[0] * second[1] - first[1] * second[0]).abs() < 0.5 {
+            return None;
+        }
         let [a, b] = [(i + 1) % 3, (i + 2) % 3]
             .map(|j| unit([triple[j].x - finder.x, triple[j].y - finder.y]));
         let (a, b) = (a?, b?);
@@ -1644,23 +1670,16 @@ pub fn detect_symbols(
             let longest = (0..3)
                 .max_by(|&i, &j| distances[i].total_cmp(&distances[j]))
                 .unwrap();
+            // A corner taken from the finders' axes that fails the side and angle
+            // checks falls back to the one opposite the longest side.
             let corner = top_left(finder_triple, longest);
-            let tl = finder_triple[corner];
-            let mut tr = finder_triple[(corner + 1) % 3];
-            let mut bl = finder_triple[(corner + 2) % 3];
-            let cross = (tr.x - tl.x) * (bl.y - tl.y) - (tr.y - tl.y) * (bl.x - tl.x);
-            if cross < 0. {
-                std::mem::swap(&mut tr, &mut bl);
-            }
+            let Some([tl, tr, bl]) = oriented(finder_triple, corner)
+                .or_else(|| oriented(finder_triple, longest).filter(|_| corner != longest))
+            else {
+                continue;
+            };
             let dx = distance(tl, tr);
             let dy = distance(tl, bl);
-            if dx / dy < 0.4 || dx / dy > 2.5 {
-                continue;
-            }
-            let dot = ((tr.x - tl.x) * (bl.x - tl.x) + (tr.y - tl.y) * (bl.y - tl.y)) / (dx * dy);
-            if dot.abs() > 0.55 {
-                continue;
-            }
             // Axis-aligned cross sections through a rotated square
             // overestimate module width (sqrt(2) at 45 degrees).
             let rotation_scale = f32::midpoint(
@@ -2133,9 +2152,9 @@ mod corner_tests {
     fn squashed_small_triples_keep_their_corner() {
         // A version 1 symbol of 2-pixel modules squashed to 0.4 along y, its finder
         // squares 6 by 2.4 pixels with one vertex of the top-left square off by a
-        // pixel, which tilts its short edge. The longest side joins the other two
-        // finders; along the squashed axis both of them see their diagonal neighbor
-        // near one of their own axes.
+        // pixel. Averaged over opposite edges its axes still point at both other
+        // finders; one of its edges alone would not, and the bottom-left finder,
+        // whose diagonal neighbor lies near its long axis, would take the corner.
         let quad = |x: f32, y: f32, jitter: f32| {
             [
                 [x - 3. + jitter, y - 1.2],
@@ -2149,6 +2168,38 @@ mod corner_tests {
         let bl = finder(100., 111.2, quad(100., 111.2, 0.));
         let longest = 0;
         assert_eq!(top_left([&tl, &tr, &bl], longest), longest);
+    }
+
+    /// A finder at `(x, y)` whose central square is turned by `degrees`.
+    fn turned(x: f32, y: f32, degrees: f32) -> Finder {
+        let (sin, cos) = degrees.to_radians().sin_cos();
+        let corner =
+            |[u, v]: [f32; 2]| [x + 9. * (u * cos - v * sin), y + 9. * (u * sin + v * cos)];
+        finder(
+            x,
+            y,
+            [[-1., -1.], [1., -1.], [1., 1.], [-1., 1.]].map(corner),
+        )
+    }
+
+    #[test]
+    fn another_corner_needs_a_margin() {
+        // The corner opposite the longest side aligns to 0.85 (its square turned by
+        // 31.8 degrees); the top-right finder's 0.92 is not 0.1 better.
+        let tl = turned(0., 0., 31.8);
+        let tr = turned(100., 0., 22.5);
+        let bl = turned(0., 100., 0.);
+        assert_eq!(top_left([&tl, &tr, &bl], 0), 0);
+    }
+
+    #[test]
+    fn both_directions_need_their_own_axis() {
+        // The bottom-left finder sees the other two 45 degrees apart, both within
+        // 22.5 degrees of one of its axes and far from the other: no corner.
+        let tl = turned(0., 0., 45.);
+        let tr = turned(100., 0., 0.);
+        let bl = turned(0., 100., -67.5);
+        assert_eq!(top_left([&tl, &tr, &bl], 0), 0);
     }
 
     #[test]
