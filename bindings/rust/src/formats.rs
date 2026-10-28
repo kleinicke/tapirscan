@@ -1645,8 +1645,10 @@ fn extend_primary_retail(reads: &mut Vec<Read>, primary: Option<&crate::Result>,
 fn retry_format(format: &str) -> u32 {
     match format {
         "QRCode" => QR_CODE,
+        "MicroQRCode" => MICRO_QR_CODE,
         "DataMatrix" => DATA_MATRIX,
         "Aztec" => AZTEC,
+        "MaxiCode" => MAXI_CODE,
         _ => 0,
     }
 }
@@ -1914,6 +1916,46 @@ mod matrix_budget_tests {
         assert!(
             matrix_retries(&pixels, [width, height], QR_CODE, &mut pending(0.95), &[]).is_empty()
         );
+    }
+}
+
+#[cfg(all(test, not(feature = "low")))]
+mod region_crop_tests {
+    use super::{MAXI_CODE, MICRO_QR_CODE, matrix_retries};
+    use barcode_multiformat::regions::Region;
+
+    fn region(format: &str, polygon: [[f32; 2]; 4]) -> Region {
+        Region {
+            format: format.into(),
+            text: String::new(),
+            polygon,
+            localization_score: 1.,
+            support: 1,
+        }
+    }
+
+    fn pending(regions: Vec<Region>) -> barcode_multiformat::Scan {
+        barcode_multiformat::Scan {
+            barcodes: Vec::new(),
+            regions,
+            unfinished: false,
+            lines: 0,
+        }
+    }
+
+    #[test]
+    fn pending_micro_qr_and_maxicode_regions_are_cropped() {
+        let pixels = vec![255; 200 * 200];
+        let square = [[50., 50.], [90., 50.], [90., 90.], [50., 90.]];
+        for (format, mask) in [("MicroQRCode", MICRO_QR_CODE), ("MaxiCode", MAXI_CODE)] {
+            let mut scan = pending(vec![region(format, square)]);
+            // A blank crop reads nothing, so all three copies are tried.
+            assert_eq!(
+                matrix_retries(&pixels, [200, 200], mask, &mut scan, &[]).len(),
+                3
+            );
+            assert!(scan.unfinished);
+        }
     }
 }
 
