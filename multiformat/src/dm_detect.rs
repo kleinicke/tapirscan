@@ -1704,12 +1704,9 @@ struct Retries {
     /// Whether a frame that read a symbol skips the inverse thresholds (modes 2 and 3).
     settle: bool,
     /// Largest border error of a sampled but undecoded dark-on-light hypothesis that
-    /// records a region. The facade crops recorded regions and reads them again; in busy
-    /// frames a small symbol's border often scores 0.09 to 0.125 against the frame-wide
-    /// thresholds, while a crop with thresholds of its own reads it. Each such region
-    /// costs a crop retry, also for the texture of other symbols that fits as fairly, so
-    /// only High and Very High record fair borders. In Low a recorded region also earns
-    /// `recorded` refinements.
+    /// records a region, which the facade crops and reads again with thresholds of its
+    /// own. Each region costs a crop retry, also for texture that fits as fairly, so only
+    /// High and Very High accept fair borders.
     region_error: f32,
 }
 /// Retry limits per frame for Low, Medium and High; modes beyond the table (Very High)
@@ -1752,8 +1749,11 @@ const MODE_RETRIES: [Retries; 3] = [
 ];
 /// Border error of a clean Data Matrix border.
 const CLEAN_BORDER: f32 = 0.08;
-/// Border error up to which a sampled candidate is still recorded for a crop retry.
+/// Border error of a fair Data Matrix border.
 const FAIR_BORDER: f32 = 0.125;
+/// Lowest localization score of a Data Matrix region with a clean border; regions below
+/// it have a fair border only.
+pub const CLEAN_REGION_SCORE: f32 = 1. - CLEAN_BORDER;
 /// The retry limits of a scanner `mode`.
 fn mode_retries(mode: usize) -> Retries {
     MODE_RETRIES[mode.min(MODE_RETRIES.len() - 1)]
@@ -1957,9 +1957,16 @@ fn detect_with_retries(
                         return (results, true);
                     }
                     if sample_grid(image, [w, h], &t, [size.w, size.h], &mut matrix) {
-                        // Light-on-dark candidates (modes 2 and 3) keep the clean bar: dark
-                        // texture fits their fair borders far more often than symbols do.
-                        if score <= CLEAN_BORDER || (score <= retries.region_error && mode < 2) {
+                        // `mode` is the threshold mode. Light-on-dark candidates (modes 2 and
+                        // 3) keep the clean bar: dark texture fits their fair borders far more
+                        // often than symbols do.
+                        if score
+                            <= if mode < 2 {
+                                retries.region_error
+                            } else {
+                                CLEAN_BORDER
+                            }
+                        {
                             regions.add("DataMatrix", polygon, 1. - score, 1);
                             recorded = true;
                         }
@@ -2699,6 +2706,7 @@ mod region_error_tests {
         assert_eq!(recorded(mode_retries(0), false), 0);
         assert_eq!(recorded(mode_retries(1), false), 0);
         assert_eq!(recorded(mode_retries(2), false), 1);
+        assert_eq!(recorded(mode_retries(3), false), 1);
         assert_eq!(recorded(CROP_PASS, false), 0);
     }
 
