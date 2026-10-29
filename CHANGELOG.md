@@ -6,18 +6,18 @@
   UPCE, Code128, Code39, ITF, QRCode and DataMatrix. Select `retail` explicitly
   to keep the previous EAN/UPC-only behavior.
 
-- Medium, High and Very High read more small Data Matrix symbols in busy
-  frames. A candidate that almost passes the border check is now retried on a
-  crop of its own, after every other pending region and with Medium's detector
-  limits in every mode. Medium tries one such candidate per frame, on a
-  sharpened crop; High and Very High try each one on plain, sharpened and
-  doubled crops. On the development images Medium now reads the symbol in 28
-  more images (11 distinct symbols; 4 of the images are real photos) and High
-  in 33 more, with no reads lost; Low is unchanged. Medium takes about 1% longer
-  on frames without a code and the same on the timing set; High an estimated
-  0.5 to 1% longer on both. Both list more undecoded Data Matrix regions on
-  frames without a code (on 300 such images, Medium 16 instead of 5 and High 51
-  instead of 11).
+- Medium, High and Very High read more small Data Matrix symbols in busy frames.
+  A candidate that almost passes the border check is now retried on a crop of
+  its own, after every other pending region and with Medium's detector limits in
+  every mode, searching dark-on-light symbols only. Medium tries one such
+  candidate per frame, on a sharpened crop; High and Very High try each one on
+  plain, sharpened and doubled crops. On the development images Medium now reads
+  the symbol in 29 more images (11 distinct symbols; 4 of the images are real
+  photos) and High in 33 more, with no reads lost; Low is unchanged. Medium
+  takes about 0.5% longer on frames without a code and the same on the timing
+  set; High at most an estimated 0.5% longer on both. Both list more undecoded
+  Data Matrix regions on frames without a code (on 300 such images, Medium 16
+  instead of 5 and High 51 instead of 11).
 - Large QR codes (version 7 and up) on paper that is not quite flat: a symbol
   whose header reads but whose grid does not decode is sampled again cell by
   cell between its alignment patterns, with the version taken from its version

@@ -248,8 +248,9 @@ These are internal reader effort levels, not comparable work or confidence score
   on reduced copies.
 - **Crop retries:** Medium and above retry found-but-unread QR, Micro QR, Data
   Matrix and Aztec symbols on a crop of their region; MaxiCode from High. A Data
-  Matrix candidate whose border almost passes is retried after the other regions:
-  in Medium on one sharpened crop per frame, from High on every crop copy.
+  Matrix candidate whose border almost passes is retried after the other regions,
+  with Medium's detector limits on the dark-on-light thresholds only: in Medium on
+  one sharpened crop per frame, from High on every crop copy.
 
 When EAN13 and UPCA are both enabled, zero-prefixed EAN13 is returned as UPCA.
 
