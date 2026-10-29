@@ -431,8 +431,9 @@ pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize)
     scan_observed(image, width, height, mask, effort, |_, _| {})
 }
 
-/// [`scan`] for a scanner `mode` (0 Low, 1 Medium, 2 High, 3 Very High) whose QR policy and
-/// retry limits for Data Matrix differ although its `effort` does not.
+/// [`scan`] for a scanner `mode` (0 Low, 1 Medium, 2 High, 3 and above Very High) whose QR
+/// policy and retry limits for Data Matrix differ although its `effort` does not. With a
+/// Data Matrix-only mask, `mode` may also be [`dm_detect::FAIR_CROP_MODE`].
 #[must_use]
 pub fn scan_for_mode(
     image: &[u8],

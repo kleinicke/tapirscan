@@ -211,10 +211,11 @@ pub(crate) fn recover(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    const ROWS: [&str; 16] = [
+    /// "TAPIRSCAN-DM-42", a 16 x 16 symbol.
+    pub(crate) const ROWS: [&str; 16] = [
         "1010101010101010",
         "1111010001001111",
         "1110010101000000",

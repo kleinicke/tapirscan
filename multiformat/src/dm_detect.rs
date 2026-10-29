@@ -1660,9 +1660,9 @@ fn near_result(results: &[Detection], quad: &[Point; 4]) -> bool {
         (c[0] - d[0]).hypot(c[1] - d[1]) < 8.
     })
 }
-/// Detect with the retry limits of a scanner `mode` (0 Low, 1 Medium, 2 High, 3 Very
-/// High) or of [`FAIR_CROP_MODE`]; `refine` also refines the corners of every fair
-/// hypothesis.
+/// Detect with the retry limits of a scanner `mode` (0 Low, 1 Medium, 2 High, 3 and
+/// above Very High) or of [`FAIR_CROP_MODE`]; `refine` also refines the corners of every
+/// fair hypothesis.
 pub fn detect(
     w: usize,
     h: usize,
@@ -1761,12 +1761,13 @@ const FAIR_BORDER: f32 = 0.125;
 /// it have a fair border only.
 pub const CLEAN_REGION_SCORE: f32 = 1. - CLEAN_BORDER;
 /// Detector mode of the facade's crops of fair-border Data Matrix regions, in every
-/// scanner mode; only the Data Matrix detector knows it. A fair region comes from the
+/// scanner mode: a value no effort reaches, which only the Data Matrix detector knows,
+/// so pass it with a Data Matrix-only mask. A fair region comes from the
 /// dark-on-light thresholds (light-on-dark candidates record clean borders only), so
 /// its crop searches those with Medium's limits: High's 64 unranked candidates go to
 /// the crop's texture before the symbol's, Medium's four ranked ones reach it.
-pub const FAIR_CROP_MODE: usize = 4;
-/// The retry limits of a scanner `mode` or of [`FAIR_CROP_MODE`].
+pub const FAIR_CROP_MODE: usize = usize::MAX;
+/// The retry limits of a scanner `mode` (3 and above Very High) or of [`FAIR_CROP_MODE`].
 fn mode_retries(mode: usize) -> Retries {
     if mode == FAIR_CROP_MODE {
         return Retries {
@@ -2741,24 +2742,7 @@ mod region_error_tests {
     /// Texts read from "TAPIRSCAN-DM-42" (16 x 16, 4 pixels per module), light on dark
     /// when `inverted`, with the retry limits `retries`.
     fn symbol_reads(retries: Retries, inverted: bool) -> Vec<String> {
-        let rows = [
-            "1010101010101010",
-            "1111010001001111",
-            "1110010101000000",
-            "1000010100110011",
-            "1001010101000100",
-            "1100101100010011",
-            "1010010111010010",
-            "1100110110100101",
-            "1000000011001000",
-            "1100110000010111",
-            "1110100010011000",
-            "1100011100110001",
-            "1010110111001110",
-            "1111100111000101",
-            "1011000000100010",
-            "1111111111111111",
-        ];
+        let rows = crate::dm_gray::tests::ROWS;
         let (scale, quiet) = (4, 4);
         let side = (rows.len() + 2 * quiet) * scale;
         let (dark, light) = if inverted { (235, 20) } else { (20, 235) };
@@ -2787,5 +2771,18 @@ mod region_error_tests {
             symbol_reads(mode_retries(FAIR_CROP_MODE), true),
             Vec::<String>::new()
         );
+    }
+
+    #[test]
+    fn efforts_above_very_high_keep_its_limits() {
+        // `scan` passes its effort as the mode; no effort reaches the fair crop's.
+        for mode in [3, 4, 10] {
+            let retries = mode_retries(mode);
+            assert_eq!(
+                (retries.thresholds, retries.candidates, retries.gray),
+                (4, 64, 6)
+            );
+        }
+        assert_eq!(symbol_reads(mode_retries(4), true), ["TAPIRSCAN-DM-42"]);
     }
 }
