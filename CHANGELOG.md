@@ -13,11 +13,12 @@
   High and Very High try each one on plain, sharpened and doubled crops. On the
   development images Medium now reads the symbol in 29 more images (11 distinct
   symbols; 4 of the images are real photos) and High in 33 more, with no reads
-  lost; Low is unchanged. Medium takes about as long as before on frames without
-  a code and on the timing set; High an estimated 0.5 to 1% longer on the timing
-  set and up to about 0.5% longer on frames without a code. Both list more
-  undecoded Data Matrix regions on frames without a code (on 300 such images,
-  Medium 16 instead of 5 and High 49 instead of 11).
+  lost; Low is unchanged. With the default formats, Medium takes about as long
+  as before on frames without a code and on the timing set, and up to about 0.5%
+  longer on frames without a code with all formats; High an estimated 0.5 to 1%
+  longer on the timing set and up to about 0.5% longer on frames without a code.
+  Both list more undecoded Data Matrix regions on frames without a code (on 300
+  such images, Medium 16 instead of 5 and High 49 instead of 11).
 - Large QR codes (version 7 and up) on paper that is not quite flat: a symbol
   whose header reads but whose grid does not decode is sampled again cell by
   cell between its alignment patterns, with the version taken from its version

@@ -1725,8 +1725,8 @@ const MODE_RETRIES: [Retries; 3] = [
         aspect: [0.65, 1.55],
         recorded: 2,
         settle: true,
-        region_error: CLEAN_BORDER,
         thresholds: 4,
+        region_error: CLEAN_BORDER,
     },
     Retries {
         gray: 3,
@@ -1737,8 +1737,8 @@ const MODE_RETRIES: [Retries; 3] = [
         aspect: [0.65, 1.55],
         recorded: 0,
         settle: true,
-        region_error: FAIR_BORDER,
         thresholds: 4,
+        region_error: FAIR_BORDER,
     },
     Retries {
         gray: 6,
@@ -1749,8 +1749,8 @@ const MODE_RETRIES: [Retries; 3] = [
         aspect: [0.55, 1.8],
         recorded: 0,
         settle: false,
-        region_error: FAIR_BORDER,
         thresholds: 4,
+        region_error: FAIR_BORDER,
     },
 ];
 /// Border error of a clean Data Matrix border.
@@ -1761,11 +1761,12 @@ const FAIR_BORDER: f32 = 0.125;
 /// it have a fair border only.
 pub const CLEAN_REGION_SCORE: f32 = 1. - CLEAN_BORDER;
 /// Detector mode of the facade's crops of fair-border Data Matrix regions, in every
-/// scanner mode: a value no effort reaches, which only the Data Matrix detector knows,
-/// so pass it with a Data Matrix-only mask. A fair region comes from the
-/// dark-on-light thresholds (light-on-dark candidates record clean borders only), so
-/// its crop searches those with Medium's limits: High's 64 unranked candidates go to
-/// the crop's texture before the symbol's, Medium's four ranked ones reach it.
+/// scanner mode: a value the facade's scanner modes never take, which only the Data
+/// Matrix detector knows, so pass it with a Data Matrix-only mask. A fair region comes
+/// from the dark-on-light thresholds (light-on-dark candidates record clean borders
+/// only), so its crop searches those with Medium's limits: High's 64 unranked
+/// candidates go to the crop's texture before the symbol's, Medium's four ranked ones
+/// reach it.
 pub const FAIR_CROP_MODE: usize = usize::MAX;
 /// The retry limits of a scanner `mode` (3 and above Very High) or of [`FAIR_CROP_MODE`].
 fn mode_retries(mode: usize) -> Retries {
@@ -1789,8 +1790,8 @@ const CROP_PASS: Retries = Retries {
     aspect: [0.65, 1.55],
     recorded: 0,
     settle: false,
-    region_error: CLEAN_BORDER,
     thresholds: 4,
+    region_error: CLEAN_BORDER,
 };
 #[expect(
     clippy::too_many_lines,
@@ -2775,13 +2776,14 @@ mod region_error_tests {
 
     #[test]
     fn efforts_above_very_high_keep_its_limits() {
-        // `scan` passes its effort as the mode; no effort reaches the fair crop's.
+        // `scan` passes its effort as the mode; the fair crop's is a value the facade's
+        // scanner modes never take.
+        let last = MODE_RETRIES[MODE_RETRIES.len() - 1];
+        let limits = |r: Retries| (r.gray, r.region_grids, r.crops, r.candidates, r.ranked);
         for mode in [3, 4, 10] {
             let retries = mode_retries(mode);
-            assert_eq!(
-                (retries.thresholds, retries.candidates, retries.gray),
-                (4, 64, 6)
-            );
+            assert_eq!(retries.thresholds, 4);
+            assert_eq!(limits(retries), limits(last));
         }
         assert_eq!(symbol_reads(mode_retries(4), true), ["TAPIRSCAN-DM-42"]);
     }
