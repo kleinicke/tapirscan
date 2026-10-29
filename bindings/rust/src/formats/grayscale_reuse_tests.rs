@@ -153,10 +153,10 @@ fn reader_groups_read_alike_with_a_shared_threshold_cache() {
                 assert_eq!(
                     report(&scan_reader_with(
                         &image,
-                        width,
-                        height,
+                        [width, height],
                         mask,
                         1,
+                        crate::MODE_ID as usize,
                         &mut shared
                     )),
                     report(&scan_reader(&image, width, height, mask, 1)),

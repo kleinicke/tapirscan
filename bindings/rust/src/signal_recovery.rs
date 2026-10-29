@@ -1,55 +1,75 @@
 //! Bounded source contrast recovery for selected matrix readers.
+/// How [`region_retries`] reads a region's crop: the reader formats and effort, the
+/// detector mode (`formats::scan_reader_in`) and the copies, in order.
+pub(crate) struct CropReader {
+    pub mask: u32,
+    pub effort: usize,
+    pub mode: usize,
+    pub copies: &'static [crate::formats::CropCopy],
+}
+
+/// Crop retries of `region` in a `width` x `height` frame, one scan per copy read until
+/// one reads the region. Nothing runs, and nothing is returned, when its crop is empty,
+/// thinner than 3 pixels, larger than 262,144 pixels or than what is left of `budget`.
 pub(crate) fn region_retries(
     pixels: &[u8],
-    width: usize,
-    height: usize,
-    mask: u32,
-    effort: usize,
-    scan: &barcode_multiformat::Scan,
+    [width, height]: [usize; 2],
+    region: &barcode_multiformat::regions::Region,
+    reader: &CropReader,
     budget: &mut usize,
 ) -> Vec<barcode_multiformat::Scan> {
+    use crate::formats::CropCopy;
     let mut output = Vec::new();
-    for region in scan.regions.iter().take(8) {
-        let Some([x0, y0, x1, y1]) = crop_bounds(region, width, height) else {
-            continue;
+    let Some([x0, y0, x1, y1]) = crop_bounds(region, width, height) else {
+        return output;
+    };
+    let (w, h) = (x1 - x0, y1 - y0);
+    if w.min(h) < 3 || w * h > 262_144 || w * h > *budget {
+        return output;
+    }
+    *budget -= w * h;
+    let mut crop = Vec::with_capacity(w * h);
+    for y in y0..y1 {
+        crop.extend_from_slice(&pixels[y * width + x0..y * width + x1]);
+    }
+    for &copy in reader.copies {
+        #[cfg(test)]
+        crop_log::CROPS.with(|log| {
+            log.borrow_mut()
+                .push((region.polygon[0], copy, reader.mode));
+        });
+        let (image, scale) = match copy {
+            CropCopy::Plain => (crop.clone(), 1),
+            CropCopy::Sharpened => (barcode_multiformat::qr_enhance::sharpen(&crop, w, h), 1),
+            CropCopy::Doubled => (double(&crop, w, h), 2),
         };
-        let (w, h) = (x1 - x0, y1 - y0);
-        if w.min(h) < 3 || w * h > 262_144 || w * h > *budget {
-            continue;
-        }
-        *budget -= w * h;
-        let mut crop = Vec::with_capacity(w * h);
-        for y in y0..y1 {
-            crop.extend_from_slice(&pixels[y * width + x0..y * width + x1]);
-        }
-        for method in crate::formats::crop_copies(region) {
-            let (image, scale) = match method {
-                0 => (crop.clone(), 1),
-                1 => (barcode_multiformat::qr_enhance::sharpen(&crop, w, h), 1),
-                _ => (double(&crop, w, h), 2),
-            };
-            let mut retry =
-                crate::formats::scan_crop(region, &image, w * scale, h * scale, mask, effort);
-            retry.barcodes.retain(|r| {
-                !(mask == barcode_multiformat::formats::AZTEC
-                    && r.text.len() == 3
-                    && r.text.bytes().all(|v| v.is_ascii_digit()))
-            });
-            map_back(
-                &mut retry,
-                1. / barcode_multiformat::numeric::usize_f32(scale),
-                x0,
-                y0,
-            );
-            let done = retry
-                .barcodes
-                .iter()
-                .any(|r| covered(region.polygon, r.polygon));
-            retry.unfinished = true;
-            output.push(retry);
-            if done {
-                break;
-            }
+        let mut retry = crate::formats::scan_reader_in(
+            &image,
+            w * scale,
+            h * scale,
+            reader.mask,
+            reader.effort,
+            reader.mode,
+        );
+        retry.barcodes.retain(|r| {
+            !(reader.mask == barcode_multiformat::formats::AZTEC
+                && r.text.len() == 3
+                && r.text.bytes().all(|v| v.is_ascii_digit()))
+        });
+        map_back(
+            &mut retry,
+            1. / barcode_multiformat::numeric::usize_f32(scale),
+            x0,
+            y0,
+        );
+        let done = retry
+            .barcodes
+            .iter()
+            .any(|r| covered(region.polygon, r.polygon));
+        retry.unfinished = true;
+        output.push(retry);
+        if done {
+            break;
         }
     }
     output
@@ -169,6 +189,16 @@ pub(crate) fn covered(region: [[f32; 2]; 4], decoded: [[f32; 2]; 4]) -> bool {
     region
         .into_iter()
         .all(|p| crate::formats::contains_point(p.map(f64::from), &quad))
+}
+
+/// The crop copies read on this thread: a region's first corner, the copy and the
+/// detector mode.
+#[cfg(test)]
+pub(crate) mod crop_log {
+    thread_local! {
+        pub(crate) static CROPS: std::cell::RefCell<Vec<([f32; 2], crate::formats::CropCopy, usize)>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
 }
 
 #[cfg(test)]
