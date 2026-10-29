@@ -1678,9 +1678,9 @@ fn fair_data_matrix(region: &barcode_multiformat::regions::Region) -> bool {
         && region.localization_score < barcode_multiformat::dm_detect::CLEAN_REGION_SCORE
 }
 
-/// Detector mode of fair Data Matrix crops in every mode: Medium's retry limits. A crop
-/// holds one candidate, and High's long unranked retry list lets the crop's texture take
-/// the refinements its symbol needs.
+/// Detector mode of fair Data Matrix crops in every mode: Medium's retry limits. High's
+/// 64 unranked retries go to the crop's texture before the symbol's candidate; Medium's
+/// four ranked ones reach it.
 #[cfg(not(feature = "low"))]
 const FAIR_CROP_DETECTOR_MODE: usize = 1;
 
@@ -1696,6 +1696,27 @@ fn matrix_retries(
     mask: u32,
     scan: &mut barcode_multiformat::Scan,
     earlier: &[barcode_multiformat::Scan],
+) -> Vec<barcode_multiformat::Scan> {
+    let retry_crop = |region: &_, reader: &_, window| {
+        crate::signal_recovery::region_retries(pixels, width, window, region, reader)
+    };
+    matrix_crops(pixels, [width, height], mask, scan, earlier, retry_crop)
+}
+
+/// [`matrix_retries`] with the crop retry of a region (`retry_crop`: the region, how to
+/// read it and its crop window) passed in.
+#[cfg(not(feature = "low"))]
+fn matrix_crops(
+    pixels: &[u8],
+    [width, height]: [usize; 2],
+    mask: u32,
+    scan: &mut barcode_multiformat::Scan,
+    earlier: &[barcode_multiformat::Scan],
+    mut retry_crop: impl FnMut(
+        &barcode_multiformat::regions::Region,
+        &crate::signal_recovery::CropReader,
+        [usize; 4],
+    ) -> Vec<barcode_multiformat::Scan>,
 ) -> Vec<barcode_multiformat::Scan> {
     let mut crop_budget = POLICY.matrix_crop_pixels;
     let mut reduced = POLICY.qr_reduced_region_retries;
@@ -1779,28 +1800,19 @@ fn matrix_retries(
             }
             if area > crop_budget && area <= located_crop {
                 located_crop = 0;
-                let mut allowance = area;
-                retries.extend(crate::signal_recovery::region_retries(
-                    pixels,
-                    [width, height],
-                    region,
-                    &reader,
-                    &mut allowance,
-                ));
+                let window = crate::signal_recovery::crop_window(region, [width, height], area);
+                if let Some(window) = window {
+                    retries.extend(retry_crop(region, &reader, window));
+                }
                 continue;
             }
         }
-        if crop_budget > 0 {
-            let crops = crate::signal_recovery::region_retries(
-                pixels,
-                [width, height],
-                region,
-                &reader,
-                &mut crop_budget,
-            );
-            // A fair region takes the frame's slot only once its crop ran.
-            fair_crops -= usize::from(is_fair && !crops.is_empty());
-            retries.extend(crops);
+        let window = crate::signal_recovery::crop_window(region, [width, height], crop_budget);
+        if let Some(window @ [x0, y0, x1, y1]) = window {
+            crop_budget -= (x1 - x0) * (y1 - y0);
+            // A fair region takes the frame's slot only when its crop runs.
+            fair_crops -= usize::from(is_fair);
+            retries.extend(retry_crop(region, &reader, window));
         }
     }
     retries
@@ -1958,53 +1970,123 @@ mod matrix_budget_tests {
         assert!(reads.iter().any(|text| text == "TAPIRSCAN"));
     }
 
-    #[test]
-    fn fair_data_matrix_crops_per_mode() {
-        use crate::formats::CropCopy::{Doubled, Plain, Sharpened};
-        let square = |x: f32| [[x, 10.], [x + 20., 10.], [x + 20., 30.], [x, 30.]];
-        let region = |x: f32, localization_score| barcode_multiformat::regions::Region {
-            format: "DataMatrix".into(),
-            text: String::new(),
-            polygon: square(x),
-            localization_score,
-            support: 1,
-        };
-        // A clean region, a fair one that a read covers and a fair one that none does.
+    /// The crops `matrix_crops` plans for `regions` (read: `covering`) in a `width` x 300
+    /// frame: each region's first corner, copies and detector mode.
+    fn planned(
+        regions: Vec<barcode_multiformat::regions::Region>,
+        covering: Option<[[f32; 2]; 4]>,
+        width: usize,
+    ) -> Vec<([f32; 2], &'static [crate::formats::CropCopy], usize)> {
         let mut scan = barcode_multiformat::Scan {
-            barcodes: vec![barcode_multiformat::Detection {
-                assembled_rows: false,
-                bytes: None,
-                structured_append: None,
-                reader_initialization: false,
-                addon: None,
-                codabar_start_stop: None,
-                format: "DataMatrix".into(),
-                text: "covering".into(),
-                polygon: [[55., 5.], [85., 5.], [85., 35.], [55., 35.]],
-                support: 1,
-                error: 0.,
-                gs1: false,
-            }],
-            regions: vec![region(10., 1.), region(60., 0.9), region(110., 0.89)],
+            barcodes: covering
+                .map(|polygon| barcode_multiformat::Detection {
+                    assembled_rows: false,
+                    bytes: None,
+                    structured_append: None,
+                    reader_initialization: false,
+                    addon: None,
+                    codabar_start_stop: None,
+                    format: "DataMatrix".into(),
+                    text: "covering".into(),
+                    polygon,
+                    support: 1,
+                    error: 0.,
+                    gs1: false,
+                })
+                .into_iter()
+                .collect(),
+            regions,
             unfinished: false,
             lines: 0,
         };
-        crate::signal_recovery::crop_log::CROPS.with(|log| log.borrow_mut().clear());
-        matrix_retries(&[255; 160 * 40], [160, 40], DATA_MATRIX, &mut scan, &[]);
-        let crops = crate::signal_recovery::crop_log::CROPS.with(std::cell::RefCell::take);
-        let compiled = crate::MODE_ID as usize;
-        let fair: &[_] = if cfg!(feature = "medium") {
-            &[Sharpened]
-        } else {
-            &[Plain, Sharpened, Doubled]
+        let mut crops = Vec::new();
+        let pixels = vec![255; width * 300];
+        let record = |region: &barcode_multiformat::regions::Region,
+                      reader: &crate::signal_recovery::CropReader,
+                      _| {
+            crops.push((region.polygon[0], reader.copies, reader.mode));
+            Vec::new()
         };
-        // Fair crops read with Medium's detector limits in every mode.
-        let expected: Vec<_> = [Plain, Sharpened, Doubled]
-            .into_iter()
-            .map(|copy| ([10., 10.], copy, compiled))
-            .chain(fair.iter().map(|&copy| ([110., 10.], copy, 1)))
-            .collect();
+        super::matrix_crops(&pixels, [width, 300], DATA_MATRIX, &mut scan, &[], record);
+        crops
+    }
+
+    /// A Data Matrix region with corner (`x`, 10), side `side` and `score`.
+    fn square(x: f32, side: f32, score: f32) -> barcode_multiformat::regions::Region {
+        barcode_multiformat::regions::Region {
+            format: "DataMatrix".into(),
+            text: String::new(),
+            polygon: [
+                [x, 10.],
+                [x + side, 10.],
+                [x + side, 10. + side],
+                [x, 10. + side],
+            ],
+            localization_score: score,
+            support: 1,
+        }
+    }
+
+    /// The compiled mode's crop copies of a fair Data Matrix region.
+    fn fair_copies() -> &'static [crate::formats::CropCopy] {
+        super::POLICY.fair_data_matrix_copies
+    }
+
+    #[test]
+    fn fair_data_matrix_crops_per_mode() {
+        use crate::formats::CropCopy;
+        // A clean region, a fair one that a read covers and a fair one that none does.
+        let regions = vec![
+            square(10., 20., 1.),
+            square(60., 20., 0.9),
+            square(110., 20., 0.89),
+        ];
+        let covering = [[55., 5.], [85., 5.], [85., 35.], [55., 35.]];
+        let crops = planned(regions, Some(covering), 160);
+        let compiled = crate::MODE_ID as usize;
+        assert_eq!(
+            crops,
+            [
+                ([10., 10.], CropCopy::ALL, compiled),
+                ([110., 10.], fair_copies(), 1)
+            ]
+        );
+        if cfg!(feature = "medium") {
+            assert_eq!(fair_copies(), [CropCopy::Sharpened]);
+        } else {
+            assert_eq!(fair_copies(), CropCopy::ALL);
+        }
+    }
+
+    #[test]
+    fn a_fair_region_whose_crop_does_not_fit_leaves_the_slot_to_the_next() {
+        // The better fair region needs a 258 x 258 crop, more than Medium's allowance;
+        // the next one gets the frame's fair crop.
+        let large = square(10., 200., 0.91);
+        let budget = super::POLICY.matrix_crop_pixels;
+        let fits = crate::signal_recovery::crop_window(&large, [400, 300], budget).is_some();
+        assert_eq!(fits, !cfg!(feature = "medium"));
+        let crops = planned(vec![large, square(300., 20., 0.9)], None, 400);
+        let mut expected = vec![([300., 10.], fair_copies(), 1)];
+        if fits {
+            expected.insert(0, ([10., 10.], fair_copies(), 1));
+        }
         assert_eq!(crops, expected);
+    }
+
+    #[test]
+    fn the_best_fair_region_is_cropped_first() {
+        let crops = planned(
+            vec![square(10., 20., 0.89), square(60., 20., 0.91)],
+            None,
+            160,
+        );
+        let first = ([60., 10.], fair_copies(), 1);
+        if cfg!(feature = "medium") {
+            assert_eq!(crops, [first]);
+        } else {
+            assert_eq!(crops, [first, ([10., 10.], fair_copies(), 1)]);
+        }
     }
 
     #[test]
@@ -2184,12 +2266,13 @@ pub(crate) fn scan_reader(
     mask: u32,
     effort: usize,
 ) -> barcode_multiformat::Scan {
-    scan_reader_in(pixels, width, height, mask, effort, crate::MODE_ID as usize)
+    scan_reader_with_mode(pixels, width, height, mask, effort, crate::MODE_ID as usize)
 }
 
-/// [`scan_reader`] whose Data Matrix, PDF417 and other multiformat detectors take the
-/// retry limits of `mode` instead of the compiled mode's.
-pub(crate) fn scan_reader_in(
+/// [`scan_reader`] whose multiformat detectors (Data Matrix, PDF417, `MaxiCode`) take the
+/// retry limits of `mode` instead of the compiled mode's. The Aztec and QR-only paths
+/// ignore `mode`.
+pub(crate) fn scan_reader_with_mode(
     pixels: &[u8],
     width: usize,
     height: usize,

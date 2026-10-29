@@ -1712,7 +1712,7 @@ struct Retries {
 /// Retry limits per frame for Low, Medium and High; modes beyond the table (Very High)
 /// use its last entry. Medium retries only its four best-ranked candidates; Low and
 /// High retry the first 64 unranked, because ranking costs more than it finds there.
-/// The facade reads its crops of fair-border regions with Medium's limits in every mode.
+/// Fair-border regions' crops: see the facade's `FAIR_CROP_DETECTOR_MODE`.
 const MODE_RETRIES: [Retries; 3] = [
     Retries {
         gray: 3,
