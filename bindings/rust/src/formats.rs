@@ -1678,12 +1678,6 @@ fn fair_data_matrix(region: &barcode_multiformat::regions::Region) -> bool {
         && region.localization_score < barcode_multiformat::dm_detect::CLEAN_REGION_SCORE
 }
 
-/// Detector mode of fair Data Matrix crops in every mode: Medium's retry limits. High's
-/// 64 unranked retries go to the crop's texture before the symbol's candidate; Medium's
-/// four ranked ones reach it.
-#[cfg(not(feature = "low"))]
-const FAIR_CROP_DETECTOR_MODE: usize = 1;
-
 /// Localized crop retries of pending matrix regions under one pixel allowance for the
 /// whole matrix group, independent of how many formats are enabled. Initial readers
 /// have already tried every format; finder hints prioritize bounded recovery without
@@ -1767,7 +1761,7 @@ fn matrix_crops(
             mask: hinted,
             effort: POLICY.matrix_crop_effort,
             mode: if is_fair {
-                FAIR_CROP_DETECTOR_MODE
+                barcode_multiformat::dm_detect::FAIR_CROP_MODE
             } else {
                 crate::MODE_ID as usize
             },
@@ -1821,6 +1815,7 @@ fn matrix_crops(
 #[cfg(all(test, not(feature = "low")))]
 mod matrix_budget_tests {
     use super::{DATA_MATRIX, MAXI_CODE, MICRO_QR_CODE, QR_CODE, matrix_retries};
+    use barcode_multiformat::dm_detect::FAIR_CROP_MODE;
     #[test]
     fn no_pending_candidates_do_not_invent_work() {
         let mut scan = barcode_multiformat::Scan {
@@ -2048,7 +2043,7 @@ mod matrix_budget_tests {
             crops,
             [
                 ([10., 10.], CropCopy::ALL, compiled),
-                ([110., 10.], fair_copies(), 1)
+                ([110., 10.], fair_copies(), FAIR_CROP_MODE)
             ]
         );
         if cfg!(feature = "medium") {
@@ -2067,9 +2062,9 @@ mod matrix_budget_tests {
         let fits = crate::signal_recovery::crop_window(&large, [400, 300], budget).is_some();
         assert_eq!(fits, !cfg!(feature = "medium"));
         let crops = planned(vec![large, square(300., 20., 0.9)], None, 400);
-        let mut expected = vec![([300., 10.], fair_copies(), 1)];
+        let mut expected = vec![([300., 10.], fair_copies(), FAIR_CROP_MODE)];
         if fits {
-            expected.insert(0, ([10., 10.], fair_copies(), 1));
+            expected.insert(0, ([10., 10.], fair_copies(), FAIR_CROP_MODE));
         }
         assert_eq!(crops, expected);
     }
@@ -2081,11 +2076,11 @@ mod matrix_budget_tests {
             None,
             160,
         );
-        let first = ([60., 10.], fair_copies(), 1);
+        let first = ([60., 10.], fair_copies(), FAIR_CROP_MODE);
         if cfg!(feature = "medium") {
             assert_eq!(crops, [first]);
         } else {
-            assert_eq!(crops, [first, ([10., 10.], fair_copies(), 1)]);
+            assert_eq!(crops, [first, ([10., 10.], fair_copies(), FAIR_CROP_MODE)]);
         }
     }
 

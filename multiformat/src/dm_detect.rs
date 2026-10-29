@@ -1661,7 +1661,8 @@ fn near_result(results: &[Detection], quad: &[Point; 4]) -> bool {
     })
 }
 /// Detect with the retry limits of a scanner `mode` (0 Low, 1 Medium, 2 High, 3 Very
-/// High); `refine` also refines the corners of every fair hypothesis.
+/// High) or of [`FAIR_CROP_MODE`]; `refine` also refines the corners of every fair
+/// hypothesis.
 pub fn detect(
     w: usize,
     h: usize,
@@ -1703,6 +1704,8 @@ struct Retries {
     recorded: usize,
     /// Whether a frame that read a symbol skips the inverse thresholds (modes 2 and 3).
     settle: bool,
+    /// Threshold modes searched: all four, or only the dark-on-light 0 and 1.
+    thresholds: usize,
     /// Largest border error of a sampled but undecoded dark-on-light hypothesis that
     /// records a region, which the facade crops and reads again with thresholds of its
     /// own. Each region costs a crop retry, also for texture that fits as fairly; Low
@@ -1712,7 +1715,6 @@ struct Retries {
 /// Retry limits per frame for Low, Medium and High; modes beyond the table (Very High)
 /// use its last entry. Medium retries only its four best-ranked candidates; Low and
 /// High retry the first 64 unranked, because ranking costs more than it finds there.
-/// Fair-border regions' crops: see the facade's `FAIR_CROP_DETECTOR_MODE`.
 const MODE_RETRIES: [Retries; 3] = [
     Retries {
         gray: 3,
@@ -1724,6 +1726,7 @@ const MODE_RETRIES: [Retries; 3] = [
         recorded: 2,
         settle: true,
         region_error: CLEAN_BORDER,
+        thresholds: 4,
     },
     Retries {
         gray: 3,
@@ -1735,6 +1738,7 @@ const MODE_RETRIES: [Retries; 3] = [
         recorded: 0,
         settle: true,
         region_error: FAIR_BORDER,
+        thresholds: 4,
     },
     Retries {
         gray: 6,
@@ -1746,6 +1750,7 @@ const MODE_RETRIES: [Retries; 3] = [
         recorded: 0,
         settle: false,
         region_error: FAIR_BORDER,
+        thresholds: 4,
     },
 ];
 /// Border error of a clean Data Matrix border.
@@ -1755,8 +1760,20 @@ const FAIR_BORDER: f32 = 0.125;
 /// Lowest localization score of a Data Matrix region with a clean border; regions below
 /// it have a fair border only.
 pub const CLEAN_REGION_SCORE: f32 = 1. - CLEAN_BORDER;
-/// The retry limits of a scanner `mode`.
+/// Detector mode of the facade's crops of fair-border Data Matrix regions, in every
+/// scanner mode; only the Data Matrix detector knows it. A fair region comes from the
+/// dark-on-light thresholds (light-on-dark candidates record clean borders only), so
+/// its crop searches those with Medium's limits: High's 64 unranked candidates go to
+/// the crop's texture before the symbol's, Medium's four ranked ones reach it.
+pub const FAIR_CROP_MODE: usize = 4;
+/// The retry limits of a scanner `mode` or of [`FAIR_CROP_MODE`].
 fn mode_retries(mode: usize) -> Retries {
+    if mode == FAIR_CROP_MODE {
+        return Retries {
+            thresholds: 2,
+            ..MODE_RETRIES[1]
+        };
+    }
     MODE_RETRIES[mode.min(MODE_RETRIES.len() - 1)]
 }
 /// Sizes per candidate that the grayscale refinement tries.
@@ -1772,6 +1789,7 @@ const CROP_PASS: Retries = Retries {
     recorded: 0,
     settle: false,
     region_error: CLEAN_BORDER,
+    thresholds: 4,
 };
 #[expect(
     clippy::too_many_lines,
@@ -1809,7 +1827,7 @@ fn detect_with_retries(
         } else {
             DENSE_BASE_PROPOSALS
         };
-        for mode in 0..4 {
+        for mode in 0..retries.thresholds {
             // Low and Medium skip the inverse thresholds once every failed
             // candidate lies on a read symbol.
             let settled = retries.settle
@@ -2718,5 +2736,53 @@ mod region_error_tests {
     #[test]
     fn a_fair_light_on_dark_border_records_no_region() {
         assert_eq!(recorded(mode_retries(2), true), 0);
+    }
+
+    /// Texts read from "TAPIRSCAN-DM-42" (16 x 16, 4 pixels per module), light on dark
+    /// when `inverted`, with the retry limits `retries`.
+    fn symbol_reads(retries: Retries, inverted: bool) -> Vec<String> {
+        let rows = [
+            "1010101010101010",
+            "1111010001001111",
+            "1110010101000000",
+            "1000010100110011",
+            "1001010101000100",
+            "1100101100010011",
+            "1010010111010010",
+            "1100110110100101",
+            "1000000011001000",
+            "1100110000010111",
+            "1110100010011000",
+            "1100011100110001",
+            "1010110111001110",
+            "1111100111000101",
+            "1011000000100010",
+            "1111111111111111",
+        ];
+        let (scale, quiet) = (4, 4);
+        let side = (rows.len() + 2 * quiet) * scale;
+        let (dark, light) = if inverted { (235, 20) } else { (20, 235) };
+        let gray: Vec<u8> = (0..side * side)
+            .map(|i| {
+                let (x, y) = (i % side / scale, i / side / scale);
+                let module = (quiet..quiet + rows.len()).contains(&x)
+                    && (quiet..quiet + rows.len()).contains(&y)
+                    && rows[y - quiet].as_bytes()[x - quiet] == b'1';
+                if module { dark } else { light }
+            })
+            .collect();
+        let mut regions = crate::regions::Regions::default();
+        let mut images = crate::binarization::Images::new(&gray, side, side);
+        let (reads, _) = detect_with_retries(side, side, &mut regions, &mut images, false, retries);
+        reads.into_iter().map(|read| read.text).collect()
+    }
+
+    #[test]
+    fn a_fair_crop_searches_the_dark_on_light_thresholds_only() {
+        let text = vec!["TAPIRSCAN-DM-42".to_string()];
+        assert_eq!(symbol_reads(mode_retries(1), false), text);
+        assert_eq!(symbol_reads(mode_retries(1), true), text);
+        assert_eq!(symbol_reads(mode_retries(FAIR_CROP_MODE), false), text);
+        assert!(symbol_reads(mode_retries(FAIR_CROP_MODE), true).is_empty());
     }
 }
