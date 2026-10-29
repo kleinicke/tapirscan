@@ -2783,6 +2783,9 @@ mod region_error_tests {
         assert_eq!(symbol_reads(mode_retries(1), false), text);
         assert_eq!(symbol_reads(mode_retries(1), true), text);
         assert_eq!(symbol_reads(mode_retries(FAIR_CROP_MODE), false), text);
-        assert!(symbol_reads(mode_retries(FAIR_CROP_MODE), true).is_empty());
+        assert_eq!(
+            symbol_reads(mode_retries(FAIR_CROP_MODE), true),
+            Vec::<String>::new()
+        );
     }
 }
