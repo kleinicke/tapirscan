@@ -138,19 +138,26 @@ fn rejects_checksum_parity_stop_and_truncation() {
         bad[len - 12..len - 1].copy_from_slice(&good[good.len() - 12..good.len() - 1]);
         assert!(decode(&bad, 1, false, &mut false).is_none());
     }
-    // A flipped printed module can form a shorter valid character prefix;
-    // the complete symbol must still fail framing/checksum verification.
-    for bit in 0..16 {
-        let r = word_runs(WORDS[65] ^ (1 << bit));
-        if r.contains(&0.) {
-            continue;
+    // A printed-module flip is visual damage, not necessarily a changed data
+    // bit: edge fitting may recover the original word. Across the full ASCII
+    // alphabet it must never turn that damage into a different payload.
+    for c in 0u8..128 {
+        for bit in 0..16 {
+            let r = word_runs(WORDS[usize::from(c)] ^ (1 << bit));
+            if r.contains(&0.) {
+                continue;
+            }
+            let mut damaged = symbol(&[c], 0);
+            damaged.splice(13..13 + word_runs(WORDS[usize::from(c)]).len(), r);
+            if let Some(read) = decode(&damaged, 1, false, &mut false) {
+                assert_eq!(
+                    read.text.as_bytes(),
+                    &[c],
+                    "character {c}, flipped module {bit}"
+                );
+                assert_eq!(read.end, damaged.len() - 1);
+            }
         }
-        let mut bad = symbol(b"A", 0);
-        bad.splice(13..13 + word_runs(WORDS[65]).len(), r);
-        assert!(
-            decode(&bad, 1, false, &mut false).is_none(),
-            "flipped module {bit}"
-        );
     }
 }
 
@@ -192,4 +199,16 @@ fn allows_gradual_perspective_but_rejects_scale_jump() {
         *w *= 2.;
     }
     assert!(decode(&r, 1, false, &mut false).is_none());
+}
+
+#[test]
+fn rounded_prefix_does_not_bias_the_payload_ink_estimate() {
+    let mut r = symbol(b"A", 0);
+    for (i, width) in r.iter_mut().enumerate().take(7).skip(1) {
+        *width += if i % 2 == 1 { 0.2 } else { -0.2 };
+    }
+    for (i, width) in r.iter_mut().enumerate().take(15).skip(13) {
+        *width += if i % 2 == 1 { -0.45 } else { 0.45 };
+    }
+    assert_eq!(decode(&r, 1, false, &mut false).unwrap().text, "A");
 }

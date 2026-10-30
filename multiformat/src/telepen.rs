@@ -15,9 +15,9 @@ const STARTS: [[u8; 12]; 3] = [
     [1, 1, 1, 1, 1, 1, 1, 1, 3, 1, 1, 3],
     [1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 3],
 ];
-// Published print tolerance is 0.4 module. Sampling/thresholding gets a small
-// additional allowance; both narrow/wide classes remain separated by 2 modules.
-const ELEMENT_ERROR: f32 = 0.6;
+// Allow isolated sampled-edge errors, but keep narrow/wide acceptance bands
+// disjoint and retain the stricter mean error, parity and checksum gates.
+const ELEMENT_ERROR: f32 = 0.75;
 const MEAN_ERROR: f32 = 0.25;
 const QUIET: f32 = 7.;
 const MAX_CODEWORDS: usize = 128;
@@ -38,8 +38,7 @@ impl Scale {
     fn element(self, width: f32, bar: bool) -> Option<u8> {
         let width = self.adjusted(width, bar);
         let size = if width < 2. * self.module { 1 } else { 3 };
-        ((width - f32::from(size) * self.module).abs() <= ELEMENT_ERROR * self.module)
-            .then_some(size)
+        ((width - f32::from(size) * self.module).abs() <= self.module).then_some(size)
     }
 }
 
@@ -84,6 +83,19 @@ fn character(runs: &[f32], start: usize, scale: Scale) -> Option<(u8, usize, f32
     if module < MIN_MODULE || (module / scale.module - 1.).abs() > 0.25 {
         return None;
     }
+    // Estimate ink spread per character: photographed/antialiased bars can
+    // change thickness along a label. Provisional classes are checked below
+    // against the fitted model, parity and the whole-symbol checksum.
+    let mut residual = 0.;
+    for (i, &class) in classes[..at - start].iter().enumerate() {
+        let delta = runs[start + i] - f32::from(class) * module;
+        residual += if i % 2 == 0 { delta } else { -delta };
+    }
+    let spread = residual / crate::numeric::usize_f32(at - start);
+    if spread.abs() > 0.5 * module {
+        return None;
+    }
+    let scale = Scale { module, spread };
     let mut deviation = 0.;
     for (i, &class) in classes[..at - start].iter().enumerate() {
         let error = (scale.adjusted(runs[start + i], i % 2 == 0) - f32::from(class) * module).abs();
@@ -155,9 +167,18 @@ pub(crate) fn decode(
     if !module.is_finite() || module < MIN_MODULE || (black - white).abs() > module {
         return None;
     }
+    // Every start has eight black and eight white modules. Fit all twelve
+    // elements after the cheap prefix gate; a few rounded narrow pixels must
+    // not bias the scale/spread estimate for the entire payload.
+    let black_sum: f32 = header.iter().step_by(2).sum();
+    let white_sum: f32 = header.iter().skip(1).step_by(2).sum();
+    let module = (black_sum + white_sum) / 16.;
+    if !module.is_finite() || module < MIN_MODULE {
+        return None;
+    }
     let mut scale = Scale {
         module,
-        spread: (black - white) / 2.,
+        spread: (black_sum - white_sum) / 12.,
     };
     if start == 0 || runs[start - 1] < QUIET * module {
         return None;
@@ -243,5 +264,27 @@ mod dispatch_tests {
             reads.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(),
             ["LIBRARY-0042", "SECOND"]
         );
+    }
+}
+
+#[cfg(test)]
+mod noise_tests {
+    #[test]
+    fn rejects_unstructured_stripe_profiles() {
+        let mut seed = 0xA5B7_193Du32;
+        let mut next = || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            u8::try_from(seed >> 24).unwrap()
+        };
+        for _ in 0..10_000 {
+            let length = 32 + usize::from(next());
+            let mut runs = Vec::with_capacity(length + 2);
+            runs.push(20.);
+            for _ in 0..length {
+                runs.push(0.5 + f32::from(next()) / 64.);
+            }
+            runs.push(20.);
+            assert!(crate::linear::decode(&runs, false, crate::formats::TELEPEN).is_empty());
+        }
     }
 }
