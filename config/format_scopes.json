@@ -14,15 +14,17 @@
   "Aztec": "Compact/full and Rune",
   "DataBar": "Omnidirectional, Stacked, Stacked Omnidirectional",
   "DataBarExpanded": "Expanded and Expanded Stacked",
-  "MaxiCode": "Modes 2–6",
+  "MaxiCode": "Modes 2\u20136",
   "Code32": "Opt-in: Italian pharmacy number",
   "PZN": "Opt-in: German PZN8/PZN7",
   "MSIPlessey": "Opt-in: mod-10 check digit required",
   "Industrial25": "Opt-in: Industrial (Standard) 2 of 5",
   "Pharmacode": "Opt-in: Laetus one-track Pharmacode",
   "DataBarLimited": "",
-  "MicroQRCode": "M1–M4",
+  "MicroQRCode": "M1\u2013M4",
   "Code39Extended": "Opt-in: full-ASCII Code 39",
   "IATA25": "Opt-in: IATA 2 of 5",
-  "Matrix25": "Opt-in: Matrix 2 of 5"
+  "Matrix25": "Opt-in: Matrix 2 of 5",
+  "Telepen": "ASCII and self-identifying AIM numeric/mixed modes",
+  "TelepenNumeric": "Opt-in: legacy numeric interpretation of ASCII-start labels"
 }

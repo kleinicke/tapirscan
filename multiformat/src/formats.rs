@@ -53,6 +53,10 @@ pub const CODE39EXTENDED: u32 = 33_554_432;
 pub const IATA25: u32 = 67_108_864;
 /// Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in).
 pub const MATRIX25: u32 = 134_217_728;
+/// Telepen ASCII and self-identifying AIM numeric/mixed modes.
+pub const TELEPEN: u32 = 268_435_456;
+/// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
+pub const TELEPEN_NUMERIC: u32 = 536_870_912;
 
 /// EAN-13, UPC-A, EAN-8 and UPC-E.
 pub const RETAIL_MASK: u32 = 15;
@@ -62,7 +66,7 @@ pub const COMMON_LINEAR_MASK: u32 = 127;
 pub const MATRIX_MASK: u32 = 16_915_968;
 /// Every linear format the engine reads: the 1D preset plus the opt-in formats
 /// with their own reader.
-pub const ENGINE_LINEAR_MASK: u32 = 217_080_319;
+pub const ENGINE_LINEAR_MASK: u32 = 1_022_386_687;
 /// Attach a confirmed EAN/UPC add-on when one is found.
 pub const EAN_ADDON_READ_FLAG: u32 = 32_768;
 /// Accept EAN/UPC reads only with a confirmed add-on.

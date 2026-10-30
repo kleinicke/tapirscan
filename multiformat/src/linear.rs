@@ -21,6 +21,8 @@ pub const MSI_PLESSEY: u32 = crate::formats::MSI_PLESSEY;
 pub const INDUSTRIAL25: u32 = crate::formats::INDUSTRIAL25;
 pub const IATA25: u32 = crate::formats::IATA25;
 pub const MATRIX25: u32 = crate::formats::MATRIX25;
+pub const TELEPEN: u32 = crate::formats::TELEPEN;
+pub const TELEPEN_NUMERIC: u32 = crate::formats::TELEPEN_NUMERIC;
 /// Pharmacode has no start or stop: callers select it only for runs in the image's
 /// reading direction (see [`pharmacode_direction`]).
 pub const PHARMACODE: u32 = crate::formats::PHARMACODE;
@@ -1715,6 +1717,9 @@ fn decode_impl(
         }
         if quiet && found.is_none() && mask & CODABAR != 0 {
             found = codabar(r, s, limited);
+        }
+        if quiet && found.is_none() && mask & (TELEPEN | TELEPEN_NUMERIC) != 0 {
+            found = crate::telepen::decode(r, s, mask & TELEPEN_NUMERIC != 0, limited);
         }
         if quiet && found.is_none() && mask & MSI_PLESSEY != 0 {
             found = msi(r, s, limited);

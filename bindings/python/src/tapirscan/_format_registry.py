@@ -29,6 +29,8 @@ Format: TypeAlias = Literal[
     "Code39Extended",
     "IATA25",
     "Matrix25",
+    "Telepen",
+    "TelepenNumeric",
 ]
 FORMAT_BITS: dict[str, int] = {
     "EAN13": 1,
@@ -58,6 +60,8 @@ FORMAT_BITS: dict[str, int] = {
     "Code39Extended": 33554432,
     "IATA25": 67108864,
     "Matrix25": 134217728,
+    "Telepen": 268435456,
+    "TelepenNumeric": 536870912,
 }
 retail_formats: tuple[Format, ...] = (
     "EAN13",
@@ -98,6 +102,7 @@ linear_formats: tuple[Format, ...] = (
     "DataBar",
     "DataBarExpanded",
     "DataBarLimited",
+    "Telepen",
 )
 matrix_formats: tuple[Format, ...] = (
     "QRCode",

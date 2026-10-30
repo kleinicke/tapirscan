@@ -51,7 +51,9 @@ use barcode_multiformat::formats::{
     MICRO_QR_CODE, QR_CODE, RETAIL_MASK, UPCA, UPCE,
 };
 #[cfg(not(feature = "low"))]
-use barcode_multiformat::formats::{CODABAR, CODE93, DATA_BAR_LIMITED, DATA_MATRIX};
+use barcode_multiformat::formats::{
+    CODABAR, CODE93, DATA_BAR_LIMITED, DATA_MATRIX, TELEPEN, TELEPEN_NUMERIC,
+};
 use barcode_multiformat::{MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE};
 use scanner_types::EngineScan;
 use serde_json::{Value, json};
@@ -60,10 +62,11 @@ use serde_json::{Value, json};
 pub(crate) const PRIMARY_RETAIL: u32 = EAN13 | UPCA;
 /// EAN-8 and UPC-E, the short retail formats.
 pub(crate) const SHORT_RETAIL: u32 = EAN8 | UPCE;
-/// Code 128, Code 39, ITF, Codabar, Code 93 and `DataBar` Limited: the linear
+/// Code 128, Code 39, ITF, Codabar, Code 93, Telepen and `DataBar` Limited: the linear
 /// formats other than retail, `DataBar` and `DataBar` Expanded, read in localized boxes.
 #[cfg(not(feature = "low"))]
-const NON_RETAIL_LINEAR: u32 = CODE128 | CODE39 | ITF | CODABAR | CODE93 | DATA_BAR_LIMITED;
+const NON_RETAIL_LINEAR: u32 =
+    CODE128 | CODE39 | ITF | CODABAR | CODE93 | DATA_BAR_LIMITED | TELEPEN | TELEPEN_NUMERIC;
 
 #[cfg(not(feature = "low"))]
 mod linear_recovery;

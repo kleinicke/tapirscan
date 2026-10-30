@@ -55,7 +55,11 @@ enum Format {
   /// IATA 2 of 5, bars-only, digits as printed (opt-in).
   iata25('IATA25', 67108864),
   /// Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in).
-  matrix25('Matrix25', 134217728);
+  matrix25('Matrix25', 134217728),
+  /// Telepen ASCII and self-identifying AIM numeric/mixed modes.
+  telepen('Telepen', 268435456),
+  /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
+  telepenNumeric('TelepenNumeric', 536870912);
 
   const Format(this.id, this._bit);
 
@@ -74,13 +78,13 @@ enum Format {
   static const Set<Format> common = {ean13, upcA, ean8, upcE, code128, code39, itf, qrCode, dataMatrix};
 
   /// All linear formats except the opt-in ones, including DataBar variants.
-  static const Set<Format> linear = {ean13, upcA, ean8, upcE, code128, code39, itf, codabar, code93, dataBar, dataBarExpanded, dataBarLimited};
+  static const Set<Format> linear = {ean13, upcA, ean8, upcE, code128, code39, itf, codabar, code93, dataBar, dataBarExpanded, dataBarLimited, telepen};
 
   /// QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR.
   static const Set<Format> matrix = {qrCode, dataMatrix, pdf417, aztec, maxiCode, microQrCode};
 
   /// Every format except the opt-in formats, which are selected by name.
-  static const Set<Format> all = {ean13, upcA, ean8, upcE, code128, code39, itf, codabar, code93, dataBar, dataBarExpanded, dataBarLimited, qrCode, dataMatrix, pdf417, aztec, maxiCode, microQrCode};
+  static const Set<Format> all = {ean13, upcA, ean8, upcE, code128, code39, itf, codabar, code93, dataBar, dataBarExpanded, dataBarLimited, telepen, qrCode, dataMatrix, pdf417, aztec, maxiCode, microQrCode};
 
   @override
   String toString() => id;

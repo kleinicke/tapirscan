@@ -54,6 +54,10 @@ public enum Format: UInt32, CaseIterable, Sendable, CustomStringConvertible {
     case iata25 = 67108864
     /// Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in).
     case matrix25 = 134217728
+    /// Telepen ASCII and self-identifying AIM numeric/mixed modes.
+    case telepen = 268435456
+    /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
+    case telepenNumeric = 536870912
 
     /// Stable name shared with the other language bindings, such as `"QRCode"`.
     public var name: String {
@@ -84,6 +88,8 @@ public enum Format: UInt32, CaseIterable, Sendable, CustomStringConvertible {
         case .code39Extended: "Code39Extended"
         case .iata25: "IATA25"
         case .matrix25: "Matrix25"
+        case .telepen: "Telepen"
+        case .telepenNumeric: "TelepenNumeric"
         }
     }
 
@@ -149,6 +155,10 @@ public struct Formats: OptionSet, Sendable {
     public static let iata25 = Formats(.iata25)
     /// Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in).
     public static let matrix25 = Formats(.matrix25)
+    /// Telepen ASCII and self-identifying AIM numeric/mixed modes.
+    public static let telepen = Formats(.telepen)
+    /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
+    public static let telepenNumeric = Formats(.telepenNumeric)
 
     /// EAN-13, UPC-A, EAN-8 and UPC-E.
     public static let retail: Formats = [.ean13, .upcA, .ean8, .upcE]
@@ -157,9 +167,9 @@ public struct Formats: OptionSet, Sendable {
     /// Common linear formats plus QR Code and Data Matrix.
     public static let common: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .qrCode, .dataMatrix]
     /// All linear formats except the opt-in ones, including DataBar variants.
-    public static let linear: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .codabar, .code93, .dataBar, .dataBarExpanded, .dataBarLimited]
+    public static let linear: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .codabar, .code93, .dataBar, .dataBarExpanded, .dataBarLimited, .telepen]
     /// QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR.
     public static let matrix: Formats = [.qrCode, .dataMatrix, .pdf417, .aztec, .maxiCode, .microQrCode]
     /// Every format except the opt-in formats, which are selected by name.
-    public static let all: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .codabar, .code93, .dataBar, .dataBarExpanded, .dataBarLimited, .qrCode, .dataMatrix, .pdf417, .aztec, .maxiCode, .microQrCode]
+    public static let all: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .codabar, .code93, .dataBar, .dataBarExpanded, .dataBarLimited, .telepen, .qrCode, .dataMatrix, .pdf417, .aztec, .maxiCode, .microQrCode]
 }

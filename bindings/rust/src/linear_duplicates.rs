@@ -738,6 +738,8 @@ impl<T> Read<T> {
                 || matches!(
                     self.format.as_str(),
                     "Codabar"
+                        | "Telepen"
+                        | "TelepenNumeric"
                         | "DataBar"
                         | "DataBarExpanded"
                         | "DataBarLimited"

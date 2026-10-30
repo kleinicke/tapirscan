@@ -38,6 +38,7 @@ pub mod regions;
 mod resample;
 mod retail_gray;
 pub mod retail_profile;
+mod telepen;
 pub mod two_of_five;
 use serde::Serialize;
 

@@ -58,7 +58,11 @@ public enum Format {
     /** IATA 2 of 5, bars-only, digits as printed (opt-in). */
     IATA25(67108864, "IATA25"),
     /** Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in). */
-    MATRIX25(134217728, "Matrix25");
+    MATRIX25(134217728, "Matrix25"),
+    /** Telepen ASCII and self-identifying AIM numeric/mixed modes. */
+    TELEPEN(268435456, "Telepen"),
+    /** Opt-in legacy numeric interpretation of Telepen ASCII-start labels. */
+    TELEPEN_NUMERIC(536870912, "TelepenNumeric");
 
     /** EAN-13, UPC-A, EAN-8 and UPC-E. */
     public static final Set<Format> RETAIL =
@@ -71,13 +75,13 @@ public enum Format {
         Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, QR_CODE, DATA_MATRIX));
     /** All linear formats except the opt-in ones, including DataBar variants. */
     public static final Set<Format> LINEAR =
-        Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, DATA_BAR_LIMITED));
+        Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, DATA_BAR_LIMITED, TELEPEN));
     /** QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR. */
     public static final Set<Format> MATRIX =
         Collections.unmodifiableSet(EnumSet.of(QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE, MICRO_QR_CODE));
     /** Every format except the opt-in formats, which are selected by name. */
     public static final Set<Format> ALL =
-        Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, DATA_BAR_LIMITED, QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE, MICRO_QR_CODE));
+        Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, DATA_BAR_LIMITED, TELEPEN, QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE, MICRO_QR_CODE));
 
     private final int bit;
     private final String schemaName;

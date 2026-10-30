@@ -70,6 +70,10 @@ pub enum Format {
     Iata25 = 67_108_864,
     /// Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in).
     Matrix25 = 134_217_728,
+    /// Telepen ASCII and self-identifying AIM numeric/mixed modes.
+    Telepen = 268_435_456,
+    /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
+    TelepenNumeric = 536_870_912,
 }
 
 impl Format {
@@ -101,6 +105,8 @@ impl Format {
         Self::Code39Extended,
         Self::Iata25,
         Self::Matrix25,
+        Self::Telepen,
+        Self::TelepenNumeric,
     ];
 
     /// Stable schema name used by language adapters.
@@ -133,6 +139,8 @@ impl Format {
             Self::Code39Extended => "Code39Extended",
             Self::Iata25 => "IATA25",
             Self::Matrix25 => "Matrix25",
+            Self::Telepen => "Telepen",
+            Self::TelepenNumeric => "TelepenNumeric",
         }
     }
 }
@@ -146,9 +154,9 @@ impl std::fmt::Display for Format {
 pub(crate) const RETAIL_MASK: u32 = 15;
 pub(crate) const COMMON_LINEAR_MASK: u32 = 127;
 pub(crate) const COMMON_MASK: u32 = 1_663;
-pub(crate) const LINEAR_MASK: u32 = 8_413_695;
+pub(crate) const LINEAR_MASK: u32 = 276_849_151;
 pub(crate) const MATRIX_MASK: u32 = 16_915_968;
 pub(crate) const ALL_FORMATS_MASK: u32 = LINEAR_MASK | MATRIX_MASK;
 /// Opt-in formats: selected only by name, never by a preset or `ALL`.
-pub(crate) const OPT_IN_MASK: u32 = 243_007_488;
+pub(crate) const OPT_IN_MASK: u32 = 779_878_400;
 pub(crate) const SUPPORTED_MASK: u32 = ALL_FORMATS_MASK | OPT_IN_MASK;

@@ -27,6 +27,8 @@ export const formatBits = Object.freeze({
   Code39Extended: 33554432,
   IATA25: 67108864,
   Matrix25: 134217728,
+  Telepen: 268435456,
+  TelepenNumeric: 536870912,
 } as const);
 export type Format = keyof typeof formatBits;
 export const retailFormats: readonly Format[] = Object.freeze(["EAN13", "UPCA", "EAN8", "UPCE"]);
@@ -63,6 +65,7 @@ export const linearFormats: readonly Format[] = Object.freeze([
   "DataBar",
   "DataBarExpanded",
   "DataBarLimited",
+  "Telepen",
 ]);
 export const matrixFormats: readonly Format[] = Object.freeze([
   "QRCode",

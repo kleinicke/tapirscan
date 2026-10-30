@@ -55,6 +55,18 @@
       "Matrix25",
       134217728,
       "Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in)."
+    ],
+    [
+      "Telepen",
+      "Telepen",
+      268435456,
+      "Telepen ASCII and self-identifying AIM numeric/mixed modes."
+    ],
+    [
+      "TelepenNumeric",
+      "TelepenNumeric",
+      536870912,
+      "Opt-in legacy numeric interpretation of Telepen ASCII-start labels."
     ]
   ],
   "presets": {
@@ -73,7 +85,8 @@
       "Code93",
       "DataBar",
       "DataBarExpanded",
-      "DataBarLimited"
+      "DataBarLimited",
+      "Telepen"
     ],
     "2D": ["QRCode", "DataMatrix", "PDF417", "Aztec", "MaxiCode", "MicroQRCode"]
   },
@@ -85,9 +98,17 @@
     "Pharmacode",
     "Code39Extended",
     "IATA25",
-    "Matrix25"
+    "Matrix25",
+    "TelepenNumeric"
   ],
-  "engineOptIn": ["MSIPlessey", "Industrial25", "Pharmacode", "IATA25", "Matrix25"],
+  "engineOptIn": [
+    "MSIPlessey",
+    "Industrial25",
+    "Pharmacode",
+    "IATA25",
+    "Matrix25",
+    "TelepenNumeric"
+  ],
   "engineFlags": {
     "eanAddOnRead": 32768,
     "eanAddOnRequire": 65536

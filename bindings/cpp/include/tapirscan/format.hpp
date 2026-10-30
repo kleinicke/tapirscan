@@ -32,5 +32,7 @@ enum class Format : std::uint32_t {
     Code39Extended = TAPIRSCAN_FORMAT_CODE39EXTENDED,
     Iata25 = TAPIRSCAN_FORMAT_IATA25,
     Matrix25 = TAPIRSCAN_FORMAT_MATRIX25,
+    Telepen = TAPIRSCAN_FORMAT_TELEPEN,
+    TelepenNumeric = TAPIRSCAN_FORMAT_TELEPEN_NUMERIC,
 };
 }  // namespace tapirscan

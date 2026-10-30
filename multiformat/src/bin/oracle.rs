@@ -79,6 +79,8 @@ fn main() {
         "Pharmacode" => 4_194_304,
         "IATA25" => 67_108_864,
         "Matrix25" => 134_217_728,
+        "Telepen" => barcode_multiformat::formats::TELEPEN,
+        "TelepenNumeric" => barcode_multiformat::formats::TELEPEN_NUMERIC,
         _ => 0,
     };
     if linear_mask != 0 {
