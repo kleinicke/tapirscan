@@ -52,7 +52,7 @@ public final class Smoke {
         ScanOptions options = ScanOptions.defaults();
         if (args.length == 8) {
             int mask = Integer.parseInt(args[7]);
-            Set<Format> formats = Set.copyOf(Format.ALL.stream().filter(f -> (mask & f.bit()) != 0).toList());
+            Set<Format> formats = Set.copyOf(java.util.Arrays.stream(Format.values()).filter(f -> (mask & f.bit()) != 0).toList());
             options = options.withFormats(formats);
         }
         Scanner scanner = new Scanner(ScannerOptions.defaults().withMode(mode));
