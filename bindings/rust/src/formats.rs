@@ -48,11 +48,12 @@ use barcode_multiformat::binarization::Images as Thresholds;
 use barcode_multiformat::formats::COMMON_LINEAR_MASK;
 use barcode_multiformat::formats::{
     AZTEC, CODE39, CODE128, DATA_BAR, DATA_BAR_EXPANDED, EAN8, EAN13, ITF, MATRIX_MASK, MAXI_CODE,
-    MICRO_PDF417, MICRO_QR_CODE, QR_CODE, RETAIL_MASK, RM_QR_CODE, UPCA, UPCE,
+    MICRO_QR_CODE, QR_CODE, RETAIL_MASK, UPCA, UPCE,
 };
 #[cfg(not(feature = "low"))]
 use barcode_multiformat::formats::{
-    CODABAR, CODE93, DATA_BAR_LIMITED, DATA_MATRIX, TELEPEN, TELEPEN_NUMERIC,
+    CODABAR, CODE93, DATA_BAR_LIMITED, DATA_MATRIX, MICRO_PDF417, RM_QR_CODE, TELEPEN,
+    TELEPEN_NUMERIC,
 };
 use barcode_multiformat::{MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE};
 use scanner_types::EngineScan;
@@ -1860,12 +1861,18 @@ mod matrix_budget_tests {
         };
         let pixels = vec![255; 200 * 200];
         // Three crop methods, none of which reads the blank crop.
-        let mut micro_qr = pending("MicroQRCode");
-        assert_eq!(
-            matrix_retries(&pixels, [200, 200], MICRO_QR_CODE, &mut micro_qr, &[]).len(),
-            3
-        );
-        assert!(micro_qr.unfinished);
+        for (format, mask) in [
+            ("MicroQRCode", MICRO_QR_CODE),
+            ("MicroPDF417", MICRO_PDF417),
+            ("RMQRCode", RM_QR_CODE),
+        ] {
+            let mut scan = pending(format);
+            assert_eq!(
+                matrix_retries(&pixels, [200, 200], mask, &mut scan, &[]).len(),
+                3
+            );
+            assert!(scan.unfinished);
+        }
         let mut maxicode = pending("MaxiCode");
         let crops = matrix_retries(&pixels, [200, 200], MAXI_CODE, &mut maxicode, &[]).len();
         let high = cfg!(any(feature = "high", feature = "very-high"));

@@ -11,7 +11,7 @@ struct Row {
     module: f32,
     words: Vec<usize>,
 }
-fn pattern(runs: &[usize], modules: usize) -> Option<(usize, f32)> {
+fn pattern_gain(runs: &[usize], modules: usize, gain: f32) -> Option<(usize, f32)> {
     let pitch = f(runs.iter().sum()) / f(modules);
     if pitch < 0.8 {
         return None;
@@ -19,8 +19,9 @@ fn pattern(runs: &[usize], modules: usize) -> Option<(usize, f32)> {
     let mut value = 0;
     let mut total = 0;
     for (i, &run) in runs.iter().enumerate() {
-        let width = crate::numeric::f32_usize((f(run) / pitch).round());
-        if width == 0 || width > 6 || (f(run) / pitch - f(width)).abs() > 0.7 {
+        let adjusted = f(run) / pitch - if i % 2 == 0 { gain } else { -gain };
+        let width = crate::numeric::f32_usize(adjusted.round());
+        if width == 0 || width > 6 || (adjusted - f(width)).abs() > 0.7 {
             return None;
         }
         for _ in 0..width {
@@ -67,11 +68,14 @@ fn rows(line: &[bool], y: usize, out: &mut Vec<Row>) {
     let runs: Vec<_> = edges.windows(2).map(|p| p[1] - p[0]).collect();
     let start = usize::from(!line[0]);
     for at in (start..runs.len().saturating_sub(20)).step_by(2) {
-        let exact = pattern(&runs[at..at + 6], 10).and_then(|(bits, module)| {
-            t::SIDE
-                .iter()
-                .position(|&v| v == bits)
-                .map(|address| (address, module))
+        let exact = pattern_gain(&runs[at..at + 6], 10, 0.).and_then(|(bits, module)| {
+            [-0.3, 0.3, -0.6, 0.6].into_iter().find_map(|gain| {
+                let (bits, module) = pattern_gain(&runs[at..at + 6], 10, gain)?;
+                t::SIDE
+                    .iter()
+                    .position(|&v| v == bits)
+                    .map(|address| (address, module))
+            })
         });
         let matched = exact.or_else(|| {
             let pitch = f(runs[at..at + 6].iter().sum()) / 10.;
@@ -113,7 +117,10 @@ fn rows(line: &[bool], y: usize, out: &mut Vec<Row>) {
                 }
                 let widths: [f32; 8] = std::array::from_fn(|i| f(runs[pos + i]));
                 let pitch = widths.iter().sum::<f32>() / 17.;
-                let Some((value, found)) = pdf417::symbol(&widths) else {
+                let exact = pattern_gain(&runs[pos..pos + 8], 17, 0.)
+                    .and_then(|(bits, _)| u32::try_from(bits).ok())
+                    .and_then(pdf417::lookup);
+                let Some((value, found)) = exact.or_else(|| pdf417::symbol(&widths)) else {
                     break;
                 };
                 if found != cluster || (pitch / module - 1.).abs() > 0.3 {
