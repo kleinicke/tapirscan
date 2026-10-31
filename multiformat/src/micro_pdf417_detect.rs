@@ -517,6 +517,57 @@ pub fn detect(
 mod tests {
     use super::*;
     #[test]
+    fn scanlines_preserve_rotated_pixel_coordinates() {
+        let [w, h] = [7, 5];
+        let image: Vec<bool> = (0..w * h).map(|i| (i * 13 + i / w) % 7 < 3).collect();
+        for direction in 0..4 {
+            let (width, height) = [(w, h), (h, w)][direction % 2];
+            for y in 0..height {
+                let expected: Vec<bool> = (0..width)
+                    .map(|x| {
+                        let (xx, yy) = match direction {
+                            0 => (x, y),
+                            1 => (w - 1 - y, x),
+                            2 => (w - 1 - x, h - 1 - y),
+                            _ => (y, h - 1 - x),
+                        };
+                        image[yy * w + xx]
+                    })
+                    .collect();
+                assert_eq!(
+                    sample_line(&image, [w, h], direction, y, &[], [0.; 2]),
+                    expected
+                );
+            }
+        }
+        for angle in [17f32, 43., 137., 223.] {
+            let (sin, cos) = angle.to_radians().sin_cos();
+            let low = [-3.25, -2.75];
+            let columns: Vec<_> = (0..13)
+                .map(|x| [(f(x) + low[0]) * cos, (f(x) + low[0]) * sin])
+                .collect();
+            for y in 0..11 {
+                let expected: Vec<bool> = (0..13)
+                    .map(|x| {
+                        let xx = ((f(x) + low[0]) * cos - (f(y) + low[1]) * sin).round();
+                        let yy = ((f(x) + low[0]) * sin + (f(y) + low[1]) * cos).round();
+                        xx >= 0.
+                            && yy >= 0.
+                            && xx < f(w)
+                            && yy < f(h)
+                            && image
+                                [crate::numeric::f32_usize(yy) * w + crate::numeric::f32_usize(xx)]
+                    })
+                    .collect();
+                let offset = [(f(y) + low[1]) * sin, (f(y) + low[1]) * cos];
+                assert_eq!(
+                    sample_line(&image, [w, h], 4, y, &columns, offset),
+                    expected
+                );
+            }
+        }
+    }
+    #[test]
     fn stacked_equal_payloads_remain_two_physical_symbols() {
         let patterns = [
             68708, 128_478, 102_290, 68708, 128_088, 100_732, 81384, 126_152, 81722, 116_080, 97830,
