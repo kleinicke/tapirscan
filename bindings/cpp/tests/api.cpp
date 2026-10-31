@@ -31,10 +31,12 @@ int main() {
     assert(result.best() == &result.barcodes[0]);
     result.barcodes.clear();
     assert(!result.best());
-    for (auto bits : {0u, 0x80000000u}) {
+    for (auto bits : {0u, 0x00008000u}) {
         try { (void)tapirscan::Formats::from_bits(bits); assert(false); }
         catch (const std::invalid_argument&) {}
     }
+    assert(tapirscan::Formats::from_bits(0x80000000u).bits() == 0x80000000u);
+    assert(tapirscan::to_string(tapirscan::Format::RmQrCode) == "RMQRCode");
     Pixels pixels(9, 255);
     tapirscan::Scanner scanner;
     auto image = tapirscan::Image::gray(pixels, 3, 3);
