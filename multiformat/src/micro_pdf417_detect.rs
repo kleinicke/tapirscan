@@ -391,9 +391,9 @@ fn sample(
         3 => return image[(h - 1 - x) * w + y],
         _ => {}
     }
-    let p = map(f(x), f(y));
-    let xx = p[0].round();
-    let yy = p[1].round();
+    let point = map(f(x), f(y));
+    let xx = point[0].round();
+    let yy = point[1].round();
     if xx < 0. || yy < 0. || xx >= f(w) || yy >= f(h) {
         false
     } else {
