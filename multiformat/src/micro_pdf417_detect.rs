@@ -418,8 +418,14 @@ pub fn detect(
                     .map(|p| p[1])
                     .fold(f32::NEG_INFINITY, f32::max),
             ];
-            let line_width = crate::numeric::f32_usize((high[0] - low[0]).round()) + 1;
-            let row_count = crate::numeric::f32_usize((high[1] - low[1]).round()) + 1;
+            let (line_width, row_count) = if index < 4 {
+                if index % 2 == 0 { (w, h) } else { (h, w) }
+            } else {
+                (
+                    crate::numeric::f32_usize((high[0] - low[0]).round()) + 1,
+                    crate::numeric::f32_usize((high[1] - low[1]).round()) + 1,
+                )
+            };
             let map = |x: f32, y: f32| {
                 [
                     (x + low[0]) * cos - (y + low[1]) * sin,
@@ -433,6 +439,14 @@ pub fn detect(
             for y in (0..row_count).step_by(step) {
                 let line: Vec<_> = (0..line_width)
                     .map(|x| {
+                        // Cardinal rotations map to exact integer coordinates.
+                        match index {
+                            0 => return image[y * w + x],
+                            1 => return image[x * w + w - 1 - y],
+                            2 => return image[(h - 1 - y) * w + w - 1 - x],
+                            3 => return image[(h - 1 - x) * w + y],
+                            _ => {}
+                        }
                         let p = map(f(x), f(y));
                         let xx = p[0].round();
                         let yy = p[1].round();
