@@ -29,6 +29,8 @@ export const formatBits = Object.freeze({
   Matrix25: 134217728,
   Telepen: 268435456,
   TelepenNumeric: 536870912,
+  MicroPDF417: 1073741824,
+  RMQRCode: 2147483648,
 } as const);
 export type Format = keyof typeof formatBits;
 export const retailFormats: readonly Format[] = Object.freeze(["EAN13", "UPCA", "EAN8", "UPCE"]);
@@ -74,6 +76,8 @@ export const matrixFormats: readonly Format[] = Object.freeze([
   "Aztec",
   "MaxiCode",
   "MicroQRCode",
+  "MicroPDF417",
+  "RMQRCode",
 ]);
 export const eanAddOnReadFlag = 32768;
 export const eanAddOnRequireFlag = 65536;

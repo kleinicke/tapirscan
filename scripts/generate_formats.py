@@ -176,7 +176,7 @@ def rust_bits_source(registry: dict[str, Any]) -> str:
 pub const RETAIL_MASK: u32 = {mask(registry, presets["retail"]):_};
 /// Retail formats plus Code 128, Code 39 and ITF.
 pub const COMMON_LINEAR_MASK: u32 = {mask(registry, presets["common1D"]):_};
-/// QR Code, Data Matrix, PDF417, Aztec, `MaxiCode` and Micro QR.
+/// QR Code, Data Matrix, PDF417, Aztec, `MaxiCode`, Micro QR, `MicroPDF417` and rMQR.
 pub const MATRIX_MASK: u32 = {mask(registry, presets["2D"]):_};
 /// Every linear format the engine reads: the 1D preset plus the opt-in formats
 /// with their own reader.
@@ -374,7 +374,7 @@ enum class Format : std::uint32_t {{
 def java_source(registry: dict[str, Any], package: str = "org.tapirscan") -> str:
     """Render the Java format enum and preset sets for a package."""
     constants = ",\n".join(
-        f'    /** {text} */\n    {constant(variant)}({bit}, "{name}")'
+        f'    /** {text} */\n    {constant(variant)}({bit if bit < 2**31 else bit - 2**32}, "{name}")'
         for name, variant, bit, text in registry["formats"]
     )
     by_name = {

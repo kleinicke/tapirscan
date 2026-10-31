@@ -45,5 +45,5 @@ export function resolveFormats(input?: readonly string[] | string): Format[] {
   return [...new Set(input)] as Format[];
 }
 export function maskFor(formats: readonly Format[]): number {
-  return formats.reduce((mask, f) => mask | formatBits[f], 0);
+  return formats.reduce((mask, f) => mask | formatBits[f], 0) >>> 0;
 }

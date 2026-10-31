@@ -74,6 +74,12 @@ pub enum Format {
     Telepen = 268_435_456,
     /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
     TelepenNumeric = 536_870_912,
+    #[serde(rename = "MicroPDF417")]
+    /// `MicroPDF417` stacked barcode.
+    MicroPdf417 = 1_073_741_824,
+    #[serde(rename = "RMQRCode")]
+    /// Rectangular Micro QR Code, all 32 sizes at M/H correction.
+    RmQrCode = 2_147_483_648,
 }
 
 impl Format {
@@ -107,6 +113,8 @@ impl Format {
         Self::Matrix25,
         Self::Telepen,
         Self::TelepenNumeric,
+        Self::MicroPdf417,
+        Self::RmQrCode,
     ];
 
     /// Stable schema name used by language adapters.
@@ -141,6 +149,8 @@ impl Format {
             Self::Matrix25 => "Matrix25",
             Self::Telepen => "Telepen",
             Self::TelepenNumeric => "TelepenNumeric",
+            Self::MicroPdf417 => "MicroPDF417",
+            Self::RmQrCode => "RMQRCode",
         }
     }
 }
@@ -155,7 +165,7 @@ pub(crate) const RETAIL_MASK: u32 = 15;
 pub(crate) const COMMON_LINEAR_MASK: u32 = 127;
 pub(crate) const COMMON_MASK: u32 = 1_663;
 pub(crate) const LINEAR_MASK: u32 = 276_849_151;
-pub(crate) const MATRIX_MASK: u32 = 16_915_968;
+pub(crate) const MATRIX_MASK: u32 = 3_238_141_440;
 pub(crate) const ALL_FORMATS_MASK: u32 = LINEAR_MASK | MATRIX_MASK;
 /// Opt-in formats: selected only by name, never by a preset or `ALL`.
 pub(crate) const OPT_IN_MASK: u32 = 779_878_400;

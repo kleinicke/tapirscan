@@ -67,6 +67,13 @@
       "TelepenNumeric",
       536870912,
       "Opt-in legacy numeric interpretation of Telepen ASCII-start labels."
+    ],
+    ["MicroPDF417", "MicroPdf417", 1073741824, "`MicroPDF417` stacked barcode."],
+    [
+      "RMQRCode",
+      "RmQrCode",
+      2147483648,
+      "Rectangular Micro QR Code, all 32 sizes at M/H correction."
     ]
   ],
   "presets": {
@@ -88,7 +95,16 @@
       "DataBarLimited",
       "Telepen"
     ],
-    "2D": ["QRCode", "DataMatrix", "PDF417", "Aztec", "MaxiCode", "MicroQRCode"]
+    "2D": [
+      "QRCode",
+      "DataMatrix",
+      "PDF417",
+      "Aztec",
+      "MaxiCode",
+      "MicroQRCode",
+      "MicroPDF417",
+      "RMQRCode"
+    ]
   },
   "optIn": [
     "Code32",

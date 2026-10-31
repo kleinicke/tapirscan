@@ -1,5 +1,7 @@
 //! Shared matrix-reader invocation. Callers own ordering, concurrency and finalization.
-use crate::formats::{AZTEC, DATA_MATRIX, MAXI_CODE, MICRO_QR_CODE, PDF417, QR_CODE};
+use crate::formats::{
+    AZTEC, DATA_MATRIX, MAXI_CODE, MICRO_PDF417, MICRO_QR_CODE, PDF417, QR_CODE, RM_QR_CODE,
+};
 use crate::{
     Detection, aztec_detect, binarization, dm_detect, maxicode_detect, pdf417, qr_detect, regions,
 };
@@ -12,6 +14,8 @@ pub enum Reader {
     Aztec,
     MaxiCode,
     Pdf417,
+    MicroPdf417,
+    RmQrCode,
 }
 
 impl Reader {
@@ -35,6 +39,8 @@ impl Reader {
             Self::Aztec => AZTEC,
             Self::MaxiCode => MAXI_CODE,
             Self::Pdf417 => PDF417,
+            Self::MicroPdf417 => MICRO_PDF417,
+            Self::RmQrCode => RM_QR_CODE,
         };
         if mask & bit == 0 { None } else { Some(self) }
     }
@@ -48,13 +54,15 @@ impl Reader {
             Self::Aztec => "Aztec",
             Self::MaxiCode => "MaxiCode",
             Self::Pdf417 => "PDF417",
+            Self::MicroPdf417 => "MicroPDF417",
+            Self::RmQrCode => "RMQRCode",
         }
     }
 }
 
 /// Fixed reader order, also used when merging concurrent reader results. Restrict
 /// each entry to the selected formats with [`Reader::select`].
-pub const ORDER: [Reader; 5] = [
+pub const ORDER: [Reader; 7] = [
     Reader::QrCode(qr_detect::Symbols {
         qr: true,
         micro: true,
@@ -63,6 +71,8 @@ pub const ORDER: [Reader; 5] = [
     Reader::Aztec,
     Reader::MaxiCode,
     Reader::Pdf417,
+    Reader::MicroPdf417,
+    Reader::RmQrCode,
 ];
 
 /// Run exactly one reader using the caller's region accumulator and threshold cache.
@@ -101,5 +111,9 @@ pub fn read(
         ),
         Reader::MaxiCode => maxicode_detect::detect(width, height, regions, binary_images),
         Reader::Pdf417 => pdf417::detect(image, width, height, regions, mode),
+        Reader::MicroPdf417 => {
+            crate::micro_pdf417_detect::detect(image, [width, height], binary_images, regions)
+        }
+        Reader::RmQrCode => qr_detect::rectangular::detect([width, height], binary_images, regions),
     }
 }

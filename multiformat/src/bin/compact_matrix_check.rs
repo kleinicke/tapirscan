@@ -13,6 +13,11 @@ struct Case {
     width: usize,
     height: usize,
     rows: Vec<String>,
+    bytes: Option<Vec<u8>>,
+    #[serde(default)]
+    reader_initialization: bool,
+    #[serde(default)]
+    gs1: bool,
 }
 fn main() -> Result<(), Box<dyn Error>> {
     let mut input = String::new();
@@ -46,7 +51,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 damaged_checks += 1;
             }
             let result = decode(&modules, case.width, case.height);
-            if result.as_ref().map(|p| p.text.as_str()) != Some(case.text.as_str()) {
+            if result.as_ref().is_none_or(|p| {
+                p.text != case.text
+                    || p.reader_initialization != case.reader_initialization
+                    || p.gs1 != case.gs1
+                    || case.bytes.as_ref().is_some_and(|bytes| bytes != &p.bytes)
+            }) {
                 failures.push(serde_json::json!({"id":case.id,"damaged":damaged,"expected":case.text,"actual":result.map(|p|p.text)}));
             }
         }

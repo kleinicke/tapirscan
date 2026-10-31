@@ -89,7 +89,7 @@ fn quantized_symbol(r: &[f32]) -> Option<(usize, usize, f32)> {
     let pattern: [u8; 8] = widths.map(|v| (v).to_le_bytes()[0]);
     Some((value, cluster, crate::linear::pattern_error(r, &pattern)))
 }
-fn symbol(r: &[f32]) -> Option<(usize, usize)> {
+pub(crate) fn symbol(r: &[f32]) -> Option<(usize, usize)> {
     if r.len() < 8 {
         return None;
     }
@@ -551,9 +551,9 @@ pub fn payload(code: &[usize]) -> Option<Vec<u8>> {
 /// `MicroPDF417` omits the length descriptor and begins in byte compaction.
 pub(crate) fn micro_payload(words: &[usize]) -> Option<crate::qr::Payload> {
     let mut framed = Vec::with_capacity(words.len() + 2);
-    framed.extend([words.len() + 2, 901]);
+    framed.push(words.len() + 1);
     framed.extend_from_slice(words);
-    let payload = parse_payload(&framed)?;
+    let payload = parse_payload_mode(&framed, 901)?;
     Some(crate::qr::Payload {
         bytes: payload.bytes,
         text: payload.text,
@@ -633,11 +633,15 @@ fn macro_block(
         }),
     ))
 }
+fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
+    parse_payload_mode(code, 900)
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "PDF417 compaction modes share a payload cursor, ECI and macro state in one sequential dispatcher."
 )]
-fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
+fn parse_payload_mode(code: &[usize], initial_mode: usize) -> Option<DecodedPayload> {
     let length = *code.first()?;
     if length < 2 || length > code.len() {
         return None;
@@ -649,7 +653,7 @@ fn parse_payload(code: &[usize]) -> Option<DecodedPayload> {
     let mut eci = 3;
     let mut segment_start = 0;
     let mut text = String::new();
-    let mut compaction = 900;
+    let mut compaction = initial_mode;
     let mut reader_initialization = false;
     let mut structured_append = None;
     while at < length {
@@ -1464,5 +1468,17 @@ mod tests {
             payload(&[9, 927, 7, 913, 0xb0, 927, 3, 913, 0xa3]),
             Some("А£".as_bytes().to_vec())
         );
+    }
+}
+
+#[cfg(test)]
+mod micro_metadata_tests {
+    #[test]
+    fn reader_initialization_is_metadata_before_text_latch() {
+        let payload = super::micro_payload(&[921, 900, 29]).unwrap();
+        assert_eq!(payload.text, "A");
+        assert_eq!(payload.bytes, b"A");
+        assert!(payload.reader_initialization);
+        assert!(super::micro_payload(&[900, 29, 921]).is_none());
     }
 }

@@ -34,5 +34,7 @@ enum class Format : std::uint32_t {
     Matrix25 = TAPIRSCAN_FORMAT_MATRIX25,
     Telepen = TAPIRSCAN_FORMAT_TELEPEN,
     TelepenNumeric = TAPIRSCAN_FORMAT_TELEPEN_NUMERIC,
+    MicroPdf417 = TAPIRSCAN_FORMAT_MICRO_PDF417,
+    RmQrCode = TAPIRSCAN_FORMAT_RM_QR_CODE,
 };
 }  // namespace tapirscan

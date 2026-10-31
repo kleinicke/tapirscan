@@ -203,7 +203,7 @@ fn candidate(image: &[bool], w: usize, h: usize, grid: [f32; 8]) -> Option<Candi
     })
 }
 
-fn inside(polygon: &[[f32; 2]; 4], x: f32, y: f32) -> bool {
+pub(super) fn inside(polygon: &[[f32; 2]; 4], x: f32, y: f32) -> bool {
     let side = |a: [f32; 2], b: [f32; 2]| (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]);
     let sides: [f32; 4] = std::array::from_fn(|i| side(polygon[i], polygon[(i + 1) % 4]));
     sides.iter().all(|&s| s >= 0.) || sides.iter().all(|&s| s <= 0.)

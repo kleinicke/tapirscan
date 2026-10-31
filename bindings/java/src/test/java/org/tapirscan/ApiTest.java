@@ -52,6 +52,8 @@ public final class ApiTest {
         check(Tapirscan.parseContent("").isEmpty());
         check(Native.offset(Native.SUMMARY, "mode") == 40);
         for (Mode mode : Mode.values()) check(Mode.fromCode(mode.code()) == mode);
+        for (Format format : Format.values()) check(Format.fromBit(format.bit()) == format);
+        check(Format.RM_QR_CODE.bit() == Integer.MIN_VALUE);
         check(EanAddOnPolicy.REQUIRE.code() == 2);
         // Only the addressed rows are copied, and never more than the native layout limit.
         check(Image.gray(new byte[100], 3, 3).withStride(10).addressedBytes() == 23);

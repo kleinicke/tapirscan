@@ -57,13 +57,17 @@ pub const MATRIX25: u32 = 134_217_728;
 pub const TELEPEN: u32 = 268_435_456;
 /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
 pub const TELEPEN_NUMERIC: u32 = 536_870_912;
+/// `MicroPDF417` stacked barcode.
+pub const MICRO_PDF417: u32 = 1_073_741_824;
+/// Rectangular Micro QR Code, all 32 sizes at M/H correction.
+pub const RM_QR_CODE: u32 = 2_147_483_648;
 
 /// EAN-13, UPC-A, EAN-8 and UPC-E.
 pub const RETAIL_MASK: u32 = 15;
 /// Retail formats plus Code 128, Code 39 and ITF.
 pub const COMMON_LINEAR_MASK: u32 = 127;
-/// QR Code, Data Matrix, PDF417, Aztec, `MaxiCode` and Micro QR.
-pub const MATRIX_MASK: u32 = 16_915_968;
+/// QR Code, Data Matrix, PDF417, Aztec, `MaxiCode`, Micro QR, `MicroPDF417` and rMQR.
+pub const MATRIX_MASK: u32 = 3_238_141_440;
 /// Every linear format the engine reads: the 1D preset plus the opt-in formats
 /// with their own reader.
 pub const ENGINE_LINEAR_MASK: u32 = 1_022_386_687;

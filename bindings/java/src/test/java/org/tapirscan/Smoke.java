@@ -51,7 +51,7 @@ public final class Smoke {
                 Integer.parseInt(args[2]), Integer.parseInt(args[3]), Integer.parseInt(args[4]));
         ScanOptions options = ScanOptions.defaults();
         if (args.length == 8) {
-            int mask = Integer.parseInt(args[7]);
+            int mask = Integer.parseUnsignedInt(args[7]);
             Set<Format> formats = Set.copyOf(java.util.Arrays.stream(Format.values()).filter(f -> (mask & f.bit()) != 0).toList());
             options = options.withFormats(formats);
         }

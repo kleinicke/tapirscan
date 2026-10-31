@@ -48,7 +48,7 @@ use barcode_multiformat::binarization::Images as Thresholds;
 use barcode_multiformat::formats::COMMON_LINEAR_MASK;
 use barcode_multiformat::formats::{
     AZTEC, CODE39, CODE128, DATA_BAR, DATA_BAR_EXPANDED, EAN8, EAN13, ITF, MATRIX_MASK, MAXI_CODE,
-    MICRO_QR_CODE, QR_CODE, RETAIL_MASK, UPCA, UPCE,
+    MICRO_PDF417, MICRO_QR_CODE, QR_CODE, RETAIL_MASK, RM_QR_CODE, UPCA, UPCE,
 };
 #[cfg(not(feature = "low"))]
 use barcode_multiformat::formats::{
@@ -462,7 +462,14 @@ fn drop_unchecked_fragments(reads: &mut Vec<Read>) {
 fn is_linear_read(read: &Read) -> bool {
     !matches!(
         read.format.as_str(),
-        "QRCode" | "MicroQRCode" | "DataMatrix" | "PDF417" | "Aztec" | "MaxiCode"
+        "QRCode"
+            | "MicroQRCode"
+            | "RMQRCode"
+            | "DataMatrix"
+            | "PDF417"
+            | "MicroPDF417"
+            | "Aztec"
+            | "MaxiCode"
     )
 }
 
@@ -1658,6 +1665,8 @@ fn retry_format(format: &str) -> u32 {
     match format {
         "QRCode" => QR_CODE,
         "MicroQRCode" => MICRO_QR_CODE,
+        "RMQRCode" => RM_QR_CODE,
+        "MicroPDF417" => MICRO_PDF417,
         "DataMatrix" => DATA_MATRIX,
         "Aztec" => AZTEC,
         "MaxiCode" if POLICY.maxi_code_crop_retries => MAXI_CODE,
@@ -1817,7 +1826,9 @@ fn matrix_crops(
 
 #[cfg(all(test, not(feature = "low")))]
 mod matrix_budget_tests {
-    use super::{DATA_MATRIX, MAXI_CODE, MICRO_QR_CODE, QR_CODE, matrix_retries};
+    use super::{
+        DATA_MATRIX, MAXI_CODE, MICRO_PDF417, MICRO_QR_CODE, QR_CODE, RM_QR_CODE, matrix_retries,
+    };
     use barcode_multiformat::dm_detect::FAIR_CROP_MODE;
     #[test]
     fn no_pending_candidates_do_not_invent_work() {

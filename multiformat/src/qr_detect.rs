@@ -5,6 +5,7 @@ mod curved;
 mod finder_index;
 mod grid;
 mod micro;
+pub mod rectangular;
 use crate::{Detection, qr};
 mod partial;
 mod ring;

@@ -59,7 +59,11 @@ enum Format {
   /// Telepen ASCII and self-identifying AIM numeric/mixed modes.
   telepen('Telepen', 268435456),
   /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
-  telepenNumeric('TelepenNumeric', 536870912);
+  telepenNumeric('TelepenNumeric', 536870912),
+  /// `MicroPDF417` stacked barcode.
+  microPdf417('MicroPDF417', 1073741824),
+  /// Rectangular Micro QR Code, all 32 sizes at M/H correction.
+  rmQrCode('RMQRCode', 2147483648);
 
   const Format(this.id, this._bit);
 
@@ -81,10 +85,10 @@ enum Format {
   static const Set<Format> linear = {ean13, upcA, ean8, upcE, code128, code39, itf, codabar, code93, dataBar, dataBarExpanded, dataBarLimited, telepen};
 
   /// QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR.
-  static const Set<Format> matrix = {qrCode, dataMatrix, pdf417, aztec, maxiCode, microQrCode};
+  static const Set<Format> matrix = {qrCode, dataMatrix, pdf417, aztec, maxiCode, microQrCode, microPdf417, rmQrCode};
 
   /// Every format except the opt-in formats, which are selected by name.
-  static const Set<Format> all = {ean13, upcA, ean8, upcE, code128, code39, itf, codabar, code93, dataBar, dataBarExpanded, dataBarLimited, telepen, qrCode, dataMatrix, pdf417, aztec, maxiCode, microQrCode};
+  static const Set<Format> all = {ean13, upcA, ean8, upcE, code128, code39, itf, codabar, code93, dataBar, dataBarExpanded, dataBarLimited, telepen, qrCode, dataMatrix, pdf417, aztec, maxiCode, microQrCode, microPdf417, rmQrCode};
 
   @override
   String toString() => id;

@@ -467,7 +467,7 @@ fn rejects_invalid_arguments_without_partial_output() {
             },
             ScannerOptionsC {
                 mode: 1,
-                formats: 1 << 30,
+                formats: 1 << 15,
                 ean_add_on_policy: 0,
                 parallel: PARALLEL_DEFAULT,
             },
@@ -522,7 +522,7 @@ fn rejects_invalid_images_and_scan_options() {
         for image in &invalid {
             assert_eq!(scan(scanner, image, std::ptr::null()), (ARG, 0));
         }
-        let options = ScanOptionsC { formats: 1 << 30 };
+        let options = ScanOptionsC { formats: 1 << 15 };
         assert_eq!(scan(scanner, &valid, &raw const options), (ARG, 0));
         let mut result = 9;
         assert_eq!(
@@ -838,4 +838,48 @@ fn parallel_setting_leaves_results_unchanged() {
         },
         ARG
     );
+}
+
+#[test]
+fn highest_format_bit_roundtrips_through_scan_and_result() {
+    // Zint 2.16, rMQR R7x43-M, payload A.
+    let rows = [
+        "1111111010101010101011101010101010101010111",
+        "1000001001010001101110100000110110011000101",
+        "1011101010111001011111100100001101011111111",
+        "1011101001101111001110111101111011100010001",
+        "1011101000100000000011101010011000010010101",
+        "1000001011101110000110111111001111011010001",
+        "1111111010101010101011101010101010101011111",
+    ];
+    let (width, height) = (165usize, 57usize);
+    let mut pixels = vec![255; width * height];
+    for (y, row) in rows.iter().enumerate() {
+        for (x, bit) in row.bytes().enumerate() {
+            if bit == b'1' {
+                for dy in 0..3 {
+                    for dx in 0..3 {
+                        pixels[(18 + y * 3 + dy) * width + 18 + x * 3 + dx] = 0;
+                    }
+                }
+            }
+        }
+    }
+    unsafe {
+        let scanner = create(&ScannerOptionsC {
+            mode: 1,
+            formats: 1 << 31,
+            ean_add_on_policy: 0,
+            parallel: PARALLEL_DEFAULT,
+        });
+        let image = gray(&pixels, width as u64, height as u64);
+        let (status, result) = scan(scanner, &image, std::ptr::null());
+        assert_eq!(status, 0);
+        assert_eq!(info(result).barcode_count, 1);
+        let mut barcode = BarcodeC::default();
+        assert_eq!(tapirscan_result_barcode(result, 0, &raw mut barcode), 0);
+        assert_eq!(barcode.format, 1 << 31);
+        assert_eq!(tapirscan_result_destroy(result), 0);
+        assert_eq!(tapirscan_scanner_destroy(scanner), 0);
+    }
 }

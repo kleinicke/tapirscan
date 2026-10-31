@@ -57,6 +57,8 @@ keyword group; — means it is not included. `common` is the default.
 | `Matrix25`        | —        | —          | —        | —     | —     | —     | Opt-in: Matrix 2 of 5                                       |
 | `Telepen`         | —        | —          | —        | ✓     | —     | ✓     | ASCII and self-identifying AIM numeric/mixed modes          |
 | `TelepenNumeric`  | —        | —          | —        | —     | —     | —     | Opt-in: legacy numeric interpretation of ASCII-start labels |
+| `MicroPDF417`     | —        | —          | —        | —     | ✓     | ✓     | All 34 sizes; row-address-guided assembly                   |
+| `RMQRCode`        | —        | —          | —        | —     | ✓     | ✓     | All 32 sizes; M/H error correction                          |
 
 <!-- END GENERATED FORMAT MATRIX -->
 

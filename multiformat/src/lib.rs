@@ -22,6 +22,7 @@ pub mod maxicode;
 pub mod maxicode_detect;
 mod maxicode_tables;
 pub mod micro_pdf417;
+pub mod micro_pdf417_detect;
 mod micro_pdf417_tables;
 pub mod micro_qr;
 #[doc(hidden)]
