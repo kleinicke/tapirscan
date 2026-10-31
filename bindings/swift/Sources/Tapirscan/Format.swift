@@ -58,7 +58,7 @@ public enum Format: UInt32, CaseIterable, Sendable, CustomStringConvertible {
     case telepen = 268435456
     /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
     case telepenNumeric = 536870912
-    /// `MicroPDF417` stacked barcode.
+    /// Experimental `MicroPDF417` stacked barcode (opt-in).
     case microPdf417 = 1073741824
     /// Rectangular Micro QR Code, all 32 sizes at M/H correction.
     case rmQrCode = 2147483648
@@ -165,7 +165,7 @@ public struct Formats: OptionSet, Sendable {
     public static let telepen = Formats(.telepen)
     /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
     public static let telepenNumeric = Formats(.telepenNumeric)
-    /// `MicroPDF417` stacked barcode.
+    /// Experimental `MicroPDF417` stacked barcode (opt-in).
     public static let microPdf417 = Formats(.microPdf417)
     /// Rectangular Micro QR Code, all 32 sizes at M/H correction.
     public static let rmQrCode = Formats(.rmQrCode)
@@ -178,8 +178,8 @@ public struct Formats: OptionSet, Sendable {
     public static let common: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .qrCode, .dataMatrix]
     /// All linear formats except the opt-in ones, including DataBar variants.
     public static let linear: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .codabar, .code93, .dataBar, .dataBarExpanded, .dataBarLimited, .telepen]
-    /// QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR.
-    public static let matrix: Formats = [.qrCode, .dataMatrix, .pdf417, .aztec, .maxiCode, .microQrCode, .microPdf417, .rmQrCode]
+    /// QR Code, Data Matrix, PDF417, Aztec, MaxiCode, Micro QR and rMQR.
+    public static let matrix: Formats = [.qrCode, .dataMatrix, .pdf417, .aztec, .maxiCode, .microQrCode, .rmQrCode]
     /// Every format except the opt-in formats, which are selected by name.
-    public static let all: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .codabar, .code93, .dataBar, .dataBarExpanded, .dataBarLimited, .telepen, .qrCode, .dataMatrix, .pdf417, .aztec, .maxiCode, .microQrCode, .microPdf417, .rmQrCode]
+    public static let all: Formats = [.ean13, .upcA, .ean8, .upcE, .code128, .code39, .itf, .codabar, .code93, .dataBar, .dataBarExpanded, .dataBarLimited, .telepen, .qrCode, .dataMatrix, .pdf417, .aztec, .maxiCode, .microQrCode, .rmQrCode]
 }

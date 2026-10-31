@@ -76,7 +76,6 @@ export const matrixFormats: readonly Format[] = Object.freeze([
   "Aztec",
   "MaxiCode",
   "MicroQRCode",
-  "MicroPDF417",
   "RMQRCode",
 ]);
 export const eanAddOnReadFlag = 32768;

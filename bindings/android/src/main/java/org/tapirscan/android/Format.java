@@ -63,7 +63,7 @@ public enum Format {
     TELEPEN(268435456, "Telepen"),
     /** Opt-in legacy numeric interpretation of Telepen ASCII-start labels. */
     TELEPEN_NUMERIC(536870912, "TelepenNumeric"),
-    /** `MicroPDF417` stacked barcode. */
+    /** Experimental `MicroPDF417` stacked barcode (opt-in). */
     MICRO_PDF417(1073741824, "MicroPDF417"),
     /** Rectangular Micro QR Code, all 32 sizes at M/H correction. */
     RM_QR_CODE(-2147483648, "RMQRCode");
@@ -80,12 +80,12 @@ public enum Format {
     /** All linear formats except the opt-in ones, including DataBar variants. */
     public static final Set<Format> LINEAR =
         Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, DATA_BAR_LIMITED, TELEPEN));
-    /** QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR. */
+    /** QR Code, Data Matrix, PDF417, Aztec, MaxiCode, Micro QR and rMQR. */
     public static final Set<Format> MATRIX =
-        Collections.unmodifiableSet(EnumSet.of(QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE, MICRO_QR_CODE, MICRO_PDF417, RM_QR_CODE));
+        Collections.unmodifiableSet(EnumSet.of(QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE, MICRO_QR_CODE, RM_QR_CODE));
     /** Every format except the opt-in formats, which are selected by name. */
     public static final Set<Format> ALL =
-        Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, DATA_BAR_LIMITED, TELEPEN, QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE, MICRO_QR_CODE, MICRO_PDF417, RM_QR_CODE));
+        Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, DATA_BAR_LIMITED, TELEPEN, QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE, MICRO_QR_CODE, RM_QR_CODE));
 
     private final int bit;
     private final String schemaName;

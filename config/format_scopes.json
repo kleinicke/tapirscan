@@ -27,6 +27,6 @@
   "Matrix25": "Opt-in: Matrix 2 of 5",
   "Telepen": "ASCII and self-identifying AIM numeric/mixed modes",
   "TelepenNumeric": "Opt-in: legacy numeric interpretation of ASCII-start labels",
-  "MicroPDF417": "All 34 sizes; row-address-guided assembly",
+  "MicroPDF417": "Experimental, opt-in: all 34 sizes; image recovery still limited",
   "RMQRCode": "All 32 sizes; M/H error correction"
 }

@@ -27,7 +27,7 @@ impl Formats {
     pub const RETAIL: Self = Self(RETAIL_MASK);
     /// All linear formats except the opt-in ones, including `DataBar` variants.
     pub const LINEAR: Self = Self(LINEAR_MASK);
-    /// QR Code, Data Matrix, PDF417, Aztec, `MaxiCode` and Micro QR.
+    /// QR Code, Data Matrix, PDF417, Aztec, `MaxiCode`, Micro QR and rMQR.
     pub const MATRIX: Self = Self(MATRIX_MASK);
     /// Every format except the opt-in formats, which are selected by name.
     pub const ALL: Self = Self(ALL_FORMATS_MASK);

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added Telepen and rectangular Micro QR (`RMQRCode`) to `all`; they also
+  belong to `1D` and `2D`, respectively. Legacy `TelepenNumeric` interpretation
+  remains opt-in.
+- Added experimental MicroPDF417 decoding, selected explicitly as
+  `MicroPDF417`. It is excluded from `all` and `2D` while difficult-image
+  recovery and background-dependent scanning costs are improved.
+
 - Scanner formats now default to `common` in every binding: EAN13, UPCA, EAN8,
   UPCE, Code128, Code39, ITF, QRCode and DataMatrix. Select `retail` explicitly
   to keep the previous EAN/UPC-only behavior.

@@ -25,6 +25,29 @@ fn default_formats_are_common() {
     assert_eq!(ScannerOptions::default().formats, Formats::COMMON);
 }
 
+#[test]
+fn experimental_micro_pdf417_is_explicit_only() {
+    assert_ne!(Formats::ALL | Format::MicroPdf417, Formats::ALL);
+    assert_ne!(Formats::MATRIX | Format::MicroPdf417, Formats::MATRIX);
+    assert_eq!(
+        Formats::ALL | Format::Telepen | Format::RmQrCode,
+        Formats::ALL
+    );
+    let pixels = [255; 64 * 64];
+    let mut scanner = Scanner::new(ScannerOptions {
+        formats: Format::MicroPdf417.into(),
+        ..ScannerOptions::default()
+    });
+    assert_eq!(
+        scanner
+            .scan(Image::gray(&pixels, 64, 64))
+            .unwrap()
+            .barcodes
+            .len(),
+        0
+    );
+}
+
 /// Modes compiled into this test build: all four by default, fewer with
 /// `--no-default-features --features mode-...`.
 fn compiled_modes() -> Vec<Mode> {

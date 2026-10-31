@@ -29,15 +29,15 @@
 #define TAPIRSCAN_FORMAT_MATRIX25 134217728u /* Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in). */
 #define TAPIRSCAN_FORMAT_TELEPEN 268435456u /* Telepen ASCII and self-identifying AIM numeric/mixed modes. */
 #define TAPIRSCAN_FORMAT_TELEPEN_NUMERIC 536870912u /* Opt-in legacy numeric interpretation of Telepen ASCII-start labels. */
-#define TAPIRSCAN_FORMAT_MICRO_PDF417 1073741824u /* `MicroPDF417` stacked barcode. */
+#define TAPIRSCAN_FORMAT_MICRO_PDF417 1073741824u /* Experimental `MicroPDF417` stacked barcode (opt-in). */
 #define TAPIRSCAN_FORMAT_RM_QR_CODE 2147483648u /* Rectangular Micro QR Code, all 32 sizes at M/H correction. */
 
 #define TAPIRSCAN_FORMATS_RETAIL 15u /* EAN-13, UPC-A, EAN-8 and UPC-E. */
 #define TAPIRSCAN_FORMATS_COMMON_1D 127u /* Retail formats plus Code 128, Code 39 and ITF. */
 #define TAPIRSCAN_FORMATS_COMMON 1663u /* Common linear formats plus QR Code and Data Matrix. */
 #define TAPIRSCAN_FORMATS_LINEAR 276849151u /* All linear formats except the opt-in ones, including DataBar variants. */
-#define TAPIRSCAN_FORMATS_MATRIX 3238141440u /* QR Code, Data Matrix, PDF417, Aztec, MaxiCode and Micro QR. */
-#define TAPIRSCAN_FORMATS_ALL 3514990591u /* Every format except the opt-in formats. */
-/* Opt-in formats (Code32, PZN, MSIPlessey, Industrial25, Pharmacode, Code39Extended, IATA25, Matrix25, TelepenNumeric): selected only by name, never by a preset or ALL. */
-#define TAPIRSCAN_FORMATS_OPT_IN 779878400u
+#define TAPIRSCAN_FORMATS_MATRIX 2164399616u /* QR Code, Data Matrix, PDF417, Aztec, MaxiCode, Micro QR and rMQR. */
+#define TAPIRSCAN_FORMATS_ALL 2441248767u /* Every format except the opt-in formats. */
+/* Opt-in formats (Code32, PZN, MSIPlessey, Industrial25, Pharmacode, Code39Extended, IATA25, Matrix25, TelepenNumeric, MicroPDF417): selected only by name, never by a preset or ALL. */
+#define TAPIRSCAN_FORMATS_OPT_IN 1853620224u
 #endif

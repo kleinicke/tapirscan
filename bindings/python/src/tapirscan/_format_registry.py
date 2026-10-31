@@ -115,6 +115,5 @@ matrix_formats: tuple[Format, ...] = (
     "Aztec",
     "MaxiCode",
     "MicroQRCode",
-    "MicroPDF417",
     "RMQRCode",
 )

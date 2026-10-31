@@ -75,7 +75,7 @@ pub enum Format {
     /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
     TelepenNumeric = 536_870_912,
     #[serde(rename = "MicroPDF417")]
-    /// `MicroPDF417` stacked barcode.
+    /// Experimental `MicroPDF417` stacked barcode (opt-in).
     MicroPdf417 = 1_073_741_824,
     #[serde(rename = "RMQRCode")]
     /// Rectangular Micro QR Code, all 32 sizes at M/H correction.
@@ -165,8 +165,8 @@ pub(crate) const RETAIL_MASK: u32 = 15;
 pub(crate) const COMMON_LINEAR_MASK: u32 = 127;
 pub(crate) const COMMON_MASK: u32 = 1_663;
 pub(crate) const LINEAR_MASK: u32 = 276_849_151;
-pub(crate) const MATRIX_MASK: u32 = 3_238_141_440;
+pub(crate) const MATRIX_MASK: u32 = 2_164_399_616;
 pub(crate) const ALL_FORMATS_MASK: u32 = LINEAR_MASK | MATRIX_MASK;
 /// Opt-in formats: selected only by name, never by a preset or `ALL`.
-pub(crate) const OPT_IN_MASK: u32 = 779_878_400;
+pub(crate) const OPT_IN_MASK: u32 = 1_853_620_224;
 pub(crate) const SUPPORTED_MASK: u32 = ALL_FORMATS_MASK | OPT_IN_MASK;

@@ -68,7 +68,12 @@
       536870912,
       "Opt-in legacy numeric interpretation of Telepen ASCII-start labels."
     ],
-    ["MicroPDF417", "MicroPdf417", 1073741824, "`MicroPDF417` stacked barcode."],
+    [
+      "MicroPDF417",
+      "MicroPdf417",
+      1073741824,
+      "Experimental `MicroPDF417` stacked barcode (opt-in)."
+    ],
     [
       "RMQRCode",
       "RmQrCode",
@@ -95,16 +100,7 @@
       "DataBarLimited",
       "Telepen"
     ],
-    "2D": [
-      "QRCode",
-      "DataMatrix",
-      "PDF417",
-      "Aztec",
-      "MaxiCode",
-      "MicroQRCode",
-      "MicroPDF417",
-      "RMQRCode"
-    ]
+    "2D": ["QRCode", "DataMatrix", "PDF417", "Aztec", "MaxiCode", "MicroQRCode", "RMQRCode"]
   },
   "optIn": [
     "Code32",
@@ -115,7 +111,8 @@
     "Code39Extended",
     "IATA25",
     "Matrix25",
-    "TelepenNumeric"
+    "TelepenNumeric",
+    "MicroPDF417"
   ],
   "engineOptIn": [
     "MSIPlessey",
@@ -128,5 +125,6 @@
   "engineFlags": {
     "eanAddOnRead": 32768,
     "eanAddOnRequire": 65536
-  }
+  },
+  "engineMatrixOptIn": ["MicroPDF417"]
 }

@@ -57,7 +57,7 @@ pub const MATRIX25: u32 = 134_217_728;
 pub const TELEPEN: u32 = 268_435_456;
 /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
 pub const TELEPEN_NUMERIC: u32 = 536_870_912;
-/// `MicroPDF417` stacked barcode.
+/// Experimental `MicroPDF417` stacked barcode (opt-in).
 pub const MICRO_PDF417: u32 = 1_073_741_824;
 /// Rectangular Micro QR Code, all 32 sizes at M/H correction.
 pub const RM_QR_CODE: u32 = 2_147_483_648;
