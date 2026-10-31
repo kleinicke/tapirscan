@@ -6,7 +6,7 @@ mod grid;
 
 // PDF417 codewords are 17-bit patterns with a fixed one at the MSB and zero
 // at the LSB. Removing those fixed bits leaves a dense 15-bit table index.
-fn lookup(pattern: u32) -> Option<(usize, usize)> {
+pub(crate) fn lookup(pattern: u32) -> Option<(usize, usize)> {
     static TABLE: OnceLock<Vec<u16>> = OnceLock::new();
     if pattern >= (1 << 17) || pattern & 0x1_0000 == 0 || pattern & 1 != 0 {
         return None;
@@ -547,6 +547,21 @@ fn text_value(
 #[must_use]
 pub fn payload(code: &[usize]) -> Option<Vec<u8>> {
     Some(parse_payload(code)?.text.into_bytes())
+}
+/// `MicroPDF417` omits the length descriptor and begins in byte compaction.
+pub(crate) fn micro_payload(words: &[usize]) -> Option<crate::qr::Payload> {
+    let mut framed = Vec::with_capacity(words.len() + 2);
+    framed.extend([words.len() + 2, 901]);
+    framed.extend_from_slice(words);
+    let payload = parse_payload(&framed)?;
+    Some(crate::qr::Payload {
+        bytes: payload.bytes,
+        text: payload.text,
+        corrected: 0,
+        gs1: false,
+        reader_initialization: payload.reader_initialization,
+        structured_append: payload.structured_append,
+    })
 }
 struct DecodedPayload {
     bytes: Vec<u8>,

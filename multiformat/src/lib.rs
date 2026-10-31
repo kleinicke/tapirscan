@@ -21,6 +21,8 @@ pub mod matrix_readers;
 pub mod maxicode;
 pub mod maxicode_detect;
 mod maxicode_tables;
+pub mod micro_pdf417;
+mod micro_pdf417_tables;
 pub mod micro_qr;
 #[doc(hidden)]
 pub mod numeric;
@@ -38,6 +40,8 @@ pub mod regions;
 mod resample;
 mod retail_gray;
 pub mod retail_profile;
+pub mod rmqr;
+mod rmqr_tables;
 mod telepen;
 pub mod two_of_five;
 use serde::Serialize;

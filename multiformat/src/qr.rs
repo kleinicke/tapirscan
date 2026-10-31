@@ -393,13 +393,31 @@ impl Bits<'_> {
 fn text_segment(bytes: &[u8], eci: Option<usize>) -> Option<String> {
     crate::encoding::decode(bytes, eci)
 }
+pub(crate) fn parse_rmqr(data: &[u8], version: usize) -> Option<Payload> {
+    let (bytes, text, gs1, structured_append) = parse_segments(data, version, true)?;
+    Some(Payload {
+        bytes,
+        text,
+        gs1,
+        structured_append,
+        corrected: 0,
+        reader_initialization: false,
+    })
+}
+fn parse(
+    data: &[u8],
+    version: usize,
+) -> Option<(Vec<u8>, String, bool, Option<crate::StructuredAppend>)> {
+    parse_segments(data, version, false)
+}
 #[expect(
     clippy::too_many_lines,
     reason = "The QR segment dispatcher shares version-dependent lengths, ECI, FNC1 and structured-append state."
 )]
-fn parse(
+fn parse_segments(
     data: &[u8],
     v: usize,
+    rectangular: bool,
 ) -> Option<(Vec<u8>, String, bool, Option<crate::StructuredAppend>)> {
     let mut structured_append = None;
     let mut bits = Bits { data, at: 0 };
@@ -407,8 +425,19 @@ fn parse(
     let mut text = String::new();
     let mut gs1 = false;
     let mut eci = None;
-    while bits.at + 4 <= data.len() * 8 {
-        let mode = bits.take(4)?;
+    let mode_bits = if rectangular { 3 } else { 4 };
+    while bits.at + mode_bits <= data.len() * 8 {
+        let raw_mode = bits.take(mode_bits)?;
+        let mode = if rectangular {
+            match raw_mode {
+                3 => 4,
+                4 => 8,
+                6 => 9,
+                other => other,
+            }
+        } else {
+            raw_mode
+        };
         if mode == 0 {
             break;
         }
@@ -462,12 +491,24 @@ fn parse(
         } else {
             2
         };
-        let size = match mode {
-            1 => [10, 12, 14][group],
-            2 => [9, 11, 13][group],
-            4 => [8, 16, 16][group],
-            8 | 13 => [8, 10, 12][group],
-            _ => return None,
+        let size = if rectangular {
+            use crate::rmqr_tables as t;
+            let counts = match mode {
+                1 => &t::NUMERIC_CCI,
+                2 => &t::ALPHANUM_CCI,
+                4 => &t::BYTE_CCI,
+                8 => &t::KANJI_CCI,
+                _ => return None,
+            };
+            *counts.get(v)?
+        } else {
+            match mode {
+                1 => [10, 12, 14][group],
+                2 => [9, 11, 13][group],
+                4 => [8, 16, 16][group],
+                8 | 13 => [8, 10, 12][group],
+                _ => return None,
+            }
         };
         let count = bits.take(size)?;
         let mut segment = Vec::new();
