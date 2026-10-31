@@ -69,21 +69,22 @@ fn rows(line: &[bool], y: usize, out: &mut Vec<Row>) {
     let start = usize::from(!line[0]);
     for at in (start..runs.len().saturating_sub(20)).step_by(2) {
         let exact = pattern_gain(&runs[at..at + 6], 10, 0.).and_then(|(bits, module)| {
-            [-0.3, 0.3, -0.6, 0.6].into_iter().find_map(|gain| {
-                let (bits, module) = pattern_gain(&runs[at..at + 6], 10, gain)?;
-                t::SIDE
-                    .iter()
-                    .position(|&v| v == bits)
-                    .map(|address| (address, module))
-            })
+            t::SIDE
+                .iter()
+                .position(|&v| v == bits)
+                .map(|address| (address, module))
         });
         let matched = exact.or_else(|| {
             let pitch = f(runs[at..at + 6].iter().sum()) / 10.;
             if at == 0 || f(runs[at - 1]) < pitch * 1.5 {
                 return None;
             }
-            t::SIDE.iter().enumerate().find_map(|(address, &bits)| {
-                address_matches(&runs[at..at + 6], bits).map(|module| (address, module))
+            [-0.3, 0.3, -0.6, 0.6].into_iter().find_map(|gain| {
+                let (bits, module) = pattern_gain(&runs[at..at + 6], 10, gain)?;
+                t::SIDE
+                    .iter()
+                    .position(|&v| v == bits)
+                    .map(|address| (address, module))
             })
         });
         let Some((address, module)) = matched else {
