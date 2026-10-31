@@ -120,6 +120,22 @@ fn refine(image: &[bool], size: [usize; 2], initial: Transform, version: usize) 
             best = trial;
         }
     }
+    // Finder centers are quantized by contour pixels. Refine phase independently
+    // of pitch so long rectangular symbols do not accumulate a half-module bias.
+    let anchor = best;
+    let mut best_error = alignment_score(image, size, &best, version);
+    for dx in [-0.5, -0.25, 0., 0.25, 0.5] {
+        for dy in [-0.5, -0.25, 0., 0.25, 0.5] {
+            let mut trial = anchor;
+            trial[2] += dx * anchor[0] + dy * anchor[1];
+            trial[5] += dx * anchor[3] + dy * anchor[4];
+            let error = alignment_score(image, size, &trial, version);
+            if error < best_error {
+                best_error = error;
+                best = trial;
+            }
+        }
+    }
     best
 }
 

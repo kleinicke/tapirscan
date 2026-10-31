@@ -376,28 +376,35 @@ fn angles(gray: &[u8], w: usize, h: usize) -> Vec<f32> {
     }
     result
 }
-fn sample(
+fn sample_line(
     image: &[bool],
     [w, h]: [usize; 2],
     index: usize,
-    [x, y]: [usize; 2],
-    map: impl Fn(f32, f32) -> [f32; 2],
-) -> bool {
-    // Cardinal rotations map to exact integer coordinates.
+    y: usize,
+    columns: &[[f32; 2]],
+    offset: [f32; 2],
+) -> Vec<bool> {
     match index {
-        0 => return image[y * w + x],
-        1 => return image[x * w + w - 1 - y],
-        2 => return image[(h - 1 - y) * w + w - 1 - x],
-        3 => return image[(h - 1 - x) * w + y],
-        _ => {}
-    }
-    let point = map(f(x), f(y));
-    let xx = point[0].round();
-    let yy = point[1].round();
-    if xx < 0. || yy < 0. || xx >= f(w) || yy >= f(h) {
-        false
-    } else {
-        image[crate::numeric::f32_usize(yy) * w + crate::numeric::f32_usize(xx)]
+        0 => image[y * w..(y + 1) * w].to_vec(),
+        1 => (0..h).map(|x| image[x * w + w - 1 - y]).collect(),
+        2 => image[(h - 1 - y) * w..(h - y) * w]
+            .iter()
+            .rev()
+            .copied()
+            .collect(),
+        3 => (0..h).map(|x| image[(h - 1 - x) * w + y]).collect(),
+        _ => columns
+            .iter()
+            .map(|column| {
+                let xx = (column[0] - offset[0]).round();
+                let yy = (column[1] + offset[1]).round();
+                xx >= 0.
+                    && yy >= 0.
+                    && xx < f(w)
+                    && yy < f(h)
+                    && image[crate::numeric::f32_usize(yy) * w + crate::numeric::f32_usize(xx)]
+            })
+            .collect(),
     }
 }
 /// Scan cardinal directions and strong oblique bar directions with bounded observations.
@@ -456,14 +463,26 @@ pub fn detect(
                     (x + low[0]) * sin + (y + low[1]) * cos,
                 ]
             };
+            let columns: Vec<_> = if index < 4 {
+                Vec::new()
+            } else {
+                (0..line_width)
+                    .map(|x| [(f(x) + low[0]) * cos, (f(x) + low[0]) * sin])
+                    .collect()
+            };
             let mut observations = Vec::new();
             let step = (row_count / 1024).max(2);
             let mut previous = Vec::new();
             let mut cached: Vec<Row> = Vec::new();
             for y in (0..row_count).step_by(step) {
-                let line: Vec<_> = (0..line_width)
-                    .map(|x| sample(image, size, index, [x, y], map))
-                    .collect();
+                let line = sample_line(
+                    image,
+                    size,
+                    index,
+                    y,
+                    &columns,
+                    [(f(y) + low[1]) * sin, (f(y) + low[1]) * cos],
+                );
                 if line == previous {
                     for row in cached.iter().take(8192 - observations.len()) {
                         let mut row = row.clone();
