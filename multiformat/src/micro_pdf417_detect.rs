@@ -57,6 +57,15 @@ fn address_matches(runs: &[usize], expected: usize) -> Option<f32> {
     }
     None
 }
+fn codeword(runs: &[usize]) -> Option<(usize, usize)> {
+    pattern_gain(runs, 17, 0.)
+        .and_then(|(bits, _)| u32::try_from(bits).ok())
+        .and_then(pdf417::lookup)
+        .or_else(|| {
+            let widths: [f32; 8] = std::array::from_fn(|i| f(runs[i]));
+            pdf417::symbol(&widths)
+        })
+}
 fn rows(line: &[bool], y: usize, out: &mut Vec<Row>) {
     let mut edges = vec![0];
     for i in 1..line.len() {
@@ -97,6 +106,8 @@ fn rows(line: &[bool], y: usize, out: &mut Vec<Row>) {
                 candidates.push((variant, row));
             }
         }
+        // Row variants share codeword positions; quantize each run slice once.
+        let mut decoded = [None; 40];
         for (variant, index) in candidates {
             let cols = t::VARIANTS[variant];
             let needed = 6 + 8 * cols + usize::from(cols >= 3) * 6 + 7;
@@ -116,15 +127,15 @@ fn rows(line: &[bool], y: usize, out: &mut Vec<Row>) {
                     }
                     pos += 6;
                 }
-                let widths: [f32; 8] = std::array::from_fn(|i| f(runs[pos + i]));
-                let pitch = widths.iter().sum::<f32>() / 17.;
-                let exact = pattern_gain(&runs[pos..pos + 8], 17, 0.)
-                    .and_then(|(bits, _)| u32::try_from(bits).ok())
-                    .and_then(pdf417::lookup);
-                let Some((value, found)) = exact.or_else(|| pdf417::symbol(&widths)) else {
+                let pitch = f(runs[pos..pos + 8].iter().sum()) / 17.;
+                if (pitch / module - 1.).abs() > 0.3 {
+                    break;
+                }
+                let word = decoded[pos - at].get_or_insert_with(|| codeword(&runs[pos..pos + 8]));
+                let Some((value, found)) = *word else {
                     break;
                 };
-                if found != cluster || (pitch / module - 1.).abs() > 0.3 {
+                if found != cluster {
                     break;
                 }
                 words.push(value);
@@ -417,6 +428,8 @@ pub fn detect(
             };
             let mut observations = Vec::new();
             let step = (row_count / 1024).max(2);
+            let mut previous = Vec::new();
+            let mut cached: Vec<Row> = Vec::new();
             for y in (0..row_count).step_by(step) {
                 let line: Vec<_> = (0..line_width)
                     .map(|x| {
@@ -430,7 +443,19 @@ pub fn detect(
                         }
                     })
                     .collect();
-                rows(&line, y, &mut observations);
+                if line == previous {
+                    for row in cached.iter().take(8192 - observations.len()) {
+                        let mut row = row.clone();
+                        row.y = f(y);
+                        observations.push(row);
+                    }
+                } else {
+                    let start = observations.len();
+                    rows(&line, y, &mut observations);
+                    cached.clear();
+                    cached.extend_from_slice(&observations[start..]);
+                    previous = line;
+                }
                 if observations.len() >= 8192 {
                     limited = true;
                     break;
