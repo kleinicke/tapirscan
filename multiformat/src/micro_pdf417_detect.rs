@@ -376,6 +376,30 @@ fn angles(gray: &[u8], w: usize, h: usize) -> Vec<f32> {
     }
     result
 }
+fn sample(
+    image: &[bool],
+    [w, h]: [usize; 2],
+    index: usize,
+    [x, y]: [usize; 2],
+    map: impl Fn(f32, f32) -> [f32; 2],
+) -> bool {
+    // Cardinal rotations map to exact integer coordinates.
+    match index {
+        0 => return image[y * w + x],
+        1 => return image[x * w + w - 1 - y],
+        2 => return image[(h - 1 - y) * w + w - 1 - x],
+        3 => return image[(h - 1 - x) * w + y],
+        _ => {}
+    }
+    let p = map(f(x), f(y));
+    let xx = p[0].round();
+    let yy = p[1].round();
+    if xx < 0. || yy < 0. || xx >= f(w) || yy >= f(h) {
+        false
+    } else {
+        image[crate::numeric::f32_usize(yy) * w + crate::numeric::f32_usize(xx)]
+    }
+}
 /// Scan cardinal directions and strong oblique bar directions with bounded observations.
 pub fn detect(
     gray: &[u8],
@@ -419,7 +443,7 @@ pub fn detect(
                     .fold(f32::NEG_INFINITY, f32::max),
             ];
             let (line_width, row_count) = if index < 4 {
-                if index % 2 == 0 { (w, h) } else { (h, w) }
+                [(w, h), (h, w)][index % 2]
             } else {
                 (
                     crate::numeric::f32_usize((high[0] - low[0]).round()) + 1,
@@ -438,24 +462,7 @@ pub fn detect(
             let mut cached: Vec<Row> = Vec::new();
             for y in (0..row_count).step_by(step) {
                 let line: Vec<_> = (0..line_width)
-                    .map(|x| {
-                        // Cardinal rotations map to exact integer coordinates.
-                        match index {
-                            0 => return image[y * w + x],
-                            1 => return image[x * w + w - 1 - y],
-                            2 => return image[(h - 1 - y) * w + w - 1 - x],
-                            3 => return image[(h - 1 - x) * w + y],
-                            _ => {}
-                        }
-                        let p = map(f(x), f(y));
-                        let xx = p[0].round();
-                        let yy = p[1].round();
-                        if xx < 0. || yy < 0. || xx >= f(w) || yy >= f(h) {
-                            false
-                        } else {
-                            image[crate::numeric::f32_usize(yy) * w + crate::numeric::f32_usize(xx)]
-                        }
-                    })
+                    .map(|x| sample(image, size, index, [x, y], map))
                     .collect();
                 if line == previous {
                     for row in cached.iter().take(8192 - observations.len()) {
