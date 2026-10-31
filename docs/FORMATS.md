@@ -72,34 +72,48 @@ module per format. Reuse a scanner across frames to amortize initialization.
 
 The supported public identifiers and native bits are:
 
-| Identifier      |       Bit | Scope                                                            |
-| --------------- | --------: | ---------------------------------------------------------------- |
-| EAN13           |         1 | Effort-mode scanner                                              |
-| UPCA            |         2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected |
-| EAN8            |         4 | Supported retail reader                                          |
-| UPCE            |         8 | Supported retail reader                                          |
-| Code128         |        16 | Supported, including GS1 metadata                                |
-| Code39          |        32 | Standard characters; full ASCII is `Code39Extended`              |
-| ITF             |        64 | Supported                                                        |
-| Codabar         |       128 | Start/stop letters omitted from text, in `codabarStartStop`      |
-| Code93          |       256 | Supported                                                        |
-| QRCode          |       512 | Model 2; no Model 1 or rMQR                                      |
-| DataMatrix      |      1024 | ECC200 and DMRE                                                  |
-| PDF417          |      2048 | Normal/Compact and Macro (structured append); no Micro PDF417    |
-| Aztec           |      4096 | Compact/full and Rune                                            |
-| DataBar         |      8192 | Omnidirectional, Stacked and Stacked Omnidirectional             |
-| DataBarExpanded |     16384 | Expanded and Expanded Stacked                                    |
-| MaxiCode        |    131072 | Modes 2–6; affine finder localization                            |
-| Code32          |    262144 | Opt-in Code 39 variant: Italian pharmacy code, 9-digit number    |
-| PZN             |    524288 | Opt-in Code 39 variant: German PZN8/PZN7, number without `-`     |
-| MSIPlessey      |   1048576 | Opt-in; mod-10 check digit required, returned with the data      |
-| Industrial25    |   2097152 | Opt-in Industrial (Standard) 2 of 5; digits as printed           |
-| Pharmacode      |   4194304 | Opt-in Laetus one-track Pharmacode; values 32 to 131069          |
-| DataBarLimited  |   8388608 | GTIN-14 with indicator 0 or 1, returned as `01` + 14 digits      |
-| MicroQRCode     |  16777216 | M1–M4, every error correction level                              |
-| Code39Extended  |  33554432 | Opt-in Code 39 variant: full-ASCII shift pairs expanded          |
-| IATA25          |  67108864 | Opt-in IATA 2 of 5; digits as printed                            |
-| Matrix25        | 134217728 | Opt-in Matrix 2 of 5 (Zint: Standard 2 of 5); digits as printed  |
+| Identifier      |        Bit | Scope                                                            |
+| --------------- | ---------: | ---------------------------------------------------------------- |
+| EAN13           |          1 | Effort-mode scanner                                              |
+| UPCA            |          2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected |
+| EAN8            |          4 | Supported retail reader                                          |
+| UPCE            |          8 | Supported retail reader                                          |
+| Code128         |         16 | Supported, including GS1 metadata                                |
+| Code39          |         32 | Standard characters; full ASCII is `Code39Extended`              |
+| ITF             |         64 | Supported                                                        |
+| Codabar         |        128 | Start/stop letters omitted from text, in `codabarStartStop`      |
+| Code93          |        256 | Supported                                                        |
+| QRCode          |        512 | Model 2; no Model 1 or rMQR                                      |
+| DataMatrix      |       1024 | ECC200 and DMRE                                                  |
+| PDF417          |       2048 | Normal/Compact and Macro (structured append); no Micro PDF417    |
+| Aztec           |       4096 | Compact/full and Rune                                            |
+| DataBar         |       8192 | Omnidirectional, Stacked and Stacked Omnidirectional             |
+| DataBarExpanded |      16384 | Expanded and Expanded Stacked                                    |
+| MaxiCode        |     131072 | Modes 2–6; affine finder localization                            |
+| Code32          |     262144 | Opt-in Code 39 variant: Italian pharmacy code, 9-digit number    |
+| PZN             |     524288 | Opt-in Code 39 variant: German PZN8/PZN7, number without `-`     |
+| MSIPlessey      |    1048576 | Opt-in; mod-10 check digit required, returned with the data      |
+| Industrial25    |    2097152 | Opt-in Industrial (Standard) 2 of 5; digits as printed           |
+| Pharmacode      |    4194304 | Opt-in Laetus one-track Pharmacode; values 32 to 131069          |
+| DataBarLimited  |    8388608 | GTIN-14 with indicator 0 or 1, returned as `01` + 14 digits      |
+| MicroQRCode     |   16777216 | M1–M4, every error correction level                              |
+| Code39Extended  |   33554432 | Opt-in Code 39 variant: full-ASCII shift pairs expanded          |
+| IATA25          |   67108864 | Opt-in IATA 2 of 5; digits as printed                            |
+| Matrix25        |  134217728 | Opt-in Matrix 2 of 5 (Zint: Standard 2 of 5); digits as printed  |
+| Telepen         |  268435456 | ASCII and self-identifying AIM numeric/mixed modes               |
+| TelepenNumeric  |  536870912 | Explicit legacy numeric interpretation                           |
+| MicroPDF417     | 1073741824 | All 34 standard row/column variants                              |
+| RMQRCode        | 2147483648 | All 32 standard dimensions, M/H correction                       |
+
+MicroPDF417 and rMQR use their own identifiers; selecting `PDF417` or `QRCode`
+does not enable them. Both are included in `2D` and `all`. Java represents
+`RMQRCode`'s bit as the signed integer `-2147483648`; the native unsigned mask
+and JavaScript value are `2147483648`.
+
+The compact matrix readers support rotation, multiple symbols and bounded crop
+retries. Strong perspective and print damage remain limitations; very long rMQR
+symbols at oblique angles may be missed. Standard dimension support is not a
+camera-image accuracy guarantee.
 
 ### Pharmacy numbers in Code 39 (Code32, PZN)
 
