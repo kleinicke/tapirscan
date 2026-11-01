@@ -65,7 +65,7 @@ image. Those outputs are not bit-for-bit compatibility promises. Supported forma
 Experimental APIs may change or be removed in minor releases: the JavaScript
 `experimentalTurbo` option, the content kinds marked experimental in
 [structured content](docs/CONTENT.md#kinds), the JavaScript camera controller
-(`tapirscan/camera`), and the Swift, Android and Dart bindings. The camera
+(`tapirscan/camera`), the scan-session helper (`tapirscan/session`), and the Swift, Android and Dart bindings. The camera
 controller and these bindings are previews; the bindings are built from source.
 
 Undocumented internal counters, private modules and generated build paths are not

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tapirscan scanning workflows</title>
+    <style>
+      body {
+        max-width: 48rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        font:
+          1rem/1.5 system-ui,
+          sans-serif;
+        color: #17282c;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+      }
+      button,
+      select {
+        padding: 0.5rem 0.8rem;
+        margin: 0.25rem;
+      }
+      .photo-picker {
+        display: block;
+        margin: 0.75rem 0;
+      }
+      input[type="file"] {
+        display: block;
+        max-width: 100%;
+      }
+      [hidden] {
+        display: none;
+      }
+      video {
+        display: block;
+        width: 100%;
+        max-height: 24rem;
+        background: #eef2f2;
+      }
+      li {
+        margin: 0.5rem 0;
+        overflow-wrap: anywhere;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        padding: 1rem;
+        background: #eef2f2;
+      }
+      :focus-visible {
+        outline: 3px solid #087b83;
+        outline-offset: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Scan one item or build a list</h1>
+    <p>Use your camera or choose a photo. Images are processed on this device.</p>
+    <label for="mode">Workflow</label>
+    <select id="mode">
+      <option value="single">Scan one</option>
+      <option value="list">Build a list</option>
+    </select>
+    <p id="instructions">
+      One visible code is accepted automatically. If several are visible, choose one below.
+    </p>
+    <button id="start">Start camera</button>
+    <button id="stop" disabled>Stop camera</button>
+    <label class="photo-picker"
+      >Choose a photo <input id="photo" type="file" accept="image/*"
+    /></label>
+    <video hidden muted playsinline aria-label="Camera preview"></video>
+    <p>
+      The barcode need not fill the preview. If a close label stays blurry, try moving slightly
+      farther away.
+    </p>
+    <p id="status" role="status" aria-live="polite">Ready to scan.</p>
+    <section aria-labelledby="visible-heading">
+      <h2 id="visible-heading">Codes to choose from</h2>
+      <ul id="candidates"></ul>
+    </section>
+    <section aria-labelledby="accepted-heading">
+      <h2 id="accepted-heading">Accepted items</h2>
+      <p>
+        Repeated reads do not add units. Use “Add another” for an intentional extra unit. Quantities
+        are accepted units, not automatic counts of objects.
+      </p>
+      <ul id="entries"></ul>
+      <button id="undo" disabled>Undo last addition</button>
+      <button id="finish">Finish</button>
+      <button id="reset">New session</button>
+      <pre id="result" aria-label="Finished result" hidden></pre>
+    </section>
+    <script type="module" src="./scan-session.js"></script>
+  </body>
+</html>

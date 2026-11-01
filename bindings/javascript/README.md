@@ -6,6 +6,7 @@ every decoded barcode with its `text`, `format` and source-image `polygon` / `re
 - **`tapirscan/browser/medium`** (or `/low`, `/high`, `/very-high`) for web apps:
   scan files, `<img>`, `<video>`, canvases or bitmaps in a bundled worker, with
   no WASM setup. `tapirscan/browser` offers every mode and Turbo preset.
+- **`tapirscan/session`** (preview) handles accepted items, duplicate suppression, explicit extra units and undo.
 - **`tapirscan/camera`** (preview) scans a live camera with one of those scanners.
 - **`tapirscan`** (the core) for Node and decoded pixels, scanning synchronously
   on the calling thread.
@@ -93,6 +94,53 @@ the mode and put one WASM file into the build. `tapirscan/browser` takes a
 `mode` or Turbo preset at run time and downloads only that one, but bundlers
 emit all eight files. Sizes:
 [bundle one mode](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md#bundle-one-mode).
+
+### Scan one or build a list
+
+`tapirscan/session` is an optional preview workflow helper. It accepts decoded
+format/text pairs from camera or photo results and needs no camera, DOM or WASM.
+Use it in browser or Node applications; it does not start or stop scanners.
+
+```js
+import { ScanSession } from "tapirscan/session";
+
+const session = new ScanSession({ mode: "list" }); // default mode: "single"
+const camera = new CameraScanner(video, scanner, {
+  onDetect(barcode) {
+    if (session.accept(barcode)) render(session.entries);
+    if (session.finished) camera.stop();
+  },
+});
+```
+
+Choose `"single"` to finish on the first accepted identity, or `"list"` to collect
+entries until `session.finish()`. **The application decides what to accept.**
+For single scans with several visible codes, let the user choose a result rather
+than passing every detection to `accept`. The complete
+[workflow example](examples/scan-session.html) implements this selection, a
+camera loop, photo fallback, list editing and a finished JSON result.
+
+- `accept(barcode)` adds a format/text pair once per session, returning `true`
+  only when the list changes. Repeated appearances and repeated photo uploads
+  do not silently add quantities. Different formats remain distinct even when
+  their text is equal; text is kept exactly as decoded.
+- `accept(entry, { repeat: true })` adds another unit deliberately. Wire this to
+  a user action, never an every-frame callback. Quantities represent accepted
+  units, not automatically tracked physical objects.
+- `entries` returns an immutable snapshot of `{ format, text, quantity }` in
+  first-acceptance order. Camera polygons are not retained as current positions.
+- `undo()` reverses the most recent accepted unit, returning `false` when there
+  is nothing to undo or the session is finished. `canUndo` lets the UI disable
+  the control. A fully removed identity can be accepted again.
+- `finish()` locks the session and returns its immutable entries, including for
+  an empty list. Further accepts and undo return `false`. The application must
+  stop its camera and decide whether or where to save the result.
+- `reset()` starts an empty session in the same mode. Old snapshots remain valid.
+
+Single mode stops acceptance, not camera acquisition: check `finished` and call
+`camera.stop()`. Reset the session only on a deliberate new-session action, not
+on each camera reopen. Retain the session during camera interruptions so existing
+items stay protected from duplicates. No data is persisted automatically.
 
 ### Camera scanning
 

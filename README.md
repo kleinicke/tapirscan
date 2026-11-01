@@ -149,7 +149,9 @@ for timing, unread regions and diagnostics. The one-shot `scan` starts a worker 
 each call; for more than one image, create a `Scanner` once and reuse it.
 
 Node and code that already has decoded pixels use the core `tapirscan` entry.
-React, Svelte and Vite setup, camera scanning and Node loading are in the
+Scan-one and list-building workflows are available through the preview
+`tapirscan/session` helper, with camera/photo examples, explicit extra units and
+undo. React, Svelte and Vite setup, camera scanning and Node loading are in the
 [JavaScript guide](bindings/javascript/README.md).
 
 ### Python

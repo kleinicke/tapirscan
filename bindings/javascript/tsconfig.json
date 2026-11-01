@@ -16,6 +16,7 @@
     "src/camera.ts",
     "src/freeze.ts",
     "src/multiformat/formats.ts",
-    "src/rust-session.ts"
+    "src/rust-session.ts",
+    "src/session.ts"
   ]
 }

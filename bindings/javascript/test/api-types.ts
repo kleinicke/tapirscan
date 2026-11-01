@@ -200,3 +200,20 @@ export function workerConsumer(): boolean {
   scanner.dispose();
   return browserSupported() && wasmSupported();
 }
+
+// A workflow can consume camera or photo results without owning the scanner.
+import { ScanSession, type ScanEntry } from "tapirscan/session";
+export function sessionConsumer(barcode: import("../dist/index.js").Barcode) {
+  const session = new ScanSession({ mode: "list" });
+  const accepted: boolean = session.accept(barcode);
+  session.accept(barcode, { repeat: true });
+  const entries: readonly ScanEntry[] = session.entries;
+  // @ts-expect-error Snapshot entries are immutable.
+  entries[0].quantity = 2;
+  // @ts-expect-error Workflows do not imply automatic physical-object counting.
+  new ScanSession({ mode: "count" });
+  session.undo();
+  const finished: readonly ScanEntry[] = session.finish();
+  session.reset();
+  return { accepted, entries, finished, mode: session.mode };
+}

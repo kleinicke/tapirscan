@@ -46,6 +46,8 @@ test("package verification rejects WASM files built from different source", asyn
         "browser-worker-core.js",
         "camera.js",
         "camera.d.ts",
+        "session.js",
+        "session.d.ts",
         ...["low", "medium", "high", "very-high"].flatMap((mode) => [
           `browser-${mode}.js`,
           `browser-${mode}.d.ts`,

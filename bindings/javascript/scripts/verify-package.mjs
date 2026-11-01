@@ -122,6 +122,8 @@ export async function verifyPackage() {
     "dist/browser-worker-core.js",
     "dist/camera.d.ts",
     "dist/camera.js",
+    "dist/session.js",
+    "dist/session.d.ts",
     "dist/freeze.js",
     "dist/rust-session.js",
     "dist/support.d.ts",
