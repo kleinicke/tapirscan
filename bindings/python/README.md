@@ -21,7 +21,8 @@ instead of `scan` for timing, unread regions and diagnostics.
 ## Installation
 
 Python 3.10+ is required. Platform wheels bundle the native library with all four
-effort modes:
+effort modes, for Linux (glibc 2.28+, or musl 1.2+ such as Alpine) and macOS 11+
+on x86_64 and ARM64, and for Windows on x64 and ARM64:
 
 ```sh
 pip install tapirscan

@@ -21,6 +21,8 @@ DESKTOP = {
     "win_arm64": "windows-arm64",
     "manylinux_2_28_x86_64": "linux-x64",
     "manylinux_2_28_aarch64": "linux-arm64",
+    "musllinux_1_2_x86_64": "linux-x64-musl",
+    "musllinux_1_2_aarch64": "linux-arm64-musl",
 }
 PLATFORMS = set(DESKTOP)
 # Rust targets built only for the native assets, by the Android and Swift CI jobs.

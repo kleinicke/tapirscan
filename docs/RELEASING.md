@@ -80,6 +80,8 @@ The manual **Build Python release wheels** workflow prepares:
 | macOS Intel         | macOS 11+, x86_64 | Same, on the Intel runner                                   |
 | Linux x86_64        | manylinux_2_28    | Build in manylinux, repair/audit, then installed-wheel scan |
 | Linux ARM64         | manylinux_2_28    | Same, on the ARM64 runner                                   |
+| Linux x86_64 (musl) | musllinux_1_2     | Build in musllinux, repair/audit, then installed-wheel scan |
+| Linux ARM64 (musl)  | musllinux_1_2     | Same, on the ARM64 runner                                   |
 | Windows x64         | win_amd64         | MSVC build and installed-wheel scan                         |
 | Windows ARM64       | win_arm64         | Same, on the ARM64 runner with an ARM64 Python and Rust     |
 
@@ -96,7 +98,9 @@ platform wheels using ctypes, with Python 3.10+ declared in metadata.
 
 The PyPI distribution is wheel-only. Do not upload a Python-only sdist
 that cannot reproduce its native libraries. Unsupported platforms can build from
-the full Git checkout; musllinux is not currently advertised.
+the full Git checkout. musl wheels cover Alpine 3.13+ and other musl 1.2+
+distributions; the workflow links musl dynamically (`-C target-feature=-crt-static`)
+because Rust's static musl default cannot build the shared library.
 
 Normal CI checks the library bindings and uploads local npm/wheel artifacts.
 Validate the demo separately in the web repository.
@@ -166,8 +170,8 @@ Every publishing run (any selection except `none`) makes sure the GitHub release
 | `SHA256SUMS`                       | Checksums of the assets above                                                          |
 
 `PLATFORM` names the Dart build hook's target. The desktop libraries
-(`linux-x64`, `linux-arm64`, `macos-arm64`, `macos-x64`, `windows-x64`,
-`windows-arm64`) are the ones inside the tested wheels; `collect_release.py`
+(`linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `macos-arm64`,
+`macos-x64`, `windows-x64`, `windows-arm64`) are the ones inside the tested wheels; `collect_release.py`
 requires the wheel job's native artifact to hold the identical file and adds the
 Windows import libraries from it. `android-arm64` and `android-x64` (API 24) come from the CI `android`
 job; `ios-arm64`, `ios-arm64-simulator` and `ios-x64-simulator` (iOS 13; the arm64 simulator 14) from the

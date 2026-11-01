@@ -69,21 +69,35 @@ jobs:
           path: build/native/
           if-no-files-found: error
   linux:
-    name: Wheel / manylinux_2_28_${{ matrix.arch }}
+    name: Wheel / ${{ matrix.libc }}_${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
+            libc: manylinux_2_28
             arch: x86_64
             platform: linux-x64
           - os: ubuntu-24.04-arm
+            libc: manylinux_2_28
             arch: aarch64
             platform: linux-arm64
+          # Alpine and other musl distributions.
+          - os: ubuntu-24.04
+            libc: musllinux_1_2
+            arch: x86_64
+            platform: linux-x64-musl
+          - os: ubuntu-24.04-arm
+            libc: musllinux_1_2
+            arch: aarch64
+            platform: linux-arm64-musl
     runs-on: ${{ matrix.os }}
-    container: quay.io/pypa/manylinux_2_28_${{ matrix.arch }}
+    container: quay.io/pypa/${{ matrix.libc }}_${{ matrix.arch }}
     env:
       PYTHONUTF8: "1"
+      # Rust's musl targets link statically by default, which cannot build the
+      # shared library; link musl dynamically like the glibc build.
+      RUSTFLAGS: ${{ startsWith(matrix.libc, 'musllinux') && '-C target-feature=-crt-static' || '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Set Python and Rust paths
@@ -102,13 +116,13 @@ jobs:
       - name: Build portable Linux wheels
         run: |
           python -m build --wheel --outdir build/wheels bindings/python
-          auditwheel repair --plat manylinux_2_28_${{ matrix.arch }} --wheel-dir build/repaired build/wheels/*.whl
+          auditwheel repair --plat ${{ matrix.libc }}_${{ matrix.arch }} --wheel-dir build/repaired build/wheels/*.whl
           python -m twine check build/repaired/*.whl
       - name: Decode using the repaired installed bundle
         run: for wheel in build/repaired/*.whl; do python scripts/test_installed_wheel.py "$wheel"; done
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-manylinux_2_28-${{ matrix.arch }}
+          name: wheel-${{ matrix.libc }}-${{ matrix.arch }}
           path: build/repaired/*.whl
           if-no-files-found: error
       - name: Keep the wheel's library for the release

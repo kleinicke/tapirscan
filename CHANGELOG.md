@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Python wheels and native release archives for Linux on musl (Alpine 3.13+ and
+  other musl 1.2+ distributions), on x86_64 and ARM64: `musllinux_1_2` wheels
+  and `linux-x64-musl` and `linux-arm64-musl` archives.
+
 - The Vite development server setup note and the worker start error no longer
   name Vite 6/7 only: Vite 5 needs the same `optimizeDeps` line.
 

@@ -143,9 +143,9 @@ class ReleaseArtifacts(unittest.TestCase):
                 main()
                 bundle = root / "build/release"
                 entries = (bundle / "SHA256SUMS").read_text().splitlines()
-                # Six wheels, npm, crate, eleven library archives, AAR,
+                # Eight wheels, npm, crate, thirteen library archives, AAR,
                 # XCFramework and the release assets' own checksums.
-                self.assertEqual(len(entries), 22)
+                self.assertEqual(len(entries), 26)
                 for entry in entries:
                     digest, filename = entry.split("  ")
                     self.assertEqual(

@@ -92,7 +92,7 @@ missing or mismatched file and Turbo preset builds. The check does not load the
 library or need a compiler, so another checkout of identical sources can supply
 the build.
 
-Linux release wheels must be built for the advertised manylinux baseline; see
+Linux release wheels must be built for the advertised manylinux and musllinux baselines; see
 [release preparation](RELEASING.md).
 
 ## Run the demo
