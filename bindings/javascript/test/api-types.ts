@@ -150,6 +150,7 @@ export async function cameraConsumer(video: HTMLVideoElement, image: Image) {
     onError: (error: Error) => error.message,
     scanOptions: { formats: "EAN13" },
     constraints: { width: { ideal: 640 } },
+    autoFocus: true,
   });
   // Scanners of every entry fit.
   new CameraScanner(video, new BrowserScanner());
@@ -164,10 +165,26 @@ export async function cameraConsumer(video: HTMLVideoElement, image: Image) {
   const cameras: MediaDeviceInfo[] = await CameraScanner.cameras();
   await camera.start({ deviceId: cameras[0]?.deviceId });
   const torch: boolean = camera.torchAvailable && (await camera.setTorch(true));
+  const focus: boolean = camera.continuousFocusAvailable && (await camera.setContinuousFocus());
+  const range = camera.zoomRange;
+  const zoomed: boolean = range ? await camera.setZoom(range.min) : false;
+  const zoom: number | undefined = camera.zoom;
   const track: MediaStreamTrack | undefined = camera.track;
   camera.stop();
   scanner.dispose();
-  return [started, torch, track, camera.running, values, detected, withMode, withTurbo];
+  return [
+    started,
+    torch,
+    focus,
+    zoomed,
+    zoom,
+    track,
+    camera.running,
+    values,
+    detected,
+    withMode,
+    withTurbo,
+  ];
 }
 
 // tapirscan/support and a worker started by the application.

@@ -996,6 +996,224 @@ for (const [name, launch] of browsers) {
       assert.deepEqual(outcome, { errors: ["NotAllowedError"], running: false });
     });
 
+    test("autofocus is best effort, respects explicit focus and retries on reopening", async (context) => {
+      if (skip) return context.skip(skip);
+      const result = await page.evaluate(async () => {
+        const { camera, video } = globalThis.t;
+        const saved = navigator.mediaDevices.getUserMedia;
+        const applied = [];
+        let rejectFocus = false;
+        navigator.mediaDevices.getUserMedia = async (options) => {
+          const stream = await saved(options);
+          const track = stream.getVideoTracks()[0];
+          track.getCapabilities = () => ({ focusMode: ["manual", "continuous"] });
+          track.getConstraints = () => ({ width: { ideal: 640 } });
+          track.applyConstraints = async (constraints) => {
+            applied.push(constraints);
+            if (rejectFocus) throw new Error("focus refused");
+          };
+          return stream;
+        };
+        const scanner = { scan: async () => ({ values: [], barcodes: [] }) };
+        const errors = [];
+        const controller = new camera.CameraScanner(video, scanner, {
+          onError: (error) => errors.push(error.message),
+        });
+        try {
+          const first = await controller.start();
+          const available = controller.continuousFocusAvailable;
+          const second = await controller.start();
+          rejectFocus = true;
+          const fallback = await controller.start();
+          controller.stop();
+          const stopped = await controller.setContinuousFocus();
+          const attempts = applied.length;
+          for (const options of [
+            { autoFocus: false },
+            { constraints: { focusMode: "manual" } },
+            { constraints: { advanced: [{ focusMode: "manual" }] } },
+          ]) {
+            const manual = new camera.CameraScanner(video, scanner, options);
+            await manual.start();
+            manual.stop();
+          }
+          return { first, second, fallback, available, stopped, attempts, applied, errors };
+        } finally {
+          controller.stop();
+          navigator.mediaDevices.getUserMedia = saved;
+        }
+      });
+      assert.deepEqual(result, {
+        first: true,
+        second: true,
+        fallback: true,
+        available: true,
+        stopped: false,
+        attempts: 3,
+        applied: Array.from({ length: 3 }, () => ({
+          width: { ideal: 640 },
+          advanced: [{ focusMode: "continuous" }],
+        })),
+        errors: [],
+      });
+    });
+
+    test("zoom and torch preserve constraints and serialize simultaneous requests", async (context) => {
+      if (skip) return context.skip(skip);
+      const result = await page.evaluate(async () => {
+        const { camera, video } = globalThis.t;
+        const controller = new camera.CameraScanner(video, {
+          scan: async () => ({ values: [], barcodes: [] }),
+        });
+        await controller.start();
+        try {
+          const track = controller.track;
+          let constraints = {
+            width: { ideal: 640 },
+            advanced: [{ focusMode: "continuous", zoom: 1 }],
+          };
+          let zoom = 1;
+          const applied = [];
+          track.getCapabilities = () => ({ torch: true, zoom: { min: 1, max: 4, step: 0.1 } });
+          track.getConstraints = () => structuredClone(constraints);
+          track.getSettings = () => ({ zoom });
+          track.applyConstraints = async (next) => {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            constraints = next;
+            for (const entry of next.advanced) if (entry.zoom !== undefined) zoom = entry.zoom;
+            applied.push(next);
+          };
+          const accepted = await Promise.all([controller.setZoom(2), controller.setTorch(true)]);
+          const range = controller.zoomRange;
+          range.max = 99;
+          const unchangedRange = controller.zoomRange;
+          const invalid = [];
+          for (const value of [NaN, Infinity, 0, -1, 5]) {
+            try {
+              await controller.setZoom(value);
+            } catch (error) {
+              invalid.push(error.name);
+            }
+          }
+          const actual = controller.zoom;
+          controller.stop();
+          return {
+            accepted,
+            applied,
+            unchangedRange,
+            invalid,
+            actual,
+            stopped: await controller.setZoom(2),
+            noRange: controller.zoomRange === undefined,
+          };
+        } finally {
+          controller.stop();
+        }
+      });
+      assert.deepEqual(result, {
+        accepted: [true, true],
+        applied: [
+          { width: { ideal: 640 }, advanced: [{ focusMode: "continuous" }, { zoom: 2 }] },
+          {
+            width: { ideal: 640 },
+            advanced: [{ focusMode: "continuous" }, { zoom: 2 }, { torch: true }],
+          },
+        ],
+        unchangedRange: { min: 1, max: 4, step: 0.1 },
+        invalid: Array(5).fill("RangeError"),
+        actual: 2,
+        stopped: false,
+        noRange: true,
+      });
+    });
+
+    test("unsupported controls and rejected requests leave scanning usable", async (context) => {
+      if (skip) return context.skip(skip);
+      const result = await page.evaluate(async () => {
+        const { camera, video } = globalThis.t;
+        const controller = new camera.CameraScanner(video, {
+          scan: async () => ({ values: [], barcodes: [] }),
+        });
+        await controller.start();
+        try {
+          const track = controller.track;
+          track.getCapabilities = undefined;
+          const unavailable = [await controller.setZoom(2), await controller.setContinuousFocus()];
+          track.getCapabilities = () => ({ zoom: { min: 1, max: 1, step: 0 } });
+          const fixed = controller.zoomRange === undefined;
+          track.getCapabilities = () => ({ zoom: { min: 1, max: 4, step: 0.1 } });
+          track.applyConstraints = async () => {
+            throw new Error("zoom refused");
+          };
+          let rejection;
+          try {
+            await controller.setZoom(2);
+          } catch (error) {
+            rejection = error.message;
+          }
+          track.applyConstraints = async () => {};
+          return {
+            unavailable,
+            fixed,
+            rejection,
+            recovered: await controller.setZoom(2),
+            running: controller.running,
+          };
+        } finally {
+          controller.stop();
+        }
+      });
+      assert.deepEqual(result, {
+        unavailable: [false, false],
+        fixed: true,
+        rejection: "zoom refused",
+        recovered: true,
+        running: true,
+      });
+    });
+
+    test("pending controls cannot report success or touch a replacement camera", async (context) => {
+      if (skip) return context.skip(skip);
+      const result = await page.evaluate(async () => {
+        const { camera, video } = globalThis.t;
+        const controller = new camera.CameraScanner(video, {
+          scan: async () => ({ values: [], barcodes: [] }),
+        });
+        await controller.start();
+        try {
+          const track = controller.track;
+          let release,
+            applied = 0;
+          track.getCapabilities = () => ({ zoom: { min: 1, max: 4, step: 0.1 }, torch: true });
+          track.applyConstraints = () => {
+            applied++;
+            return new Promise((resolve) => {
+              release = resolve;
+            });
+          };
+          const zoom = controller.setZoom(2);
+          const torch = controller.setTorch(true);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          const restarted = await controller.start();
+          release();
+          return {
+            results: await Promise.all([zoom, torch]),
+            applied,
+            restarted,
+            replaced: track !== controller.track,
+          };
+        } finally {
+          controller.stop();
+        }
+      });
+      assert.deepEqual(result, {
+        results: [false, false],
+        applied: 1,
+        restarted: true,
+        replaced: true,
+      });
+    });
+
     test("setTorch applies the torch when the camera has one; cameras() lists video inputs", async (context) => {
       if (skip) return context.skip(skip);
       const outcome = await page.evaluate(async () => {

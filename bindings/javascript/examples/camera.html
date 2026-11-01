@@ -4,6 +4,13 @@
   <title>Tapirscan camera example</title>
   <button id="start">Start camera</button>
   <button id="stop" disabled>Stop</button>
+  <button id="focus" disabled>Continuous focus</button>
+  <label id="zoom-control" hidden>Zoom <input id="zoom" type="range" /></label>
+  <p>
+    The barcode does not need to fill the preview. If it stays blurry up close, try moving slightly
+    farther away.
+  </p>
+  <p id="control-status" role="status"></p>
   <video style="max-width: 100%"></video>
   <pre role="status"></pre>
   <script type="module">
@@ -13,14 +20,52 @@
     const status = document.querySelector("pre");
     const start = document.querySelector("#start");
     const stop = document.querySelector("#stop");
+    const focus = document.querySelector("#focus");
+    const zoomControl = document.querySelector("#zoom-control");
+    const zoom = document.querySelector("#zoom");
+    const controlStatus = document.querySelector("#control-status");
     const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
     const camera = new CameraScanner(document.querySelector("video"), scanner, {
-      onScan: (result) => (status.textContent = JSON.stringify(result.values)),
+      onScan: (result) => {
+        status.textContent = JSON.stringify(result.values);
+        refreshControls();
+      },
       onError: (error) => shutdown(error.message),
     });
 
+    function refreshControls() {
+      focus.disabled = !camera.continuousFocusAvailable;
+      const range = camera.zoomRange;
+      zoomControl.hidden = !range;
+      if (range) {
+        zoom.min = range.min;
+        zoom.max = range.max;
+        zoom.step = range.step || "any";
+        if (document.activeElement !== zoom) zoom.value = camera.zoom ?? range.min;
+      }
+    }
+
+    async function changeControl(change) {
+      try {
+        const accepted = await change();
+        controlStatus.textContent = accepted
+          ? "Camera setting requested."
+          : "This control is unavailable.";
+      } catch (error) {
+        controlStatus.textContent = `Camera setting could not be changed: ${error.message}`;
+      }
+      refreshControls();
+    }
+    focus.onclick = () => changeControl(() => camera.setContinuousFocus());
+    zoom.onchange = () => {
+      const value = Number(zoom.value);
+      return changeControl(() => camera.setZoom(value));
+    };
+
     function shutdown(message = "") {
       camera.stop();
+      refreshControls();
+      controlStatus.textContent = "";
       status.textContent = message;
       start.disabled = false;
       stop.disabled = true;
@@ -30,6 +75,7 @@
       start.disabled = true;
       stop.disabled = false;
       await camera.start().catch((error) => shutdown(error.message));
+      refreshControls();
     };
     stop.onclick = () => shutdown();
   </script>

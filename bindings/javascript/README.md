@@ -140,6 +140,21 @@ scanner.dispose();
   labels only after permission, so list them after `start()`.
 - **Hidden pages:** the camera is released while the page is hidden and reopened
   when it is shown. `pauseWhenHidden: false` keeps it open.
+- **Focus:** the controller requests continuous autofocus on each opening when
+  the camera advertises it. Rejection leaves scanning available. Set `autoFocus:
+false` to leave focus alone; an explicit `focusMode` constraint also wins.
+  `camera.continuousFocusAvailable` reports support and
+  `await camera.setContinuousFocus()` requests it again. This is not tap-to-focus
+  or automatic macro lens selection; focus cannot overcome a lens's minimum
+  focusing distance.
+- **Zoom:** `camera.zoomRange` exposes `{ min, max, step }` when adjustable zoom is
+  available. `await camera.setZoom(value)` requests a positive value within that
+  range; `camera.zoom` reads the browser's current setting. Controls resolve
+  `false` when unavailable or cancelled by a camera change, and reject device
+  refusals or invalid zoom values. Acceptance does not prove a sharp image; the
+  browser may round zoom to a supported step. Recheck limits after switching or
+  reopening the camera. Focus, zoom and torch requests preserve other track
+  constraints and are serialized; await them before changing the track directly.
 - **Torch:** `camera.torchAvailable` and `await camera.setTorch(true)`, which
   resolves `false` without a controllable torch (front cameras, most laptops,
   some browsers). The torch turns off when the camera reopens.
@@ -302,9 +317,14 @@ select.replaceChildren(
 );
 select.onchange = () => camera.start({ deviceId: select.value }); // switches cameras
 
-const zoom = camera.track?.getCapabilities?.().zoom; // undefined where unsupported
-if (zoom) await camera.track.applyConstraints({ advanced: [{ zoom: Math.min(2, zoom.max) }] });
+const zoom = camera.zoomRange; // undefined where unsupported or fixed
+if (zoom) await camera.setZoom(Math.max(zoom.min, Math.min(2, zoom.max)));
 ```
+
+A barcode does not need to fill the preview. If a close label stays blurry, try
+moving slightly farther away. Zoom can help framing from that distance; it does
+not repair blur or guarantee a different lens. Browsers expose different controls,
+so hide unsupported ones and retain a camera picker as a fallback.
 
 Store `select.value` (for example in `localStorage`) to reopen the same camera
 next time; `start()` rejects if that device is gone, so fall back to `start()`.
