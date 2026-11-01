@@ -13,3 +13,5 @@ export 'src/scanner.dart'
         ScannerException,
         ScannerOptions,
         Tapirscan;
+
+export 'src/session.dart';

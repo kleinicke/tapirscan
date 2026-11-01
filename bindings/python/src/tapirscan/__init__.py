@@ -52,6 +52,7 @@ from .results import (
     ValueRange,
     _diagnostics,
 )
+from .session import ScanEntry, ScanSession
 
 __all__ = [
     "Barcode",
@@ -71,7 +72,9 @@ __all__ = [
     "PixelImage",
     "Point",
     "Rect",
+    "ScanEntry",
     "ScanResult",
+    "ScanSession",
     "Scanner",
     "ScannerError",
     "StructuredAppend",

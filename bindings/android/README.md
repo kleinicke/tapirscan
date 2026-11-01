@@ -155,3 +155,20 @@ See [fast end-to-end scanning](https://github.com/kleinicke/tapirscan/blob/main/
 `python3 scripts/test_android_jni.py` builds the JNI bridge for the desktop JVM and
 runs its test; it needs only a JDK and the native library
 (`python3 scripts/build_native.py`).
+
+## Scan sessions (preview)
+
+Duplicate protection, explicit quantities, undo and finished snapshots are available
+without changing the camera or scanner. See the [shared contract](../../docs/SCAN_SESSIONS.md).
+
+```java
+ScanSession session = new ScanSession(ScanSession.Mode.LIST);
+for (Barcode barcode : result.barcodes()) session.accept(barcode);
+// On an explicit "one more" action:
+session.accept(Format.EAN13, "4006381333931", true);
+session.undo();
+java.util.List<ScanSession.Entry> entries = session.finish();
+```
+
+Keep each session on one thread, actor or isolate. Quantities represent accepted
+units; repeatedly seeing a barcode does not count another physical item.

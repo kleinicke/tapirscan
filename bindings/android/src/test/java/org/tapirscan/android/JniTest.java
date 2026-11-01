@@ -89,6 +89,7 @@ public final class JniTest {
     }
 
     public static void main(String[] args) {
+        SessionTest.main(args);
         int[] size = new int[1];
         byte[] pixels = ean13(size);
         int width = size[0];

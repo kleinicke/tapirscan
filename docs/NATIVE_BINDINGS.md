@@ -63,3 +63,5 @@ part of this comparison.
 
 Python wheels bundle the native library; the Java JAR and the C/C++ package ship
 it separately.
+
+See [scan sessions](SCAN_SESSIONS.md) for preview single/list acceptance workflows and language coverage.

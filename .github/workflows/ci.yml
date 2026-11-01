@@ -119,7 +119,9 @@ jobs:
       - name: Validate image inputs and unified typed API
         env:
           BARCODE_PYTHON_PACKAGE: ${{ github.workspace }}/build/python-installed
-        run: python3 scripts/test_python_images.py
+        run: |
+          python3 scripts/test_python_images.py
+          python3 scripts/test_python_sessions.py
       - name: Install quality tools
         run: |
           npm install --global pnpm@10.15.1

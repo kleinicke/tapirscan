@@ -461,3 +461,23 @@ rebuild instructions.
 Tapirscan is dual-licensed under **MIT OR Apache-2.0**, at your option.
 See the [full license texts](https://tapirscan.f-kleinicke.de/license/).
 Third-party components retain their own licenses and notices.
+
+## Scan sessions (preview)
+
+Duplicate protection, explicit quantities, undo and finished snapshots are available
+without changing the camera or scanner. See the [shared contract](../../docs/SCAN_SESSIONS.md).
+
+```python
+from tapirscan import ScanSession
+
+session = ScanSession(mode="list")
+for barcode in result.barcodes:
+    session.accept(barcode.format, barcode.text)
+# On an explicit "one more" action:
+session.accept("EAN13", "4006381333931", repeat=True)
+session.undo()
+entries = session.finish()
+```
+
+Keep each session on one thread, actor or isolate. Quantities represent accepted
+units; repeatedly seeing a barcode does not count another physical item.

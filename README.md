@@ -276,3 +276,5 @@ Licensed under either the [MIT License](LICENSE-MIT) or the
 (`MIT OR Apache-2.0`), copyright © 2026 Florian Nick.
 Third-party components retain their own licenses and
 [notices](multiformat/THIRD_PARTY_NOTICES.md).
+
+See [scan sessions](docs/SCAN_SESSIONS.md) for preview single/list acceptance workflows and language coverage.

@@ -166,3 +166,20 @@ Foreign Function & Memory API, which Android lacks; Android apps use the
 Tapirscan is dual-licensed under **MIT OR Apache-2.0**, at your option.
 See the [full license texts](https://tapirscan.f-kleinicke.de/license/).
 Third-party components retain their own licenses and notices.
+
+## Scan sessions (preview)
+
+Duplicate protection, explicit quantities, undo and finished snapshots are available
+without changing the camera or scanner. See the [shared contract](../../docs/SCAN_SESSIONS.md).
+
+```java
+var session = new ScanSession(ScanSession.Mode.LIST);
+for (var barcode : result.barcodes()) session.accept(barcode);
+// On an explicit "one more" action:
+session.accept(Format.EAN13, "4006381333931", true);
+session.undo();
+var entries = session.finish();
+```
+
+Keep each session on one thread, actor or isolate. Quantities represent accepted
+units; repeatedly seeing a barcode does not count another physical item.

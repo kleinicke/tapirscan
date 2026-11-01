@@ -113,3 +113,5 @@ of a second API.
 
 Results outlive the scanner that produced them. See
 [native bindings](NATIVE_BINDINGS.md) for the native ABI.
+
+See [scan sessions](SCAN_SESSIONS.md) for preview single/list acceptance workflows and language coverage.

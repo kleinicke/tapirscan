@@ -150,3 +150,20 @@ cd bindings/swift && swift test
 
 The tests run on macOS. Build for iOS with
 `swift build --triple arm64-apple-ios15.0 --sdk "$(xcrun --sdk iphoneos --show-sdk-path)"`.
+
+## Scan sessions (preview)
+
+Duplicate protection, explicit quantities, undo and finished snapshots are available
+without changing the camera or scanner. See the [shared contract](../../docs/SCAN_SESSIONS.md).
+
+```swift
+let session = ScanSession(mode: .list)
+for barcode in result.barcodes { session.accept(barcode) }
+// On an explicit "one more" action:
+session.accept(format: .ean13, text: "4006381333931", repeat: true)
+session.undo()
+let entries = session.finish()
+```
+
+Keep each session on one thread, actor or isolate. Quantities represent accepted
+units; repeatedly seeing a barcode does not count another physical item.

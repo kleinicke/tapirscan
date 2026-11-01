@@ -16,6 +16,7 @@ public final class ApiTest {
     }
 
     public static void main(String[] args) throws InterruptedException {
+        SessionTest.main(args);
         byte[] bytes = {0, 1, -1};
         Barcode a = barcode(bytes, 5), b = barcode(bytes.clone(), 5);
         check(a.equals(b) && a.hashCode() == b.hashCode());
