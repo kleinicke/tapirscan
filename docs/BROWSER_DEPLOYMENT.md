@@ -17,8 +17,10 @@ size, import a single-mode entry:
 | `tapirscan/browser/very-high` | `very-high.wasm` | 2.7 MB (1.0 MB) |
 | `tapirscan/browser`           | all modes, Turbo | 18 MB (7 MB)    |
 
-Vite bundles the worker and WASM itself; [Angular](#angular) production builds
-need the app to start the worker.
+Vite bundles the worker and WASM itself; its development server needs
+`optimizeDeps: { exclude: ["tapirscan"] }`
+([setup](../bindings/javascript/README.md#browser-apps-react-and-svelte)).
+[Angular](#angular) production builds need the app to start the worker.
 
 ## Load it fast
 

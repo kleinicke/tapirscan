@@ -311,7 +311,7 @@ export class BrowserScanner {
         worker,
         new Error(
           event.message ||
-            'Scanner worker failed to start: its script was not served. Vite 6/7 dev server: add optimizeDeps: { exclude: ["tapirscan"] }. Other setups: see docs/BROWSER_DEPLOYMENT.md.',
+            'Scanner worker failed to start: its script was not served. Vite dev server: add optimizeDeps: { exclude: ["tapirscan"] }. Other setups: see docs/BROWSER_DEPLOYMENT.md.',
         ),
       );
     };

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The Vite development server setup note and the worker start error no longer
+  name Vite 6/7 only: Vite 5 needs the same `optimizeDeps` line.
+
 - Added Telepen and rectangular Micro QR (`RMQRCode`) to `all`; they also
   belong to `1D` and `2D`, respectively. Legacy `TelepenNumeric` interpretation
   remains opt-in.

@@ -334,7 +334,7 @@ Switching from [ZXing](https://github.com/kleinicke/tapirscan/blob/main/docs/MIG
 files with no configuration. Angular production builds need the `worker` option
 and a copied WASM asset; see
 [Angular](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md#angular).
-The Vite 6 and 7 development servers (including SvelteKit on them) need one
+The Vite development server (Vite 5 and later, including SvelteKit) needs one
 line, or the scanner reports that its worker failed to start:
 
 ```js
