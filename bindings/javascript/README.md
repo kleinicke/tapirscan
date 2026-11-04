@@ -353,6 +353,57 @@ portrait 720×1280 one.
 For a single image, draw its region into a canvas, scan the canvas and add the
 region's `left` and `top` to each barcode's `polygon` and `rect`.
 
+#### Tap-to-focus and application-owned cameras
+
+`CameraScanner` exposes `pointFocusAvailable` and `focusAt({ x, y })`. Coordinates
+are fractions of the full, unmirrored video image: `(0, 0)` is top-left and `(1, 1)`
+is bottom-right. Convert preview cropping, rotation and mirroring before passing
+a tap; a scanning region does not change this coordinate system.
+
+```js
+if (camera.pointFocusAvailable) {
+  const reported = await camera.focusAt({ x: 0.5, y: 0.5 });
+  // reported means the camera reports that point, not that the image is sharp.
+}
+await camera.setContinuousFocus(); // clears an earlier point and restores autofocus
+```
+
+Point focus is offered only when the browser recognizes points of interest and
+the current camera advertises continuous or single-shot autofocus. It prefers
+continuous focus on the chosen area, falling back to single-shot. A rejected
+request throws; `false` means unsupported, unconfirmed or no longer active.
+A resolved browser request may be silently ignored, so `focusAt` also checks the
+reported point (allowing 0.001 rounding). Points can influence exposure and white
+balance as well. There is no automatic reset timer.
+
+If an application already owns its video stream, it can use the same controls
+without adopting the scanner loop:
+
+```js
+import { CameraControls } from "tapirscan/camera";
+
+const controls = new CameraControls(stream.getVideoTracks()[0]);
+// Constructing controls preserves the camera's current settings.
+if (controls.pointFocusAvailable) await controls.focusAt({ x: 0.5, y: 0.5 });
+if (controls.continuousFocusAvailable) await controls.setContinuousFocus();
+const range = controls.zoomRange;
+if (range) await controls.setZoom(Math.max(range.min, Math.min(2, range.max)));
+controls.dispose(); // cancels queued work/results; caller still owns/stops the stream
+```
+
+Use one helper per track; route focus, zoom and torch changes through it to
+preserve their constraints and serialize requests. Dispose it on camera changes.
+An already submitted hardware request cannot be canceled, but its result is
+ignored after disposal. The class also exposes `torchAvailable`, `setTorch`,
+`zoomRange` and `zoom` with the same behavior as `CameraScanner`.
+
+These are browser controls, not a macro mode. Keep browser-selected rear camera
+as a default when it works well. Provide manual camera selection for devices
+that expose other useful lenses, without assuming labels identify a macro lens.
+If close focus is unavailable, moving back and using supported zoom may help;
+zoom does not reduce a lens's physical minimum focus distance. Test on real
+phones: synthetic streams validate lifecycle behavior, not optical sharpness.
+
 #### Camera picker and zoom
 
 ```js

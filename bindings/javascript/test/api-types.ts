@@ -217,3 +217,12 @@ export function sessionConsumer(barcode: import("../dist/index.js").Barcode) {
   session.reset();
   return { accepted, entries, finished, mode: session.mode };
 }
+
+import { CameraControls, type CameraFocusPoint } from "tapirscan/camera";
+export async function ownedCameraConsumer(track: MediaStreamTrack) {
+  const controls = new CameraControls(track);
+  const point: CameraFocusPoint = { x: 0.25, y: 0.75 };
+  if (controls.pointFocusAvailable) await controls.focusAt(point);
+  await controls.setContinuousFocus();
+  controls.dispose();
+}

@@ -1,5 +1,10 @@
 // tapirscan/camera: an optional camera loop for any tapirscan/browser scanner.
 // It owns acquisition, frame scheduling and cleanup; decoding stays in the scanner.
+import { CameraControls, validateFocusPoint, validateZoom } from "./camera-controls.js";
+import type { CameraFocusPoint, CameraZoomRange } from "./camera-controls.js";
+export { CameraControls } from "./camera-controls.js";
+export type { CameraFocusPoint, CameraZoomRange } from "./camera-controls.js";
+
 import { freeze } from "./freeze.js";
 import { handOver } from "./handover.js";
 import type { Barcode, Quad, ScanOptions, ScanResult } from "./index.js";
@@ -27,13 +32,6 @@ export interface CameraSelection {
   deviceId?: string;
   /** Preferred direction when no `deviceId` is given; defaults to "environment". */
   facingMode?: "environment" | "user";
-}
-
-/** Zoom limits reported by the open camera. Values use the device's zoom scale. */
-export interface CameraZoomRange {
-  readonly min: number;
-  readonly max: number;
-  readonly step: number;
 }
 
 /** @experimental Options of the `CameraScanner` preview. */
@@ -91,15 +89,7 @@ export interface CameraScannerOptions {
   pauseWhenHidden?: boolean;
 }
 
-/** Image-capture controls are missing from the DOM library's types. */
-type CameraCapabilities = MediaTrackCapabilities & {
-  torch?: boolean;
-  focusMode?: string[];
-  zoom?: CameraZoomRange;
-};
-type CameraSettings = MediaTrackSettings & { zoom?: number };
 type CameraConstraints = MediaTrackConstraints & { focusMode?: ConstrainDOMString };
-type CameraControl = "torch" | "focusMode" | "zoom";
 
 /**
  * @experimental Preview: may change in minor releases.
@@ -118,8 +108,7 @@ export class CameraScanner {
    * session is dropped.
    */
   #session = 0;
-  /** Serialize changes so focus, zoom and torch preserve each other's constraints. */
-  #controls: Promise<unknown> = Promise.resolve();
+  #controls: CameraControls | undefined;
   #stream: MediaStream | undefined;
   /**
    * The pending camera request, if any. It settles once the request does; a stream
@@ -176,64 +165,48 @@ export class CameraScanner {
 
   /** Whether the open camera reports a controllable torch. */
   get torchAvailable(): boolean {
-    // getCapabilities is missing in older Firefox.
-    const track = this.track as Partial<MediaStreamTrack> | undefined;
-    const capabilities: CameraCapabilities | undefined = track?.getCapabilities?.();
-    return capabilities?.torch === true;
+    return this.#controls?.torchAvailable ?? false;
   }
 
   /** Whether the open camera advertises continuous autofocus. */
   get continuousFocusAvailable(): boolean {
-    const track = this.track as Partial<MediaStreamTrack> | undefined;
-    const capabilities: CameraCapabilities | undefined = track?.getCapabilities?.();
-    return capabilities?.focusMode?.includes("continuous") === true;
+    return this.#controls?.continuousFocusAvailable ?? false;
+  }
+
+  /** Whether the browser recognizes point focus and the camera advertises autofocus. */
+  get pointFocusAvailable(): boolean {
+    return this.#controls?.pointFocusAvailable ?? false;
   }
 
   /** Zoom limits of the open camera; undefined when unavailable or fixed. */
   get zoomRange(): CameraZoomRange | undefined {
-    const track = this.track as Partial<MediaStreamTrack> | undefined;
-    const capabilities: CameraCapabilities | undefined = track?.getCapabilities?.();
-    const range = capabilities?.zoom;
-    if (
-      !range ||
-      ![range.min, range.max, range.step].every(Number.isFinite) ||
-      range.min <= 0 ||
-      range.max <= range.min ||
-      range.step < 0
-    )
-      return undefined;
-    return { min: range.min, max: range.max, step: range.step };
+    return this.#controls?.zoomRange;
   }
 
-  /** Zoom currently reported by the open camera, if exposed by the browser. */
+  /** Zoom currently reported by the open camera. */
   get zoom(): number | undefined {
-    const settings: CameraSettings | undefined = this.track?.getSettings();
-    return settings?.zoom;
+    return this.#controls?.zoom;
   }
 
-  /**
-   * Request continuous autofocus. False when unavailable or the camera changed
-   * before completion; rejects if the device refuses the request. Acceptance
-   * does not guarantee a sharp image or overcome minimum focusing distance.
-   */
+  /** Restore continuous autofocus and clear a previously requested focus point. */
   async setContinuousFocus(): Promise<boolean> {
-    if (!this.continuousFocusAvailable) return false;
-    return this.#applyControl("focusMode", "continuous");
+    return this.#controls?.setContinuousFocus() ?? false;
   }
 
   /**
-   * Request zoom within zoomRange. False when unavailable or the camera changed;
-   * rejects for an invalid value or a device refusal. The browser may round to a
-   * supported step; read zoom for the reported setting. Reopening resets controls.
+   * Request focus at normalized full-video coordinates, not CSS pixels or scan-region coordinates.
+   * True means the camera reports the requested point, not that the image is sharp.
+   * False when unsupported, unconfirmed or stopped; rejects invalid points or device refusal.
    */
+  async focusAt(point: CameraFocusPoint): Promise<boolean> {
+    validateFocusPoint(point);
+    return this.#controls?.focusAt(point) ?? false;
+  }
+
+  /** Request zoom within zoomRange. Reopening resets controls. */
   async setZoom(value: number): Promise<boolean> {
-    if (!Number.isFinite(value) || value <= 0)
-      throw new RangeError("zoom must be a positive finite number");
-    const range = this.zoomRange;
-    if (!range) return false;
-    if (value < range.min || value > range.max)
-      throw new RangeError("zoom must be within zoomRange");
-    return this.#applyControl("zoom", value);
+    validateZoom(value);
+    return this.#controls?.setZoom(value) ?? false;
   }
 
   /**
@@ -279,36 +252,7 @@ export class CameraScanner {
    * turns off whenever the camera is reopened.
    */
   async setTorch(on: boolean): Promise<boolean> {
-    if (!this.torchAvailable) return false;
-    return this.#applyControl("torch", on);
-  }
-
-  /** Preserve existing constraints and discard results belonging to an old camera. */
-  async #applyControl(key: CameraControl, value: boolean | number | string): Promise<boolean> {
-    const track = this.track;
-    const session = this.#session;
-    const apply = async () => {
-      if (!track || session !== this.#session || track.readyState !== "live") return false;
-      const constraints = withoutControl(track.getConstraints(), key);
-      // Remove previous requests for this control, including advanced ones, so
-      // a later request can replace it without resetting unrelated controls.
-      const advanced = (constraints.advanced ?? [])
-        .map((entry) => withoutControl(entry, key))
-        .filter((entry) => Object.keys(entry).length > 0);
-      try {
-        await track.applyConstraints({
-          ...constraints,
-          advanced: [...advanced, { [key]: value }],
-        });
-      } catch (error) {
-        if (session !== this.#session) return false;
-        throw error;
-      }
-      return session === this.#session && track === this.track;
-    };
-    const result = this.#controls.then(apply);
-    this.#controls = result.catch(() => undefined);
-    return result;
+    return this.#controls?.setTorch(on) ?? false;
   }
 
   /** Open the selected camera for `session`; false if the session ended meanwhile. */
@@ -348,6 +292,8 @@ export class CameraScanner {
       return false;
     }
     this.#stream = stream;
+    const cameraTrack = stream.getVideoTracks().at(0);
+    this.#controls = cameraTrack ? new CameraControls(cameraTrack) : undefined;
     for (const track of stream.getVideoTracks())
       track.addEventListener("ended", () => {
         if (session !== this.#session || this.#paused()) return;
@@ -521,7 +467,8 @@ export class CameraScanner {
   }
 
   #release(): void {
-    this.#controls = Promise.resolve();
+    this.#controls?.dispose();
+    this.#controls = undefined;
     this.#watching?.abort();
     this.#watching = undefined;
     const stream = this.#stream;
@@ -621,28 +568,4 @@ function stopTracks(stream: MediaStream): void {
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
-}
-
-/** Remove one image-control constraint without resetting the other constraints. */
-function withoutControl(
-  constraints: MediaTrackConstraints,
-  key: CameraControl,
-): MediaTrackConstraints {
-  const copy = { ...constraints } as MediaTrackConstraints & {
-    torch?: ConstrainBoolean;
-    focusMode?: ConstrainDOMString;
-    zoom?: ConstrainDouble;
-  };
-  switch (key) {
-    case "torch":
-      delete copy.torch;
-      break;
-    case "focusMode":
-      delete copy.focusMode;
-      break;
-    case "zoom":
-      delete copy.zoom;
-      break;
-  }
-  return copy;
 }

@@ -1058,6 +1058,47 @@ for (const [name, launch] of browsers) {
       });
     });
 
+    test("point focus delegates through the camera lifecycle", async (context) => {
+      if (skip) return context.skip(skip);
+      const result = await page.evaluate(async () => {
+        const { camera, video } = globalThis.t;
+        navigator.mediaDevices.getSupportedConstraints = () => ({ pointsOfInterest: true });
+        const controller = new camera.CameraScanner(video, {
+          scan: async () => ({ values: [], barcodes: [] }),
+        });
+        await controller.start();
+        try {
+          const track = controller.track;
+          let settings = {};
+          track.getCapabilities = () => ({ focusMode: ["continuous"] });
+          track.getSettings = () => settings;
+          track.applyConstraints = async (next) => {
+            settings = Object.assign({}, ...next.advanced);
+          };
+          const supported = controller.pointFocusAvailable;
+          const focused = await controller.focusAt({ x: 0.2, y: 0.8 });
+          const points = settings.pointsOfInterest;
+          controller.stop();
+          return {
+            supported,
+            focused,
+            points,
+            stopped: await controller.focusAt({ x: 0.5, y: 0.5 }),
+            available: controller.pointFocusAvailable,
+          };
+        } finally {
+          controller.stop();
+        }
+      });
+      assert.deepEqual(result, {
+        supported: true,
+        focused: true,
+        points: [{ x: 0.2, y: 0.8 }],
+        stopped: false,
+        available: false,
+      });
+    });
+
     test("zoom and torch preserve constraints and serialize simultaneous requests", async (context) => {
       if (skip) return context.skip(skip);
       const result = await page.evaluate(async () => {
