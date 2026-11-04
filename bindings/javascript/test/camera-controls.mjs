@@ -95,6 +95,12 @@ test("unsupported cameras and missing browser controls are not offered", async (
     navigator.mediaDevices.getSupportedConstraints = supported;
     track.getCapabilities = () => ({ focusMode: ["manual"] });
     assert.equal(controls.pointFocusAvailable, false);
+    track.getCapabilities = () => {
+      throw new Error("capabilities unavailable");
+    };
+    assert.equal(controls.pointFocusAvailable, false);
+    assert.equal(controls.torchAvailable, false);
+    assert.equal(controls.zoomRange, undefined);
     track.getCapabilities = undefined;
     assert.equal(await controls.setContinuousFocus(), false);
     assert.equal(await controls.setZoom(2), false);

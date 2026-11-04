@@ -48,7 +48,12 @@ export class CameraControls {
   get #capabilities(): Capabilities | undefined {
     if (!this.#isActive()) return undefined;
     // Some browsers expose streams but no getCapabilities().
-    return (this.#track as Partial<MediaStreamTrack>).getCapabilities?.();
+    try {
+      return (this.#track as Partial<MediaStreamTrack>).getCapabilities?.();
+    } catch {
+      // Optional controls must not prevent capture when a browser refuses capability queries.
+      return undefined;
+    }
   }
 
   /** Whether the camera advertises a controllable torch. */
