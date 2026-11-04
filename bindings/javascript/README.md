@@ -355,6 +355,10 @@ region's `left` and `top` to each barcode's `polygon` and `rect`.
 
 #### Tap-to-focus and application-owned cameras
 
+These additions are currently available in local `main` / `next` builds, not the
+published npm 1.5.0 package. The demo can pair this new capture helper with the
+unchanged npm 1.5.0 decoder; publishing a new library version is a separate step.
+
 `CameraScanner` exposes `pointFocusAvailable` and `focusAt({ x, y })`. Coordinates
 are fractions of the full, unmirrored video image: `(0, 0)` is top-left and `(1, 1)`
 is bottom-right. Convert preview cropping, rotation and mirroring before passing
