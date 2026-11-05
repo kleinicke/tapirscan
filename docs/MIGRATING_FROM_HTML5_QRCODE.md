@@ -162,7 +162,7 @@ format searches the whole frame, so select only what you expect.
 | none                                         | `barcode.payloadBytes`: decoded payload bytes, when available                              |
 
 html5-qrcode uses the browser's `BarcodeDetector` where available and
-`@zxing/library` otherwise, so its text varies by browser. Where it used ZXing,
+`@zxing/library` otherwise, so its text varies by browser. Where it used ZXing-JS,
 UPC-A, UPC-E, Codabar and DataBar text differs from Tapirscan's
 ([details](MIGRATING_FROM_ZXING.md#formats); Codabar start/stop letters are in
 `codabarStartStop`).

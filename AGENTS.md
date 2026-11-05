@@ -12,6 +12,8 @@ Preserve multiple-barcode scanning, undecoded coverage, source-image geometry,
 explicit work limits and support-based ranking. Do not silently introduce a
 neural model or reference-decoder fallback. Performance claims need reproducible
 paired evidence.
+Refer to the comparison reader as `zxing-cpp` in prose, including when accessed
+through `zxing-wasm`. Preserve actual package names, API identifiers and URLs.
 
 `core/src` and `multiformat/` are maintained production source: format and lint
 them like any other source. In isolated experiment worktrees, edit them

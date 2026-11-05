@@ -4,6 +4,16 @@ Most of a scan's cost is decided before the scanner runs: which formats you enab
 which effort mode you choose, how large the image is, and how you hand the pixels
 over. This guide describes the input paths and how to avoid unnecessary copies.
 
+## Comparison with zxing-cpp
+
+Our browser benchmarks compare against **zxing-cpp via zxing-wasm 3.1.1**,
+not a native C++ build. Tapirscan matched zxing-cpp on well-aligned barcodes and was
+superior on rotated, blurred, or distorted barcodes. Full HD (1080p) scans generally
+took about twice as long as zxing-cpp, while Tapirscan was faster on 4K video.
+Runtime depends on the amount of contrast and barcode-like detail in the image,
+as well as the selected formats and effort mode. See the
+[comparison](COMPARISON.md) and [benchmark protocol](BENCHMARKS.md).
+
 ## The five rules
 
 1. **Enable only the formats you need.** The default is the common format group. Every

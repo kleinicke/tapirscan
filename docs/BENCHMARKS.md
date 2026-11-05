@@ -47,6 +47,6 @@ The repository checks ([validation](VALIDATION.md)) cover reproducible WASM buil
 native/WASM output parity, generated small-barcode and rotation tests, and browser
 parity. These establish integration parity; synthetic regression tests and timing
 during builds or CI are **not** an independent accuracy benchmark or
-evidence that Tapirscan always beats ZXing/ZBar. Numbers from any cohort,
+evidence that Tapirscan always beats zxing-cpp/ZBar. Numbers from any cohort,
 including your own, describe that cohort and runtime only. Performance claims
 should link to a reproducible report that follows the protocol above.

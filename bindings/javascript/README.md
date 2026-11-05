@@ -449,7 +449,7 @@ await video.play();
 ```
 
 Hosting, Content Security Policy and static files: [browser deployment](https://github.com/kleinicke/tapirscan/blob/main/docs/BROWSER_DEPLOYMENT.md).
-Switching from [ZXing](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZXING.md), [ZBar](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZBAR.md),
+Switching from [zxing-cpp or ZXing-JS](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZXING.md), [ZBar](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_ZBAR.md),
 [Quagga](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_QUAGGA.md) or
 [html5-qrcode](https://github.com/kleinicke/tapirscan/blob/main/docs/MIGRATING_FROM_HTML5_QRCODE.md): see the migration guides.
 

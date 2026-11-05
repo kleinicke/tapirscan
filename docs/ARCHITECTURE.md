@@ -116,7 +116,7 @@ Production builds compile `core/src` directly. The public Rust package relocates
 this shared tree into private per-mode namespaces to support several modes in one
 process. Generated namespaces are build artifacts, not separate maintained copies.
 
-The demo's ZXing and ZBar workers are comparison tools. They never supply fallback
+The demo's zxing-cpp and ZBar workers are comparison tools. They never supply fallback
 results to Tapirscan, and they are not dependencies of the distributed library.
 
 ## Changing the algorithms

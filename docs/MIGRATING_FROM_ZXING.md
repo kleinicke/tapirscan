@@ -1,7 +1,8 @@
-# Migrating from ZXing
+# Migrating from zxing-cpp or ZXing-JS
 
-Covers `@zxing/library` with `@zxing/browser`, `zxing-wasm` 3.x and `zxing-cpp`
-3.x (Python); format names follow those versions. Tapirscan returns every
+Covers ZXing-JS (`@zxing/library`) with `@zxing/browser`, `zxing-wasm` 3.x and `zxing-cpp`
+3.x (Python); format names follow those versions. `zxing-wasm` wraps zxing-cpp
+compiled to WebAssembly; ZXing-JS is a separate TypeScript implementation. Tapirscan returns every
 barcode in an image as `text`, `format`, `polygon` and `rect`; see the
 [JavaScript](../bindings/javascript/README.md) and
 [Python](../bindings/python/README.md) guides for the full API.
@@ -64,7 +65,7 @@ for b in result.barcodes:
 `image` is a Pillow image or NumPy array in both. zxing-cpp reads arrays as BGR; Tapirscan reads
 RGB, so convert OpenCV frames with `cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)` (faster) or pass
 `color_order="BGR"`. Without `formats`, Tapirscan reads only EAN13,
-UPCA, EAN8 and UPCE, where ZXing reads everything. `"common"` adds Code128, Code39, ITF, QR Code and
+UPCA, EAN8 and UPCE, where these readers default to all supported formats. `"common"` adds Code128, Code39, ITF, QR Code and
 Data Matrix; `"all"` reads all but the opt-in formats.
 
 ## Formats
@@ -104,7 +105,7 @@ Result `format` values equal zxing-wasm's names except for the grouped rows. zxi
 
 Text differs for four formats:
 
-| Format  | ZXing                                                                | Tapirscan                                                    |
+| Format  | Reference reader                                                     | Tapirscan                                                    |
 | ------- | -------------------------------------------------------------------- | ------------------------------------------------------------ |
 | UPC-A   | zxing-cpp/wasm: 13 digits `0036000291452`; @zxing/library: 12 digits | `UPCA` selected: 12 digits; only `EAN13` selected: 13 digits |
 | UPC-E   | zxing-cpp/wasm: expanded to 13 digits `0042100005264`                | 8 digits as encoded, `04252614`                              |
@@ -113,7 +114,7 @@ Text differs for four formats:
 
 With `EAN13` and `UPCA` both selected, a zero-prefixed EAN-13 is returned as `UPCA` with 12 digits.
 
-For ZXing's Codabar text, put the start and stop characters back (`codabar_start_stop` in
+For the reference readers' Codabar text, put the start and stop characters back (`codabar_start_stop` in
 Python and Rust):
 
 ```js
@@ -125,9 +126,9 @@ const zxingText = (b) =>
 
 `polygon` is four source-image points (`[x, y]` floats in JavaScript, `Point(x, y)` in Python);
 `rect` is the enclosing integer box. For 2D symbols the order follows the symbol's own orientation,
-as in ZXing: top-left, top-right, bottom-right, bottom-left, rotating with the symbol. For 1D
-symbols rotated by 180 or 270 degrees the points are in image order, so ZXing's names for them
-differ. ZXing's 1D positions follow the scanline that decoded and need not bound a tilted symbol;
+as in zxing-cpp: top-left, top-right, bottom-right, bottom-left, rotating with the symbol. For 1D
+symbols rotated by 180 or 270 degrees the points are in image order, so zxing-cpp's names for them
+differ. zxing-cpp's 1D positions follow the scanline that decoded and need not bound a tilted symbol;
 Tapirscan's polygon does.
 
 ```js
@@ -172,9 +173,9 @@ text:
 ```python
 if b.content and b.content.kind == "GS1":
     gtin, lot = b.content.get("01"), b.content.get("10")
-    hri = "".join(f"({f.name}){f.value}" for f in b.content.fields)  # ZXing HRI text
+    hri = "".join(f"({f.name}){f.value}" for f in b.content.fields)  # zxing-cpp HRI text
     flat = b.text.replace("\x1d", "")  # separator-free storage
-    marked = b.text.replace("\x1d", "<GS>")  # zxing "Escaped" style
+    marked = b.text.replace("\x1d", "<GS>")  # zxing-cpp "Escaped" style
 ```
 
 ```js
@@ -197,7 +198,7 @@ return all (`maxNumberOfSymbols` caps zxing-wasm at 255; use `barcodes.slice(0, 
 Effort is a mode, fixed when the scanner is created: in the browser import
 `tapirscan/browser/<mode>`; the core, `tapirscan/browser` and Python take `mode`.
 
-| ZXing                                                                  | Tapirscan                                                             |
+| Reference reader                                                       | Tapirscan                                                             |
 | ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `tryHarder: false`                                                     | Low (fast frames; Medium reads more blurred ones)                     |
 | `tryHarder: true` (zxing-wasm default)                                 | Medium (default); High for slow scans                                 |
@@ -288,7 +289,7 @@ const first = await new Promise((resolve, reject) => {
 | `ASSUME_GS1`, `ASSUME_CODE_39_CHECK_DIGIT` | None; `barcode.gs1` reports GS1, check characters stay in `text` |
 | `CHARACTER_SET`, `PURE_BARCODE`            | None; `payloadBytes` gives 2D bytes for your own decoding        |
 
-**Drawing and regions.** ZXing's result points become `polygon`; to draw it over
+**Drawing and regions.** ZXing-JS result points become `polygon`; to draw it over
 the video, see [drawing results](../bindings/javascript/README.md#drawing-results-over-the-video).
 To scan part of each frame, pass `region` as in
 [scanning a region](../bindings/javascript/README.md#scanning-a-region).

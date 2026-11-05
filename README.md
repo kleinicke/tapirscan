@@ -84,7 +84,7 @@ for selection syntax, variant details and EAN/UPC supplements.
 **[Open the camera and photo demo →](https://tapirscan.f-kleinicke.de)**
 
 Start with Pesto, choose another example, load a photo, or scan with your camera.
-Medium, ZXing and ZBar are enabled initially to compare the same image. Images are
+Medium, zxing-cpp and ZBar are enabled initially to compare the same image. Images are
 processed in your browser. Choose Retail, Common or other format selections to
 compare the readers.
 
@@ -184,9 +184,10 @@ The Python guide covers [TIFF images](bindings/python/README.md#tiff-with-tifffi
 [array/tensor layouts, value ranges and GPU tensors](bindings/python/README.md#array-and-tensor-inputs).
 Decoding runs on CPU.
 
-## How it differs from ZXing and ZBar
+## How it differs from zxing-cpp and ZBar
 
-For EAN-13, the ZXing-C++ reader used by our demo primarily searches horizontal
+Our demo uses **zxing-cpp via zxing-wasm 3.1.1**, compiled to WebAssembly.
+For EAN-13, this reader primarily searches horizontal
 rows and, with rotation enabled, vertical rows. A tilted barcode can still work
 if one of those rows crosses the complete pattern.
 
@@ -195,8 +196,13 @@ scanlines. Tapirscan instead explicitly localizes oriented regions and samples
 along their geometry, with bounded retries and a small-detail recovery pass in
 the higher effort modes.
 
-These are different ways of spending work on an image—not a universal speed or
-accuracy ranking. **[Read the illustrated comparison and its sources](docs/COMPARISON.md).**
+Our benchmarks showed that Tapirscan is **as good as zxing-cpp on well-aligned
+barcodes and superior on rotated, blurred, or distorted barcodes**. On Full HD
+(1080p) frames, Tapirscan with medium effort generally takes about **twice the runtime of zxing-cpp**,
+but is **faster on 4K video**. Runtime depends on the amount of contrast and
+barcode-like detail in the image, as well as the selected formats and effort mode.
+
+**[Read the illustrated comparison and benchmark context](docs/COMPARISON.md).**
 
 ## Choose an effort mode
 
@@ -240,7 +246,7 @@ it expects. Wrong reads, duplicates and missed symbols remain possible.
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Integrate in a browser or Node app | [JavaScript / TypeScript](bindings/javascript/README.md)                                                                                                                                                                                             |
 | Deploy on a website                | [Browser deployment](docs/BROWSER_DEPLOYMENT.md)                                                                                                                                                                                                     |
-| Switch from another scanner        | [ZXing](docs/MIGRATING_FROM_ZXING.md) · [ZBar](docs/MIGRATING_FROM_ZBAR.md) · [Quagga](docs/MIGRATING_FROM_QUAGGA.md) · [html5-qrcode](docs/MIGRATING_FROM_HTML5_QRCODE.md) · [flutter_zxing](docs/MIGRATING_FROM_FLUTTER_ZXING.md)                  |
+| Switch from another scanner        | [zxing-cpp](docs/MIGRATING_FROM_ZXING.md) · [ZBar](docs/MIGRATING_FROM_ZBAR.md) · [Quagga](docs/MIGRATING_FROM_QUAGGA.md) · [html5-qrcode](docs/MIGRATING_FROM_HTML5_QRCODE.md) · [flutter_zxing](docs/MIGRATING_FROM_FLUTTER_ZXING.md)              |
 | Scan Python images and arrays      | [Python](bindings/python/README.md)                                                                                                                                                                                                                  |
 | Use another native language        | [Rust](bindings/rust/README.md), [C](bindings/c/README.md), [C++](bindings/cpp/README.md), [Java](bindings/java/README.md), [Swift](bindings/swift/README.md), [Android](bindings/android/README.md), [Dart and Flutter](bindings/flutter/README.md) |
 | Choose formats                     | [Format coverage](docs/FORMATS.md)                                                                                                                                                                                                                   |
@@ -267,8 +273,7 @@ Turbo presets, the content kinds marked experimental in
 [structured content](docs/CONTENT.md#kinds), the JavaScript camera controller
 (`tapirscan/camera`) and the Swift, Android and Dart previews may
 change in minor releases. Release artifacts are published only for
-platforms whose release workflows pass. No general claim of superiority over
-ZXing or ZBar is made without a reproducible paired benchmark. See the
+platforms whose release workflows pass. See the
 [compatibility policy](CONTRIBUTING.md#api-stability) for API stability.
 
 Licensed under either the [MIT License](LICENSE-MIT) or the

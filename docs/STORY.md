@@ -8,27 +8,27 @@ My first guess was localization: perhaps the scanner simply wasn’t finding the
 
 Before investing that time, I asked Astra to optimize everything around the localizer and build a new pipeline in Rust. My requirements were straightforward: fast, versatile, and robust. But the most important work was **building the test harness that would tell me whether the scanner was actually getting there**.
 
-That harness was a substantial part of the project. I needed a collection of test images, checked labels, repeatable scanner runs, and a consistent way to score the outputs. ZXing and ZBar became ongoing reference points. The scanner had to read the correct value at the correct location, handle multiple barcodes, and report wrong reads and duplicates as well as successes. The harness measured localization, decoding, and total runtime separately.
+That harness was a substantial part of the project. I needed a collection of test images, checked labels, repeatable scanner runs, and a consistent way to score the outputs. zxing-cpp and ZBar became ongoing reference points. The scanner had to read the correct value at the correct location, handle multiple barcodes, and report wrong reads and duplicates as well as successes. The harness measured localization, decoding, and total runtime separately.
 
 This made the task much more concrete than “keep improving the scanner.” For each candidate, I could ask: which previously missed barcodes does it read now? Which working cases did it break? Did it become slower? And was a failure caused by localization or decoding? The harness gave the agent feedback it could act on and gave me results I could inspect without reading the implementation.
 
-I asked Astra to build the development loop around that feedback: implement a change, run focused checks, compare it with the previous version, and expand to the broader benchmark when the result justified it. Saved ZXing and ZBar outputs could be reused when the images and scanner settings stayed the same. New inputs needed new reference runs, and speed claims needed fresh, comparable timing measurements. Every small edit didn’t require rerunning every scanner.
+I asked Astra to build the development loop around that feedback: implement a change, run focused checks, compare it with the previous version, and expand to the broader benchmark when the result justified it. Saved zxing-cpp and ZBar outputs could be reused when the images and scanner settings stayed the same. New inputs needed new reference runs, and speed claims needed fresh, comparable timing measurements. Every small edit didn’t require rerunning every scanner.
 
 Eventually, the new pipeline had its own classical localizer and decoder. I asked Astra to optimize those further, with neural localization remaining an option. The harness made it possible to explore that change in direction while checking what each change gained and lost.
 
 ## The first result that made me believe in it
 
-It was slow at first, and I got frustrated. Surely building something as good as the available open-source libraries couldn’t be _that_ hard? I had underestimated how much refinement went into them. Sean Owen [announced the original Java ZXing project in November 2007](https://developers.googleblog.com/zxing-1d2d-barcode-decoding-source-code-released/); my benchmark uses the separately maintained ZXing-C++ through `zxing-wasm`.
+It was slow at first, and I got frustrated. Surely building something as good as the available open-source libraries couldn’t be _that_ hard? I had underestimated how much refinement went into them. Sean Owen [announced the original Java ZXing project in November 2007](https://developers.googleblog.com/zxing-1d2d-barcode-decoding-source-code-released/); my benchmark uses the separately maintained zxing-cpp through `zxing-wasm`.
 
-Their EAN-13 readers use horizontal and vertical scanlines to look for a decodable pattern. ZXing-C++ searches image rows, while ZBar can assemble compatible half-symbol reads from different scanlines. Tapirscan developed an explicit orientation-estimation step so it could sample along the barcode. These are different approaches to finding useful evidence, and matching established implementations took more work than I expected. The [technical comparison](COMPARISON.md) explains the differences and their limits.
+Their EAN-13 readers use horizontal and vertical scanlines to look for a decodable pattern. zxing-cpp searches image rows, while ZBar can assemble compatible half-symbol reads from different scanlines. Tapirscan developed an explicit orientation-estimation step so it could sample along the barcode. These are different approaches to finding useful evidence, and matching established implementations took more work than I expected. The [technical comparison](COMPARISON.md) explains the differences and their limits.
 
-Then came a result that changed how I felt about the project. The ongoing evaluations used my combined private and public EAN-13 development sets, rather than a separate untouched holdout. At one milestone, Astra reported that Tapirscan read 13 images ZXing missed—and ZXing read 13 that Tapirscan missed.
+Then came a result that changed how I felt about the project. The ongoing evaluations used my combined private and public EAN-13 development sets, rather than a separate untouched holdout. At one milestone, Astra reported that Tapirscan read 13 images zxing-cpp missed—and zxing-cpp read 13 that Tapirscan missed.
 
 That wasn’t a victory, but it was the first concrete sign that I had something worth developing. The two approaches had different strengths, beyond simply matching an existing implementation. There were specific failures to investigate and specific gains to protect. I told it to continue.
 
 I also challenged the development process itself: why were the iterations taking so long? I asked Astra to improve the experiment loop, including how changes were screened before broader evaluation. This was mostly an implementation-and-evaluation loop, not repeated neural-network training. **Improving how the agent worked was part of improving the scanner.**
 
-Later reports were encouraging, but a development comparison is not a general ranking of libraries. ZXing and ZBar remained reference points throughout the work. I wanted to understand which inputs each approach handled, where it failed, and what those gains cost in runtime. A public performance claim needs a reproducible comparison of the actual release; the [benchmark guide](BENCHMARKS.md) describes how to evaluate that.
+Later reports were encouraging, but a development comparison is not a general ranking of libraries. zxing-cpp and ZBar remained reference points throughout the work. I wanted to understand which inputs each approach handled, where it failed, and what those gains cost in runtime. A public performance claim needs a reproducible comparison of the actual release; the [benchmark guide](BENCHMARKS.md) describes how to evaluate that.
 
 ## Why I asked for Rust
 
@@ -40,9 +40,9 @@ When I ask an AI to move a working program to Rust, it often questions the motiv
 
 Throughout the process, I inspected failure cases and corrected labels. Some images were damaged; others had such low resolution that I wasn’t sure whether the barcode could be decoded at all. Any exclusions needed to stay explicit and documented. Removing a difficult image can improve a score without improving the algorithm.
 
-Once the benchmark results looked promising, I asked the agent to build a small website. I wanted to compare the classical pipeline, the neural-localizer variant, ZXing, and ZBar using my phone’s camera.
+Once the benchmark results looked promising, I asked the agent to build a small website. I wanted to compare the classical pipeline, the neural-localizer variant, zxing-cpp, and ZBar using my phone’s camera.
 
-That was essential. In the live demo, I found low-resolution barcodes that still caused problems even when the region was found. Rotation was another major weakness, including for ZXing and ZBar in the demo. Good results on my existing test images hadn’t captured enough of what mattered in actual use.
+That was essential. In the live demo, I found low-resolution barcodes that still caused problems even when the region was found. Rotation was another major weakness, including for zxing-cpp and ZBar in the demo. Good results on my existing test images hadn’t captured enough of what mattered in actual use.
 
 I asked Astra to focus on those cases and turn the observations into controlled rotation and resolution experiments, including real photographs rotated in steps. Those experiments shaped the released version of Tapirscan. They also gave me concrete weaknesses to keep investigating as people try it on images and devices I haven’t tested.
 

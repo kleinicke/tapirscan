@@ -53,9 +53,9 @@ Tapirscan's default is `Format.common`, not every format: each enabled 2D format
 searches the whole image, so select only what the app reads.
 
 flutter_zxing decodes with zxing-cpp, so values follow the zxing-cpp column of the
-[ZXing text differences](MIGRATING_FROM_ZXING.md#formats): UPC-A, UPC-E, Codabar
+[zxing-cpp text differences](MIGRATING_FROM_ZXING.md#formats): UPC-A, UPC-E, Codabar
 and DataBar text differ. Check stored values for those formats; for Codabar,
-`codabarStartStop` restores the letters ZXing keeps.
+`codabarStartStop` restores the letters zxing-cpp keeps.
 
 ## Options
 
