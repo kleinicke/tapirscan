@@ -44,9 +44,14 @@ for (const [name, launch] of [
   ["WebKit", () => webkit.launch()],
 ]) {
   describe(`scanning workflows in ${name}`, () => {
-    let browser;
+    let browser, skip;
     before(async () => {
-      browser = await launch();
+      try {
+        browser = await launch();
+      } catch (error) {
+        if (name === "Chrome") throw error;
+        skip = `${name} is not installed: ${error.message.split("\n")[0]}`;
+      }
     });
     after(() => browser?.close());
 
@@ -60,7 +65,8 @@ for (const [name, launch] of [
       return page;
     }
 
-    test("photo scan-one finishes, freezes inputs, and resets for a fresh scan", async () => {
+    test("photo scan-one finishes, freezes inputs, and resets for a fresh scan", async (context) => {
+      if (skip) return context.skip(skip);
       const page = await open();
       try {
         await page.setInputFiles("#photo", await fixturePhoto(page));
@@ -85,7 +91,8 @@ for (const [name, launch] of [
       }
     });
 
-    test("multiple photo codes require a deliberate single selection", async () => {
+    test("multiple photo codes require a deliberate single selection", async (context) => {
+      if (skip) return context.skip(skip);
       const page = await open();
       try {
         await page.setInputFiles("#photo", await fixturePhoto(page, true));
@@ -101,7 +108,8 @@ for (const [name, launch] of [
       }
     });
 
-    test("list suppresses repeated uploads, supports extra units and undo, then exports", async () => {
+    test("list suppresses repeated uploads, supports extra units and undo, then exports", async (context) => {
+      if (skip) return context.skip(skip);
       const page = await open();
       try {
         await page.selectOption("#mode", "list");
@@ -131,7 +139,8 @@ for (const [name, launch] of [
       }
     });
 
-    test("camera refusal retains photo fallback and photo errors can be retried", async () => {
+    test("camera refusal retains photo fallback and photo errors can be retried", async (context) => {
+      if (skip) return context.skip(skip);
       const page = await open();
       try {
         await page.evaluate(() => {
@@ -159,7 +168,8 @@ for (const [name, launch] of [
       }
     });
 
-    test("reset discards an in-flight photo result", async () => {
+    test("reset discards an in-flight photo result", async (context) => {
+      if (skip) return context.skip(skip);
       const page = await open();
       try {
         await page.evaluate(async () => {
@@ -187,7 +197,8 @@ for (const [name, launch] of [
       }
     });
 
-    test("a confirmed camera result completes single mode and releases the stream", async () => {
+    test("a confirmed camera result completes single mode and releases the stream", async (context) => {
+      if (skip) return context.skip(skip);
       const page = await open();
       try {
         const photo = await fixturePhoto(page);

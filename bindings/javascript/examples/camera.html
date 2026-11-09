@@ -10,6 +10,7 @@
     The barcode does not need to fill the preview. If it stays blurry up close, try moving slightly
     farther away.
   </p>
+  <p id="focus-note"></p>
   <p id="control-status" role="status"></p>
   <video style="max-width: 100%"></video>
   <pre role="status"></pre>
@@ -24,8 +25,10 @@
     const zoomControl = document.querySelector("#zoom-control");
     const zoom = document.querySelector("#zoom");
     const controlStatus = document.querySelector("#control-status");
+    const focusNote = document.querySelector("#focus-note");
+    const video = document.querySelector("video");
     const scanner = new Scanner({ formats: ["EAN13", "QRCode"] });
-    const camera = new CameraScanner(document.querySelector("video"), scanner, {
+    const camera = new CameraScanner(video, scanner, {
       onScan: (result) => {
         status.textContent = JSON.stringify(result.values);
         refreshControls();
@@ -35,6 +38,11 @@
 
     function refreshControls() {
       focus.disabled = !camera.continuousFocusAvailable;
+      focusNote.textContent = !camera.track
+        ? ""
+        : camera.pointFocusAvailable
+          ? "Tap the preview to focus there."
+          : "This browser offers no tap-to-focus (iPhone and iPad browsers never do); the camera focuses automatically.";
       const range = camera.zoomRange;
       zoomControl.hidden = !range;
       if (range) {
@@ -57,6 +65,16 @@
       refreshControls();
     }
     focus.onclick = () => changeControl(() => camera.setContinuousFocus());
+    // The preview is shown unmirrored and uncropped, so a tap maps directly to video coordinates.
+    video.onclick = (event) => {
+      if (!camera.pointFocusAvailable) return;
+      const box = video.getBoundingClientRect();
+      const point = {
+        x: Math.min(1, Math.max(0, (event.clientX - box.left) / box.width)),
+        y: Math.min(1, Math.max(0, (event.clientY - box.top) / box.height)),
+      };
+      return changeControl(() => camera.focusAt(point));
+    };
     zoom.onchange = () => {
       const value = Number(zoom.value);
       return changeControl(() => camera.setZoom(value));

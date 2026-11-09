@@ -194,7 +194,10 @@ false` to leave focus alone; an explicit `focusMode` constraint also wins.
   `camera.continuousFocusAvailable` reports support and
   `await camera.setContinuousFocus()` requests it again. This is not tap-to-focus
   or automatic macro lens selection; focus cannot overcome a lens's minimum
-  focusing distance.
+  focusing distance. Safari and every other iPhone and iPad browser (all use
+  WebKit) offer no focus controls to web pages, so focus stays with iOS's own
+  continuous autofocus there; zoom and torch do work. If a code stays blurry up
+  close, hold the phone farther away and zoom in.
 - **Zoom:** `camera.zoomRange` exposes `{ min, max, step }` when adjustable zoom is
   available. `await camera.setZoom(value)` requests a positive value within that
   range; `camera.zoom` reads the browser's current setting. Controls resolve
@@ -371,6 +374,10 @@ if (camera.pointFocusAvailable) {
 }
 await camera.setContinuousFocus(); // clears an earlier point and restores autofocus
 ```
+
+Point focus currently works in Chrome on Android. WebKit, which every iPhone and
+iPad browser uses, does not support `focusMode` or `pointsOfInterest`, so
+`pointFocusAvailable` is `false` there and focus stays automatic.
 
 Point focus is offered only when the browser recognizes points of interest and
 the current camera advertises continuous or single-shot autofocus. It prefers

@@ -111,7 +111,7 @@ and some non-barcode backgrounds trigger substantial extra work. Telepen and
 rMQR remain included in `all`.
 
 MicroPDF417 and rMQR use their own identifiers; selecting `PDF417` or `QRCode`
-does not enable them. Both are included in `2D` and `all`. Java represents
+does not enable them. rMQR is included in `2D` and `all`. Java represents
 `RMQRCode`'s bit as the signed integer `-2147483648`; the native unsigned mask
 and JavaScript value are `2147483648`.
 

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Scanner formats now default to `common` in every binding: EAN13, UPCA, EAN8,
+  UPCE, Code128, Code39, ITF, QRCode and DataMatrix. Select `retail` explicitly
+  to keep the previous EAN/UPC-only behavior; `common` takes about twice as long
+  per frame (Medium, 300 real product photos).
+- `CameraScanner` asks the camera for continuous autofocus by default
+  (`autoFocus: false` turns it off). Experimental camera controls set zoom,
+  torch, continuous focus and point (tap-to-focus) focus where the browser
+  supports them. iPhone and iPad browsers (WebKit) support zoom and torch but no
+  focus controls, so focus stays automatic there.
+- Experimental `ScanSession` in the JavaScript, Python, Java, Android, Swift and
+  Flutter bindings: it keeps the state of a scanning workflow (duplicates,
+  quantities, undo).
+
 - Python wheels and native release archives for Linux on musl (Alpine 3.13+ and
   other musl 1.2+ distributions), on x86_64 and ARM64: `musllinux_1_2` wheels
   and `linux-x64-musl` and `linux-arm64-musl` archives.
@@ -15,10 +28,6 @@
 - Added experimental MicroPDF417 decoding, selected explicitly as
   `MicroPDF417`. It is excluded from `all` and `2D` while difficult-image
   recovery and background-dependent scanning costs are improved.
-
-- Scanner formats now default to `common` in every binding: EAN13, UPCA, EAN8,
-  UPCE, Code128, Code39, ITF, QRCode and DataMatrix. Select `retail` explicitly
-  to keep the previous EAN/UPC-only behavior.
 
 - Medium, High and Very High read more small Data Matrix symbols in busy frames.
   A candidate that almost passes the border check is now retried on a crop of
