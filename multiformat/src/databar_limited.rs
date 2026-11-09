@@ -319,6 +319,7 @@ pub fn decode(r: &[f32], s: usize) -> Option<Read> {
         error: (left.2 + right.2 + check_error) / 3.,
         codabar_start_stop: None,
         gs1: true,
+        reader_initialization: false,
     })
 }
 

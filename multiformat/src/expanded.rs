@@ -430,6 +430,7 @@ pub fn decode(r: &[f32], s: usize) -> Option<Read> {
         end,
         error: err / crate::numeric::usize_f32(symbols + blocks),
         gs1: true,
+        reader_initialization: false,
     })
 }
 #[cfg(test)]

@@ -14,6 +14,7 @@ fn restored_upce_requires_source_quiet_space_or_actual_image_edge() {
         end: 8,
         error: 0.,
         gs1: false,
+        reader_initialization: false,
     };
     let mut runs = vec![0.5, 1., 1., 1., 1., 3., 1., 1., 0.5];
     let interior = [[20., 30.], [80., 30.]];

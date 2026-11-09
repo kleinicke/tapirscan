@@ -26,13 +26,13 @@ build of each target needs network access to `github.com`; `http_proxy` and
 
 | Platform | Targets                                                                            |
 | -------- | ---------------------------------------------------------------------------------- |
-| Android  | arm64-v8a and x86_64, Android 7.0 (API 24) or later                                |
+| Android  | arm64-v8a, armeabi-v7a, x86_64 and x86, Android 5.0 (API 21) or later              |
 | iOS      | iOS 13 or later on arm64 devices and x86_64 simulators, iOS 14 on arm64 simulators |
 | macOS    | macOS 11 or later, arm64 and x86_64                                                |
 | Linux    | x86_64 and arm64, glibc 2.28 or later                                              |
 | Windows  | x64 and arm64                                                                      |
 
-Other 64-bit targets need a `source_dir` (a Tapirscan checkout) or a
+Other targets need a `source_dir` (a Tapirscan checkout) or a
 `library_dir`. Settings go in the app's `pubspec.yaml`:
 
 ```yaml
@@ -144,11 +144,11 @@ Coming from `flutter_zxing`: see the
 
 ## Platforms and errors
 
-64-bit Android (arm64-v8a, x86_64), iOS, macOS, Linux and Windows. Tested on
-macOS arm64, Linux x86_64 and an Android arm64 emulator. Native ABI 7 is
-64-bit only: on 32-bit Android `Tapirscan.isSupported` is false and `Scanner()`
-throws `UnsupportedError`, so an app can fall back to another scanner. The app
-build itself still succeeds.
+Android (arm64-v8a, armeabi-v7a, x86_64, x86), iOS, macOS, Linux and Windows.
+Tested on macOS arm64, Linux x86_64 and an Android arm64 emulator. On a target
+without a library `Tapirscan.isSupported` is false and `Scanner()` throws
+`UnsupportedError`, so an app can fall back to another scanner. The app build
+itself still succeeds.
 
 Failed calls throw `ScannerException` with a `ScannerErrorCode` (`invalidInput`
 or `engine`), the C `status` and the library's `message`. Calls on a disposed

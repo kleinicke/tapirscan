@@ -32,6 +32,11 @@ def library_name(target: str) -> str:
     return "libtapirscan.dylib" if "apple" in target else "libtapirscan.so"
 
 
+def clang_target(target: str) -> str:
+    """Return the NDK clang target prefix for an Android Rust target."""
+    return target.replace("armv7-", "armv7a-")
+
+
 def link_arguments(target: str, linker: str | None, android_api: int) -> list[str]:
     """Return per-target `rustc` codegen arguments for the final link."""
     name = library_name(target)
@@ -43,7 +48,7 @@ def link_arguments(target: str, linker: str | None, android_api: int) -> list[st
         return [
             *(["-C", f"linker={linker}"] if linker else []),
             "-C",
-            f"link-arg=--target={target}{android_api}",
+            f"link-arg=--target={clang_target(target)}{android_api}",
             "-C",
             "link-arg=-Wl,-z,max-page-size=16384",
             "-C",
@@ -87,7 +92,7 @@ def build(
         # Prefer the NDK's per-target wrapper, as build_android.py does; it also
         # compiles any C sources of dependencies for the right API level.
         tools = Path(linker).parent
-        wrapper = tools / f"{target}{android_api}-clang"
+        wrapper = tools / f"{clang_target(target)}{android_api}-clang"
         linker = str(wrapper) if wrapper.exists() else linker
         env[f"CC_{target.replace('-', '_')}"] = linker
         env[f"AR_{target.replace('-', '_')}"] = str(tools / "llvm-ar")
@@ -130,7 +135,7 @@ if __name__ == "__main__":
     parser.add_argument("--target", required=True, help="Rust target triple")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--linker", help="Android NDK clang")
-    parser.add_argument("--android-api", type=int, default=24)
+    parser.add_argument("--android-api", type=int, default=21)
     args = parser.parse_args()
     public = ROOT / "build/crates/tapirscan"
     with prepared_package(public, refresh=True):

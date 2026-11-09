@@ -367,7 +367,7 @@ same fields plus the ones marked _inspect_. Results are immutable.
 | `barcode.support`               | Reader-specific ranking evidence used by `best`.                                            |
 | `barcode.payload_bytes`         | Decoded payload bytes, when available; otherwise None.                                      |
 | `barcode.gs1`                   | GS1 indicator, or None if not supplied by the reader.                                       |
-| `barcode.reader_initialization` | Data Matrix, PDF417, Aztec and MaxiCode reader-initialization flag; None for other formats. |
+| `barcode.reader_initialization` | Data Matrix, PDF417, Aztec, MaxiCode, Code 128 reader-initialization flag; None for others. |
 | `barcode.structured_append`     | `StructuredAppend(index, count, id, parity)`, or None; index is one-based.                  |
 | `barcode.ean_add_on`            | EAN/UPC supplement, with `ean_add_on_policy` `"read"` or `"require"`.                       |
 | `barcode.codabar_start_stop`    | Codabar start and stop characters, such as `"AB"`, which `text` omits; None otherwise.      |

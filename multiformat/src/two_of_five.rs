@@ -104,6 +104,7 @@ fn finish(
         error,
         codabar_start_stop: None,
         gs1: false,
+        reader_initialization: false,
     })
 }
 

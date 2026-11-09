@@ -747,6 +747,7 @@ impl<T> Read<T> {
                         | "IATA25"
                         | "Matrix25"
                         | "Pharmacode"
+                        | "MSIPlessey"
                 )
                 || (crate::LOW_FAST_PATH && self.format == "Code93"))
     }

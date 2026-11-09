@@ -183,8 +183,7 @@ find_package(Tapirscan CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE tapirscan::cpp)
 ```
 
-The package also installs the C header for C consumers. The wrapper targets
-64-bit platforms.
+The package also installs the C header for C consumers.
 
 ## License
 

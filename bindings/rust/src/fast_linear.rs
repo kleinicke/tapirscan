@@ -1214,7 +1214,7 @@ impl Candidate<'_> {
                 addon: None,
                 codabar_start_stop: found.codabar_start_stop,
                 gs1: Some(found.gs1),
-                reader_initialization: None,
+                reader_initialization: found.reader_initialization.then_some(true),
                 structured_append: None,
                 payload: ReaderPayload {
                     error: Some(f64::from(found.error)),
@@ -1595,6 +1595,7 @@ fn supplement_ean(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<line
                 end,
                 error: 0.,
                 gs1: false,
+                reader_initialization: false,
             });
         }
     }
@@ -1642,6 +1643,7 @@ fn supplement_ean8_visual(runs: &[f32], first_black: bool, mask: u32, out: &mut 
                 end,
                 error: cost,
                 gs1: false,
+                reader_initialization: false,
             });
         }
     }

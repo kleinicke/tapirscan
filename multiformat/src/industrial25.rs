@@ -161,6 +161,7 @@ fn finish(r: &[f32], s: usize, stop: usize, digits: &[u8]) -> Option<Read> {
         end,
         error,
         gs1: false,
+        reader_initialization: false,
     })
 }
 

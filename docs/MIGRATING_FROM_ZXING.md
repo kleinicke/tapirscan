@@ -84,16 +84,18 @@ Data Matrix; `"all"` reads all but the opt-in formats.
 | `DataBar`, `DataBarOmni`, `DataBarStk`, `DataBarStkOmni` | `RSS_14`                            | `DataBar`                                            |
 | `DataBarExp`, `DataBarExpStk`                            | `RSS_EXPANDED`                      | `DataBarExpanded`                                    |
 | `DataBarLtd`, `DataBarLimited`                           | none                                | `DataBarLimited`                                     |
-| `Telepen*`, `DXFilmEdge`                                 | none                                | none                                                 |
+| `Telepen*`                                               | none                                | `Telepen`; `TelepenNumeric` (opt-in)                 |
+| `DXFilmEdge`                                             | none                                | none                                                 |
 | none                                                     | none                                | `MSIPlessey` (opt-in)                                |
 | none                                                     | none                                | `Industrial25`, `Pharmacode` (opt-in)                |
 | none                                                     | none                                | `IATA25`, `Matrix25` (opt-in)                        |
 | `QRCode`, `QRCodeModel2`                                 | `QR_CODE`                           | `QRCode`                                             |
 | `MicroQRCode`                                            | `MICRO_QR_CODE`                     | `MicroQRCode`                                        |
-| `QRCodeModel1`, `RMQRCode`                               | none                                | none                                                 |
+| `RMQRCode`                                               | none                                | `RMQRCode`                                           |
+| `QRCodeModel1`                                           | none                                | none                                                 |
 | `DataMatrix`                                             | `DATA_MATRIX`                       | `DataMatrix`                                         |
 | `PDF417`, `CompactPDF417`                                | `PDF_417`                           | `PDF417`                                             |
-| `MicroPDF417`                                            | none                                | none                                                 |
+| `MicroPDF417`                                            | none                                | `MicroPDF417` (opt-in, experimental)                 |
 | `Aztec`, `AztecCode`, `AztecRune`                        | `AZTEC`                             | `Aztec` (includes Rune)                              |
 | `MaxiCode`                                               | `MAXICODE`                          | `MaxiCode`                                           |
 | `All`, `AllReadable`                                     |                                     | `"all"` (opt-in formats stay excluded)               |
@@ -173,7 +175,8 @@ text:
 ```python
 if b.content and b.content.kind == "GS1":
     gtin, lot = b.content.get("01"), b.content.get("10")
-    hri = "".join(f"({f.name}){f.value}" for f in b.content.fields)  # zxing-cpp HRI text
+    # zxing-cpp HRI text
+    hri = "".join(f"({f.name}){f.value}" for f in b.content.fields)
     flat = b.text.replace("\x1d", "")  # separator-free storage
     marked = b.text.replace("\x1d", "<GS>")  # zxing-cpp "Escaped" style
 ```

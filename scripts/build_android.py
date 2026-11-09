@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the Android library (AAR with arm64-v8a and x86_64) using the Android NDK."""
+"""Build the Android library (AAR with all four Android ABIs) using the Android NDK."""
 
 import argparse
 import os
@@ -18,17 +18,19 @@ from build import ROOT
 TARGET = ROOT / "build/android-target"
 OUT = ROOT / "build/android"
 ANDROID = ROOT / "bindings/android"
-# ABI and Rust target, which also names the NDK clang. Native ABI 7 supports
-# 64-bit targets only.
+# ABI, Rust target and the NDK clang's target prefix (which differs for 32-bit Arm).
 ABIS = [
-    ("arm64-v8a", "aarch64-linux-android"),
-    ("x86_64", "x86_64-linux-android"),
+    ("arm64-v8a", "aarch64-linux-android", "aarch64-linux-android"),
+    ("x86_64", "x86_64-linux-android", "x86_64-linux-android"),
+    ("armeabi-v7a", "armv7-linux-androideabi", "armv7a-linux-androideabi"),
+    ("x86", "i686-linux-android", "i686-linux-android"),
 ]
-MIN_API = 24
+# Android 5.0, the oldest API level the NDK supports.
+MIN_API = 21
 MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.tapirscan.android">
-    <uses-sdk android:minSdkVersion="24" />
+    <uses-sdk android:minSdkVersion="21" />
 </manifest>
 """
 # R8 must keep the JNI entry points and the constructors native code calls.
@@ -59,15 +61,15 @@ def build(public_crate: Path, ndk: Path) -> Path:
     """Build the C library per ABI, link the JNI bridge into it and package an AAR."""
     tools = toolchain(ndk) / "bin"
     subprocess.run(
-        ["rustup", "target", "add", *[target for _, target in ABIS]],
+        ["rustup", "target", "add", *[target for _, target, _ in ABIS]],
         check=True,
         capture_output=True,
     )
     native = prepare_native_crate(public_crate)
     libraries = OUT / "jni"
     shutil.rmtree(OUT, ignore_errors=True)
-    for abi, target in ABIS:
-        clang = tools / f"{target}{MIN_API}-clang"
+    for abi, target, clang_target in ABIS:
+        clang = tools / f"{clang_target}{MIN_API}-clang"
         # The Android x86-64 ABI already requires SSE4.2 and POPCNT.
         env = cargo_env(TARGET, target)
         env[f"CC_{target.replace('-', '_')}"] = str(clang)

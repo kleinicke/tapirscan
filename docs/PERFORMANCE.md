@@ -153,7 +153,6 @@ thread and ignore the option.
 - **iOS:** the [Swift package](../bindings/swift/README.md) scans AVFoundation frames
   through their luma plane, in place, and `CGImage`s.
 - **Android:** the [Android AAR](../bindings/android/README.md) scans the Y plane of
-  CameraX frames in place through JNI (64-bit ABIs). 32-bit devices can use the
-  browser build in a WebView.
+  CameraX frames in place through JNI (API 21+, 32- and 64-bit ABIs).
 - On phones, use Low, 720p-1080p frames and only the formats you need; scanning the
   camera's luma plane avoids both a copy and a color conversion.

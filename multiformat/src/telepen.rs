@@ -216,6 +216,7 @@ pub(crate) fn decode(
                 end: at + 11,
                 error: max_error,
                 gs1: false,
+                reader_initialization: false,
             });
         }
         if words.len() >= MAX_CODEWORDS {

@@ -46,7 +46,9 @@ flutter_zxing combines `int` constants with `|`; Tapirscan takes a `Set<Format>`
 | `qrCode`, `dataMatrix`, `pdf417`, `aztec`, `maxiCode` | the same names                                                                                               |
 | `linearCodes`, `matrixCodes`, `any` (the default)     | `Format.linear`, `Format.matrix`, `Format.all`                                                               |
 | `microQRCode`, `dataBarLimited`                       | `microQrCode`, `dataBarLimited`                                                                              |
-| `rmqrCode`, `microPdf417`, `telepen`, `dxFilmEdge`    | not supported                                                                                                |
+| `rmqrCode`, `telepen`                                 | `rmQrCode`, `telepen`                                                                                        |
+| `microPdf417`                                         | `microPdf417` (opt-in, experimental)                                                                         |
+| `dxFilmEdge`                                          | not supported                                                                                                |
 | none                                                  | `code32`, `pzn`, `msiPlessey`, `industrial25`, `pharmacode`, `code39Extended`, `iata25`, `matrix25` (opt-in) |
 
 Tapirscan's default is `Format.common`, not every format: each enabled 2D format
@@ -161,8 +163,8 @@ returns an empty result when nothing is found and throws `ScannerException`
 The packages can live in one app: their native libraries have different names
 (`libflutter_zxing`, `libtapirscan`).
 Share one `CameraController` and pass each frame to the decoder you need. A common
-split is Tapirscan where it runs and flutter_zxing elsewhere, such as 32-bit
-Android or the web:
+split is Tapirscan where it runs and flutter_zxing elsewhere, such as the
+web:
 
 ```dart
 final tapirscan = ts.Tapirscan.isSupported ? ts.Scanner() : null;

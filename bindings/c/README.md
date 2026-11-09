@@ -171,13 +171,15 @@ Calls are thread-safe. Scans on one scanner serialize; separate scanners run
 concurrently, and each scan uses extra threads unless `parallel` is off. Destroy each handle once; stale handles return
 `TAPIRSCAN_INVALID_HANDLE`. Status failures never unwind into C; out-of-memory
 and invalid raw memory are outside that guarantee, and valid pointers remain the
-caller's responsibility. The library targets 64-bit platforms.
+caller's responsibility. Sizes and indices are `uint64_t` on every platform; on
+32-bit platforms values beyond the address space fail with
+`TAPIRSCAN_ERROR_ARGUMENT`.
 
 ## Prebuilt libraries
 
 Each [GitHub release](https://github.com/kleinicke/tapirscan/releases) attaches `tapirscan-VERSION-PLATFORM.zip` for
 `linux-x64`, `linux-arm64` (glibc 2.28+), `linux-x64-musl`, `linux-arm64-musl` (musl 1.2+, such as Alpine), `macos-arm64`, `macos-x64` (macOS 11+),
-`windows-x64`, `windows-arm64`, `android-arm64`, `android-x64` (API 24+), `ios-arm64`,
+`windows-x64`, `windows-arm64`, `android-arm64`, `android-x64`, `android-arm`, `android-ia32` (API 21+), `ios-arm64`,
 `ios-x64-simulator` (iOS 13+) and `ios-arm64-simulator` (iOS 14+), with a `SHA256SUMS`
 file. Each archive is an install tree: `include/` (C and C++ headers), `lib/`
 (the shared library; on Windows `tapirscan.dll` and its import library

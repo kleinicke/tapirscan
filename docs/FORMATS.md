@@ -78,7 +78,7 @@ The supported public identifiers and native bits are:
 | UPCA            |          2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected |
 | EAN8            |          4 | Supported retail reader                                          |
 | UPCE            |          8 | Supported retail reader                                          |
-| Code128         |         16 | Supported, including GS1 metadata                                |
+| Code128         |         16 | GS1 metadata; FNC3 sets reader initialization, FNC2 is dropped   |
 | Code39          |         32 | Standard characters; full ASCII is `Code39Extended`              |
 | ITF             |         64 | Supported                                                        |
 | Codabar         |        128 | Start/stop letters omitted from text, in `codabarStartStop`      |

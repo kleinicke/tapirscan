@@ -1,7 +1,7 @@
 //! Native ABI 7. Handles are registry IDs, never dereferenced pointers.
 //! Caller-owned pointer ranges must be valid, correctly aligned and nonoverlapping.
-#[cfg(not(target_pointer_width = "64"))]
-compile_error!("Native ABI 7 currently supports 64-bit targets only");
+//! Sizes and indices are `u64` on every target; values a 32-bit target cannot
+//! address fail with `TAPIRSCAN_ERROR_ARGUMENT` instead of being truncated.
 use std::{
     collections::HashMap,
     ffi::{CString, c_char},

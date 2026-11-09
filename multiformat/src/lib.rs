@@ -112,6 +112,10 @@ pub struct Scan {
     pub unfinished: bool,
     pub lines: usize,
 }
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Profile, decode, GS1 and reader-initialization flags are independent read properties."
+)]
 struct Group {
     profile_only: bool,
     decoded: bool,
@@ -128,6 +132,7 @@ struct Group {
     support: usize,
     error: f32,
     gs1: bool,
+    reader_initialization: bool,
     last_line: usize,
 }
 
@@ -947,6 +952,7 @@ pub fn scan_with_images(
                         g.format == read.format
                             && g.decoded == read.decoded
                             && g.text == read.text
+                            && g.reader_initialization == read.reader_initialization
                             && (g.addon.is_none() || read.addon.is_none() || g.addon == read.addon)
                             && (g.angle - angle).abs() < 0.01
                             && (g.lo - lo).abs() < length * 0.25
@@ -984,6 +990,7 @@ pub fn scan_with_images(
                             support: 1,
                             error: read.error,
                             gs1: read.gs1,
+                            reader_initialization: read.reader_initialization,
                             last_line: line_id,
                         });
                     }
@@ -1062,7 +1069,7 @@ pub fn scan_with_images(
                 assembled_rows: false,
                 bytes: None,
                 structured_append: None,
-                reader_initialization: false,
+                reader_initialization: g.reader_initialization,
                 addon: if addon_confirmed { g.addon } else { None },
                 codabar_start_stop: g.codabar_start_stop,
                 format: g.format,

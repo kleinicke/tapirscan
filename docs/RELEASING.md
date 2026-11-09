@@ -173,7 +173,7 @@ Every publishing run (any selection except `none`) makes sure the GitHub release
 (`linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `macos-arm64`,
 `macos-x64`, `windows-x64`, `windows-arm64`) are the ones inside the tested wheels; `collect_release.py`
 requires the wheel job's native artifact to hold the identical file and adds the
-Windows import libraries from it. `android-arm64` and `android-x64` (API 24) come from the CI `android`
+Windows import libraries from it. `android-arm64`, `android-x64`, `android-arm` and `android-ia32` (API 21) come from the CI `android`
 job; `ios-arm64`, `ios-arm64-simulator` and `ios-x64-simulator` (iOS 13; the arm64 simulator 14) from the
 CI `swift` job, both built with `scripts/build_flutter_native.py`.
 `collect_release.py` checks each library's CPU architecture.

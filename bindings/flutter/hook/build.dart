@@ -58,6 +58,8 @@ String? _rustTarget(CodeConfig code) =>
     switch ((code.targetOS, code.targetArchitecture)) {
       (OS.android, Architecture.arm64) => 'aarch64-linux-android',
       (OS.android, Architecture.x64) => 'x86_64-linux-android',
+      (OS.android, Architecture.arm) => 'armv7-linux-androideabi',
+      (OS.android, Architecture.ia32) => 'i686-linux-android',
       (OS.iOS, Architecture.arm64) =>
         code.iOS.targetSdk == IOSSdk.iPhoneSimulator
             ? 'aarch64-apple-ios-sim'

@@ -389,6 +389,7 @@ pub fn decode(runs: &[f32], s: usize) -> Option<Read> {
         end: s + 45,
         error: (le + re + chars.iter().map(|c| c.2).sum::<f32>()) / 6.,
         gs1: true,
+        reader_initialization: false,
     })
 }
 #[cfg(test)]

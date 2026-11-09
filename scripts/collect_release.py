@@ -29,6 +29,8 @@ PLATFORMS = set(DESKTOP)
 MOBILE = {
     "aarch64-linux-android": "android-arm64",
     "x86_64-linux-android": "android-x64",
+    "armv7-linux-androideabi": "android-arm",
+    "i686-linux-android": "android-ia32",
     "aarch64-apple-ios": "ios-arm64",
     "aarch64-apple-ios-sim": "ios-arm64-simulator",
     "x86_64-apple-ios": "ios-x64-simulator",
@@ -135,7 +137,7 @@ def architecture(data: bytes) -> str | None:
     """Return the CPU architecture of an ELF, Mach-O or PE library."""
     if data[:4] == b"\x7fELF":
         machine = int.from_bytes(data[18:20], "little")
-        return {0xB7: "arm64", 0x3E: "x64"}.get(machine)
+        return {0xB7: "arm64", 0x3E: "x64", 0x28: "arm", 0x03: "ia32"}.get(machine)
     if data[:4] == b"\xcf\xfa\xed\xfe":
         cpu = int.from_bytes(data[4:8], "little")
         return {0x0100000C: "arm64", 0x01000007: "x64"}.get(cpu)

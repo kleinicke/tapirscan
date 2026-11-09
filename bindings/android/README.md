@@ -3,7 +3,7 @@
 > **Preview:** the API may change in minor releases.
 
 A small Java API over the Tapirscan C library through JNI, usable from Kotlin and
-Java on Android (API 24+, 64-bit ABIs arm64-v8a and x86_64). It follows the shape of
+Java on Android (API 21+, ABIs arm64-v8a, armeabi-v7a, x86_64 and x86). It follows the shape of
 the [Java binding](../java/README.md): `scan` returns a `ScanResult` with `values()`,
 `barcodes()` and `best()`, and `inspect` returns an `InspectionResult` that adds
 undecoded regions, image size, mode, elapsed time and diagnostics. Shared semantics
@@ -27,6 +27,18 @@ Add it to your app module:
 ```kotlin
 dependencies {
     implementation(files("libs/tapirscan-android.aar"))
+}
+```
+
+Optional fields use `java.util.Optional` and `OptionalInt`, which Android provides
+from API 24. Apps with a `minSdk` of 21 to 23 enable core library desugaring:
+
+```kotlin
+android {
+    compileOptions { isCoreLibraryDesugaringEnabled = true }
+}
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 ```
 

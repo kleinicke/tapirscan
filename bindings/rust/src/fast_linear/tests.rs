@@ -208,6 +208,7 @@ fn nearby_confirmation_counts_distinct_rows_and_preserves_extent() {
         end: 40,
         error: 0.,
         gs1: false,
+        reader_initialization: false,
     };
     let mut sampler = barcode_research_core::fast_profile::Sampler::default();
     let (mut budget, mut used, mut dense_budget, mut dense_used) = (100_000, 0, 100_000, 0);
@@ -250,6 +251,7 @@ fn truncated_proposal_is_not_a_cropped_image() {
         end: 8,
         error: 0.,
         gs1: false,
+        reader_initialization: false,
     };
     let mut runs = vec![0.5, 1., 1., 1., 1., 3., 1., 1., 0.5];
     assert!(!source_quiet(&runs, &read, image, [[20., 30.], [80., 30.]]));
@@ -448,6 +450,7 @@ fn speck_retries_stay_bounded_in_boxes_without_reads() {
         end: 43,
         error: 0.,
         gs1: false,
+        reader_initialization: false,
     };
     candidate.admit(read, 0., 1., 0, 0.5);
     assert!(despeckle(&mut candidate, &mut sampler));

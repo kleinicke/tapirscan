@@ -303,6 +303,7 @@ fn code93(
                     end: at + 7,
                     error: err / crate::numeric::usize_f32(values.len() + 3),
                     gs1: false,
+                    reader_initialization: false,
                 });
             }
             let mut out = String::new();
@@ -356,6 +357,7 @@ fn code93(
                 end: at + 7,
                 error: err / crate::numeric::usize_f32(values.len() + 3),
                 gs1: false,
+                reader_initialization: false,
             });
         }
         values.push(v);
@@ -377,6 +379,8 @@ pub struct Read {
     pub end: usize,
     pub error: f32,
     pub gs1: bool,
+    /// Code 128 FNC3: the symbol programs the reader instead of carrying data.
+    pub reader_initialization: bool,
 }
 
 fn error_adjusted(r: &[f32], p: &[u8]) -> f32 {
@@ -659,6 +663,7 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
                         end,
                         error: err / crate::numeric::usize_f32(count),
                         gs1: false,
+                        reader_initialization: false,
                     });
                 }
                 continue;
@@ -680,6 +685,7 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
                         end,
                         error: err / crate::numeric::usize_f32(count),
                         gs1: false,
+                        reader_initialization: false,
                     });
                 }
                 continue;
@@ -694,6 +700,7 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
                 end,
                 error: err / crate::numeric::usize_f32(count),
                 gs1: false,
+                reader_initialization: false,
             });
         }
     }
@@ -917,10 +924,10 @@ fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Opti
             if !valid && (!retain_failed || edge_start || weak > 0) {
                 return None;
             }
-            let (text, gs1) = if valid {
+            let (text, gs1, reader_initialization) = if valid {
                 c128_text(&values)?
             } else {
-                (String::new(), false)
+                (String::new(), false, false)
             };
             return Some(Read {
                 decoded: valid,
@@ -932,6 +939,7 @@ fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Opti
                 end: at + 7,
                 error: err / crate::numeric::usize_f32(values.len()),
                 gs1,
+                reader_initialization,
             });
         }
         if v >= 103 {
@@ -943,8 +951,11 @@ fn code128(r: &[f32], s: usize, retain_failed: bool, limited: &mut bool) -> Opti
     *limited |= at + 7 <= r.len() && values.len() >= 256;
     None
 }
-fn c128_text(v: &[usize]) -> Option<(String, bool)> {
+/// Code 128 values to text, the GS1 flag (leading FNC1) and the reader
+/// initialization flag (FNC3). FNC2 (message append) is dropped, as by zxing-cpp.
+fn c128_text(v: &[usize]) -> Option<(String, bool, bool)> {
     let mut set = v[0] - 103;
+    let mut reader_initialization = false;
     let mut shift = false;
     let mut upper = false;
     let mut upper_once = false;
@@ -985,6 +996,8 @@ fn c128_text(v: &[usize]) -> Option<(String, bool)> {
             continue;
         }
         match c {
+            96 => reader_initialization = true,
+            97 => {}
             98 => shift = true,
             99 => set = 2,
             102 => {
@@ -1012,7 +1025,11 @@ fn c128_text(v: &[usize]) -> Option<(String, bool)> {
     if shift || upper_once || out.is_empty() {
         return None;
     }
-    Some((out.iter().map(|&b| b as char).collect(), gs1))
+    Some((
+        out.iter().map(|&b| b as char).collect(),
+        gs1,
+        reader_initialization,
+    ))
 }
 pub(crate) fn wide_bits(r: &[f32], n: usize, wides: usize) -> Option<(u16, f32)> {
     if r.len() < n {
@@ -1218,6 +1235,7 @@ fn code39_with_gain(
                 end: at + 9,
                 error: err / (1. + crate::numeric::usize_f32((at - start_index) / 10)),
                 gs1: false,
+                reader_initialization: false,
             });
         }
         out.push(C39_ALPHABET[d]);
@@ -1277,6 +1295,7 @@ fn itf(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
                 end: at + 3,
                 error,
                 gs1: false,
+                reader_initialization: false,
             });
         }
         if at + 10 > r.len() {
@@ -1459,6 +1478,7 @@ fn codabar(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
                 end: at + 7,
                 error: err / (1. + crate::numeric::usize_f32((at - s) / 8)),
                 gs1: false,
+                reader_initialization: false,
             });
         }
         out.push(CODA_ALPHABET[c]);
@@ -1537,10 +1557,13 @@ const MSI_MEAN_DEVIATION: f32 = 0.17;
 fn msi(r: &[f32], s: usize, limited: &mut bool) -> Option<Read> {
     let pair = |at: usize| -> Option<bool> {
         let (bar, space) = (*r.get(at)?, *r.get(at + 1)?);
+        // Nominally 1/3 or 2/3; at three pixels per module one pixel of print
+        // gain moves a pair close to 1/2. The two-width model below checks
+        // that the classified elements cluster.
         let fraction = bar / (bar + space);
-        if (0.2..=0.43).contains(&fraction) {
+        if (0.15..=0.47).contains(&fraction) {
             Some(false)
-        } else if (0.57..=0.8).contains(&fraction) {
+        } else if (0.53..=0.85).contains(&fraction) {
             Some(true)
         } else {
             None
@@ -1630,6 +1653,7 @@ fn msi_finish(r: &[f32], s: usize, end: usize, digits: &[u8]) -> Option<Read> {
         end,
         error: deviation / total,
         gs1: false,
+        reader_initialization: false,
     })
 }
 
@@ -1940,6 +1964,7 @@ mod tests {
                             end,
                             error: err / count as f32,
                             gs1: false,
+                            reader_initialization: false,
                         });
                     }
                     continue;
@@ -1961,6 +1986,7 @@ mod tests {
                             end,
                             error: err / count as f32,
                             gs1: false,
+                            reader_initialization: false,
                         });
                     }
                     continue;
@@ -1975,6 +2001,7 @@ mod tests {
                     end,
                     error: err / count as f32,
                     gs1: false,
+                    reader_initialization: false,
                 });
             }
         }
@@ -2198,8 +2225,25 @@ mod tests {
         assert_eq!(c128_text(&[105, 12, 34, 100, 33, 34]).unwrap().0, "1234AB");
         assert_eq!(
             c128_text(&[104, 102, 33, 102, 34]).unwrap(),
-            ("A\u{1d}B".into(), true)
+            ("A\u{1d}B".into(), true, false)
         );
+        // FNC3 marks reader initialization anywhere in sets A and B; FNC2 is dropped.
+        assert_eq!(
+            c128_text(&[104, 96, 33, 34]).unwrap(),
+            ("AB".into(), false, true)
+        );
+        assert_eq!(
+            c128_text(&[103, 33, 96, 34]).unwrap(),
+            ("AB".into(), false, true)
+        );
+        assert_eq!(
+            c128_text(&[104, 97, 33, 34]).unwrap(),
+            ("AB".into(), false, false)
+        );
+        // In set C, 96 and 97 are digit pairs.
+        assert_eq!(c128_text(&[105, 96, 97]).unwrap().0, "9697");
+        // A symbol of only function characters carries no data.
+        assert!(c128_text(&[104, 96, 97]).is_none());
     }
     #[test]
     fn rejects_short_noise() {
@@ -2241,6 +2285,16 @@ mod tests {
                 ("MSIPlessey", text)
             );
         }
+        // Belgian CNK (BinaryEye #493): one pixel of gain at three pixels per module.
+        let cnk = [
+            82., 6., 4., 3., 7., 3., 8., 2., 8., 3., 7., 3., 8., 2., 8., 3., 6., 7., 4., 2., 8.,
+            2., 8., 3., 8., 2., 8., 2., 8., 6., 4., 3., 8., 2., 8., 3., 7., 6., 5., 5., 4., 6., 4.,
+            3., 7., 6., 4., 3., 8., 2., 8., 2., 8., 7., 3., 3., 8., 6., 4., 3., 7., 6., 4., 3., 7.,
+            6., 4., 3., 8., 2., 49.,
+        ];
+        let reads = decode(&cnk, false, MSI_PLESSEY);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0].text, "01047455");
         // A wrong check digit, a too-short symbol and an unselected format read nothing.
         for (text, mask) in [
             ("1234567", MSI_PLESSEY),

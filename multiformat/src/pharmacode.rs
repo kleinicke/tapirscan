@@ -131,6 +131,7 @@ pub(crate) fn decode(r: &[f32], s: usize) -> Option<Read> {
         end,
         error,
         gs1: false,
+        reader_initialization: false,
     })
 }
 

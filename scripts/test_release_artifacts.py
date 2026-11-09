@@ -27,7 +27,7 @@ def library(platform: str) -> tuple[str, bytes]:
     """Return a library name and a minimal header of the platform's binary format."""
     system, arch = platform.split("-")[:2]
     if system in ("linux", "android"):
-        machine = {"arm64": 0xB7, "x64": 0x3E}[arch]
+        machine = {"arm64": 0xB7, "x64": 0x3E, "arm": 0x28, "ia32": 0x03}[arch]
         return "libtapirscan.so", b"\x7fELF" + bytes(14) + machine.to_bytes(2, "little")
     if system == "windows":
         machine = {"arm64": 0xAA64, "x64": 0x8664}[arch]
@@ -143,9 +143,9 @@ class ReleaseArtifacts(unittest.TestCase):
                 main()
                 bundle = root / "build/release"
                 entries = (bundle / "SHA256SUMS").read_text().splitlines()
-                # Eight wheels, npm, crate, thirteen library archives, AAR,
+                # Eight wheels, npm, crate, fifteen library archives, AAR,
                 # XCFramework and the release assets' own checksums.
-                self.assertEqual(len(entries), 26)
+                self.assertEqual(len(entries), 28)
                 for entry in entries:
                     digest, filename = entry.split("  ")
                     self.assertEqual(

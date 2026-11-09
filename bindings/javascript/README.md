@@ -832,7 +832,7 @@ same fields plus the ones marked _inspect_.
 | `barcode.support`              | `number`                                                       | Reader-specific ranking evidence used by `best`.                            |
 | `barcode.payloadBytes`         | `readonly number[] \| undefined`                               | Decoded payload bytes, when available.                                      |
 | `barcode.gs1`                  | `boolean \| undefined`                                         | GS1 indicator, when supplied by the reader.                                 |
-| `barcode.readerInitialization` | `boolean \| undefined`                                         | Data Matrix, PDF417, Aztec and MaxiCode reader-initialization flag.         |
+| `barcode.readerInitialization` | `boolean \| undefined`                                         | Data Matrix, PDF417, Aztec, MaxiCode and Code 128 reader-initialization.    |
 | `barcode.structuredAppend`     | `StructuredAppend \| undefined`                                | Multipart metadata: one-based `index`, `count`, optional `id` and `parity`. |
 | `barcode.eanAddOn`             | `string \| undefined`                                          | EAN/UPC supplement, with `eanAddOnPolicy` `"read"` or `"require"`.          |
 | `barcode.codabarStartStop`     | `string \| undefined`                                          | Codabar start and stop characters, such as `"AB"`; `text` omits them.       |

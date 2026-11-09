@@ -82,7 +82,7 @@ abstract final class Tapirscan {
   static bool? _supported;
 
   /// Whether this platform has a compatible native library. False on targets
-  /// without one, such as 32-bit Android, where creating a [Scanner] throws
+  /// without one, such as RISC-V Linux, where creating a [Scanner] throws
   /// [UnsupportedError] instead of crashing.
   static bool get isSupported => _supported ??= _probe();
 
@@ -110,7 +110,7 @@ final class Scanner {
     if (!Tapirscan.isSupported) {
       throw UnsupportedError(
         'Tapirscan has no compatible native library for this platform '
-        '(64-bit Android, iOS, macOS, Linux and Windows are supported; a '
+        '(Android, iOS, macOS, Linux and Windows are supported; a '
         'prebuilt library must match native ABI $TAPIRSCAN_ABI_VERSION)',
       );
     }

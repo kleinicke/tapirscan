@@ -29,6 +29,18 @@
   `MicroPDF417`. It is excluded from `all` and `2D` while difficult-image
   recovery and background-dependent scanning costs are improved.
 
+- Android: the AAR now also ships `armeabi-v7a` and `x86` libraries and supports
+  API 21+ (was API 24+, 64-bit only). Apps with minSdk 21 to 23 need core
+  library desugaring for `Optional`. Flutter builds for 32-bit Android, and the
+  release adds `android-arm` and `android-ia32` native archives. The C ABI now
+  builds on 32-bit targets; sizes that do not fit the address space return
+  `TAPIRSCAN_ERROR_ARGUMENT`.
+- MSI Plessey (opt-in) tolerates more bar spread from print gain at about 3
+  pixels per module, which Belgian pharmacy CNK labels need. Low no longer
+  returns the same MSI symbol twice.
+- Code 128: FNC3 sets reader initialization (`readerInitialization` true) and
+  is not part of the text; FNC2 is dropped from the text.
+
 - Medium, High and Very High read more small Data Matrix symbols in busy frames.
   A candidate that almost passes the border check is now retried on a crop of
   its own, after every other pending region and with Medium's detector limits in

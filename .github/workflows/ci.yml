@@ -242,14 +242,15 @@ jobs:
         run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" python3 scripts/build_android.py
       - name: Check the AAR contents
         run: |
-          for entry in classes.jar jni/arm64-v8a/libtapirscan_jni.so jni/x86_64/libtapirscan_jni.so; do
+          for entry in classes.jar jni/arm64-v8a/libtapirscan_jni.so jni/x86_64/libtapirscan_jni.so \
+            jni/armeabi-v7a/libtapirscan_jni.so jni/x86/libtapirscan_jni.so; do
             unzip -l build/android/tapirscan-android.aar | grep -q " $entry$"
           done
       - name: Build the Android libraries of the Dart package's release assets
         run: |
-          for target in aarch64-linux-android x86_64-linux-android; do
+          for target in aarch64-linux-android x86_64-linux-android armv7-linux-androideabi i686-linux-android; do
             python3 scripts/build_flutter_native.py --target "$target" --output "build/flutter-native/$target" \
-              --linker "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --android-api 24
+              --linker "$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" --android-api 21
           done
       - run: python3 scripts/build_native.py
       - name: Test the JNI bridge on the desktop JVM
