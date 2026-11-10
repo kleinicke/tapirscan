@@ -41,7 +41,7 @@ See [upgrading from earlier versions](docs/API_MIGRATION.md) when moving between
 
 Versions 1.3.0 and 1.4.0 are explicit early-library exceptions to this policy.
 Version 1.4.0 retains its minor version despite Rust source changes and the
-native ABI 7 rebuild requirement; the migration guide lists the affected calls
+native ABI 8 rebuild requirement; the migration guide lists the affected calls
 and types. Version 1.5.0 makes the Rust result structs `#[non_exhaustive]`,
 which breaks struct literals and full destructuring, and adds a component to the
 Java `Barcode` record, which breaks record patterns; see
@@ -69,7 +69,7 @@ Experimental APIs may change or be removed in minor releases: the JavaScript
 controller and these bindings are previews; the bindings are built from source.
 
 Undocumented internal counters, private modules and generated build paths are not
-public interfaces. The C ABI is version 7; Rust binary ABI stability is not
+public interfaces. The C ABI is version 8; Rust binary ABI stability is not
 promised across compiler versions.
 
 Keep the public interface small. Validate API changes through consumers, packaging

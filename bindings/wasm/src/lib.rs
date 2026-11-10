@@ -15,7 +15,7 @@ const MAX_BYTES: usize = 1024 * 1024 * 1024;
 const MAX_PIXELS: u64 = 256 * 1024 * 1024;
 const MAX_SIDE: u32 = 65_535;
 const MAX_SCANNERS: usize = 1_024;
-const ABI_VERSION: u32 = 3;
+const ABI_VERSION: u32 = 4;
 
 const MODE_ID: u32 = if cfg!(feature = "mode-low") {
     0
@@ -117,13 +117,23 @@ pub extern "C" fn tapirscan_experimental_turbo() -> u32 {
     }
 }
 
+/// Join the low and high halves of a 64-bit format mask; JavaScript passes plain numbers.
+fn format_mask(low: u32, high: u32) -> u64 {
+    u64::from(high) << 32 | u64::from(low)
+}
+
 /// Create a scanner. Returns zero for invalid configuration or capacity exhaustion.
 #[unsafe(no_mangle)]
-pub extern "C" fn tapirscan_create(mode: u32, format_mask: u32, addon_policy: u32) -> u32 {
+pub extern "C" fn tapirscan_create(
+    mode: u32,
+    formats_low: u32,
+    formats_high: u32,
+    addon_policy: u32,
+) -> u32 {
     if mode != MODE_ID {
         return 0;
     }
-    let Ok(formats) = Formats::try_from(format_mask) else {
+    let Ok(formats) = Formats::try_from(format_mask(formats_low, formats_high)) else {
         return 0;
     };
     let Ok(ean_add_on_policy) = add_on_policy(addon_policy) else {
@@ -309,17 +319,24 @@ pub extern "C" fn tapirscan_input_len(handle: u32) -> u32 {
     })
 }
 
-/// Scan flags: bit 1 requests the inspection report; other bits are rejected. Zero format mask uses
-/// the scanner's configured selection; a nonzero mask overrides it for this call.
+/// Scan flags: bit 1 requests the inspection report; other bits are rejected. A zero format mask
+/// (low and high halves) uses the scanner's configured selection; a nonzero mask overrides it for
+/// this call.
 #[unsafe(no_mangle)]
-pub extern "C" fn tapirscan_scan(handle: u32, flags: u32, format_mask: u32) -> i32 {
+pub extern "C" fn tapirscan_scan(
+    handle: u32,
+    flags: u32,
+    formats_low: u32,
+    formats_high: u32,
+) -> i32 {
     if flags & !2 != 0 {
         return ARG;
     }
-    let formats = if format_mask == 0 {
+    let mask = format_mask(formats_low, formats_high);
+    let formats = if mask == 0 {
         None
     } else {
-        match Formats::try_from(format_mask) {
+        match Formats::try_from(mask) {
             Ok(formats) => Some(formats),
             Err(_) => return ARG,
         }
@@ -463,7 +480,7 @@ mod row_input_tests {
 
     #[test]
     fn repeated_chunks_reuse_zeroed_storage_and_release_excess() {
-        let handle = tapirscan_create(MODE_ID, 1, 0);
+        let handle = tapirscan_create(MODE_ID, 1, 0, 0);
         assert_ne!(handle, 0);
         assert_eq!(tapirscan_prepare_rows(handle, 6000, 6000, 1, 1), OK);
         let pointer = REGISTRY.with_borrow_mut(|registry| {
@@ -492,7 +509,7 @@ mod row_input_tests {
 
     #[test]
     fn invalid_row_prepare_keeps_existing_input_and_output() {
-        let handle = tapirscan_create(MODE_ID, 1, 0);
+        let handle = tapirscan_create(MODE_ID, 1, 0, 0);
         assert_ne!(handle, 0);
         assert_eq!(tapirscan_prepare(handle, 3, 3, 1, 3), OK);
         REGISTRY.with_borrow_mut(|registry| {

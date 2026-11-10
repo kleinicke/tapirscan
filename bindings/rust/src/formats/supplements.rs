@@ -9,7 +9,7 @@
 //! with supplement decoding runs once over such results and the space for a
 //! supplement on either side of them, and may supply it.
 
-use super::{EanAddOnPolicy, POLICY, gray_image, scan_reader};
+use super::{EanAddOnPolicy, POLICY, gray_image, scan_reader_add_ons};
 use crate::{Error, Image, ScanOptions, geometry::overlap_quads};
 use barcode_multiformat::formats::{EAN8, EAN13, UPCA, UPCE};
 use barcode_multiformat::numeric::f64_f32;
@@ -17,7 +17,7 @@ use scanner_types::{EngineScan, UndecodedRegion};
 use serde_json::{Value, json};
 
 /// The engine bit of a retail format name, or `None` for other formats.
-fn retail_bit(format: &str) -> Option<u32> {
+fn retail_bit(format: &str) -> Option<u64> {
     match format {
         "EAN13" => Some(EAN13),
         "UPCA" => Some(UPCA),
@@ -170,7 +170,7 @@ fn sweep(
     image: Image<'_>,
     areas: &[[usize; 4]],
     scan: &mut EngineScan,
-    formats: u32,
+    formats: u64,
     gray: &mut Vec<u8>,
 ) -> Result<(), Error> {
     let width = image.width;
@@ -203,11 +203,11 @@ fn sweep(
             row[x0..x1].copy_from_slice(source);
         }
     }
-    let found = scan_reader(
+    let found = scan_reader_add_ons(
         gray,
         image.width,
         image.height,
-        formats | barcode_multiformat::linear::ADDON_READ,
+        formats,
         POLICY.supplement_sweep_effort,
     );
     for detection in found.barcodes.iter().filter(|d| d.addon.is_some()) {

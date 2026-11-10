@@ -14,7 +14,15 @@ from typing import Any, cast
 
 from build_java import JAR, tool
 from build_native import EXAMPLES, library_name
-from fixture_data import CODABAR_SYMBOLS, TEXT, codabar, fixtures
+from fixture_data import (
+    CODABAR_SYMBOLS,
+    RM4SCC_TEXT,
+    RM4SCC_WIDTH,
+    TEXT,
+    codabar,
+    fixtures,
+    rm4scc,
+)
 
 from build import ROOT
 
@@ -251,6 +259,44 @@ class Bindings(unittest.TestCase):
                         (width, height, 1, width, path),
                         debug=False,
                         formats=(128, "Codabar"),
+                    ).items():
+                        other.pop("debug")
+                        if language == "js":
+                            assert_wasm_parity(other, reference, language)
+                        else:
+                            self.assertEqual(other, reference, language)
+
+    def test_format_above_bit_31_round_trips_across_languages(self) -> None:
+        """RM4SCC (bit 32) survives every binding's mask, scan and result format."""
+        pixels = rm4scc()
+        width, height = RM4SCC_WIDTH, len(pixels) // RM4SCC_WIDTH
+        bit = 1 << 32
+        with tempfile.TemporaryDirectory(prefix="tapirscan-rm4scc-") as temp:
+            path = Path(temp) / "pixels.raw"
+            path.write_bytes(pixels)
+            image = PixelImage(pixels, width=width, height=height)
+            for mode in MODES:
+                with (
+                    self.subTest(mode=mode),
+                    Scanner(mode, formats="RM4SCC", library_dir=LIBS) as scanner,
+                    Scanner(mode, library_dir=LIBS) as common,
+                ):
+                    result = scanner.inspect(image)
+                    self.assertEqual(
+                        [(b.format, b.text) for b in result.barcodes],
+                        [("RM4SCC", RM4SCC_TEXT)],
+                    )
+                    self.assertEqual(common.scan(image).barcodes, ())
+                    self.assertEqual(
+                        [b.text for b in common.scan(image, formats="RM4SCC").barcodes],
+                        [RM4SCC_TEXT],
+                    )
+                    reference = typed(result)
+                    for language, other in harnesses(
+                        mode,
+                        (width, height, 1, width, path),
+                        debug=False,
+                        formats=(bit, "RM4SCC"),
                     ).items():
                         other.pop("debug")
                         if language == "js":

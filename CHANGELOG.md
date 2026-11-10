@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Added Royal Mail 4-State Customer Code (`RM4SCC`, bit 4294967296), selected
+  only by name: no group includes it, not even `all`. Text is reported without
+  the trailing check character, which is verified. Selections without it run
+  no extra work.
+- Added the four-state postal codes `KIX` (bit 8589934592), `AustraliaPost`
+  (17179869184), `JapanPost` (34359738368) and `IntelligentMail`
+  (68719476736). Like `RM4SCC`, they are selected only by name and share one
+  bar reader, so selecting several costs about as much as one. `KIX` has no
+  check character: it reads only Dutch address-shaped text from rows with a
+  quiet zone at both ends. See
+  [the format notes](docs/FORMATS.md#four-state-postal-codes).
+- Added Han Xin Code (`HanXin`, bit 137438953472), versions 1 to 84, selected
+  only by name: no group includes it, not even `2D` or `all`. The Unicode, GS1
+  and URI modes are not read, and strong perspective loses large symbols. See
+  [the format notes](docs/FORMATS.md#han-xin-code).
+- Format masks are 64-bit in every binding. Native consumers must rebuild for
+  ABI 8 (`uint64_t` format fields and masks; larger structures); the raw
+  WebAssembly adapter is ABI 4 and takes masks as low and high 32-bit halves.
+  Existing formats keep their bits, the EAN add-on policy stays a separate
+  option, and the JavaScript API is unchanged. Java's `RMQRCode` bit is now
+  the positive `long` 2147483648. See the [migration guide](docs/API_MIGRATION.md).
 - Scanner formats now default to `common` in every binding: EAN13, UPCA, EAN8,
   UPCE, Code128, Code39, ITF, QRCode and DataMatrix. Select `retail` explicitly
   to keep the previous EAN/UPC-only behavior; `common` takes about twice as long

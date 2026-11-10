@@ -43,7 +43,7 @@ public final class Scanner implements AutoCloseable {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment config = arena.allocate(Native.SCANNER_OPTIONS);
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "mode"), options.mode().code());
-            config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "formats"), Format.mask(options.formats()));
+            config.set(JAVA_LONG, offset(Native.SCANNER_OPTIONS, "formats"), Format.mask(options.formats()));
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "addonPolicy"), options.eanAddOnPolicy().code());
             config.set(JAVA_INT, offset(Native.SCANNER_OPTIONS, "parallel"), parallelCode(options.parallel()));
             MemorySegment out = arena.allocate(JAVA_LONG);
@@ -104,7 +104,7 @@ public final class Scanner implements AutoCloseable {
             input.set(JAVA_INT, offset(Native.IMAGE, "channels"), image.channels());
             input.set(JAVA_LONG, offset(Native.IMAGE, "stride"), image.stride());
             MemorySegment settings = arena.allocate(Native.SCAN_OPTIONS);
-            settings.set(JAVA_INT, offset(Native.SCAN_OPTIONS, "formats"), scan.formats().map(Format::mask).orElse(0));
+            settings.set(JAVA_LONG, offset(Native.SCAN_OPTIONS, "formats"), scan.formats().map(Format::mask).orElse(0L));
             MemorySegment out = arena.allocate(JAVA_LONG);
             MemorySegment error = arena.allocate(Native.ERROR);
             try {
@@ -152,7 +152,7 @@ public final class Scanner implements AutoCloseable {
                     : Optional.of(new StructuredAppend(value.get(JAVA_LONG, offset(Native.BARCODE, "appendIndex")), appendCount,
                             text(arena, result, i, STRUCTURED_APPEND_ID, value.get(JAVA_LONG, offset(Native.BARCODE, "appendIdLength"))),
                             parity < 0 ? OptionalInt.empty() : OptionalInt.of(parity)));
-            Format format = Format.fromBit(value.get(JAVA_INT, offset(Native.BARCODE, "format")));
+            Format format = Format.fromBit(value.get(JAVA_LONG, offset(Native.BARCODE, "format")));
             barcodes.add(new Barcode(
                     text(arena, result, i, TEXT, value.get(JAVA_LONG, offset(Native.BARCODE, "textLength"))).orElseThrow(),
                     format,
@@ -177,7 +177,7 @@ public final class Scanner implements AutoCloseable {
         MemorySegment region = arena.allocate(Native.REGION);
         for (long i = 0; i < regions; i++) {
             lib.check(Native.call(lib.undecoded, result, i, region));
-            int format = region.get(JAVA_INT, offset(Native.REGION, "format"));
+            long format = region.get(JAVA_LONG, offset(Native.REGION, "format"));
             undecoded.add(new UndecodedRegion(
                     format == 0 ? Optional.empty() : Optional.of(Format.fromBit(format)), polygon(region, Native.REGION)));
         }

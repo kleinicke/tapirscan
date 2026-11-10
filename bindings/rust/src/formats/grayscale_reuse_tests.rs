@@ -155,6 +155,7 @@ fn reader_groups_read_alike_with_a_shared_threshold_cache() {
                         &image,
                         [width, height],
                         mask,
+                        barcode_multiformat::linear::AddOn::Ignore,
                         1,
                         crate::MODE_ID as usize,
                         &mut shared

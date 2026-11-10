@@ -51,11 +51,11 @@ static jbyteArray copy_bytes(JNIEnv *env, copy_function copy, uint64_t handle, u
 }
 
 JNIEXPORT jlong JNICALL Java_org_tapirscan_android_Scanner_nativeCreate(
-    JNIEnv *env, jclass type, jint mode, jint formats, jint add_on_policy, jint parallel) {
+    JNIEnv *env, jclass type, jint mode, jlong formats, jint add_on_policy, jint parallel) {
     (void)type;
     tapirscan_scanner_options options = TAPIRSCAN_SCANNER_OPTIONS_INIT;
     options.mode = (uint32_t)mode;
-    options.formats = (uint32_t)formats;
+    options.formats = (uint64_t)formats;
     options.ean_add_on_policy = (uint32_t)add_on_policy;
     options.parallel = (uint32_t)parallel;
     tapirscan_scanner scanner = 0;
@@ -111,7 +111,7 @@ static jobject barcode_object(JNIEnv *env, jclass type, jmethodID init, tapirsca
     polygon = (*env)->NewDoubleArray(env, 8);
     if (!polygon) goto cleanup;
     (*env)->SetDoubleArrayRegion(env, polygon, 0, 8, corners);
-    value = (*env)->NewObject(env, type, init, text, (jint)barcode.format, polygon,
+    value = (*env)->NewObject(env, type, init, text, (jlong)barcode.format, polygon,
                               (jlong)barcode.support, payload, add_on, (jint)barcode.gs1,
                               (jint)barcode.reader_initialization,
                               (jlong)barcode.structured_append_index,
@@ -139,7 +139,7 @@ static jobjectArray barcode_array(JNIEnv *env, tapirscan_result result) {
     jmethodID init = NULL;
     jclass type = (*env)->FindClass(env, "org/tapirscan/android/Barcode");
     if (!type) goto cleanup;
-    init = (*env)->GetMethodID(env, type, "<init>", "([BI[DJ[B[BIIJJ[BI[B)V");
+    init = (*env)->GetMethodID(env, type, "<init>", "([BJ[DJ[B[BIIJJ[BI[B)V");
     if (!init) goto cleanup;
     out = (*env)->NewObjectArray(env, (jsize)count, type, NULL);
     for (uint64_t i = 0; out && i < count; i++)
@@ -205,7 +205,7 @@ cleanup:
 /* Scan or inspect and convert the result: {Barcode[]} or {Barcode[], double[], double[], byte[]};
    NULL with a pending exception on failure. */
 static jobjectArray scan(JNIEnv *env, jlong handle, const uint8_t *data, uint64_t length,
-                         jint width, jint height, jint channels, jint stride, jint formats,
+                         jint width, jint height, jint channels, jint stride, jlong formats,
                          jboolean inspect) {
     if (width < 0 || height < 0 || channels < 0 || stride < 0) {
         throw_error(env, TAPIRSCAN_INVALID_ARGUMENT, "dimensions must not be negative");
@@ -213,7 +213,7 @@ static jobjectArray scan(JNIEnv *env, jlong handle, const uint8_t *data, uint64_
     }
     tapirscan_image image = {data, length, (uint64_t)width, (uint64_t)height, (uint32_t)channels,
                              (uint64_t)stride};
-    tapirscan_scan_options options = {(uint32_t)formats};
+    tapirscan_scan_options options = {(uint64_t)formats};
     tapirscan_result result = 0;
     tapirscan_error error = {{0}};
     int32_t status = inspect
@@ -237,7 +237,7 @@ cleanup:
 
 JNIEXPORT jobjectArray JNICALL Java_org_tapirscan_android_Scanner_nativeScanDirect(
     JNIEnv *env, jclass type, jlong handle, jobject buffer, jint offset, jint length, jint width,
-    jint height, jint channels, jint stride, jint formats, jboolean inspect) {
+    jint height, jint channels, jint stride, jlong formats, jboolean inspect) {
     (void)type;
     uint8_t *base = (*env)->GetDirectBufferAddress(env, buffer);
     if (!base || offset < 0 || length < 0) {
@@ -250,7 +250,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_tapirscan_android_Scanner_nativeScanDire
 
 JNIEXPORT jobjectArray JNICALL Java_org_tapirscan_android_Scanner_nativeScanArray(
     JNIEnv *env, jclass type, jlong handle, jbyteArray pixels, jint width, jint height,
-    jint channels, jint stride, jint formats, jboolean inspect) {
+    jint channels, jint stride, jlong formats, jboolean inspect) {
     (void)type;
     jsize length = (*env)->GetArrayLength(env, pixels);
     jbyte *data = (*env)->GetByteArrayElements(env, pixels, NULL);

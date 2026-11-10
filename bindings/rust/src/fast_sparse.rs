@@ -72,7 +72,7 @@ impl<'a> Prepared<'a> {
         prepared
     }
 
-    pub(crate) fn scan(&self, mask: u32, effort: usize) -> Scan {
+    pub(crate) fn scan(&self, mask: u64, effort: usize) -> Scan {
         if self.constant {
             return Scan {
                 barcodes: vec![],

@@ -37,7 +37,7 @@ const TIER: usize = match option_env!("TAPIRSCAN_TURBO_TIER") {
 const TIER: usize = 0;
 
 #[cfg(feature = "low")]
-pub(crate) fn enabled(options: ScanOptions, mask: u32) -> bool {
+pub(crate) fn enabled(options: ScanOptions, mask: u64) -> bool {
     crate::LOW_FAST_PATH
         && mask & crate::format_registry::LINEAR_MASK != 0
         && !options.finish_candidates
@@ -123,7 +123,7 @@ struct Observation {
     dense: bool,
 }
 /// Linear formats without a check that restored profiles must not add.
-const UNCHECKED_BARS: u32 =
+const UNCHECKED_BARS: u64 =
     linear::CODE39 | linear::INDUSTRIAL25 | linear::IATA25 | linear::MATRIX25 | linear::PHARMACODE;
 fn required_support(format: &str) -> u64 {
     // Checkless or weakly checked symbologies need a third agreeing row.
@@ -181,7 +181,7 @@ pub(crate) fn scan(
     scanner: &mut Scanner,
     image: Image<'_>,
     options: ScanOptions,
-    mask: u32,
+    mask: u64,
 ) -> Result<scanner_types::EngineScan, Error> {
     let im = ImageView::new(
         image.data,
@@ -657,7 +657,7 @@ fn finalize_reads(
     reads: Vec<Read>,
     unread: &mut Vec<Region>,
     image: Image<'_>,
-    mask: u32,
+    mask: u64,
     multiple: bool,
 ) -> Vec<Read> {
     let mut reads = drop_nested_short_retail(keep_one_per_symbol(
@@ -808,7 +808,7 @@ fn border_discovery(
     image: Image<'_>,
     im: ImageView<'_>,
     proposals: &[crate::Proposal],
-    mask: u32,
+    mask: u64,
 ) -> (Vec<Read>, usize) {
     let mut reads = Vec::new();
     let mut budget = 131_072;
@@ -989,7 +989,7 @@ struct Candidate<'a> {
     image: Image<'a>,
     im: ImageView<'a>,
     quad: Quad,
-    mask: u32,
+    mask: u64,
     dense: bool,
     profile: SourceProfile,
     restored: bool,
@@ -1341,7 +1341,7 @@ fn decode_runs(
     candidate: &mut Candidate<'_>,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     [a, b]: [[f64; 2]; 2],
-    active_mask: u32,
+    active_mask: u64,
     row: usize,
     v: f64,
 ) -> (bool, bool) {
@@ -1405,7 +1405,7 @@ fn decode_runs(
 
 /// Pharmacode has no start or stop: it is read only along the image's reading
 /// direction (see `linear::pharmacode_direction`) of a profile sampled from `from` to `to`.
-fn directed_mask(mask: u32, from: [f64; 2], to: [f64; 2]) -> u32 {
+fn directed_mask(mask: u64, from: [f64; 2], to: [f64; 2]) -> u64 {
     if linear::pharmacode_direction(to[0] - from[0], to[1] - from[1]) {
         mask
     } else {
@@ -1561,7 +1561,7 @@ fn recovered_upce_quiet(
     leading && trailing
 }
 
-fn supplement_ean(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<linear::Read>) {
+fn supplement_ean(runs: &[f32], first_black: bool, mask: u64, out: &mut Vec<linear::Read>) {
     if mask & (linear::EAN13 | linear::UPCA) == 0 {
         return;
     }
@@ -1602,7 +1602,7 @@ fn supplement_ean(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<line
 }
 
 #[cfg(any(feature = "low", feature = "medium"))]
-fn supplement_ean8_visual(runs: &[f32], first_black: bool, mask: u32, out: &mut Vec<linear::Read>) {
+fn supplement_ean8_visual(runs: &[f32], first_black: bool, mask: u64, out: &mut Vec<linear::Read>) {
     if mask & linear::EAN8 == 0 {
         return;
     }

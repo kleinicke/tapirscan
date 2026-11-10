@@ -11,7 +11,7 @@ struct Case {
     height: usize,
     channels: usize,
     stride: usize,
-    formats: u32,
+    formats: u64,
     addons: usize,
     expected: Value,
     undecoded: usize,

@@ -33,6 +33,12 @@ Format: TypeAlias = Literal[
     "TelepenNumeric",
     "MicroPDF417",
     "RMQRCode",
+    "RM4SCC",
+    "KIX",
+    "AustraliaPost",
+    "JapanPost",
+    "IntelligentMail",
+    "HanXin",
 ]
 FORMAT_BITS: dict[str, int] = {
     "EAN13": 1,
@@ -66,6 +72,12 @@ FORMAT_BITS: dict[str, int] = {
     "TelepenNumeric": 536870912,
     "MicroPDF417": 1073741824,
     "RMQRCode": 2147483648,
+    "RM4SCC": 4294967296,
+    "KIX": 8589934592,
+    "AustraliaPost": 17179869184,
+    "JapanPost": 34359738368,
+    "IntelligentMail": 68719476736,
+    "HanXin": 137438953472,
 }
 retail_formats: tuple[Format, ...] = (
     "EAN13",

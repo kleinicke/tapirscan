@@ -71,7 +71,7 @@ int main(int argc, char** argv) {
         scanner_options.mode = mode(argv[1]);
         tapirscan::ScanOptions options;
         if (argc == 9) {
-            options.formats = tapirscan::Formats::from_bits(static_cast<std::uint32_t>(std::stoul(argv[8])));
+            options.formats = tapirscan::Formats::from_bits(std::stoull(argv[8]));
         }
         // Results own their data and survive the scanner.
         tapirscan::Scanner scanner(scanner_options);

@@ -125,3 +125,21 @@ def codabar(symbols: tuple[tuple[str, str, str], ...] = CODABAR_SYMBOLS) -> byte
                         image[y * w + x : y * w + x + width] = bytes(width)
                 x += width
     return bytes(image)
+
+
+# RM4SCC "W1J0TR01" plus its check character: Ascender, Descender, Full, Tracker.
+RM4SCC_TEXT = "W1J0TR01"
+RM4SCC_BARS = "AAFDTTDAFADTFTTFFFDATFTADTTFFTDAFAFDTF"
+RM4SCC_WIDTH = 12 * len(RM4SCC_BARS) + 40
+
+
+def rm4scc() -> bytes:
+    """Draw the RM4SCC symbol with 6 px bars on a 12 px pitch, 64 px high."""
+    w = RM4SCC_WIDTH
+    image = bytearray([255]) * (w * 64)
+    for i, bar in enumerate(RM4SCC_BARS):
+        top = 12 if bar in "AF" else 26
+        bottom = 52 if bar in "DF" else 38
+        for y in range(top, bottom):
+            image[y * w + 20 + 12 * i : y * w + 26 + 12 * i] = bytes(6)
+    return bytes(image)

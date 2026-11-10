@@ -16,9 +16,9 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 
-/** Native ABI 7 entry points from tapirscan.h, loaded once per JVM. */
+/** Native ABI 8 entry points from tapirscan.h, loaded once per JVM. */
 final class Native {
-    static final int ABI_VERSION = 7;
+    static final int ABI_VERSION = 8;
     static final MemoryLayout IMAGE = MemoryLayout.structLayout(
             ADDRESS.withName("data"), JAVA_LONG.withName("length"),
             JAVA_LONG.withName("width"), JAVA_LONG.withName("height"),
@@ -30,18 +30,18 @@ final class Native {
     static final MemoryLayout POINT = MemoryLayout.structLayout(JAVA_DOUBLE.withName("x"), JAVA_DOUBLE.withName("y"));
     static final MemoryLayout POLYGON = MemoryLayout.sequenceLayout(4, POINT);
     static final MemoryLayout BARCODE = MemoryLayout.structLayout(
-            POLYGON.withName("polygon"), JAVA_LONG.withName("support"), JAVA_INT.withName("format"),
+            POLYGON.withName("polygon"), JAVA_LONG.withName("support"), JAVA_LONG.withName("format"),
             JAVA_INT.withName("gs1"), JAVA_INT.withName("readerInitialization"), JAVA_INT.withName("parity"),
-            JAVA_LONG.withName("appendIndex"), JAVA_LONG.withName("appendCount"),
+            MemoryLayout.paddingLayout(4), JAVA_LONG.withName("appendIndex"), JAVA_LONG.withName("appendCount"),
             JAVA_LONG.withName("textLength"), JAVA_LONG.withName("payloadLength"),
             JAVA_LONG.withName("addonLength"), JAVA_LONG.withName("appendIdLength"));
     static final MemoryLayout REGION = MemoryLayout.structLayout(
-            POLYGON.withName("polygon"), JAVA_INT.withName("format"), MemoryLayout.paddingLayout(4));
+            POLYGON.withName("polygon"), JAVA_LONG.withName("format"));
     static final MemoryLayout SCANNER_OPTIONS = MemoryLayout.structLayout(
-            JAVA_INT.withName("mode"), JAVA_INT.withName("formats"), JAVA_INT.withName("addonPolicy"),
-            JAVA_INT.withName("parallel"));
+            JAVA_INT.withName("mode"), MemoryLayout.paddingLayout(4), JAVA_LONG.withName("formats"),
+            JAVA_INT.withName("addonPolicy"), JAVA_INT.withName("parallel"));
     static final MemoryLayout SCAN_OPTIONS = MemoryLayout.structLayout(
-            JAVA_INT.withName("formats"));
+            JAVA_LONG.withName("formats"));
     static final MemoryLayout ERROR = MemoryLayout.sequenceLayout(512, JAVA_BYTE);
     static final MemoryLayout CONTENT_SUMMARY = MemoryLayout.structLayout(
             JAVA_INT.withName("kind"), MemoryLayout.paddingLayout(4), JAVA_LONG.withName("fieldCount"));

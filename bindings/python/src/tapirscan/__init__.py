@@ -98,11 +98,11 @@ _PARALLEL_OFF = 1
 _PARALLEL_ON = 2
 
 
-# Native ABI 7 structures from bindings/c/include/tapirscan.h.
+# Native ABI 8 structures from bindings/c/include/tapirscan.h.
 class _ScannerOptions(c.Structure):
     _fields_ = [
         ("mode", c.c_uint32),
-        ("formats", c.c_uint32),
+        ("formats", c.c_uint64),
         ("ean_add_on_policy", c.c_uint32),
         ("parallel", c.c_uint32),
     ]
@@ -121,7 +121,7 @@ class _Image(c.Structure):
 
 class _ScanOptions(c.Structure):
     _fields_ = [
-        ("formats", c.c_uint32),
+        ("formats", c.c_uint64),
     ]
 
 
@@ -144,7 +144,7 @@ class _Barcode(c.Structure):
     _fields_ = [
         ("polygon", _Point * 4),
         ("support", c.c_uint64),
-        ("format", c.c_uint32),
+        ("format", c.c_uint64),
         ("gs1", c.c_int32),
         ("reader_initialization", c.c_int32),
         ("structured_append_parity", c.c_int32),
@@ -158,7 +158,7 @@ class _Barcode(c.Structure):
 
 
 class _Region(c.Structure):
-    _fields_ = [("polygon", _Point * 4), ("format", c.c_uint32)]
+    _fields_ = [("polygon", _Point * 4), ("format", c.c_uint64)]
 
 
 _ABSENT = 2**64 - 1

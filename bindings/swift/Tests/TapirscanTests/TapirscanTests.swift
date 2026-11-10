@@ -118,6 +118,28 @@ final class TapirscanTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(retail.best).codabarStartStop)
     }
 
+    func testRm4sccAboveBit31RoundTrips() throws {
+        // "W1J0TR01" and its check character: Ascender, Descender, Full or Tracker bars.
+        let bars = Array("AAFDTTDAFADTFTTFFFDATFTADTTFFTDAFAFDTF")
+        let (width, height) = (12 * bars.count + 40, 64)
+        var pixels = [UInt8](repeating: 255, count: width * height)
+        for (i, bar) in bars.enumerated() {
+            let top = "AF".contains(bar) ? 12 : 26, bottom = "DF".contains(bar) ? 52 : 38
+            for y in top..<bottom {
+                for x in (20 + 12 * i)..<(26 + 12 * i) { pixels[y * width + x] = 0 }
+            }
+        }
+        XCTAssertEqual(Format.rm4scc.rawValue, 1 << 32)
+        let scanner = try BarcodeScanner()
+        XCTAssertTrue(try scanner.scan(pixels, width: width, height: height, channels: 1).barcodes.isEmpty)
+        let read = try XCTUnwrap(
+            try scanner.scan(
+                pixels, width: width, height: height, channels: 1, options: ScanOptions(formats: .rm4scc)
+            ).best)
+        XCTAssertEqual(read.format, .rm4scc)
+        XCTAssertEqual(read.text, "W1J0TR01")
+    }
+
     func testNegativeStrideIsInvalidInput() throws {
         let (pixels, width, height) = ean13(text)
         let scanner = try BarcodeScanner()

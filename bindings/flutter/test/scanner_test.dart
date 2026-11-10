@@ -264,6 +264,24 @@ void main() {
     expect(ean.codabarStartStop, isNull);
   });
 
+  test('RM4SCC (format bit 32) round-trips through masks and results', () {
+    // "W1J0TR01" and its check character: Ascender, Descender, Full, Tracker.
+    const bars = 'AAFDTTDAFADTFTTFFFDATFTADTTFFTDAFAFDTF';
+    const width = 12 * bars.length + 40, height = 64;
+    final data = Uint8List(width * height)..fillRange(0, width * height, 255);
+    for (final (i, bar) in bars.split('').indexed) {
+      final top = 'AF'.contains(bar) ? 12 : 26;
+      final bottom = 'DF'.contains(bar) ? 52 : 38;
+      for (var y = top; y < bottom; y++) {
+        data.fillRange(y * width + 20 + 12 * i, y * width + 26 + 12 * i, 0);
+      }
+    }
+    final image = PixelImage(data, width: width, height: height);
+    expect(scanner.scanSync(image).values, isEmpty);
+    final read = scanner.scanSync(image, formats: {Format.rm4scc}).best!;
+    expect((read.format, read.text), (Format.rm4scc, 'W1J0TR01'));
+  });
+
   test('a blank image is an empty result', () {
     final blank = Uint8List(64 * 48)..fillRange(0, 64 * 48, 255);
     final result = scanner.scanSync(PixelImage(blank, width: 64, height: 48));

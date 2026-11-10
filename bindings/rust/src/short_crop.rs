@@ -12,7 +12,7 @@ pub(crate) fn recover(
     localizer: &mut Detector,
     image: Image<'_>,
     proposals: &[Proposal],
-    mask: u32,
+    mask: u64,
     sampler: &mut Sampler,
     reads: &mut Vec<Read>,
 ) -> Result<(), Error> {

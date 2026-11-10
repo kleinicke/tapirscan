@@ -115,7 +115,7 @@ fn code93_weak_characters_need_both_checks() {
     let runs = widths(&modules, 3., 1.35, false);
     let mut limited = false;
     assert!(
-        decode_candidates(&runs, false, CODE93, &mut limited)
+        decode_candidates(&runs, false, CODE93, AddOn::Ignore, &mut limited)
             .iter()
             .all(|r| !r.decoded)
     );
@@ -241,7 +241,7 @@ fn code128_edge_matching_tolerates_ink_spread() {
     ));
     let mut limited = false;
     assert!(
-        decode_candidates(&runs, false, CODE128, &mut limited)
+        decode_candidates(&runs, false, CODE128, AddOn::Ignore, &mut limited)
             .iter()
             .all(|r| !r.decoded)
     );

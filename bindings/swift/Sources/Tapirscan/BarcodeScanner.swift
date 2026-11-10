@@ -337,7 +337,7 @@ private func copyText(_ result: tapirscan_result, _ index: UInt64, _ field: tapi
 
 private func tristate(_ value: Int32) -> Bool? { value < 0 ? nil : value != 0 }
 
-private func nativeFormat(_ bit: UInt32) throws -> Format {
+private func nativeFormat(_ bit: UInt64) throws -> Format {
     guard let format = Format(rawValue: bit) else { throw TapirscanError.unknown("format", bit) }
     return format
 }

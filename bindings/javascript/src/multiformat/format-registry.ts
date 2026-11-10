@@ -31,6 +31,12 @@ export const formatBits = Object.freeze({
   TelepenNumeric: 536870912,
   MicroPDF417: 1073741824,
   RMQRCode: 2147483648,
+  RM4SCC: 4294967296,
+  KIX: 8589934592,
+  AustraliaPost: 17179869184,
+  JapanPost: 34359738368,
+  IntelligentMail: 68719476736,
+  HanXin: 137438953472,
 } as const);
 export type Format = keyof typeof formatBits;
 export const retailFormats: readonly Format[] = Object.freeze(["EAN13", "UPCA", "EAN8", "UPCE"]);
@@ -78,5 +84,3 @@ export const matrixFormats: readonly Format[] = Object.freeze([
   "MicroQRCode",
   "RMQRCode",
 ]);
-export const eanAddOnReadFlag = 32768;
-export const eanAddOnRequireFlag = 65536;

@@ -694,7 +694,7 @@ pub struct RetailReads {
 pub fn decode_retail_profile(
     p: &[f32],
     max_symbols: usize,
-    mask: u32,
+    mask: u64,
     guard_bias: bool,
     scratch: &mut RetailScratch,
 ) -> Result<RetailReads, Error> {
@@ -714,7 +714,7 @@ pub fn decode_retail_profile(
 }
 pub(crate) fn short_from_existing(
     runs: &LocalRuns,
-    mask: u32,
+    mask: u64,
     max_symbols: usize,
     ean13: &Reads,
     starts: &mut Vec<usize>,
@@ -764,7 +764,7 @@ pub(crate) fn short_from_existing(
 }
 pub(crate) fn short_from_extrema(
     scratch: &ExtremaScratch,
-    mask: u32,
+    mask: u64,
     max_symbols: usize,
     primary: &Reads,
     out: &mut retail_short::ShortReads,

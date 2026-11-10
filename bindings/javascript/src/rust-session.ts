@@ -1,6 +1,11 @@
 // Stateless for complete inputs, so one decoder serves every scan.
 const outputDecoder = new TextDecoder();
 
+/** Low and high 32-bit halves of a format mask, as the WASM adapter takes them. */
+function splitMask(mask: number): [number, number] {
+  return [mask % 2 ** 32, Math.floor(mask / 2 ** 32)];
+}
+
 export class ScannerError extends Error {
   constructor(
     readonly code: string,
@@ -27,7 +32,12 @@ interface RustExports extends WebAssembly.Exports {
   tapirscan_abi_version: () => number;
   tapirscan_mode: () => number;
   tapirscan_experimental_turbo: () => number;
-  tapirscan_create: (mode: number, formats: number, addOnPolicy: number) => number;
+  tapirscan_create: (
+    mode: number,
+    formatsLow: number,
+    formatsHigh: number,
+    addOnPolicy: number,
+  ) => number;
   tapirscan_destroy: (handle: number) => number;
   tapirscan_prepare: (
     handle: number,
@@ -46,7 +56,12 @@ interface RustExports extends WebAssembly.Exports {
   tapirscan_push_rows: (handle: number, count: number) => number;
   tapirscan_input_ptr: (handle: number) => number;
   tapirscan_input_len: (handle: number) => number;
-  tapirscan_scan: (handle: number, flags: number, formats: number) => number;
+  tapirscan_scan: (
+    handle: number,
+    flags: number,
+    formatsLow: number,
+    formatsHigh: number,
+  ) => number;
   tapirscan_output_ptr: (handle: number) => number;
   tapirscan_output_len: (handle: number) => number;
 }
@@ -97,7 +112,7 @@ function open(instance: WebAssembly.Instance, settings: Settings): [RustExports,
   for (const name of exportNames)
     if (typeof exports[name] !== "function")
       throw new ScannerError("abi_shape", `Missing WASM export: ${name}`);
-  if (exports.tapirscan_abi_version() !== 3)
+  if (exports.tapirscan_abi_version() !== 4)
     throw new ScannerError("abi_version", "Unsupported scanner ABI");
   if (exports.tapirscan_mode() !== mode)
     throw new ScannerError("abi_mode", "Scanner WASM mode does not match the requested mode");
@@ -108,7 +123,7 @@ function open(instance: WebAssembly.Instance, settings: Settings): [RustExports,
       "abi_turbo",
       "Scanner WASM does not match the requested experimentalTurbo preset",
     );
-  const handle = exports.tapirscan_create(mode, formats, addOnPolicy);
+  const handle = exports.tapirscan_create(mode, ...splitMask(formats), addOnPolicy);
   if (!handle) throw new ScannerError("capacity", "Could not create scanner session");
   return [exports, handle];
 }
@@ -214,7 +229,7 @@ export class RustScannerSession {
   }
 
   private finish(exports: RustExports, flags: number, formats: number): unknown {
-    const result = exports.tapirscan_scan(this.handle, flags, formats);
+    const result = exports.tapirscan_scan(this.handle, flags, ...splitMask(formats));
     const output = new Uint8Array(
       exports.memory.buffer,
       exports.tapirscan_output_ptr(this.handle),

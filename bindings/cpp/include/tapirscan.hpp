@@ -17,7 +17,7 @@
 #include <vector>
 
 namespace tapirscan {
-static_assert(sizeof(void*) == 8, "Native ABI 7 requires a 64-bit target");
+static_assert(sizeof(void*) == 8, "Native ABI 8 requires a 64-bit target");
 
 /// A native failure. `code` is the C status.
 class Error : public std::runtime_error {
@@ -44,7 +44,7 @@ enum class EanAddOnPolicy : std::uint32_t {
 
 /// Stable name shared with the other bindings, such as "QRCode".
 inline std::string_view to_string(Format format) {
-    const char* name = tapirscan_format_name(static_cast<std::uint32_t>(format));
+    const char* name = tapirscan_format_name(static_cast<std::uint64_t>(format));
     return name ? name : "";
 }
 
@@ -61,14 +61,14 @@ inline std::string_view to_string(Mode mode) {
 
 /// Nonempty format selection. Combine formats and presets with `|`.
 class Formats {
-    std::uint32_t bits_;
-    constexpr explicit Formats(std::uint32_t bits) : bits_(bits) {
+    std::uint64_t bits_;
+    constexpr explicit Formats(std::uint64_t bits) : bits_(bits) {
         if (bits == 0 || (bits & ~(TAPIRSCAN_FORMATS_ALL | TAPIRSCAN_FORMATS_OPT_IN)) != 0)
             throw std::invalid_argument("empty or unsupported format selection");
     }
 
 public:
-    constexpr Formats(Format format) : Formats(static_cast<std::uint32_t>(format)) {}
+    constexpr Formats(Format format) : Formats(static_cast<std::uint64_t>(format)) {}
     /// EAN-13, UPC-A, EAN-8 and UPC-E.
     static constexpr Formats retail() { return Formats(TAPIRSCAN_FORMATS_RETAIL); }
     /// Retail formats plus Code 128, Code 39 and ITF.
@@ -82,11 +82,11 @@ public:
     /// Every format except the opt-in formats, which are selected by name.
     static constexpr Formats all() { return Formats(TAPIRSCAN_FORMATS_ALL); }
     /// A native TAPIRSCAN_FORMAT_* mask. Empty or unknown bits throw std::invalid_argument.
-    static constexpr Formats from_bits(std::uint32_t bits) { return Formats(bits); }
+    static constexpr Formats from_bits(std::uint64_t bits) { return Formats(bits); }
 
-    constexpr std::uint32_t bits() const { return bits_; }
+    constexpr std::uint64_t bits() const { return bits_; }
     constexpr bool contains(Format format) const {
-        return (bits_ & static_cast<std::uint32_t>(format)) != 0;
+        return (bits_ & static_cast<std::uint64_t>(format)) != 0;
     }
     friend constexpr Formats operator|(Formats a, Formats b) { return Formats(a.bits_ | b.bits_); }
     friend constexpr bool operator==(Formats a, Formats b) { return a.bits_ == b.bits_; }

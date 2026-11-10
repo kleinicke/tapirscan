@@ -37,7 +37,7 @@ fn rings(period: f64) -> Vec<u8> {
     })
 }
 
-fn texts(data: &[u8], mask: u32) -> Vec<String> {
+fn texts(data: &[u8], mask: u64) -> Vec<String> {
     crate::Scanner::default()
         .scan_formats_typed_with_addons(
             image(data),

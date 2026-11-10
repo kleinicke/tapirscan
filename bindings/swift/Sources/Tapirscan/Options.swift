@@ -64,7 +64,7 @@ public struct ScanOptions: Equatable, Sendable {
         self.formats = formats
     }
 
-    func mask() throws -> UInt32 {
+    func mask() throws -> UInt64 {
         guard let formats else { return 0 }
         guard !formats.isEmpty else { throw TapirscanError.invalidInput("formats must not be empty") }
         return formats.rawValue

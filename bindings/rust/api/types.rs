@@ -11,12 +11,12 @@ use std::{fmt, time::Duration};
 /// Nonempty format selection with presets and composable individual formats.
 ///
 /// Use `Format::Ean13.into()` for one format, or combine formats/presets with `|`.
-/// `Formats::try_from(u32)` accepts the enum's native bit mask and rejects empty
-/// masks, supplement-policy bits and unknown bits with [`Error::InvalidOptions`].
+/// `Formats::try_from(u64)` accepts the enum's native bit mask and rejects empty
+/// masks and unknown bits with [`Error::InvalidOptions`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Formats(u32);
+pub struct Formats(u64);
 impl Formats {
-    pub(crate) fn bits(self) -> u32 {
+    pub(crate) fn bits(self) -> u64 {
         self.0
     }
     /// Retail formats plus Code 128, Code 39 and ITF.
@@ -32,9 +32,9 @@ impl Formats {
     /// Every format except the opt-in formats, which are selected by name.
     pub const ALL: Self = Self(ALL_FORMATS_MASK);
 }
-impl TryFrom<u32> for Formats {
+impl TryFrom<u64> for Formats {
     type Error = Error;
-    fn try_from(bits: u32) -> Result<Self, Error> {
+    fn try_from(bits: u64) -> Result<Self, Error> {
         if bits == 0 || bits & !SUPPORTED_MASK != 0 {
             return Err(Error::InvalidOptions(
                 "empty or unsupported format selection",
@@ -45,19 +45,19 @@ impl TryFrom<u32> for Formats {
 }
 impl From<Format> for Formats {
     fn from(format: Format) -> Self {
-        Self(format as u32)
+        Self(format as u64)
     }
 }
 impl std::ops::BitOr for Format {
     type Output = Formats;
     fn bitor(self, rhs: Self) -> Formats {
-        Formats(self as u32 | rhs as u32)
+        Formats(self as u64 | rhs as u64)
     }
 }
 impl std::ops::BitOr<Format> for Formats {
     type Output = Self;
     fn bitor(self, rhs: Format) -> Self {
-        Self(self.0 | rhs as u32)
+        Self(self.0 | rhs as u64)
     }
 }
 impl std::ops::BitOr for Formats {

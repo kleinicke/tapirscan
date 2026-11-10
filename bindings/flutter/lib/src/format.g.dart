@@ -63,7 +63,19 @@ enum Format {
   /// Experimental `MicroPDF417` stacked barcode (opt-in).
   microPdf417('MicroPDF417', 1073741824),
   /// Rectangular Micro QR Code, all 32 sizes at M/H correction.
-  rmQrCode('RMQRCode', 2147483648);
+  rmQrCode('RMQRCode', 2147483648),
+  /// Royal Mail 4-State Customer Code (RM4SCC, CBC), reported without its check character (opt-in).
+  rm4scc('RM4SCC', 4294967296),
+  /// Dutch KIX 4-state code of the Netherlands post, read as a postcode, house number and suffix (opt-in).
+  kix('KIX', 8589934592),
+  /// Australia Post 4-State Customer Barcode, reported as FCC, DPID and customer information (opt-in).
+  australiaPost('AustraliaPost', 17179869184),
+  /// Japan Post 4-State Customer Code, reported without its check character and padding (opt-in).
+  japanPost('JapanPost', 34359738368),
+  /// USPS Intelligent Mail barcode, reported as tracking code then routing ZIP (opt-in).
+  intelligentMail('IntelligentMail', 68719476736),
+  /// Han Xin Code (ISO/IEC 20830), versions 1 to 84 (opt-in).
+  hanXin('HanXin', 137438953472);
 
   const Format(this.id, this._bit);
 

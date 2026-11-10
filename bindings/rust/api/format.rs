@@ -5,7 +5,7 @@
 /// New formats may be added in minor releases.
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize, Eq, PartialEq)]
 #[non_exhaustive]
-#[repr(u32)]
+#[repr(u64)]
 pub enum Format {
     #[serde(rename = "EAN13")]
     /// EAN-13 retail barcode.
@@ -80,6 +80,20 @@ pub enum Format {
     #[serde(rename = "RMQRCode")]
     /// Rectangular Micro QR Code, all 32 sizes at M/H correction.
     RmQrCode = 2_147_483_648,
+    #[serde(rename = "RM4SCC")]
+    /// Royal Mail 4-State Customer Code (RM4SCC, CBC), reported without its check character (opt-in).
+    Rm4scc = 4_294_967_296,
+    #[serde(rename = "KIX")]
+    /// Dutch KIX 4-state code of the Netherlands post, read as a postcode, house number and suffix (opt-in).
+    Kix = 8_589_934_592,
+    /// Australia Post 4-State Customer Barcode, reported as FCC, DPID and customer information (opt-in).
+    AustraliaPost = 17_179_869_184,
+    /// Japan Post 4-State Customer Code, reported without its check character and padding (opt-in).
+    JapanPost = 34_359_738_368,
+    /// USPS Intelligent Mail barcode, reported as tracking code then routing ZIP (opt-in).
+    IntelligentMail = 68_719_476_736,
+    /// Han Xin Code (ISO/IEC 20830), versions 1 to 84 (opt-in).
+    HanXin = 137_438_953_472,
 }
 
 impl Format {
@@ -115,6 +129,12 @@ impl Format {
         Self::TelepenNumeric,
         Self::MicroPdf417,
         Self::RmQrCode,
+        Self::Rm4scc,
+        Self::Kix,
+        Self::AustraliaPost,
+        Self::JapanPost,
+        Self::IntelligentMail,
+        Self::HanXin,
     ];
 
     /// Stable schema name used by language adapters.
@@ -151,6 +171,12 @@ impl Format {
             Self::TelepenNumeric => "TelepenNumeric",
             Self::MicroPdf417 => "MicroPDF417",
             Self::RmQrCode => "RMQRCode",
+            Self::Rm4scc => "RM4SCC",
+            Self::Kix => "KIX",
+            Self::AustraliaPost => "AustraliaPost",
+            Self::JapanPost => "JapanPost",
+            Self::IntelligentMail => "IntelligentMail",
+            Self::HanXin => "HanXin",
         }
     }
 }
@@ -161,12 +187,12 @@ impl std::fmt::Display for Format {
     }
 }
 
-pub(crate) const RETAIL_MASK: u32 = 15;
-pub(crate) const COMMON_LINEAR_MASK: u32 = 127;
-pub(crate) const COMMON_MASK: u32 = 1_663;
-pub(crate) const LINEAR_MASK: u32 = 276_849_151;
-pub(crate) const MATRIX_MASK: u32 = 2_164_399_616;
-pub(crate) const ALL_FORMATS_MASK: u32 = LINEAR_MASK | MATRIX_MASK;
+pub(crate) const RETAIL_MASK: u64 = 15;
+pub(crate) const COMMON_LINEAR_MASK: u64 = 127;
+pub(crate) const COMMON_MASK: u64 = 1_663;
+pub(crate) const LINEAR_MASK: u64 = 276_849_151;
+pub(crate) const MATRIX_MASK: u64 = 2_164_399_616;
+pub(crate) const ALL_FORMATS_MASK: u64 = LINEAR_MASK | MATRIX_MASK;
 /// Opt-in formats: selected only by name, never by a preset or `ALL`.
-pub(crate) const OPT_IN_MASK: u32 = 1_853_620_224;
-pub(crate) const SUPPORTED_MASK: u32 = ALL_FORMATS_MASK | OPT_IN_MASK;
+pub(crate) const OPT_IN_MASK: u64 = 272_436_559_872;
+pub(crate) const SUPPORTED_MASK: u64 = ALL_FORMATS_MASK | OPT_IN_MASK;

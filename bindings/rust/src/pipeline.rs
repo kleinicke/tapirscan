@@ -56,7 +56,7 @@ pub(crate) struct ScanContext {
     /// The selected formats. Medium's late recoveries read only EAN-13 and UPC-A, so a
     /// selection without them skips those recoveries.
     #[cfg(not(feature = "low"))]
-    pub selected: u32,
+    pub selected: u64,
 }
 
 impl ScanContext {

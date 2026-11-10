@@ -8,65 +8,77 @@ import java.util.Set;
 /** A supported barcode symbology. */
 public enum Format {
     /** EAN-13 retail barcode. */
-    EAN13(1, "EAN13"),
+    EAN13(1L, "EAN13"),
     /** UPC-A retail barcode. */
-    UPCA(2, "UPCA"),
+    UPCA(2L, "UPCA"),
     /** EAN-8 retail barcode. */
-    EAN8(4, "EAN8"),
+    EAN8(4L, "EAN8"),
     /** UPC-E compressed retail barcode. */
-    UPCE(8, "UPCE"),
+    UPCE(8L, "UPCE"),
     /** Code 128, including GS1-128. */
-    CODE128(16, "Code128"),
+    CODE128(16L, "Code128"),
     /** Code 39. */
-    CODE39(32, "Code39"),
+    CODE39(32L, "Code39"),
     /** Interleaved 2 of 5. */
-    ITF(64, "ITF"),
+    ITF(64L, "ITF"),
     /** Codabar. */
-    CODABAR(128, "Codabar"),
+    CODABAR(128L, "Codabar"),
     /** Code 93. */
-    CODE93(256, "Code93"),
+    CODE93(256L, "Code93"),
     /** QR Code. */
-    QR_CODE(512, "QRCode"),
+    QR_CODE(512L, "QRCode"),
     /** Data Matrix. */
-    DATA_MATRIX(1024, "DataMatrix"),
+    DATA_MATRIX(1024L, "DataMatrix"),
     /** PDF417 stacked barcode. */
-    PDF417(2048, "PDF417"),
+    PDF417(2048L, "PDF417"),
     /** Aztec Code, including supported Aztec Rune reads. */
-    AZTEC(4096, "Aztec"),
+    AZTEC(4096L, "Aztec"),
     /** GS1 `DataBar`. */
-    DATA_BAR(8192, "DataBar"),
+    DATA_BAR(8192L, "DataBar"),
     /** GS1 `DataBar` Expanded. */
-    DATA_BAR_EXPANDED(16384, "DataBarExpanded"),
+    DATA_BAR_EXPANDED(16384L, "DataBarExpanded"),
     /** `MaxiCode`. */
-    MAXI_CODE(131072, "MaxiCode"),
+    MAXI_CODE(131072L, "MaxiCode"),
     /** Italian pharmacy code: a Code 39 symbol reported as its 9-digit number (opt-in). */
-    CODE32(262144, "Code32"),
+    CODE32(262144L, "Code32"),
     /** German pharmacy number: a Code 39 symbol reported as its 8- or 7-digit number (opt-in). */
-    PZN(524288, "PZN"),
+    PZN(524288L, "PZN"),
     /** MSI Plessey with a mod-10 check digit (opt-in). */
-    MSI_PLESSEY(1048576, "MSIPlessey"),
+    MSI_PLESSEY(1048576L, "MSIPlessey"),
     /** Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in). */
-    INDUSTRIAL25(2097152, "Industrial25"),
+    INDUSTRIAL25(2097152L, "Industrial25"),
     /** Laetus Pharmacode (one-track), values 32 to 131069 (opt-in). */
-    PHARMACODE(4194304, "Pharmacode"),
+    PHARMACODE(4194304L, "Pharmacode"),
     /** GS1 `DataBar` Limited. */
-    DATA_BAR_LIMITED(8388608, "DataBarLimited"),
+    DATA_BAR_LIMITED(8388608L, "DataBarLimited"),
     /** Micro QR Code, versions M1 to M4. */
-    MICRO_QR_CODE(16777216, "MicroQRCode"),
+    MICRO_QR_CODE(16777216L, "MicroQRCode"),
     /** Extended (full-ASCII) Code 39: a Code 39 symbol with shift pairs expanded (opt-in). */
-    CODE39EXTENDED(33554432, "Code39Extended"),
+    CODE39EXTENDED(33554432L, "Code39Extended"),
     /** IATA 2 of 5, bars-only, digits as printed (opt-in). */
-    IATA25(67108864, "IATA25"),
+    IATA25(67108864L, "IATA25"),
     /** Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in). */
-    MATRIX25(134217728, "Matrix25"),
+    MATRIX25(134217728L, "Matrix25"),
     /** Telepen ASCII and self-identifying AIM numeric/mixed modes. */
-    TELEPEN(268435456, "Telepen"),
+    TELEPEN(268435456L, "Telepen"),
     /** Opt-in legacy numeric interpretation of Telepen ASCII-start labels. */
-    TELEPEN_NUMERIC(536870912, "TelepenNumeric"),
+    TELEPEN_NUMERIC(536870912L, "TelepenNumeric"),
     /** Experimental `MicroPDF417` stacked barcode (opt-in). */
-    MICRO_PDF417(1073741824, "MicroPDF417"),
+    MICRO_PDF417(1073741824L, "MicroPDF417"),
     /** Rectangular Micro QR Code, all 32 sizes at M/H correction. */
-    RM_QR_CODE(-2147483648, "RMQRCode");
+    RM_QR_CODE(2147483648L, "RMQRCode"),
+    /** Royal Mail 4-State Customer Code (RM4SCC, CBC), reported without its check character (opt-in). */
+    RM4SCC(4294967296L, "RM4SCC"),
+    /** Dutch KIX 4-state code of the Netherlands post, read as a postcode, house number and suffix (opt-in). */
+    KIX(8589934592L, "KIX"),
+    /** Australia Post 4-State Customer Barcode, reported as FCC, DPID and customer information (opt-in). */
+    AUSTRALIA_POST(17179869184L, "AustraliaPost"),
+    /** Japan Post 4-State Customer Code, reported without its check character and padding (opt-in). */
+    JAPAN_POST(34359738368L, "JapanPost"),
+    /** USPS Intelligent Mail barcode, reported as tracking code then routing ZIP (opt-in). */
+    INTELLIGENT_MAIL(68719476736L, "IntelligentMail"),
+    /** Han Xin Code (ISO/IEC 20830), versions 1 to 84 (opt-in). */
+    HAN_XIN(137438953472L, "HanXin");
 
     /** EAN-13, UPC-A, EAN-8 and UPC-E. */
     public static final Set<Format> RETAIL =
@@ -87,16 +99,16 @@ public enum Format {
     public static final Set<Format> ALL =
         Collections.unmodifiableSet(EnumSet.of(EAN13, UPCA, EAN8, UPCE, CODE128, CODE39, ITF, CODABAR, CODE93, DATA_BAR, DATA_BAR_EXPANDED, DATA_BAR_LIMITED, TELEPEN, QR_CODE, DATA_MATRIX, PDF417, AZTEC, MAXI_CODE, MICRO_QR_CODE, RM_QR_CODE));
 
-    private final int bit;
+    private final long bit;
     private final String schemaName;
 
-    Format(int bit, String schemaName) {
+    Format(long bit, String schemaName) {
         this.bit = bit;
         this.schemaName = schemaName;
     }
 
     /** Native format-mask bit. */
-    public int bit() {
+    public long bit() {
         return bit;
     }
 
@@ -106,13 +118,13 @@ public enum Format {
         return schemaName;
     }
 
-    static int mask(Set<Format> formats) {
-        int mask = 0;
+    static long mask(Set<Format> formats) {
+        long mask = 0;
         for (Format format : formats) mask |= format.bit;
         return mask;
     }
 
-    static Format fromBit(int bit) {
+    static Format fromBit(long bit) {
         for (Format format : values()) if (format.bit == bit) return format;
         throw new IllegalStateException("Unknown native format " + bit);
     }

@@ -1,4 +1,5 @@
 pub mod addon_profile;
+pub mod australia_post;
 pub mod aztec;
 pub mod aztec_detect;
 pub mod binarization;
@@ -13,8 +14,14 @@ mod encoding_tables;
 pub mod expanded;
 mod finder_budget;
 pub mod formats;
+pub mod four_state;
 pub mod gray_sample;
+pub mod han_xin;
+pub mod han_xin_detect;
 mod industrial25;
+pub mod intelligent_mail;
+pub mod japan_post;
+pub mod kix;
 pub mod linear;
 mod linear_geometry;
 pub mod matrix_readers;
@@ -31,6 +38,7 @@ pub mod pdf417;
 mod pdf417_tables;
 pub mod pdf_localize;
 mod pharmacode;
+pub mod postal;
 pub mod qr;
 pub mod qr_detect;
 pub mod qr_enhance;
@@ -41,6 +49,7 @@ pub mod regions;
 mod resample;
 mod retail_gray;
 pub mod retail_profile;
+pub mod rm4scc;
 pub mod rmqr;
 mod rmqr_tables;
 mod telepen;
@@ -54,7 +63,7 @@ pub const MAX_IMAGE_PIXELS: usize = 256 * 1024 * 1024;
 /// Largest accepted pixel-buffer layout, in bytes: 1 GiB.
 pub const MAX_IMAGE_BYTES: usize = 1024 * 1024 * 1024;
 /// EAN/UPC, Code 128, Code 39 and ITF: the formats the nested-threshold row pass reads.
-const NESTED_PASS_FORMATS: u32 = formats::COMMON_LINEAR_MASK;
+const NESTED_PASS_FORMATS: u64 = formats::COMMON_LINEAR_MASK;
 
 // Threshold passes of one scanline, in order. Effort 0 takes only the global (Otsu)
 // threshold; higher efforts add the adaptive threshold. There, axial lines with
@@ -438,7 +447,7 @@ fn direction_agrees(image: &[u8], width: usize, height: usize, group: &Group) ->
 /// [`scan_for_mode`]. Invalid dimensions or a short image buffer return an empty
 /// scan. Results include qualified unread regions.
 #[must_use]
-pub fn scan(image: &[u8], width: usize, height: usize, mask: u32, effort: usize) -> Scan {
+pub fn scan(image: &[u8], width: usize, height: usize, mask: u64, effort: usize) -> Scan {
     scan_observed(image, width, height, mask, effort, |_, _| {})
 }
 
@@ -450,7 +459,7 @@ pub fn scan_for_mode(
     image: &[u8],
     width: usize,
     height: usize,
-    mask: u32,
+    mask: u64,
     effort: usize,
     mode: usize,
 ) -> Scan {
@@ -464,7 +473,7 @@ pub fn scan_observed(
     image: &[u8],
     width: usize,
     height: usize,
-    mask: u32,
+    mask: u64,
     effort: usize,
     observe: impl FnMut(&'static str, bool),
 ) -> Scan {
@@ -476,7 +485,7 @@ pub fn scan_observed_for_mode(
     image: &[u8],
     width: usize,
     height: usize,
-    mask: u32,
+    mask: u64,
     effort: usize,
     mode: usize,
     observe: impl FnMut(&'static str, bool),
@@ -487,6 +496,7 @@ pub fn scan_observed_for_mode(
         width,
         height,
         mask,
+        linear::AddOn::Ignore,
         effort,
         mode,
         &mut binary_images,
@@ -494,9 +504,9 @@ pub fn scan_observed_for_mode(
     )
 }
 
-/// [`scan_observed_for_mode`] with a threshold cache of the same `image` that other
-/// readers of the frame share. Thresholds are deterministic, so the scan equals one
-/// with a fresh cache.
+/// [`scan_observed_for_mode`] with an EAN/UPC add-on policy and a threshold cache of
+/// the same `image` that other readers of the frame share. Thresholds are
+/// deterministic, so the scan equals one with a fresh cache.
 #[expect(
     clippy::too_many_lines,
     reason = "The scanner orchestrator keeps reader order, deduplication and aggregate unfinished-work accounting in one transaction."
@@ -509,7 +519,8 @@ pub fn scan_with_images(
     image: &[u8],
     width: usize,
     height: usize,
-    mask: u32,
+    mask: u64,
+    add_on: linear::AddOn,
     effort: usize,
     mode: usize,
     binary_images: &mut binarization::Images<'_>,
@@ -827,9 +838,7 @@ pub fn scan_with_images(
                             }
                         }
                         let mask = if nested {
-                            mask & (NESTED_PASS_FORMATS
-                                | linear::ADDON_READ
-                                | linear::ADDON_REQUIRE)
+                            mask & NESTED_PASS_FORMATS
                         } else if pass >= RETAIL_PROFILE_PASS {
                             let retail = linear::EAN8
                                 | if effort > 1 && pass >= SHARPENED_PASS {
@@ -837,7 +846,7 @@ pub fn scan_with_images(
                                 } else {
                                     0
                                 };
-                            mask & (retail | linear::ADDON_READ | linear::ADDON_REQUIRE)
+                            mask & retail
                         } else {
                             mask
                         };
@@ -900,6 +909,7 @@ pub fn scan_with_images(
                                 } else {
                                     mask
                                 },
+                                add_on,
                                 &mut regions.limited,
                             );
                             if mask & linear::CODABAR != 0 {
@@ -907,6 +917,7 @@ pub fn scan_with_images(
                                     &integer_runs,
                                     first_black,
                                     linear::CODABAR,
+                                    linear::AddOn::Ignore,
                                     &mut regions.limited,
                                 ));
                             }
@@ -1023,7 +1034,7 @@ pub fn scan_with_images(
         }
         let addon_confirmed = g.addon_support >= if width.min(height) > 4 { 2 } else { 1 };
         if g.decoded
-            && mask & linear::ADDON_REQUIRE != 0
+            && add_on == linear::AddOn::Require
             && matches!(g.format.as_str(), "EAN13" | "UPCA" | "EAN8" | "UPCE")
             && !addon_confirmed
         {
@@ -1537,7 +1548,13 @@ pub fn recovery_gray(row: &[u8], limit: usize) -> (Vec<(String, f64, f64, f32)>,
         } else {
             bits[0]
         };
-        for mut read in linear::decode_candidates(&widths, dark, linear::EAN8, &mut limited) {
+        for mut read in linear::decode_candidates(
+            &widths,
+            dark,
+            linear::EAN8,
+            linear::AddOn::Ignore,
+            &mut limited,
+        ) {
             if !read.decoded {
                 if calls >= limit {
                     break;

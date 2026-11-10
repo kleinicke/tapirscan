@@ -48,14 +48,23 @@ is included in that keyword group; — means it is not included, not unsupported
 | `TelepenNumeric`  | —        | —          | —        | —     | —     | —     | Opt-in: legacy numeric interpretation of ASCII-start labels      |
 | `MicroPDF417`     | —        | —          | —        | —     | —     | —     | Experimental, opt-in: all 34 sizes; image recovery still limited |
 | `RMQRCode`        | —        | —          | —        | —     | ✓     | ✓     | All 32 sizes; M/H error correction                               |
+| `RM4SCC`          | —        | —          | —        | —     | —     | —     | UK postal customer codes (CBC): A–Z, 0–9                         |
+| `KIX`             | —        | —          | —        | —     | —     | —     | Dutch PostNL addresses: postcode, house number, X and suffix     |
+| `AustraliaPost`   | —        | —          | —        | —     | —     | —     | FCC 00, 11, 45, 59, 62, 87, 92; N and C customer tables          |
+| `JapanPost`       | —        | —          | —        | —     | —     | —     | Postcode and address: 0–9, -, A–Z                                |
+| `IntelligentMail` | —        | —          | —        | —     | —     | —     | 20-digit tracking code and 0/5/9/11-digit routing ZIP            |
+| `HanXin`          | —        | —          | —        | —     | —     | —     | Versions 1–84; no Unicode, GS1 or URI mode                       |
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and
-`Matrix25` require explicit selection; no group includes them, even `all`.
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25`,
+`Matrix25` and the postal formats (`RM4SCC`, `KIX`, `AustraliaPost`, `JapanPost`,
+`IntelligentMail`) and `HanXin` require explicit selection; no group includes
+them, even `all`.
 `Code32`, `PZN` and `Code39Extended` read Code 39 symbols another way, and the
-others have no check character or only a weak one, so other bars and noise can
-read as them.
+other linear formats have no check character or only a weak one, so other bars
+and noise can read as them. The postal formats and `HanXin` each need their
+own search over the image, which selections without them do not pay for.
 
 Native names follow each language: Rust `Formats::COMMON_1D`, C
 `TAPIRSCAN_FORMATS_COMMON_1D`, C++ `Formats::common_1d()` and Java
@@ -72,38 +81,44 @@ module per format. Reuse a scanner across frames to amortize initialization.
 
 The supported public identifiers and native bits are:
 
-| Identifier      |        Bit | Scope                                                            |
-| --------------- | ---------: | ---------------------------------------------------------------- |
-| EAN13           |          1 | Effort-mode scanner                                              |
-| UPCA            |          2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected |
-| EAN8            |          4 | Supported retail reader                                          |
-| UPCE            |          8 | Supported retail reader                                          |
-| Code128         |         16 | GS1 metadata; FNC3 sets reader initialization, FNC2 is dropped   |
-| Code39          |         32 | Standard characters; full ASCII is `Code39Extended`              |
-| ITF             |         64 | Supported                                                        |
-| Codabar         |        128 | Start/stop letters omitted from text, in `codabarStartStop`      |
-| Code93          |        256 | Supported                                                        |
-| QRCode          |        512 | Model 2; no Model 1 or rMQR                                      |
-| DataMatrix      |       1024 | ECC200 and DMRE                                                  |
-| PDF417          |       2048 | Normal/Compact and Macro (structured append); no Micro PDF417    |
-| Aztec           |       4096 | Compact/full and Rune                                            |
-| DataBar         |       8192 | Omnidirectional, Stacked and Stacked Omnidirectional             |
-| DataBarExpanded |      16384 | Expanded and Expanded Stacked                                    |
-| MaxiCode        |     131072 | Modes 2–6; affine finder localization                            |
-| Code32          |     262144 | Opt-in Code 39 variant: Italian pharmacy code, 9-digit number    |
-| PZN             |     524288 | Opt-in Code 39 variant: German PZN8/PZN7, number without `-`     |
-| MSIPlessey      |    1048576 | Opt-in; mod-10 check digit required, returned with the data      |
-| Industrial25    |    2097152 | Opt-in Industrial (Standard) 2 of 5; digits as printed           |
-| Pharmacode      |    4194304 | Opt-in Laetus one-track Pharmacode; values 32 to 131069          |
-| DataBarLimited  |    8388608 | GTIN-14 with indicator 0 or 1, returned as `01` + 14 digits      |
-| MicroQRCode     |   16777216 | M1–M4, every error correction level                              |
-| Code39Extended  |   33554432 | Opt-in Code 39 variant: full-ASCII shift pairs expanded          |
-| IATA25          |   67108864 | Opt-in IATA 2 of 5; digits as printed                            |
-| Matrix25        |  134217728 | Opt-in Matrix 2 of 5 (Zint: Standard 2 of 5); digits as printed  |
-| Telepen         |  268435456 | ASCII and self-identifying AIM numeric/mixed modes               |
-| TelepenNumeric  |  536870912 | Explicit legacy numeric interpretation                           |
-| MicroPDF417     | 1073741824 | All 34 standard row/column variants                              |
-| RMQRCode        | 2147483648 | All 32 standard dimensions, M/H correction                       |
+| Identifier      |          Bit | Scope                                                             |
+| --------------- | -----------: | ----------------------------------------------------------------- |
+| EAN13           |            1 | Effort-mode scanner                                               |
+| UPCA            |            2 | Zero-prefixed EAN13, returned as 12 digits when UPCA is selected  |
+| EAN8            |            4 | Supported retail reader                                           |
+| UPCE            |            8 | Supported retail reader                                           |
+| Code128         |           16 | GS1 metadata; FNC3 sets reader initialization, FNC2 is dropped    |
+| Code39          |           32 | Standard characters; full ASCII is `Code39Extended`               |
+| ITF             |           64 | Supported                                                         |
+| Codabar         |          128 | Start/stop letters omitted from text, in `codabarStartStop`       |
+| Code93          |          256 | Supported                                                         |
+| QRCode          |          512 | Model 2; no Model 1 or rMQR                                       |
+| DataMatrix      |         1024 | ECC200 and DMRE                                                   |
+| PDF417          |         2048 | Normal/Compact and Macro (structured append); no Micro PDF417     |
+| Aztec           |         4096 | Compact/full and Rune                                             |
+| DataBar         |         8192 | Omnidirectional, Stacked and Stacked Omnidirectional              |
+| DataBarExpanded |        16384 | Expanded and Expanded Stacked                                     |
+| MaxiCode        |       131072 | Modes 2–6; affine finder localization                             |
+| Code32          |       262144 | Opt-in Code 39 variant: Italian pharmacy code, 9-digit number     |
+| PZN             |       524288 | Opt-in Code 39 variant: German PZN8/PZN7, number without `-`      |
+| MSIPlessey      |      1048576 | Opt-in; mod-10 check digit required, returned with the data       |
+| Industrial25    |      2097152 | Opt-in Industrial (Standard) 2 of 5; digits as printed            |
+| Pharmacode      |      4194304 | Opt-in Laetus one-track Pharmacode; values 32 to 131069           |
+| DataBarLimited  |      8388608 | GTIN-14 with indicator 0 or 1, returned as `01` + 14 digits       |
+| MicroQRCode     |     16777216 | M1–M4, every error correction level                               |
+| Code39Extended  |     33554432 | Opt-in Code 39 variant: full-ASCII shift pairs expanded           |
+| IATA25          |     67108864 | Opt-in IATA 2 of 5; digits as printed                             |
+| Matrix25        |    134217728 | Opt-in Matrix 2 of 5 (Zint: Standard 2 of 5); digits as printed   |
+| Telepen         |    268435456 | ASCII and self-identifying AIM numeric/mixed modes                |
+| TelepenNumeric  |    536870912 | Explicit legacy numeric interpretation                            |
+| MicroPDF417     |   1073741824 | All 34 standard row/column variants                               |
+| RMQRCode        |   2147483648 | All 32 standard dimensions, M/H correction                        |
+| RM4SCC          |   4294967296 | Opt-in Royal Mail 4-State; text without its check character       |
+| KIX             |   8589934592 | Opt-in Dutch KIX; Dutch address-shaped text only                  |
+| AustraliaPost   |  17179869184 | Opt-in Australia Post 4-State; FCC, DPID and customer information |
+| JapanPost       |  34359738368 | Opt-in Japan Post 4-State; text without check and padding         |
+| IntelligentMail |  68719476736 | Opt-in USPS IMb; tracking code then routing ZIP, no separator     |
+| HanXin          | 137438953472 | Opt-in Han Xin Code, versions 1 to 84; text as UTF-8              |
 
 MicroPDF417 is experimental and must be selected explicitly as `MicroPDF417`;
 it is excluded from `all` and `2D`. Difficult-image recovery is still limited,
@@ -111,9 +126,12 @@ and some non-barcode backgrounds trigger substantial extra work. Telepen and
 rMQR remain included in `all`.
 
 MicroPDF417 and rMQR use their own identifiers; selecting `PDF417` or `QRCode`
-does not enable them. rMQR is included in `2D` and `all`. Java represents
-`RMQRCode`'s bit as the signed integer `-2147483648`; the native unsigned mask
-and JavaScript value are `2147483648`.
+does not enable them. rMQR is included in `2D` and `all`.
+
+Format masks are 64-bit in every binding (`uint64_t` in C, `long` in Java,
+`UInt64` in Swift; JavaScript keeps exact numbers below 2^53). Bits 32768 and
+65536 are unused, and formats added later take bits from 2^32 up. The EAN
+add-on policy is a separate option, never part of the format mask.
 
 The compact matrix readers support rotation, multiple symbols and bounded crop
 retries. Strong perspective and print damage remain limitations; very long rMQR
@@ -195,6 +213,103 @@ A read needs quiet zones of at least seven narrow modules on both sides and one
 narrow and one wide element width across the symbol (after removing ink spread).
 Both formats are opt-in; their symbols are never reported as another 2 of 5
 variant.
+
+### Four-state postal codes
+
+`RM4SCC`, `KIX`, `AustraliaPost`, `JapanPost` and `IntelligentMail` print
+each value as bars of four heights: a tracker, an ascender, a descender or a
+full bar. They share one reader:
+
+- The reader classifies bars by height relative to the tracker band. It finds
+  rows of evenly spaced bars at any angle and on mildly sheared symbols, and
+  every row is tried in both directions, so upside-down symbols read too.
+- All five are opt-in. Selecting any of them adds one bar-row search over the
+  whole image (about 10 ms per megapixel in Medium); further postal formats
+  add only their decoders on the rows found. Other selections never run it.
+- POSTNET and PLANET are not supported: they use only two bar heights, which
+  the four-state classification does not accept.
+
+#### RM4SCC
+
+Royal Mail 4-State Customer Code (`RM4SCC`, also called CBC) carries A–Z and
+0–9, four bars per character, between a start (ascender) and a stop (full
+bar), followed by a mod-6 check character.
+
+- Reads require the start and stop bars and a matching check character.
+- The reported text omits the check character: Zint's `W1J0TR01` symbol prints
+  `W1J0TR01` plus a check character and is returned as `W1J0TR01`.
+
+#### KIX
+
+The Dutch KIX code uses RM4SCC's characters with no start, stop or check
+character, and every character also reads as a valid character upside down.
+Since nothing in the symbol checks the data, `KIX` reports only text shaped
+like a Dutch address: a postcode, a house number of 1–5 digits and an
+optional `X` followed by a 1–6 character suffix
+(`[1-9][0-9]{3}[A-Z]{2}[0-9]{1,5}(X[0-9A-Z]{1,6})?`, 7–18 characters), and
+only when exactly one of the two reading directions has that shape. Other KIX
+content, such as a bare postcode, is not read.
+
+A part of an address can itself be an address, so a row is read only when it
+ends on both sides: where ink or the image border lies within two bar pitches
+beyond an end, nothing is reported. Keep the symbol's quiet zone inside the
+image.
+
+#### AustraliaPost
+
+Australia Post 4-State Customer Barcode: 37, 52 or 67 bars between
+ascender-tracker start and stop pairs, with four Reed-Solomon parity symbols.
+
+- The text is the two-digit Format Control Code, the eight-digit Delivery
+  Point Identifier and any customer information, without filler or parity:
+  Zint's `AUSPOST` `39987520` is returned as `1139987520`.
+- The FCC must match the length: 00, 11, 45, 87 or 92 for 37 bars, 59 for 52
+  and 62 for 67.
+- At most one damaged parity symbol is corrected, which keeps a margin against
+  misread rows.
+- The bars do not say whether customer information uses the N (digits) or C
+  (characters) table. It is read as digits when every bar pair is a digit up
+  to trailing filler, and as characters otherwise. A trailing `z` looks the
+  same as filler and is not reported.
+
+#### JapanPost
+
+Japan Post 4-State Customer Code: 67 bars, a start pair, 20 characters of
+three bars, a mod-19 check character and a stop pair.
+
+- The text is the postcode and address digits, `-` and letters A–Z (encoded
+  as control-character pairs), without the check character and the trailing
+  padding: Zint's `15400233-16-4-205` reads back unchanged.
+
+#### IntelligentMail
+
+USPS Intelligent Mail barcode: 65 bars with no start or stop pattern,
+protected by an 11-bit CRC.
+
+- The text is the 20-digit tracking code followed by the 0, 5, 9 or 11-digit
+  routing ZIP, without separator: Zint's
+  `01234567094987654321-01234567891` is returned as
+  `0123456709498765432101234567891`.
+
+### Han Xin Code
+
+`HanXin` reads Han Xin Code (ISO/IEC 20830), versions 1 to 84 (23 to 189
+modules per side) at all four error correction levels.
+
+- It is opt-in and in no group, not even `2D` or `all`. Selecting it adds a
+  finder search over the whole image, about 25 ms per megapixel in Medium on
+  a desktop CPU and up to 40 ms on photos full of text or fine texture, which
+  is several times the cost of `QRCode`. Other selections never run it.
+- The numeric, text, binary, both Chinese region, double-byte and four-byte
+  modes and ECI are read. Text is returned as UTF-8: data after an ECI uses
+  that character set, Chinese modes are GB 18030, and binary data is read as
+  UTF-8 when valid, else as GB 18030. The Unicode, GS1 and URI modes are not
+  read; symbols using them are not reported.
+- Symbols read at any rotation from about 2 pixels per module. Mirrored
+  symbols are not read.
+- The sampling grid comes from the four finders alone; alignment patterns are
+  not used. Flat symbols and mild perspective read at every size, but strong
+  perspective or a curved surface loses the larger versions first.
 
 ### Pharmacode
 

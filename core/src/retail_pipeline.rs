@@ -54,7 +54,7 @@ pub struct Collector {
     peak_row: Vec<u8>,
     peak_requests: usize,
     peak_unique: usize,
-    pub mask: u32,
+    pub mask: u64,
     pub use_raw: bool,
     pub use_peaks: bool,
     pub peak_retry: bool,

@@ -78,15 +78,17 @@ impl Field<u8> {
     }
 }
 
-/// The shared GF(256) fields: QR (0x11d) and Data Matrix (0x12d), each built
-/// once and shared read-only.
+/// The shared GF(256) fields: QR (0x11d), Data Matrix (0x12d) and Han Xin
+/// (0x163), each built once and shared read-only.
 #[must_use]
 pub fn gf256(polynomial: usize) -> &'static Field<u8> {
     static QR: OnceLock<Field<u8>> = OnceLock::new();
     static DATA_MATRIX: OnceLock<Field<u8>> = OnceLock::new();
+    static HAN_XIN: OnceLock<Field<u8>> = OnceLock::new();
     let cache = match polynomial {
         0x11d => &QR,
         0x12d => &DATA_MATRIX,
+        0x163 => &HAN_XIN,
         _ => unreachable!("fixed GF(256) fields"),
     };
     cache.get_or_init(|| Field::gf256(polynomial))

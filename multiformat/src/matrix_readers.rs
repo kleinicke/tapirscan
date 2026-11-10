@@ -1,9 +1,11 @@
 //! Shared matrix-reader invocation. Callers own ordering, concurrency and finalization.
 use crate::formats::{
-    AZTEC, DATA_MATRIX, MAXI_CODE, MICRO_PDF417, MICRO_QR_CODE, PDF417, QR_CODE, RM_QR_CODE,
+    AZTEC, DATA_MATRIX, HAN_XIN, MAXI_CODE, MICRO_PDF417, MICRO_QR_CODE, PDF417, QR_CODE,
+    RM_QR_CODE,
 };
 use crate::{
-    Detection, aztec_detect, binarization, dm_detect, maxicode_detect, pdf417, qr_detect, regions,
+    Detection, aztec_detect, binarization, dm_detect, han_xin_detect, maxicode_detect, pdf417,
+    postal, qr_detect, regions,
 };
 
 /// One matrix reader. The QR reader reads QR Code, Micro QR or both.
@@ -16,13 +18,16 @@ pub enum Reader {
     Pdf417,
     MicroPdf417,
     RmQrCode,
+    /// The postal formats of the mask, read by the shared four-state bar reader.
+    Postal(u64),
+    HanXin,
 }
 
 impl Reader {
     /// This reader restricted to the formats of `mask`, or `None` when it reads none
     /// of them.
     #[must_use]
-    pub const fn select(self, mask: u32) -> Option<Self> {
+    pub const fn select(self, mask: u64) -> Option<Self> {
         let bit = match self {
             Self::QrCode(_) => {
                 let symbols = qr_detect::Symbols {
@@ -41,6 +46,15 @@ impl Reader {
             Self::Pdf417 => PDF417,
             Self::MicroPdf417 => MICRO_PDF417,
             Self::RmQrCode => RM_QR_CODE,
+            Self::HanXin => HAN_XIN,
+            Self::Postal(_) => {
+                let formats = mask & postal::MASK;
+                return if formats == 0 {
+                    None
+                } else {
+                    Some(Self::Postal(formats))
+                };
+            }
         };
         if mask & bit == 0 { None } else { Some(self) }
     }
@@ -56,13 +70,15 @@ impl Reader {
             Self::Pdf417 => "PDF417",
             Self::MicroPdf417 => "MicroPDF417",
             Self::RmQrCode => "RMQRCode",
+            Self::Postal(_) => "Postal",
+            Self::HanXin => "HanXin",
         }
     }
 }
 
 /// Fixed reader order, also used when merging concurrent reader results. Restrict
 /// each entry to the selected formats with [`Reader::select`].
-pub const ORDER: [Reader; 7] = [
+pub const ORDER: [Reader; 9] = [
     Reader::QrCode(qr_detect::Symbols {
         qr: true,
         micro: true,
@@ -73,6 +89,8 @@ pub const ORDER: [Reader; 7] = [
     Reader::Pdf417,
     Reader::MicroPdf417,
     Reader::RmQrCode,
+    Reader::Postal(postal::MASK),
+    Reader::HanXin,
 ];
 
 /// Run exactly one reader using the caller's region accumulator and threshold cache.
@@ -115,5 +133,14 @@ pub fn read(
             crate::micro_pdf417_detect::detect(image, [width, height], binary_images, regions)
         }
         Reader::RmQrCode => qr_detect::rectangular::detect([width, height], binary_images, regions),
+        Reader::Postal(formats) => postal::detect(
+            image,
+            [width, height],
+            effort,
+            formats,
+            regions,
+            binary_images,
+        ),
+        Reader::HanXin => han_xin_detect::detect(width, height, regions, binary_images),
     }
 }

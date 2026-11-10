@@ -56,7 +56,7 @@ external int tapirscan_content_info(
 @ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.Uint32)>()
 external ffi.Pointer<ffi.Char> tapirscan_content_kind_name(int kind);
 
-@ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.Uint32)>()
+@ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.Uint64)>()
 external ffi.Pointer<ffi.Char> tapirscan_format_name(int format);
 
 @ffi.Native<
@@ -191,7 +191,7 @@ external int tapirscan_scanner_destroy(int scanner);
 @ffi.Native<ffi.Pointer<ffi.Char> Function(ffi.Int32)>()
 external ffi.Pointer<ffi.Char> tapirscan_status_message(int status);
 
-const int TAPIRSCAN_ABI_VERSION = 7;
+const int TAPIRSCAN_ABI_VERSION = 8;
 
 const int TAPIRSCAN_ABSENT = -1;
 
@@ -202,7 +202,7 @@ final class tapirscan_barcode extends ffi.Struct {
   @ffi.Uint64()
   external int support;
 
-  @ffi.Uint32()
+  @ffi.Uint64()
   external int format;
 
   @ffi.Int32()
@@ -370,12 +370,12 @@ final class tapirscan_region extends ffi.Struct {
   @ffi.Array.multi([4])
   external ffi.Array<tapirscan_point> polygon;
 
-  @ffi.Uint32()
+  @ffi.Uint64()
   external int format;
 }
 
 final class tapirscan_scan_options extends ffi.Struct {
-  @ffi.Uint32()
+  @ffi.Uint64()
   external int formats;
 
   static ffi.Pointer<tapirscan_scan_options> $allocate(
@@ -388,7 +388,7 @@ final class tapirscan_scanner_options extends ffi.Struct {
   @ffi.Uint32()
   external int mode;
 
-  @ffi.Uint32()
+  @ffi.Uint64()
   external int formats;
 
   @ffi.Uint32()

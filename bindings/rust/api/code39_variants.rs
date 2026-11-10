@@ -14,29 +14,29 @@ use crate::{Barcode, Format, UndecodedRegion, format::SUPPORTED_MASK};
 
 /// The opt-in formats read by the Code 39 reader. Other opt-in formats have
 /// their own readers.
-const VARIANT_MASK: u32 =
-    Format::Code32 as u32 | Format::Pzn as u32 | Format::Code39Extended as u32;
+const VARIANT_MASK: u64 =
+    Format::Code32 as u64 | Format::Pzn as u64 | Format::Code39Extended as u64;
 
 /// Code 32 base-32 alphabet: digits and consonants (no A, E, I, O).
 const CODE32_ALPHABET: &[u8; 32] = b"0123456789BCDFGHJKLMNPQRSTUVWXYZ";
 
 /// Format bits for the engine: opt-in formats are read by the Code 39 reader.
-pub(crate) const fn engine_bits(bits: u32) -> u32 {
+pub(crate) const fn engine_bits(bits: u64) -> u64 {
     let base = bits & !VARIANT_MASK;
     if bits & VARIANT_MASK == 0 {
         base
     } else {
-        base | Format::Code39 as u32
+        base | Format::Code39 as u64
     }
 }
 
 /// Reinterpret Code 39 reads and regions for the selected opt-in formats.
-pub(crate) fn apply(bits: u32, barcodes: &mut Vec<Barcode>, undecoded: &mut Vec<UndecodedRegion>) {
+pub(crate) fn apply(bits: u64, barcodes: &mut Vec<Barcode>, undecoded: &mut Vec<UndecodedRegion>) {
     debug_assert_eq!(bits & !SUPPORTED_MASK, 0);
     if bits & VARIANT_MASK == 0 {
         return;
     }
-    let code39 = Format::Code39 as u32;
+    let code39 = Format::Code39 as u64;
     for barcode in barcodes.iter_mut().filter(|b| b.format == Format::Code39) {
         let shifted = barcode.text.contains(['$', '%', '/', '+']);
         let converted = [
@@ -46,7 +46,7 @@ pub(crate) fn apply(bits: u32, barcodes: &mut Vec<Barcode>, undecoded: &mut Vec<
         ]
         .into_iter()
         .filter(|(format, _)| {
-            bits & *format as u32 != 0
+            bits & *format as u64 != 0
                 && (*format != Format::Code39Extended || shifted || bits & code39 == 0)
         })
         .find_map(|(format, convert)| convert(&barcode.text).map(|text| (format, text)));
@@ -63,7 +63,7 @@ pub(crate) fn apply(bits: u32, barcodes: &mut Vec<Barcode>, undecoded: &mut Vec<
         // of the selected scheme is an unread candidate for it.
         let variant = [Format::Code32, Format::Pzn, Format::Code39Extended]
             .into_iter()
-            .find(|format| bits & VARIANT_MASK == *format as u32);
+            .find(|format| bits & VARIANT_MASK == *format as u64);
         for region in undecoded.iter_mut() {
             if region.format == Some(Format::Code39) {
                 region.format = variant;
@@ -238,8 +238,8 @@ mod tests {
 
     #[test]
     fn extended_code39_reads_need_shifts_when_code39_is_selected() {
-        let ext = Format::Code39Extended as u32;
-        let code39 = Format::Code39 as u32;
+        let ext = Format::Code39Extended as u64;
+        let code39 = Format::Code39 as u64;
         let mut reads = vec![barcode("+H+I"), barcode("HI"), barcode("$1")];
         apply(ext, &mut reads, &mut Vec::new());
         let got: Vec<_> = reads.iter().map(|b| (b.format, b.text.as_str())).collect();
@@ -267,9 +267,9 @@ mod tests {
 
     #[test]
     fn apply_converts_selected_variants_and_keeps_raw_bytes() {
-        let code32 = Format::Code32 as u32;
-        let pzn = Format::Pzn as u32;
-        let code39 = Format::Code39 as u32;
+        let code32 = Format::Code32 as u64;
+        let pzn = Format::Pzn as u64;
+        let code39 = Format::Code39 as u64;
         let mut reads = vec![barcode("0CSSBD"), barcode("-02532876"), barcode("HELLO")];
         apply(code32 | pzn, &mut reads, &mut Vec::new());
         let got: Vec<_> = reads.iter().map(|b| (b.format, b.text.as_str())).collect();
@@ -300,9 +300,9 @@ mod tests {
 
     #[test]
     fn undecoded_regions_name_only_selected_formats() {
-        let code32 = Format::Code32 as u32;
-        let pzn = Format::Pzn as u32;
-        let code39 = Format::Code39 as u32;
+        let code32 = Format::Code32 as u64;
+        let pzn = Format::Pzn as u64;
+        let code39 = Format::Code39 as u64;
         let region = |format| UndecodedRegion {
             format: Some(format),
             polygon: [[0., 0.], [10., 0.], [10., 5.], [0., 5.]],
@@ -314,7 +314,7 @@ mod tests {
         // the one selected variant; other formats keep theirs.
         let mut reads = vec![barcode("HELLO")];
         let mut regions = vec![region(Format::Code39), region(Format::Code128)];
-        apply(pzn | Format::Code128 as u32, &mut reads, &mut regions);
+        apply(pzn | Format::Code128 as u64, &mut reads, &mut regions);
         assert_eq!(reads.len(), 0);
         assert_eq!(
             formats(&regions),

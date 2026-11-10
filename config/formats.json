@@ -79,7 +79,38 @@
       "RmQrCode",
       2147483648,
       "Rectangular Micro QR Code, all 32 sizes at M/H correction."
-    ]
+    ],
+    [
+      "RM4SCC",
+      "Rm4scc",
+      4294967296,
+      "Royal Mail 4-State Customer Code (RM4SCC, CBC), reported without its check character (opt-in)."
+    ],
+    [
+      "KIX",
+      "Kix",
+      8589934592,
+      "Dutch KIX 4-state code of the Netherlands post, read as a postcode, house number and suffix (opt-in)."
+    ],
+    [
+      "AustraliaPost",
+      "AustraliaPost",
+      17179869184,
+      "Australia Post 4-State Customer Barcode, reported as FCC, DPID and customer information (opt-in)."
+    ],
+    [
+      "JapanPost",
+      "JapanPost",
+      34359738368,
+      "Japan Post 4-State Customer Code, reported without its check character and padding (opt-in)."
+    ],
+    [
+      "IntelligentMail",
+      "IntelligentMail",
+      68719476736,
+      "USPS Intelligent Mail barcode, reported as tracking code then routing ZIP (opt-in)."
+    ],
+    ["HanXin", "HanXin", 137438953472, "Han Xin Code (ISO/IEC 20830), versions 1 to 84 (opt-in)."]
   ],
   "presets": {
     "retail": ["EAN13", "UPCA", "EAN8", "UPCE"],
@@ -112,7 +143,13 @@
     "IATA25",
     "Matrix25",
     "TelepenNumeric",
-    "MicroPDF417"
+    "MicroPDF417",
+    "RM4SCC",
+    "KIX",
+    "AustraliaPost",
+    "JapanPost",
+    "IntelligentMail",
+    "HanXin"
   ],
   "engineOptIn": [
     "MSIPlessey",
@@ -122,9 +159,13 @@
     "Matrix25",
     "TelepenNumeric"
   ],
-  "engineFlags": {
-    "eanAddOnRead": 32768,
-    "eanAddOnRequire": 65536
-  },
-  "engineMatrixOptIn": ["MicroPDF417"]
+  "engineMatrixOptIn": [
+    "MicroPDF417",
+    "RM4SCC",
+    "KIX",
+    "AustraliaPost",
+    "JapanPost",
+    "IntelligentMail",
+    "HanXin"
+  ]
 }

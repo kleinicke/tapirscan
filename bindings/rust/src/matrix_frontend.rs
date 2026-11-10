@@ -10,7 +10,7 @@ const READER_STACK: usize = 8 << 20;
 type ReaderRun = (Vec<Detection>, bool, regions::Regions);
 
 /// The matrix readers selected by `mask`, in their fixed result order.
-fn readers(mask: u32) -> Vec<Reader> {
+fn readers(mask: u64) -> Vec<Reader> {
     matrix_readers::ORDER
         .into_iter()
         .filter_map(|reader| reader.select(mask))
@@ -152,8 +152,8 @@ fn parallel_enabled() -> bool {
 /// Run `scan` for each format group, concurrently on multi-core hosts. Groups are
 /// independent scans of the same pixels, so results equal the sequential order.
 pub(crate) fn concurrent(
-    groups: &[(u32, usize)],
-    scan: &(dyn Fn(u32, usize) -> Scan + Sync),
+    groups: &[(u64, usize)],
+    scan: &(dyn Fn(u64, usize) -> Scan + Sync),
 ) -> Vec<Scan> {
     #[cfg(not(target_family = "wasm"))]
     if let Some((&(last, last_level), rest)) = groups.split_last()
@@ -195,7 +195,7 @@ pub(crate) fn scan(
     image: &[u8],
     width: usize,
     height: usize,
-    mask: u32,
+    mask: u64,
     effort: usize,
     binary_images: &mut binarization::Images<'_>,
 ) -> Scan {
@@ -214,7 +214,7 @@ fn scan_with(
     image: &[u8],
     width: usize,
     height: usize,
-    mask: u32,
+    mask: u64,
     effort: usize,
     allow_parallel: bool,
     binary_images: &mut binarization::Images<'_>,
@@ -303,11 +303,11 @@ mod tests {
 
     #[test]
     fn concurrent_groups_keep_their_order() {
-        let scan = |selected: u32, level: usize| barcode_multiformat::Scan {
+        let scan = |selected: u64, level: usize| barcode_multiformat::Scan {
             barcodes: Vec::new(),
             regions: Vec::new(),
             unfinished: selected % 2 == 1,
-            lines: selected as usize * 10 + level,
+            lines: usize::try_from(selected).unwrap() * 10 + level,
         };
         let groups = [(7, 1), (2, 0), (5, 3)];
         let lines: Vec<_> = concurrent(&groups, &scan).iter().map(|s| s.lines).collect();

@@ -4,28 +4,29 @@ Most users should use the [JavaScript package](https://github.com/kleinicke/tapi
 wraps this adapter. This page is a reference for calling the WebAssembly module
 directly. Each module is built for one effort mode and has no host imports. The
 host copies pixels into the module's input buffer, then runs a synchronous scan.
-The adapter ABI (version 3) is separate from native ABI 7 of the C library, and
+The adapter ABI (version 4) is separate from native ABI 8 of the C library, and
 its status numbers differ from the C `tapirscan_status` values.
 
 ## Exports
 
 | Export                                                                | Purpose                                                                                       |
 | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `tapirscan_abi_version()`                                             | Adapter ABI version (3)                                                                       |
+| `tapirscan_abi_version()`                                             | Adapter ABI version (4)                                                                       |
 | `tapirscan_mode()`                                                    | Compiled effort: 0 Low, 1 Medium, 2 High, 3 Very high                                         |
 | `tapirscan_experimental_turbo()`                                      | Turbo preset (2, 4, 8 or 16) compiled into a Low module, else 0                               |
-| `tapirscan_create(mode, formats, addon)`                              | Returns a scanner handle, or 0 for invalid options or a `mode` that differs from the module's |
+| `tapirscan_create(mode, formats_low, formats_high, addon)`            | Returns a scanner handle, or 0 for invalid options or a `mode` that differs from the module's |
 | `tapirscan_destroy(handle)`                                           | Releases the scanner                                                                          |
 | `tapirscan_prepare(handle, width, height, channels, stride)`          | Describes the image and allocates its input buffer                                            |
 | `tapirscan_input_ptr(handle)`, `tapirscan_input_len(handle)`          | Location and size of the input buffer                                                         |
 | `tapirscan_prepare_rows(handle, width, height, channels, chunk_rows)` | Starts an image above 32 megapixels, delivered in chunks of packed rows                       |
 | `tapirscan_push_rows(handle, count)`                                  | Adds the first `count` rows of the input buffer to such an image                              |
-| `tapirscan_scan(handle, flags, formats)`                              | Scans the prepared image                                                                      |
+| `tapirscan_scan(handle, flags, formats_low, formats_high)`            | Scans the prepared image                                                                      |
 | `tapirscan_output_ptr(handle)`, `tapirscan_output_len(handle)`        | Location and size of the UTF-8 JSON result                                                    |
 
-`formats` is a format bit mask. `addon` is 0 Ignore, 1 Read or 2 Require. In
+The format mask is 64-bit and passed as two unsigned 32-bit halves: `formats_low`
+holds bits 0–31 and `formats_high` bits 32–63. `addon` is 0 Ignore, 1 Read or 2 Require. In
 `tapirscan_scan`, `flags` accepts only bit 1 (value 2), which selects
-inspection; any other bit is rejected. A nonzero `formats` overrides the creation
+inspection; any other bit is rejected. A nonzero mask overrides the creation
 formats for that call. At most 1024 scanners can be live at once; creating more
 returns handle 0.
 

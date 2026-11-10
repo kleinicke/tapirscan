@@ -153,14 +153,14 @@ unsafe fn json(result: u64) -> String {
 
 #[test]
 fn layouts_match_the_header() {
-    assert_eq!(std::mem::size_of::<ScannerOptionsC>(), 16);
+    assert_eq!(std::mem::size_of::<ScannerOptionsC>(), 24);
     assert_eq!(std::mem::size_of::<ImageC>(), 48);
     assert_eq!(std::mem::size_of::<ResultInfoC>(), 48);
-    assert_eq!(std::mem::size_of::<BarcodeC>(), 136);
+    assert_eq!(std::mem::size_of::<BarcodeC>(), 144);
     assert_eq!(std::mem::size_of::<RegionC>(), 72);
     assert_eq!(std::mem::size_of::<ContentSummaryC>(), 16);
     assert_eq!(std::mem::size_of::<ContentLengthsC>(), 16);
-    assert_eq!(tapirscan_abi_version(), 7);
+    assert_eq!(tapirscan_abi_version(), 8);
 }
 
 fn content_field(handle: u64, position: u64, part: u32) -> String {
@@ -292,13 +292,76 @@ fn parses_content_through_owned_handles() {
     }
 }
 
+/// RM4SCC "W1J0TR01" (with its check character), one bar state per character:
+/// ascender, descender, full or tracker.
+const RM4SCC_BARS: &str = "AAFDTTDAFADTFTTFFFDATFTADTTFFTDAFAFDTF";
+
+/// The bars dark on white: 6 pixels wide at a 12-pixel pitch, 40 pixels for a full bar.
+fn rm4scc() -> (Vec<u8>, u64, u64) {
+    let (width, height) = (12 * RM4SCC_BARS.len() + 40, 64);
+    let mut pixels = vec![255; width * height];
+    for (i, state) in RM4SCC_BARS.bytes().enumerate() {
+        let top = if matches!(state, b'A' | b'F') { 12 } else { 26 };
+        let bottom = if matches!(state, b'D' | b'F') { 52 } else { 38 };
+        for y in top..bottom {
+            pixels[y * width + 20 + 12 * i..][..6].fill(0);
+        }
+    }
+    (pixels, width as u64, height as u64)
+}
+
+#[test]
+fn formats_above_bit_31_round_trip() {
+    let bit = Format::Rm4scc as u64;
+    assert!(bit > u64::from(u32::MAX));
+    unsafe {
+        assert_eq!(
+            CStr::from_ptr(tapirscan_format_name(bit)).to_str(),
+            Ok("RM4SCC")
+        );
+        assert!(tapirscan_format_name(1 << 63).is_null());
+        let (pixels, width, height) = rm4scc();
+        let image = gray(&pixels, width, height);
+        let scanner = create(&ScannerOptionsC {
+            mode: 1,
+            formats: bit | Format::Ean13 as u64,
+            ean_add_on_policy: 0,
+            parallel: PARALLEL_DEFAULT,
+        });
+        let common = create(std::ptr::null());
+        let only = ScanOptionsC { formats: bit };
+        for (scanner, options) in [(scanner, std::ptr::null()), (common, &raw const only)] {
+            let (status, result) = scan(scanner, &image, options);
+            assert_eq!(status, 0);
+            assert_eq!(info(result).barcode_count, 1);
+            let mut barcode = BarcodeC::default();
+            assert_eq!(tapirscan_result_barcode(result, 0, &raw mut barcode), 0);
+            assert_eq!(barcode.format, bit);
+            let mut text = [0_u8; 9];
+            let capacity = text.len() as u64;
+            assert_eq!(
+                tapirscan_result_copy(result, 0, FIELD_TEXT, text.as_mut_ptr(), capacity),
+                0
+            );
+            assert_eq!(&text, b"W1J0TR01\0");
+            assert_eq!(tapirscan_result_destroy(result), 0);
+        }
+        // Common formats leave the opt-in postal code unread.
+        let (status, result) = scan(common, &image, std::ptr::null());
+        assert_eq!((status, info(result).barcode_count), (0, 0));
+        assert_eq!(tapirscan_result_destroy(result), 0);
+        assert_eq!(tapirscan_scanner_destroy(scanner), 0);
+        assert_eq!(tapirscan_scanner_destroy(common), 0);
+    }
+}
+
 #[test]
 fn codabar_start_stop_is_a_separate_field() {
     let (pixels, width, height) = codabar(&["A123456B", "C40156D", "D7-$:/.+9A"]);
     unsafe {
         let scanner = create(&ScannerOptionsC {
             mode: 1,
-            formats: Format::Codabar as u32,
+            formats: Format::Codabar as u64,
             ean_add_on_policy: 0,
             parallel: PARALLEL_DEFAULT,
         });
@@ -310,7 +373,7 @@ fn codabar_start_stop_is_a_separate_field() {
         for index in 0..count {
             let mut barcode = BarcodeC::default();
             assert_eq!(tapirscan_result_barcode(result, index, &raw mut barcode), 0);
-            assert_eq!(barcode.format, Format::Codabar as u32);
+            assert_eq!(barcode.format, Format::Codabar as u64);
             let mut text = vec![0_u8; usize::try_from(barcode.text_length).unwrap() + 1];
             let capacity = text.len() as u64;
             assert_eq!(
@@ -473,6 +536,12 @@ fn rejects_invalid_arguments_without_partial_output() {
             },
             ScannerOptionsC {
                 mode: 1,
+                formats: 1 << 40 | 15,
+                ean_add_on_policy: 0,
+                parallel: PARALLEL_DEFAULT,
+            },
+            ScannerOptionsC {
+                mode: 1,
                 formats: 15,
                 ean_add_on_policy: 3,
                 parallel: PARALLEL_DEFAULT,
@@ -522,8 +591,10 @@ fn rejects_invalid_images_and_scan_options() {
         for image in &invalid {
             assert_eq!(scan(scanner, image, std::ptr::null()), (ARG, 0));
         }
-        let options = ScanOptionsC { formats: 1 << 15 };
-        assert_eq!(scan(scanner, &valid, &raw const options), (ARG, 0));
+        for formats in [1 << 15, 1 << 40, u64::MAX] {
+            let options = ScanOptionsC { formats };
+            assert_eq!(scan(scanner, &valid, &raw const options), (ARG, 0));
+        }
         let mut result = 9;
         assert_eq!(
             tapirscan_scan(
@@ -564,10 +635,10 @@ fn catches_unwinding() {
     assert_eq!(boundary(|| panic!("boundary probe")), PANIC);
 }
 
-const TAPIRSCAN_FORMAT_EAN13: u32 = Format::Ean13 as u32;
-const TAPIRSCAN_FORMAT_UPCA: u32 = Format::Upca as u32;
-const TAPIRSCAN_FORMAT_EAN8: u32 = Format::Ean8 as u32;
-const TAPIRSCAN_FORMAT_QR_CODE: u32 = Format::QrCode as u32;
+const TAPIRSCAN_FORMAT_EAN13: u64 = Format::Ean13 as u64;
+const TAPIRSCAN_FORMAT_UPCA: u64 = Format::Upca as u64;
+const TAPIRSCAN_FORMAT_EAN8: u64 = Format::Ean8 as u64;
+const TAPIRSCAN_FORMAT_QR_CODE: u64 = Format::QrCode as u64;
 
 #[test]
 fn typed_scans_do_not_retain_diagnostics_or_serialize_json() {

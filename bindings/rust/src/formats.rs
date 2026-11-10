@@ -55,18 +55,19 @@ use barcode_multiformat::formats::{
     CODABAR, CODE93, DATA_BAR_LIMITED, DATA_MATRIX, MICRO_PDF417, RM_QR_CODE, TELEPEN,
     TELEPEN_NUMERIC,
 };
+use barcode_multiformat::linear::AddOn;
 use barcode_multiformat::{MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE};
 use scanner_types::EngineScan;
 use serde_json::{Value, json};
 
 /// EAN-13 and UPC-A, the formats of the primary retail scanner path.
-pub(crate) const PRIMARY_RETAIL: u32 = EAN13 | UPCA;
+pub(crate) const PRIMARY_RETAIL: u64 = EAN13 | UPCA;
 /// EAN-8 and UPC-E, the short retail formats.
-pub(crate) const SHORT_RETAIL: u32 = EAN8 | UPCE;
+pub(crate) const SHORT_RETAIL: u64 = EAN8 | UPCE;
 /// Code 128, Code 39, ITF, Codabar, Code 93, Telepen and `DataBar` Limited: the linear
 /// formats other than retail, `DataBar` and `DataBar` Expanded, read in localized boxes.
 #[cfg(not(feature = "low"))]
-const NON_RETAIL_LINEAR: u32 =
+const NON_RETAIL_LINEAR: u64 =
     CODE128 | CODE39 | ITF | CODABAR | CODE93 | DATA_BAR_LIMITED | TELEPEN | TELEPEN_NUMERIC;
 
 #[cfg(not(feature = "low"))]
@@ -109,7 +110,7 @@ fn is_label_sheet_sized(width: usize, height: usize) -> bool {
 }
 
 /// Whether EAN-8 and UPC-E move from the sweep into the primary retail scan.
-fn shares_short_retail(mask: u32) -> bool {
+fn shares_short_retail(mask: u64) -> bool {
     POLICY.shared_short_retail && mask & SHORT_RETAIL != 0
 }
 
@@ -138,7 +139,7 @@ impl Scanner {
         &mut self,
         image: Image<'_>,
         options: ScanOptions,
-        mask: u32,
+        mask: u64,
         addons: EanAddOnPolicy,
     ) -> Result<EngineScan, Error> {
         crate::matrix_frontend::with_parallel(options.parallel, || {
@@ -161,7 +162,7 @@ impl Scanner {
         &mut self,
         image: Image<'_>,
         options: ScanOptions,
-        mask: u32,
+        mask: u64,
     ) -> Result<EngineScan, Error> {
         validate(image, mask)?;
         #[cfg(feature = "low")]
@@ -278,7 +279,7 @@ impl Scanner {
         options: ScanOptions,
         coverage: &[crate::Quad],
         shared_retail: bool,
-        mask: u32,
+        mask: u64,
     ) -> Result<crate::Result, Error> {
         #[cfg(feature = "low")]
         let _ = mask;
@@ -471,6 +472,12 @@ fn is_linear_read(read: &Read) -> bool {
             | "MicroPDF417"
             | "Aztec"
             | "MaxiCode"
+            | "RM4SCC"
+            | "KIX"
+            | "AustraliaPost"
+            | "JapanPost"
+            | "IntelligentMail"
+            | "HanXin"
     )
 }
 
@@ -697,7 +704,7 @@ fn scaled_matrix_retry(
     width: usize,
     height: usize,
     target_long: usize,
-    mask: u32,
+    mask: u64,
     effort: usize,
     averaged_first: bool,
 ) -> barcode_multiformat::Scan {
@@ -753,7 +760,7 @@ fn scaled_scan(
     smaller: &[u8],
     [out_width, out_height]: [usize; 2],
     [width, height]: [usize; 2],
-    mask: u32,
+    mask: u64,
     effort: usize,
 ) -> barcode_multiformat::Scan {
     let mut scan = scan_reader(smaller, out_width, out_height, mask, effort);
@@ -861,7 +868,7 @@ fn averaged_matrix_retry(
     width: usize,
     height: usize,
     target_long: usize,
-    mask: u32,
+    mask: u64,
     effort: usize,
 ) -> barcode_multiformat::Scan {
     let (out_width, out_height, smaller) = averaged_pixels(pixels, width, height, target_long);
@@ -884,7 +891,7 @@ fn averaged_matrix_retry(
     scan
 }
 
-fn validate(image: Image<'_>, mask: u32) -> Result<(), Error> {
+fn validate(image: Image<'_>, mask: u64) -> Result<(), Error> {
     if mask == 0
         || mask & !ALL_FORMATS_MASK != 0
         || image.width.max(image.height) > MAX_IMAGE_SIDE
@@ -954,7 +961,7 @@ pub(crate) fn fast_additional(
     scanner: &mut Scanner,
     image: Image<'_>,
     options: ScanOptions,
-    mask: u32,
+    mask: u64,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
     let (scans, _) = scan_additional(
         image,
@@ -988,7 +995,7 @@ pub(crate) fn fast_additional(
 /// Linear formats that Medium and above read only with the whole-image sweep:
 /// GS1 `DataBar` (stacked rows), `DataBar` Expanded and the opt-in linear formats with their
 /// own reader.
-const SWEPT: u32 = DATA_BAR | DATA_BAR_EXPANDED | ENGINE_OPT_IN_MASK;
+const SWEPT: u64 = DATA_BAR | DATA_BAR_EXPANDED | ENGINE_OPT_IN_MASK;
 
 /// Run the linear reader before primary discovery so strong reads can guide deep retries.
 #[expect(
@@ -997,7 +1004,7 @@ const SWEPT: u32 = DATA_BAR | DATA_BAR_EXPANDED | ENGINE_OPT_IN_MASK;
 )]
 fn scan_additional(
     image: Image<'_>,
-    mask: u32,
+    mask: u64,
     retail: bool,
     gray: &mut Vec<u8>,
 ) -> Result<(Vec<barcode_multiformat::Scan>, Vec<crate::Quad>), Error> {
@@ -1082,7 +1089,7 @@ fn scan_additional(
         & !(if qr_apart { QR_CODE } else { 0 }
             | if micro_apart { MICRO_QR_CODE } else { 0 }
             | if maxi_apart { MAXI_CODE } else { 0 });
-    let groups: Vec<(u32, usize)> = [
+    let groups: Vec<(u64, usize)> = [
         (linear & !preserved, effort),
         (preserved, POLICY.preserved_sweep_effort),
         (coarse_preserved, 0),
@@ -1108,7 +1115,7 @@ fn scan_additional(
     // starts its own. Thresholds are deterministic, so every group reads the same.
     let thresholds =
         std::sync::Mutex::new(Some(Thresholds::new(pixels, image.width, image.height)));
-    let first_scan = |selected: u32, level: usize| {
+    let first_scan = |selected: u64, level: usize| {
         #[cfg(any(feature = "low", feature = "medium"))]
         if let Some(sparse) = sparse.as_ref().filter(|_| {
             selected & LINEAR_MASK == 0
@@ -1126,6 +1133,7 @@ fn scan_additional(
             pixels,
             [image.width, image.height],
             selected,
+            AddOn::Ignore,
             level,
             crate::MODE_ID as usize,
             &mut binary_images,
@@ -1367,7 +1375,7 @@ fn scan_additional(
 /// frames and frames no larger than the coarsest copy always do; see
 /// `ModePolicy::qr_reduced_needs_texture` for the others.
 #[cfg(not(feature = "low"))]
-fn qr_reduced_wanted(pixels: &[u8], width: usize, height: usize, mask: u32) -> bool {
+fn qr_reduced_wanted(pixels: &[u8], width: usize, height: usize, mask: u64) -> bool {
     !POLICY.qr_reduced_needs_texture
         || mask == QR_CODE
         || width * height <= SMALL_FRAME_PIXELS
@@ -1384,7 +1392,7 @@ fn qr_reduced_wanted(pixels: &[u8], width: usize, height: usize, mask: u32) -> b
 /// passes would add much time to retail photos that hold no QR code.
 #[cfg(not(feature = "low"))]
 fn qr_recovery_evidence(
-    mask: u32,
+    mask: u64,
     pixel_count: usize,
     scans: &[barcode_multiformat::Scan],
 ) -> bool {
@@ -1402,8 +1410,8 @@ fn qr_recovery_evidence(
 /// fast on camera frames without QR. Reads of other formats do not stop it.
 #[cfg(not(feature = "low"))]
 fn qr_foreground_wanted(
-    mask: u32,
-    matrix: u32,
+    mask: u64,
+    matrix: u64,
     pixel_count: usize,
     scans: &[barcode_multiformat::Scan],
 ) -> bool {
@@ -1422,8 +1430,8 @@ fn qr_foreground_wanted(
 fn high_retries(
     pixels: &[u8],
     [width, height]: [usize; 2],
-    matrix: u32,
-    selected: u32,
+    matrix: u64,
+    selected: u64,
     level: usize,
     scan: &barcode_multiformat::Scan,
 ) -> Vec<barcode_multiformat::Scan> {
@@ -1482,8 +1490,8 @@ fn has_qr_region(scan: &barcode_multiformat::Scan) -> bool {
 fn medium_retries(
     pixels: &[u8],
     [width, height]: [usize; 2],
-    matrix: u32,
-    selected: u32,
+    matrix: u64,
+    selected: u64,
     level: usize,
     scan: &barcode_multiformat::Scan,
 ) -> Vec<barcode_multiformat::Scan> {
@@ -1632,7 +1640,7 @@ mod grayscale_reuse_tests;
 #[cfg(test)]
 mod texture_tests;
 
-fn retain_requested_primary(reads: &mut Vec<Read>, mask: u32) {
+fn retain_requested_primary(reads: &mut Vec<Read>, mask: u64) {
     reads.retain_mut(|read| {
         if mask & UPCA != 0 && read.text.starts_with('0') {
             read.text.remove(0);
@@ -1644,7 +1652,7 @@ fn retain_requested_primary(reads: &mut Vec<Read>, mask: u32) {
     });
 }
 
-fn extend_primary_retail(reads: &mut Vec<Read>, primary: Option<&crate::Result>, mask: u32) {
+fn extend_primary_retail(reads: &mut Vec<Read>, primary: Option<&crate::Result>, mask: u64) {
     if let Some(primary) = primary {
         reads.extend(
             primary
@@ -1662,7 +1670,7 @@ fn extend_primary_retail(reads: &mut Vec<Read>, primary: Option<&crate::Result>,
 
 /// The reader flag for a region's format name, or 0 when that format gets no crop retry.
 #[cfg(not(feature = "low"))]
-fn retry_format(format: &str) -> u32 {
+fn retry_format(format: &str) -> u64 {
     match format {
         "QRCode" => QR_CODE,
         "MicroQRCode" => MICRO_QR_CODE,
@@ -1700,7 +1708,7 @@ fn fair_data_matrix(region: &barcode_multiformat::regions::Region) -> bool {
 fn matrix_retries(
     pixels: &[u8],
     [width, height]: [usize; 2],
-    mask: u32,
+    mask: u64,
     scan: &mut barcode_multiformat::Scan,
     earlier: &[barcode_multiformat::Scan],
 ) -> Vec<barcode_multiformat::Scan> {
@@ -1716,7 +1724,7 @@ fn matrix_retries(
 fn matrix_crops(
     pixels: &[u8],
     [width, height]: [usize; 2],
-    mask: u32,
+    mask: u64,
     scan: &mut barcode_multiformat::Scan,
     earlier: &[barcode_multiformat::Scan],
     mut retry_crop: impl FnMut(
@@ -1884,7 +1892,7 @@ mod matrix_budget_tests {
     /// (100, 100), listed as a `format` region after a blank fair Data Matrix region whose
     /// crop alone (side * 1.4 + 16 pixels square) takes all but 5,000 pixels of the shared
     /// allowance.
-    fn fair_region_first(rows: &[&str], format: &str, score: f32, mask: u32) -> Vec<String> {
+    fn fair_region_first(rows: &[&str], format: &str, score: f32, mask: u64) -> Vec<String> {
         let (width, height) = (1200, 600);
         let mut pixels = vec![235; width * height];
         for (row, bits) in rows.iter().enumerate() {
@@ -2279,7 +2287,7 @@ pub(crate) fn scan_reader(
     pixels: &[u8],
     width: usize,
     height: usize,
-    mask: u32,
+    mask: u64,
     effort: usize,
 ) -> barcode_multiformat::Scan {
     scan_reader_with_mode(pixels, width, height, mask, effort, crate::MODE_ID as usize)
@@ -2292,7 +2300,7 @@ pub(crate) fn scan_reader_with_mode(
     pixels: &[u8],
     width: usize,
     height: usize,
-    mask: u32,
+    mask: u64,
     effort: usize,
     mode: usize,
 ) -> barcode_multiformat::Scan {
@@ -2301,8 +2309,29 @@ pub(crate) fn scan_reader_with_mode(
         pixels,
         [width, height],
         mask,
+        AddOn::Ignore,
         effort,
         mode,
+        &mut binary_images,
+    )
+}
+
+/// [`scan_reader`] that attaches confirmed EAN/UPC add-ons to retail reads.
+pub(crate) fn scan_reader_add_ons(
+    pixels: &[u8],
+    width: usize,
+    height: usize,
+    mask: u64,
+    effort: usize,
+) -> barcode_multiformat::Scan {
+    let mut binary_images = Thresholds::new(pixels, width, height);
+    scan_reader_with(
+        pixels,
+        [width, height],
+        mask,
+        AddOn::Read,
+        effort,
+        crate::MODE_ID as usize,
         &mut binary_images,
     )
 }
@@ -2312,14 +2341,15 @@ pub(crate) fn scan_reader_with_mode(
 fn scan_reader_with(
     pixels: &[u8],
     [width, height]: [usize; 2],
-    mask: u32,
+    mask: u64,
+    add_on: AddOn,
     effort: usize,
     mode: usize,
     binary_images: &mut Thresholds<'_>,
 ) -> barcode_multiformat::Scan {
-    if mask & AZTEC != 0 && mask & !MATRIX_MASK == 0 {
+    if add_on == AddOn::Ignore && mask & AZTEC != 0 && mask & !MATRIX_MASK == 0 {
         crate::matrix_frontend::scan(pixels, width, height, mask, effort, binary_images)
-    } else if mask == QR_CODE {
+    } else if add_on == AddOn::Ignore && mask == QR_CODE {
         barcode_research_core::qr_frontend::scan_with_images(
             pixels,
             width,
@@ -2333,6 +2363,7 @@ fn scan_reader_with(
             width,
             height,
             mask,
+            add_on,
             effort,
             mode,
             binary_images,

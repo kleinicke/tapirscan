@@ -7,7 +7,7 @@ fn rectified_oracle(
     width: usize,
     height: usize,
     quad: [[f32; 2]; 4],
-    mask: u32,
+    mask: u64,
 ) -> serde_json::Value {
     let mut attempts = 0;
     for rotation in 0..4 {

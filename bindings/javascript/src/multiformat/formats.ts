@@ -44,6 +44,12 @@ export function resolveFormats(input?: readonly string[] | string): Format[] {
   }
   return [...new Set(input)] as Format[];
 }
+/** Exact 64-bit mask as a number: format bits stay below 2^53, beyond 32-bit operators. */
 export function maskFor(formats: readonly Format[]): number {
-  return formats.reduce((mask, f) => mask | formatBits[f], 0) >>> 0;
+  let [low, high] = [0, 0];
+  for (const format of formats) {
+    low |= formatBits[format] % 2 ** 32;
+    high |= Math.floor(formatBits[format] / 2 ** 32);
+  }
+  return (high >>> 0) * 2 ** 32 + (low >>> 0);
 }

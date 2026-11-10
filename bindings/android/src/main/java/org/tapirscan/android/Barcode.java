@@ -27,7 +27,7 @@ public final class Barcode {
      * for absent optional fields, tri-state flags of -1 (not reported), 0 or 1, and a
      * structured-append count of 0 when absent.
      */
-    Barcode(byte[] text, int format, double[] polygon, long support, byte[] payloadBytes,
+    Barcode(byte[] text, long format, double[] polygon, long support, byte[] payloadBytes,
             byte[] eanAddOn, int gs1, int readerInitialization, long appendIndex,
             long appendCount, byte[] appendId, int appendParity, byte[] codabarStartStop) {
         this.text = new String(text, StandardCharsets.UTF_8);

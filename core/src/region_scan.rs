@@ -48,7 +48,7 @@ impl RegionScanner {
     /// Configure shared retail evidence; bit 1 keeps the primary reader enabled.
     /// # Errors
     /// Rejects unsupported family bits.
-    pub fn retail_configure(&mut self, mask: u32) -> Result<(), Error> {
+    pub fn retail_configure(&mut self, mask: u64) -> Result<(), Error> {
         if mask & EAN13 == 0 || mask & !RETAIL_MASK != 0 {
             return Err(Error::Parameters);
         }

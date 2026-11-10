@@ -596,6 +596,34 @@ test("Codabar reports its start and stop characters beside the stripped text", a
   }
 });
 
+test("RM4SCC (format bit 32) is opt-in and survives masks, scans and results", async () => {
+  // "W1J0TR01" plus its check character: Ascender, Descender, Full or Tracker bars.
+  const bars = "AAFDTTDAFADTFTTFFFDATFTADTTFFTDAFAFDTF";
+  const width = 12 * bars.length + 40,
+    height = 64,
+    data = new Uint8Array(width * height).fill(255);
+  [...bars].forEach((bar, i) => {
+    const top = "AF".includes(bar) ? 12 : 26,
+      bottom = "DF".includes(bar) ? 52 : 38;
+    for (let y = top; y < bottom; y++)
+      data.fill(0, y * width + 20 + 12 * i, y * width + 26 + 12 * i);
+  });
+  const image = { data, width, height, channels: 1, stride: width };
+  for (const mode of ["low", "medium", "high", "very-high"]) {
+    for (const formats of ["all", ["RM4SCC", "EAN13"]]) {
+      const scanner = await Scanner.create({ mode, loadWasm, formats });
+      try {
+        const read = scanner.scan(image).barcodes.map((b) => [b.format, b.text]);
+        assert.deepEqual(read, formats === "all" ? [] : [["RM4SCC", "W1J0TR01"]], mode);
+        const only = scanner.scan(image, { formats: "RM4SCC" }).barcodes.map((b) => b.text);
+        assert.deepEqual(only, ["W1J0TR01"], mode);
+      } finally {
+        scanner.dispose();
+      }
+    }
+  }
+});
+
 test("MSI Plessey is opt-in and read when selected", async () => {
   // Start bit, 8052344 and its mod-10 check digit 2, stop bit and closing bar.
   let bits = "110";
@@ -839,4 +867,64 @@ test("an engine trap fails one scan; the next scan starts a fresh engine", async
     () => scanner.scan(image),
     (error) => error.code === "disposed",
   );
+});
+
+test("HanXin (format bit 37) is opt-in and read by name", async () => {
+  // Version 3 "Hello 123" (Zint 2.16 -b 116 --vers=3 --secure=3 --mask=3).
+  const rows = [
+    "#######.#.##.##.#...#######",
+    "#.......#..#..#.#.#.......#",
+    "#.#####.#..##...#.#.#####.#",
+    "#.#.....#..##..#........#.#",
+    "#.#.###..#.#..#..#..###.#.#",
+    "#.#.###..####.#..#..###.#.#",
+    "#.#.###.##...#..#.#.###.#.#",
+    ".........#####.###.........",
+    "...#.############.#.#......",
+    ".......#...##.##.##.#.#..#.",
+    "..#.######....#.#.#...#.##.",
+    "#########.##.#.#.#..#..#.#.",
+    "#....#.#..#..###...##..##..",
+    "...##.#.#.##..#..#.....#..#",
+    ".#....#.###....#########..#",
+    "#####..#..##..##.##.#.#..#.",
+    "..###.#.##..#.....##.#.#..#",
+    "########.##.#..##.#.#.#####",
+    "......#.#.#..#..#.####.#...",
+    "...........##.##.#.........",
+    "#######.#..#.#....#.###.#.#",
+    "......#...#..#..#...###.#.#",
+    "#####.#....#..#.....###.#.#",
+    "....#.#.....##.####.....#.#",
+    "###.#.#.#.#..#..#.#.#####.#",
+    "###.#.#.#..#....###.......#",
+    "###.#.#..##..######.#######",
+  ];
+  const scale = 4,
+    margin = 4,
+    side = (rows.length + 2 * margin) * scale,
+    data = new Uint8Array(side * side).fill(255);
+  rows.forEach((row, y) =>
+    [...row].forEach((cell, x) => {
+      if (cell !== "#") return;
+      for (let yy = 0; yy < scale; yy++) {
+        const at = ((y + margin) * scale + yy) * side + (x + margin) * scale;
+        data.fill(0, at, at + scale);
+      }
+    }),
+  );
+  const image = { data, width: side, height: side, channels: 1, stride: side };
+  for (const mode of ["low", "medium", "high", "very-high"]) {
+    for (const formats of ["all", "2D", ["HanXin", "QRCode"]]) {
+      const scanner = await Scanner.create({ mode, loadWasm, formats });
+      try {
+        const read = scanner.scan(image).barcodes.map((b) => [b.format, b.text]);
+        assert.deepEqual(read, Array.isArray(formats) ? [["HanXin", "Hello 123"]] : [], mode);
+        const only = scanner.scan(image, { formats: "HanXin" }).barcodes.map((b) => b.text);
+        assert.deepEqual(only, ["Hello 123"], mode);
+      } finally {
+        scanner.dispose();
+      }
+    }
+  }
 });

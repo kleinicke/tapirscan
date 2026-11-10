@@ -139,7 +139,7 @@ const UPCE_HYPOTHESIS_SUPPORT: u64 = 3;
 fn sweep_box(
     image: Image<'_>,
     polygon: &crate::Quad,
-    mask: u32,
+    mask: u64,
     gray: &mut Vec<u8>,
 ) -> Result<Vec<Read>, Error> {
     let (mut low, mut high) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
@@ -216,7 +216,7 @@ impl Scanner {
         &mut self,
         image: Image<'_>,
         options: ScanOptions,
-        mask: u32,
+        mask: u64,
         primary: Option<&crate::Result>,
         reads: &mut Vec<Read>,
         unread: &mut Vec<Region>,

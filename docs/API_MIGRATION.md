@@ -1,5 +1,30 @@
 # API migration
 
+## Upgrading from 1.5.0
+
+Format masks are 64-bit. Native ABI 8 replaces ABI 7: rebuild C, C++, Java,
+Python, Swift, Android and Dart consumers against this release's header and
+library.
+
+- C: `tapirscan_format`, the `formats` fields of `tapirscan_scanner_options` and
+  `tapirscan_scan_options`, and the `format` fields of `tapirscan_barcode` and
+  `tapirscan_region` are `uint64_t`; `tapirscan_format_name` takes a `uint64_t`.
+  The structures grow to 24, 8, 144 and 72 bytes.
+- C++: `Format` and masks are `std::uint64_t`.
+- Java and Android: `Format.bit()` returns `long`; `RMQRCode` is now
+  `2147483648L` instead of a negative `int`.
+- Swift: masks are `UInt64`. Dart and Python read and write 64-bit fields.
+- Raw WebAssembly: adapter ABI 4 passes masks as two 32-bit halves, in
+  `tapirscan_create(mode, formats_low, formats_high, addon)` and
+  `tapirscan_scan(handle, flags, formats_low, formats_high)`.
+- JavaScript: the public API is unchanged; numeric masks stay exact below 2^53.
+
+Existing formats keep their bits. `RM4SCC` (bit 4294967296) is the first format
+above bit 31, followed by `KIX`, `AustraliaPost`, `JapanPost` and
+`IntelligentMail` (bits 33 to 36) and `HanXin` (bit 37). They are opt-in and
+in no group, so existing selections return the same results. The EAN add-on
+policy stays a separate option.
+
 ## Upgrading from 1.4.0
 
 Native ABI 7 is unchanged, so 1.4.0 native consumers load the new library

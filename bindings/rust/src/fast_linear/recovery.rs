@@ -14,7 +14,7 @@ use barcode_research_core::numeric::usize_f64;
 pub(crate) fn recover_proposals(
     image: Image<'_>,
     proposals: &[crate::Proposal],
-    mask: u32,
+    mask: u64,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
     recover_proposals_as(image, proposals, mask, sampler, SourceProfile::Gray(0.))
@@ -53,7 +53,7 @@ fn band_has_evidence(
 pub(crate) fn recover_proposals_hinted(
     image: Image<'_>,
     proposals: &[crate::Proposal],
-    mask: u32,
+    mask: u64,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     hinted: &mut Vec<Quad>,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
@@ -75,7 +75,7 @@ pub(crate) fn recover_proposals_hinted(
 pub(crate) fn recover_proposals_patient(
     image: Image<'_>,
     proposals: &[crate::Proposal],
-    mask: u32,
+    mask: u64,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
     recover_variant(
@@ -96,7 +96,7 @@ pub(crate) fn recover_proposals_patient(
 pub(crate) fn recover_sheet(
     image: Image<'_>,
     proposals: &[crate::Proposal],
-    mask: u32,
+    mask: u64,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
     let share = |budget: usize| budget * proposals.len().max(24) / 24;
@@ -128,7 +128,7 @@ const RECOVERY_BUDGETS: super::Budgets = super::Budgets {
 pub(crate) fn recover_proposals_as(
     image: Image<'_>,
     proposals: &[crate::Proposal],
-    mask: u32,
+    mask: u64,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     profile: SourceProfile,
 ) -> Result<(Vec<Read>, Vec<Region>), Error> {
@@ -219,7 +219,7 @@ fn retain_separated_raw_upce(candidate: &mut Candidate<'_>) {
 fn recover_variant(
     image: Image<'_>,
     proposals: &[crate::Proposal],
-    mask: u32,
+    mask: u64,
     sampler: &mut barcode_research_core::fast_profile::Sampler,
     profile: SourceProfile,
     budgets: super::Budgets,

@@ -60,11 +60,18 @@ keyword group; — means it is not included. `common` is the default.
 | `TelepenNumeric`  | —        | —          | —        | —     | —     | —     | Opt-in: legacy numeric interpretation of ASCII-start labels      |
 | `MicroPDF417`     | —        | —          | —        | —     | —     | —     | Experimental, opt-in: all 34 sizes; image recovery still limited |
 | `RMQRCode`        | —        | —          | —        | —     | ✓     | ✓     | All 32 sizes; M/H error correction                               |
+| `RM4SCC`          | —        | —          | —        | —     | —     | —     | UK postal customer codes (CBC): A–Z, 0–9                         |
+| `KIX`             | —        | —          | —        | —     | —     | —     | Dutch PostNL addresses: postcode, house number, X and suffix     |
+| `AustraliaPost`   | —        | —          | —        | —     | —     | —     | FCC 00, 11, 45, 59, 62, 87, 92; N and C customer tables          |
+| `JapanPost`       | —        | —          | —        | —     | —     | —     | Postcode and address: 0–9, -, A–Z                                |
+| `IntelligentMail` | —        | —          | —        | —     | —     | —     | 20-digit tracking code and 0/5/9/11-digit routing ZIP            |
+| `HanXin`          | —        | —          | —        | —     | —     | —     | Versions 1–84; no Unicode, GS1 or URI mode                       |
 
 <!-- END GENERATED FORMAT MATRIX -->
 
-`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25` and
-`Matrix25` require explicit selection; no group includes
+`Code32`, `PZN`, `MSIPlessey`, `Industrial25`, `Pharmacode`, `Code39Extended`, `IATA25`,
+`Matrix25` and the postal formats (`RM4SCC`, `KIX`, `AustraliaPost`, `JapanPost`,
+`IntelligentMail`) and `HanXin` require explicit selection; no group includes
 them, even `all`. See the [format guide](https://github.com/kleinicke/tapirscan/blob/main/docs/FORMATS.md)
 for variant details and EAN/UPC supplements.
 

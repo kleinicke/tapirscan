@@ -5,7 +5,7 @@
 
 namespace tapirscan {
 /// A supported barcode symbology. Values are native format-mask bits.
-enum class Format : std::uint32_t {
+enum class Format : std::uint64_t {
     Ean13 = TAPIRSCAN_FORMAT_EAN13,
     Upca = TAPIRSCAN_FORMAT_UPCA,
     Ean8 = TAPIRSCAN_FORMAT_EAN8,
@@ -36,5 +36,11 @@ enum class Format : std::uint32_t {
     TelepenNumeric = TAPIRSCAN_FORMAT_TELEPEN_NUMERIC,
     MicroPdf417 = TAPIRSCAN_FORMAT_MICRO_PDF417,
     RmQrCode = TAPIRSCAN_FORMAT_RM_QR_CODE,
+    Rm4scc = TAPIRSCAN_FORMAT_RM4SCC,
+    Kix = TAPIRSCAN_FORMAT_KIX,
+    AustraliaPost = TAPIRSCAN_FORMAT_AUSTRALIA_POST,
+    JapanPost = TAPIRSCAN_FORMAT_JAPAN_POST,
+    IntelligentMail = TAPIRSCAN_FORMAT_INTELLIGENT_MAIL,
+    HanXin = TAPIRSCAN_FORMAT_HAN_XIN,
 };
 }  // namespace tapirscan

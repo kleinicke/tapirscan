@@ -7,11 +7,14 @@ int main(void) {
     /* The C compiler must agree with the Rust layouts. */
     assert(sizeof(tapirscan_image) == 48);
     assert(sizeof(tapirscan_summary) == 48);
-    assert(sizeof(tapirscan_barcode) == 136);
+    assert(sizeof(tapirscan_barcode) == 144);
     assert(sizeof(tapirscan_region) == 72);
     assert(tapirscan_abi_version() == TAPIRSCAN_ABI_VERSION);
     assert(strcmp(tapirscan_format_name(TAPIRSCAN_FORMAT_QR_CODE), "QRCode") == 0);
     assert(tapirscan_format_name(TAPIRSCAN_FORMATS_RETAIL) == NULL);
+    assert(TAPIRSCAN_FORMAT_RM4SCC == UINT64_C(1) << 32);
+    assert(strcmp(tapirscan_format_name(TAPIRSCAN_FORMAT_RM4SCC), "RM4SCC") == 0);
+    assert(sizeof(tapirscan_scanner_options) == 24);
 
     const char *wifi = "WIFI:S:Cafe;T:WPA;P:secret;;";
     tapirscan_content content = 0;
@@ -43,7 +46,7 @@ int main(void) {
     assert(result == 0);
 
     image.length = sizeof(pixels);
-    assert(sizeof(tapirscan_scan_options) == 4);
+    assert(sizeof(tapirscan_scan_options) == 8);
     assert(tapirscan_scan(scanner, &image, NULL, &result, NULL) == TAPIRSCAN_OK);
     uint64_t count = 99;
     assert(tapirscan_result_count(result, &count) == TAPIRSCAN_OK && count == 0);

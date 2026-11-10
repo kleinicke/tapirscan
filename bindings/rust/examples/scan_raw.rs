@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_stride(args[4].parse()?);
     let mut options = ScanOptions::default();
     if args.len() == 8 {
-        options.formats = Some(Formats::try_from(args[7].parse::<u32>()?)?);
+        options.formats = Some(Formats::try_from(args[7].parse::<u64>()?)?);
     }
     let mut scanner = Scanner::new(ScannerOptions {
         mode,

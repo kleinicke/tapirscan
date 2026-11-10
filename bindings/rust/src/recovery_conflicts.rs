@@ -73,7 +73,7 @@ fn confirms(
     q: Quad,
     v: f64,
     expected: &Read,
-    mask: u32,
+    mask: u64,
     sampler: &mut Sampler,
     budget: &mut usize,
 ) -> bool {

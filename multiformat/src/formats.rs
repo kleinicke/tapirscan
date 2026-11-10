@@ -2,76 +2,84 @@
 //! Native format-mask bits and the preset masks the readers test.
 
 /// EAN-13 retail barcode.
-pub const EAN13: u32 = 1;
+pub const EAN13: u64 = 1;
 /// UPC-A retail barcode.
-pub const UPCA: u32 = 2;
+pub const UPCA: u64 = 2;
 /// EAN-8 retail barcode.
-pub const EAN8: u32 = 4;
+pub const EAN8: u64 = 4;
 /// UPC-E compressed retail barcode.
-pub const UPCE: u32 = 8;
+pub const UPCE: u64 = 8;
 /// Code 128, including GS1-128.
-pub const CODE128: u32 = 16;
+pub const CODE128: u64 = 16;
 /// Code 39.
-pub const CODE39: u32 = 32;
+pub const CODE39: u64 = 32;
 /// Interleaved 2 of 5.
-pub const ITF: u32 = 64;
+pub const ITF: u64 = 64;
 /// Codabar.
-pub const CODABAR: u32 = 128;
+pub const CODABAR: u64 = 128;
 /// Code 93.
-pub const CODE93: u32 = 256;
+pub const CODE93: u64 = 256;
 /// QR Code.
-pub const QR_CODE: u32 = 512;
+pub const QR_CODE: u64 = 512;
 /// Data Matrix.
-pub const DATA_MATRIX: u32 = 1_024;
+pub const DATA_MATRIX: u64 = 1_024;
 /// PDF417 stacked barcode.
-pub const PDF417: u32 = 2_048;
+pub const PDF417: u64 = 2_048;
 /// Aztec Code, including supported Aztec Rune reads.
-pub const AZTEC: u32 = 4_096;
+pub const AZTEC: u64 = 4_096;
 /// GS1 `DataBar`.
-pub const DATA_BAR: u32 = 8_192;
+pub const DATA_BAR: u64 = 8_192;
 /// GS1 `DataBar` Expanded.
-pub const DATA_BAR_EXPANDED: u32 = 16_384;
+pub const DATA_BAR_EXPANDED: u64 = 16_384;
 /// `MaxiCode`.
-pub const MAXI_CODE: u32 = 131_072;
+pub const MAXI_CODE: u64 = 131_072;
 /// Italian pharmacy code: a Code 39 symbol reported as its 9-digit number (opt-in).
-pub const CODE32: u32 = 262_144;
+pub const CODE32: u64 = 262_144;
 /// German pharmacy number: a Code 39 symbol reported as its 8- or 7-digit number (opt-in).
-pub const PZN: u32 = 524_288;
+pub const PZN: u64 = 524_288;
 /// MSI Plessey with a mod-10 check digit (opt-in).
-pub const MSI_PLESSEY: u32 = 1_048_576;
+pub const MSI_PLESSEY: u64 = 1_048_576;
 /// Industrial 2 of 5 (Standard 2 of 5), bars-only, digits as printed (opt-in).
-pub const INDUSTRIAL25: u32 = 2_097_152;
+pub const INDUSTRIAL25: u64 = 2_097_152;
 /// Laetus Pharmacode (one-track), values 32 to 131069 (opt-in).
-pub const PHARMACODE: u32 = 4_194_304;
+pub const PHARMACODE: u64 = 4_194_304;
 /// GS1 `DataBar` Limited.
-pub const DATA_BAR_LIMITED: u32 = 8_388_608;
+pub const DATA_BAR_LIMITED: u64 = 8_388_608;
 /// Micro QR Code, versions M1 to M4.
-pub const MICRO_QR_CODE: u32 = 16_777_216;
+pub const MICRO_QR_CODE: u64 = 16_777_216;
 /// Extended (full-ASCII) Code 39: a Code 39 symbol with shift pairs expanded (opt-in).
-pub const CODE39EXTENDED: u32 = 33_554_432;
+pub const CODE39EXTENDED: u64 = 33_554_432;
 /// IATA 2 of 5, bars-only, digits as printed (opt-in).
-pub const IATA25: u32 = 67_108_864;
+pub const IATA25: u64 = 67_108_864;
 /// Matrix 2 of 5 (Zint: Standard 2 of 5), digits as printed (opt-in).
-pub const MATRIX25: u32 = 134_217_728;
+pub const MATRIX25: u64 = 134_217_728;
 /// Telepen ASCII and self-identifying AIM numeric/mixed modes.
-pub const TELEPEN: u32 = 268_435_456;
+pub const TELEPEN: u64 = 268_435_456;
 /// Opt-in legacy numeric interpretation of Telepen ASCII-start labels.
-pub const TELEPEN_NUMERIC: u32 = 536_870_912;
+pub const TELEPEN_NUMERIC: u64 = 536_870_912;
 /// Experimental `MicroPDF417` stacked barcode (opt-in).
-pub const MICRO_PDF417: u32 = 1_073_741_824;
+pub const MICRO_PDF417: u64 = 1_073_741_824;
 /// Rectangular Micro QR Code, all 32 sizes at M/H correction.
-pub const RM_QR_CODE: u32 = 2_147_483_648;
+pub const RM_QR_CODE: u64 = 2_147_483_648;
+/// Royal Mail 4-State Customer Code (RM4SCC, CBC), reported without its check character (opt-in).
+pub const RM4SCC: u64 = 4_294_967_296;
+/// Dutch KIX 4-state code of the Netherlands post, read as a postcode, house number and suffix (opt-in).
+pub const KIX: u64 = 8_589_934_592;
+/// Australia Post 4-State Customer Barcode, reported as FCC, DPID and customer information (opt-in).
+pub const AUSTRALIA_POST: u64 = 17_179_869_184;
+/// Japan Post 4-State Customer Code, reported without its check character and padding (opt-in).
+pub const JAPAN_POST: u64 = 34_359_738_368;
+/// USPS Intelligent Mail barcode, reported as tracking code then routing ZIP (opt-in).
+pub const INTELLIGENT_MAIL: u64 = 68_719_476_736;
+/// Han Xin Code (ISO/IEC 20830), versions 1 to 84 (opt-in).
+pub const HAN_XIN: u64 = 137_438_953_472;
 
 /// EAN-13, UPC-A, EAN-8 and UPC-E.
-pub const RETAIL_MASK: u32 = 15;
+pub const RETAIL_MASK: u64 = 15;
 /// Retail formats plus Code 128, Code 39 and ITF.
-pub const COMMON_LINEAR_MASK: u32 = 127;
+pub const COMMON_LINEAR_MASK: u64 = 127;
 /// QR Code, Data Matrix, PDF417, Aztec, `MaxiCode`, Micro QR, `MicroPDF417` and rMQR.
-pub const MATRIX_MASK: u32 = 3_238_141_440;
+pub const MATRIX_MASK: u64 = 273_821_081_088;
 /// Every linear format the engine reads: the 1D preset plus the opt-in formats
 /// with their own reader.
-pub const ENGINE_LINEAR_MASK: u32 = 1_022_386_687;
-/// Attach a confirmed EAN/UPC add-on when one is found.
-pub const EAN_ADDON_READ_FLAG: u32 = 32_768;
-/// Accept EAN/UPC reads only with a confirmed add-on.
-pub const EAN_ADDON_REQUIRE_FLAG: u32 = 65_536;
+pub const ENGINE_LINEAR_MASK: u64 = 1_022_386_687;

@@ -3,29 +3,39 @@
 
 // Format bits as the linear decoders name them; the values come from the
 // generated `crate::formats`.
-pub const EAN13: u32 = crate::formats::EAN13;
-pub const UPCA: u32 = crate::formats::UPCA;
-pub const EAN8: u32 = crate::formats::EAN8;
-pub const UPCE: u32 = crate::formats::UPCE;
-pub const CODE128: u32 = crate::formats::CODE128;
-pub const CODE39: u32 = crate::formats::CODE39;
-pub const ITF: u32 = crate::formats::ITF;
-pub const CODABAR: u32 = crate::formats::CODABAR;
-pub const CODE93: u32 = crate::formats::CODE93;
-pub const DATABAR: u32 = crate::formats::DATA_BAR;
-pub const DATABAR_EXPANDED: u32 = crate::formats::DATA_BAR_EXPANDED;
-pub const DATABAR_LIMITED: u32 = crate::formats::DATA_BAR_LIMITED;
-pub const ADDON_READ: u32 = crate::formats::EAN_ADDON_READ_FLAG;
-pub const ADDON_REQUIRE: u32 = crate::formats::EAN_ADDON_REQUIRE_FLAG;
-pub const MSI_PLESSEY: u32 = crate::formats::MSI_PLESSEY;
-pub const INDUSTRIAL25: u32 = crate::formats::INDUSTRIAL25;
-pub const IATA25: u32 = crate::formats::IATA25;
-pub const MATRIX25: u32 = crate::formats::MATRIX25;
-pub const TELEPEN: u32 = crate::formats::TELEPEN;
-pub const TELEPEN_NUMERIC: u32 = crate::formats::TELEPEN_NUMERIC;
+pub const EAN13: u64 = crate::formats::EAN13;
+pub const UPCA: u64 = crate::formats::UPCA;
+pub const EAN8: u64 = crate::formats::EAN8;
+pub const UPCE: u64 = crate::formats::UPCE;
+pub const CODE128: u64 = crate::formats::CODE128;
+pub const CODE39: u64 = crate::formats::CODE39;
+pub const ITF: u64 = crate::formats::ITF;
+pub const CODABAR: u64 = crate::formats::CODABAR;
+pub const CODE93: u64 = crate::formats::CODE93;
+pub const DATABAR: u64 = crate::formats::DATA_BAR;
+pub const DATABAR_EXPANDED: u64 = crate::formats::DATA_BAR_EXPANDED;
+pub const DATABAR_LIMITED: u64 = crate::formats::DATA_BAR_LIMITED;
+pub const MSI_PLESSEY: u64 = crate::formats::MSI_PLESSEY;
+pub const INDUSTRIAL25: u64 = crate::formats::INDUSTRIAL25;
+pub const IATA25: u64 = crate::formats::IATA25;
+pub const MATRIX25: u64 = crate::formats::MATRIX25;
+pub const TELEPEN: u64 = crate::formats::TELEPEN;
+pub const TELEPEN_NUMERIC: u64 = crate::formats::TELEPEN_NUMERIC;
 /// Pharmacode has no start or stop: callers select it only for runs in the image's
 /// reading direction (see [`pharmacode_direction`]).
-pub const PHARMACODE: u32 = crate::formats::PHARMACODE;
+pub const PHARMACODE: u64 = crate::formats::PHARMACODE;
+
+/// EAN/UPC add-on (supplement) policy, passed beside the format mask.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum AddOn {
+    /// Report retail symbols without looking for an add-on.
+    #[default]
+    Ignore,
+    /// Attach a confirmed add-on when one follows the symbol.
+    Read,
+    /// Report retail symbols only with a confirmed add-on.
+    Require,
+}
 
 /// Whether runs sampled along image direction `(dx, dy)` (y downward) are in
 /// Pharmacode reading order. A Pharmacode value depends on the reading direction, which
@@ -535,7 +545,7 @@ fn ean_guards(r: &[f32], s: usize, end: usize, count: usize) -> bool {
     clippy::too_many_lines,
     reason = "The symbol parser keeps start/stop, parity, checksum and work-limit transitions together for the same run cursor."
 )]
-fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
+fn ean(r: &[f32], s: usize, mask: u64, policy: AddOn, retain_failed: bool) -> Option<Read> {
     let module = r.get(s..s + 3)?.iter().sum::<f32>() / 3.;
     // Every retail layout requires this same leading quiet zone. Reject before
     // guard fitting and share the measured guard scale across candidate layouts.
@@ -668,12 +678,12 @@ fn ean(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
                 }
                 continue;
             }
-            let addon = if mask & (ADDON_READ | ADDON_REQUIRE) != 0 {
-                ean_addon(r, end, module, gain)
-            } else {
+            let addon = if policy == AddOn::Ignore {
                 None
+            } else {
+                ean_addon(r, end, module, gain)
             };
-            if mask & ADDON_REQUIRE != 0 && addon.is_none() {
+            if policy == AddOn::Require && addon.is_none() {
                 if retain_failed && failed.is_none() {
                     failed = Some(Read {
                         decoded: false,
@@ -1658,8 +1668,8 @@ fn msi_finish(r: &[f32], s: usize, end: usize, digits: &[u8]) -> Option<Read> {
 }
 
 #[must_use]
-pub fn decode(r: &[f32], first_black: bool, mask: u32) -> Vec<Read> {
-    decode_impl(r, first_black, mask, false, &mut false)
+pub fn decode(r: &[f32], first_black: bool, mask: u64) -> Vec<Read> {
+    decode_impl(r, first_black, mask, AddOn::Ignore, false, &mut false)
 }
 /// `decoded: false` denotes a structurally parsed symbol with a failed checksum.
 /// The image scanner requires repeated spatial evidence before retaining it.
@@ -1667,21 +1677,23 @@ pub fn decode(r: &[f32], first_black: bool, mask: u32) -> Vec<Read> {
 pub(crate) fn decode_candidates(
     r: &[f32],
     first_black: bool,
-    mask: u32,
+    mask: u64,
+    add_on: AddOn,
     limited: &mut bool,
 ) -> Vec<Read> {
-    decode_impl(r, first_black, mask, true, limited)
+    decode_impl(r, first_black, mask, add_on, true, limited)
 }
 fn decode_impl(
     r: &[f32],
     first_black: bool,
-    mask: u32,
+    mask: u64,
+    add_on: AddOn,
     retain_failed: bool,
     limited: &mut bool,
 ) -> Vec<Read> {
     let mut out = Vec::new();
     let mut s = usize::from(!first_black);
-    let minimum_runs = if mask & !(15 | ADDON_READ | ADDON_REQUIRE) == 0 {
+    let minimum_runs = if mask & !15 == 0 {
         if mask & UPCE != 0 {
             33
         } else if mask & EAN8 != 0 {
@@ -1712,7 +1724,7 @@ fn decode_impl(
             }
         };
         if quiet && mask & crate::formats::RETAIL_MASK != 0 {
-            found = accepted(ean(r, s, mask, retain_failed));
+            found = accepted(ean(r, s, mask, add_on, retain_failed));
         }
         if found.is_none()
             && mask & CODE128 != 0
@@ -1832,7 +1844,7 @@ mod tests {
         clippy::cast_precision_loss,
         reason = "Test-only immutable reference clone preserves the prechange EAN implementation for exact parity checks."
     )]
-    fn ean_reference(r: &[f32], s: usize, mask: u32, retain_failed: bool) -> Option<Read> {
+    fn ean_reference(r: &[f32], s: usize, mask: u64, retain_failed: bool) -> Option<Read> {
         if error_adjusted(&r[s..], &[1, 1, 1]) > 0.25 {
             return None;
         }
@@ -1969,31 +1981,9 @@ mod tests {
                     }
                     continue;
                 }
-                let addon = if mask & (ADDON_READ | ADDON_REQUIRE) != 0 {
-                    ean_addon(r, end, module, gain)
-                } else {
-                    None
-                };
-                if mask & ADDON_REQUIRE != 0 && addon.is_none() {
-                    if retain_failed && failed.is_none() {
-                        failed = Some(Read {
-                            decoded: false,
-                            addon: None,
-                            codabar_start_stop: None,
-                            format,
-                            text: String::new(),
-                            start: s,
-                            end,
-                            error: err / count as f32,
-                            gs1: false,
-                            reader_initialization: false,
-                        });
-                    }
-                    continue;
-                }
                 return Some(Read {
                     decoded: true,
-                    addon,
+                    addon: None,
                     codabar_start_stop: None,
                     format,
                     text: digits.iter().map(|d| (b'0' + d) as char).collect(),
@@ -2182,26 +2172,31 @@ mod tests {
             code93.extend(c93_pattern(C93[value]).map(usize::from));
         }
         code93.extend([1, 10]);
-        for (runs, mask, format) in [
-            (ean, EAN8, "EAN8"),
-            (ean_required, EAN8 | ADDON_REQUIRE, "EAN8"),
-            (upce, UPCE, "UPCE"),
-            (code128, CODE128, "Code128"),
-            (code93, CODE93, "Code93"),
+        for (runs, mask, add_on, format) in [
+            (ean, EAN8, AddOn::Ignore, "EAN8"),
+            (ean_required, EAN8, AddOn::Require, "EAN8"),
+            (upce, UPCE, AddOn::Ignore, "UPCE"),
+            (code128, CODE128, AddOn::Ignore, "Code128"),
+            (code93, CODE93, AddOn::Ignore, "Code93"),
         ] {
             assert!(
-                decode(
+                decode_impl(
                     &runs
                         .iter()
                         .map(|&r| crate::numeric::usize_f32(r))
                         .collect::<Vec<_>>(),
                     false,
-                    mask
+                    mask,
+                    add_on,
+                    false,
+                    &mut false
                 )
                 .is_empty()
             );
             let (image, w, h) = checksum_scene(&runs);
-            let result = crate::scan(&image, w, h, mask, 1);
+            let mut images = crate::binarization::Images::new(&image, w, h);
+            let result =
+                crate::scan_with_images(&image, w, h, mask, add_on, 1, 1, &mut images, |_, _| {});
             assert!(result.barcodes.is_empty(), "{format}");
             assert_eq!(result.regions.len(), 2, "{format}");
             assert!(
@@ -2421,7 +2416,7 @@ mod tests {
         let failed = ean_reference(&invalid, 1, EAN8, true).expect("invalid checksum retained");
         assert!(!failed.decoded);
         assert_eq!(
-            parity_read(ean(&invalid, 1, EAN8, true)),
+            parity_read(ean(&invalid, 1, EAN8, AddOn::Ignore, true)),
             parity_read(Some(failed))
         );
         for (mut runs, mask) in [(ean13, EAN13 | UPCA), (ean8, EAN8), (upce, UPCE)] {
@@ -2431,7 +2426,7 @@ mod tests {
                     .decoded
             );
             assert!(
-                ean(&runs, 1, mask, false)
+                ean(&runs, 1, mask, AddOn::Ignore, false)
                     .expect("valid reordered fixture")
                     .decoded
             );
@@ -2441,7 +2436,7 @@ mod tests {
                     trial.extend_from_slice(&runs);
                     trial[prefix] = leading;
                     assert_eq!(
-                        parity_read(ean(&trial, prefix + 1, mask, true)),
+                        parity_read(ean(&trial, prefix + 1, mask, AddOn::Ignore, true)),
                         parity_read(ean_reference(&trial, prefix + 1, mask, true))
                     );
                 }
@@ -2453,7 +2448,7 @@ mod tests {
                     runs[20] += 1.;
                 }
                 assert_eq!(
-                    parity_read(ean(&runs, 1, mask, true)),
+                    parity_read(ean(&runs, 1, mask, AddOn::Ignore, true)),
                     parity_read(ean_reference(&runs, 1, mask, true))
                 );
             }

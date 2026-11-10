@@ -1,5 +1,7 @@
 #include <tapirscan.hpp>
+#include <algorithm>
 #include <cassert>
+#include <string>
 #include <type_traits>
 
 template<class T, class = void> struct accepts_gray : std::false_type {};
@@ -31,11 +33,37 @@ int main() {
     assert(result.best() == &result.barcodes[0]);
     result.barcodes.clear();
     assert(!result.best());
-    for (auto bits : {0u, 0x00008000u}) {
+    for (std::uint64_t bits : {std::uint64_t{0}, std::uint64_t{0x8000}, std::uint64_t{1} << 40}) {
         try { (void)tapirscan::Formats::from_bits(bits); assert(false); }
         catch (const std::invalid_argument&) {}
     }
     assert(tapirscan::Formats::from_bits(0x80000000u).bits() == 0x80000000u);
+    // Formats above bit 31 survive the mask, the native call and the result.
+    constexpr std::uint64_t rm4scc = std::uint64_t{1} << 32;
+    static_assert(static_cast<std::uint64_t>(tapirscan::Format::Rm4scc) == rm4scc);
+    assert(tapirscan::to_string(tapirscan::Format::Rm4scc) == "RM4SCC");
+    assert(tapirscan::Formats::from_bits(rm4scc | 1).bits() == (rm4scc | 1));
+    assert(tapirscan::Formats(tapirscan::Format::Rm4scc).contains(tapirscan::Format::Rm4scc));
+    {
+        // RM4SCC "W1J0TR01" with its check character: ascender, descender, full or tracker bars.
+        const std::string bars = "AAFDTTDAFADTFTTFFFDATFTADTTFFTDAFAFDTF";
+        const std::size_t width = 12 * bars.size() + 40, height = 64;
+        Pixels postal(width * height, 255);
+        for (std::size_t i = 0; i < bars.size(); ++i) {
+            const std::size_t top = bars[i] == 'A' || bars[i] == 'F' ? 12 : 26;
+            const std::size_t bottom = bars[i] == 'D' || bars[i] == 'F' ? 52 : 38;
+            for (std::size_t y = top; y < bottom; ++y)
+                std::fill_n(postal.data() + y * width + 20 + 12 * i, 6, 0);
+        }
+        const auto symbol = tapirscan::Image::gray(postal, width, height);
+        tapirscan::Scanner common;
+        assert(common.scan(symbol).barcodes.empty());
+        tapirscan::ScanOptions only;
+        only.formats = tapirscan::Format::Rm4scc;
+        const auto read = common.scan(symbol, only);
+        assert(read.barcodes.size() == 1 && read.barcodes[0].text == "W1J0TR01");
+        assert(read.barcodes[0].format == tapirscan::Format::Rm4scc);
+    }
     assert(tapirscan::to_string(tapirscan::Format::RmQrCode) == "RMQRCode");
     Pixels pixels(9, 255);
     tapirscan::Scanner scanner;

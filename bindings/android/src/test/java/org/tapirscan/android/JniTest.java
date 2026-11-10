@@ -177,6 +177,24 @@ public final class JniTest {
             check(!reader.scan(pixels, width, HEIGHT, 1, 0, ScanOptions.defaults().withFormats(only(Format.EAN13)))
                     .best().get().codabarStartStop().isPresent(), "no start/stop outside Codabar");
         }
+        // RM4SCC (bit 32) "W1J0TR01" with its check character: Ascender, Descender, Full or Tracker bars.
+        String bars = "AAFDTTDAFADTFTTFFFDATFTADTTFFTDAFAFDTF";
+        int postalWidth = 12 * bars.length() + 40;
+        byte[] postal = new byte[postalWidth * 64];
+        Arrays.fill(postal, (byte) 255);
+        for (int i = 0; i < bars.length(); i++) {
+            char bar = bars.charAt(i);
+            int top = bar == 'A' || bar == 'F' ? 12 : 26, bottom = bar == 'D' || bar == 'F' ? 52 : 38;
+            for (int y = top; y < bottom; y++)
+                Arrays.fill(postal, y * postalWidth + 20 + 12 * i, y * postalWidth + 26 + 12 * i, (byte) 0);
+        }
+        check(Format.RM4SCC.bit() == 1L << 32 && !Format.ALL.contains(Format.RM4SCC), "RM4SCC bit");
+        try (Scanner common = new Scanner()) {
+            check(common.scan(postal, postalWidth, 64, 1, 0).barcodes().isEmpty(), "RM4SCC is opt-in");
+            Barcode postalRead = common.scan(postal, postalWidth, 64, 1, 0,
+                    ScanOptions.defaults().withFormats(only(Format.RM4SCC))).best().get();
+            check(postalRead.format() == Format.RM4SCC && postalRead.text().equals("W1J0TR01"), "RM4SCC read");
+        }
         Scanner closed = new Scanner();
         closed.close();
         closed.close();

@@ -18,7 +18,7 @@ const UPC_PARITY: [u8; 10] = [56, 52, 50, 49, 44, 38, 35, 42, 41, 37];
 #[derive(Clone, Debug)]
 pub struct ShortRead {
     pub digits: [u8; 8],
-    pub format: u32,
+    pub format: u64,
     pub left: f64,
     pub right: f64,
     pub cost: f32,
@@ -68,7 +68,7 @@ pub fn expand_upce(d: &[u8; 8]) -> [u8; 12] {
     out[11] = d[7];
     out
 }
-fn decode_widths_base(w: &[f32], format: u32, calls: &mut usize) -> Option<([u8; 8], f32, f32)> {
+fn decode_widths_base(w: &[f32], format: u64, calls: &mut usize) -> Option<([u8; 8], f32, f32)> {
     let (modules, guards): (f32, &[usize]) = if format == EAN8 {
         (67., &[0, 1, 2, 19, 20, 21, 22, 23, 40, 41, 42])
     } else {
@@ -169,7 +169,7 @@ pub(crate) fn insert(out: &mut ShortReads, read: ShortRead, max_symbols: usize) 
 }
 pub(crate) fn decode_runs<T: Position>(
     runs: &[(T, T, bool)],
-    mask: u32,
+    mask: u64,
     max_symbols: usize,
     primary: &Reads,
     out: &mut ShortReads,
@@ -198,7 +198,7 @@ pub(super) fn fully_covered<T: Position>(runs: &[(T, T, bool)], primary: &Reads)
 pub(super) fn decode_selected_runs<T: Position>(
     runs: &[(T, T, bool)],
     starts: &[usize],
-    mask: u32,
+    mask: u64,
     max_symbols: usize,
     primary: &Reads,
     out: &mut ShortReads,
@@ -215,7 +215,7 @@ pub(super) fn decode_selected_runs<T: Position>(
 fn decode_indices<T: Position>(
     runs: &[(T, T, bool)],
     indices: impl Iterator<Item = usize>,
-    mask: u32,
+    mask: u64,
     max_symbols: usize,
     primary: &Reads,
     out: &mut ShortReads,
@@ -319,7 +319,7 @@ fn guard_gain(w: &[f32], start: usize, count: usize) -> f32 {
     let (a, b) = (dark / nd, light / nl);
     ((a - b) / (a + b)).clamp(-0.45, 0.45)
 }
-fn decode_widths(w: &[f32], format: u32, calls: &mut usize) -> Option<([u8; 8], f32, f32)> {
+fn decode_widths(w: &[f32], format: u64, calls: &mut usize) -> Option<([u8; 8], f32, f32)> {
     let original = decode_widths_base(w, format, calls);
     if original.is_some() || format != EAN8 {
         return original;
@@ -371,7 +371,7 @@ fn decode_widths(w: &[f32], format: u32, calls: &mut usize) -> Option<([u8; 8], 
 // source rows.
 pub(crate) fn linear_fallback_runs(
     runs: &[(f64, f64, bool)],
-    mask: u32,
+    mask: u64,
     max_symbols: usize,
     primary: &Reads,
     out: &mut ShortReads,

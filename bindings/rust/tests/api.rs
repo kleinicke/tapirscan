@@ -653,7 +653,17 @@ fn opt_in_pharmacy_formats_convert_code39_reads() {
     }
     assert_ne!(Formats::ALL | Format::Code32, Formats::ALL);
     assert_ne!(Formats::ALL | Format::Pzn, Formats::ALL);
-    assert!(Formats::try_from(Format::Code32 as u32 | Format::Pzn as u32).is_ok());
+    assert!(Formats::try_from(Format::Code32 as u64 | Format::Pzn as u64).is_ok());
+}
+
+#[test]
+fn formats_above_bit_31_round_trip() {
+    let bit = Format::Rm4scc as u64;
+    assert!(bit > u64::from(u32::MAX));
+    let formats = Formats::try_from(bit | Format::Ean13 as u64).unwrap();
+    assert_eq!(formats, Format::Rm4scc | Format::Ean13);
+    assert_ne!(Formats::ALL | Format::Rm4scc, Formats::ALL);
+    assert_eq!(Format::Rm4scc.as_str(), "RM4SCC");
 }
 
 /// Code 39 modules for `+H+I`, Extended Code 39 of `hi` (Zint 2.16 `-b 9 -d hi`).
@@ -955,6 +965,77 @@ fn databar_limited_and_micro_qr_are_read_with_their_presets() {
     assert_eq!(Formats::MATRIX | Format::MicroQrCode, Formats::MATRIX);
     assert_eq!(Format::DataBarLimited.as_str(), "DataBarLimited");
     assert_eq!(Format::MicroQrCode.as_str(), "MicroQRCode");
+}
+
+/// Han Xin version 3 "Hello 123" (Zint 2.16 `-b 116 --vers=3 --secure=3 --mask=3`).
+const HAN_XIN: [&str; 27] = [
+    "#######.#.##.##.#...#######",
+    "#.......#..#..#.#.#.......#",
+    "#.#####.#..##...#.#.#####.#",
+    "#.#.....#..##..#........#.#",
+    "#.#.###..#.#..#..#..###.#.#",
+    "#.#.###..####.#..#..###.#.#",
+    "#.#.###.##...#..#.#.###.#.#",
+    ".........#####.###.........",
+    "...#.############.#.#......",
+    ".......#...##.##.##.#.#..#.",
+    "..#.######....#.#.#...#.##.",
+    "#########.##.#.#.#..#..#.#.",
+    "#....#.#..#..###...##..##..",
+    "...##.#.#.##..#..#.....#..#",
+    ".#....#.###....#########..#",
+    "#####..#..##..##.##.#.#..#.",
+    "..###.#.##..#.....##.#.#..#",
+    "########.##.#..##.#.#.#####",
+    "......#.#.#..#..#.####.#...",
+    "...........##.##.#.........",
+    "#######.#..#.#....#.###.#.#",
+    "......#...#..#..#...###.#.#",
+    "#####.#....#..#.....###.#.#",
+    "....#.#.....##.####.....#.#",
+    "###.#.#.#.#..#..#.#.#####.#",
+    "###.#.#.#..#....###.......#",
+    "###.#.#..##..######.#######",
+];
+
+#[test]
+fn han_xin_is_read_only_when_selected() {
+    let (scale, margin) = (4, 4);
+    let side = (27 + 2 * margin) * scale;
+    let mut pixels = vec![255; side * side];
+    for (y, row) in HAN_XIN.iter().enumerate() {
+        for (x, cell) in row.bytes().enumerate() {
+            if cell == b'#' {
+                for yy in 0..scale {
+                    let at = ((y + margin) * scale + yy) * side + (x + margin) * scale;
+                    pixels[at..at + scale].fill(0);
+                }
+            }
+        }
+    }
+    for mode in compiled_modes() {
+        let scan = |formats: Formats| {
+            let mut scanner = Scanner::new(ScannerOptions {
+                mode,
+                formats,
+                ..ScannerOptions::default()
+            });
+            let result = scanner.scan(Image::gray(&pixels, side, side)).unwrap();
+            result
+                .barcodes
+                .into_iter()
+                .map(|b| (b.format, b.text))
+                .collect::<Vec<_>>()
+        };
+        let expected = [(Format::HanXin, "Hello 123".to_string())];
+        assert_eq!(scan(Format::HanXin.into()), expected, "{mode:?}");
+        assert_eq!(scan(Format::HanXin | Format::QrCode), expected, "{mode:?}");
+        assert_eq!(scan(Formats::ALL), Vec::new(), "{mode:?}");
+        assert_eq!(scan(Formats::MATRIX), Vec::new(), "{mode:?}");
+    }
+    assert_eq!(Format::HanXin as u64, 1 << 37);
+    assert_ne!(Formats::ALL | Format::HanXin, Formats::ALL);
+    assert_eq!(Format::HanXin.as_str(), "HanXin");
 }
 
 /// A 16x16 Data Matrix ("TAPIRSCAN-DM-42") drawn at 80 pixels per module, low

@@ -99,7 +99,7 @@ public final class Scanner implements AutoCloseable {
             ScanOptions scan, boolean inspect) {
         Objects.requireNonNull(pixels, "pixels");
         long open = open();
-        int formats = formats(scan);
+        long formats = formats(scan);
         if (pixels.isDirect()) {
             return nativeScanDirect(open, pixels, pixels.position(), pixels.remaining(), width,
                     height, channels, stride, formats, inspect);
@@ -121,9 +121,9 @@ public final class Scanner implements AutoCloseable {
     }
 
     /** The per-call format mask; 0 selects the scanner's formats. */
-    private static int formats(ScanOptions scan) {
+    private static long formats(ScanOptions scan) {
         Objects.requireNonNull(scan);
-        return scan.formats().map(Format::mask).orElse(0);
+        return scan.formats().map(Format::mask).orElse(0L);
     }
 
     private static List<Barcode> barcodes(Object[] raw) {
@@ -136,7 +136,7 @@ public final class Scanner implements AutoCloseable {
         for (int r = 0; r + 9 <= regions.length; r += 9) {
             List<Point> polygon = new ArrayList<>(4);
             for (int p = 0; p < 4; p++) polygon.add(new Point(regions[r + 2 * p], regions[r + 2 * p + 1]));
-            int format = (int) regions[r + 8];
+            long format = (long) regions[r + 8];
             undecoded.add(new UndecodedRegion(
                     format == 0 ? Optional.empty() : Optional.of(Format.fromBit(format)), polygon));
         }
@@ -146,7 +146,7 @@ public final class Scanner implements AutoCloseable {
                 new String((byte[]) raw[3], StandardCharsets.UTF_8));
     }
 
-    private static native long nativeCreate(int mode, int formats, int addOnPolicy, int parallel);
+    private static native long nativeCreate(int mode, long formats, int addOnPolicy, int parallel);
 
     private static native void nativeDestroy(long handle);
 
@@ -156,9 +156,9 @@ public final class Scanner implements AutoCloseable {
      * byte[] diagnostics JSON}.
      */
     private static native Object[] nativeScanDirect(long handle, ByteBuffer pixels, int offset,
-            int length, int width, int height, int channels, int stride, int formats,
+            int length, int width, int height, int channels, int stride, long formats,
             boolean inspect);
 
     private static native Object[] nativeScanArray(long handle, byte[] pixels, int width,
-            int height, int channels, int stride, int formats, boolean inspect);
+            int height, int channels, int stride, long formats, boolean inspect);
 }

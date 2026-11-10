@@ -3,7 +3,7 @@ package org.tapirscan;
 import java.util.List;
 import java.util.Optional;
 
-/** Value semantics and the named C layouts, independent of image fixtures. */
+/** Value semantics, the named C layouts and a drawn postal symbol, without image fixtures. */
 public final class ApiTest {
     private static void check(boolean value) {
         if (!value) throw new AssertionError("API contract failed");
@@ -36,8 +36,8 @@ public final class ApiTest {
         check(new ScanResult(List.of(a, stronger, b)).best().orElseThrow() == stronger);
         check(new ScanResult(List.of()).best().isEmpty());
         check(Native.IMAGE.byteSize() == 48 && Native.SUMMARY.byteSize() == 48);
-        check(Native.BARCODE.byteSize() == 136 && Native.REGION.byteSize() == 72);
-        check(Native.SCANNER_OPTIONS.byteSize() == 16 && Native.SCAN_OPTIONS.byteSize() == 4);
+        check(Native.BARCODE.byteSize() == 144 && Native.REGION.byteSize() == 72);
+        check(Native.SCANNER_OPTIONS.byteSize() == 24 && Native.SCAN_OPTIONS.byteSize() == 8);
         // tapirscan_parallel: 0 is the default, so zeroed native options keep it.
         check(Scanner.parallelCode(null) == 0 && Scanner.parallelCode(false) == 1 && Scanner.parallelCode(true) == 2);
         check(Native.offset(Native.IMAGE, "stride") == 40);
@@ -54,7 +54,10 @@ public final class ApiTest {
         check(Native.offset(Native.SUMMARY, "mode") == 40);
         for (Mode mode : Mode.values()) check(Mode.fromCode(mode.code()) == mode);
         for (Format format : Format.values()) check(Format.fromBit(format.bit()) == format);
-        check(Format.RM_QR_CODE.bit() == Integer.MIN_VALUE);
+        check(Format.RM_QR_CODE.bit() == 1L << 31);
+        // Formats above bit 31 survive the mask, the native call and the result.
+        check(Format.RM4SCC.bit() == 1L << 32 && Format.fromBit(1L << 32) == Format.RM4SCC);
+        check(Format.mask(java.util.Set.of(Format.RM4SCC, Format.EAN13)) == (1L << 32 | Format.EAN13.bit()));
         check(EanAddOnPolicy.REQUIRE.code() == 2);
         // Only the addressed rows are copied, and never more than the native layout limit.
         check(Image.gray(new byte[100], 3, 3).withStride(10).addressedBytes() == 23);
@@ -65,7 +68,7 @@ public final class ApiTest {
         } catch (IllegalArgumentException expected) {
             // Native fields are unsigned.
         }
-        check(Native.offset(Native.BARCODE, "appendIdLength") == 128);
+        check(Native.offset(Native.BARCODE, "appendIdLength") == 136);
         try (Scanner scanner = new Scanner()) {
             try {
                 scanner.scan(Image.gray(new byte[1], 3, 3));
@@ -105,6 +108,25 @@ public final class ApiTest {
             other.join();
             check(scanned[0]);
             check(scanner.scan(Image.gray(new byte[9], 3, 3)).barcodes().isEmpty());
+            Image postal = rm4scc();
+            check(scanner.scan(postal).barcodes().isEmpty());
+            List<Barcode> read = scanner.scan(postal, ScanOptions.defaults().withFormats(java.util.Set.of(Format.RM4SCC)))
+                    .barcodes();
+            check(read.size() == 1 && read.get(0).format() == Format.RM4SCC && read.get(0).text().equals("W1J0TR01"));
         }
+    }
+
+    /** RM4SCC "W1J0TR01" with its check character: ascender, descender, full or tracker bars. */
+    private static Image rm4scc() {
+        String bars = "AAFDTTDAFADTFTTFFFDATFTADTTFFTDAFAFDTF";
+        int width = 12 * bars.length() + 40, height = 64;
+        byte[] pixels = new byte[width * height];
+        java.util.Arrays.fill(pixels, (byte) 255);
+        for (int i = 0; i < bars.length(); i++) {
+            char bar = bars.charAt(i);
+            int top = bar == 'A' || bar == 'F' ? 12 : 26, bottom = bar == 'D' || bar == 'F' ? 52 : 38;
+            for (int y = top; y < bottom; y++) java.util.Arrays.fill(pixels, y * width + 20 + 12 * i, y * width + 26 + 12 * i, (byte) 0);
+        }
+        return Image.gray(pixels, width, height);
     }
 }

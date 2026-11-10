@@ -1,4 +1,4 @@
-//! Native ABI 7. Handles are registry IDs, never dereferenced pointers.
+//! Native ABI 8. Handles are registry IDs, never dereferenced pointers.
 //! Caller-owned pointer ranges must be valid, correctly aligned and nonoverlapping.
 //! Sizes and indices are `u64` on every target; values a 32-bit target cannot
 //! address fail with `TAPIRSCAN_ERROR_ARGUMENT` instead of being truncated.
@@ -13,7 +13,7 @@ use tapirscan_api::{
     ScanOptions, Scanner, ScannerOptions, UndecodedRegion,
 };
 
-const ABI_VERSION: u32 = 7;
+const ABI_VERSION: u32 = 8;
 const ARG: i32 = 1;
 const HANDLE: i32 = 2;
 const BUFFER: i32 = 3;
@@ -104,7 +104,7 @@ const PARALLEL_ON: u32 = 2;
 #[repr(C)]
 pub struct ScannerOptionsC {
     pub mode: u32,
-    pub formats: u32,
+    pub formats: u64,
     pub ean_add_on_policy: u32,
     pub parallel: u32,
 }
@@ -119,7 +119,7 @@ pub struct ImageC {
 }
 #[repr(C)]
 pub struct ScanOptionsC {
-    pub formats: u32,
+    pub formats: u64,
 }
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -142,7 +142,7 @@ pub struct ResultInfoC {
 pub struct BarcodeC {
     pub polygon: [PointC; 4],
     pub support: u64,
-    pub format: u32,
+    pub format: u64,
     pub gs1: i32,
     pub reader_initialization: i32,
     pub structured_append_parity: i32,
@@ -157,7 +157,7 @@ pub struct BarcodeC {
 #[derive(Clone, Copy, Default)]
 pub struct RegionC {
     pub polygon: [PointC; 4],
-    pub format: u32,
+    pub format: u64,
 }
 
 /// `tapirscan_content_summary`.
@@ -276,13 +276,13 @@ pub extern "C" fn tapirscan_status_message(status: i32) -> *const c_char {
 
 /// Static, NUL-terminated name of one format bit, or null for anything else.
 #[unsafe(no_mangle)]
-pub extern "C" fn tapirscan_format_name(format: u32) -> *const c_char {
-    static NAMES: OnceLock<Vec<(u32, CString)>> = OnceLock::new();
+pub extern "C" fn tapirscan_format_name(format: u64) -> *const c_char {
+    static NAMES: OnceLock<Vec<(u64, CString)>> = OnceLock::new();
     NAMES
         .get_or_init(|| {
             Format::ALL
                 .iter()
-                .filter_map(|f| Some((*f as u32, CString::new(f.as_str()).ok()?)))
+                .filter_map(|f| Some((*f as u64, CString::new(f.as_str()).ok()?)))
                 .collect()
         })
         .iter()
@@ -500,7 +500,7 @@ fn barcode_c(b: &Barcode) -> BarcodeC {
     BarcodeC {
         polygon: polygon(&b.polygon),
         support: b.support,
-        format: b.format as u32,
+        format: b.format as u64,
         gs1: tristate(b.gs1),
         reader_initialization: tristate(b.reader_initialization),
         structured_append_parity: append.and_then(|a| a.parity).map_or(-1, i32::from),
@@ -556,7 +556,7 @@ pub unsafe extern "C" fn tapirscan_result_undecoded(
             .ok_or(ARG)?;
         let region = RegionC {
             polygon: polygon(&region.polygon),
-            format: region.format.map_or(0, |f| f as u32),
+            format: region.format.map_or(0, |f| f as u64),
         };
         unsafe { *out = region };
         Ok(())

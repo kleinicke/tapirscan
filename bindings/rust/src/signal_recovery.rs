@@ -3,7 +3,7 @@
 /// How [`region_retries`] reads a region's crop: the reader formats and effort, the
 /// detector mode (`formats::scan_reader_with_mode`) and the copies, in order.
 pub(crate) struct CropReader {
-    pub mask: u32,
+    pub mask: u64,
     pub effort: usize,
     pub mode: usize,
     pub copies: &'static [crate::formats::CropCopy],
@@ -117,7 +117,7 @@ pub(crate) fn reduced_retry(
     pixels: &[u8],
     width: usize,
     window: [usize; 4],
-    mask: u32,
+    mask: u64,
     effort: usize,
 ) -> barcode_multiformat::Scan {
     let [x0, y0, x1, y1] = window;

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, TypeAlias
 
-ABI_VERSION = 7
+ABI_VERSION = 8
 
 _ERROR_CODES = {1: "invalid_input", 2: "disposed", 3: "engine", 4: "engine"}
 

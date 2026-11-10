@@ -43,7 +43,7 @@ class NativeIdentityTests(unittest.TestCase):
         python.parent.mkdir(parents=True)
         python.write_text('version = "1.4.0"\n')
         (self.root / "bindings/c/src/lib.rs").write_text(
-            "const ABI_VERSION: u32 = 7;\n"
+            "const ABI_VERSION: u32 = 8;\n"
         )
         (self.root / "rust-toolchain.toml").write_text('channel = "1.99.0"\n')
         self.library = self.base / "external-native/libtapirscan.dylib"
@@ -151,7 +151,7 @@ class NativeIdentityTests(unittest.TestCase):
             original = path.read_text()
             with self.subTest(name=name):
                 path.write_text(
-                    original.replace("7;", "8;")
+                    original.replace("8;", "9;")
                     .replace("1.4.0", "1.4.1")
                     .replace("1.99.0", "1.100.0")
                     + "# changed\n"
@@ -164,7 +164,7 @@ class NativeIdentityTests(unittest.TestCase):
         """Reject a manifest whose recorded ABI no longer matches the source."""
         path = self.library.parent / identity.MANIFEST
         manifest = json.loads(path.read_text())
-        manifest["identity"]["abi"] = 8
+        manifest["identity"]["abi"] = 9
         path.write_text(json.dumps(manifest))
         self.reject()
 

@@ -6,7 +6,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Tapirscan native ABI 7: one library containing all four effort modes.
+/* Tapirscan native ABI 8: one library containing all four effort modes.
 
    Create a scanner once, scan any number of images, read the owned result,
    then destroy the result and the scanner. Calls are thread-safe; scans on one
@@ -14,7 +14,7 @@ extern "C" {
    reference valid, aligned, nonoverlapping caller memory. Status failures never
    unwind through C; invalid raw memory and out-of-memory are outside that
    guarantee. Handle IDs are never reused. */
-#define TAPIRSCAN_ABI_VERSION 7u
+#define TAPIRSCAN_ABI_VERSION 8u
 
 typedef uint64_t tapirscan_scanner;
 typedef uint64_t tapirscan_result;
@@ -60,7 +60,7 @@ typedef enum tapirscan_parallel {
    TAPIRSCAN_PARALLEL_DEFAULT. */
 typedef struct tapirscan_scanner_options {
     uint32_t mode;              /* tapirscan_mode */
-    uint32_t formats;           /* nonempty TAPIRSCAN_FORMAT_* mask */
+    uint64_t formats;           /* nonempty TAPIRSCAN_FORMAT_* mask */
     uint32_t ean_add_on_policy; /* tapirscan_ean_add_on_policy */
     uint32_t parallel;          /* tapirscan_parallel */
 } tapirscan_scanner_options;
@@ -90,7 +90,7 @@ typedef struct tapirscan_image {
 
 /* Per-scan overrides. NULL or a zero-initialized struct uses the scanner's formats. */
 typedef struct tapirscan_scan_options {
-    uint32_t formats; /* 0 or a nonempty TAPIRSCAN_FORMAT_* mask */
+    uint64_t formats; /* 0 or a nonempty TAPIRSCAN_FORMAT_* mask */
 } tapirscan_scan_options;
 
 /* Source-image pixels, origin top-left, x rightward and y downward. */
@@ -110,7 +110,7 @@ typedef struct tapirscan_summary {
 typedef struct tapirscan_barcode {
     tapirscan_point polygon[4];
     uint64_t support;                 /* uncalibrated, reader-specific evidence */
-    uint32_t format;                  /* one TAPIRSCAN_FORMAT_* bit */
+    uint64_t format;                  /* one TAPIRSCAN_FORMAT_* bit */
     int32_t gs1;
     int32_t reader_initialization;
     int32_t structured_append_parity; /* -1 when absent */
@@ -125,7 +125,7 @@ typedef struct tapirscan_barcode {
 /* A localized region without an accepted decode. format is 0 when unknown. */
 typedef struct tapirscan_region {
     tapirscan_point polygon[4];
-    uint32_t format;
+    uint64_t format;
 } tapirscan_region;
 
 /* Variable-length barcode fields for tapirscan_result_copy. CODABAR_START_STOP
@@ -143,7 +143,7 @@ uint32_t tapirscan_abi_version(void);
 /* Static NUL-terminated strings; tapirscan_format_name returns NULL for
    anything other than a single TAPIRSCAN_FORMAT_* bit. */
 const char *tapirscan_status_message(int32_t status);
-const char *tapirscan_format_name(uint32_t format);
+const char *tapirscan_format_name(uint64_t format);
 
 int32_t tapirscan_scanner_create(const tapirscan_scanner_options *options, tapirscan_scanner *out, tapirscan_error *error);
 int32_t tapirscan_scanner_destroy(tapirscan_scanner scanner);
