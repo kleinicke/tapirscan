@@ -146,9 +146,10 @@ fn codeword(runs: &[usize]) -> Option<(usize, usize)> {
 /// the same pitch. The flag tells whether a row may start here. Bar growth is
 /// only compensated for a left address after a quiet zone and for a right
 /// address before its stop bar and quiet zone.
-fn side(runs: &[usize], at: usize) -> Option<(usize, f32, bool)> {
+fn side(runs: &[usize], edges: &[usize], at: usize) -> Option<(usize, f32, bool)> {
     let window = &runs[at..at + 6];
-    let total: usize = window.iter().sum();
+    // `edges` are the running sums of `runs`.
+    let total = edges[at + 6] - edges[at];
     // Every side pattern starts with a bar of two to four of its ten modules.
     if window[0] * 100 < total * 8 || window[0] * 100 > total * 52 {
         return None;
@@ -158,7 +159,7 @@ fn side(runs: &[usize], at: usize) -> Option<(usize, f32, bool)> {
         return None;
     }
     let codeword = |from: usize| {
-        let pitch = f(runs[from..from + 8].iter().sum()) / 17.;
+        let pitch = f(edges[from + 8] - edges[from]) / 17.;
         (pitch / module - 1.).abs() <= 0.3
     };
     let quiet = |run: usize| f(run) >= module * 1.5;
@@ -213,7 +214,7 @@ fn rows(
 ) {
     let tables = tables();
     for at in (start..runs.len().saturating_sub(7)).step_by(2) {
-        let Some((address, module, starts)) = side(runs, at) else {
+        let Some((address, module, starts)) = side(runs, edges, at) else {
             continue;
         };
         if hits.len() < MAX_HITS {
@@ -901,30 +902,69 @@ impl Scanner {
         self.previous_dark = dark;
     }
 }
+/// The sampled columns of a column scan: for each word of eight pixels the
+/// bytes of its sampled columns, and for each column its list or `usize::MAX`.
+struct Sampled {
+    words: Vec<u64>,
+    list: Vec<usize>,
+}
+impl Sampled {
+    fn new(w: usize, step: usize) -> Self {
+        let mut words = vec![0u64; w.div_ceil(8)];
+        let mut list = vec![usize::MAX; w];
+        for (index, x) in (0..w).step_by(step).enumerate() {
+            words[x / 8] |= 1 << (8 * (x % 8));
+            list[x] = index;
+        }
+        Self { words, list }
+    }
+}
 /// Adds `y` to every sampled column whose pixel differs between two rows.
 fn column_transitions(
     above: &[bool],
     row: &[bool],
-    step: usize,
+    sampled: &Sampled,
     y: usize,
     transitions: &mut [Vec<usize>],
 ) {
-    let word = |bits: &[bool]| {
-        let mut bytes = [0u8; 8];
-        for (byte, &bit) in bytes.iter_mut().zip(bits) {
-            *byte = u8::from(bit);
-        }
-        u64::from_le_bytes(bytes)
-    };
-    for (chunk, (above, row)) in above.chunks(8).zip(row.chunks(8)).enumerate() {
-        let mut pending = word(above) ^ word(row);
+    let mut push = |chunk: usize, mut pending: u64| {
         while pending != 0 {
             let x = chunk * 8 + pending.trailing_zeros() as usize / 8;
-            if x.is_multiple_of(step) {
-                transitions[x / step].push(y);
-            }
+            transitions[sampled.list[x]].push(y);
             pending &= pending - 1;
         }
+    };
+    let (above_words, above_rest) = above.as_chunks::<8>();
+    let (row_words, row_rest) = row.as_chunks::<8>();
+    for (chunk, ((above, row), &mask)) in above_words
+        .iter()
+        .zip(row_words)
+        .zip(&sampled.words)
+        .enumerate()
+    {
+        let changed =
+            u64::from_le_bytes(above.map(u8::from)) ^ u64::from_le_bytes(row.map(u8::from));
+        if changed & mask != 0 {
+            push(chunk, changed & mask);
+        }
+    }
+    let mut changed = 0u64;
+    for (k, (above, row)) in above_rest.iter().zip(row_rest).enumerate() {
+        changed |= u64::from(above != row) << (8 * k);
+    }
+    if let Some(&mask) = sampled.words.get(row_words.len()) {
+        push(row_words.len(), changed & mask);
+    }
+}
+/// `value.round()` from operations that every target has as an instruction;
+/// the fraction left by the truncation is exact.
+#[inline]
+fn round(value: f32) -> f32 {
+    let whole = value.trunc();
+    if (value - whole).abs() >= 0.5 {
+        whole + 1f32.copysign(value)
+    } else {
+        whole
     }
 }
 /// Threshold pixels along one oblique line; pixels outside the image are light.
@@ -937,8 +977,8 @@ fn oblique_line(
 ) {
     line.clear();
     line.extend(columns.iter().map(|column| {
-        let xx = (column[0] - offset[0]).round();
-        let yy = (column[1] + offset[1]).round();
+        let xx = round(column[0] - offset[0]);
+        let yy = round(column[1] + offset[1]);
         xx >= 0.
             && yy >= 0.
             && xx < f(w)
@@ -972,9 +1012,10 @@ fn scan_columns(image: &[bool], w: usize, h: usize, step: usize) -> Scanner {
     let mut scanner = Scanner::default();
     let columns: Vec<usize> = (0..w).step_by(step).collect();
     let mut transitions = vec![vec![0]; columns.len()];
+    let sampled = Sampled::new(w, step);
     for y in 1..h {
         let (above, row) = image[(y - 1) * w..(y + 1) * w].split_at(w);
-        column_transitions(above, row, step, y, &mut transitions);
+        column_transitions(above, row, &sampled, y, &mut transitions);
     }
     for (&x, mut transitions) in columns.iter().zip(transitions) {
         transitions.push(h);
@@ -1108,6 +1149,39 @@ pub fn detect(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn local_rounding_matches_the_standard_one() {
+        let mut state = 0x9e37_79b9_u32;
+        for step in 0..2_000_000_u32 {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let value = if step % 4 == 0 {
+                f32::from_bits(state)
+            } else {
+                f32::from_bits(0x3f00_0000 + (state >> 20)) * f((step % 251) as usize) - 60.
+            };
+            if value.is_nan() {
+                continue;
+            }
+            assert_eq!(round(value).to_bits(), value.round().to_bits(), "{value}");
+        }
+        for value in [
+            0.5,
+            -0.5,
+            1.5,
+            -1.5,
+            0.499_999_97,
+            -0.499_999_97,
+            8_388_609.,
+            -0.,
+            0.,
+        ] {
+            assert_eq!(
+                round(value).to_bits(),
+                f32::round(value).to_bits(),
+                "{value}"
+            );
+        }
+    }
     #[test]
     fn oblique_lines_preserve_rotated_pixel_coordinates() {
         let [w, h] = [7, 5];

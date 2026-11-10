@@ -148,20 +148,24 @@ struct Group {
 fn histogram(row: &[u8]) -> [usize; 256] {
     let mut hist = [0usize; 256];
     if row.len() >= 512 {
-        // Independent counters avoid a serial load/store chain on broad flat backgrounds.
-        let mut lanes = [[0usize; 256]; 4];
-        let (chunks, remainder) = row.as_chunks::<4>();
-        for pixels in chunks {
-            lanes[0][usize::from(pixels[0])] += 1;
-            lanes[1][usize::from(pixels[1])] += 1;
-            lanes[2][usize::from(pixels[2])] += 1;
-            lanes[3][usize::from(pixels[3])] += 1;
-        }
-        for (value, count) in hist.iter_mut().enumerate() {
-            *count = lanes.iter().map(|lane| lane[value]).sum();
-        }
-        for &value in remainder {
-            hist[usize::from(value)] += 1;
+        // Independent counters avoid a serial load/store chain on broad flat
+        // backgrounds. Eight 32-bit lanes fed from one 64-bit load are the
+        // fastest form in WebAssembly; blocks keep every lane below 2^32.
+        for block in row.chunks(1 << 30) {
+            let mut lanes = [[0u32; 256]; 8];
+            let (chunks, remainder) = block.as_chunks::<8>();
+            for pixels in chunks {
+                let word = u64::from_le_bytes(*pixels);
+                for (lane, byte) in lanes.iter_mut().zip(word.to_le_bytes()) {
+                    lane[usize::from(byte)] += 1;
+                }
+            }
+            for (value, count) in hist.iter_mut().enumerate() {
+                *count += lanes.iter().map(|lane| lane[value] as usize).sum::<usize>();
+            }
+            for &value in remainder {
+                hist[usize::from(value)] += 1;
+            }
         }
     } else {
         for &v in row {
@@ -335,34 +339,50 @@ pub(crate) fn count_finder_work(reads: usize) {
 pub(crate) fn take_finder_work() -> usize {
     FINDER_WORK.with(std::cell::Cell::take)
 }
+/// The offsets where `bits` changes value, between a leading 0 and the length.
+///
+/// Rows are read eight pixels at a time. A word that holds a change writes all
+/// eight positions without a branch per pixel and keeps the changed ones, so a
+/// textured row costs no mispredicted branches.
 pub fn transition_offsets_into(bits: &[bool], offsets: &mut Vec<usize>) {
+    const BATCH: usize = 128;
     offsets.clear();
     offsets.push(0);
-    if bits.is_empty() {
+    let Some((&first, tail)) = bits.split_first() else {
         return;
-    }
-    let mut previous = bits[0];
+    };
+    let mut previous = u64::from(first);
     let mut i = 1;
-    while bits.len() - i >= 8 {
-        let mut bytes = [0u8; 8];
-        for (byte, &bit) in bytes.iter_mut().zip(&bits[i..i + 8]) {
-            *byte = u8::from(bit);
+    let mut batch = [0_usize; BATCH];
+    let mut filled = 0;
+    let (words, rest) = tail.as_chunks::<8>();
+    for word in words {
+        let word = u64::from_le_bytes(word.map(u8::from));
+        let transitions = word ^ (word << 8 | previous);
+        if transitions != 0 {
+            if filled > BATCH - 8 {
+                offsets.extend_from_slice(&batch[..filled]);
+                filled = 0;
+            }
+            let slot = &mut batch[filled..filled + 8];
+            let mut count = 0;
+            for j in 0..8 {
+                // `count` is at most `j`; the mask only removes the bounds check.
+                slot[count & 7] = i + j;
+                count += usize::from(transitions >> (8 * j) & 1 != 0);
+            }
+            filled += count;
         }
-        let word = u64::from_le_bytes(bytes);
-        let transitions = word ^ (word << 8 | u64::from(u8::from(previous)));
-        let mut pending = transitions;
-        while pending != 0 {
-            offsets.push(i + pending.trailing_zeros() as usize / 8);
-            pending &= pending - 1;
-        }
-        previous = bits[i + 7];
+        previous = word >> 56;
         i += 8;
     }
-    while i < bits.len() {
-        if bits[i] != previous {
+    offsets.extend_from_slice(&batch[..filled]);
+    let mut previous = previous != 0;
+    for &bit in rest {
+        if bit != previous {
             offsets.push(i);
         }
-        previous = bits[i];
+        previous = bit;
         i += 1;
     }
     offsets.push(bits.len());
@@ -1168,6 +1188,33 @@ mod image_safety_tests {
 
 #[cfg(test)]
 mod threshold_tests {
+    #[test]
+    fn transition_offsets_match_a_pixel_by_pixel_scan() {
+        let mut seed = 99_u32;
+        // Lengths around the word size and the batch size; densities from flat to
+        // a change at every pixel.
+        for length in [0, 1, 2, 8, 9, 10, 16, 17, 63, 127, 129, 1025, 1033, 4100] {
+            for density in [0, 1, 20, 300, 700, 1000, 1001] {
+                let mut value = false;
+                let bits: Vec<bool> = (0..length)
+                    .map(|_| {
+                        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                        value ^= density > 1000 || (seed >> 16) % 1000 < density;
+                        value
+                    })
+                    .collect();
+                let mut expected = vec![0];
+                expected.extend((1..length).filter(|&i| bits[i] != bits[i - 1]));
+                if length > 0 {
+                    expected.push(length);
+                }
+                let mut offsets = vec![7; 3];
+                super::transition_offsets_into(&bits, &mut offsets);
+                assert_eq!(offsets, expected, "length {length}, density {density}");
+            }
+        }
+    }
+
     #[test]
     fn reflected_runs_match_reextracting_reversed_pixels() {
         let mut seed = 1487_u32;

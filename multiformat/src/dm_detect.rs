@@ -1411,37 +1411,84 @@ fn border_sample(edge: usize, at: usize, cols: usize, rows: usize) -> (usize, us
     }
 }
 
-// Keep map's multiply/add/divide order, then floor and signed saturation.
-// NaN becomes zero, exactly as in the scalar WASM coordinate conversion.
+/// Count the wrong samples among the first `length / 4 * 4` modules of one
+/// border edge into `errors`. `None` when a sample leaves the image or the
+/// errors pass `error_limit`.
+///
+/// The coordinates repeat `map` operation for operation (multiply, add, divide,
+/// floor, signed saturation with NaN as zero); only the product of the
+/// coordinate that is fixed along the edge is computed once.
 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
 #[inline]
-fn project_four(transform: &[f32; 8], points: [[f32; 2]; 4]) -> [[isize; 2]; 4] {
+fn edge_errors_by_four(
+    image: &[bool],
+    [w, h]: [usize; 2],
+    transform: &[f32; 8],
+    (edge, length): (usize, usize),
+    [cols, rows]: [usize; 2],
+    errors: &mut usize,
+    error_limit: usize,
+) -> Option<()> {
     use core::arch::wasm32::{
-        f32x4, f32x4_add, f32x4_div, f32x4_floor, f32x4_mul, f32x4_splat, i32x4_extract_lane,
-        i32x4_trunc_sat_f32x4,
+        f32x4, f32x4_add, f32x4_div, f32x4_floor, f32x4_mul, f32x4_splat, i32x4_add,
+        i32x4_all_true, i32x4_mul, i32x4_splat, i32x4_trunc_sat_f32x4, u32x4_extract_lane,
+        u32x4_lt, v128, v128_and,
     };
-    let x = f32x4(points[0][0], points[1][0], points[2][0], points[3][0]);
-    let y = f32x4(points[0][1], points[1][1], points[2][1], points[3][1]);
-    let affine = |a, b, c| {
-        f32x4_add(
-            f32x4_add(f32x4_mul(f32x4_splat(a), x), f32x4_mul(f32x4_splat(b), y)),
-            f32x4_splat(c),
-        )
+    let width = i32x4_splat(i32::try_from(w).ok()?);
+    let height = i32x4_splat(i32::try_from(h).ok()?);
+    let along_x = edge.is_multiple_of(2);
+    let fixed = match edge {
+        0 | 3 => 0.5,
+        // Callers pass sizes of at least one module; an empty side samples nothing.
+        1 => crate::numeric::usize_f32(cols.saturating_sub(1)) + 0.5,
+        _ => crate::numeric::usize_f32(rows.saturating_sub(1)) + 0.5,
     };
-    let denominator = affine(transform[6], transform[7], 1.);
-    let coordinate =
-        |a, b, c| i32x4_trunc_sat_f32x4(f32x4_floor(f32x4_div(affine(a, b, c), denominator)));
-    let xx = coordinate(transform[0], transform[1], transform[2]);
-    let yy = coordinate(transform[3], transform[4], transform[5]);
-    [
-        [i32x4_extract_lane::<0>(xx), i32x4_extract_lane::<0>(yy)],
-        [i32x4_extract_lane::<1>(xx), i32x4_extract_lane::<1>(yy)],
-        [i32x4_extract_lane::<2>(xx), i32x4_extract_lane::<2>(yy)],
-        [i32x4_extract_lane::<3>(xx), i32x4_extract_lane::<3>(yy)],
-    ]
-    .map(|point| {
-        point.map(|coordinate| isize::try_from(coordinate).expect("WASM32 coordinates fit isize"))
-    })
+    // Slope of the moving coordinate, product of the fixed one, offset.
+    let terms = |a: f32, b: f32, c: f32| {
+        let (slope, constant) = if along_x {
+            (a, b * fixed)
+        } else {
+            (b, a * fixed)
+        };
+        [f32x4_splat(slope), f32x4_splat(constant), f32x4_splat(c)]
+    };
+    let denominator_terms = terms(transform[6], transform[7], 1.);
+    let x_terms = terms(transform[0], transform[1], transform[2]);
+    let y_terms = terms(transform[3], transform[4], transform[5]);
+    // Bit `lane` is the expected value of sample `at + lane`, `at` a multiple of four.
+    let expected: u32 = match edge {
+        0 => 0b0101,
+        1 => 0b1010,
+        _ => 0b1111,
+    };
+    let mut moving = f32x4(0.5, 1.5, 2.5, 3.5);
+    for _ in 0..length / 4 {
+        let affine = |[slope, constant, offset]: [v128; 3]| {
+            f32x4_add(f32x4_add(f32x4_mul(slope, moving), constant), offset)
+        };
+        let denominator = affine(denominator_terms);
+        let coordinate =
+            |terms| i32x4_trunc_sat_f32x4(f32x4_floor(f32x4_div(affine(terms), denominator)));
+        let xx = coordinate(x_terms);
+        let yy = coordinate(y_terms);
+        // Unsigned, so a negative coordinate is outside as well.
+        if !i32x4_all_true(v128_and(u32x4_lt(xx, width), u32x4_lt(yy, height))) {
+            return None;
+        }
+        let index = i32x4_add(i32x4_mul(yy, width), xx);
+        let bit =
+            |lane: u32| u32::from(image[usize::try_from(lane).expect("WASM32 indexes fit usize")]);
+        let bits = bit(u32x4_extract_lane::<0>(index))
+            | bit(u32x4_extract_lane::<1>(index)) << 1
+            | bit(u32x4_extract_lane::<2>(index)) << 2
+            | bit(u32x4_extract_lane::<3>(index)) << 3;
+        *errors += usize::try_from((bits ^ expected).count_ones()).expect("a count of four bits");
+        if *errors > error_limit {
+            return None;
+        }
+        moving = f32x4_add(moving, f32x4_splat(4.));
+    }
+    Some(())
 }
 
 /// Border error fraction with at most `(cols + rows) * fifths / 5` wrong samples.
@@ -1461,24 +1508,16 @@ fn border_with_limit(
     for (edge, length) in [(0, cols), (1, rows), (2, cols), (3, rows)] {
         #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
         let first_scalar = {
-            let aligned = length / 4 * 4;
-            for at in (0..aligned).step_by(4) {
-                let points = std::array::from_fn(|lane| {
-                    let (x, y, _) = border_sample(edge, at + lane, cols, rows);
-                    [
-                        crate::numeric::usize_f32(x) + 0.5,
-                        crate::numeric::usize_f32(y) + 0.5,
-                    ]
-                });
-                for (lane, [xx, yy]) in project_four(transform, points).into_iter().enumerate() {
-                    let expected = border_sample(edge, at + lane, cols, rows).2;
-                    errors += usize::from(pixel_at(image, w, h, xx, yy)? != expected);
-                    if errors > error_limit {
-                        return None;
-                    }
-                }
-            }
-            aligned
+            edge_errors_by_four(
+                image,
+                [w, h],
+                transform,
+                (edge, length),
+                [cols, rows],
+                &mut errors,
+                error_limit,
+            )?;
+            length / 4 * 4
         };
         #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
         let first_scalar = 0;

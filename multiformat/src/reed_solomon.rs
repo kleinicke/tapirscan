@@ -184,9 +184,24 @@ impl<W: Word> Field<W> {
     }
 
     fn syndromes(&self, code: &[W], ecc: usize, base: usize) -> Vec<W> {
-        (0..ecc)
-            .map(|i| self.eval(code, self.power(i + base)))
-            .collect()
+        // All Horner chains advance together, one code word at a time: the
+        // chains are independent, so their table lookups overlap.
+        let log = self.log.as_ref();
+        let exp = self.exp.as_ref();
+        let roots: Vec<usize> = (0..ecc)
+            .map(|i| log[self.power(i + base).index()])
+            .collect();
+        let mut syndromes = vec![W::ZERO; ecc];
+        for &word in code {
+            for (syndrome, &root) in syndromes.iter_mut().zip(&roots) {
+                *syndrome = if *syndrome == W::ZERO {
+                    word
+                } else {
+                    exp[log[syndrome.index()] + root] ^ word
+                };
+            }
+        }
+        syndromes
     }
 
     /// Correct up to `ecc / 2` symbol errors in place; `base` is the first

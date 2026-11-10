@@ -89,7 +89,7 @@ impl<'a> ImageView<'a> {
     /// footprint. Each pixel is converted to gray before interpolation, and rows
     /// are blended horizontally before vertically. Changing either order changes
     /// rounding and can flip borderline decisions (core/README.md, Numerical
-    /// rules). Low and Very High take an unclamped path for interior footprints.
+    /// rules). Interior footprints take an unclamped path with the same offsets.
     #[cfg_attr(
         not(feature = "mode-high"),
         expect(
@@ -103,36 +103,34 @@ impl<'a> ImageView<'a> {
         let y0 = y.floor();
         let fx = x - x0;
         let fy = y - y0;
-        let (left_offset, right_offset, top_offset, bottom_offset) =
-            if cfg!(any(feature = "mode-low", feature = "mode-very-high"))
-                && x0 >= 0.
-                && y0 >= 0.
-                && x0 < crate::numeric::usize_f64(self.width - 1)
-                && y0 < crate::numeric::usize_f64(self.height - 1)
-            {
-                let left_offset = crate::numeric::f64_usize(x0) * self.channels;
-                let top_offset = crate::numeric::f64_usize(y0) * self.stride;
-                (
-                    left_offset,
-                    left_offset + self.channels,
-                    top_offset,
-                    top_offset + self.stride,
-                )
-            } else {
-                let left_offset = crate::numeric::f64_usize(
-                    x0.clamp(0., crate::numeric::usize_f64(self.width - 1)),
-                ) * self.channels;
-                let right_offset = crate::numeric::f64_usize(
-                    (x0 + 1.).clamp(0., crate::numeric::usize_f64(self.width - 1)),
-                ) * self.channels;
-                let top_offset = crate::numeric::f64_usize(
-                    y0.clamp(0., crate::numeric::usize_f64(self.height - 1)),
-                ) * self.stride;
-                let bottom_offset = crate::numeric::f64_usize(
-                    (y0 + 1.).clamp(0., crate::numeric::usize_f64(self.height - 1)),
-                ) * self.stride;
-                (left_offset, right_offset, top_offset, bottom_offset)
-            };
+        let (left_offset, right_offset, top_offset, bottom_offset) = if x0 >= 0.
+            && y0 >= 0.
+            && x0 < crate::numeric::usize_f64(self.width - 1)
+            && y0 < crate::numeric::usize_f64(self.height - 1)
+        {
+            let left_offset = crate::numeric::f64_usize(x0) * self.channels;
+            let top_offset = crate::numeric::f64_usize(y0) * self.stride;
+            (
+                left_offset,
+                left_offset + self.channels,
+                top_offset,
+                top_offset + self.stride,
+            )
+        } else {
+            let left_offset =
+                crate::numeric::f64_usize(x0.clamp(0., crate::numeric::usize_f64(self.width - 1)))
+                    * self.channels;
+            let right_offset = crate::numeric::f64_usize(
+                (x0 + 1.).clamp(0., crate::numeric::usize_f64(self.width - 1)),
+            ) * self.channels;
+            let top_offset =
+                crate::numeric::f64_usize(y0.clamp(0., crate::numeric::usize_f64(self.height - 1)))
+                    * self.stride;
+            let bottom_offset = crate::numeric::f64_usize(
+                (y0 + 1.).clamp(0., crate::numeric::usize_f64(self.height - 1)),
+            ) * self.stride;
+            (left_offset, right_offset, top_offset, bottom_offset)
+        };
         let gray = |i: usize| {
             if self.channels == 1 {
                 f64::from(self.data[i])
@@ -195,32 +193,29 @@ impl<'a> BilinearCursor<'a> {
         let y0 = y.floor();
         let fx = x - x0;
         let fy = y - y0;
-        let (left, right, top, bottom) =
-            if cfg!(any(feature = "mode-low", feature = "mode-very-high"))
-                && x0 >= 0.
-                && y0 >= 0.
-                && x0 < crate::numeric::usize_f64(image.width - 1)
-                && y0 < crate::numeric::usize_f64(image.height - 1)
-            {
-                let left = crate::numeric::f64_usize(x0) * image.channels;
-                let top = crate::numeric::f64_usize(y0) * image.stride;
-                (left, left + image.channels, top, top + image.stride)
-            } else {
-                (
-                    crate::numeric::f64_usize(
-                        x0.clamp(0., crate::numeric::usize_f64(image.width - 1)),
-                    ) * image.channels,
-                    crate::numeric::f64_usize(
-                        (x0 + 1.).clamp(0., crate::numeric::usize_f64(image.width - 1)),
-                    ) * image.channels,
-                    crate::numeric::f64_usize(
-                        y0.clamp(0., crate::numeric::usize_f64(image.height - 1)),
-                    ) * image.stride,
-                    crate::numeric::f64_usize(
-                        (y0 + 1.).clamp(0., crate::numeric::usize_f64(image.height - 1)),
-                    ) * image.stride,
-                )
-            };
+        let (left, right, top, bottom) = if x0 >= 0.
+            && y0 >= 0.
+            && x0 < crate::numeric::usize_f64(image.width - 1)
+            && y0 < crate::numeric::usize_f64(image.height - 1)
+        {
+            let left = crate::numeric::f64_usize(x0) * image.channels;
+            let top = crate::numeric::f64_usize(y0) * image.stride;
+            (left, left + image.channels, top, top + image.stride)
+        } else {
+            (
+                crate::numeric::f64_usize(x0.clamp(0., crate::numeric::usize_f64(image.width - 1)))
+                    * image.channels,
+                crate::numeric::f64_usize(
+                    (x0 + 1.).clamp(0., crate::numeric::usize_f64(image.width - 1)),
+                ) * image.channels,
+                crate::numeric::f64_usize(
+                    y0.clamp(0., crate::numeric::usize_f64(image.height - 1)),
+                ) * image.stride,
+                crate::numeric::f64_usize(
+                    (y0 + 1.).clamp(0., crate::numeric::usize_f64(image.height - 1)),
+                ) * image.stride,
+            )
+        };
         let key = [left, right, top, bottom];
         if key != self.key {
             let gray = |i: usize| {

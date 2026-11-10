@@ -62,12 +62,17 @@ pub(super) fn search(
             let mut errors = 0u8;
             if let (true, Some(rows)) = (x_inside[xi], &y_rows[yi]) {
                 let columns = &x_samples[xi];
-                for i in 0..25 {
-                    if image[rows[i] + columns[i].cast_unsigned()] != expected[i] {
-                        errors += 1;
-                        if errors > 3 {
-                            continue 'locations;
-                        }
+                // Most locations mismatch at random cells. Counting a block of
+                // cells without branches and testing the limit after each block
+                // rejects the same locations and keeps every accepted count.
+                let mut cells = 0..25;
+                for block in [8, 8, 9] {
+                    for i in cells.by_ref().take(block) {
+                        errors +=
+                            u8::from(image[rows[i] + columns[i].cast_unsigned()] != expected[i]);
+                    }
+                    if errors > 3 {
+                        continue 'locations;
                     }
                 }
             } else {

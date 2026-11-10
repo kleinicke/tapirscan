@@ -487,6 +487,11 @@ fn local_shape_error(triple: [&Finder; 3]) -> Option<(f32, f32)> {
     let equal = (first_len - second_len).abs() / first_len.max(second_len);
     (orthogonal.is_finite() && equal.is_finite()).then_some((orthogonal, equal))
 }
+/// Triples of the exhaustive fallback that follows the ranked ones. It starts with
+/// the triples of the strongest finders; without a bound, a frame of 80 finders
+/// tries some 80,000 accidental ones, which use up the attempts of the later
+/// thresholds.
+const FALLBACK_TRIPLES: usize = 1024;
 // Nearby triples bound dense-scene work without the cubic combinations of all
 // finders. Prefer compact, approximately orthogonal, similarly sized groups.
 fn local_triples(finders: &[Finder]) -> impl Iterator<Item = [usize; 3]> + use<> {
@@ -539,7 +544,8 @@ fn local_triples(finders: &[Finder]) -> impl Iterator<Item = [usize; 3]> + use<>
     };
     let fallback = (0..end)
         .flat_map(move |a| (a + 1..end).flat_map(move |b| (b + 1..end).map(move |c| [a, b, c])))
-        .filter(move |t| t[2] >= strong && local_keys.binary_search(t).is_err());
+        .filter(move |t| t[2] >= strong && local_keys.binary_search(t).is_err())
+        .take(FALLBACK_TRIPLES);
     out.into_iter().chain(fallback)
 }
 // Keep scanline and component centers as separate hypotheses: damaged inner
@@ -853,9 +859,10 @@ pub fn binarize(gray: &[u8], w: usize, h: usize, local: bool) -> Vec<bool> {
     let radius = 16;
     let mut out = vec![false; w * h];
     // Only the current 33-row window is needed. A full-frame u64
-    // integral image costs eight bytes per pixel; column sums cost four per
-    // image column, with integer-exact totals bounded by 33 * 33 * 255.
-    let mut columns = vec![0_u32; w];
+    // integral image costs eight bytes per pixel; column sums cost two per
+    // image column (at most 33 * 255), with integer-exact window totals
+    // bounded by 33 * 33 * 255.
+    let mut columns = vec![0_u16; w];
     let mut prefix = vec![0_u32; w + 1];
     let mut top = 0;
     let mut bottom = 0;
@@ -867,20 +874,23 @@ pub fn binarize(gray: &[u8], w: usize, h: usize, local: bool) -> Vec<bool> {
             let entering = &gray[bottom * w..(bottom + 1) * w];
             let leaving = &gray[top * w..(top + 1) * w];
             for ((column, &add), &remove) in columns.iter_mut().zip(entering).zip(leaving) {
-                *column = *column + u32::from(add) - u32::from(remove);
+                // A column of 33 rows always fits; wrapping only skips the overflow checks.
+                *column = column
+                    .wrapping_add(u16::from(add))
+                    .wrapping_sub(u16::from(remove));
             }
             bottom += 1;
             top += 1;
         }
         while bottom < next_bottom {
             for (column, &pixel) in columns.iter_mut().zip(&gray[bottom * w..(bottom + 1) * w]) {
-                *column += u32::from(pixel);
+                *column += u16::from(pixel);
             }
             bottom += 1;
         }
         while top < next_top {
             for (column, &pixel) in columns.iter_mut().zip(&gray[top * w..(top + 1) * w]) {
-                *column -= u32::from(pixel);
+                *column -= u16::from(pixel);
             }
             top += 1;
         }
@@ -890,7 +900,7 @@ pub fn binarize(gray: &[u8], w: usize, h: usize, local: bool) -> Vec<bool> {
             let output = &mut out[y * w..(y + 1) * w];
             let mut total = 0_u32;
             for (sum, &column) in prefix[1..].iter_mut().zip(&columns) {
-                total = total.wrapping_add(column);
+                total = total.wrapping_add(u32::from(column));
                 *sum = total;
             }
             // Prefix subtraction is exact modulo u32 even for very wide images:
@@ -900,9 +910,12 @@ pub fn binarize(gray: &[u8], w: usize, h: usize, local: bool) -> Vec<bool> {
                 output[x] = (u32::from(input[x]) + 5) * area < prefix[x + 17];
             }
             let area = rows * 33;
-            for x in 16..w - 16 {
-                let total = prefix[x + 17].wrapping_sub(prefix[x - 16]);
-                output[x] = (u32::from(input[x]) + 5) * area < total;
+            // Zipped slices keep bounds checks out of the loop, which matters
+            // most in WebAssembly.
+            let interior = output[16..w - 16].iter_mut().zip(&input[16..w - 16]);
+            let sums = prefix[33..].iter().zip(&prefix[..w - 32]);
+            for ((bit, &pixel), (&high, &low)) in interior.zip(sums) {
+                *bit = (u32::from(pixel) + 5) * area < high.wrapping_sub(low);
             }
             for x in w - 16..w {
                 let area = rows * u32::try_from(w - x + 16).expect("edge window is below 33");
@@ -915,18 +928,18 @@ pub fn binarize(gray: &[u8], w: usize, h: usize, local: bool) -> Vec<bool> {
         let mut right = 0;
         let mut total = 0_u32;
         while right < w.min(radius + 1) {
-            total += columns[right];
+            total += u32::from(columns[right]);
             right += 1;
         }
         for x in 0..w {
             let l = x.saturating_sub(radius);
             let r = x.saturating_add(radius + 1).min(w);
             while left < l {
-                total -= columns[left];
+                total -= u32::from(columns[left]);
                 left += 1;
             }
             while right < r {
-                total += columns[right];
+                total += u32::from(columns[right]);
                 right += 1;
             }
             let area = (bottom - top) * (r - l);
@@ -1069,10 +1082,12 @@ fn finder_grid_valid(
     ex: [f32; 2],
     ey: [f32; 2],
 ) -> bool {
-    let mut errors = 0;
+    let mut errors = 0_u32;
     // The error count does not depend on the cell order, so the cells run column
     // by column with each column's base position computed once. Every position
-    // is `(center + x * ex) + y * ey`.
+    // is `(center + x * ex) + y * ey`. On a false candidate about half of the
+    // cells mismatch at random, so a column is counted without branches and
+    // the limit is tested once per column: the decision is the full count's.
     for x in -3i32..=3 {
         let fx = crate::numeric::f64_f32(f64::from(x));
         let base = [center[0] + fx * ex[0], center[1] + fx * ex[1]];
@@ -1096,17 +1111,16 @@ fn finder_grid_valid(
                 )
             };
             let expected = x.abs().max(y.abs()) != 2;
-            if xx < 0
-                || yy < 0
-                || xx >= (w).cast_signed()
-                || yy >= (h).cast_signed()
-                || image[(yy).cast_unsigned() * w + (xx).cast_unsigned()] != expected
-            {
-                errors += 1;
-                if errors > 20 {
-                    return false;
-                }
-            }
+            // A negative coordinate wraps to a value above every image side.
+            let (xx, yy) = (xx.cast_unsigned(), yy.cast_unsigned());
+            let inside = xx < w && yy < h;
+            let cell = image
+                .get(yy.wrapping_mul(w).wrapping_add(xx))
+                .is_some_and(|&cell| cell == expected);
+            errors += u32::from(!(inside & cell));
+        }
+        if errors > 20 {
+            return false;
         }
     }
     true
@@ -2114,6 +2128,42 @@ pub fn detect_symbols(
         );
     }
     (results, limited)
+}
+
+#[cfg(test)]
+mod triple_tests {
+    use super::{FALLBACK_TRIPLES, Finder, local_triples};
+    fn row(count: u8) -> Vec<Finder> {
+        (0..count)
+            .map(|i| Finder {
+                x: 40. * f32::from(i),
+                y: 0.,
+                module: 4.,
+                support: 3,
+                quad: None,
+            })
+            .collect()
+    }
+    #[test]
+    fn the_exhaustive_fallback_is_bounded() {
+        // 16 finders: all 560 triples are tried, each once.
+        let mut all: Vec<_> = local_triples(&row(16)).collect();
+        assert_eq!(all.len(), 560);
+        all.sort_unstable();
+        all.dedup();
+        assert_eq!(all.len(), 560);
+        // 80 finders have 82,160 triples: the ranked ones and a bounded fallback
+        // that starts with the strongest finders.
+        let finders = row(80);
+        let all: Vec<_> = local_triples(&finders).collect();
+        let ranked = all.len() - FALLBACK_TRIPLES;
+        assert!((220..6000).contains(&ranked));
+        assert_eq!(all[ranked][..2], [0, 1]);
+        let mut unique = all.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), all.len());
+    }
 }
 
 #[cfg(test)]

@@ -59,14 +59,15 @@ pub(crate) fn sample_runs(
 pub(crate) fn sample_runs_validated(p: &[f32], runs: &mut Vec<(usize, usize, bool)>) {
     runs.clear();
     let (mut start, mut black) = (0, p[0] >= 0.5);
-    for i in 1..=p.len() {
-        let next = i < p.len() && p[i] >= 0.5;
-        if i == p.len() || next != black {
+    for (i, &value) in p.iter().enumerate().skip(1) {
+        let next = value >= 0.5;
+        if next != black {
             runs.push((start, i, black));
             start = i;
             black = next;
         }
     }
+    runs.push((start, p.len(), black));
 }
 pub(crate) fn decode_guard_runs(runs: &[(usize, usize, bool)], max_symbols: usize) -> Reads {
     decode_positions(runs, max_symbols, true)

@@ -58,6 +58,11 @@ fn finder_runs(runs: &[usize; 5]) -> Option<(usize, f32)> {
     };
     let thin = |r: &usize| usize_f32(*r) <= 1.8 * module;
     let three = |r: usize| (2. * module..=4.5 * module).contains(&usize_f32(r));
+    // Either orientation needs the three middle runs thin and paired, which
+    // rejects most windows before the orientations are told apart.
+    if !(runs[1..4].iter().all(thin) && pair(runs[1], runs[2], 2.) && pair(runs[2], runs[3], 2.)) {
+        return None;
+    }
     let fits = |big: usize| {
         let [a, b, c, d] = if big == 4 {
             [runs[0], runs[1], runs[2], runs[3]]
@@ -80,34 +85,31 @@ fn finder_runs(runs: &[usize; 5]) -> Option<(usize, f32)> {
     }
 }
 
-/// Proposals from the runs of one line; `at(i)` is the image point of the
+/// Proposals from the runs of one line. `offsets` holds the positions where the
+/// line changes value, from 0 to its length; `at(i)` is the image point of the
 /// line's pixel `i`.
 fn scan_line(
-    line: impl Iterator<Item = bool>,
+    offsets: &[usize],
+    first_dark: bool,
     at: impl Fn(f32) -> [f32; 2],
     proposals: &mut Vec<Proposal>,
 ) {
-    // Run starts and lengths, dark runs at even positions after the first dark.
-    let mut runs: Vec<(usize, usize, bool)> = Vec::new();
-    for (i, dark) in line.enumerate() {
-        match runs.last_mut() {
-            Some(run) if run.2 == dark => run.1 += 1,
-            _ => runs.push((i, 1, dark)),
-        }
-    }
-    for window in runs.windows(7) {
-        if !window[1].2 {
+    // Run `i` lies between offsets `i` and `i + 1`. A window covers seven runs:
+    // light, the five finder runs starting dark, light.
+    for (k, window) in offsets.windows(8).enumerate() {
+        if (k % 2 == 1) != first_dark {
             continue;
         }
-        let lengths = [1, 2, 3, 4, 5].map(|i| window[i].1);
+        let length = |i: usize| window[i + 1] - window[i];
+        let lengths = [1, 2, 3, 4, 5].map(length);
         let Some((big, module)) = finder_runs(&lengths) else {
             continue;
         };
         // Light runs on both sides: quiet zone, separator or data.
-        if usize_f32(window[0].1) < 0.5 * module || usize_f32(window[6].1) < 0.5 * module {
+        if usize_f32(length(0)) < 0.5 * module || usize_f32(length(6)) < 0.5 * module {
             continue;
         }
-        let center = |i: usize| at(usize_f32(window[i].0) + usize_f32(window[i].1) / 2.);
+        let center = |i: usize| at(usize_f32(window[i]) + usize_f32(length(i)) / 2.);
         let block = center(big + 1);
         let inner = center(3);
         proposals.push(Proposal {
@@ -508,7 +510,42 @@ struct Index {
     large: Vec<usize>,
 }
 
-type Cells = std::collections::HashMap<(i32, isize, isize), Vec<usize>>;
+type Cells = std::collections::HashMap<
+    (i32, isize, isize),
+    Vec<usize>,
+    std::hash::BuildHasherDefault<CellHasher>,
+>;
+
+/// A multiplicative hash of the cell key. Textured images look up millions of
+/// cells, where the default keyed hash costs more than the merge itself.
+#[derive(Default)]
+struct CellHasher(u64);
+
+impl CellHasher {
+    fn mix(&mut self, value: u64) {
+        self.0 = (self.0.rotate_left(5) ^ value).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
+impl std::hash::Hasher for CellHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.mix(u64::from(byte));
+        }
+    }
+
+    fn write_i32(&mut self, value: i32) {
+        self.mix(u64::from(value.cast_unsigned()));
+    }
+
+    fn write_isize(&mut self, value: isize) {
+        self.mix(u64::try_from(value.cast_unsigned()).unwrap_or(u64::MAX));
+    }
+}
 
 impl Index {
     const LEVELS: i32 = 10;
@@ -553,8 +590,13 @@ impl Index {
         let mut first: Option<usize> = None;
         let mut consider = |i: usize| {
             let q = &merged[i];
+            let reach = 1.5 * q.module.max(p.module);
+            // The distance is at least either coordinate difference, which
+            // settles most candidates without a square root.
             if first.is_none_or(|f| i < f)
-                && distance(q.block, p.block) < 1.5 * q.module.max(p.module)
+                && (q.block[0] - p.block[0]).abs() < reach
+                && (q.block[1] - p.block[1]).abs() < reach
+                && distance(q.block, p.block) < reach
             {
                 first = Some(i);
             }
@@ -588,19 +630,33 @@ impl Index {
 
 /// Finders of one binary image; `true` when a cap dropped candidates.
 fn finders(bits: &[bool], [width, height]: [usize; 2]) -> (Vec<Finder>, bool) {
+    /// Columns transposed together, so that column scans read memory in order.
+    const STRIP: usize = 64;
     let mut proposals = Vec::new();
-    for y in 0..height {
-        let row = &bits[y * width..(y + 1) * width];
-        let fy = usize_f32(y) + 0.5;
-        scan_line(row.iter().copied(), |x| [x, fy], &mut proposals);
+    let mut offsets = Vec::new();
+    if width == 0 || height == 0 {
+        return (Vec::new(), false);
     }
-    for x in 0..width {
-        let fx = usize_f32(x) + 0.5;
-        scan_line(
-            (0..height).map(|y| bits[y * width + x]),
-            |y| [fx, y],
-            &mut proposals,
-        );
+    // The image may be longer than its `height` rows.
+    let bits = &bits[..width * height];
+    for (y, row) in bits.chunks_exact(width).enumerate() {
+        let fy = usize_f32(y) + 0.5;
+        crate::transition_offsets_into(row, &mut offsets);
+        scan_line(&offsets, row[0], |x| [x, fy], &mut proposals);
+    }
+    let mut strip = vec![false; STRIP.min(width) * height];
+    for left in (0..width).step_by(STRIP) {
+        let columns = STRIP.min(width - left);
+        for (y, row) in bits.chunks_exact(width).enumerate() {
+            for (column, &bit) in row[left..left + columns].iter().enumerate() {
+                strip[column * height + y] = bit;
+            }
+        }
+        for (column, line) in strip.chunks_exact(height).take(columns).enumerate() {
+            let fx = usize_f32(left + column) + 0.5;
+            crate::transition_offsets_into(line, &mut offsets);
+            scan_line(&offsets, line[0], |y| [fx, y], &mut proposals);
+        }
     }
     // Merge proposals of the same block; isolated proposals are noise.
     let mut merged: Vec<Proposal> = Vec::new();
@@ -867,5 +923,13 @@ mod tests {
                 "{module} {degrees} {blur}"
             );
         }
+    }
+
+    #[test]
+    fn rows_past_the_height_are_ignored() {
+        let (modules, s) = zint_modules(&VERSION_4);
+        let (mut gray, width, height) = render(&modules, s, 4., 0., 0);
+        gray.extend((0..3 * width).map(|i| if i / 7 % 2 == 0 { 0 } else { 255 }));
+        assert_eq!(scan(&gray, width, height), ["汉信码 Han Xin 2026"]);
     }
 }

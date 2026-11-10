@@ -196,6 +196,7 @@ fn blobs(bits: &[bool], width: usize, height: usize, max_extent: usize) -> (Vec<
     let mut current: Vec<(usize, usize, u32)> = Vec::new();
     let mut pending: Vec<u32> = Vec::new();
     let mut next_pending: Vec<u32> = Vec::new();
+    let mut offsets: Vec<usize> = Vec::new();
     let emit = |node: &Node, out: &mut Vec<Blob>| {
         let [x0, y0, x1, y1] = node.bounds;
         if node.moments.n >= 3.
@@ -210,17 +211,11 @@ fn blobs(bits: &[bool], width: usize, height: usize, max_extent: usize) -> (Vec<
         current.clear();
         if y < height {
             let row = &bits[y * width..(y + 1) * width];
-            let mut x = 0;
+            crate::transition_offsets_into(row, &mut offsets);
+            // Runs alternate from the first pixel; the ink ones start here.
+            let first = usize::from(!row.first().is_some_and(|&ink| ink));
             let mut j = 0;
-            while x < width {
-                if !row[x] {
-                    x += 1;
-                    continue;
-                }
-                let start = x;
-                while x < width && row[x] {
-                    x += 1;
-                }
+            for &[start, x] in offsets[first..].as_chunks::<2>().0 {
                 while j < previous.len() && previous[j].1 <= start {
                     j += 1;
                 }
@@ -272,13 +267,13 @@ fn blobs(bits: &[bool], width: usize, height: usize, max_extent: usize) -> (Vec<
         pending.sort_unstable();
         pending.dedup();
         for &id in &pending {
-            let node = nodes[id as usize];
+            let node = &nodes[id as usize];
             if node.parent != id {
                 free.push(id);
             } else if node.row == y && y < height {
                 next_pending.push(id);
             } else {
-                emit(&node, &mut out);
+                emit(node, &mut out);
                 free.push(id);
                 if out.len() >= MAX_BLOBS {
                     return (out, true);
@@ -634,29 +629,66 @@ pub fn fine_threshold(
     height: usize,
     radius: usize,
 ) -> Vec<bool> {
-    // Integral image with a zero first row and column.
+    // Integral image with a zero first row and column. Its entries wrap on bright
+    // frames above 16 megapixels; window sums are differences, which stay exact.
     let stride = width + 1;
     let mut sums = vec![0u32; stride * (height + 1)];
-    for y in 0..height {
+    for (y, line) in gray.chunks_exact(width.max(1)).take(height).enumerate() {
+        let (above, below) = sums[y * stride..].split_at_mut(stride);
         let mut row = 0u32;
-        for x in 0..width {
-            row += u32::from(gray[y * width + x]);
-            sums[(y + 1) * stride + x + 1] = sums[y * stride + x + 1] + row;
+        for ((&value, &up), sum) in line.iter().zip(&above[1..]).zip(&mut below[1..stride]) {
+            row += u32::from(value);
+            *sum = up.wrapping_add(row);
         }
     }
     let mut out = vec![false; width * height];
+    let side = 2 * radius + 1;
+    let full = u32::try_from(side * side).unwrap_or(u32::MAX);
     for y in 0..height {
         let (y0, y1) = (y.saturating_sub(radius), (y + radius + 1).min(height));
-        for x in 0..width {
-            if !coarse[y * width + x] {
-                continue;
-            }
+        let (top, bottom) = (
+            &sums[y0 * stride..][..stride],
+            &sums[y1 * stride..][..stride],
+        );
+        let line = &gray[y * width..][..width];
+        let ink = &coarse[y * width..][..width];
+        let out = &mut out[y * width..][..width];
+        let inner = radius.min(width)..width.saturating_sub(radius).max(radius.min(width));
+        let edge = |x: usize| {
             let (x0, x1) = (x.saturating_sub(radius), (x + radius + 1).min(width));
-            let sum = sums[y1 * stride + x1] + sums[y0 * stride + x0]
-                - sums[y0 * stride + x1]
-                - sums[y1 * stride + x0];
+            let sum = bottom[x1]
+                .wrapping_add(top[x0])
+                .wrapping_sub(top[x1])
+                .wrapping_sub(bottom[x0]);
             let area = u32::try_from((x1 - x0) * (y1 - y0)).unwrap_or(u32::MAX);
-            out[y * width + x] = u32::from(gray[y * width + x]) * area < sum;
+            ink[x] && u32::from(line[x]) * area < sum
+        };
+        for x in (0..inner.start).chain(inner.end..width) {
+            out[x] = edge(x);
+        }
+        if inner.is_empty() {
+            continue;
+        }
+        // Away from the left and right borders the window has a fixed width, so
+        // the row is four parallel slices and one comparison per pixel.
+        let area = if y1 - y0 == side {
+            full
+        } else {
+            u32::try_from(side * (y1 - y0)).unwrap_or(u32::MAX)
+        };
+        let count = inner.len();
+        let left_top = &top[inner.start - radius..][..count];
+        let right_top = &top[inner.start + radius + 1..][..count];
+        let left_bottom = &bottom[inner.start - radius..][..count];
+        let right_bottom = &bottom[inner.start + radius + 1..][..count];
+        let line = &line[inner.clone()];
+        let ink = &ink[inner.clone()];
+        for (i, out) in out[inner].iter_mut().enumerate() {
+            let sum = right_bottom[i]
+                .wrapping_add(left_top[i])
+                .wrapping_sub(right_top[i])
+                .wrapping_sub(left_bottom[i]);
+            *out = ink[i] & (u32::from(line[i]) * area < sum);
         }
     }
     out

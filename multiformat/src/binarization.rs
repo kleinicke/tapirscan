@@ -18,6 +18,9 @@ pub struct Images<'a> {
     identical_thresholds: Option<bool>,
     qr_contrast_cut: ContrastCut,
     qr_upper_cut: ContrastCut,
+    /// Counts of the grayscale frame, shared by the global threshold and the
+    /// foreground cuts.
+    histogram: Option<Box<[usize; 256]>>,
     /// Local modes (1 and 3) use block thresholds instead of the 33-pixel mean.
     hybrid: bool,
 }
@@ -258,6 +261,7 @@ impl<'a> Images<'a> {
             identical_thresholds: None,
             qr_contrast_cut: ContrastCut::Uncomputed,
             qr_upper_cut: ContrastCut::Uncomputed,
+            histogram: None,
             hybrid: false,
         }
     }
@@ -274,10 +278,15 @@ impl<'a> Images<'a> {
     pub fn gray(&self) -> &'a [u8] {
         self.gray
     }
+    fn histogram(&mut self) -> &[usize; 256] {
+        let gray = self.gray;
+        self.histogram
+            .get_or_insert_with(|| Box::new(crate::histogram(gray)))
+    }
     /// A second foreground split recovers low-contrast ink surrounded by a bright background.
     pub(crate) fn has_qr_contrast(&mut self) -> bool {
         if matches!(self.qr_contrast_cut, ContrastCut::Uncomputed) {
-            let histogram = crate::histogram(self.gray);
+            let histogram = *self.histogram();
             let cut = otsu_cut(&histogram);
             let nested = cut.and_then(|cut| {
                 let lower = &histogram[..=cut];
@@ -373,8 +382,15 @@ impl<'a> Images<'a> {
                 self.get(mode - 1).iter().map(|bit| !*bit).collect()
             } else if mode == 1 && self.hybrid {
                 crate::qr_detect::binarize_hybrid(self.gray, self.width, self.height)
-            } else if mode < 2 {
-                crate::qr_detect::binarize(self.gray, self.width, self.height, mode == 1)
+            } else if mode == 0 {
+                // Equal to `binarize(.., false)`, with the frame counts kept
+                // for the foreground cuts.
+                let count = self.gray.len();
+                let cut = otsu_cut_or(self.histogram(), count, 128);
+                let cut = u8::try_from(cut).expect("histogram has 256 bins");
+                self.gray.iter().map(|&pixel| pixel <= cut).collect()
+            } else if mode == 1 {
+                crate::qr_detect::binarize(self.gray, self.width, self.height, true)
             } else {
                 self.get(mode - 2).iter().map(|b| !*b).collect()
             };
@@ -585,6 +601,25 @@ mod tests {
 
 #[cfg(test)]
 mod foreground_tests {
+    #[test]
+    fn global_mode_equals_the_global_binarize_in_either_order() {
+        let mut state = 7_u32;
+        for (width, height) in [(0, 0), (8, 8), (40, 30), (97, 41)] {
+            let pixels: Vec<u8> = (0..width * height)
+                .map(|i| {
+                    state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    let base = if (i / 7) % 2 == 0 { 60 } else { 180 };
+                    base + (state >> 27).to_le_bytes()[0]
+                })
+                .collect();
+            let reference = crate::qr_detect::binarize(&pixels, width, height, false);
+            let mut images = super::Images::new(&pixels, width, height);
+            assert_eq!(images.get(0), reference);
+            let mut images = super::Images::new(&pixels, width, height);
+            let _ = images.has_qr_contrast();
+            assert_eq!(images.get(0), reference);
+        }
+    }
     #[test]
     fn two_tone_inputs_have_no_new_foreground_split() {
         for value in [0u8, 127, 255] {
