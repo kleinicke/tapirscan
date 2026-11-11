@@ -142,6 +142,19 @@ fn codeword(runs: &[usize]) -> Option<(usize, usize)> {
             pdf417::symbol(&widths)
         })
 }
+/// Whether a codeword of `span` pixels has its pitch within 30% of the module
+/// of a row address of `total` pixels. Integers settle every ratio that is
+/// not next to a limit.
+#[inline]
+fn codeword_pitch_fits(span: usize, total: usize) -> bool {
+    if span * 100 < total * 118 || span * 100 > total * 222 {
+        return false;
+    }
+    if span * 100 > total * 120 && span * 100 < total * 220 {
+        return true;
+    }
+    ((f(span) / 17.) / (f(total) / 10.) - 1.).abs() <= 0.3
+}
 /// Row address at `runs[at..at + 6]` with its module, next to a codeword of
 /// the same pitch. The flag tells whether a row may start here. Bar growth is
 /// only compensated for a left address after a quiet zone and for a right
@@ -154,20 +167,18 @@ fn side(runs: &[usize], edges: &[usize], at: usize) -> Option<(usize, f32, bool)
     if window[0] * 100 < total * 8 || window[0] * 100 > total * 52 {
         return None;
     }
-    let module = f(total) / 10.;
-    if module < 0.8 {
+    // A module below 0.8 pixels.
+    if total < 8 {
         return None;
     }
-    let codeword = |from: usize| {
-        let pitch = f(edges[from + 8] - edges[from]) / 17.;
-        (pitch / module - 1.).abs() <= 0.3
-    };
+    let module = f(total) / 10.;
+    let codeword = |from: usize| codeword_pitch_fits(edges[from + 8] - edges[from], total);
     let quiet = |run: usize| f(run) >= module * 1.5;
     let starts = at + 20 < runs.len() && codeword(at + 6);
     let ends = at >= 8
+        && codeword(at - 8)
         && runs.get(at + 7).is_some_and(|&run| quiet(run))
-        && (f(runs[at + 6]) / module - 1.).abs() <= 0.7
-        && codeword(at - 8);
+        && (f(runs[at + 6]) / module - 1.).abs() <= 0.7;
     if !starts && !ends {
         return None;
     }
@@ -299,10 +310,32 @@ fn rows(
         }
     }
 }
-#[expect(
-    clippy::too_many_lines,
-    reason = "Row voting, geometric agreement and correction share the same bounded assembly transaction."
-)]
+/// The module of a symbol tilted away from the camera about its rows: linear
+/// in the image `y`, and the row pitch follows its square.
+#[derive(Clone, Copy)]
+struct Receding {
+    y: f32,
+    module: f32,
+    slope: f32,
+}
+impl Receding {
+    fn module(&self, y: f32) -> f32 {
+        self.module + self.slope * (y - self.y)
+    }
+    /// A coordinate in which the rows are evenly spaced, equal to `y` around
+    /// the centre.
+    fn level(&self, y: f32) -> f32 {
+        self.y + self.module / self.slope * (1. - self.module / self.module(y))
+    }
+    /// Image `y` and module at a level; `None` beyond the vanishing line.
+    fn at(&self, level: f32) -> Option<[f32; 2]> {
+        let shrink = 1. - self.slope * (level - self.y) / self.module;
+        (shrink > 0.2).then(|| {
+            let module = self.module / shrink;
+            [self.y + (module - self.module) / self.slope, module]
+        })
+    }
+}
 fn assemble(
     rows: &[Row],
     transform: impl Fn(f32, f32) -> [f32; 2],
@@ -312,7 +345,7 @@ fn assemble(
     let mut result = Vec::new();
     let mut used = vec![false; rows.len()];
     let mut attempts = 0;
-    for (at, first) in rows.iter().enumerate() {
+    for at in 0..rows.len() {
         if used[at] {
             continue;
         }
@@ -321,141 +354,232 @@ fn assemble(
             break;
         }
         attempts += 1;
-        let variant = first.variant;
-        let cols = t::VARIANTS[variant];
-        let count = t::VARIANTS[variant + 34];
-        let width = f(21 + cols * 17 + usize::from(cols >= 3) * 10) * first.module;
-        let mut group = Vec::new();
-        for (i, row) in rows.iter().enumerate().skip(at) {
-            if row.variant == variant
-                && (row.module / first.module - 1.).abs() < 0.15
-                && (row.x - first.x).abs() < width * 0.3
-                && (row.y - first.y).abs() < first.module * f(count) * 6.
-            {
-                group.push((i, row));
+        // Rows of one module width first; a symbol that recedes from the camera
+        // only when those do not read.
+        let (mut region, mut read) = symbol(rows, at, false, &transform, &mut used);
+        if read.is_none() {
+            let receding = symbol(rows, at, true, &transform, &mut used);
+            if receding.1.is_some() {
+                (region, read) = receding;
             }
         }
-        // A repeated logical row after a gap is a different physical symbol.
-        // Keep its first contiguous band, never average vertically stacked copies.
-        let mut band_end = vec![None; count];
-        let mut closed = vec![false; count];
-        for &(_, row) in &group {
-            if closed[row.index] {
-                continue;
-            }
-            if band_end[row.index].is_some_and(|last| row.y - last > first.module * 2.) {
-                closed[row.index] = true;
-            } else {
-                band_end[row.index] = Some(row.y);
-            }
+        if let Some((polygon, support)) = region {
+            regions.add("MicroPDF417", polygon, 0.9, support);
         }
-        group.retain(|(_, row)| band_end[row.index].is_some_and(|last| row.y <= last));
-        let mut samples: Vec<Vec<&Row>> = vec![Vec::new(); count];
-        for &(_, row) in &group {
-            samples[row.index].push(row);
-        }
-        let points: Vec<_> = samples
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| !s.is_empty())
-            .map(|(i, s)| [f(i) + 0.5, s.iter().map(|r| r.y).sum::<f32>() / f(s.len())])
-            .collect();
-        if points.len() < 3 {
-            continue;
-        }
-        let n = f(points.len());
-        let mx = points.iter().map(|p| p[0]).sum::<f32>() / n;
-        let my = points.iter().map(|p| p[1]).sum::<f32>() / n;
-        let den = points.iter().map(|p| (p[0] - mx).powi(2)).sum::<f32>();
-        let pitch = points
-            .iter()
-            .map(|p| (p[0] - mx) * (p[1] - my))
-            .sum::<f32>()
-            / den;
-        if !(0.8..=6.).contains(&(pitch / first.module)) {
-            continue;
-        }
-        let top = my - pitch * mx;
-        if points
-            .iter()
-            .any(|p| (p[1] - top - pitch * p[0]).abs() > pitch * 0.7)
+        result.extend(read);
+    }
+    result
+}
+/// The outline and row count of the symbol of the row `at` and the rows below
+/// that agree with it, and its read. `receding` follows a module that changes
+/// from row to row instead of the first row's.
+fn symbol(
+    rows: &[Row],
+    at: usize,
+    receding: bool,
+    transform: &impl Fn(f32, f32) -> [f32; 2],
+    used: &mut [bool],
+) -> (Option<Outline>, Option<Detection>) {
+    let mut outline = None;
+    let read = outlined(rows, at, receding, transform, used, &mut outline);
+    (outline, read)
+}
+/// A symbol's corners and the number of its rows that were seen.
+type Outline = ([[f32; 2]; 4], usize);
+#[expect(
+    clippy::too_many_lines,
+    reason = "Row voting, geometric agreement and correction share the same bounded assembly transaction."
+)]
+fn outlined(
+    rows: &[Row],
+    at: usize,
+    receding: bool,
+    transform: &impl Fn(f32, f32) -> [f32; 2],
+    used: &mut [bool],
+    outline: &mut Option<Outline>,
+) -> Option<Detection> {
+    let first = &rows[at];
+    let variant = first.variant;
+    let cols = t::VARIANTS[variant];
+    let count = t::VARIANTS[variant + 34];
+    let cells = f(21 + cols * 17 + usize::from(cols >= 3) * 10);
+    let width = cells * first.module;
+    let mut group = Vec::new();
+    let mut near = first;
+    for (i, row) in rows.iter().enumerate().skip(at) {
+        if row.variant == variant
+            && (row.module / near.module - 1.).abs() < 0.15
+            && (row.x - near.x).abs() < cells * near.module * 0.3
+            && (row.y - first.y).abs() < first.module * f(count) * 6.
         {
+            group.push((i, row));
+            if receding {
+                near = row;
+            }
+        }
+    }
+    // Rows of one module width were tried before.
+    if receding && (group.last()?.1.module / first.module - 1.).abs() < 0.1 {
+        return None;
+    }
+    let unit = |row: &Row| if receding { row.module } else { first.module };
+    // A repeated logical row after a gap is a different physical symbol.
+    // Keep its first contiguous band, never average vertically stacked copies.
+    let mut band_end = vec![None; count];
+    let mut closed = vec![false; count];
+    for &(_, row) in &group {
+        if closed[row.index] {
             continue;
         }
-        let center_y = group.iter().map(|(_, r)| r.y).sum::<f32>() / f(group.len());
-        let center_x = group.iter().map(|(_, r)| r.x).sum::<f32>() / f(group.len());
-        let variance = group
+        if band_end[row.index].is_some_and(|last| row.y - last > unit(row) * 2.) {
+            closed[row.index] = true;
+        } else {
+            band_end[row.index] = Some(row.y);
+        }
+    }
+    group.retain(|(_, row)| band_end[row.index].is_some_and(|last| row.y <= last));
+    let center_y = group.iter().map(|(_, r)| r.y).sum::<f32>() / f(group.len());
+    let center_x = group.iter().map(|(_, r)| r.x).sum::<f32>() / f(group.len());
+    let variance = group
+        .iter()
+        .map(|(_, r)| (r.y - center_y).powi(2))
+        .sum::<f32>();
+    let depth = if receding {
+        let module = group.iter().map(|(_, r)| r.module).sum::<f32>() / f(group.len());
+        let slope = group
             .iter()
-            .map(|(_, r)| (r.y - center_y).powi(2))
-            .sum::<f32>();
-        let shear = group
-            .iter()
-            .map(|(_, r)| (r.y - center_y) * (r.x - center_x))
+            .map(|(_, r)| (r.y - center_y) * (r.module - module))
             .sum::<f32>()
             / variance.max(1.);
-        if group
-            .iter()
-            .any(|(_, r)| (r.x - center_x - shear * (r.y - center_y)).abs() > first.module * 2.)
-        {
-            continue;
+        let depth = Receding {
+            y: center_y,
+            module,
+            slope,
+        };
+        let ends = [group[0].1.y, group[group.len() - 1].1.y].map(|y| depth.module(y));
+        if (ends[1] / ends[0] - 1.).abs() < 0.15 || ends.iter().any(|&end| end < module * 0.4) {
+            return None;
         }
+        Some(depth)
+    } else {
+        None
+    };
+    let level = |y: f32| depth.map_or(y, |depth| depth.level(y));
+    let module = depth.map_or(first.module, |depth| depth.module);
+    let mut samples: Vec<Vec<&Row>> = vec![Vec::new(); count];
+    for &(_, row) in &group {
+        samples[row.index].push(row);
+    }
+    let points: Vec<_> = samples
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| !s.is_empty())
+        .map(|(i, s)| {
+            [
+                f(i) + 0.5,
+                s.iter().map(|r| level(r.y)).sum::<f32>() / f(s.len()),
+            ]
+        })
+        .collect();
+    if points.len() < 3 {
+        return None;
+    }
+    let n = f(points.len());
+    let mx = points.iter().map(|p| p[0]).sum::<f32>() / n;
+    let my = points.iter().map(|p| p[1]).sum::<f32>() / n;
+    let den = points.iter().map(|p| (p[0] - mx).powi(2)).sum::<f32>();
+    let pitch = points
+        .iter()
+        .map(|p| (p[0] - mx) * (p[1] - my))
+        .sum::<f32>()
+        / den;
+    if !(0.8..=6.).contains(&(pitch / module)) {
+        return None;
+    }
+    let top = my - pitch * mx;
+    if points
+        .iter()
+        .any(|p| (p[1] - top - pitch * p[0]).abs() > pitch * 0.7)
+    {
+        return None;
+    }
+    let shear = group
+        .iter()
+        .map(|(_, r)| (r.y - center_y) * (r.x - center_x))
+        .sum::<f32>()
+        / variance.max(1.);
+    if group
+        .iter()
+        .any(|(_, r)| (r.x - center_x - shear * (r.y - center_y)).abs() > unit(r) * 2.)
+    {
+        return None;
+    }
+    let polygon = if let Some(depth) = depth {
+        let [bottom, bottom_module] = depth.at(top + pitch * f(count))?;
+        let [top, top_module] = depth.at(top)?;
+        let left = |y: f32| center_x + shear * (y - center_y);
+        [
+            [left(top), top],
+            [left(top) + cells * top_module, top],
+            [left(bottom) + cells * bottom_module, bottom],
+            [left(bottom), bottom],
+        ]
+    } else {
         let left = center_x + shear * (top - center_y);
         let bottom_left = left + shear * pitch * f(count);
-        let polygon = [
+        [
             [left, top],
             [left + width, top],
             [bottom_left + width, top + pitch * f(count)],
             [bottom_left, top + pitch * f(count)],
         ]
-        .map(|[x, y]| transform(x, y));
-        regions.add("MicroPDF417", polygon, 0.9, points.len());
+    }
+    .map(|[x, y]| transform(x, y));
+    *outline = Some((polygon, points.len()));
+    // A receding symbol keeps its rows for other symbols until it reads.
+    if !receding {
         for &(i, _) in &group {
             used[i] = true;
         }
-        let mut words = vec![0; cols * count];
-        let mut erasures = Vec::new();
-        for (row, observations) in samples.iter().enumerate() {
-            for col in 0..cols {
-                let mut votes = std::collections::BTreeMap::new();
-                for observation in observations {
-                    *votes.entry(observation.words[col]).or_insert(0usize) += 1;
-                }
-                if let Some((&word, _)) = votes.iter().max_by_key(|(_, votes)| *votes) {
-                    words[row * cols + col] = word;
-                } else {
-                    erasures.push(row * cols + col);
-                }
+    }
+    let mut words = vec![0; cols * count];
+    let mut erasures = Vec::new();
+    for (row, observations) in samples.iter().enumerate() {
+        for col in 0..cols {
+            let mut votes = std::collections::BTreeMap::new();
+            for observation in observations {
+                *votes.entry(observation.words[col]).or_insert(0usize) += 1;
+            }
+            if let Some((&word, _)) = votes.iter().max_by_key(|(_, votes)| *votes) {
+                words[row * cols + col] = word;
+            } else {
+                erasures.push(row * cols + col);
             }
         }
-        let ecc = t::VARIANTS[variant + 68];
-        if erasures.len() + 2 > ecc {
-            continue;
-        }
-        let Some(corrected) = reed_prime::correct(&mut words, ecc, &erasures) else {
-            continue;
-        };
-        let Some(payload) = pdf417::micro_payload(&words[..words.len() - ecc]) else {
-            continue;
-        };
-        for (i, _) in group {
-            used[i] = true;
-        }
-        result.push(Detection {
-            format: "MicroPDF417".into(),
-            text: payload.text,
-            bytes: Some(payload.bytes),
-            polygon,
-            support: points.len(),
-            error: f(corrected),
-            structured_append: payload.structured_append,
-            reader_initialization: payload.reader_initialization,
-            gs1: false,
-            assembled_rows: true,
-            addon: None,
-            codabar_start_stop: None,
-        });
     }
-    result
+    let ecc = t::VARIANTS[variant + 68];
+    if erasures.len() + 2 > ecc {
+        return None;
+    }
+    let corrected = reed_prime::correct(&mut words, ecc, &erasures)?;
+    let payload = pdf417::micro_payload(&words[..words.len() - ecc])?;
+    for (i, _) in group {
+        used[i] = true;
+    }
+    Some(Detection {
+        format: "MicroPDF417".into(),
+        text: payload.text,
+        bytes: Some(payload.bytes),
+        polygon,
+        support: points.len(),
+        error: f(corrected),
+        structured_append: payload.structured_append,
+        reader_initialization: payload.reader_initialization,
+        gs1: false,
+        assembled_rows: true,
+        addon: None,
+        codabar_start_stop: None,
+    })
 }
 /// The same row address on neighbouring scan lines.
 struct Stack {
@@ -771,6 +895,36 @@ fn rescue(
     }
     result
 }
+/// Tangents of 2.5°, 7.5°, … 42.5°, the bin borders of the first octant.
+const BIN_BORDERS: [f32; 9] = [
+    0.043_660_943,
+    0.131_652_5,
+    0.221_694_66,
+    0.315_298_8,
+    0.414_213_57,
+    0.520_567_05,
+    0.637_070_26,
+    0.767_327,
+    0.916_331_2,
+];
+/// The 5° bin of the undirected direction of `(dx, dy)`: bin `k` is centred
+/// on `5k` degrees. Exact for the integer gradients of a 3×3 Sobel filter.
+#[inline]
+fn direction_bin(dx: f32, dy: f32) -> usize {
+    // Folded to the first octant, the bin is the number of borders below.
+    let (x, y) = (dx.abs(), dy.abs());
+    let (long, short) = if y > x { (y, x) } else { (x, y) };
+    let folded = BIN_BORDERS
+        .iter()
+        .filter(|&&border| short > long * border)
+        .count();
+    let quadrant = if y > x { 18 - folded } else { folded };
+    if (dx < 0.) == (dy < 0.) || quadrant == 0 {
+        quadrant
+    } else {
+        36 - quadrant
+    }
+}
 /// Dominant non-cardinal bar normals. Diffuse texture never adds angle sweeps.
 fn angles(gray: &[u8], w: usize, h: usize) -> Vec<f32> {
     let mut result = vec![0., 90., 180., 270.];
@@ -795,9 +949,7 @@ fn angles(gray: &[u8], w: usize, h: usize) -> Vec<f32> {
             if weight < 400. {
                 continue;
             }
-            let angle = dy.atan2(dx).to_degrees().rem_euclid(180.);
-            let bin = crate::numeric::f32_usize((angle / 5.).round()) % 36;
-            bins[bin] += weight;
+            bins[direction_bin(dx, dy)] += weight;
         }
     }
     let total = bins.iter().sum::<f32>();
@@ -812,10 +964,17 @@ fn angles(gray: &[u8], w: usize, h: usize) -> Vec<f32> {
         for offset in [35, 0, 1] {
             bins[(index + offset) % 36] = 0.;
         }
-        if index <= 1 || index >= 35 || (17..=19).contains(&index) {
+        if index % 18 == 0 {
             continue;
         }
-        for delta in [0., -2., 2., -4., 4.] {
+        // The cardinal scans reach the inner part of the bins beside them.
+        let near = matches!(index % 18, 1 | 17);
+        let deltas: &[f32] = if near {
+            &[-1.5, 1.5]
+        } else {
+            &[0., -2., 2., -4., 4.]
+        };
+        for &delta in deltas {
             let angle = f(index) * 5. + delta;
             result.extend([angle, angle + 180.]);
         }
@@ -967,7 +1126,23 @@ fn round(value: f32) -> f32 {
         whole
     }
 }
+/// The columns for which `inside` holds, when it only changes once along them.
+fn monotone_range(columns: &[[f32; 2]], inside: impl Fn(&[f32; 2]) -> bool) -> [usize; 2] {
+    let (Some(first), Some(last)) = (columns.first(), columns.last()) else {
+        return [0, 0];
+    };
+    match (inside(first), inside(last)) {
+        (true, true) => [0, columns.len()],
+        (true, false) => [0, columns.partition_point(inside)],
+        (false, true) => [
+            columns.partition_point(|column| !inside(column)),
+            columns.len(),
+        ],
+        (false, false) => [0, 0],
+    }
+}
 /// Threshold pixels along one oblique line; pixels outside the image are light.
+/// Both coordinates of `columns` are monotone.
 fn oblique_line(
     image: &[bool],
     [w, h]: [usize; 2],
@@ -975,16 +1150,30 @@ fn oblique_line(
     offset: [f32; 2],
     line: &mut Vec<bool>,
 ) {
+    let xx = |column: &[f32; 2]| round(column[0] - offset[0]);
+    let yy = |column: &[f32; 2]| round(column[1] + offset[1]);
+    // Each image border is crossed once, so the pixels inside are one range.
+    let ranges = [
+        monotone_range(columns, |column| xx(column) >= 0.),
+        monotone_range(columns, |column| xx(column) < f(w)),
+        monotone_range(columns, |column| yy(column) >= 0.),
+        monotone_range(columns, |column| yy(column) < f(h)),
+    ];
+    let inside = ranges.iter().fold([0, columns.len()], |inside, range| {
+        [inside[0].max(range[0]), inside[1].min(range[1])]
+    });
     line.clear();
-    line.extend(columns.iter().map(|column| {
-        let xx = round(column[0] - offset[0]);
-        let yy = round(column[1] + offset[1]);
-        xx >= 0.
-            && yy >= 0.
-            && xx < f(w)
-            && yy < f(h)
-            && image[crate::numeric::f32_usize(yy) * w + crate::numeric::f32_usize(xx)]
-    }));
+    line.resize(columns.len(), false);
+    if inside[0] >= inside[1] {
+        return;
+    }
+    for (pixel, column) in line[inside[0]..inside[1]]
+        .iter_mut()
+        .zip(&columns[inside[0]..inside[1]])
+    {
+        *pixel = image
+            [crate::numeric::f32_usize(yy(column)) * w + crate::numeric::f32_usize(xx(column))];
+    }
 }
 /// Sine and cosine of a turn with the lower corner and the extent of the
 /// image in the turned frame.
@@ -1036,6 +1225,9 @@ fn unique(mut found: Vec<(usize, Detection)>) -> Vec<Detection> {
     }
     results
 }
+/// Fewer row addresses than this in an oblique scan of the global threshold
+/// mean that it lost the bars; the scan then repeats on the local threshold.
+const BARE_HITS: usize = 16;
 /// Scan cardinal directions and strong oblique bar directions with bounded observations.
 pub fn detect(
     gray: &[u8],
@@ -1095,6 +1287,8 @@ pub fn detect(
             found.extend(reads.into_iter().map(|read| (key, read)));
         }
     };
+    // Directions in which the global threshold shows almost no row address.
+    let mut bare = vec![false; directions.len()];
     for base in 0..2 {
         if images.is_duplicate(base) {
             continue;
@@ -1115,12 +1309,9 @@ pub fn detect(
             [f(w - 1) - y, x]
         });
 
-        if base == 1 {
-            continue;
-        }
         let mut line = Vec::new();
         for (index, &turn) in directions.iter().enumerate().skip(4) {
-            if turn >= 180. {
+            if turn >= 180. || (base == 1 && !bare[index]) {
                 continue;
             }
             let (sin, cos, low, extent) = oblique_frame(turn, w, h);
@@ -1135,6 +1326,7 @@ pub fn detect(
                 crate::transition_offsets_into(&line, &mut edges);
                 scanner.line(&edges, line[0], [f(y), f(extent[1] - 1 - y)]);
             }
+            bare[index] = scanner.hits.iter().map(Vec::len).sum::<usize>() < BARE_HITS;
             finish(scanner, image, step, base, index, extent, &|x, y| {
                 [
                     (x + low[0]) * cos - (y + low[1]) * sin,
@@ -1180,6 +1372,30 @@ mod tests {
                 f32::round(value).to_bits(),
                 "{value}"
             );
+        }
+    }
+    #[test]
+    fn codeword_pitch_limits_match_the_float_ratio() {
+        for total in 8..600 {
+            for span in 0..1500 {
+                let ratio = (f(span) / 17.) / (f(total) / 10.);
+                assert_eq!(
+                    codeword_pitch_fits(span, total),
+                    (ratio - 1.).abs() <= 0.3,
+                    "{span} {total}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn direction_bins_match_the_exact_angle() {
+        // Every gradient of a 3×3 Sobel filter on eight-bit pixels.
+        for dy in -1020i16..=1020 {
+            for dx in -1020i16..=1020 {
+                let angle = f64::from(dy).atan2(f64::from(dx)).to_degrees();
+                let bin = crate::numeric::f64_usize((angle.rem_euclid(180.) / 5.).round()) % 36;
+                assert_eq!(direction_bin(dx.into(), dy.into()), bin, "{dx} {dy}");
+            }
         }
     }
     #[test]
@@ -1303,6 +1519,55 @@ mod tests {
         for (read, top) in reads.iter().zip([20., 98.]) {
             assert_eq!(read.text, "A");
             assert!((read.polygon[0][1] - top).abs() < 1.);
+        }
+    }
+    #[test]
+    fn rows_that_widen_down_the_image_form_one_symbol() {
+        let patterns = [
+            68708, 128_478, 102_290, 68708, 128_088, 100_732, 81384, 126_152, 81722, 116_080, 97830,
+        ];
+        // The module grows from 3 to 5 pixels and the rows spread with it.
+        let depth = Receding {
+            y: 60.,
+            module: 4.,
+            slope: 0.03,
+        };
+        let mut observations = Vec::new();
+        for (index, &pattern) in patterns.iter().enumerate() {
+            let (word, _) = pdf417::lookup(pattern).unwrap();
+            for offset in 0..6 {
+                let [y, module] = depth.at(27.5 + f(index * 6 + offset)).unwrap();
+                observations.push(Row {
+                    variant: 0,
+                    index,
+                    x: 100. - module * 19.,
+                    y,
+                    module,
+                    words: [word, 0, 0, 0],
+                });
+            }
+        }
+        let mut regions = crate::regions::Regions::default();
+        let mut used = vec![false; observations.len()];
+        let (_, level) = symbol(&observations, 0, false, &|x, y| [x, y], &mut used);
+        assert!(level.is_none());
+        let mut limited = false;
+        let reads = assemble(&observations, |x, y| [x, y], &mut regions, &mut limited);
+        assert_eq!(reads.len(), 1);
+        assert!(!limited);
+        assert_eq!(reads[0].text, "A");
+        let [top, bottom] = [27., 93.].map(|level| depth.at(level).unwrap());
+        let expected = [
+            [100. - top[1] * 19., top[0]],
+            [100. + top[1] * 19., top[0]],
+            [100. + bottom[1] * 19., bottom[0]],
+            [100. - bottom[1] * 19., bottom[0]],
+        ];
+        for (corner, expected) in reads[0].polygon.iter().zip(expected) {
+            assert!(
+                (corner[0] - expected[0]).abs() < 1. && (corner[1] - expected[1]).abs() < 1.,
+                "{corner:?} {expected:?}"
+            );
         }
     }
 }

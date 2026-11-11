@@ -149,7 +149,7 @@ const MODE_REREADS: [ProposalRereads; 3] = [
     },
     ProposalRereads {
         tolerant: 0,
-        grid: 0,
+        grid: 24,
         border: 2,
     },
     ProposalRereads {

@@ -108,8 +108,26 @@
   for any crop on a copy reduced to at most 640 pixels. With the windows above,
   Medium reads 9 more of the 1,258 codes in BoofCV's QR images and High 8 more.
 - MaxiCode and Micro QR symbols that are found but not read get a crop retry,
-  like QR, Data Matrix and Aztec symbols (MaxiCode: High and Very
-  High; Micro QR: Medium and above).
+  like QR, Data Matrix and Aztec symbols, from Medium up.
+- Medium reads more of what High reads: PDF417 symbols the row reader cannot
+  finish are re-read by template matching (62 more reads on 150 label photos,
+  which take about 50 ms longer where it applies), and frames where nothing was
+  read get a second Micro QR scan with the adaptive threshold and a denser
+  DataBar sweep (together about 2–3 ms more per frame on average with `all`).
+- Data Matrix in frames where nothing was read: Medium scans the frame again on
+  a 320-pixel averaged copy, and frames of 10 MP and more also on 640- and
+  1008-pixel copies, from Medium up. High now reads every Data Matrix frame
+  Medium reads. On 924 Data Matrix photos and scans Medium reads 727 instead of
+  672 and High 745 instead of 728, with no read lost. Frames without a code cost
+  Medium about 2.7 ms more; an unread 12 MP frame about 20 ms more.
+- Very small EAN-13 and UPC-A symbols (about one pixel per module) that Low read
+  but Medium missed: Medium rescans up to two unread boxes with guard patterns
+  from a doubled crop, and keeps a read the source check rejects only when a
+  quadrupled crop gives the same digits. Medium reads 6 more of 2,115 retail
+  photos; frames without a code are unchanged in result and time.
+- MicroPDF417 (experimental) reads symbols tilted away from the camera, whose
+  rows grow wider and further apart down the image, and scans bar directions
+  just beside horizontal and vertical.
 - Windows on ARM64: a `win_arm64` Python wheel and a `windows-arm64` native
   library on each GitHub release, which the Dart build hook downloads.
 - Faster scans of selections with several 2D formats: PDF417 localization skips

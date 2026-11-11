@@ -5,6 +5,51 @@
 //! `#[cfg(feature = ...)]` in `formats.rs`; this table holds the switches and limits
 //! of the passes that several modes share.
 
+/// An area-averaged copy of a frame without a Data Matrix read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct AveragedCopy {
+    /// Long side of the copy in pixels.
+    pub long: usize,
+    /// Whether the copy is read with the limits of `AVERAGED_COPY_MODE` instead of the
+    /// scanner mode's.
+    pub lean: bool,
+    /// Whether only frames of `PHOTO_PIXELS` and more get the copy.
+    pub photo_only: bool,
+}
+
+#[cfg_attr(
+    feature = "low",
+    expect(dead_code, reason = "Low reads no averaged copies")
+)]
+impl AveragedCopy {
+    /// Pixel count from which a frame counts as a full-sensor photo, above 4K video.
+    pub const PHOTO_PIXELS: usize = 10_000_000;
+
+    pub const fn full(long: usize) -> Self {
+        Self {
+            long,
+            lean: false,
+            photo_only: false,
+        }
+    }
+
+    pub const fn lean(long: usize) -> Self {
+        Self {
+            long,
+            lean: true,
+            photo_only: false,
+        }
+    }
+
+    pub const fn lean_photo(long: usize) -> Self {
+        Self {
+            long,
+            lean: true,
+            photo_only: true,
+        }
+    }
+}
+
 /// A copy of a crop that the crop retries of pending matrix regions read, in this order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CropCopy {
@@ -68,6 +113,13 @@ pub(super) struct ModePolicy {
     // 2D reader groups and their recoveries (`scan_additional`).
     /// Effort of reader groups that contain QR.
     pub qr_effort: usize,
+    /// Effort of a second Micro QR scan on frames where no reader read anything, after
+    /// the retail scan; zero for none. High and Very High scan Micro QR that hard in
+    /// their reader groups.
+    pub micro_qr_unread_effort: usize,
+    /// Frames where no reader read anything get a denser sweep for `DataBar` and `DataBar`
+    /// Expanded, after the retail scan. High and Very High sweep every frame denser still.
+    pub data_bar_unread_sweep: bool,
     /// Unresolved QR regions are resampled on their projected module grid.
     pub qr_grid_projection: bool,
     /// The foreground-threshold QR pass also runs for mixed 2D selections on frames
@@ -95,10 +147,6 @@ pub(super) struct ModePolicy {
     pub matrix_crop_pixels: usize,
     /// Effort of the crop retries of pending matrix regions.
     pub matrix_crop_effort: usize,
-    /// Pending `MaxiCode` regions get crop retries too. Their recoveries come from the
-    /// sharpened and doubled copies, which would cost Medium's `MaxiCode` frames a few
-    /// milliseconds each.
-    pub maxi_code_crop_retries: bool,
     /// One QR region per frame whose timing patterns read without error, and whose crop is
     /// larger than what is left of `matrix_crop_pixels`, may take a crop of up to this many
     /// pixels outside that shared allowance.
@@ -111,15 +159,21 @@ pub(super) struct ModePolicy {
     pub fair_data_matrix_copies: &'static [CropCopy],
     /// Fair Data Matrix regions cropped per frame.
     pub fair_data_matrix_crops: usize,
-    /// Long sides of the area-averaged Data Matrix copies, in order; empty in modes
+    /// The area-averaged Data Matrix copies of an unread frame, in order; empty in modes
     /// without them.
-    pub data_matrix_averaged_scales: &'static [usize],
+    pub data_matrix_averaged_copies: &'static [AveragedCopy],
     /// On mixed selections' frames from `SMALL_FRAME_PIXELS` up to `CLOSE_UP_PIXELS`
     /// without a Data Matrix region, an averaged copy that leaves no Data Matrix
-    /// candidate ends the copies. Frames of `CLOSE_UP_PIXELS` and more always try both:
-    /// 12-megapixel close-ups of large symbols are read by the finer copy without any
-    /// candidate on the coarse one.
+    /// candidate ends the copies that are not lean. Frames of `CLOSE_UP_PIXELS` and more
+    /// always try both: 12-megapixel close-ups of large symbols are read by the finer
+    /// copy without any candidate on the coarse one.
     pub data_matrix_averaged_needs_candidate: bool,
+    /// A read of any format ends the frame before those copies, which run after the
+    /// retail scan.
+    pub data_matrix_averaged_unread_only: bool,
+    /// A frame without a Data Matrix read after those copies is scanned again with
+    /// Medium's Data Matrix limits, so High reads what Medium reads.
+    pub data_matrix_medium_limits_fallback: bool,
 
     // Localized linear recovery (`recover_linear_regions`, not compiled into Low).
     /// Exact source profiles are cached within one frame.
@@ -157,6 +211,8 @@ impl ModePolicy {
         sweep_coverage: false,
         shared_short_retail: false,
         qr_effort: 0,
+        micro_qr_unread_effort: 0,
+        data_bar_unread_sweep: false,
         qr_grid_projection: crate::LOW_FAST_PATH,
         qr_foreground_mixed_any_size: false,
         qr_foreground_with_region: false,
@@ -167,13 +223,14 @@ impl ModePolicy {
         qr_reduced_needs_texture: false,
         matrix_crop_pixels: 0,
         matrix_crop_effort: 0,
-        maxi_code_crop_retries: false,
         qr_located_crop_pixels: 0,
         qr_reduced_region_retries: 0,
         fair_data_matrix_copies: &[],
         fair_data_matrix_crops: 0,
-        data_matrix_averaged_scales: &[],
+        data_matrix_averaged_copies: &[],
         data_matrix_averaged_needs_candidate: false,
+        data_matrix_averaged_unread_only: false,
+        data_matrix_medium_limits_fallback: false,
         source_profile_cache: false,
         full_stripe_fallback: false,
         half_scale_proposals: false,
@@ -192,6 +249,8 @@ impl ModePolicy {
         sweep_coverage: true,
         shared_short_retail: true,
         qr_effort: 1,
+        micro_qr_unread_effort: 2,
+        data_bar_unread_sweep: true,
         qr_grid_projection: true,
         matrix_crop_pixels: 65_536,
         matrix_crop_effort: 1,
@@ -202,6 +261,15 @@ impl ModePolicy {
         source_profile_cache: true,
         retail_batch_half_scale: true,
         checksum_free_recovery_proposals: 8,
+        // One lean copy per frame; the finer ones read the blurred close-ups of
+        // full-sensor photos, which are too coarse on the first, and stay off video
+        // frames.
+        data_matrix_averaged_copies: &[
+            AveragedCopy::lean(320),
+            AveragedCopy::lean_photo(640),
+            AveragedCopy::lean_photo(1008),
+        ],
+        data_matrix_averaged_unread_only: true,
         ..Self::LOW
     };
 
@@ -214,6 +282,8 @@ impl ModePolicy {
         preserved_sweep_effort: 1,
         coarse_preserved_sweep: true,
         qr_effort: 2,
+        micro_qr_unread_effort: 0,
+        data_bar_unread_sweep: false,
         qr_foreground_mixed_any_size: true,
         qr_foreground_with_region: true,
         qr_mixed_recovery_needs_region: true,
@@ -223,12 +293,20 @@ impl ModePolicy {
         qr_reduced_needs_texture: true,
         matrix_crop_pixels: 131_072,
         matrix_crop_effort: 2,
-        maxi_code_crop_retries: true,
         fair_data_matrix_copies: CropCopy::ALL,
         fair_data_matrix_crops: usize::MAX,
         // The cheap coarse copy runs first; the finer one only after it left a candidate.
-        data_matrix_averaged_scales: &[256, 400],
+        // Medium's copies follow High's own, so High reads what Medium reads.
+        data_matrix_averaged_copies: &[
+            AveragedCopy::full(256),
+            AveragedCopy::full(400),
+            AveragedCopy::lean(320),
+            AveragedCopy::lean_photo(640),
+            AveragedCopy::lean_photo(1008),
+        ],
         data_matrix_averaged_needs_candidate: true,
+        data_matrix_averaged_unread_only: false,
+        data_matrix_medium_limits_fallback: true,
         source_profile_cache: false,
         full_stripe_fallback: true,
         half_scale_proposals: true,
@@ -243,7 +321,15 @@ impl ModePolicy {
         qr_reduced_scales: &[1200, 1280, 1600],
         matrix_crop_pixels: 262_144,
         matrix_crop_effort: 3,
-        data_matrix_averaged_scales: &[400, 1008, 800, 256],
+        data_matrix_averaged_copies: &[
+            AveragedCopy::full(400),
+            AveragedCopy::full(1008),
+            AveragedCopy::full(800),
+            AveragedCopy::full(256),
+            AveragedCopy::lean(320),
+            AveragedCopy::lean_photo(640),
+            AveragedCopy::lean_photo(1008),
+        ],
         // Its finer copies read eight Data Matrix symbols that a coarse candidate
         // would not have admitted.
         data_matrix_averaged_needs_candidate: false,

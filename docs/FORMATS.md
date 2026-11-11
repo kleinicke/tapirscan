@@ -380,12 +380,18 @@ These are internal reader effort levels, not comparable work or confidence score
   Matrix candidate.
 - **Aztec:** Medium and above add a grid-recovery pass and retry small symbols on
   an enlarged window; Low uses smaller refinement budgets.
-- **PDF417:** High and Very High re-read localized symbols that the row reader
-  cannot finish by matching blurred codeword templates.
+- **PDF417:** Medium and above re-read localized symbols that the row reader
+  cannot finish by matching blurred codeword templates; High and Very High also
+  re-read them for the column count their row indicators give.
 - **MaxiCode:** Medium and above retry large unread frames (over 1920 pixels)
   on reduced copies.
+- **DataBar:** High and Very High sweep every frame densely for DataBar and
+  DataBar Expanded; Medium sweeps frames where nothing was read once more, at
+  half as many angles.
+- **Micro QR:** High and Very High scan Micro QR with the adaptive threshold on
+  every frame; Medium does so only on frames where nothing was read.
 - **Crop retries:** Medium and above retry found-but-unread QR, Micro QR, Data
-  Matrix and Aztec symbols on a crop of their region; MaxiCode from High. A Data
+  Matrix, Aztec and MaxiCode symbols on a crop of their region. A Data
   Matrix candidate whose border almost passes is retried after the other regions,
   with Medium's detector limits, searching only the dark-on-light thresholds (its
   nested crops search all four): in Medium on one sharpened crop per frame, from

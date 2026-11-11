@@ -1700,7 +1700,7 @@ fn near_result(results: &[Detection], quad: &[Point; 4]) -> bool {
     })
 }
 /// Detect with the retry limits of a scanner `mode` (0 Low, 1 Medium, 2 High, 3 and
-/// above Very High) or of [`FAIR_CROP_MODE`]; `refine` also refines the corners of every
+/// above Very High), of [`FAIR_CROP_MODE`] or of [`AVERAGED_COPY_MODE`]; `refine` also refines the corners of every
 /// fair hypothesis.
 pub fn detect(
     w: usize,
@@ -1807,8 +1807,24 @@ pub const CLEAN_REGION_SCORE: f32 = 1. - CLEAN_BORDER;
 /// candidates go to the crop's texture before the symbol's, Medium's four ranked ones
 /// reach it.
 pub const FAIR_CROP_MODE: usize = usize::MAX;
-/// The retry limits of a scanner `mode` (3 and above Very High) or of [`FAIR_CROP_MODE`].
+/// Detector mode of Medium's area-averaged copy of an unread frame, a value the facade's
+/// scanner modes never take. The copy is small and mostly texture: it searches the
+/// dark-on-light thresholds, retries its eight best-ranked candidates with High's
+/// grayscale attempts and reads no crops of its own, which cost as much as the rest of
+/// the copy and read little.
+pub const AVERAGED_COPY_MODE: usize = usize::MAX - 1;
+/// The retry limits of a scanner `mode` (3 and above Very High), of [`FAIR_CROP_MODE`]
+/// or of [`AVERAGED_COPY_MODE`].
 fn mode_retries(mode: usize) -> Retries {
+    if mode == AVERAGED_COPY_MODE {
+        return Retries {
+            gray: MODE_RETRIES[2].gray,
+            crops: 0,
+            candidates: 8,
+            thresholds: 2,
+            ..MODE_RETRIES[1]
+        };
+    }
     if mode == FAIR_CROP_MODE {
         return Retries {
             thresholds: 2,
@@ -2811,6 +2827,16 @@ mod region_error_tests {
             symbol_reads(mode_retries(FAIR_CROP_MODE), true),
             Vec::<String>::new()
         );
+    }
+
+    #[test]
+    fn an_averaged_copy_reads_no_crops_and_no_light_on_dark_symbols() {
+        let copy = mode_retries(AVERAGED_COPY_MODE);
+        assert_eq!((copy.crops, copy.thresholds), (0, 2));
+        assert_eq!((copy.gray, copy.candidates), (MODE_RETRIES[2].gray, 8));
+        assert!(copy.ranked);
+        assert_eq!(symbol_reads(copy, false), ["TAPIRSCAN-DM-42"]);
+        assert_eq!(symbol_reads(copy, true), Vec::<String>::new());
     }
 
     #[test]

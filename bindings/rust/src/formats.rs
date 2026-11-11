@@ -180,9 +180,10 @@ impl Scanner {
             ..options
         };
         let shared_retail = shares_short_retail(mask);
+        let additional_mask = mask & !(if shared_retail { SHORT_RETAIL } else { 0 });
         let (extras, coverage) = scan_additional(
             image,
-            mask & !(if shared_retail { SHORT_RETAIL } else { 0 }),
+            additional_mask,
             mask & RETAIL_MASK != 0,
             &mut self.additional_gray,
         )?;
@@ -194,6 +195,17 @@ impl Scanner {
         let mut reads = primary.as_ref().map_or_else(Vec::new, primary_reads);
         retain_requested_primary(&mut reads, mask);
         extend_primary_retail(&mut reads, primary.as_ref(), mask);
+        // Before `recover_linear_regions`, which reuses the gray buffer for its crops.
+        #[cfg(not(feature = "low"))]
+        let extras = if reads.is_empty()
+            && (POLICY.data_matrix_averaged_unread_only
+                || POLICY.micro_qr_unread_effort != 0
+                || POLICY.data_bar_unread_sweep)
+        {
+            unread_frame_copies(image, additional_mask, &self.additional_gray, extras)
+        } else {
+            extras
+        };
         let mut unread = primary
             .as_ref()
             .map_or_else(Vec::new, |primary| unread_regions(primary, &reads));
@@ -202,19 +214,7 @@ impl Scanner {
             .is_some_and(|p| p.localization_work_limited);
         let mut unfinished = primary.as_ref().is_some_and(crate::Result::unfinished);
         let had_extras = !extras.is_empty();
-        for extra in extras {
-            reads.extend(extra.barcodes.into_iter().map(Read::additional));
-            if options.include_regions {
-                unread.extend(extra.regions.into_iter().map(|region| Region {
-                    format: region.format,
-                    text: region.text,
-                    polygon: region.polygon.map(|point| point.map(f64::from)),
-                    support: region.support as u64,
-                    localization_score: Some(f64::from(region.localization_score)),
-                }));
-            }
-            unfinished |= extra.unfinished;
-        }
+        unfinished |= merge_extras(extras, options.include_regions, &mut reads, &mut unread);
         #[cfg(not(feature = "low"))]
         let mut deferred_reads = Vec::new();
         #[cfg(not(feature = "low"))]
@@ -802,6 +802,13 @@ fn has_format_read(scan: &barcode_multiformat::Scan, format: &str) -> bool {
     scan.barcodes.iter().any(|read| read.format == format)
 }
 
+/// Medium's sweep effort and detector mode, for High's rescan with Medium's Data
+/// Matrix limits.
+#[cfg(not(feature = "low"))]
+const MEDIUM_SWEEP_EFFORT: usize = 0;
+#[cfg(not(feature = "low"))]
+const MEDIUM_MODE: usize = 1;
+
 #[cfg(not(feature = "low"))]
 fn averaged_pixels(
     pixels: &[u8],
@@ -860,8 +867,8 @@ fn averaged_pixels(
     (out_width, out_height, smaller)
 }
 
-/// Scan an area-averaged copy whose long side is `target_long`, with polygons
-/// mapped back to source coordinates.
+/// Scan an area-averaged copy whose long side is `target_long` with the detector limits
+/// of `mode`, with polygons mapped back to source coordinates.
 #[cfg(not(feature = "low"))]
 fn averaged_matrix_retry(
     pixels: &[u8],
@@ -869,10 +876,10 @@ fn averaged_matrix_retry(
     height: usize,
     target_long: usize,
     mask: u64,
-    effort: usize,
+    mode: usize,
 ) -> barcode_multiformat::Scan {
     let (out_width, out_height, smaller) = averaged_pixels(pixels, width, height, target_long);
-    let mut scan = scan_reader(&smaller, out_width, out_height, mask, effort);
+    let mut scan = scan_reader_with_mode(&smaller, out_width, out_height, mask, 2, mode);
     let scale_x = barcode_multiformat::numeric::usize_f32(width)
         / barcode_multiformat::numeric::usize_f32(out_width);
     let scale_y = barcode_multiformat::numeric::usize_f32(height)
@@ -1292,35 +1299,28 @@ fn scan_additional(
             }
         }
     }
-    // Large, blurred Data Matrix symbols span tens of pixels per module, far
-    // beyond what the module-scale localizer expects. Unread frames are retried
-    // on area-averaged copies, which also take the corner-refining search.
-    // High tries the two cheap scales, the finer one on mixed selections' large frames
-    // below `CLOSE_UP_PIXELS` only after the coarse copy left a candidate with a clean
-    // border (fair ones, often texture, do not count). Medium has no copies.
+    // Where any read ends the frame before the averaged Data Matrix copies, a retail read
+    // does too, and the caller runs them after the retail scan.
     #[cfg(not(feature = "low"))]
-    if !POLICY.data_matrix_averaged_scales.is_empty()
+    if !POLICY.data_matrix_averaged_unread_only {
+        data_matrix_averaged_copies(pixels, image, matrix, two_d_mask, &mut scans);
+    }
+    // High's 64 unranked candidates can all go to texture on a frame where Medium's
+    // four ranked ones reach the symbol, so a frame still without a Data Matrix read
+    // is scanned once more with Medium's limits.
+    #[cfg(not(feature = "low"))]
+    if POLICY.data_matrix_medium_limits_fallback
         && matrix & DATA_MATRIX != 0
         && !scans.iter().any(|scan| has_format_read(scan, "DataMatrix"))
     {
-        let long = image.width.max(image.height);
-        let needs_candidate = POLICY.data_matrix_averaged_needs_candidate
-            && two_d_mask != DATA_MATRIX
-            && (SMALL_FRAME_PIXELS + 1..CLOSE_UP_PIXELS).contains(&(image.width * image.height))
-            && !scans.iter().any(has_clean_data_matrix_region);
-        for &target in POLICY.data_matrix_averaged_scales {
-            if long < target * 3 / 2 {
-                continue;
-            }
-            let retry =
-                averaged_matrix_retry(pixels, image.width, image.height, target, DATA_MATRIX, 2);
-            let done = !retry.barcodes.is_empty()
-                || (needs_candidate && !has_clean_data_matrix_region(&retry));
-            scans.push(retry);
-            if done {
-                break;
-            }
-        }
+        scans.push(scan_reader_with_mode(
+            pixels,
+            image.width,
+            image.height,
+            DATA_MATRIX,
+            MEDIUM_SWEEP_EFFORT,
+            MEDIUM_MODE,
+        ));
     }
     // From High up, unread QR selections retry reduced copies, then equalized and
     // inverted copies (whose code only High and Very High compile).
@@ -1369,6 +1369,161 @@ fn scan_additional(
         }
     }
     Ok((scans, coverage))
+}
+
+/// Appends the reads of the 2D readers and the linear sweep, and their unread regions
+/// where requested. Returns whether one of the scans was unfinished.
+fn merge_extras(
+    extras: Vec<barcode_multiformat::Scan>,
+    include_regions: bool,
+    reads: &mut Vec<Read>,
+    unread: &mut Vec<Region>,
+) -> bool {
+    let mut unfinished = false;
+    for extra in extras {
+        reads.extend(extra.barcodes.into_iter().map(Read::additional));
+        if include_regions {
+            unread.extend(extra.regions.into_iter().map(|region| Region {
+                format: region.format,
+                text: region.text,
+                polygon: region.polygon.map(|point| point.map(f64::from)),
+                support: region.support as u64,
+                localization_score: Some(f64::from(region.localization_score)),
+            }));
+        }
+        unfinished |= extra.unfinished;
+    }
+    unfinished
+}
+
+/// Effort of the `DataBar` sweep of unread frames: one above the sweep of every frame
+/// in the modes that run it.
+#[cfg(not(feature = "low"))]
+const UNREAD_DATA_BAR_SWEEP_EFFORT: usize = 1;
+
+/// Adds what `scan_additional` left to a frame without a retail read: the denser `DataBar`
+/// sweep of a frame its readers read nothing on, the second Micro QR scan when that
+/// sweep read nothing either, then the averaged Data Matrix copies.
+/// `mask` is the one it was given and `gray` the copy it made of a frame that is not
+/// already one contiguous gray plane.
+#[cfg(not(feature = "low"))]
+fn unread_frame_copies(
+    image: Image<'_>,
+    mask: u64,
+    gray: &[u8],
+    mut scans: Vec<barcode_multiformat::Scan>,
+) -> Vec<barcode_multiformat::Scan> {
+    let matrix = mask & !PRIMARY_RETAIL & !LINEAR_MASK;
+    let micro_qr = POLICY.micro_qr_unread_effort != 0
+        && matrix & MICRO_QR_CODE != 0
+        && scans.iter().all(|scan| scan.barcodes.is_empty());
+    let data_matrix = POLICY.data_matrix_averaged_unread_only && matrix & DATA_MATRIX != 0;
+    let data_bar =
+        if POLICY.data_bar_unread_sweep && scans.iter().all(|scan| scan.barcodes.is_empty()) {
+            mask & (DATA_BAR | DATA_BAR_EXPANDED)
+        } else {
+            0
+        };
+    if !micro_qr && !data_matrix && data_bar == 0 {
+        return scans;
+    }
+    let pixels = if image.channels == 1 && image.stride == image.width {
+        &image.data[..image.width * image.height]
+    } else {
+        gray
+    };
+    if data_bar != 0 {
+        scans.push(scan_reader(
+            pixels,
+            image.width,
+            image.height,
+            data_bar,
+            UNREAD_DATA_BAR_SWEEP_EFFORT,
+        ));
+    }
+    if micro_qr && scans.last().is_none_or(|scan| scan.barcodes.is_empty()) {
+        scans.push(scan_reader_with_mode(
+            pixels,
+            image.width,
+            image.height,
+            MICRO_QR_CODE,
+            POLICY.micro_qr_unread_effort,
+            crate::MODE_ID as usize,
+        ));
+    }
+    if data_matrix {
+        let two_d_mask = if POLICY.shared_short_retail {
+            mask & !SHORT_RETAIL
+        } else {
+            mask
+        };
+        data_matrix_averaged_copies(pixels, image, matrix, two_d_mask, &mut scans);
+    }
+    scans
+}
+
+/// Large, blurred Data Matrix symbols span tens of pixels per module, far
+/// beyond what the module-scale localizer expects. Unread frames are retried
+/// on area-averaged copies, which also take the corner-refining search.
+/// High tries the two cheap scales, the finer one on mixed selections' large frames
+/// below `CLOSE_UP_PIXELS` only after the coarse copy left a candidate with a clean
+/// border (fair ones, often texture, do not count). Medium reads its copies with the
+/// lean limits of `AVERAGED_COPY_MODE`, only on frames where the readers above read
+/// nothing, after the retail scan where that runs and only when it read nothing
+/// either, and the finer ones only on full-sensor photos; High and Very High read
+/// those after their own, whatever the candidate test said.
+#[cfg(not(feature = "low"))]
+fn data_matrix_averaged_copies(
+    pixels: &[u8],
+    image: Image<'_>,
+    matrix: u64,
+    two_d_mask: u64,
+    scans: &mut Vec<barcode_multiformat::Scan>,
+) {
+    if !POLICY.data_matrix_averaged_copies.is_empty()
+        && matrix & DATA_MATRIX != 0
+        && !scans.iter().any(|scan| {
+            has_format_read(scan, "DataMatrix")
+                || (POLICY.data_matrix_averaged_unread_only && !scan.barcodes.is_empty())
+        })
+    {
+        let long = image.width.max(image.height);
+        let needs_candidate = POLICY.data_matrix_averaged_needs_candidate
+            && two_d_mask != DATA_MATRIX
+            && (SMALL_FRAME_PIXELS + 1..CLOSE_UP_PIXELS).contains(&(image.width * image.height))
+            && !scans.iter().any(has_clean_data_matrix_region);
+        let photo = image.width * image.height >= policy::AveragedCopy::PHOTO_PIXELS;
+        let mut full_copies = true;
+        for copy in POLICY.data_matrix_averaged_copies {
+            if long < copy.long * 3 / 2
+                || (copy.photo_only && !photo)
+                || (!copy.lean && !full_copies)
+            {
+                continue;
+            }
+            let mode = if copy.lean {
+                barcode_multiformat::dm_detect::AVERAGED_COPY_MODE
+            } else {
+                crate::MODE_ID as usize
+            };
+            let retry = averaged_matrix_retry(
+                pixels,
+                image.width,
+                image.height,
+                copy.long,
+                DATA_MATRIX,
+                mode,
+            );
+            let read = !retry.barcodes.is_empty();
+            if needs_candidate && !copy.lean && !has_clean_data_matrix_region(&retry) {
+                full_copies = false;
+            }
+            scans.push(retry);
+            if read {
+                break;
+            }
+        }
+    }
 }
 
 /// Whether an unread frame takes the reduced QR copies. QR-only selections, small
@@ -1678,7 +1833,7 @@ fn retry_format(format: &str) -> u64 {
         "MicroPDF417" => MICRO_PDF417,
         "DataMatrix" => DATA_MATRIX,
         "Aztec" => AZTEC,
-        "MaxiCode" if POLICY.maxi_code_crop_retries => MAXI_CODE,
+        "MaxiCode" => MAXI_CODE,
         _ => 0,
     }
 }
@@ -1854,7 +2009,7 @@ mod matrix_budget_tests {
     }
 
     #[test]
-    fn micro_qr_regions_are_cropped_and_maxicode_regions_from_high_up() {
+    fn micro_qr_and_maxicode_regions_are_cropped() {
         let pending = |format: &str| barcode_multiformat::Scan {
             barcodes: Vec::new(),
             regions: vec![barcode_multiformat::regions::Region {
@@ -1883,9 +2038,8 @@ mod matrix_budget_tests {
         }
         let mut maxicode = pending("MaxiCode");
         let crops = matrix_retries(&pixels, [200, 200], MAXI_CODE, &mut maxicode, &[]).len();
-        let high = cfg!(any(feature = "high", feature = "very-high"));
-        assert_eq!(crops, if high { 3 } else { 0 });
-        assert_eq!(maxicode.unfinished, high);
+        assert_eq!(crops, 3);
+        assert!(maxicode.unfinished);
     }
 
     /// Reads of the crop retries of a frame with `rows` drawn at 4 pixels per module from

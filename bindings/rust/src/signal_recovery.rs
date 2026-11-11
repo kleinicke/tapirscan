@@ -157,7 +157,7 @@ fn map_back(scan: &mut barcode_multiformat::Scan, scale: f32, x0: usize, y0: usi
         }
     }
 }
-fn double(pixels: &[u8], width: usize, height: usize) -> Vec<u8> {
+pub(crate) fn double(pixels: &[u8], width: usize, height: usize) -> Vec<u8> {
     let mut output = vec![0; width * height * 4];
     for y in 0..height * 2 {
         let sy = y / 2;

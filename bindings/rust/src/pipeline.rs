@@ -405,6 +405,21 @@ fn scan_prepared_impl(
             recover_downscaled(scanner, image, context, coverage, &mut scan)?;
         }
     }
+    #[cfg(feature = "medium")]
+    if allow_restoration
+        && context.primary_selected()
+        && scan.frame.barcodes.is_empty()
+        && retail.is_empty()
+    {
+        recover_enlarged(
+            scanner,
+            image,
+            context,
+            coverage,
+            &localization.proposals,
+            &mut scan,
+        )?;
+    }
     #[cfg(feature = "low")]
     let _ = allow_restoration;
     #[cfg(not(feature = "low"))]
@@ -518,6 +533,146 @@ fn recover_downscaled(
         scan.frame.barcodes.push(read);
     }
     Ok(())
+}
+
+/// Crop area up to which an unread box is rescanned enlarged.
+#[cfg(feature = "medium")]
+const ENLARGED_CROP_PIXELS: usize = 262_144;
+/// Crop area up to which an enlarged read that fails the source check is read again
+/// from a quadrupled crop.
+#[cfg(feature = "medium")]
+const CONFIRMED_CROP_PIXELS: usize = 65_536;
+
+/// Symbols of about one pixel per module fail at their own sampling scale: rescan up to
+/// two small unread boxes that showed retail guard patterns from a doubled crop and keep
+/// source-confirmed EAN-13/UPC-A reads. A read that fails the source check, which rejects
+/// true reads at this scale, is kept when a quadrupled crop of up to
+/// `CONFIRMED_CROP_PIXELS` gives the same digits. EAN-8 and UPC-E have no source check
+/// and are not read here. High reads these symbols in its own stages.
+#[cfg(feature = "medium")]
+fn recover_enlarged(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    context: ScanContext,
+    coverage: &[Quad],
+    proposals: &[Proposal],
+    scan: &mut super::ScanResult,
+) -> std::result::Result<(), Error> {
+    let mut boxes: Vec<_> = proposals
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| {
+            scan.frame
+                .candidates
+                .get(*i)
+                .is_some_and(|c| c.detections.is_empty() && c.work.guard_pass >= 1)
+        })
+        .map(|(_, p)| (p.score, restoration::restoration_bounds(image, p.polygon)))
+        .filter(|&(_, (_, _, w, h))| w >= 8 && h >= 8 && w * h <= ENLARGED_CROP_PIXELS)
+        .collect();
+    boxes.sort_by(|a, b| b.0.total_cmp(&a.0));
+    boxes.truncate(2);
+    for (_, bounds) in boxes {
+        let mut quadrupled = None;
+        for read in enlarged_reads(scanner, image, context, coverage, bounds, 1, scan)? {
+            let digits = read.detection.digits;
+            if read.detection.support < 3
+                || scan
+                    .frame
+                    .barcodes
+                    .iter()
+                    .any(|old| old.detection.digits == digits)
+            {
+                continue;
+            }
+            let confirmed = recovered_ean_source_agreement(image, read.detection.polygon, &digits)
+                && !source_contradiction(
+                    image,
+                    read.detection.polygon,
+                    digits,
+                    &mut scanner.fast_profiles,
+                )?;
+            if !confirmed && bounds.2 * bounds.3 <= CONFIRMED_CROP_PIXELS {
+                if quadrupled.is_none() {
+                    quadrupled = Some(enlarged_reads(
+                        scanner, image, context, coverage, bounds, 2, scan,
+                    )?);
+                }
+                if !quadrupled
+                    .iter()
+                    .flatten()
+                    .any(|again| again.detection.digits == digits && again.detection.support >= 3)
+                {
+                    continue;
+                }
+            } else if !confirmed {
+                continue;
+            }
+            scan.frame.barcodes.push(read);
+        }
+        if !scan.frame.barcodes.is_empty() {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// EAN-13/UPC-A reads of the box `bounds` (x, y, width, height) enlarged by doubling it
+/// `doublings` times, with polygons in frame coordinates.
+#[cfg(feature = "medium")]
+fn enlarged_reads(
+    scanner: &mut Scanner,
+    image: Image<'_>,
+    context: ScanContext,
+    coverage: &[Quad],
+    (x, y, w, h): (usize, usize, usize, usize),
+    doublings: u32,
+    scan: &mut super::ScanResult,
+) -> std::result::Result<Vec<Barcode>, Error> {
+    use barcode_research_core::numeric::usize_f64;
+    let crop = Image {
+        data: &image.data[y * image.stride + x * image.channels..],
+        width: w,
+        height: h,
+        channels: image.channels,
+        stride: image.stride,
+    };
+    let (mut gray, _, _) = restoration::reduce_gray(crop, 1.);
+    let (mut width, mut height, mut factor) = (w, h, 1.);
+    for _ in 0..doublings {
+        gray = super::signal_recovery::double(&gray, width, height);
+        width *= 2;
+        height *= 2;
+        factor *= 2.;
+    }
+    let origin = [usize_f64(x), usize_f64(y)];
+    let scaled: Vec<Quad> = coverage
+        .iter()
+        .map(|q| q.map(|v| [(v[0] - origin[0]) * factor, (v[1] - origin[1]) * factor]))
+        .collect();
+    let retry = scan_prepared_impl(
+        scanner,
+        Image {
+            data: &gray,
+            width,
+            height,
+            channels: 1,
+            stride: width,
+        },
+        context.for_crop(false),
+        &scaled,
+        TextureSource::crop(image, origin, factor),
+    )?;
+    scan.frame.unfinished |= retry.scan.frame.unfinished;
+    let mut reads = retry.scan.frame.barcodes;
+    for read in &mut reads {
+        read.detection.polygon = read
+            .detection
+            .polygon
+            .map(|p| [p[0] / factor + origin[0], p[1] / factor + origin[1]]);
+        read.candidate_indices.clear();
+    }
+    Ok(reads)
 }
 
 #[cfg(not(feature = "low"))]
